@@ -1675,7 +1675,7 @@ function initProjectAiSessionsUpdate(options) {
     var getPendingAiSessionProviderSelectionProjectId = options.getPendingAiSessionProviderSelectionProjectId;
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
-    var syncActiveAiSessionProjectionDom = options.syncActiveAiSessionProjectionDom;
+    var syncAiSessionProjectionDom = options.syncAiSessionProjectionDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;
@@ -1686,27 +1686,61 @@ function initProjectAiSessionsUpdate(options) {
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
     var latestAiSessionProjectionRevision = 0;
+    var latestAiSessionFocusProjectionRevision = 0;
+    var latestAiSessionAttentionProjectionRevision = 0;
 
-    function canApplyProjectionRevision(revision) {
+    function canApplyRevision(revision, latestRevision) {
         if (typeof revision === 'undefined') {
-            return latestAiSessionProjectionRevision === 0;
+            return latestRevision === 0;
         }
         return Number.isSafeInteger(revision)
             && revision > 0
-            && revision > latestAiSessionProjectionRevision;
+            && revision > latestRevision;
+    }
+
+    function canApplyProjectionRevision(revision) {
+        return canApplyRevision(revision, latestAiSessionProjectionRevision);
+    }
+
+    function canApplyFocusProjectionRevision(revision) {
+        return canApplyRevision(revision, latestAiSessionFocusProjectionRevision);
+    }
+
+    function canApplyAttentionProjectionRevision(revision) {
+        return canApplyRevision(revision, latestAiSessionAttentionProjectionRevision);
     }
 
     function commitProjectionRevision(revision) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
+            latestAiSessionFocusProjectionRevision = Math.max(
+                latestAiSessionFocusProjectionRevision,
+                revision
+            );
+            latestAiSessionAttentionProjectionRevision = Math.max(
+                latestAiSessionAttentionProjectionRevision,
+                revision
+            );
         }
     }
 
-    function acceptProjectionRevision(revision) {
-        if (!canApplyProjectionRevision(revision)) {
+    function acceptFocusProjectionRevision(revision) {
+        if (!canApplyFocusProjectionRevision(revision)) {
             return false;
         }
-        commitProjectionRevision(revision);
+        if (Number.isSafeInteger(revision) && revision > 0) {
+            latestAiSessionFocusProjectionRevision = revision;
+        }
+        return true;
+    }
+
+    function acceptAttentionProjectionRevision(revision) {
+        if (!canApplyAttentionProjectionRevision(revision)) {
+            return false;
+        }
+        if (Number.isSafeInteger(revision) && revision > 0) {
+            latestAiSessionAttentionProjectionRevision = revision;
+        }
         return true;
     }
 
@@ -1728,6 +1762,10 @@ function initProjectAiSessionsUpdate(options) {
         if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
+        var adoptRenderedFocus = canApplyFocusProjectionRevision(message.projectionRevision);
+        var adoptRenderedAttention = canApplyAttentionProjectionRevision(
+            message.projectionRevision
+        );
 
         if (!applyWorkspaceUpdate({
             type: 'workspace-updated',
@@ -1755,7 +1793,7 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncActiveAiSessionProjectionDom();
+        syncAiSessionProjectionDom(adoptRenderedFocus, adoptRenderedAttention);
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -1864,7 +1902,10 @@ function initProjectAiSessionsUpdate(options) {
 
     return {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
-        acceptProjectionRevision: acceptProjectionRevision,
+        acceptAttentionProjectionRevision: acceptAttentionProjectionRevision,
+        acceptFocusProjectionRevision: acceptFocusProjectionRevision,
+        canApplyAttentionProjectionRevision: canApplyAttentionProjectionRevision,
+        canApplyFocusProjectionRevision: canApplyFocusProjectionRevision,
         canApplyProjectionRevision: canApplyProjectionRevision,
         commitProjectionRevision: commitProjectionRevision,
         findCurrentWorkspaceDiv: findCurrentWorkspaceDiv,
@@ -2843,16 +2884,90 @@ function initProjects() {
         getArchiveAiSessionMessageType: aiSessionControls.getArchiveAiSessionMessageType,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
-    function syncActiveAiSessionProjectionDom() {
-        var focusedRow = document.querySelector(
-            '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
-        );
-        var provider = focusedRow && focusedRow.getAttribute('data-session-provider');
-        aiSessionControls.activeAiSessionTerminalState.provider =
-            aiSessionControls.isAiSessionProvider(provider) ? provider : null;
-        aiSessionControls.activeAiSessionTerminalState.sessionId = focusedRow
-            ? focusedRow.getAttribute('data-session-id') : null;
+    function syncActiveAiSessionProjectionDom(adoptRenderedFocus) {
+        if (adoptRenderedFocus !== false) {
+            var focusedRow = document.querySelector(
+                '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+            );
+            var provider = focusedRow && focusedRow.getAttribute('data-session-provider');
+            aiSessionControls.activeAiSessionTerminalState.provider =
+                aiSessionControls.isAiSessionProvider(provider) ? provider : null;
+            aiSessionControls.activeAiSessionTerminalState.sessionId = focusedRow
+                ? focusedRow.getAttribute('data-session-id') : null;
+        } else {
+            var projectedFocusedRow = null;
+            document.querySelectorAll('.codex-session-row[data-session-id]').forEach(row => {
+                var focused = row.getAttribute('data-session-provider')
+                    === aiSessionControls.activeAiSessionTerminalState.provider
+                    && row.getAttribute('data-session-id')
+                    === aiSessionControls.activeAiSessionTerminalState.sessionId;
+                if (focused) projectedFocusedRow = row;
+                row.toggleAttribute(
+                    'data-session-focused',
+                    focused
+                );
+                var primaryAction = row.querySelector('.ai-session-primary-action');
+                if (primaryAction) {
+                    var actionState = focused ? 'conversation' : 'focus';
+                    var actionAriaLabel = primaryAction.getAttribute(
+                        'data-' + actionState + '-aria-label'
+                    );
+                    var actionTitle = primaryAction.getAttribute(
+                        'data-' + actionState + '-title'
+                    );
+                    if (actionAriaLabel) primaryAction.setAttribute('aria-label', actionAriaLabel);
+                    if (actionTitle) primaryAction.setAttribute('title', actionTitle);
+                }
+                var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
+                if (focused && primaryAction && !conversationHint) {
+                    conversationHint = document.createElement('span');
+                    conversationHint.className = 'ai-session-open-conversation-hint';
+                    conversationHint.setAttribute('aria-hidden', 'true');
+                    conversationHint.textContent = '›';
+                    primaryAction.appendChild(conversationHint);
+                } else if (!focused && conversationHint) {
+                    conversationHint.remove();
+                }
+            });
+            if (projectedFocusedRow) {
+                projectedFocusedRow.scrollIntoView({ block: 'nearest' });
+            }
+        }
         aiSessionControls.syncActiveAiSessionTerminalDom();
+    }
+    function syncAiSessionAttentionProjectionDom(adoptRenderedAttention) {
+        if (adoptRenderedAttention !== false) return;
+        window.__agentPivotAttentionSessionEvents =
+            window.__agentPivotAttentionSessionEvents || {};
+        document.querySelectorAll(
+            '.codex-session-row[data-session-provider][data-session-id]'
+        ).forEach(row => {
+            var sessionKey = row.getAttribute('data-session-provider')
+                + ':' + row.getAttribute('data-session-id');
+            var eventIds = window.__agentPivotAttentionSessionEvents[sessionKey] || [];
+            row.toggleAttribute('data-session-needs-attention', eventIds.length > 0);
+            row.toggleAttribute('data-ai-session-attention', eventIds.length > 0);
+            if (eventIds.length) {
+                row.setAttribute('data-session-event-id', eventIds[0]);
+            } else {
+                row.removeAttribute('data-session-event-id');
+            }
+            var primaryAction = row.querySelector('.ai-session-primary-action');
+            var indicator = row.querySelector('.ai-session-attention-indicator');
+            if (eventIds.length && primaryAction && !indicator) {
+                indicator = document.createElement('span');
+                indicator.className = 'ai-session-attention-indicator';
+                indicator.title = 'AI session needs attention';
+                indicator.setAttribute('aria-label', 'AI session needs attention');
+                primaryAction.insertBefore(indicator, primaryAction.firstChild);
+            } else if (!eventIds.length && indicator) {
+                indicator.remove();
+            }
+        });
+    }
+    function syncAiSessionProjectionDom(adoptRenderedFocus, adoptRenderedAttention) {
+        syncActiveAiSessionProjectionDom(adoptRenderedFocus);
+        syncAiSessionAttentionProjectionDom(adoptRenderedAttention);
     }
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
         batchAiSessionState: aiSessionControls.batchAiSessionState,
@@ -2860,7 +2975,7 @@ function initProjects() {
         getPendingAiSessionProviderSelectionProjectId: () => aiSessionControls.getPendingAiSessionProviderSelectionProjectId(),
         getSelectedAiSessionProviders: aiSessionControls.getSelectedAiSessionProviders,
         syncAiSessionBatchManagementDom: aiSessionControls.syncAiSessionBatchManagementDom,
-        syncActiveAiSessionProjectionDom: syncActiveAiSessionProjectionDom,
+        syncAiSessionProjectionDom: syncAiSessionProjectionDom,
         reconcilePendingAiSessionProviderSelectionDom: aiSessionControls.reconcilePendingAiSessionProviderSelectionDom,
         submitAiSessionProviderSelection: aiSessionControls.submitAiSessionProviderSelection,
         toggleCodexSessions: aiSessionControls.toggleCodexSessions,
@@ -3042,12 +3157,21 @@ function initProjects() {
         }
         if (message && message.type === 'open-workspaces-updated') {
             if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
+            var adoptOpenWorkspaceFocus = aiSessionsUpdate.canApplyFocusProjectionRevision(
+                message.projectionRevision
+            );
+            var adoptOpenWorkspaceAttention = aiSessionsUpdate.canApplyAttentionProjectionRevision(
+                message.projectionRevision
+            );
             if (!applyOpenWorkspacesUpdate(message)) {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;
             }
             aiSessionsUpdate.commitProjectionRevision(message.projectionRevision);
-            syncActiveAiSessionProjectionDom();
+            syncAiSessionProjectionDom(
+                adoptOpenWorkspaceFocus,
+                adoptOpenWorkspaceAttention
+            );
             updateStickyGroupHeaderOffset();
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({
@@ -3083,15 +3207,15 @@ function initProjects() {
         }
 
         if (message && message.type === 'active-ai-session-terminal-changed') {
-            if (!aiSessionsUpdate.acceptProjectionRevision(message.projectionRevision)) return;
+            if (!aiSessionsUpdate.acceptFocusProjectionRevision(message.projectionRevision)) return;
             aiSessionControls.activeAiSessionTerminalState.provider = aiSessionControls.isAiSessionProvider(message.provider) ? message.provider : null;
             aiSessionControls.activeAiSessionTerminalState.sessionId = typeof message.sessionId === 'string' ? message.sessionId : null;
-            aiSessionControls.syncActiveAiSessionTerminalDom();
+            syncActiveAiSessionProjectionDom(false);
             return;
         }
 
         if (message && message.type === 'ai-session-attention-state') {
-            if (!aiSessionsUpdate.acceptProjectionRevision(message.projectionRevision)) return;
+            if (!aiSessionsUpdate.acceptAttentionProjectionRevision(message.projectionRevision)) return;
             window.__agentPivotAttentionEvents = window.__agentPivotAttentionEvents || {};
             window.__agentPivotAttentionSessionEvents = {};
             (Array.isArray(message.sessionEvents) ? message.sessionEvents.slice(0, 1000) : []).forEach(session => {
@@ -3106,6 +3230,7 @@ function initProjects() {
             (message.eventIds || []).forEach(eventId => {
                 if (typeof eventId === 'string') window.__agentPivotAttentionEvents[eventId] = true;
             });
+            syncAiSessionAttentionProjectionDom(false);
             return;
         }
 

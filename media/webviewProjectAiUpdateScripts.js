@@ -7,7 +7,7 @@ function initProjectAiSessionsUpdate(options) {
     var getPendingAiSessionProviderSelectionProjectId = options.getPendingAiSessionProviderSelectionProjectId;
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
-    var syncActiveAiSessionProjectionDom = options.syncActiveAiSessionProjectionDom;
+    var syncAiSessionProjectionDom = options.syncAiSessionProjectionDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;
@@ -18,27 +18,61 @@ function initProjectAiSessionsUpdate(options) {
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
     var latestAiSessionProjectionRevision = 0;
+    var latestAiSessionFocusProjectionRevision = 0;
+    var latestAiSessionAttentionProjectionRevision = 0;
 
-    function canApplyProjectionRevision(revision) {
+    function canApplyRevision(revision, latestRevision) {
         if (typeof revision === 'undefined') {
-            return latestAiSessionProjectionRevision === 0;
+            return latestRevision === 0;
         }
         return Number.isSafeInteger(revision)
             && revision > 0
-            && revision > latestAiSessionProjectionRevision;
+            && revision > latestRevision;
+    }
+
+    function canApplyProjectionRevision(revision) {
+        return canApplyRevision(revision, latestAiSessionProjectionRevision);
+    }
+
+    function canApplyFocusProjectionRevision(revision) {
+        return canApplyRevision(revision, latestAiSessionFocusProjectionRevision);
+    }
+
+    function canApplyAttentionProjectionRevision(revision) {
+        return canApplyRevision(revision, latestAiSessionAttentionProjectionRevision);
     }
 
     function commitProjectionRevision(revision) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
+            latestAiSessionFocusProjectionRevision = Math.max(
+                latestAiSessionFocusProjectionRevision,
+                revision
+            );
+            latestAiSessionAttentionProjectionRevision = Math.max(
+                latestAiSessionAttentionProjectionRevision,
+                revision
+            );
         }
     }
 
-    function acceptProjectionRevision(revision) {
-        if (!canApplyProjectionRevision(revision)) {
+    function acceptFocusProjectionRevision(revision) {
+        if (!canApplyFocusProjectionRevision(revision)) {
             return false;
         }
-        commitProjectionRevision(revision);
+        if (Number.isSafeInteger(revision) && revision > 0) {
+            latestAiSessionFocusProjectionRevision = revision;
+        }
+        return true;
+    }
+
+    function acceptAttentionProjectionRevision(revision) {
+        if (!canApplyAttentionProjectionRevision(revision)) {
+            return false;
+        }
+        if (Number.isSafeInteger(revision) && revision > 0) {
+            latestAiSessionAttentionProjectionRevision = revision;
+        }
         return true;
     }
 
@@ -60,6 +94,10 @@ function initProjectAiSessionsUpdate(options) {
         if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
+        var adoptRenderedFocus = canApplyFocusProjectionRevision(message.projectionRevision);
+        var adoptRenderedAttention = canApplyAttentionProjectionRevision(
+            message.projectionRevision
+        );
 
         if (!applyWorkspaceUpdate({
             type: 'workspace-updated',
@@ -87,7 +125,7 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncActiveAiSessionProjectionDom();
+        syncAiSessionProjectionDom(adoptRenderedFocus, adoptRenderedAttention);
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -196,7 +234,10 @@ function initProjectAiSessionsUpdate(options) {
 
     return {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
-        acceptProjectionRevision: acceptProjectionRevision,
+        acceptAttentionProjectionRevision: acceptAttentionProjectionRevision,
+        acceptFocusProjectionRevision: acceptFocusProjectionRevision,
+        canApplyAttentionProjectionRevision: canApplyAttentionProjectionRevision,
+        canApplyFocusProjectionRevision: canApplyFocusProjectionRevision,
         canApplyProjectionRevision: canApplyProjectionRevision,
         commitProjectionRevision: commitProjectionRevision,
         findCurrentWorkspaceDiv: findCurrentWorkspaceDiv,

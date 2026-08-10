@@ -258,13 +258,24 @@ function initProjects() {
         getArchiveAiSessionMessageType: aiSessionControls.getArchiveAiSessionMessageType,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
+    function syncActiveAiSessionProjectionDom() {
+        var focusedRow = document.querySelector(
+            '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+        );
+        var provider = focusedRow && focusedRow.getAttribute('data-session-provider');
+        aiSessionControls.activeAiSessionTerminalState.provider =
+            aiSessionControls.isAiSessionProvider(provider) ? provider : null;
+        aiSessionControls.activeAiSessionTerminalState.sessionId = focusedRow
+            ? focusedRow.getAttribute('data-session-id') : null;
+        aiSessionControls.syncActiveAiSessionTerminalDom();
+    }
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
         batchAiSessionState: aiSessionControls.batchAiSessionState,
         batchAiSessionManager: aiSessionControls.batchAiSessionManager,
         getPendingAiSessionProviderSelectionProjectId: () => aiSessionControls.getPendingAiSessionProviderSelectionProjectId(),
         getSelectedAiSessionProviders: aiSessionControls.getSelectedAiSessionProviders,
         syncAiSessionBatchManagementDom: aiSessionControls.syncAiSessionBatchManagementDom,
-        syncActiveAiSessionTerminalDom: aiSessionControls.syncActiveAiSessionTerminalDom,
+        syncActiveAiSessionProjectionDom: syncActiveAiSessionProjectionDom,
         reconcilePendingAiSessionProviderSelectionDom: aiSessionControls.reconcilePendingAiSessionProviderSelectionDom,
         submitAiSessionProviderSelection: aiSessionControls.submitAiSessionProviderSelection,
         toggleCodexSessions: aiSessionControls.toggleCodexSessions,
@@ -434,7 +445,7 @@ function initProjects() {
                 }
             }
             aiSessionControls.reconcilePendingAiSessionProviderSelectionDom();
-            aiSessionControls.syncActiveAiSessionTerminalDom();
+            syncActiveAiSessionProjectionDom();
             updateStickyGroupHeaderOffset();
             var renderedWorkspaceState = getWorkspaceUpdateDomState(document);
             window.vscode.postMessage({
@@ -445,11 +456,13 @@ function initProjects() {
             return;
         }
         if (message && message.type === 'open-workspaces-updated') {
+            if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
             if (!applyOpenWorkspacesUpdate(message)) {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;
             }
-            aiSessionControls.syncActiveAiSessionTerminalDom();
+            aiSessionsUpdate.commitProjectionRevision(message.projectionRevision);
+            syncActiveAiSessionProjectionDom();
             updateStickyGroupHeaderOffset();
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({
@@ -485,6 +498,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'active-ai-session-terminal-changed') {
+            if (!aiSessionsUpdate.acceptProjectionRevision(message.projectionRevision)) return;
             aiSessionControls.activeAiSessionTerminalState.provider = aiSessionControls.isAiSessionProvider(message.provider) ? message.provider : null;
             aiSessionControls.activeAiSessionTerminalState.sessionId = typeof message.sessionId === 'string' ? message.sessionId : null;
             aiSessionControls.syncActiveAiSessionTerminalDom();
@@ -492,6 +506,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-attention-state') {
+            if (!aiSessionsUpdate.acceptProjectionRevision(message.projectionRevision)) return;
             window.__agentPivotAttentionEvents = window.__agentPivotAttentionEvents || {};
             window.__agentPivotAttentionSessionEvents = {};
             (Array.isArray(message.sessionEvents) ? message.sessionEvents.slice(0, 1000) : []).forEach(session => {

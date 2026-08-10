@@ -20,6 +20,7 @@ const {
     WorkspacePendingSessionPromotionController,
 } = require('../out/workspaces/pendingSessionPromotionController');
 const {
+    AiSessionProjectionCoordinator,
     WorkspaceSessionHydrationController,
 } = require('../out/workspaces/sessionHydrationController');
 Module._load = originalModuleLoad;
@@ -214,6 +215,13 @@ async function runShapeLifecycle(shape, index) {
         evaluateExecution: () => { evaluationCount++; },
         scheduleRefresh: reason => refreshReasons.push(reason),
     });
+    const projectionCoordinator = new AiSessionProjectionCoordinator({
+        getActiveRuntimes: () => active,
+        getPendingRuntimes: () => pending,
+        getExecutionSnapshot: () => execution,
+        getFocusedIdentity: () => null,
+        getAttentionAggregate: () => attention,
+    });
     const hydration = new WorkspaceSessionHydrationController({
         providers,
         readCoordinator: { getResults: () => results },
@@ -228,11 +236,7 @@ async function runShapeLifecycle(shape, index) {
             selectedProviders: ['codex'],
         }),
         getExpanded: () => true,
-        getActiveRuntimes: () => active,
-        getPendingRuntimes: () => pending,
-        getExecutionSnapshot: () => execution,
-        getFocusedIdentity: () => null,
-        getAttentionAggregate: () => attention,
+        getProjectionSnapshot: () => projectionCoordinator.capture(),
     });
 
     const starting = hydration.hydrate(workspace);

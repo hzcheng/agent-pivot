@@ -1675,7 +1675,7 @@ function initProjectAiSessionsUpdate(options) {
     var getPendingAiSessionProviderSelectionProjectId = options.getPendingAiSessionProviderSelectionProjectId;
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
-    var syncActiveAiSessionTerminalDom = options.syncActiveAiSessionTerminalDom;
+    var syncActiveAiSessionProjectionDom = options.syncActiveAiSessionProjectionDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;
@@ -1685,6 +1685,30 @@ function initProjectAiSessionsUpdate(options) {
 
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
+    var latestAiSessionProjectionRevision = 0;
+
+    function canApplyProjectionRevision(revision) {
+        if (typeof revision === 'undefined') {
+            return latestAiSessionProjectionRevision === 0;
+        }
+        return Number.isSafeInteger(revision)
+            && revision > 0
+            && revision > latestAiSessionProjectionRevision;
+    }
+
+    function commitProjectionRevision(revision) {
+        if (Number.isSafeInteger(revision) && revision > 0) {
+            latestAiSessionProjectionRevision = revision;
+        }
+    }
+
+    function acceptProjectionRevision(revision) {
+        if (!canApplyProjectionRevision(revision)) {
+            return false;
+        }
+        commitProjectionRevision(revision);
+        return true;
+    }
 
     function applyAiSessionsUpdate(message) {
         if (message.version !== 2
@@ -1699,6 +1723,9 @@ function initProjectAiSessionsUpdate(options) {
         }
 
         if (message.sequence <= latestAiSessionUpdateSequence) {
+            return;
+        }
+        if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
 
@@ -1717,6 +1744,7 @@ function initProjectAiSessionsUpdate(options) {
         }
 
         latestAiSessionUpdateSequence = message.sequence;
+        commitProjectionRevision(message.projectionRevision);
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
             if (projectDiv) {
@@ -1727,7 +1755,7 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncActiveAiSessionTerminalDom();
+        syncActiveAiSessionProjectionDom();
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -1836,6 +1864,9 @@ function initProjectAiSessionsUpdate(options) {
 
     return {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
+        acceptProjectionRevision: acceptProjectionRevision,
+        canApplyProjectionRevision: canApplyProjectionRevision,
+        commitProjectionRevision: commitProjectionRevision,
         findCurrentWorkspaceDiv: findCurrentWorkspaceDiv,
         findWorkspaceDiv: findWorkspaceDiv,
         focusSearchRevealTarget: focusSearchRevealTarget,
@@ -2812,13 +2843,24 @@ function initProjects() {
         getArchiveAiSessionMessageType: aiSessionControls.getArchiveAiSessionMessageType,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
+    function syncActiveAiSessionProjectionDom() {
+        var focusedRow = document.querySelector(
+            '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+        );
+        var provider = focusedRow && focusedRow.getAttribute('data-session-provider');
+        aiSessionControls.activeAiSessionTerminalState.provider =
+            aiSessionControls.isAiSessionProvider(provider) ? provider : null;
+        aiSessionControls.activeAiSessionTerminalState.sessionId = focusedRow
+            ? focusedRow.getAttribute('data-session-id') : null;
+        aiSessionControls.syncActiveAiSessionTerminalDom();
+    }
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
         batchAiSessionState: aiSessionControls.batchAiSessionState,
         batchAiSessionManager: aiSessionControls.batchAiSessionManager,
         getPendingAiSessionProviderSelectionProjectId: () => aiSessionControls.getPendingAiSessionProviderSelectionProjectId(),
         getSelectedAiSessionProviders: aiSessionControls.getSelectedAiSessionProviders,
         syncAiSessionBatchManagementDom: aiSessionControls.syncAiSessionBatchManagementDom,
-        syncActiveAiSessionTerminalDom: aiSessionControls.syncActiveAiSessionTerminalDom,
+        syncActiveAiSessionProjectionDom: syncActiveAiSessionProjectionDom,
         reconcilePendingAiSessionProviderSelectionDom: aiSessionControls.reconcilePendingAiSessionProviderSelectionDom,
         submitAiSessionProviderSelection: aiSessionControls.submitAiSessionProviderSelection,
         toggleCodexSessions: aiSessionControls.toggleCodexSessions,
@@ -2988,7 +3030,7 @@ function initProjects() {
                 }
             }
             aiSessionControls.reconcilePendingAiSessionProviderSelectionDom();
-            aiSessionControls.syncActiveAiSessionTerminalDom();
+            syncActiveAiSessionProjectionDom();
             updateStickyGroupHeaderOffset();
             var renderedWorkspaceState = getWorkspaceUpdateDomState(document);
             window.vscode.postMessage({
@@ -2999,11 +3041,13 @@ function initProjects() {
             return;
         }
         if (message && message.type === 'open-workspaces-updated') {
+            if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
             if (!applyOpenWorkspacesUpdate(message)) {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;
             }
-            aiSessionControls.syncActiveAiSessionTerminalDom();
+            aiSessionsUpdate.commitProjectionRevision(message.projectionRevision);
+            syncActiveAiSessionProjectionDom();
             updateStickyGroupHeaderOffset();
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({
@@ -3039,6 +3083,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'active-ai-session-terminal-changed') {
+            if (!aiSessionsUpdate.acceptProjectionRevision(message.projectionRevision)) return;
             aiSessionControls.activeAiSessionTerminalState.provider = aiSessionControls.isAiSessionProvider(message.provider) ? message.provider : null;
             aiSessionControls.activeAiSessionTerminalState.sessionId = typeof message.sessionId === 'string' ? message.sessionId : null;
             aiSessionControls.syncActiveAiSessionTerminalDom();
@@ -3046,6 +3091,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-attention-state') {
+            if (!aiSessionsUpdate.acceptProjectionRevision(message.projectionRevision)) return;
             window.__agentPivotAttentionEvents = window.__agentPivotAttentionEvents || {};
             window.__agentPivotAttentionSessionEvents = {};
             (Array.isArray(message.sessionEvents) ? message.sessionEvents.slice(0, 1000) : []).forEach(session => {

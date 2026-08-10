@@ -316,7 +316,7 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 Direct recovery failure preserves ind
     assert.equal(result.events.includes('hydration-constructed'), true);
     assert.equal(result.rawDirectFailureExposedInHtml, false);
     assert.deepEqual(result.verified, [
-        'client-store-discovery', 'thread-switch-alias-wiring',
+        'client-store-discovery', 'direct-tmux-coordinator', 'thread-switch-alias-wiring',
         'tmux-backend',
     ]);
 });
@@ -529,14 +529,8 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production activation hydrates the wo
     assert.equal(result.failure, null);
     const hydration = result.hydrationDiagnostics.find(diagnostic => diagnostic.workspaceCount === 1);
     assert.ok(hydration, 'a workspace folder must hydrate through the workspace path');
-    assert.ok(
-        result.hydrationWiring.active >= 1 && result.hydrationWiring.pending >= 1,
-        'hydration must consume the dashboard runtime wiring'
-    );
-    assert.equal(result.hydrationWiring.activeViaCoordinator, result.hydrationWiring.active,
-        'every active-runtime read must be served by the runtime coordinator');
-    assert.equal(result.hydrationWiring.pendingViaCoordinator, result.hydrationWiring.pending,
-        'every pending-runtime read must be served by the runtime coordinator');
+    assert.ok(result.coordinatorGetActiveCalls >= 1 && result.coordinatorGetPendingCalls >= 1,
+        'the projection snapshot must consume both dashboard runtime coordinator views');
 });
 
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 assembles real runtime components and restores ownership before hydration', async t => {

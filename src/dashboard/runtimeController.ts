@@ -115,9 +115,13 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
         });
     }
 
-    postActiveAiSessionTerminalChanged(identity: ActiveAiSessionTerminalIdentity | null): void {
-        const message: AiSessionActiveTerminalChangedMessage = {
+    postActiveAiSessionTerminalChanged(
+        identity: ActiveAiSessionTerminalIdentity | null,
+        projectionRevision?: number,
+    ): void {
+        const message: AiSessionActiveTerminalChangedMessage & { projectionRevision?: number } = {
             type: 'active-ai-session-terminal-changed',
+            ...(Number.isSafeInteger(projectionRevision) ? { projectionRevision } : {}),
             provider: identity?.provider as AiSessionProviderId || null,
             sessionId: identity?.sessionId || null,
         };

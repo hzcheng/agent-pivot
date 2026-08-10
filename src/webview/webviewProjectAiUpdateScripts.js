@@ -7,7 +7,7 @@ function initProjectAiSessionsUpdate(options) {
     var getPendingAiSessionProviderSelectionProjectId = options.getPendingAiSessionProviderSelectionProjectId;
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
-    var syncActiveAiSessionTerminalDom = options.syncActiveAiSessionTerminalDom;
+    var syncActiveAiSessionProjectionDom = options.syncActiveAiSessionProjectionDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;
@@ -17,6 +17,30 @@ function initProjectAiSessionsUpdate(options) {
 
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
+    var latestAiSessionProjectionRevision = 0;
+
+    function canApplyProjectionRevision(revision) {
+        if (typeof revision === 'undefined') {
+            return latestAiSessionProjectionRevision === 0;
+        }
+        return Number.isSafeInteger(revision)
+            && revision > 0
+            && revision > latestAiSessionProjectionRevision;
+    }
+
+    function commitProjectionRevision(revision) {
+        if (Number.isSafeInteger(revision) && revision > 0) {
+            latestAiSessionProjectionRevision = revision;
+        }
+    }
+
+    function acceptProjectionRevision(revision) {
+        if (!canApplyProjectionRevision(revision)) {
+            return false;
+        }
+        commitProjectionRevision(revision);
+        return true;
+    }
 
     function applyAiSessionsUpdate(message) {
         if (message.version !== 2
@@ -31,6 +55,9 @@ function initProjectAiSessionsUpdate(options) {
         }
 
         if (message.sequence <= latestAiSessionUpdateSequence) {
+            return;
+        }
+        if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
 
@@ -49,6 +76,7 @@ function initProjectAiSessionsUpdate(options) {
         }
 
         latestAiSessionUpdateSequence = message.sequence;
+        commitProjectionRevision(message.projectionRevision);
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
             if (projectDiv) {
@@ -59,7 +87,7 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncActiveAiSessionTerminalDom();
+        syncActiveAiSessionProjectionDom();
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -168,6 +196,9 @@ function initProjectAiSessionsUpdate(options) {
 
     return {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
+        acceptProjectionRevision: acceptProjectionRevision,
+        canApplyProjectionRevision: canApplyProjectionRevision,
+        commitProjectionRevision: commitProjectionRevision,
         findCurrentWorkspaceDiv: findCurrentWorkspaceDiv,
         findWorkspaceDiv: findWorkspaceDiv,
         focusSearchRevealTarget: focusSearchRevealTarget,

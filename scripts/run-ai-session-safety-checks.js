@@ -43,8 +43,10 @@ const providers = require('../out/aiSessions/providers');
 const workspaceSessionScope = require('../out/workspaces/sessionScope');
 const workspaceSessionAssignment = require('../out/workspaces/sessionAssignment');
 const workspaceSessionHydration = require('../out/workspaces/sessionHydration');
-const WorkspaceSessionHydrationController = require('../out/workspaces/sessionHydrationController')
-    .WorkspaceSessionHydrationController;
+const {
+    AiSessionProjectionCoordinator,
+    WorkspaceSessionHydrationController,
+} = require('../out/workspaces/sessionHydrationController');
 const WorkspacePendingSessionPromotionController = require('../out/workspaces/pendingSessionPromotionController')
     .WorkspacePendingSessionPromotionController;
 const workspacePrimaryRootStore = require('../out/workspaces/primaryRootStore');
@@ -629,6 +631,15 @@ function runWorkspaceSessionHydrationChecks() {
         }],
     };
     const readNotifications = [];
+    const projectionCoordinator = new AiSessionProjectionCoordinator({
+        getActiveRuntimes: () => activeRuntimes,
+        getPendingRuntimes: () => pendingRuntimes,
+        getExecutionSnapshot: () => ({}),
+        getFocusedIdentity: () => outsideNavigationRuntime.identity,
+        getAttentionAggregate: () => workspaceAttention,
+    });
+    assert.strictEqual(projectionCoordinator.capture().revision, 0);
+    assert.strictEqual(projectionCoordinator.captureNext().revision, 1);
     const controller = new WorkspaceSessionHydrationController({
         providers: providersForHydration,
         readCoordinator,
@@ -639,11 +650,7 @@ function runWorkspaceSessionHydrationChecks() {
         getAliases: () => ({}),
         getProviderSelection: () => ({ primaryProvider: 'codex', selectedProviders: ['codex'] }),
         getExpanded: () => true,
-        getActiveRuntimes: () => activeRuntimes,
-        getPendingRuntimes: () => pendingRuntimes,
-        getExecutionSnapshot: () => ({}),
-        getFocusedIdentity: () => outsideNavigationRuntime.identity,
-        getAttentionAggregate: () => workspaceAttention,
+        getProjectionSnapshot: () => projectionCoordinator.capture(),
         onDidReadSessions: (notifiedWorkspace, sessionResults, reason) => {
             readNotifications.push({ notifiedWorkspace, sessionResults, reason });
         },
@@ -6597,7 +6604,11 @@ function runBatchAiSessionWebviewChecks() {
                 setAttribute: () => {},
                 remove: () => {},
             }),
-            querySelector: () => null,
+            querySelector: selector => selector
+                === '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+                ? projects.flatMap(project => project.rows)
+                    .find(row => row.hasAttribute('data-session-focused')) || null
+                : null,
             querySelectorAll: selector => {
                 if (selector === '.workspace-card[data-current-workspace][data-id]') {
                     return projects;
@@ -7040,6 +7051,13 @@ function runBatchAiSessionWebviewChecks() {
         provider: 'codex',
         sessionId: 'active-session',
     } });
+    windowEventListeners.message({ data: {
+        type: 'active-ai-session-terminal-changed',
+        provider: null,
+        sessionId: null,
+    } });
+    assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), false);
+    activeRow.setAttribute('data-session-focused', '');
     context.applyWorkspaceUpdate = message => message.type === 'workspace-updated'
         && message.version === 2
         && message.currentWorkspaceCount === 1
@@ -7048,6 +7066,7 @@ function runBatchAiSessionWebviewChecks() {
         type: 'ai-sessions-updated',
         version: 2,
         sequence: 1,
+        projectionRevision: 2,
         currentWorkspaceCount: 1,
         html: '<div class="open-current-workspace-group"></div>',
         searchCatalog: { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: TODO_SEARCH_ITEMS },
@@ -7058,6 +7077,27 @@ function runBatchAiSessionWebviewChecks() {
         'AI incremental rendering must preserve the non-empty TODO catalog replacement'
     );
     assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), true);
+    windowEventListeners.message({ data: {
+        type: 'active-ai-session-terminal-changed',
+        projectionRevision: 1,
+        provider: null,
+        sessionId: null,
+    } });
+    assert.strictEqual(
+        activeRow.hasAttribute('data-ai-session-active-terminal'),
+        true,
+        'ACTIVE-SESSION-FOCUS-REVEAL-001 a stale focus message must not override a newer rendered session projection'
+    );
+    windowEventListeners.message({ data: {
+        type: 'ai-session-attention-state',
+        projectionRevision: 1,
+        eventIds: ['stale-event'],
+        sessionEvents: [],
+    } });
+    assert.strictEqual(context.window.__agentPivotAttentionEvents['stale-event'], undefined,
+        'a stale attention message must not override a newer rendered session projection');
+    assert.strictEqual(context.window.__agentPivotAttentionEvents['existing-event'], true,
+        'rejecting stale attention must preserve the last accepted attention projection');
 
     const manager = context.window.__agentPivotBatchAiSessions;
     manager.enter('project-a');
@@ -7324,6 +7364,19 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.strictEqual((dashboard.match(/\.service\.getSessions\(/g) || []).length, 0);
 
     assert.ok(workspaceHydrationSource.includes('export class WorkspaceSessionHydrationController'));
+    assert.ok(workspaceHydrationSource.includes('export class AiSessionProjectionCoordinator'));
+    assert.ok(workspaceHydrationSource.includes('const projection = this.options.getProjectionSnapshot()'));
+    assert.strictEqual(dashboard.includes('getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),'), true);
+    assert.strictEqual(dashboard.includes('getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),'), true);
+    assert.ok(dashboard.includes('projectionRevision: aiSessionProjectionCoordinator.nextRevision(),'));
+    assert.ok(projectWebviewSource.includes(
+        'aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)'
+    ));
+    assert.strictEqual(
+        extractMethodBody(workspaceHydrationSource, 'hydrate').includes('this.options.getActiveRuntimes()'),
+        false,
+        'hydration must consume one projection snapshot instead of independently sampling runtime state',
+    );
     assert.ok(workspaceHydrationSource.includes('getWorkspaceAiSessionCandidatePaths(workspace)'));
     assert.ok(workspaceHydrationSource.includes('this.options.readCoordinator.getResults({ candidatePaths, reason, maxFiles })'));
     assert.ok(workspaceHydrationSource.includes('hydrateWorkspaceAiSessions({'));

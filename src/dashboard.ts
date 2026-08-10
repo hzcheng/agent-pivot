@@ -1766,6 +1766,13 @@ async function initializeDashboard(
         getCurrentWorkspaceSessionProjectId: identity =>
             currentWorkspaceSessionAuthority.getProjectId(identity),
         getAiSessionProjectionRevision: () => aiSessionProjectionCoordinator.capture().revision,
+        beginAiSessionProjection: () => {
+            const transaction = aiSessionProjectionCoordinator.captureNext(
+                getCurrentOpenWorkspace()
+            );
+            postAiSessionPresentationState(false, transaction);
+            return transaction;
+        },
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
@@ -1774,10 +1781,7 @@ async function initializeDashboard(
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         getBridgeInstanceId: () => openWorkspaceBridgeClient.instanceId,
-        postMessage: message => provider.postMessage({
-            ...(message as Record<string, unknown>),
-            projectionRevision: aiSessionProjectionCoordinator.nextRevision(),
-        }),
+        postMessage: message => provider.postMessage(message),
         refresh: refreshStewardViews,
         isVisible: () => provider.visible,
         logDiagnostic: logOpenWorkspaceDiagnostic,

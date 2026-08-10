@@ -409,6 +409,7 @@ function runDashboardUpdateMessageChecks() {
         cards: [workspaceCard, navigationCard],
         collapsed: false,
         semanticRevision: 'b'.repeat(64),
+        projectionRevision: 1,
         otherWindowsStatus: 'ready',
         todoSearchItems,
         runningCardAnimation: 'breath',
@@ -4879,7 +4880,10 @@ function runSourceContractChecks(source) {
     assert.ok(openWorkspacesMessageBody.includes('openWorkspaceDashboardController.postUpdated()'));
     assert.ok(openWorkspaceControllerSource.includes('buildOpenWorkspacesUpdatedMessage({'));
     assert.ok(openWorkspaceControllerSource.includes('groups: this.options.getGroups()'));
-    assert.ok(openWorkspaceControllerSource.includes('cards: this.getCards()'));
+    assert.ok(openWorkspaceControllerSource.includes('cards: this.getCards(projection)'));
+    assert.ok(openWorkspaceControllerSource.includes(
+        'projectionRevision: projection.revision'
+    ));
     assert.ok(openWorkspaceControllerSource.includes('semanticRevision,'));
     assert.ok(openWorkspaceControllerSource.includes('otherWindowsStatus: this.bridgeStatus'));
     assert.ok(openWorkspaceControllerSource.includes('getViewSemanticRevision()'));

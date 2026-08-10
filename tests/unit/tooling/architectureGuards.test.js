@@ -44,6 +44,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/lifecycle.ts',
         'src/aiSessions/runtimeTypes.ts',
         'src/dashboard/sessionQuickSwitch.ts',
+        'src/dashboard/webviewUpdateMessages.ts',
         'src/constants.ts',
         'src/models.ts',
         'src/todos/types.ts',
@@ -729,6 +730,16 @@ for (const mutation of [
             source,
             'revision <= latestAiSessionDirectPresentationRevision',
             'revision < latestAiSessionDirectPresentationRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/openWorkspaces/dashboardController.ts',
+        expectedDetail: 'OPEN HTML must capture, hydrate, and publish the same Presentation transaction',
+        mutate: source => replaceFixtureSource(
+            source,
+            'cards: this.getCards(projection)',
+            'cards: this.getCards()'
         ),
     },
     {

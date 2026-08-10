@@ -9,7 +9,10 @@ import type { Group, WorkspaceCardViewModel } from '../models';
 import { buildOpenWorkspacesUpdatedMessage } from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import type { OpenWorkspace } from '../workspaces/types';
-import type { AiSessionProjectionSnapshot } from '../workspaces/sessionHydrationController';
+import type {
+    AiSessionPresentationTransaction,
+    AiSessionProjectionSnapshot,
+} from '../workspaces/sessionHydrationController';
 import {
     CurrentWorkspaceSessionAuthority,
 } from '../workspaces/currentWorkspaceSessionAuthority';
@@ -49,6 +52,7 @@ export interface OpenWorkspaceDashboardControllerOptions<TTerminal = unknown> {
         }
     ) => string;
     getAiSessionProjectionRevision?: () => number;
+    beginAiSessionProjection: () => AiSessionPresentationTransaction<TTerminal>;
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
@@ -256,11 +260,13 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         if (!this.options.isVisible()) { return Promise.resolve(); }
         const semanticRevision = this.getViewSemanticRevision();
         if (semanticRevision === this.lastPostedSemanticRevision) { return Promise.resolve(); }
+        const projection = this.options.beginAiSessionProjection();
         const message = buildOpenWorkspacesUpdatedMessage({
             groups: this.options.getGroups(),
-            cards: this.getCards(),
+            cards: this.getCards(projection),
             collapsed: this.options.getCollapsed(),
             semanticRevision,
+            projectionRevision: projection.revision,
             otherWindowsStatus: this.bridgeStatus,
             todoSearchItems: this.options.getTodoSearchItems(),
             skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],

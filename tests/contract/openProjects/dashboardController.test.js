@@ -22,6 +22,7 @@ const {
 
 function createOptions(overrides = {}) {
     const currentWorkspace = makeRecord({ name: 'Current', uri: '/work/current' });
+    let projectionRevision = 0;
     return {
         getCurrentWorkspace: () => ({
             ...currentWorkspace,
@@ -30,6 +31,7 @@ function createOptions(overrides = {}) {
         isWorkspaceSavedAsProject: () => true,
         getWorkspaceProjectColor: () => '',
         getCurrentWorkspaceAiSessions: () => null,
+        beginAiSessionProjection: () => ({ revision: ++projectionRevision }),
         getGroups: () => [],
         getTodoSearchItems: () => [{
             key: 'todo:open-workspaces',
@@ -104,6 +106,29 @@ test('OPEN-OPEN-PROJECT-DASHBOARD-CONTROLLER-001 posts each semantic revision on
     await flushAsync();
     assert.equal(posted.length, 2);
     assert.notEqual(posted[0].semanticRevision, posted[1].semanticRevision);
+});
+
+test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 OPEN updates hydrate and publish one projection transaction', async () => {
+    const transaction = { revision: 41, marker: 'open-workspaces-transaction' };
+    const posted = [];
+    let hydrationProjection = null;
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        beginAiSessionProjection: () => transaction,
+        getCurrentWorkspaceAiSessions: (_workspace, projection) => {
+            hydrationProjection = projection;
+            return null;
+        },
+        postMessage: message => { posted.push(message); return Promise.resolve(true); },
+    }));
+    controller.setAggregate(makeAggregate([
+        makeRegistration(SELF, 4000, '/work/current'),
+    ], { semanticRevision: 'transaction-revision' }));
+
+    await controller.postUpdated();
+
+    assert.equal(hydrationProjection, transaction);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].projectionRevision, transaction.revision);
 });
 
 test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 coalesces rapid OPEN revisions behind one delivery', async () => {

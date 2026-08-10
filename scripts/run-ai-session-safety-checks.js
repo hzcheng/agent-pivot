@@ -7382,7 +7382,11 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(dashboard.includes('const transaction = aiSessionProjectionCoordinator.captureNext('));
     assert.ok(dashboard.includes('postAiSessionPresentationState(false, transaction);'));
     assert.ok(workspaceHydrationSource.includes('activePresentation,'));
-    assert.ok(dashboard.includes('projectionRevision: aiSessionProjectionCoordinator.nextRevision(),'));
+    assert.ok(dashboard.includes('beginAiSessionProjection: () => {'));
+    assert.strictEqual(
+        dashboard.includes('projectionRevision: aiSessionProjectionCoordinator.nextRevision(),'),
+        false
+    );
     assert.ok(projectWebviewSource.includes(
         'aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)'
     ));

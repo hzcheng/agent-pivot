@@ -75,6 +75,7 @@ export interface OpenWorkspacesUpdatedMessage {
     type: 'open-workspaces-updated';
     version: 2;
     semanticRevision: string;
+    projectionRevision: number;
     currentWorkspaceCount: 0 | 1;
     navigationWorkspaceCount: number;
     otherWindowsStatus: OpenWorkspaceBridgeStatus;
@@ -87,6 +88,7 @@ export interface BuildOpenWorkspacesUpdatedMessageInput {
     cards: WorkspaceCardViewModel[];
     collapsed: boolean;
     semanticRevision: string;
+    projectionRevision: number;
     otherWindowsStatus: OpenWorkspaceBridgeStatus;
     todoSearchItems: TodoSearchCatalogItem[];
     skills?: import('../skills/types').SkillRecord[];
@@ -114,6 +116,7 @@ export function buildOpenWorkspacesUpdatedMessage(
         type: 'open-workspaces-updated',
         version: 2,
         semanticRevision: input.semanticRevision,
+        projectionRevision: input.projectionRevision,
         currentWorkspaceCount,
         navigationWorkspaceCount,
         otherWindowsStatus: input.otherWindowsStatus,

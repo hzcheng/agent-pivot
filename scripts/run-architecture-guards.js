@@ -652,6 +652,18 @@ const guards = {
             this.id,
             risk
         );
+        const openWorkspaceController = parseTypescript(
+            root,
+            'src/openWorkspaces/dashboardController.ts',
+            this.id,
+            risk
+        );
+        const updateMessages = parseTypescript(
+            root,
+            'src/dashboard/webviewUpdateMessages.ts',
+            this.id,
+            risk
+        );
         const hydrationController = parseTypescript(
             root,
             'src/workspaces/sessionHydrationController.ts',
@@ -716,6 +728,22 @@ const guards = {
             || !webviewSource.includes('revision <= latestAiSessionDirectPresentationRevision')) {
             fail(this.id, risk,
                 'the Webview must accept one same-revision direct Presentation after HTML');
+        }
+        const openWorkspaceSource = openWorkspaceController.getFullText();
+        const updateMessageSource = updateMessages.getFullText();
+        if (!openWorkspaceSource.includes(
+            'const projection = this.options.beginAiSessionProjection()'
+        ) || !openWorkspaceSource.includes('cards: this.getCards(projection)')
+            || !openWorkspaceSource.includes('projectionRevision: projection.revision')
+            || !updateMessageSource.includes(
+                'projectionRevision: input.projectionRevision'
+            ) || dashboardSource.includes(
+                'projectionRevision: aiSessionProjectionCoordinator.nextRevision()'
+            ) || !/beginAiSessionProjection:\s*\(\)\s*=>\s*\{[\s\S]*?postAiSessionPresentationState\(false,\s*transaction\);[\s\S]*?return transaction;\s*\},\s*getGroups:/
+                .test(dashboardSource)
+            ) {
+            fail(this.id, risk,
+                'OPEN HTML must capture, hydrate, and publish the same Presentation transaction');
         }
     },
 

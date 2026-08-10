@@ -108,6 +108,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/out/workspaces/activeSessionPresentation.js',
     'extension/out/workspaces/attentionProjection.js',
     'extension/out/workspaces/contextResolver.js',
+    'extension/out/workspaces/currentWorkspaceSessionAuthority.js',
     'extension/out/workspaces/identity.js',
     'extension/out/workspaces/pendingSessionPromotionController.js',
     'extension/out/workspaces/pendingWorkspaceSaveStore.js',
@@ -988,6 +989,7 @@ function run() {
     for (const requiredArtifact of [
         'out/workspaces/types.js',
         'out/workspaces/contextResolver.js',
+        'out/workspaces/currentWorkspaceSessionAuthority.js',
         'out/workspaces/savedWorkspaceProjectAdapter.js',
         'out/openWorkspaces/attentionFocusProtocol.js',
         'out/openWorkspaces/protocol.js',

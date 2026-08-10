@@ -146,3 +146,77 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
     controller.hydrate(WORKSPACE);
     assert.equal(reads[1].maxFiles, 0);
 });
+
+test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 hydration consumes the captured presentation without recomputing it', () => {
+    const identity = {
+        provider: 'codex',
+        sessionId: 'session-a',
+        workspaceScopeIdentity: WORKSPACE.scopeIdentity,
+        workspaceNavigationIdentity: WORKSPACE.navigationIdentity,
+        workspaceRootHostPaths: ['/work/a', '/work/b'],
+        cwd: '/work/a',
+    };
+    const projection = {
+        revision: 7,
+        activeRuntimes: [{
+            identity,
+            backend: 'vscode', state: 'active', markerPath: '/tmp/a.done',
+            runStartedAtMs: 1, attached: true,
+        }],
+        pendingRuntimes: [],
+        executionSnapshot: {
+            'codex:session-a': { state: 'running', token: 'run', occurredAtMs: 3 },
+        },
+        focusedIdentity: identity,
+        attentionAggregate: null,
+        presentation: {
+            workspaceScopeIdentity: WORKSPACE.scopeIdentity,
+            workspaceNavigationIdentity: WORKSPACE.navigationIdentity,
+            attentionCount: 1,
+            activeAttentionCount: 1,
+            runningSessionCount: 0,
+            focusedTarget: { provider: 'codex', sessionId: 'session-a' },
+            attentionSessions: [{
+                sessionKey: 'codex:session-a', eventIds: ['captured-event'],
+            }],
+            sessions: [{
+                provider: 'codex', sessionId: 'session-a', executionState: 'stopped',
+                focused: true, needsAttention: true, conflict: false,
+                eventIds: ['captured-event'],
+            }],
+        },
+    };
+    const controller = new WorkspaceSessionHydrationController({
+        providers: [{ id: 'codex', label: 'Codex', terminalCwdFields: ['cwd'] }],
+        readCoordinator: {
+            getResults: () => ({
+                codex: {
+                    available: true, scannedFiles: 1, parsedFiles: 1,
+                    sessions: [{ id: 'session-a', name: 'Session A', cwd: '/work/a' }],
+                },
+            }),
+        },
+        incrementalScanMaxFiles: 10,
+        getRefreshReason: () => 'transaction-test',
+        getSessionComparableCwd: (_provider, session) => session.cwd,
+        getPinnedSessions: () => new Set(),
+        getAliases: () => ({}),
+        getProviderSelection: () => undefined,
+        getExpanded: () => true,
+        getProjectionSnapshot: () => projection,
+    });
+
+    const hydrated = controller.hydrate(WORKSPACE, projection);
+    assert.equal(hydrated.attentionCount, 1);
+    assert.deepEqual(hydrated.activeSessions.map(session => ({
+        executionState: session.executionState,
+        focused: session.focused,
+        needsAttention: session.needsAttention,
+        attentionEventId: session.attentionEventId,
+    })), [{
+        executionState: 'stopped',
+        focused: true,
+        needsAttention: true,
+        attentionEventId: 'captured-event',
+    }]);
+});

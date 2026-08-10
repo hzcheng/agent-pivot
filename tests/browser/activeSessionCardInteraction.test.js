@@ -613,6 +613,93 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
     );
 });
 
+test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 accepts same-revision owner events after HTML arrives first', async t => {
+    const attentionSession = {
+        ...session('codex', 'session-a', true),
+        executionState: 'stopped',
+        status: 'stopped',
+        needsAttention: true,
+        attentionEventId: 'event-a',
+    };
+    const page = await openCardPage(t, [session('codex', 'session-a', true)]);
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 1,
+        projectionRevision: 2,
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            attentionSession,
+        ])}</div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+    await postHostMessage(page, presentationMessage([attentionSession], 2, {
+        attention: { 'codex:session-a': ['event-a', 'event-b'] },
+    }));
+
+    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    const acknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.deepEqual(acknowledgements, [{
+        type: 'acknowledge-ai-session-attention',
+        eventIds: ['event-a', 'event-b'],
+    }]);
+});
+
+test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 keeps OPEN HTML and owner events in one revision', async t => {
+    const attentionSession = {
+        ...session('codex', 'session-a', true),
+        executionState: 'stopped',
+        status: 'stopped',
+        needsAttention: true,
+        attentionEventId: 'open-event-a',
+    };
+    const page = await openCardPage(t, [session('codex', 'session-a', true)]);
+    await postHostMessage(page, {
+        type: 'open-workspaces-updated',
+        version: 2,
+        projectionRevision: 2,
+        semanticRevision: 'open-transaction-revision',
+        currentWorkspaceCount: 1,
+        navigationWorkspaceCount: 0,
+        otherWindowsStatus: 'ready',
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            attentionSession,
+        ])}</div>
+            <div class="open-other-windows-group" data-other-windows-status="ready">
+                ${currentOpenWorkspaceProjectMarkup()}
+            </div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [{ identity: 'project-a' }],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+    await postHostMessage(page, presentationMessage([attentionSession], 2, {
+        attention: {
+            'codex:session-a': ['open-event-a', 'open-event-b'],
+        },
+    }));
+
+    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    const acknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.deepEqual(acknowledgements, [{
+        type: 'acknowledge-ai-session-attention',
+        eventIds: ['open-event-a', 'open-event-b'],
+    }]);
+});
+
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 transfers pending focus through the complete presentation', async t => {
     const pending = {
         key: 'pending:codex:pending-one',

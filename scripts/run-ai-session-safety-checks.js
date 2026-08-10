@@ -639,7 +639,15 @@ function runWorkspaceSessionHydrationChecks() {
         getAttentionAggregate: () => workspaceAttention,
     });
     assert.strictEqual(projectionCoordinator.capture().revision, 0);
-    assert.strictEqual(projectionCoordinator.captureNext().revision, 1);
+    const presentationTransaction = projectionCoordinator.captureNext(workspace);
+    assert.strictEqual(presentationTransaction.revision, 1);
+    assert.strictEqual(
+        presentationTransaction.presentation.workspaceNavigationIdentity,
+        workspace.navigationIdentity
+    );
+    assert.ok(presentationTransaction.presentation.sessions.some(session =>
+        session.provider === 'codex' && session.sessionId === 'web-history'
+    ));
     const controller = new WorkspaceSessionHydrationController({
         providers: providersForHydration,
         readCoordinator,
@@ -5248,9 +5256,8 @@ function runWebviewContentChecks() {
     assert.ok(openWorkspaceDashboardSource.includes(
         'attentionCount: aiSessions?.attentionCount || 0'
     ));
-    assert.ok(openWorkspaceDashboardSource.includes(
-        'this.options.getAiSessionProjectionRevision?.() ?? null'
-    ));
+    assert.match(openWorkspaceDashboardSource,
+        /projectionRevision\s*\?\? this\.options\.getAiSessionProjectionRevision\?\.\(\)\s*\?\? null/);
     assert.ok(!openWorkspaceDashboardSource.includes('getWorkspaceAttentionSummary'));
     assert.ok(!webviewProjectScripts.includes("data-execution-state') === 'running'"),
         'the Webview must apply Host presentation decisions without recombining lifecycle state');
@@ -7314,7 +7321,9 @@ function runAiSessionIncrementalRefreshSourceChecks() {
 
     assert.ok(controllerSource.includes('export class AiSessionDashboardController'));
     assert.ok(controllerSource.includes('buildAiSessionsUpdatedMessage'));
-    assert.ok(controllerSource.includes('getCards: () => WorkspaceCardViewModel[];'));
+    assert.ok(controllerSource.includes(
+        'getCards: (projection: TProjection) => WorkspaceCardViewModel[];'
+    ));
     assert.match(
         controllerSource,
         /async refreshNow\(\s*reason = 'refresh',\s*refreshOptions: AiSessionDashboardRefreshOptions = \{\}\s*\): Promise<void>/
@@ -7341,7 +7350,8 @@ function runAiSessionIncrementalRefreshSourceChecks() {
         'const refreshAiSessionViewsIncrementally = aiSessionAttentionEvent.refreshViewsIncrementally;'
     ), 'the incremental refresh alias must reach the extracted attention event capability');
     assert.ok(dashboard.includes('new WorkspaceSessionHydrationController<vscode.Terminal>({'));
-    assert.ok(dashboard.includes('getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace)'));
+    assert.match(dashboard,
+        /getCurrentWorkspaceAiSessions: \(workspace, projection\) =>\s*workspaceSessionHydrationController\.hydrate\(workspace, projection\)/);
     const sessionControllerCompositionSource = fs.readFileSync(
         path.join(root, 'src', 'aiSessions', 'sessionControllerComposition.ts'), 'utf8'
     );
@@ -7363,10 +7373,20 @@ function runAiSessionIncrementalRefreshSourceChecks() {
 
     assert.ok(workspaceHydrationSource.includes('export class WorkspaceSessionHydrationController'));
     assert.ok(workspaceHydrationSource.includes('export class AiSessionProjectionCoordinator'));
-    assert.ok(workspaceHydrationSource.includes('const projection = this.options.getProjectionSnapshot()'));
+    assert.ok(workspaceHydrationSource.includes(
+        'const projection = projectionOverride || this.options.getProjectionSnapshot()'
+    ));
     assert.strictEqual(dashboard.includes('getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),'), true);
     assert.strictEqual(dashboard.includes('getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),'), true);
-    assert.ok(dashboard.includes('projectionRevision: aiSessionProjectionCoordinator.nextRevision(),'));
+    assert.ok(dashboard.includes('getCards: projection => getOpenWorkspaceCards(projection),'));
+    assert.ok(dashboard.includes('const transaction = aiSessionProjectionCoordinator.captureNext('));
+    assert.ok(dashboard.includes('postAiSessionPresentationState(false, transaction);'));
+    assert.ok(workspaceHydrationSource.includes('activePresentation,'));
+    assert.ok(dashboard.includes('beginAiSessionProjection: () => {'));
+    assert.strictEqual(
+        dashboard.includes('projectionRevision: aiSessionProjectionCoordinator.nextRevision(),'),
+        false
+    );
     assert.ok(projectWebviewSource.includes(
         'aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)'
     ));
@@ -7892,14 +7912,16 @@ function runAiSessionDashboardControllerChecks() {
         getCards: () => [],
         getRunningCardAnimation: () => 'halo',
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => 1,
+        beginProjection: reason => {
+            refreshReasons.push(reason);
+            return { revision: 1 };
+        },
         postMessage: message => {
             messages.push(message);
             return Promise.resolve(true);
         },
         refresh: () => undefined,
         logError: error => { throw new Error(`Unexpected logError: ${error}`); },
-        beforeRefresh: reason => refreshReasons.push(reason),
         afterRefresh: () => undefined,
         nowMs: () => {
             nowMs += 5;
@@ -7956,14 +7978,16 @@ function runAiSessionDashboardWatcherCoalescingChecks() {
         getCards: () => [],
         getRunningCardAnimation: () => 'ripple',
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => messages.length + 1,
+        beginProjection: reason => {
+            refreshReasons.push(reason);
+            return { revision: messages.length + 1 };
+        },
         postMessage: message => {
             messages.push(message);
             return Promise.resolve(true);
         },
         refresh: () => undefined,
         logError: error => { throw new Error(`Unexpected logError: ${error}`); },
-        beforeRefresh: reason => refreshReasons.push(reason),
         afterRefresh: () => undefined,
         nowMs: () => nowMs,
         debounceMs: 100,
@@ -8057,7 +8081,7 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
         getCards: () => [workspace()],
         getRunningCardAnimation: () => runningCardAnimation,
         getRunningIconAnimation: () => runningIconAnimation,
-        nextSequence: () => messages.length + 1,
+        beginProjection: () => ({ revision: messages.length + 1 }),
         postMessage: message => {
             messages.push(message);
             return Promise.resolve(true);

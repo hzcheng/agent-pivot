@@ -147,10 +147,9 @@ const mutations = {
         scenario: 'attention-state-order',
         transform: source => replaceOnce(
             source,
-            'currentAiSessionRefreshReason = reason;\n'
-                + '                        postAiSessionAttentionState();',
-            'currentAiSessionRefreshReason = reason;',
-            'attention state publication',
+            'postAiSessionPresentationState(false, transaction);',
+            '',
+            'presentation transaction publication',
         ),
     },
     'aggregate-auto-acknowledge': {

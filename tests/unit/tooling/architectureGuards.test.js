@@ -26,6 +26,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/workspaces/currentWorkspaceSessionAuthority.ts',
         'src/openWorkspaces/dashboardController.ts',
         'src/workspaces/sessionHydrationController.ts',
+        'src/workspaces/sessionHydration.ts',
         'src/aiSessions/dashboardController.ts',
         'src/aiSessions/providers.ts',
         'src/aiSessions/conversation/types.ts',
@@ -43,6 +44,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/lifecycle.ts',
         'src/aiSessions/runtimeTypes.ts',
         'src/dashboard/sessionQuickSwitch.ts',
+        'src/dashboard/webviewUpdateMessages.ts',
         'src/constants.ts',
         'src/models.ts',
         'src/todos/types.ts',
@@ -709,6 +711,36 @@ for (const mutation of [
         mutate: source => replaceFixtureSource(source,
             "this.scheduleRefresh('watcher')", "this.options.refresh('watcher')",
             "\n// this.scheduleRefresh('watcher')\n"),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/aiSessions/dashboardController.ts',
+        expectedDetail: 'cards and HTML must consume the transaction and publish its revision',
+        mutate: source => replaceFixtureSource(
+            source,
+            'sequence: projection.revision',
+            'sequence: projection.revision + 1'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must accept one same-revision direct Presentation after HTML',
+        mutate: source => replaceFixtureSource(
+            source,
+            'revision <= latestAiSessionDirectPresentationRevision',
+            'revision < latestAiSessionDirectPresentationRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/openWorkspaces/dashboardController.ts',
+        expectedDetail: 'OPEN HTML must capture, hydrate, and publish the same Presentation transaction',
+        mutate: source => replaceFixtureSource(
+            source,
+            'cards: this.getCards(projection)',
+            'cards: this.getCards()'
+        ),
     },
     {
         id: 'ARCH-AI-SESSION-FALLBACK-REASON-001',

@@ -369,11 +369,13 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 coalesces watcher refr
         getGroups: () => [], getTodoSearchItems: () => [], getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => messages.length + 1,
+        beginProjection: reason => {
+            reasons.push(reason);
+            return { revision: messages.length + 1 };
+        },
         postMessage: message => { messages.push(message); return Promise.resolve(true); },
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
-        beforeRefresh: reason => reasons.push(reason),
         afterRefresh: () => undefined,
         nowMs: () => clock.nowMs,
         debounceMs: 100,
@@ -403,6 +405,42 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 coalesces watcher refr
     assert.deepEqual(reasons, ['watcher', 'watcher', 'attention']);
 });
 
+test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 builds cards and HTML with one projection revision', () => {
+    const { AiSessionDashboardController } = loadFreshWithFakeVscode(
+        '../../../out/aiSessions/dashboardController', {}, __dirname
+    );
+    const projection = { revision: 17, marker: 'same-transaction' };
+    let cardsProjection = null;
+    let completed = 0;
+    const controller = new AiSessionDashboardController({
+        providerIds: ['codex'],
+        isVisible: () => true,
+        invalidateCache: () => undefined,
+        watchSessionChanges: () => ({ dispose() {} }),
+        getGroups: () => [], getTodoSearchItems: () => [],
+        getCards: value => { cardsProjection = value; return []; },
+        getRunningCardAnimation: () => undefined,
+        getRunningIconAnimation: () => undefined,
+        beginProjection: reason => {
+            assert.equal(reason, 'transaction-test');
+            return projection;
+        },
+        postMessage: () => Promise.resolve(true),
+        refresh: () => undefined,
+        logError: (_message, error) => { throw error; },
+        afterRefresh: () => { completed += 1; },
+        debounceMs: 1,
+        newSessionRefreshDelaysMs: [],
+        setTimeout: () => ({}),
+        clearTimeout: () => undefined,
+    });
+
+    const message = controller.getUpdatedMessage('transaction-test');
+    assert.equal(cardsProjection, projection);
+    assert.equal(message.sequence, projection.revision);
+    assert.equal(completed, 1);
+});
+
 test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses provider watchers across rapid sidebar visibility changes', () => {
     const clock = createFakeClock(1000);
     let visible = true;
@@ -422,7 +460,7 @@ test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses provider watchers across r
         getGroups: () => [], getTodoSearchItems: () => [], getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => 1,
+        beginProjection: () => ({ revision: 1 }),
         postMessage: () => Promise.resolve(true),
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -471,11 +509,13 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 never postpones a pend
         getCards: () => { cardRevision += 1; return []; },
         getRunningCardAnimation: () => `revision-${cardRevision}`,
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => reasons.length + 1,
+        beginProjection: reason => {
+            reasons.push({ reason, atMs: clock.nowMs });
+            return { revision: reasons.length + 1 };
+        },
         postMessage: () => Promise.resolve(true),
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
-        beforeRefresh: reason => reasons.push({ reason, atMs: clock.nowMs }),
         afterRefresh: () => undefined,
         nowMs: () => clock.nowMs,
         debounceMs: 100,
@@ -533,11 +573,13 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 invalidates and refreshes for 
         getTodoSearchItems: () => [{ todoId: 'fixture-todo' }], getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => messages.length + 1,
+        beginProjection: reason => {
+            reasons.push(reason);
+            return { revision: messages.length + 1 };
+        },
         postMessage: message => { messages.push(message); return Promise.resolve(true); },
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
-        beforeRefresh: reason => reasons.push(reason),
         debounceMs: 1,
         newSessionRefreshDelaysMs: [1, 2],
         setTimeout: callback => { callback(); return {}; },
@@ -568,7 +610,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-UNCHANGED-MESSAGE-SKIP-001 retries an unchang
         getTodoSearchItems: () => [], getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => deliveries.length + 1,
+        beginProjection: () => ({ revision: deliveries.length + 1 }),
         postMessage: message => { deliveries.push(message); return Promise.resolve(delivered); },
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -608,7 +650,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 keeps dashboard-visible delivery failu
         },
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
-        nextSequence: () => 1,
+        beginProjection: () => ({ revision: 1 }),
         postMessage: () => failureMode === 'rejected'
             ? Promise.reject(new Error('delivery failed'))
             : Promise.resolve(false),

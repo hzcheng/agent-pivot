@@ -488,7 +488,8 @@ test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 preserves TODO catalog entries in inc
     const cards = [makeWorkspaceCard()];
     const openMessage = webviewModules.updateMessages.buildOpenWorkspacesUpdatedMessage({
         groups: [], cards: [], collapsed: false,
-        semanticRevision: 'revision', otherWindowsStatus: 'ready', todoSearchItems,
+        semanticRevision: 'revision', projectionRevision: 1,
+        otherWindowsStatus: 'ready', todoSearchItems,
     });
     const sessionsMessage = webviewModules.updateMessages.buildAiSessionsUpdatedMessage({
         groups: [], cards: [], sequence: 7, generatedAt: NOW,

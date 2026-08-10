@@ -9,7 +9,9 @@ interface DisposableLike {
     dispose(): void;
 }
 
-export interface AiSessionDashboardControllerOptions {
+export interface AiSessionDashboardControllerOptions<
+    TProjection extends AiSessionDashboardProjection = AiSessionDashboardProjection
+> {
     providerIds: AiSessionProviderId[];
     isVisible: () => boolean;
     invalidateCache: (providerId: AiSessionProviderId) => void;
@@ -17,16 +19,15 @@ export interface AiSessionDashboardControllerOptions {
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
-    getCards: () => WorkspaceCardViewModel[];
+    getCards: (projection: TProjection) => WorkspaceCardViewModel[];
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
-    nextSequence: () => number;
+    beginProjection: (reason: string) => TProjection;
     postMessage: (message: unknown) => Thenable<boolean>;
     refresh: (reason: string) => void;
     logError: (message: string, error: unknown) => void;
     logDiagnostic?: (event: Record<string, unknown>) => void;
     nowMs?: () => number;
-    beforeRefresh?: (reason: string) => void;
     afterRefresh?: () => void;
     debounceMs: number;
     watcherRefreshMinIntervalMs?: number;
@@ -36,11 +37,17 @@ export interface AiSessionDashboardControllerOptions {
     clearTimeout: (handle: NodeJS.Timeout) => void;
 }
 
+export interface AiSessionDashboardProjection {
+    revision: number;
+}
+
 export interface AiSessionDashboardRefreshOptions {
     fallbackToFullRefresh?: boolean;
 }
 
-export class AiSessionDashboardController {
+export class AiSessionDashboardController<
+    TProjection extends AiSessionDashboardProjection = AiSessionDashboardProjection
+> {
     private refreshTimeout: NodeJS.Timeout = null;
     private watcherStopTimeout: NodeJS.Timeout = null;
     private newSessionRefreshTimeouts: NodeJS.Timeout[] = [];
@@ -50,7 +57,7 @@ export class AiSessionDashboardController {
     private lastWatcherRefreshAtMs: number | null = null;
     private lastPostedIncrementalMessageSignature: string | null = null;
 
-    constructor(private readonly options: AiSessionDashboardControllerOptions) {
+    constructor(private readonly options: AiSessionDashboardControllerOptions<TProjection>) {
     }
 
     scheduleRefresh(reason = 'refresh'): void {
@@ -117,9 +124,9 @@ export class AiSessionDashboardController {
         }
 
         const fallbackToFullRefresh = refreshOptions.fallbackToFullRefresh !== false;
-        this.options.beforeRefresh?.(reason);
+        const projection = this.options.beginProjection(reason);
         try {
-            const message = this.getUpdatedMessage(reason);
+            const message = this.buildUpdatedMessage(reason, projection);
             const signature = this.getIncrementalMessageSignature(message);
             if (this.shouldSkipUnchangedMessage(reason) && signature === this.lastPostedIncrementalMessageSignature) {
                 this.options.logDiagnostic?.({
@@ -163,12 +170,24 @@ export class AiSessionDashboardController {
     }
 
     getUpdatedMessage(reason = 'refresh'): AiSessionsUpdatedMessage {
+        const projection = this.options.beginProjection(reason);
+        try {
+            return this.buildUpdatedMessage(reason, projection);
+        } finally {
+            this.options.afterRefresh?.();
+        }
+    }
+
+    private buildUpdatedMessage(
+        reason: string,
+        projection: TProjection
+    ): AiSessionsUpdatedMessage {
         const startedAt = this.nowMs();
-        const cards = this.options.getCards();
+        const cards = this.options.getCards(projection);
         const message = buildAiSessionsUpdatedMessage({
             groups: this.options.getGroups(),
             cards,
-            sequence: this.options.nextSequence(),
+            sequence: projection.revision,
             generatedAt: new Date().toISOString(),
             todoSearchItems: this.options.getTodoSearchItems(),
             skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],

@@ -1158,6 +1158,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     const colorRequests = [];
     let dashboardAttention = null;
     const dashboard = new OpenWorkspaceDashboardController({
+        beginAiSessionProjection: () => ({ revision: 1 }),
         getCurrentWorkspace: () => current,
         isWorkspaceSavedAsProject: () => false,
         getWorkspaceProjectColor: workspace => {
@@ -1233,6 +1234,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     };
     let identitySavedAsProject = false;
     const identityDashboard = new OpenWorkspaceDashboardController({
+        beginAiSessionProjection: () => ({ revision: 1 }),
         getCurrentWorkspace: () => identityWorkspace,
         isWorkspaceSavedAsProject: () => identitySavedAsProject,
         getWorkspaceProjectColor: () => '',
@@ -2096,6 +2098,7 @@ async function runOpenWorkspaceHardeningChecks() {
     let runningCardAnimation = 'custom';
     let runningIconAnimation = 'halo';
     const dashboard = new OpenWorkspaceDashboardController({
+        beginAiSessionProjection: () => ({ revision: 1 }),
         getCurrentWorkspace: () => current,
         isWorkspaceSavedAsProject: () => true,
         getWorkspaceProjectColor: () => '',
@@ -2297,6 +2300,7 @@ async function runWorkspaceContextResolverChecks() {
 
     const zeroRootMessages = [];
     const zeroRootDashboard = new OpenWorkspaceDashboardController({
+        beginAiSessionProjection: () => ({ revision: 1 }),
         getCurrentWorkspace: () => resolver.resolve({
             workspaceFile: uri('file:///work/no-roots.code-workspace'),
             workspaceFolders: [],
@@ -3251,7 +3255,9 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes('const projectMutationController = new ProjectMutationController({'));
     assert.ok(dashboard.includes('const projectPromptController = new ProjectPromptController({'));
     assert.ok(dashboard.includes('new DashboardCommandRegistration<vscode.Disposable>({'));
-    assert.ok(dashboard.includes('openWorkspaceDashboardController = new OpenWorkspaceDashboardController({'));
+    assert.ok(dashboard.includes(
+        'openWorkspaceDashboardController = new OpenWorkspaceDashboardController<vscode.Terminal>({'
+    ));
     assert.ok(dashboard.includes('openWorkspaceController = new OpenWorkspaceController({'));
     assert.ok(dashboard.includes('new OpenWorkspaceBridgeClient('));
     assert.ok(dashboard.includes(
@@ -3294,7 +3300,9 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(!dashboard.includes('function logOpenWorkspaceDiagnostic('));
     assert.ok(dashboard.includes('openWorkspaceController.publish('));
     assert.ok(!dashboard.includes('get openProjects()'));
-    assert.ok(projectedOpenWorkspaces.includes('openWorkspaceDashboardController.getCards()'));
+    assert.ok(projectedOpenWorkspaces.includes(
+        'openWorkspaceDashboardController.getCards(projection)'
+    ));
     assert.ok(selectedProjectHandler.includes("projectId.startsWith('__openWorkspaceNavigation-')"));
     assert.ok(selectedProjectHandler.includes('await getWorkspaceNavigationController().open(projectId);'));
     assert.strictEqual(selectedProjectHandler.includes('getNavigationWorkspace(projectId)'), false);

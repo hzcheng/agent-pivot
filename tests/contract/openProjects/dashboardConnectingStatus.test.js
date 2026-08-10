@@ -20,6 +20,7 @@ function createController(overrides = {}) {
         isWorkspaceSavedAsProject: () => true,
         getWorkspaceProjectColor: () => '',
         getCurrentWorkspaceAiSessions: () => null,
+        beginAiSessionProjection: () => ({ revision: 1 }),
         getGroups: () => [],
         getTodoSearchItems: () => [],
         getCollapsed: () => false,

@@ -282,6 +282,7 @@ async function runShapeLifecycle(shape, index) {
     let collapsed = false;
     const posts = [];
     const remoteDashboard = new OpenWorkspaceDashboardController({
+        beginAiSessionProjection: () => ({ revision: 1 }),
         getCurrentWorkspace: () => null,
         isWorkspaceSavedAsProject: () => false,
         getWorkspaceProjectColor: () => '',

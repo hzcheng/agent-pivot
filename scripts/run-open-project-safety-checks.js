@@ -1272,7 +1272,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         false,
         'the save action must disappear after the workspace is registered in Saved Projects');
     assert.strictEqual(savedCardId, untitledCardId,
-        'saving an untitled workspace must preserve the scope-owned current card ID');
+        'saving an untitled workspace must preserve the navigation-authority-owned current card ID');
     assert.deepStrictEqual(identityDashboard.getCards()
         .filter(card => card.kind === 'navigation').map(card => card.id).sort(), navigationCardIdsBeforeSave,
         'OTHER WINDOWS card IDs must remain navigation-owned across the current workspace save transition');
@@ -1281,10 +1281,10 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         scopeIdentity: workspaceIdentity(932),
         roots: identityWorkspace.roots.concat(makeWorkspaceRoot(932)),
     };
-    assert.notStrictEqual(
+    assert.strictEqual(
         identityDashboard.getCards().find(card => card.kind === 'current').id,
         savedCardId,
-        'changing the root set must change the scope-owned current card ID');
+        'changing the root set must preserve the navigation-authority-owned current card ID');
     dashboard.postUpdated();
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(posted.length, 1);

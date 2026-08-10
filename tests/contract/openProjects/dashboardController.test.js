@@ -189,6 +189,40 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 current cards consume the hydrated atte
     assert.equal(controller.getCards()[0].attentionCount, 2);
 });
 
+test('RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 keeps the current card authority stable when workspace roots change', () => {
+    let nowMs = 5_000;
+    let workspace = {
+        ...makeRecord({ name: 'reddb-dev', uri: '/work/reddb-dev.code-workspace' }),
+        navigationIdentity: 'navigation:reddb-dev',
+        scopeIdentity: 'scope:three-roots',
+        roots: [{
+            id: 'root:existing', name: 'existing', uri: 'file:///work/existing',
+            hostPath: '/work/existing', ordinal: 0,
+        }],
+    };
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => workspace,
+        nowMs: () => nowMs,
+    }));
+
+    const before = controller.getCards().find(card => card.kind === 'current');
+    workspace = {
+        ...workspace,
+        scopeIdentity: 'scope:five-roots',
+        roots: [...workspace.roots, {
+            id: 'root:added', name: 'added', uri: 'file:///work/added',
+            hostPath: '/work/added', ordinal: 1,
+        }],
+    };
+    nowMs += 1_000;
+    const after = controller.getCards().find(card => card.kind === 'current');
+
+    assert.ok(before && after);
+    assert.equal(after.navigationIdentity, before.navigationIdentity);
+    assert.equal(after.id, before.id,
+        'an in-flight card action must keep resolving after the workspace scope changes');
+});
+
 test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together without focus-driven movement', () => {
     const current = makeRecord({ name: 'Current', uri: '/work/current' });
     const oldest = makeRecord({ name: 'Oldest', uri: '/work/oldest' });

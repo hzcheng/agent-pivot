@@ -563,6 +563,85 @@ function objectFreezeProperties(sourceFile, variableName, id, risk) {
 }
 
 const guards = {
+    // ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001
+    'ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001'(root) {
+        const risk = 'workspace root changes can rotate card and Conversation identity';
+        const authority = parseTypescript(
+            root,
+            'src/workspaces/currentWorkspaceSessionAuthority.ts',
+            this.id,
+            risk
+        );
+        const controller = parseTypescript(
+            root,
+            'src/openWorkspaces/dashboardController.ts',
+            this.id,
+            risk
+        );
+        const dashboard = parseTypescript(root, 'src/dashboard.ts', this.id, risk);
+        const getProjectId = classMethod(
+            authority,
+            'CurrentWorkspaceSessionAuthority',
+            'getProjectId',
+            this.id,
+            risk
+        );
+        if (!normalizedAstText(getProjectId, authority).includes(
+            'authorities.get( normalized.workspaceNavigationIdentity )'
+        )) {
+            fail(this.id, risk,
+                'the authority must retain identity by workspace navigation, not current root scope');
+        }
+
+        const createCurrentCard = classMethod(
+            controller,
+            'OpenWorkspaceDashboardController',
+            'createCurrentCard',
+            this.id,
+            risk
+        );
+        const navigationAssignments = [];
+        walkOwnScope(createCurrentCard, node => {
+            if (ts.isPropertyAssignment(node)
+                && node.name.getText(controller)
+                    === 'workspaceNavigationIdentity') {
+                navigationAssignments.push(node);
+            }
+        });
+        if (navigationAssignments.length !== 1
+            || normalizedAstText(
+                navigationAssignments[0].initializer,
+                controller
+            ) !== 'navigationIdentity'
+            || !normalizedAstText(createCurrentCard, controller).includes(
+                'id: projectId'
+            )) {
+            fail(this.id, risk,
+                'the current card must consume the shared navigation-scoped authority exactly once');
+        }
+
+        const dashboardSource = dashboard.getFullText();
+        if ((dashboardSource.match(/new CurrentWorkspaceSessionAuthority\s*\(/g) || []).length !== 1
+            || (dashboardSource.match(
+                /currentWorkspaceSessionAuthority\.getProjectId\s*\(/g
+            ) || []).length !== 5
+            || !dashboardSource.includes(
+                'getCurrentWorkspaceSessionProjectId: identity =>'
+            )
+            || dashboardSource.includes(
+                'function getCurrentWorkspaceConversationProjectId('
+            )
+            || (dashboardSource.match(
+                /previous\.workspaceNavigationIdentity\s*!==\s*next\.workspaceNavigationIdentity/g
+            ) || []).length !== 2
+            || /previous\.workspaceScopeIdentity\s*!==\s*next\.workspaceScopeIdentity/
+                .test(dashboardSource)
+            ) {
+            fail(this.id, risk,
+                'cards and Conversation rebinds must share one Host-owned authority');
+        }
+    },
+
     // ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001
     'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001'(root) {
         const risk = 'terminal-moving session commands can race and project different targets';

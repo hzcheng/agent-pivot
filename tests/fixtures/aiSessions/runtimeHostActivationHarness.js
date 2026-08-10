@@ -467,11 +467,13 @@ async function main() {
                     provider: 'codex',
                     sessionId: 'old-root',
                     workspaceScopeIdentity: 'workspace-scope-a',
+                    workspaceNavigationIdentity: 'workspace-navigation-a',
                 };
                 const next = {
                     provider: 'codex',
                     sessionId: 'new-root',
-                    workspaceScopeIdentity: 'workspace-scope-a',
+                    workspaceScopeIdentity: 'workspace-scope-after-roots-change',
+                    workspaceNavigationIdentity: 'workspace-navigation-a',
                 };
                 await this.options.onSessionRebinding(previous, next);
                 await this.options.onSessionRebound(previous, next);

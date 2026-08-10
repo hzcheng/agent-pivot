@@ -23,6 +23,8 @@ function writeFixture(t, files) {
 function copyGuardFixture(t, mutationPath, mutate = source => source) {
     const relativePaths = [
         'src/dashboard.ts',
+        'src/workspaces/currentWorkspaceSessionAuthority.ts',
+        'src/openWorkspaces/dashboardController.ts',
         'src/workspaces/sessionHydrationController.ts',
         'src/aiSessions/dashboardController.ts',
         'src/aiSessions/providers.ts',
@@ -104,6 +106,44 @@ function replaceFixtureSource(source, search, replacement, suffix = '') {
 
 test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 complete production fixture satisfies every architecture guard', t => {
     validateArchitectureGuards(copyGuardFixture(t));
+});
+
+test('ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001 rejects scope identity at the current-card authority boundary', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/openWorkspaces/dashboardController.ts',
+        source => replaceFixtureSource(
+            source,
+            'workspaceNavigationIdentity: navigationIdentity,',
+            'workspaceNavigationIdentity: workspace.scopeIdentity,'
+        )
+    );
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001'],
+        }),
+        error => /ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001/.test(error.message)
+            && /root changes/i.test(error.message)
+    );
+});
+
+test('ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001 rejects scope-based retention inside the authority', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/workspaces/currentWorkspaceSessionAuthority.ts',
+        source => replaceFixtureSource(
+            source,
+            'normalized.workspaceNavigationIdentity\n        );',
+            'normalized.workspaceScopeIdentity\n        );'
+        )
+    );
+    assert.throws(
+        () => validateArchitectureGuards(root, {
+            ids: ['ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001'],
+        }),
+        error => /ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001/.test(error.message)
+            && /workspace navigation/i.test(error.message)
+    );
 });
 
 test('ARCH-AI-SESSION-FALLBACK-REASON-001 accepts an ownership-wrapped focused runtime monitor', t => {

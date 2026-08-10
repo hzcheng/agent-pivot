@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "869d520b640f56e8db2b1f1e3b71b081625c7874",
+        "head": "c8df4355af418e21ca9efc6ff1511b05e85c21a4",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -252,7 +252,10 @@
             "1e47d70675ea31304f5cc6394fed4fb9955037e3",
             "643e0775788e7da09b914cc7b7526bb3909ff3db",
             "7ab84c7fb628f73041909c12f3055124e4cca81c",
-            "e8c8f7b9467d1afb3fc15b30ae41fe9b5409a142"
+            "e8c8f7b9467d1afb3fc15b30ae41fe9b5409a142",
+            "70ac4fa2ff17fceb29d84ba9193c9d31541a3124",
+            "ed622f02fb6d6a352d954c46c45003e1bb30ff75",
+            "69238185ffd3617c9ce247520e8a6da0d4c0366c"
         ]
     },
     "capabilities": [
@@ -307,7 +310,9 @@
                 "b2f672bd1182df7d1088a2e4c8e3e5f8d3ee7e27",
                 "6b9a8fa2697ab7aa0a79da5a589c538f1e51c564",
                 "7e307205e7ff42e9acb30431051fecd4c379a0ed",
-                "2867df3c5ac0cd2ee69e6cb6d91fde9f53e26369"
+                "2867df3c5ac0cd2ee69e6cb6d91fde9f53e26369",
+                "2db2a1571a238d1445e37ceaa35fb69371fe7871",
+                "7f493f8ac1492c26fe0eacc3d637580de5f17da8"
             ],
             "behaviors": [
                 "RUNTIME-RUNTIME-PROJECTION-001",
@@ -707,7 +712,8 @@
                 "91094fccf74d20e553514ebfbb3705be7c5c1556",
                 "b388dee9464be7e0ac6850cd12c3a943b5868f3b",
                 "9c6a7223c606f3cdaaa2e3a3ef6f9a38f239a7c2",
-                "48ecf9d5e2127ab94879a7a899789892881b7fe5"
+                "48ecf9d5e2127ab94879a7a899789892881b7fe5",
+                "c8df4355af418e21ca9efc6ff1511b05e85c21a4"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",

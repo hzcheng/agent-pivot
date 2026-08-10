@@ -1,7 +1,7 @@
 'use strict';
 import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { existsSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -207,6 +207,9 @@ import { WorkspacePrimaryRootStore } from './workspaces/primaryRootStore';
 import { PendingWorkspaceSaveStore } from './workspaces/pendingWorkspaceSaveStore';
 import { SavedWorkspaceProjectAdapter } from './workspaces/savedWorkspaceProjectAdapter';
 import { WorkspacePendingSessionPromotionController } from './workspaces/pendingSessionPromotionController';
+import {
+    CurrentWorkspaceSessionAuthority,
+} from './workspaces/currentWorkspaceSessionAuthority';
 import { hasWorkspaceRuntimeContinuity } from './workspaces/runtimeOwnership';
 import { projectWorkspaceActiveSessions } from './workspaces/activeSessionPresentation';
 import {
@@ -801,6 +804,28 @@ async function initializeDashboard(
     const conversationCommentStore = new ConversationCommentFileStore(
         context.globalStoragePath
     );
+    const workspaceContextResolver = new WorkspaceContextResolver();
+    const currentWorkspaceSessionAuthority =
+        new CurrentWorkspaceSessionAuthority(
+            context.globalState,
+            error => logError(
+                'Failed to persist current workspace Session authority.',
+                error
+            )
+        );
+    const activationWorkspace = workspaceContextResolver.resolve({
+        workspaceFile: vscode.workspace.workspaceFile,
+        workspaceFolders: vscode.workspace.workspaceFolders,
+        workspaceName: vscode.workspace.name,
+        remoteName: vscode.env.remoteName,
+    });
+    if (activationWorkspace) {
+        currentWorkspaceSessionAuthority.getProjectId({
+            workspaceNavigationIdentity:
+                activationWorkspace.navigationIdentity,
+            workspaceScopeIdentity: activationWorkspace.scopeIdentity,
+        });
+    }
     const projectCommentStore = new ProjectCommentFileStore(
         context.globalStoragePath
     );
@@ -844,9 +869,12 @@ async function initializeDashboard(
                     (await tmuxRuntimeStore.listKnown()).map(binding => ({
                         provider: binding.provider,
                         sessionId: binding.sessionId,
-                        projectId: getCurrentWorkspaceConversationProjectId(
-                            binding.workspaceScopeIdentity
-                        ),
+                        projectId: currentWorkspaceSessionAuthority.getProjectId({
+                            workspaceScopeIdentity:
+                                binding.workspaceScopeIdentity,
+                            workspaceNavigationIdentity:
+                                binding.workspaceNavigationIdentity,
+                        }),
                     })),
                     previous,
                     next
@@ -903,12 +931,13 @@ async function initializeDashboard(
         bindingStore: tmuxRuntimeStore,
         codexRootThreadObserver: new ProcCodexRootThreadObserver(),
         onSessionRebinding: async (previous, next) => {
-            const projectId = getCurrentWorkspaceConversationProjectId(
-                previous.workspaceScopeIdentity
+            const projectId = currentWorkspaceSessionAuthority.getProjectId(
+                previous
             );
             if (!projectId || !previous.sessionId || !next.sessionId
                 || previous.provider !== next.provider
-                || previous.workspaceScopeIdentity !== next.workspaceScopeIdentity) {
+                || previous.workspaceNavigationIdentity
+                    !== next.workspaceNavigationIdentity) {
                 throw new Error('Invalid conversation Session rebind identity.');
             }
             await conversationSessionRebindCoordinator.prepare({
@@ -927,12 +956,13 @@ async function initializeDashboard(
                 previous.sessionId || '',
                 next.sessionId || ''
             );
-            const projectId = getCurrentWorkspaceConversationProjectId(
-                previous.workspaceScopeIdentity
+            const projectId = currentWorkspaceSessionAuthority.getProjectId(
+                previous
             );
             if (!projectId || !previous.sessionId || !next.sessionId
                 || previous.provider !== next.provider
-                || previous.workspaceScopeIdentity !== next.workspaceScopeIdentity) {
+                || previous.workspaceNavigationIdentity
+                    !== next.workspaceNavigationIdentity) {
                 return;
             }
             const previousTarget = {
@@ -1119,7 +1149,6 @@ async function initializeDashboard(
         showUpdateError: () => vscode.window.showErrorMessage('Could not update the pinned chat.'),
     });
     const aiSessionWorkspaceStateStore = new AiSessionWorkspaceStateStore(context.globalState, isAiSessionProviderId);
-    const workspaceContextResolver = new WorkspaceContextResolver();
     const workspacePrimaryRootStore = new WorkspacePrimaryRootStore(context.globalState);
     let openWorkspaceController: OpenWorkspaceController;
     let openWorkspaceDashboardController: OpenWorkspaceDashboardController;
@@ -1728,6 +1757,8 @@ async function initializeDashboard(
         getWorkspaceProjectColor: workspace => getSavedProjectForWorkspace(workspace)?.color || '',
         getWorkspaceProjectName: workspace => getSavedProjectForWorkspace(workspace)?.name || '',
         getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace),
+        getCurrentWorkspaceSessionProjectId: identity =>
+            currentWorkspaceSessionAuthority.getProjectId(identity),
         getAiSessionProjectionRevision: () => aiSessionProjectionCoordinator.capture().revision,
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
@@ -2673,20 +2704,4 @@ export async function deactivate(): Promise<void> {
     const openWorkspaceClient = activeOpenWorkspaceBridgeClient;
     activeOpenWorkspaceBridgeClient = null;
     await openWorkspaceClient?.shutdown();
-}
-
-function getCurrentWorkspaceConversationProjectId(
-    workspaceScopeIdentity: unknown
-): string | null {
-    if (typeof workspaceScopeIdentity !== 'string'
-        || workspaceScopeIdentity.length === 0
-        || workspaceScopeIdentity.length > 512
-        || /[\u0000-\u001f\u007f]/.test(workspaceScopeIdentity)) {
-        return null;
-    }
-    const digest = createHash('sha256')
-        .update(workspaceScopeIdentity)
-        .digest('hex')
-        .slice(0, 24);
-    return `__currentWorkspace-${digest}`;
 }

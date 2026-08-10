@@ -346,7 +346,29 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-002A keeps fragmented response copying
     );
 });
 
-test('SESSION-AI-SESSION-CODEX-APP-SERVER-003 enforces the 16 MiB limit before parsing framed or unterminated lines', async t => {
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 accepts a valid Codex thread/read response above the legacy 16 MiB budget', async t => {
+    const harness = createHarness();
+    t.after(() => harness.client.dispose());
+    const request = harness.client.request('thread/read', {
+        threadId: SESSION_ID,
+    });
+    await finishHandshake(harness.child);
+
+    const legacyMaxResponseBytes = 16 * 1024 * 1024;
+    const prefix = Buffer.from('{"id":2,"result":{"text":"', 'utf8');
+    const suffix = Buffer.from('"}}\n', 'utf8');
+    const response = Buffer.concat([
+        prefix,
+        Buffer.alloc(legacyMaxResponseBytes, 0x78),
+        suffix,
+    ]);
+    harness.child.stdout.emit('data', response);
+
+    assert.equal((await request).text.length, legacyMaxResponseBytes);
+    assert.equal(harness.child.killCount, 0);
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-003 enforces the 64 MiB limit before parsing framed or unterminated lines', async t => {
     for (const terminated of [false, true]) {
         await t.test(terminated ? 'terminated line' : 'unterminated line', async t => {
             const harness = createHarness();

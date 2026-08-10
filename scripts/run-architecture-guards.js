@@ -872,7 +872,7 @@ const guards = {
             ['jsonlScanTimeoutMs', '5_000'],
             ['maxViewerInteractions', '100'],
             ['maxViewerBytes', '4 * 1024 * 1024'],
-            ['maxCodexResponseBytes', '16 * 1024 * 1024'],
+            ['maxCodexResponseBytes', '64 * 1024 * 1024'],
             ['codexRequestTimeoutMs', '10_000'],
             ['autoScrollThresholdPx', '8'],
             ['minRequestId', '1'],

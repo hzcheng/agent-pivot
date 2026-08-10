@@ -32,7 +32,8 @@ export const CONVERSATION_LIMITS = Object.freeze({
     diffSynthesizeMaxLines: 400,
     maxViewerInteractions: 100,
     maxViewerBytes: 4 * 1024 * 1024,
-    maxCodexResponseBytes: 16 * 1024 * 1024,
+    // thread/read returns the complete normalized history in one JSONL frame.
+    maxCodexResponseBytes: 64 * 1024 * 1024,
     codexRequestTimeoutMs: 10_000,
     invalidationDebounceMs: 250,
     invalidationMinIntervalMs: 1_000,

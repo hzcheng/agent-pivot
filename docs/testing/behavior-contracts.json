@@ -4023,13 +4023,16 @@
       "tests/integration/dashboard/sessionCardInteraction.test.js",
       "tests/integration/dashboard/webviewState.test.js",
       "tests/integration/dashboard/conversationRouting.test.js",
-      "tests/browser/activeSessionCardInteraction.test.js"
+      "tests/browser/activeSessionCardInteraction.test.js",
+      "tests/contract/aiSessions/codexAppServerClient.test.js"
     ],
     "evidence": [
       "src/webview/webviewContent.ts",
       "src/webview/webviewProjectScripts.js",
       "src/dashboard.ts",
-      "src/aiSessions/conversation/composition.ts"
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/codexAppServerClient.ts",
+      "src/aiSessions/conversation/types.ts"
     ]
   },
   {

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "911e592f02fd9fbc71c8f566d61074a3e96d263b",
+        "head": "660ab41e2ff0da8f0c4b0f0abeed8a2a97ee87e1",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -243,7 +243,8 @@
             "4aede6f792e9348697acfea174e308368f7157f7",
             "2c5f31a95dbd671b637cf5013789826ed1bedb10",
             "a760309127206890f64a3fa5e1439e75261f067e",
-            "3363eb2837186021d1342c708533e1636ad080d5"
+            "3363eb2837186021d1342c708533e1636ad080d5",
+            "d9187a4aa59e8c81a4b906732164f4425a0c1ac0"
         ]
     },
     "capabilities": [
@@ -490,7 +491,8 @@
                 "edf561e5d8404b0620e9b744c6d5b0bbb48ba936",
                 "6b1d7d6b074fef459a085181c4cc5f16b955831b",
                 "d2b9b3ad677d546a781265603fad088101616133",
-                "680cda193f6fb74064502fe463da5fb9b5154251"
+                "680cda193f6fb74064502fe463da5fb9b5154251",
+                "660ab41e2ff0da8f0c4b0f0abeed8a2a97ee87e1"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
@@ -1742,7 +1744,8 @@
                 "0eec5f1fdac5105b1a6139eb2125d565860ec16f",
                 "cc2e6152fa07e584611251ec3a984a13c3e0e95c",
                 "91984761d09cb71eabd73a5d33455f2f3bba6e73",
-                "26fb48d07086ecf8ebfe4a70d854cb7166204665"
+                "26fb48d07086ecf8ebfe4a70d854cb7166204665",
+                "7de73084d1a6e73b859861129ad40b17d6c768c1"
             ],
             "behaviors": [
                 "AI-SESSION-QUICK-SWITCH-COMMANDS-001"

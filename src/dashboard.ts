@@ -1810,6 +1810,7 @@ async function initializeDashboard(
         }
         return null;
     };
+    const aiSessionMru = createAiSessionMruTracker({ now: () => Date.now() });
     const sessionNavigationCoordinator = createSessionNavigationCoordinator();
     const sessionNavigationFocusExecutor = createSessionNavigationFocusExecutor({
         getProjectId: () => getCurrentWorkspaceActionTargetWithoutCardId()?.cardId || null,
@@ -1820,6 +1821,8 @@ async function initializeDashboard(
                 sessionId,
             ),
         openConversation: request => openAiSessionConversationWithFeedback(request),
+        onFocused: target =>
+            aiSessionMru.record(target.provider, target.sessionId),
     });
     const jumpToNextAttentionSession = createAttentionQueueJumpHandler({
         navigationCoordinator: sessionNavigationCoordinator,
@@ -1932,7 +1935,6 @@ async function initializeDashboard(
     // terminal focus events, so event-driven recording starves the tracker.
     // Sample the resolved focus instead: the tmux focused-runtime monitor
     // already polls every second, keeping this resolution fresh.
-    const aiSessionMru = createAiSessionMruTracker({ now: () => Date.now() });
     ownResource(() => {
         let lastSampledKey: string | null = null;
         const handle = setInterval(() => {
@@ -2466,7 +2468,12 @@ async function initializeDashboard(
     ): Promise<void> {
         const result = await conversationCapability
             .followAdjacentActiveConversation(direction);
-        if (result === 'inactive' || result === 'closed') {
+        if (result === 'opened') {
+            const identity = getFocusedAiSessionIdentity();
+            if (identity?.sessionId) {
+                aiSessionMru.record(identity.provider, identity.sessionId);
+            }
+        } else if (result === 'inactive' || result === 'closed') {
             void vscode.window.showInformationMessage(
                 'Agent Pivot: open an AI Conversation editor to switch active sessions.'
             );

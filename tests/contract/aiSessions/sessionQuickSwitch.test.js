@@ -16,8 +16,14 @@ const {
     createRunningSessionJumpHandler,
 } = require('../../../out/dashboard/runningSessionJump');
 const {
+    createAttentionQueueJumpHandler,
+} = require('../../../out/dashboard/attentionQueueJump');
+const {
     createSessionNavigationCoordinator,
 } = require('../../../out/dashboard/sessionNavigationCoordinator');
+const {
+    createSessionNavigationFocusExecutor,
+} = require('../../../out/dashboard/sessionNavigationFocusExecutor');
 
 const WINDOW_A = 'a'.repeat(64);
 const WINDOW_B = 'b'.repeat(64);
@@ -139,6 +145,16 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 wires the MRU to a completion-indepen
         /navigateSession: \(target, executionOptions\) =>\s*sessionNavigationFocusExecutor\.execute\(target, executionOptions\)/
     );
     assert.match(source, /getFocusedSessionKey: \(\) => \{\s*const identity = getFocusedAiSessionIdentity\(\);/);
+    assert.match(
+        source,
+        /createSessionNavigationFocusExecutor\(\{[\s\S]*?onFocused: target =>\s*aiSessionMru\.record\(target\.provider, target\.sessionId\)/,
+        'every successful shared focus transaction must update Toggle Last synchronously'
+    );
+    assert.match(
+        source,
+        /followAdjacentActiveConversationWithFeedback[\s\S]*?result === 'opened'[\s\S]*?aiSessionMru\.record\(identity\.provider, identity\.sessionId\)/,
+        'Previous and Next Active Session must update Toggle Last synchronously'
+    );
 });
 
 test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 tracker keeps a bounded deduplicated newest-first order', () => {
@@ -419,6 +435,94 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 AI-SESSION-NEXT-RUNNING-COMMAND-001 r
 
     assert.deepEqual(settled, ['older', 'newer']);
     assert.equal(focusedKey, 'codex:newer');
+});
+
+test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 ATTENTION-STATUS-BAR-QUEUE-001 alternates immediately after Attention navigation without waiting for focus sampling', async () => {
+    const coordinator = createSessionNavigationCoordinator();
+    const mru = makeMru(['codex:session-a']);
+    let focusedKey = 'codex:session-a';
+    let terminal = 'session-a';
+    let conversation = 'session-a';
+    const executor = createSessionNavigationFocusExecutor({
+        getProjectId: () => 'project-a',
+        focusActive: async (_projectId, provider, sessionId) => {
+            terminal = sessionId;
+            focusedKey = `${provider}:${sessionId}`;
+            return true;
+        },
+        openConversation: async target => {
+            conversation = target.sessionId;
+            return true;
+        },
+        onFocused: target => mru.record(target.provider, target.sessionId),
+    });
+    const attention = createAttentionQueueJumpHandler({
+        navigationCoordinator: coordinator,
+        buildQueue: () => ({
+            items: [{
+                provider: 'codex', sessionId: 'session-b', projectId: 'project-a',
+                eventIds: ['event-b'], reasons: ['completed'], observedAtMs: 1, local: true,
+            }],
+            localCount: 1,
+            remoteCount: 0,
+            total: 1,
+        }),
+        navigateSession: (target, executionOptions) =>
+            executor.execute(target, executionOptions),
+        acknowledge: async () => {},
+        shouldAcknowledge: () => false,
+        findNavigationCardId: () => null,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+        getCurrentIdentity: () => {
+            const separator = focusedKey.indexOf(':');
+            return {
+                provider: focusedKey.slice(0, separator),
+                sessionId: focusedKey.slice(separator + 1),
+            };
+        },
+    });
+    const messages = [];
+    const toggle = createAiSessionQuickSwitchHandlers({
+        navigationCoordinator: coordinator,
+        getLocalSessions: () => [
+            session('codex', 'session-a'),
+            session('codex', 'session-b'),
+        ],
+        getRemoteWindows: () => [],
+        getFocusedSessionKey: () => focusedKey,
+        mru,
+        showPick: async () => undefined,
+        navigateSession: (target, executionOptions) =>
+            executor.execute(target, executionOptions),
+        requestRemoteFocus: async () => false,
+        openNavigationCard: async () => {},
+        showInformationMessage: message => messages.push(message),
+        showWarningMessage: () => {},
+    });
+
+    await attention();
+    await toggle.toggleLastAiSession();
+    await toggle.toggleLastAiSession();
+
+    assert.deepEqual({ terminal, conversation, focusedKey }, {
+        terminal: 'session-b',
+        conversation: 'session-b',
+        focusedKey: 'codex:session-b',
+    });
+    assert.deepEqual(messages, []);
+
+    for (let index = 0; index < 100; index += 1) {
+        await toggle.toggleLastAiSession();
+        const expected = index % 2 === 0 ? 'session-a' : 'session-b';
+        assert.deepEqual({ terminal, conversation, focusedKey }, {
+            terminal: expected,
+            conversation: expected,
+            focusedKey: `codex:${expected}`,
+        });
+    }
+    assert.deepEqual(messages, []);
 });
 
 test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 toggle prunes dead sessions and reports an empty history', async () => {

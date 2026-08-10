@@ -109,7 +109,20 @@ test('OPEN-OPEN-PROJECT-DASHBOARD-CONTROLLER-001 posts each semantic revision on
 });
 
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 OPEN updates hydrate and publish one projection transaction', async () => {
-    const transaction = { revision: 41, marker: 'open-workspaces-transaction' };
+    const transaction = {
+        revision: 41,
+        marker: 'open-workspaces-transaction',
+        presentation: {
+            workspaceScopeIdentity: null,
+            workspaceNavigationIdentity: null,
+            attentionCount: 0,
+            activeAttentionCount: 0,
+            runningSessionCount: 0,
+            focusedTarget: null,
+            attentionSessions: [],
+            sessions: [],
+        },
+    };
     const posted = [];
     let hydrationProjection = null;
     const controller = new OpenWorkspaceDashboardController(createOptions({
@@ -129,6 +142,8 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 OPEN updates hydrate and publi
     assert.equal(hydrationProjection, transaction);
     assert.equal(posted.length, 1);
     assert.equal(posted[0].projectionRevision, transaction.revision);
+    assert.equal(posted[0].presentation.projectionRevision, transaction.revision);
+    assert.equal(posted[0].version, 3);
 });
 
 test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 coalesces rapid OPEN revisions behind one delivery', async () => {

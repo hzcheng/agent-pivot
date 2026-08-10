@@ -14,6 +14,28 @@ const {
     projectWorkspaceActiveSessions,
 } = require('../../../out/workspaces/activeSessionPresentation');
 
+function makeProjection(revision, eventIds = []) {
+    return {
+        revision,
+        presentation: {
+            workspaceScopeIdentity: 'scope:app',
+            workspaceNavigationIdentity: 'navigation:app',
+            attentionCount: eventIds.length ? 1 : 0,
+            activeAttentionCount: eventIds.length ? 1 : 0,
+            runningSessionCount: 0,
+            focusedTarget: { provider: 'codex', sessionId: 'session-a' },
+            attentionSessions: eventIds.length
+                ? [{ sessionKey: 'codex:session-a', eventIds }]
+                : [],
+            sessions: [{
+                provider: 'codex', sessionId: 'session-a',
+                executionState: 'stopped', focused: true,
+                needsAttention: eventIds.length > 0, conflict: false, eventIds,
+            }],
+        },
+    };
+}
+
 test('PROJECT-TERMINAL-CANDIDATE-001 reads provider sessions through the terminal-candidate cache reason', () => {
     const sessions = [{ id: 'candidate', name: 'Candidate' }];
     const calls = [];
@@ -409,7 +431,10 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 builds cards and HTML with one
     const { AiSessionDashboardController } = loadFreshWithFakeVscode(
         '../../../out/aiSessions/dashboardController', {}, __dirname
     );
-    const projection = { revision: 17, marker: 'same-transaction' };
+    const projection = {
+        ...makeProjection(17),
+        marker: 'same-transaction',
+    };
     let cardsProjection = null;
     let completed = 0;
     const controller = new AiSessionDashboardController({
@@ -438,7 +463,42 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 builds cards and HTML with one
     const message = controller.getUpdatedMessage('transaction-test');
     assert.equal(cardsProjection, projection);
     assert.equal(message.sequence, projection.revision);
+    assert.equal(message.projectionRevision, projection.revision);
+    assert.equal(message.presentation.projectionRevision, projection.revision);
+    assert.equal(message.version, 3);
     assert.equal(completed, 1);
+});
+
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 posts changed owner events even when rendered HTML is unchanged', async () => {
+    const deliveries = [];
+    let projection = makeProjection(1, ['event-a']);
+    const { AiSessionDashboardController } = loadFreshWithFakeVscode(
+        '../../../out/aiSessions/dashboardController', {}, __dirname
+    );
+    const controller = new AiSessionDashboardController({
+        providerIds: ['codex'], isVisible: () => true,
+        invalidateCache: () => undefined,
+        watchSessionChanges: () => ({ dispose() {} }),
+        getGroups: () => [], getTodoSearchItems: () => [], getCards: () => [],
+        getRunningCardAnimation: () => undefined,
+        getRunningIconAnimation: () => undefined,
+        beginProjection: () => projection,
+        postMessage: message => { deliveries.push(message); return Promise.resolve(true); },
+        refresh: () => undefined,
+        logError: (_message, error) => { throw error; },
+        debounceMs: 1, newSessionRefreshDelaysMs: [],
+        setTimeout: callback => { callback(); return {}; }, clearTimeout: () => undefined,
+    });
+
+    await controller.refreshNow('attention');
+    projection = makeProjection(2, ['event-a', 'event-b']);
+    await controller.refreshNow('attention');
+
+    assert.equal(deliveries.length, 2);
+    assert.deepEqual(
+        deliveries[1].presentation.attentionSessions[0].eventIds,
+        ['event-a', 'event-b']
+    );
 });
 
 test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses provider watchers across rapid sidebar visibility changes', () => {

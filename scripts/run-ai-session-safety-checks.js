@@ -4966,6 +4966,10 @@ function runWebviewContentChecks() {
     assert.ok(sessionReducedMotionStyles.includes('.codex-sessions'));
     assert.ok(sessionReducedMotionStyles.includes('transition: none !important'));
     const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    const presentationMessageSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'aiSessions', 'presentationMessage.ts'),
+        'utf8'
+    );
     const insideProjectClick = extractFunctionBody(webviewProjectScripts, 'onInsideProjectClick');
     const attentionControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'attentionController.ts'), 'utf8');
     const attentionMonitorSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'attentionMonitor.ts'), 'utf8');
@@ -5241,7 +5245,7 @@ function runWebviewContentChecks() {
     assert.ok(!dashboardRuntimeControllerSource.includes("type: 'ai-session-attention-projects-updated'"));
     assert.ok(webviewProjectScripts.includes('message.attentionSessions'));
     assert.ok(!webviewProjectScripts.includes('message.sessionEvents'));
-    assert.ok(dashboard.includes("type: 'ai-session-presentation-state'"));
+    assert.ok(presentationMessageSource.includes("type: 'ai-session-presentation-state'"));
     assert.ok(webviewProjectScripts.includes("message.type === 'ai-session-presentation-state'"));
     assert.ok(!webviewProjectScripts.includes("message.type === 'ai-session-attention-state'"));
     assert.ok(!webviewProjectScripts.includes("message.type === 'active-ai-session-terminal-changed'"));
@@ -7380,7 +7384,8 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.strictEqual(dashboard.includes('getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),'), true);
     assert.ok(dashboard.includes('getCards: projection => getOpenWorkspaceCards(projection),'));
     assert.ok(dashboard.includes('const transaction = aiSessionProjectionCoordinator.captureNext('));
-    assert.ok(dashboard.includes('postAiSessionPresentationState(false, transaction);'));
+    assert.ok(!dashboard.includes('postAiSessionPresentationState(false, transaction);'));
+    assert.ok(controllerSource.includes('presentation: buildAiSessionPresentationState('));
     assert.ok(workspaceHydrationSource.includes('activePresentation,'));
     assert.ok(dashboard.includes('beginAiSessionProjection: () => {'));
     assert.strictEqual(
@@ -8116,7 +8121,8 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     sessionName = 'Codex Two';
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 3, 'changed watcher messages must still be posted');
-    assert.strictEqual(messages[2].version, 2);
+    assert.strictEqual(messages[2].version, 3);
+    assert.strictEqual(messages[2].presentation.projectionRevision, messages[2].projectionRevision);
     assert.strictEqual(messages[2].currentWorkspaceCount, 1);
     assert.strictEqual(messages[2].searchCatalog.version, 2);
     assert.deepStrictEqual(messages[2].searchCatalog.openWorkspaces.map(item => item.current), [true]);

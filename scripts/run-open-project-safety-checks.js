@@ -1291,7 +1291,11 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(posted.length, 1);
     assert.strictEqual(posted[0].type, 'open-workspaces-updated');
-    assert.strictEqual(posted[0].version, 2);
+    assert.strictEqual(posted[0].version, 3);
+    assert.strictEqual(
+        posted[0].presentation.projectionRevision,
+        posted[0].projectionRevision
+    );
     assert.strictEqual(posted[0].currentWorkspaceCount, 1);
     assert.strictEqual(posted[0].navigationWorkspaceCount, 2);
     assert.strictEqual(posted[0].searchCatalog.version, 2);

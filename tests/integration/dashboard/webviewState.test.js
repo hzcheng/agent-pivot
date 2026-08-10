@@ -486,14 +486,22 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 locks catalog v2 section order and a
 test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 preserves TODO catalog entries in incremental messages', () => {
     const todoSearchItems = makeCatalog().todos;
     const cards = [makeWorkspaceCard()];
+    const presentation = {
+        type: 'ai-session-presentation-state', version: 1, projectionRevision: 1,
+        workspaceScopeIdentity: null, workspaceNavigationIdentity: null,
+        attentionCount: 0, activeAttentionCount: 0, runningSessionCount: 0,
+        runningCardAnimation: 'current', runningIconAnimation: 'current',
+        revealFocused: false, focusedTarget: null, attentionSessions: [], sessions: [],
+    };
     const openMessage = webviewModules.updateMessages.buildOpenWorkspacesUpdatedMessage({
         groups: [], cards: [], collapsed: false,
         semanticRevision: 'revision', projectionRevision: 1,
-        otherWindowsStatus: 'ready', todoSearchItems,
+        otherWindowsStatus: 'ready', todoSearchItems, presentation,
     });
     const sessionsMessage = webviewModules.updateMessages.buildAiSessionsUpdatedMessage({
         groups: [], cards: [], sequence: 7, generatedAt: NOW,
         cards, todoSearchItems,
+        presentation: { ...presentation, projectionRevision: 7 },
     });
     assert.deepEqual(openMessage.searchCatalog.todos, todoSearchItems);
     assert.deepEqual(sessionsMessage.searchCatalog.todos, todoSearchItems);

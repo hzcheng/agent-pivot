@@ -1,7 +1,10 @@
 'use strict';
 
 import { Group, WorkspaceCardViewModel } from '../models';
-import type { AiSessionsUpdatedMessage } from '../aiSessions/types';
+import type {
+    AiSessionPresentationStateMessage,
+    AiSessionsUpdatedMessage,
+} from '../aiSessions/types';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import {
@@ -73,7 +76,7 @@ export interface BuildWorkspaceUpdatedMessageInput {
 
 export interface OpenWorkspacesUpdatedMessage {
     type: 'open-workspaces-updated';
-    version: 2;
+    version: 3;
     semanticRevision: string;
     projectionRevision: number;
     currentWorkspaceCount: 0 | 1;
@@ -81,6 +84,7 @@ export interface OpenWorkspacesUpdatedMessage {
     otherWindowsStatus: OpenWorkspaceBridgeStatus;
     searchCatalog: DashboardWorkspaceSearchCatalog;
     html: string;
+    presentation: AiSessionPresentationStateMessage;
 }
 
 export interface BuildOpenWorkspacesUpdatedMessageInput {
@@ -94,6 +98,7 @@ export interface BuildOpenWorkspacesUpdatedMessageInput {
     skills?: import('../skills/types').SkillRecord[];
     runningCardAnimation?: string;
     runningIconAnimation?: string;
+    presentation: AiSessionPresentationStateMessage;
 }
 
 export interface BuildAiSessionsUpdatedMessageInput {
@@ -105,6 +110,7 @@ export interface BuildAiSessionsUpdatedMessageInput {
     skills?: import('../skills/types').SkillRecord[];
     runningCardAnimation?: string;
     runningIconAnimation?: string;
+    presentation: AiSessionPresentationStateMessage;
 }
 
 export function buildOpenWorkspacesUpdatedMessage(
@@ -114,7 +120,7 @@ export function buildOpenWorkspacesUpdatedMessage(
     const navigationWorkspaceCount = input.cards.filter(card => card.kind === 'navigation').length;
     return {
         type: 'open-workspaces-updated',
-        version: 2,
+        version: 3,
         semanticRevision: input.semanticRevision,
         projectionRevision: input.projectionRevision,
         currentWorkspaceCount,
@@ -133,6 +139,7 @@ export function buildOpenWorkspacesUpdatedMessage(
             input.runningCardAnimation,
             input.runningIconAnimation,
         ),
+        presentation: input.presentation,
     };
 }
 
@@ -157,8 +164,9 @@ export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessa
     const current = input.cards.find(card => card.kind === 'current') || null;
     return {
         type: 'ai-sessions-updated',
-        version: 2,
+        version: 3,
         sequence: input.sequence,
+        projectionRevision: input.sequence,
         generatedAt: input.generatedAt,
         currentWorkspaceCount: current ? 1 : 0,
         html: getCurrentWorkspaceGroupContent(
@@ -173,5 +181,6 @@ export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessa
             input.todoSearchItems,
             input.skills,
         ),
+        presentation: input.presentation,
     };
 }

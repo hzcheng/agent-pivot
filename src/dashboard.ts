@@ -124,7 +124,8 @@ import {
 import { TmuxRuntimeBackend } from './aiSessions/tmuxRuntimeBackend';
 import { TmuxFocusedRuntimeMonitor } from './aiSessions/tmuxFocusedRuntimeMonitor';
 import { withTmuxCreationLock } from './aiSessions/tmuxCreationLock';
-import type { AiSessionBatchArchiveCompletedMessage, AiSessionPresentationStateMessage, AiSessionProvider, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
+import type { AiSessionBatchArchiveCompletedMessage, AiSessionProvider, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
+import { buildAiSessionPresentationState } from './aiSessions/presentationMessage';
 import {
     ConversationCapability,
     createConversationCapability,
@@ -1446,13 +1447,9 @@ async function initializeDashboard(
             const transaction = aiSessionProjectionCoordinator.captureNext(
                 getCurrentOpenWorkspace()
             );
-            postAiSessionPresentationState(false, transaction);
             return transaction;
         },
-        postMessage: message => provider.postMessage({
-            ...(message as unknown as Record<string, unknown>),
-            projectionRevision: (message as AiSessionsUpdatedMessage).sequence,
-        }),
+        postMessage: message => provider.postMessage(message),
         refresh: refreshStewardViews,
         logError,
         logDiagnostic: logAiSessionDiagnostic,
@@ -1689,6 +1686,7 @@ async function initializeDashboard(
             const transaction = aiSessionProjectionCoordinator.captureNext(
                 getCurrentOpenWorkspace()
             );
+            const configuration = getAgentPivotConfiguration();
             return getStewardContent(
                 context,
                 webview,
@@ -1698,7 +1696,12 @@ async function initializeDashboard(
                 getOpenWorkspaceCards(transaction),
                 openWorkspaceDashboardController.getState().otherWindows.status,
                 documentGeneration,
-                buildAiSessionPresentationState(false, transaction),
+                buildAiSessionPresentationState(
+                    false,
+                    transaction,
+                    getEffectiveRunningCardAnimation(configuration),
+                    getEffectiveRunningIconAnimation(configuration),
+                ),
             );
         },
         renderError: getErrorContent,
@@ -1776,7 +1779,6 @@ async function initializeDashboard(
             const transaction = aiSessionProjectionCoordinator.captureNext(
                 getCurrentOpenWorkspace()
             );
-            postAiSessionPresentationState(false, transaction);
             return transaction;
         },
         getGroups: () => projectService.getGroups(),
@@ -2637,7 +2639,13 @@ async function initializeDashboard(
         transaction: AiSessionPresentationTransaction<vscode.Terminal>
             = aiSessionProjectionCoordinator.captureNext(getCurrentOpenWorkspace())
     ): void {
-        const message = buildAiSessionPresentationState(revealFocused, transaction);
+        const configuration = getAgentPivotConfiguration();
+        const message = buildAiSessionPresentationState(
+            revealFocused,
+            transaction,
+            getEffectiveRunningCardAnimation(configuration),
+            getEffectiveRunningIconAnimation(configuration),
+        );
         try {
             void provider.postMessage(message).then(undefined, error => {
                 logError('Failed to post the Active Session presentation.', error);
@@ -2645,22 +2653,6 @@ async function initializeDashboard(
         } catch (error) {
             logError('Failed to post the Active Session presentation.', error);
         }
-    }
-
-    function buildAiSessionPresentationState(
-        revealFocused: boolean,
-        transaction: AiSessionPresentationTransaction<vscode.Terminal>
-    ): AiSessionPresentationStateMessage {
-        const configuration = getAgentPivotConfiguration();
-        return {
-            type: 'ai-session-presentation-state',
-            version: 1,
-            projectionRevision: transaction.revision,
-            ...transaction.presentation,
-            runningCardAnimation: getEffectiveRunningCardAnimation(configuration),
-            runningIconAnimation: getEffectiveRunningIconAnimation(configuration),
-            revealFocused,
-        };
     }
 
     function invalidateAiSessionCache(providerId: AiSessionProviderId) {

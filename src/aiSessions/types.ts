@@ -205,12 +205,14 @@ export interface WorkspaceAiSessionActionTarget {
 
 export interface AiSessionsUpdatedMessage {
     type: 'ai-sessions-updated';
-    version: 2;
+    version: 3;
     sequence: number;
+    projectionRevision: number;
     generatedAt: string;
     currentWorkspaceCount: 0 | 1;
     html: string;
     searchCatalog: DashboardWorkspaceSearchCatalog;
+    presentation: AiSessionPresentationStateMessage;
 }
 
 export interface ActiveAiSessionPresentation {

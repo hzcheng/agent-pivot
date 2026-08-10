@@ -644,7 +644,7 @@ const guards = {
 
     // ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001
     'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001'(root) {
-        const risk = 'separately sampled HTML and Presentation can publish conflicting state at adjacent revisions';
+        const risk = 'separate HTML and Presentation deliveries can expose partial or conflicting session state';
         const dashboard = parseTypescript(root, 'src/dashboard.ts', this.id, risk);
         const controller = parseTypescript(
             root,
@@ -721,10 +721,14 @@ const guards = {
         const dashboardSource = dashboard.getFullText();
         if (!/getCards:\s*projection\s*=>\s*getOpenWorkspaceCards\(projection\)/
             .test(dashboardSource)
-            || !/postAiSessionPresentationState\(false,\s*transaction\);\s*return transaction;/
-                .test(dashboardSource)) {
+            || !controllerSource.includes(
+                'presentation: buildAiSessionPresentationState('
+            )
+            || dashboardSource.includes(
+                'postAiSessionPresentationState(false, transaction);'
+            )) {
             fail(this.id, risk,
-                'Dashboard composition must pass one captured transaction to both channels');
+                'AI incremental HTML and Presentation must share one Host message');
         }
         const hydrationControllerSource = hydrationController.getFullText();
         const hydrationSource = hydration.getFullText();
@@ -741,7 +745,7 @@ const guards = {
             fail(this.id, risk,
                 'the Webview must accept one same-revision direct Presentation after HTML');
         }
-        if (!/renderContent:\s*\(webview,\s*documentGeneration\)\s*=>\s*\{[\s\S]*?const transaction = aiSessionProjectionCoordinator\.captureNext\([\s\S]*?getOpenWorkspaceCards\(transaction\)[\s\S]*?buildAiSessionPresentationState\(false,\s*transaction\)/
+        if (!/renderContent:\s*\(webview,\s*documentGeneration\)\s*=>\s*\{[\s\S]*?const transaction = aiSessionProjectionCoordinator\.captureNext\([\s\S]*?getOpenWorkspaceCards\(transaction\)[\s\S]*?buildAiSessionPresentationState\(\s*false,\s*transaction,/
             .test(dashboardSource)
             || !fullDocument.getFullText().includes(
                 'id="dashboard-ai-session-presentation"'
@@ -769,13 +773,30 @@ const guards = {
             || !openWorkspaceSource.includes('projectionRevision: projection.revision')
             || !updateMessageSource.includes(
                 'projectionRevision: input.projectionRevision'
-            ) || dashboardSource.includes(
+            ) || !openWorkspaceSource.includes(
+                'presentation: buildAiSessionPresentationState('
+            ) || !updateMessageSource.includes('presentation: input.presentation')
+            || !updateMessageSource.includes('version: 3')
+            || dashboardSource.includes(
                 'projectionRevision: aiSessionProjectionCoordinator.nextRevision()'
-            ) || !/beginAiSessionProjection:\s*\(\)\s*=>\s*\{[\s\S]*?postAiSessionPresentationState\(false,\s*transaction\);[\s\S]*?return transaction;\s*\},\s*getGroups:/
-                .test(dashboardSource)
+            ) || dashboardSource.includes(
+                'postAiSessionPresentationState(false, transaction);'
+            )
             ) {
             fail(this.id, risk,
-                'OPEN HTML must capture, hydrate, and publish the same Presentation transaction');
+                'OPEN HTML and Presentation must share one Host message');
+        }
+        if (!webviewSource.includes(
+            'message.presentation.projectionRevision !== message.projectionRevision'
+        ) || !webviewSource.includes(
+            'applyValidatedAiSessionPresentationState(message.presentation);'
+        ) || !projectWebviewSource.includes(
+            'invalid-open-workspaces-presentation-envelope'
+        ) || !projectWebviewSource.includes(
+            'applyValidatedAiSessionPresentationState(message.presentation);'
+        )) {
+            fail(this.id, risk,
+                'the Webview must validate and apply each HTML-Presentation envelope atomically');
         }
     },
 

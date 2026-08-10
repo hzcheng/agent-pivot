@@ -4107,6 +4107,27 @@
     ]
   },
   {
+    "id": "ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001",
+    "domain": "webview",
+    "title": "Incremental workspace HTML and complete AI Session presentation arrive and apply atomically",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/activeSessionCardInteraction.test.js",
+      "tests/integration/dashboard/sessionRuntimeFlow.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/aiSessions/dashboardController.ts",
+      "src/aiSessions/presentationMessage.ts",
+      "src/dashboard/webviewUpdateMessages.ts",
+      "src/openWorkspaces/dashboardController.ts",
+      "src/webview/webviewProjectAiUpdateScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "src/webview/webviewWorkspaceUpdateScripts.js"
+    ]
+  },
+  {
     "id": "ACTIVE-SESSION-FOCUS-REVEAL-001",
     "domain": "webview",
     "title": "Sidebar reveals and marks the focused Active Session card after terminal focus settles, including Next Attention Session jumps",

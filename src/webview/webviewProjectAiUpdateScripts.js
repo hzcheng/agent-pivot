@@ -14,6 +14,8 @@ function initProjectAiSessionsUpdate(options) {
     var exitAiSessionBatchManagement = options.exitAiSessionBatchManagement;
     var isAiSessionProvider = options.isAiSessionProvider;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
+    var isValidAiSessionPresentationState = options.isValidAiSessionPresentationState;
+    var applyValidatedAiSessionPresentationState = options.applyValidatedAiSessionPresentationState;
 
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
@@ -81,7 +83,8 @@ function initProjectAiSessionsUpdate(options) {
     }
 
     function applyAiSessionsUpdate(message) {
-        if (message.version !== 2
+        var isAtomicEnvelope = message.version === 3;
+        if ((message.version !== 2 && !isAtomicEnvelope)
             || typeof message.sequence !== 'number'
             || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
             || typeof message.html !== 'string'
@@ -92,10 +95,28 @@ function initProjectAiSessionsUpdate(options) {
             return;
         }
 
+        if (isAtomicEnvelope
+            && (!Number.isSafeInteger(message.projectionRevision)
+                || message.projectionRevision <= 0
+                || message.sequence !== message.projectionRevision
+                || typeof message.generatedAt !== 'string'
+                || !message.generatedAt
+                || typeof isValidAiSessionPresentationState !== 'function'
+                || !isValidAiSessionPresentationState(message.presentation)
+                || message.presentation.projectionRevision !== message.projectionRevision
+                || typeof applyValidatedAiSessionPresentationState !== 'function')) {
+            requestFullRefresh('invalid-ai-session-presentation-envelope');
+            return;
+        }
+
         if (message.sequence <= latestAiSessionUpdateSequence) {
             return;
         }
         if (!canApplyProjectionRevision(message.projectionRevision)) {
+            return;
+        }
+        if (isAtomicEnvelope
+            && !canApplyPresentationProjectionRevision(message.projectionRevision)) {
             return;
         }
         var adoptRenderedPresentation = canApplyPresentationProjectionRevision(
@@ -131,7 +152,11 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncAiSessionProjectionDom(adoptRenderedPresentation);
+        if (isAtomicEnvelope) {
+            applyValidatedAiSessionPresentationState(message.presentation);
+        } else {
+            syncAiSessionProjectionDom(adoptRenderedPresentation);
+        }
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);

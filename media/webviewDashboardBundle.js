@@ -644,7 +644,7 @@ function completeOpenWorkspacePin(message) {
 function applyOpenWorkspacesUpdate(message) {
     if (!message
         || message.type !== 'open-workspaces-updated'
-        || message.version !== 2
+        || (message.version !== 2 && message.version !== 3)
         || typeof message.semanticRevision !== 'string'
         || !message.semanticRevision
         || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
@@ -1682,6 +1682,8 @@ function initProjectAiSessionsUpdate(options) {
     var exitAiSessionBatchManagement = options.exitAiSessionBatchManagement;
     var isAiSessionProvider = options.isAiSessionProvider;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
+    var isValidAiSessionPresentationState = options.isValidAiSessionPresentationState;
+    var applyValidatedAiSessionPresentationState = options.applyValidatedAiSessionPresentationState;
 
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
@@ -1749,7 +1751,8 @@ function initProjectAiSessionsUpdate(options) {
     }
 
     function applyAiSessionsUpdate(message) {
-        if (message.version !== 2
+        var isAtomicEnvelope = message.version === 3;
+        if ((message.version !== 2 && !isAtomicEnvelope)
             || typeof message.sequence !== 'number'
             || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
             || typeof message.html !== 'string'
@@ -1760,10 +1763,28 @@ function initProjectAiSessionsUpdate(options) {
             return;
         }
 
+        if (isAtomicEnvelope
+            && (!Number.isSafeInteger(message.projectionRevision)
+                || message.projectionRevision <= 0
+                || message.sequence !== message.projectionRevision
+                || typeof message.generatedAt !== 'string'
+                || !message.generatedAt
+                || typeof isValidAiSessionPresentationState !== 'function'
+                || !isValidAiSessionPresentationState(message.presentation)
+                || message.presentation.projectionRevision !== message.projectionRevision
+                || typeof applyValidatedAiSessionPresentationState !== 'function')) {
+            requestFullRefresh('invalid-ai-session-presentation-envelope');
+            return;
+        }
+
         if (message.sequence <= latestAiSessionUpdateSequence) {
             return;
         }
         if (!canApplyProjectionRevision(message.projectionRevision)) {
+            return;
+        }
+        if (isAtomicEnvelope
+            && !canApplyPresentationProjectionRevision(message.projectionRevision)) {
             return;
         }
         var adoptRenderedPresentation = canApplyPresentationProjectionRevision(
@@ -1799,7 +1820,11 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncAiSessionProjectionDom(adoptRenderedPresentation);
+        if (isAtomicEnvelope) {
+            applyValidatedAiSessionPresentationState(message.presentation);
+        } else {
+            syncAiSessionProjectionDom(adoptRenderedPresentation);
+        }
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -3205,6 +3230,8 @@ function initProjects() {
         exitAiSessionBatchManagement: aiSessionControls.exitAiSessionBatchManagement,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
+        isValidAiSessionPresentationState: isValidAiSessionPresentationState,
+        applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
     });
 
     function isValidAiSessionPresentationState(message) {
@@ -3225,6 +3252,17 @@ function initProjects() {
                 .includes(message.runningCardAnimation)
             && ['current', 'halo', 'custom', 'none'].includes(message.runningIconAnimation)
             && typeof message.revealFocused === 'boolean'
+            && (message.focusedTarget === null
+                || (message.focusedTarget
+                    && aiSessionControls.isAiSessionProvider(
+                        message.focusedTarget.provider
+                    )
+                    && ((typeof message.focusedTarget.sessionId === 'string'
+                        && !!message.focusedTarget.sessionId
+                        && typeof message.focusedTarget.pendingId === 'undefined')
+                        || (typeof message.focusedTarget.pendingId === 'string'
+                            && !!message.focusedTarget.pendingId
+                            && typeof message.focusedTarget.sessionId === 'undefined'))))
             && Array.isArray(message.sessions) && message.sessions.length <= 1000
             && message.sessions.every(session => session
                 && aiSessionControls.isAiSessionProvider(session.provider)
@@ -3261,9 +3299,13 @@ function initProjects() {
                 message.projectionRevision
             );
         if (!accepted) return false;
+        applyValidatedAiSessionPresentationState(message);
+        return true;
+    }
+
+    function applyValidatedAiSessionPresentationState(message) {
         window.__agentPivotAiSessionPresentationState = message;
         applyAiSessionPresentationDom(message);
-        return true;
     }
 
     function readInitialAiSessionPresentationState() {
@@ -3455,7 +3497,21 @@ function initProjects() {
             return;
         }
         if (message && message.type === 'open-workspaces-updated') {
+            var isAtomicOpenWorkspacesEnvelope = message.version === 3;
+            if (isAtomicOpenWorkspacesEnvelope
+                && (!isValidAiSessionPresentationState(message.presentation)
+                    || message.presentation.projectionRevision
+                        !== message.projectionRevision)) {
+                aiSessionsUpdate.requestFullRefresh(
+                    'invalid-open-workspaces-presentation-envelope'
+                );
+                return;
+            }
             if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
+            if (isAtomicOpenWorkspacesEnvelope
+                && !aiSessionsUpdate.canApplyPresentationProjectionRevision(
+                    message.projectionRevision
+                )) return;
             var adoptOpenWorkspacePresentation = aiSessionsUpdate.canApplyPresentationProjectionRevision(
                 message.projectionRevision
             );
@@ -3467,7 +3523,11 @@ function initProjects() {
                 message.projectionRevision,
                 adoptOpenWorkspacePresentation
             );
-            syncAiSessionProjectionDom(adoptOpenWorkspacePresentation);
+            if (isAtomicOpenWorkspacesEnvelope) {
+                applyValidatedAiSessionPresentationState(message.presentation);
+            } else {
+                syncAiSessionProjectionDom(adoptOpenWorkspacePresentation);
+            }
             updateStickyGroupHeaderOffset();
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({

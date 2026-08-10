@@ -26,6 +26,11 @@ after every GitHub write.
   dependencies, and rerun every affected build, local installation, byte
   verification, and test. Never publish or report artifacts built before the
   rebase as current.
+- When a branch changes a separately packaged extension's runtime or protocol,
+  compare that extension's manifest version with `origin/main` and require a
+  higher version before publishing. Update exact artifact, brand, and release
+  checks with it; reusing the version can leave an installed companion such as
+  the UI Bridge stale even when a development VSIX was overwritten locally.
 - Check for an existing PR with `gh pr list --head <branch> --repo <owner/repo>`.
 
 ## Create PR

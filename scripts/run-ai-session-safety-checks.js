@@ -7102,13 +7102,13 @@ function runBatchAiSessionWebviewChecks() {
     windowEventListeners.message({ data: {
         type: 'ai-session-attention-state',
         projectionRevision: 1,
-        eventIds: ['stale-event'],
+        eventIds: ['newer-direct-event'],
         sessionEvents: [],
     } });
-    assert.strictEqual(context.window.__agentPivotAttentionEvents['stale-event'], undefined,
-        'a stale attention message must not override a newer rendered session projection');
+    assert.strictEqual(context.window.__agentPivotAttentionEvents['newer-direct-event'], true,
+        'a rendered content revision must not suppress the independent direct attention stream');
     assert.strictEqual(context.window.__agentPivotAttentionEvents['existing-event'], true,
-        'rejecting stale attention must preserve the last accepted attention projection');
+        'accepting the next direct attention projection must preserve known event identities');
 
     const manager = context.window.__agentPivotBatchAiSessions;
     manager.enter('project-a');

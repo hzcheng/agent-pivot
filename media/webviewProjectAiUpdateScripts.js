@@ -20,6 +20,10 @@ function initProjectAiSessionsUpdate(options) {
     var latestAiSessionProjectionRevision = 0;
     var latestAiSessionFocusProjectionRevision = 0;
     var latestAiSessionAttentionProjectionRevision = 0;
+    // Rendered HTML bootstraps attention only until the dedicated stream arrives.
+    // Later content replacements can carry an older snapshot with a newer delivery
+    // revision, so they must preserve the direct stream instead of reviving stale dots.
+    var hasDirectAiSessionAttentionProjection = false;
 
     function canApplyRevision(revision, latestRevision) {
         if (typeof revision === 'undefined') {
@@ -39,20 +43,25 @@ function initProjectAiSessionsUpdate(options) {
     }
 
     function canApplyAttentionProjectionRevision(revision) {
-        return canApplyRevision(revision, latestAiSessionAttentionProjectionRevision);
+        return !hasDirectAiSessionAttentionProjection
+            && canApplyRevision(revision, latestAiSessionAttentionProjectionRevision);
     }
 
-    function commitProjectionRevision(revision) {
+    function commitProjectionRevision(revision, adoptedFocus, adoptedAttention) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
-            latestAiSessionFocusProjectionRevision = Math.max(
-                latestAiSessionFocusProjectionRevision,
-                revision
-            );
-            latestAiSessionAttentionProjectionRevision = Math.max(
-                latestAiSessionAttentionProjectionRevision,
-                revision
-            );
+            if (adoptedFocus) {
+                latestAiSessionFocusProjectionRevision = Math.max(
+                    latestAiSessionFocusProjectionRevision,
+                    revision
+                );
+            }
+            if (adoptedAttention) {
+                latestAiSessionAttentionProjectionRevision = Math.max(
+                    latestAiSessionAttentionProjectionRevision,
+                    revision
+                );
+            }
         }
     }
 
@@ -67,9 +76,10 @@ function initProjectAiSessionsUpdate(options) {
     }
 
     function acceptAttentionProjectionRevision(revision) {
-        if (!canApplyAttentionProjectionRevision(revision)) {
+        if (!canApplyRevision(revision, latestAiSessionAttentionProjectionRevision)) {
             return false;
         }
+        hasDirectAiSessionAttentionProjection = true;
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionAttentionProjectionRevision = revision;
         }
@@ -114,7 +124,11 @@ function initProjectAiSessionsUpdate(options) {
         }
 
         latestAiSessionUpdateSequence = message.sequence;
-        commitProjectionRevision(message.projectionRevision);
+        commitProjectionRevision(
+            message.projectionRevision,
+            adoptRenderedFocus,
+            adoptRenderedAttention
+        );
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
             if (projectDiv) {

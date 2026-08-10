@@ -526,6 +526,84 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an ind
     );
 });
 
+test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention during a window-switch projection', async t => {
+    const active = [
+        session('codex', 'session-a', false),
+        session('codex', 'session-b', true),
+        session('codex', 'session-c', false),
+    ];
+    const page = await openCardPage(t, active);
+    await postHostMessage(page, {
+        type: 'ai-session-attention-state',
+        projectionRevision: 2,
+        eventIds: ['event-b'],
+        sessionEvents: [{ sessionKey: 'codex:session-b', eventIds: ['event-b'] }],
+    });
+    await page.evaluate(() => {
+        window.__attentionProjectionSnapshots = [];
+        const recordAttentionProjection = () => {
+            window.__attentionProjectionSnapshots.push(Array.from(document.querySelectorAll(
+                '.active-ai-session-row[data-ai-session-attention][data-session-id]'
+            ), candidate => candidate.getAttribute('data-session-id')).sort());
+        };
+        window.__attentionProjectionObserver = new MutationObserver(recordAttentionProjection);
+        window.__attentionProjectionObserver.observe(
+            document.querySelector('.sticky-groups-wrapper'),
+            { attributes: true, childList: true, subtree: true }
+        );
+    });
+
+    const staleAttention = active.map(entry => ({
+        ...entry,
+        needsAttention: true,
+        attentionEventId: `stale-${entry.sessionId}`,
+    }));
+    await postHostMessage(page, {
+        type: 'open-workspaces-updated',
+        version: 2,
+        projectionRevision: 4,
+        semanticRevision: 'stale-window-switch-attention',
+        currentWorkspaceCount: 1,
+        navigationWorkspaceCount: 0,
+        otherWindowsStatus: 'ready',
+        html: `<div class="open-current-workspace-group">${projectMarkup(staleAttention)}</div>
+            <div class="open-other-windows-group" data-other-windows-status="ready">
+                ${currentOpenWorkspaceProjectMarkup()}
+            </div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [{ identity: 'project-a' }],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    await postHostMessage(page, {
+        type: 'ai-session-attention-state',
+        projectionRevision: 3,
+        eventIds: ['event-c'],
+        sessionEvents: [{ sessionKey: 'codex:session-c', eventIds: ['event-c'] }],
+    });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+
+    const snapshots = await page.evaluate(() => {
+        window.__attentionProjectionObserver.disconnect();
+        return window.__attentionProjectionSnapshots;
+    });
+    assert.ok(snapshots.length > 0);
+    assert.deepEqual(
+        snapshots.filter(snapshot => snapshot.join(',') !== 'session-b'
+            && snapshot.join(',') !== 'session-c'),
+        [],
+        `stale attention became observable: ${JSON.stringify(snapshots)}`
+    );
+    assert.equal(
+        await row(page, 'codex', 'session-c').locator('.ai-session-attention-indicator').count(),
+        1
+    );
+});
+
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals a newer direct focus projection inside the bounded Active list', async t => {
     const active = Array.from({ length: 8 }, (_, index) => session(
         'codex', `active-${index + 1}`, index === 0

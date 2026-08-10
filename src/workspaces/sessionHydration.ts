@@ -200,14 +200,16 @@ function buildActiveSessions<TTerminal>(input: {
                 ?.find(candidate => candidate.id === sessionId);
             const root = assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
             const focused = input.focusedSessionKey === key;
-            const needsAttention = session?.attention?.unread === true;
+            const executionState = input.input.executionSnapshot?.[key]?.state || 'stopped';
+            const needsAttention = executionState !== 'running'
+                && session?.attention?.unread === true;
             const conflict = runtime.state === 'conflict';
             return {
                 key,
                 provider: providerId,
                 sessionId,
                 name: session?.name || `${providerLabel(input.input.providers, providerId)} ${shortId(sessionId)}`,
-                executionState: input.input.executionSnapshot?.[key]?.state || 'stopped',
+                executionState,
                 status: establishedStatus(needsAttention, focused, conflict),
                 focused,
                 needsAttention,
@@ -219,7 +221,9 @@ function buildActiveSessions<TTerminal>(input: {
                 ...(runtime.stale ? { stale: true } : {}),
                 ...(session?.updatedAt ? { updatedAt: session.updatedAt } : {}),
                 ...(session?.pinned !== undefined ? { pinned: session.pinned } : {}),
-                ...(session?.attention?.eventId ? { attentionEventId: session.attention.eventId } : {}),
+                ...(needsAttention && session?.attention?.eventId
+                    ? { attentionEventId: session.attention.eventId }
+                    : {}),
                 ...rootMetadata(root),
                 activityMs: finiteNumber(runtime.runStartedAtMs),
                 sourceOrder,

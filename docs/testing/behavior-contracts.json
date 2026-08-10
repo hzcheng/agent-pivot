@@ -1272,6 +1272,10 @@
       "tests/contract/aiSessions/runtimeSettlement.test.js"
     ,
       "tests/contract/aiSessions/attentionEventCapability.test.js"
+    ,
+      "tests/integration/dashboard/attentionRendering.test.js"
+    ,
+      "tests/browser/activeSessionCardInteraction.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionEvaluationQueue.ts",

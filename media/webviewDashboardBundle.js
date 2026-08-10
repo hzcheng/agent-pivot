@@ -2959,22 +2959,25 @@ function initProjects() {
             var sessionKey = row.getAttribute('data-session-provider')
                 + ':' + row.getAttribute('data-session-id');
             var eventIds = window.__agentPivotAttentionSessionEvents[sessionKey] || [];
-            row.toggleAttribute('data-session-needs-attention', eventIds.length > 0);
-            row.toggleAttribute('data-ai-session-attention', eventIds.length > 0);
-            if (eventIds.length) {
-                row.setAttribute('data-session-event-id', eventIds[0]);
+            var visibleEventIds = row.getAttribute('data-execution-state') === 'running'
+                ? []
+                : eventIds;
+            row.toggleAttribute('data-session-needs-attention', visibleEventIds.length > 0);
+            row.toggleAttribute('data-ai-session-attention', visibleEventIds.length > 0);
+            if (visibleEventIds.length) {
+                row.setAttribute('data-session-event-id', visibleEventIds[0]);
             } else {
                 row.removeAttribute('data-session-event-id');
             }
             var primaryAction = row.querySelector('.ai-session-primary-action');
             var indicator = row.querySelector('.ai-session-attention-indicator');
-            if (eventIds.length && primaryAction && !indicator) {
+            if (visibleEventIds.length && primaryAction && !indicator) {
                 indicator = document.createElement('span');
                 indicator.className = 'ai-session-attention-indicator';
                 indicator.title = 'AI session needs attention';
                 indicator.setAttribute('aria-label', 'AI session needs attention');
                 primaryAction.insertBefore(indicator, primaryAction.firstChild);
-            } else if (!eventIds.length && indicator) {
+            } else if (!visibleEventIds.length && indicator) {
                 indicator.remove();
             }
         });

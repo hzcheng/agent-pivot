@@ -541,7 +541,11 @@ function initProjects() {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;
             }
-            aiSessionsUpdate.commitProjectionRevision(message.projectionRevision);
+            aiSessionsUpdate.commitProjectionRevision(
+                message.projectionRevision,
+                adoptOpenWorkspaceFocus,
+                adoptOpenWorkspaceAttention
+            );
             syncAiSessionProjectionDom(
                 adoptOpenWorkspaceFocus,
                 adoptOpenWorkspaceAttention

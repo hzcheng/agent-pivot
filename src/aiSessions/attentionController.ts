@@ -315,11 +315,9 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
             bySession.set(sessionKey, eventIds);
         };
 
-        Object.entries(this.monitor.getSnapshot()).forEach(([sessionKey, snapshot]) => {
-            if (snapshot.state === 'needsAttention' && snapshot.event?.eventId) {
-                addEvent(this.getLogicalSessionKey(sessionKey), snapshot.event.eventId);
-            }
-        });
+        // The effective aggregate is the sole UI authority. Reading the monitor
+        // directly here used to resurrect historical completion events that a
+        // peer window had already acknowledged in the bridge aggregate.
         this.getEffectiveAggregate().sessions.forEach(session => {
             session.eventIds.forEach(eventId => addEvent(
                 this.getLogicalSessionKey(session.sessionKey),

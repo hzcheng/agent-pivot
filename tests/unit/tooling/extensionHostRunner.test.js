@@ -56,5 +56,11 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 runner uses the short macOS root and 
         JSON.stringify(environment),
     ]);
     assert.equal(calls[4][3].detached, process.platform !== 'win32');
+    // RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001
+    assert.deepEqual(
+        calls[4][3].stdio,
+        ['inherit', 'inherit', 'inherit', 'ipc'],
+        'the worker must be able to report authenticated completion over IPC'
+    );
     assert.equal(calls[5][1], isolatedRoot);
 });

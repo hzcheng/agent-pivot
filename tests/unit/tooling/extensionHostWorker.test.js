@@ -7,6 +7,9 @@ const {
     main,
     runExtensionHostWorker,
 } = require('../../../scripts/run-extension-host-worker');
+const {
+    EXTENSION_HOST_WORKER_COMPLETED_MESSAGE,
+} = require('../../../scripts/lib/extensionHostLauncher');
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001
 test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs verified VSIX bytes before Host activation', async () => {
@@ -101,5 +104,39 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 worker rejects malformed isolation in
     await assert.rejects(
         main(['/repository', '{not-json']),
         /JSON/
+    );
+});
+
+// RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001
+test('RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001 worker reports completion only after tests succeed', async () => {
+    const calls = [];
+    const environment = { workspace: '/isolated/workspace' };
+    const successfulOptions = {
+        downloadAndUnzipVSCode: async () => '/downloaded/code',
+        installPackagedExtensions: () => ({ evidence: [], installedRoots: {} }),
+        createExtensionHostTestHarness: () => ({ runnerPath: '/harness/index.js' }),
+        createRunTestsOptions: () => ({}),
+        runTests: async () => { calls.push('run-tests'); },
+        notifyCompletion: async message => { calls.push(['notify', message]); },
+        logger: { log: () => {} },
+    };
+
+    await main(['/repository', JSON.stringify(environment)], successfulOptions);
+    assert.deepEqual(calls, [
+        'run-tests',
+        ['notify', EXTENSION_HOST_WORKER_COMPLETED_MESSAGE],
+    ]);
+
+    await assert.rejects(
+        main(['/repository', JSON.stringify(environment)], {
+            ...successfulOptions,
+            runTests: async () => { throw new Error('real test failure'); },
+        }),
+        /real test failure/
+    );
+    assert.equal(
+        calls.filter(call => Array.isArray(call) && call[0] === 'notify').length,
+        1,
+        'a failed test run must not report completion'
     );
 });

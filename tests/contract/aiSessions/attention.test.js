@@ -1320,6 +1320,8 @@ test('ATTENTION-BRIDGE-STALENESS-001 never resurrects a dot another window ackno
 
     assert.deepEqual(f.dotSessions(), [],
         'a cross-window acknowledgement must stay acknowledged');
+    assert.deepEqual(f.controller.getRecoverySessionEvents(), [],
+        'the direct Webview projection must not bypass the authoritative aggregate');
 });
 
 test('ATTENTION-BRIDGE-STALENESS-001 leaves sessions owned by other windows untouched', async () => {

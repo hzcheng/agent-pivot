@@ -565,8 +565,14 @@ function objectFreezeProperties(sourceFile, variableName, id, risk) {
 const guards = {
     // ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001
     'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001'(root) {
-        const risk = 'independent session navigation pipelines can race and project different targets';
+        const risk = 'terminal-moving session commands can race and project different targets';
         const dashboard = parseTypescript(root, 'src/dashboard.ts', this.id, risk);
+        const quickSwitch = parseTypescript(
+            root,
+            'src/dashboard/sessionQuickSwitch.ts',
+            this.id,
+            risk,
+        );
         const coordinator = findVariable(
             dashboard,
             'sessionNavigationCoordinator',
@@ -583,6 +589,7 @@ const guards = {
         for (const factoryName of [
             'createAttentionQueueJumpHandler',
             'createRunningSessionJumpHandler',
+            'createAiSessionQuickSwitchHandlers',
         ]) {
             const calls = callArguments(dashboard, factoryName);
             const options = calls.length === 1 ? calls[0][0] : null;
@@ -595,7 +602,7 @@ const guards = {
                 || navigationOwner.initializer.getText(dashboard)
                     !== 'sessionNavigationCoordinator') {
                 fail(this.id, risk,
-                    'both session commands must use the shared navigation coordinator');
+                    'every direct session command must use the shared navigation coordinator');
             }
             const localNavigator = options.properties.find(property =>
                 property.name?.getText(dashboard) === 'navigateSession');
@@ -605,7 +612,48 @@ const guards = {
                     'sessionNavigationFocusExecutor.execute',
                 ).length !== 1) {
                 fail(this.id, risk,
-                    'both session commands must use the shared local focus executor');
+                    'every direct session command must use the shared local focus executor');
+            }
+        }
+        if (callArguments(quickSwitch, 'navigationCoordinator.enqueue').length !== 3
+            || callArguments(quickSwitch, 'options.navigateSession').length !== 1
+            || callArguments(quickSwitch, 'options.focusSession').length !== 0
+            || callArguments(quickSwitch, 'options.openConversation').length !== 0) {
+            fail(this.id, risk,
+                'Quick Switch and Toggle must own no navigation path outside the shared transaction');
+        }
+        const commandHandlers = findVariable(
+            dashboard,
+            'commandHandlers',
+            this.id,
+            risk,
+        );
+        if (!commandHandlers.initializer
+            || !ts.isObjectLiteralExpression(commandHandlers.initializer)) {
+            fail(this.id, risk, 'dashboard command handlers must remain one object literal');
+        }
+        for (const [name, direction] of [
+            ['previousActiveSession', 'previous'],
+            ['nextActiveSession', 'next'],
+        ]) {
+            const handler = commandHandlers.initializer.properties.find(property =>
+                property.name?.getText(dashboard) === name);
+            if (!handler || !ts.isPropertyAssignment(handler)
+                || callArguments(
+                    handler.initializer,
+                    'sessionNavigationCoordinator.enqueue',
+                ).length !== 1) {
+                fail(this.id, risk,
+                    'Previous and Next Active Session commands must use the shared navigation coordinator');
+            }
+            const followCalls = callArguments(
+                handler.initializer,
+                'followAdjacentActiveConversationWithFeedback',
+            );
+            if (followCalls.length !== 1
+                || stringArgument(followCalls[0][0]) !== direction) {
+                fail(this.id, risk,
+                    'Previous and Next Active Session commands must preserve their direction');
             }
         }
     },

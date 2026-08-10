@@ -1859,38 +1859,6 @@ async function initializeDashboard(
                 && Boolean(candidate.identity.sessionId));
         return direct?.identity || null;
     };
-    const focusAiSessionForQuickSwitch = (target: {
-        provider: AiSessionProviderId;
-        sessionId: string;
-    }): Promise<boolean> => {
-        const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
-        if (!cardId) {
-            return Promise.resolve(false);
-        }
-        return aiSessionTerminalCommandController.focusActive(
-            cardId,
-            target.provider,
-            target.sessionId
-        ).then(focused => {
-            if (focused) {
-                aiSessionMru.record(target.provider, target.sessionId);
-            }
-            return focused;
-        });
-    };
-    const openAiSessionConversationForQuickSwitch = (target: {
-        provider: AiSessionProviderId;
-        sessionId: string;
-    }): Promise<void> => {
-        const cardId = getCurrentWorkspaceActionTargetWithoutCardId()?.cardId;
-        return cardId
-            ? openAiSessionConversationWithFeedback({
-                projectId: cardId,
-                provider: target.provider,
-                sessionId: target.sessionId,
-            }).then(() => undefined)
-            : Promise.resolve();
-    };
     const requestRemoteAiSessionFocus = (navigationIdentity: string): Promise<boolean> =>
         openWorkspaceBridgeClient.requestRunningFocus(navigationIdentity);
     const runningSessionJumpHandler = createRunningSessionJumpHandler({
@@ -1962,6 +1930,7 @@ async function initializeDashboard(
         return { dispose: () => clearInterval(handle) };
     });
     const aiSessionQuickSwitchHandlers = createAiSessionQuickSwitchHandlers({
+        navigationCoordinator: sessionNavigationCoordinator,
         getLocalSessions: () => getCurrentWorkspaceActionTargetWithoutCardId()
             ?.sessions.activeSessions || [],
         getRemoteWindows: () => openWorkspaceDashboardController.getCards()
@@ -1984,8 +1953,8 @@ async function initializeDashboard(
             placeHolder,
             matchOnDescription: true,
         }),
-        focusSession: focusAiSessionForQuickSwitch,
-        openConversation: openAiSessionConversationForQuickSwitch,
+        navigateSession: (target, executionOptions) =>
+            sessionNavigationFocusExecutor.execute(target, executionOptions),
         requestRemoteFocus: target =>
             requestRemoteAiSessionFocus(target.navigationIdentity),
         openNavigationCard: cardId =>
@@ -2249,10 +2218,12 @@ async function initializeDashboard(
         changeGlobalSkillsLocation: () =>
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
-        previousActiveSession: () =>
-            followAdjacentActiveConversationWithFeedback('previous'),
-        nextActiveSession: () =>
-            followAdjacentActiveConversationWithFeedback('next'),
+        previousActiveSession: () => sessionNavigationCoordinator.enqueue(
+            () => followAdjacentActiveConversationWithFeedback('previous')
+        ),
+        nextActiveSession: () => sessionNavigationCoordinator.enqueue(
+            () => followAdjacentActiveConversationWithFeedback('next')
+        ),
         nextAttentionSession: () => jumpToNextAttentionSession(),
         nextRunningSession: () =>
             runningSessionJumpHandler.jumpToNextRunningSession(),

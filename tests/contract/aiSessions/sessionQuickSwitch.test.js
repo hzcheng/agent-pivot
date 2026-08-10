@@ -12,6 +12,12 @@ const {
     buildAiSessionSwitchItems,
     createAiSessionQuickSwitchHandlers,
 } = require('../../../out/dashboard/sessionQuickSwitch');
+const {
+    createRunningSessionJumpHandler,
+} = require('../../../out/dashboard/runningSessionJump');
+const {
+    createSessionNavigationCoordinator,
+} = require('../../../out/dashboard/sessionNavigationCoordinator');
 
 const WINDOW_A = 'a'.repeat(64);
 const WINDOW_B = 'b'.repeat(64);
@@ -50,6 +56,12 @@ function makeMru(keys) {
     return tracker;
 }
 
+function deferred() {
+    let resolve;
+    const promise = new Promise(done => { resolve = done; });
+    return { promise, resolve };
+}
+
 function makeOptions(overrides = {}) {
     const calls = [];
     const options = {
@@ -65,13 +77,17 @@ function makeOptions(overrides = {}) {
                     : items[overrides.pick]
             );
         },
-        focusSession: target => {
+        navigateSession: async (target, executionOptions) => {
             calls.push(['focus', target.provider, target.sessionId]);
-            return Promise.resolve(overrides.focusResult !== false);
-        },
-        openConversation: target => {
+            if (overrides.focusResult === false) {
+                return { focused: false, conversationOpened: false };
+            }
+            executionOptions.onFocused?.();
             calls.push(['open', target.provider, target.sessionId]);
-            return Promise.resolve();
+            return {
+                focused: true,
+                conversationOpened: overrides.conversationOpened !== false,
+            };
         },
         requestRemoteFocus: target => {
             calls.push(['request', target.navigationIdentity]);
@@ -110,7 +126,18 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 wires the MRU to a completion-indepen
 
     const sampler = /setInterval\(\(\) => \{\s*const identity = getFocusedAiSessionIdentity\(\);[\s\S]*?aiSessionMru\.record\(/;
     assert.match(source, sampler);
-    assert.match(source, /aiSessionMru\.record\(target\.provider, target\.sessionId\)/);
+    const quickSwitchSource = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/dashboard/sessionQuickSwitch.ts'),
+        'utf8'
+    );
+    assert.match(
+        quickSwitchSource,
+        /onFocused: \(\) => options\.mru\.record\(target\.provider, target\.sessionId\)/
+    );
+    assert.match(
+        source,
+        /navigateSession: \(target, executionOptions\) =>\s*sessionNavigationFocusExecutor\.execute\(target, executionOptions\)/
+    );
     assert.match(source, /getFocusedSessionKey: \(\) => \{\s*const identity = getFocusedAiSessionIdentity\(\);/);
 });
 
@@ -232,6 +259,84 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 switch hands off remote windows and d
     }
 });
 
+test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes Quick Switch behind an older navigation so the latest command wins', async () => {
+    const coordinator = createSessionNavigationCoordinator();
+    const olderStarted = deferred();
+    const releaseOlder = deferred();
+    const settled = [];
+    let terminal = 'initial';
+    let conversation = 'initial';
+    const running = createRunningSessionJumpHandler({
+        navigationCoordinator: coordinator,
+        buildQueue: () => ({
+            items: [{
+                kind: 'local',
+                key: 'session:codex:older',
+                provider: 'codex',
+                sessionId: 'older',
+                name: 'Older',
+            }],
+            localCount: 1,
+            remoteCount: 0,
+            total: 1,
+        }),
+        navigateSession: async item => {
+            olderStarted.resolve();
+            await releaseOlder.promise;
+            terminal = item.sessionId;
+            conversation = item.sessionId;
+            settled.push(item.sessionId);
+            return { focused: true, conversationOpened: true };
+        },
+        requestRemoteFocus: async () => false,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+    });
+    const quick = createAiSessionQuickSwitchHandlers({
+        navigationCoordinator: coordinator,
+        getLocalSessions: () => [session('codex', 'newer')],
+        getRemoteWindows: () => [],
+        getFocusedSessionKey: () => null,
+        mru: makeMru([]),
+        showPick: async items => items[0],
+        navigateSession: async (target, executionOptions) => {
+            terminal = target.sessionId;
+            executionOptions.onFocused?.();
+            conversation = target.sessionId;
+            settled.push(target.sessionId);
+            return { focused: true, conversationOpened: true };
+        },
+        // The unfixed implementation ignores the shared transaction options
+        // and calls these independent legacy callbacks immediately.
+        focusSession: async target => {
+            terminal = target.sessionId;
+            return true;
+        },
+        openConversation: async target => {
+            conversation = target.sessionId;
+            settled.push(target.sessionId);
+        },
+        requestRemoteFocus: async () => false,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+    });
+
+    const older = running.jumpToNextRunningSession();
+    await olderStarted.promise;
+    const newer = quick.switchToAiSession();
+    await new Promise(resolve => setImmediate(resolve));
+    releaseOlder.resolve();
+    await Promise.all([older, newer]);
+
+    assert.deepEqual(settled, ['older', 'newer']);
+    assert.deepEqual({ terminal, conversation }, {
+        terminal: 'newer',
+        conversation: 'newer',
+    });
+});
+
 test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 toggle alternates the two most recent local sessions', async () => {
     const mru = makeMru(['codex:c1', 'kimi:k1']);
     const toggling = makeOptions({
@@ -249,6 +354,71 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 toggle alternates the two most recent
     toggling.options.getFocusedSessionKey = () => 'codex:c1';
     await handler.toggleLastAiSession();
     assert.deepEqual(toggling.calls.slice(2), [['focus', 'kimi', 'k1'], ['open', 'kimi', 'k1']]);
+});
+
+test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 AI-SESSION-NEXT-RUNNING-COMMAND-001 resolves Toggle Last after older navigation settles', async () => {
+    const coordinator = createSessionNavigationCoordinator();
+    const olderStarted = deferred();
+    const releaseOlder = deferred();
+    const settled = [];
+    let focusedKey = 'codex:newer';
+    const mru = makeMru(['codex:newer', 'codex:older']);
+    const running = createRunningSessionJumpHandler({
+        navigationCoordinator: coordinator,
+        buildQueue: () => ({
+            items: [{
+                kind: 'local',
+                key: 'session:codex:older',
+                provider: 'codex',
+                sessionId: 'older',
+                name: 'Older',
+            }],
+            localCount: 1,
+            remoteCount: 0,
+            total: 1,
+        }),
+        navigateSession: async item => {
+            olderStarted.resolve();
+            await releaseOlder.promise;
+            focusedKey = `${item.provider}:${item.sessionId}`;
+            settled.push(item.sessionId);
+            return { focused: true, conversationOpened: true };
+        },
+        requestRemoteFocus: async () => false,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+    });
+    const toggle = createAiSessionQuickSwitchHandlers({
+        navigationCoordinator: coordinator,
+        getLocalSessions: () => [
+            session('codex', 'older'),
+            session('codex', 'newer'),
+        ],
+        getRemoteWindows: () => [],
+        getFocusedSessionKey: () => focusedKey,
+        mru,
+        showPick: async () => undefined,
+        navigateSession: async (target, executionOptions) => {
+            focusedKey = `${target.provider}:${target.sessionId}`;
+            executionOptions.onFocused?.();
+            settled.push(target.sessionId);
+            return { focused: true, conversationOpened: true };
+        },
+        requestRemoteFocus: async () => false,
+        openNavigationCard: async () => {},
+        showInformationMessage: () => {},
+        showWarningMessage: () => {},
+    });
+
+    const older = running.jumpToNextRunningSession();
+    await olderStarted.promise;
+    const newer = toggle.toggleLastAiSession();
+    releaseOlder.resolve();
+    await Promise.all([older, newer]);
+
+    assert.deepEqual(settled, ['older', 'newer']);
+    assert.equal(focusedKey, 'codex:newer');
 });
 
 test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 toggle prunes dead sessions and reports an empty history', async () => {

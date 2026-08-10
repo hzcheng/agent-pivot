@@ -38,6 +38,7 @@ import {
 } from './runningAnimationImages';
 import * as Icons from './webviewIcons';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
+import type { AiSessionPresentationStateMessage } from '../aiSessions/types';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 
 const FAVORITES_GROUP_NAME = 'FAVORITES';
@@ -69,6 +70,7 @@ export function getStewardContent(
     workspaceCards: WorkspaceCardViewModel[] = [],
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
     readyDocumentGeneration: number = 1,
+    initialAiSessionPresentation?: AiSessionPresentationStateMessage,
 ): string {
     var safeReadyDocumentGeneration = Number.isSafeInteger(readyDocumentGeneration)
         && readyDocumentGeneration > 0
@@ -89,6 +91,12 @@ export function getStewardContent(
     var searchCatalog = serializeDashboardSearchCatalog(
         buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [], infos.skills || [])
     );
+    var serializedAiSessionPresentation = initialAiSessionPresentation
+        ? JSON.stringify(initialAiSessionPresentation)
+            .replace(/</g, '\\u003c')
+            .replace(/>/g, '\\u003e')
+            .replace(/&/g, '\\u0026')
+        : '';
     var runningAnimationImages = readRunningAnimationImages(infos.config);
     var openWorkspacesContent = getOpenWorkspacesGroupContent(
         workspaceCards,
@@ -189,6 +197,9 @@ export function getStewardContent(
             <section id="dashboard-search-results" class="dashboard-search-results" aria-label="Search results" hidden></section>
         </main>
         <script id="dashboard-search-catalog" type="application/json">${searchCatalog}</script>
+        ${serializedAiSessionPresentation
+            ? `<script id="dashboard-ai-session-presentation" type="application/json">${serializedAiSessionPresentation}</script>`
+            : ''}
 
         ${getProjectContextMenu()}
         ${getGroupContextMenu()}

@@ -263,11 +263,17 @@ async function isRowFullyVisibleInList(rowLocator) {
     });
 }
 
-function documentMarkup(activeAiSessions, currentWorkspaceMarkup) {
+function documentMarkup(activeAiSessions, currentWorkspaceMarkup, initialPresentation) {
+    const initialPresentationMarkup = initialPresentation
+        ? `<script id="dashboard-ai-session-presentation" type="application/json">${JSON.stringify(
+            initialPresentation
+        ).replace(/</g, '\\u003c')}</script>`
+        : '';
     return `<!doctype html>
         <html>
             <head><style>${styles}</style></head>
             <body class="steward-sidebar">
+                ${initialPresentationMarkup}
                 <div class="steward-sticky-header"></div>
                 <div class="sticky-groups-wrapper">
                     ${currentWorkspaceMarkup || `<div class="open-current-workspace-group">
@@ -282,12 +288,17 @@ async function openCardPage(
     t,
     activeAiSessions,
     viewport = { width: 360, height: 900 },
-    currentWorkspaceMarkup
+    currentWorkspaceMarkup,
+    initialPresentation
 ) {
     const page = await browser.newPage({ viewport });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
-    await page.setContent(documentMarkup(activeAiSessions, currentWorkspaceMarkup));
+    await page.setContent(documentMarkup(
+        activeAiSessions,
+        currentWorkspaceMarkup,
+        initialPresentation
+    ));
     await page.evaluate(() => {
         window.__postedMessages = [];
         window.normalizeDashboardSearchCatalog = catalog => catalog;
@@ -697,6 +708,58 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 keeps OPEN HTML and owner even
     assert.deepEqual(acknowledgements, [{
         type: 'acknowledge-ai-session-attention',
         eventIds: ['open-event-a', 'open-event-b'],
+    }]);
+});
+
+test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 seeds the full document revision and complete attention owners', async t => {
+    const attentionSession = {
+        ...session('codex', 'session-a', true),
+        executionState: 'stopped',
+        status: 'stopped',
+        needsAttention: true,
+        attentionEventId: 'event-a',
+    };
+    const initialPresentation = presentationMessage([attentionSession], 5, {
+        attention: { 'codex:session-a': ['event-a', 'event-b'] },
+    });
+    const page = await openCardPage(
+        t,
+        [attentionSession],
+        { width: 360, height: 900 },
+        undefined,
+        initialPresentation
+    );
+
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 4,
+        projectionRevision: 4,
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([{
+            ...attentionSession,
+            attentionEventId: 'stale-event',
+        }])}</div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+
+    assert.equal(
+        await row(page, 'codex', 'session-a').getAttribute('data-session-event-id'),
+        'event-a'
+    );
+    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    const acknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.deepEqual(acknowledgements, [{
+        type: 'acknowledge-ai-session-attention',
+        eventIds: ['event-a', 'event-b'],
     }]);
 });
 

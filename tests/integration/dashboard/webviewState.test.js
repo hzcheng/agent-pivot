@@ -860,6 +860,60 @@ test('CUSTOM-RUNNING-IMAGE-001 full render injects user artwork as CSS variables
         'custom without a readable icon image must fall back to the current animation');
 });
 
+test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 embeds a safe complete presentation in the full document', () => {
+    const presentation = {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision: 9,
+        workspaceScopeIdentity: 'scope:full-render',
+        workspaceNavigationIdentity: 'navigation:full-render',
+        attentionCount: 1,
+        activeAttentionCount: 1,
+        runningSessionCount: 0,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: false,
+        focusedTarget: { provider: 'codex', sessionId: 'full-render' },
+        attentionSessions: [{
+            sessionKey: 'codex:full-render',
+            eventIds: ['event-a', 'event</script><script>hostile'],
+        }],
+        sessions: [{
+            provider: 'codex',
+            sessionId: 'full-render',
+            executionState: 'stopped',
+            focused: true,
+            needsAttention: true,
+            conflict: false,
+            eventIds: ['event-a', 'event</script><script>hostile'],
+        }],
+    };
+    const html = webviewModules.content.getStewardContent(
+        { extensionPath: '/extension' },
+        { cspSource: 'test', asWebviewUri: uri => uri.toString() },
+        [],
+        {
+            config: { get: (_key, fallback) => fallback },
+            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
+            otherStorageHasData: false,
+            todoSearchItems: [],
+        },
+        true,
+        [],
+        'ready',
+        3,
+        presentation,
+    );
+
+    assert.match(
+        html,
+        /<script id="dashboard-ai-session-presentation" type="application\/json">/
+    );
+    assert.match(html, /"projectionRevision":9/);
+    assert.match(html, /event\\u003c\/script\\u003e\\u003cscript\\u003ehostile/);
+    assert.doesNotMatch(html, /event<\/script><script>hostile/);
+});
+
 test('RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001 renders semantic tmux, direct, stale, attached, and conflict controls', () => {
     const base = {
         id: 'p', name: 'App', path: '/work/app', activeAiSessionTab: 'active',

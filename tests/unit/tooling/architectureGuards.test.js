@@ -64,6 +64,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/webview/webviewProjectCollapseScripts.js',
         'src/webview/webviewTodoControlScripts.js',
         'src/webview/webviewProjectContextMenuScripts.js',
+        'src/webview/webviewContent.ts',
         'src/webview/webviewProjectAiUpdateScripts.js',
         'src/webview/webviewProjectAiSessionControlsScripts.js',
         'src/webview/webviewProjectScripts.js',
@@ -740,6 +741,26 @@ for (const mutation of [
             source,
             'cards: this.getCards(projection)',
             'cards: this.getCards()'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'full Dashboard document must capture and embed one Presentation transaction',
+        mutate: source => replaceFixtureSource(
+            source,
+            'buildAiSessionPresentationState(false, transaction),',
+            'undefined,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'Webview must seed revision and complete owners from the full document',
+        mutate: source => replaceFixtureSource(
+            source,
+            "getElementById('dashboard-ai-session-presentation')",
+            "getElementById('missing-ai-session-presentation')"
         ),
     },
     {

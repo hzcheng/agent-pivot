@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "6cfca9f8c5e127ee675bd217eaaa7cdf92d39032",
+        "head": "94bb7eb3c9881f960a04567bfaea8010fae538e2",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -245,7 +245,8 @@
             "a760309127206890f64a3fa5e1439e75261f067e",
             "3363eb2837186021d1342c708533e1636ad080d5",
             "d9187a4aa59e8c81a4b906732164f4425a0c1ac0",
-            "49a6d3494a6d88b7e31f16bd2183b177ec19e07f"
+            "49a6d3494a6d88b7e31f16bd2183b177ec19e07f",
+            "258e6f3b76492528a4ca798842dfb448cd6f6e77"
         ]
     },
     "capabilities": [
@@ -550,7 +551,8 @@
                 "c96f1b291f18ce611c100ccdf62e97610d5fe01d",
                 "c36c1862eca52f445d217c8d353f1b115f1ea74a",
                 "4da8c5f062d86ea3812752b8c5827f63585274d0",
-                "6cfca9f8c5e127ee675bd217eaaa7cdf92d39032"
+                "6cfca9f8c5e127ee675bd217eaaa7cdf92d39032",
+                "94bb7eb3c9881f960a04567bfaea8010fae538e2"
             ],
             "behaviors": [
                 "ATTENTION-ATTENTION-PROJECTION-001",

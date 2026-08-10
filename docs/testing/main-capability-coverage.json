@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "2867df3c5ac0cd2ee69e6cb6d91fde9f53e26369",
+        "head": "48ecf9d5e2127ab94879a7a899789892881b7fe5",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -247,7 +247,8 @@
             "d9187a4aa59e8c81a4b906732164f4425a0c1ac0",
             "49a6d3494a6d88b7e31f16bd2183b177ec19e07f",
             "258e6f3b76492528a4ca798842dfb448cd6f6e77",
-            "91c9ca51ea7e3fdd0500f4ea1f14f2f233039839"
+            "91c9ca51ea7e3fdd0500f4ea1f14f2f233039839",
+            "dbf89c05a5b34dfcaabb1daf9aa5f1e28f76cdb9"
         ]
     },
     "capabilities": [
@@ -701,7 +702,8 @@
                 "fcc2af40ea5c3a4941dfe13be97e16c9a0c10b20",
                 "91094fccf74d20e553514ebfbb3705be7c5c1556",
                 "b388dee9464be7e0ac6850cd12c3a943b5868f3b",
-                "9c6a7223c606f3cdaaa2e3a3ef6f9a38f239a7c2"
+                "9c6a7223c606f3cdaaa2e3a3ef6f9a38f239a7c2",
+                "48ecf9d5e2127ab94879a7a899789892881b7fe5"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",
@@ -1506,7 +1508,8 @@
                 "b012cd88e557d70cc0d459727c71cccbc4acc3f8",
                 "2390fc13ca86aeadd6c470a92bbff673855f4310",
                 "17cf2c716dbf8b28e2f95c5f6a5de1dc14452c68",
-                "1cd090c4fcd84dd94b28f5a26117c6525958572c"
+                "1cd090c4fcd84dd94b28f5a26117c6525958572c",
+                "7f160387ab60ba5d22730b7be8978b10ae6fa949"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",

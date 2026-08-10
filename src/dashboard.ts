@@ -94,7 +94,6 @@ import {
 import {
     buildRunningSessionQueue,
 } from './aiSessions/runningQueue';
-import type { ActiveAiSessionTerminalIdentity } from './aiSessions/activeTerminalHighlight';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
 import { createAiSessionProviderRegistry } from './aiSessions/providers';
 import { ProviderDirectoryCapabilityProbe } from './aiSessions/providerDirectoryCapability';
@@ -208,7 +207,10 @@ import { WorkspacePrimaryRootStore } from './workspaces/primaryRootStore';
 import { PendingWorkspaceSaveStore } from './workspaces/pendingWorkspaceSaveStore';
 import { SavedWorkspaceProjectAdapter } from './workspaces/savedWorkspaceProjectAdapter';
 import { WorkspacePendingSessionPromotionController } from './workspaces/pendingSessionPromotionController';
-import { WorkspaceSessionHydrationController } from './workspaces/sessionHydrationController';
+import {
+    AiSessionProjectionCoordinator,
+    WorkspaceSessionHydrationController,
+} from './workspaces/sessionHydrationController';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
 
@@ -994,6 +996,7 @@ async function initializeDashboard(
         getAttachTerminalName: getAiSessionTmuxAttachTerminalName,
     });
     let publishRestoredTmuxAttachTerminal = (): void => undefined;
+    let aiSessionProjectionCoordinator: AiSessionProjectionCoordinator<vscode.Terminal>;
     const aiSessionAttentionEvent = ownResource(() => createAiSessionAttentionEventCapability({
         tmuxRuntimeDiscovery,
         tmuxRuntimeBackend,
@@ -1002,7 +1005,16 @@ async function initializeDashboard(
         getRuntimeConfiguration: () => aiSessionRuntimeConfiguration,
         getCurrentOpenWorkspace: () => getCurrentOpenWorkspace(),
         getActiveTerminal: () => vscode.window.activeTerminal || null,
-        postMessage: message => { void provider.postMessage(message); },
+        postMessage: message => {
+            const versionedMessage = message && typeof message === 'object'
+                && (message as { type?: unknown }).type === 'ai-session-attention-state'
+                ? {
+                    ...message,
+                    projectionRevision: aiSessionProjectionCoordinator.nextRevision(),
+                }
+                : message;
+            void provider.postMessage(versionedMessage);
+        },
         isVisible: () => provider.visible,
         assertActive: () => resources.assertActive(),
         createBridgeClient: (onAggregate, onError) => new AttentionBridgeClient(onAggregate, onError),
@@ -1172,11 +1184,7 @@ async function initializeDashboard(
                 : undefined;
         },
         getExpanded: scopeIdentity => aiSessionWorkspaceStateStore.getExpandedWorkspaces().has(scopeIdentity),
-        getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),
-        getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending(),
-        getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot(),
-        getFocusedIdentity: () => getFocusedAiSessionRuntimeIdentity(),
-        getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
+        getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),
         onDidReadSessions: (workspace, sessionResults, reason) => {
             void workspacePendingSessionPromotionController.promote(
                 workspace,
@@ -1240,7 +1248,6 @@ async function initializeDashboard(
         focusTerminalView: () => vscode.commands.executeCommand('workbench.action.terminal.focus'),
         nowMs: () => Date.now(),
     });
-    let aiSessionUpdateSequence = 0;
     let currentAiSessionRefreshReason = 'refresh';
     const notifyConfiguration = ownResource(() => createNotifyConfiguration({
         context,
@@ -1338,6 +1345,13 @@ async function initializeDashboard(
         },
         nowMs: () => Date.now(),
     });
+    aiSessionProjectionCoordinator = new AiSessionProjectionCoordinator<vscode.Terminal>({
+        getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),
+        getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending(),
+        getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot(),
+        getFocusedIdentity: () => getFocusedAiSessionRuntimeIdentity(),
+        getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
+    });
     const aiSessionStatus = ownResource(() => createAiSessionStatusCapability({
         getProviders: getRegisteredAiSessionProviders,
         getLifecycleRequests: () => [
@@ -1402,8 +1416,11 @@ async function initializeDashboard(
         getCards: getOpenWorkspaceCards,
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
-        nextSequence: () => ++aiSessionUpdateSequence,
-        postMessage: message => provider.postMessage(message),
+        nextSequence: () => aiSessionProjectionCoordinator.nextRevision(),
+        postMessage: message => provider.postMessage({
+            ...(message as unknown as Record<string, unknown>),
+            projectionRevision: (message as AiSessionsUpdatedMessage).sequence,
+        }),
         refresh: refreshStewardViews,
         logError,
         logDiagnostic: logAiSessionDiagnostic,
@@ -1726,7 +1743,10 @@ async function initializeDashboard(
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         getBridgeInstanceId: () => openWorkspaceBridgeClient.instanceId,
-        postMessage: message => provider.postMessage(message),
+        postMessage: message => provider.postMessage({
+            ...(message as Record<string, unknown>),
+            projectionRevision: aiSessionProjectionCoordinator.nextRevision(),
+        }),
         refresh: refreshStewardViews,
         isVisible: () => provider.visible,
         logDiagnostic: logOpenWorkspaceDiagnostic,
@@ -2037,7 +2057,7 @@ async function initializeDashboard(
             providerId => getAiSessionTerminalCandidates(providerId, aiSessionReadCoordinator)
         ),
         isComplete: resolution => aiSessionTerminalService.isComplete(resolution.entry),
-        publish: identity => postActiveAiSessionTerminalChanged(identity),
+        publish: () => postActiveAiSessionTerminalChanged(),
         onComplete: resolution => {
             if (!resolution.entry.runtimeIdentity) {
                 return;
@@ -2539,9 +2559,20 @@ async function initializeDashboard(
         dashboardRuntimeController.postBatchArchiveCompletion(message);
     }
 
-    function postActiveAiSessionTerminalChanged(identity: ActiveAiSessionTerminalIdentity | null) {
+    function postActiveAiSessionTerminalChanged() {
         void conversationCapability.reconcile();
-        dashboardRuntimeController.postActiveAiSessionTerminalChanged(identity);
+        const projection = aiSessionProjectionCoordinator.captureNext();
+        const focusedIdentity = projection.focusedIdentity;
+        dashboardRuntimeController.postActiveAiSessionTerminalChanged(
+            focusedIdentity?.sessionId
+                ? {
+                    provider: focusedIdentity.provider,
+                    sessionId: focusedIdentity.sessionId,
+                    workspaceScopeIdentity: focusedIdentity.workspaceScopeIdentity,
+                }
+                : null,
+            projection.revision,
+        );
     }
 
     function invalidateAiSessionCache(providerId: AiSessionProviderId) {

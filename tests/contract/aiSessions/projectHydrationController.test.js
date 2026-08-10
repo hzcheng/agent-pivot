@@ -68,33 +68,36 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
             ? { primaryProvider: 'codex', selectedProviders: ['codex', 'kimi'] }
             : undefined,
         getExpanded: scope => scope === WORKSPACE.scopeIdentity,
-        getActiveRuntimes: () => [{
-            identity: activeIdentity,
-            backend: 'vscode', state: 'active', markerPath: '/tmp/a.done',
-            runStartedAtMs: 1, attached: true,
-        }],
-        getPendingRuntimes: () => [{
-            identity: pendingIdentity,
-            backend: 'tmux', state: 'pending', markerPath: '/tmp/pending.done',
-            runStartedAtMs: 2, attached: false, createdAt: '2026-07-16T10:01:00Z',
-            excludedSessionIds: [], title: 'New Kimi',
-            tmux: { layout: 'session', sessionName: 'fixture' },
-        }],
-        getExecutionSnapshot: () => ({
-            'codex:session-a': { state: 'running', token: 'run', occurredAtMs: 3 },
-        }),
-        getFocusedIdentity: () => activeIdentity,
-        getAttentionAggregate: () => ({
-            protocolVersion: 1,
-            aggregateRevision: 'a'.repeat(64),
-            generatedAtMs: 4,
-            sessions: [{
-                projectId: getAttentionProjectKeys(['file:///work/a'])[0],
-                sessionKey: 'codex:session-a',
-                reasons: ['completed'],
-                eventIds: ['event-a'],
-                observedAtMs: 4,
+        getProjectionSnapshot: () => ({
+            revision: 1,
+            activeRuntimes: [{
+                identity: activeIdentity,
+                backend: 'vscode', state: 'active', markerPath: '/tmp/a.done',
+                runStartedAtMs: 1, attached: true,
             }],
+            pendingRuntimes: [{
+                identity: pendingIdentity,
+                backend: 'tmux', state: 'pending', markerPath: '/tmp/pending.done',
+                runStartedAtMs: 2, attached: false, createdAt: '2026-07-16T10:01:00Z',
+                excludedSessionIds: [], title: 'New Kimi',
+                tmux: { layout: 'session', sessionName: 'fixture' },
+            }],
+            executionSnapshot: {
+                'codex:session-a': { state: 'running', token: 'run', occurredAtMs: 3 },
+            },
+            focusedIdentity: activeIdentity,
+            attentionAggregate: {
+                protocolVersion: 1,
+                aggregateRevision: 'a'.repeat(64),
+                generatedAtMs: 4,
+                sessions: [{
+                    projectId: getAttentionProjectKeys(['file:///work/a'])[0],
+                    sessionKey: 'codex:session-a',
+                    reasons: ['completed'],
+                    eventIds: ['event-a'],
+                    observedAtMs: 4,
+                }],
+            },
         }),
         nowMs: () => { nowMs += 7; return nowMs; },
         logDiagnostic: event => diagnostics.push(event),

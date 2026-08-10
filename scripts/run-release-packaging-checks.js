@@ -411,7 +411,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     );
     assert.strictEqual(
         path.basename(bridgeArtifact),
-        'agent-pivot-attention-ui-bridge-1.0.1.vsix',
+        'agent-pivot-attention-ui-bridge-1.0.2.vsix',
         'UI Bridge release artifact name must remain exact',
     );
     const mainEntries = readZipArchive(mainArtifact);

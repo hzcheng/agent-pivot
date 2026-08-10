@@ -9,6 +9,9 @@ import type { Group, WorkspaceCardViewModel } from '../models';
 import { buildOpenWorkspacesUpdatedMessage } from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import type { OpenWorkspace } from '../workspaces/types';
+import {
+    CurrentWorkspaceSessionAuthority,
+} from '../workspaces/currentWorkspaceSessionAuthority';
 import type { OpenWorkspaceBridgeStatus } from './bridgeClient';
 import {
     compareOpenWorkspaceCardOrder,
@@ -35,6 +38,12 @@ export interface OpenWorkspaceDashboardControllerOptions {
     getWorkspaceProjectColor: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
     getWorkspaceProjectName?: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
     getCurrentWorkspaceAiSessions: (workspace: OpenWorkspace) => WorkspaceAiSessionViewModel | null;
+    getCurrentWorkspaceSessionProjectId?: (
+        identity: {
+            workspaceNavigationIdentity: string;
+            workspaceScopeIdentity: string;
+        }
+    ) => string;
     getAiSessionProjectionRevision?: () => number;
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
@@ -67,6 +76,8 @@ export class OpenWorkspaceDashboardController {
     private cachedCards: WorkspaceCardViewModel[] | null = null;
     private cachedCardsKey: string | null = null;
     private cachedCardsExpiresAtMs = 0;
+    private readonly fallbackCurrentWorkspaceSessionAuthority =
+        new CurrentWorkspaceSessionAuthority();
 
     constructor(private readonly options: OpenWorkspaceDashboardControllerOptions) {
         this.fallbackOpenedAtMs = this.nowMs();
@@ -285,10 +296,17 @@ export class OpenWorkspaceDashboardController {
         navigationIdentity: string,
         pinned: boolean,
     ): WorkspaceCardViewModel {
-        const digest = crypto.createHash('sha256').update(workspace.scopeIdentity).digest('hex').slice(0, 24);
+        const projectId = (
+            this.options.getCurrentWorkspaceSessionProjectId
+            || (identity => this.fallbackCurrentWorkspaceSessionAuthority
+                .getProjectId(identity))
+        )({
+            workspaceNavigationIdentity: navigationIdentity,
+            workspaceScopeIdentity: workspace.scopeIdentity,
+        });
         const aiSessions = this.options.getCurrentWorkspaceAiSessions(workspace) || undefined;
         return {
-            id: `__currentWorkspace-${digest}`,
+            id: projectId,
             kind: 'current',
             workspaceKind: workspace.kind,
             showSaveAction: workspace.kind === 'untitledMultiRoot'

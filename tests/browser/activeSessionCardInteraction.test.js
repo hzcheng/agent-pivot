@@ -26,6 +26,9 @@ function loadWebviewContent() {
 }
 
 const { getAiSessionsDiv, getCurrentWorkspaceGroupContent } = loadWebviewContent();
+const {
+    CurrentWorkspaceSessionAuthority,
+} = require('../../out/workspaces/currentWorkspaceSessionAuthority');
 const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
     'utf8'
@@ -155,16 +158,24 @@ function projectMarkup(activeAiSessions) {
     </div>`;
 }
 
-function currentWorkspaceGroupMarkup(activeAiSessions, attentionCount = 0) {
+function currentWorkspaceGroupMarkup(
+    activeAiSessions,
+    attentionCount = 0,
+    options = {}
+) {
+    const projectId = options.projectId || 'project-a';
+    const scopeIdentity = options.scopeIdentity || 'scope-project-a';
+    const navigationIdentity = options.navigationIdentity
+        || 'navigation-project-a';
     return getCurrentWorkspaceGroupContent({
-        id: 'project-a',
+        id: projectId,
         kind: 'current',
         workspaceKind: 'singleFolder',
         showSaveAction: false,
         runningSessionCount: activeAiSessions
             .filter(entry => entry.executionState === 'running').length,
-        navigationIdentity: 'navigation-project-a',
-        scopeIdentity: 'scope-project-a',
+        navigationIdentity,
+        scopeIdentity,
         name: 'Project A',
         environment: 'local',
         environmentLabel: 'Local',
@@ -1006,6 +1017,55 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 click focuses an unfocused card and o
             .locator('.ai-session-open-conversation-hint').count(),
         0
     );
+});
+
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 rendered Conversation actions keep one project authority when roots change', async t => {
+    const authority = new CurrentWorkspaceSessionAuthority();
+    const beforeProjectId = authority.getProjectId({
+        workspaceNavigationIdentity: 'navigation:reddb-dev',
+        workspaceScopeIdentity: 'scope:three-roots',
+    });
+    const active = [session('codex', 'session-a', true)];
+    const page = await openCardPage(
+        t,
+        active,
+        { width: 360, height: 900 },
+        currentWorkspaceGroupMarkup(active, 0, {
+            projectId: beforeProjectId,
+            scopeIdentity: 'scope:three-roots',
+            navigationIdentity: 'navigation:reddb-dev',
+        })
+    );
+    const afterProjectId = authority.getProjectId({
+        workspaceNavigationIdentity: 'navigation:reddb-dev',
+        workspaceScopeIdentity: 'scope:five-roots',
+    });
+
+    await postHostMessage(page, {
+        type: 'workspace-updated',
+        version: 2,
+        currentWorkspaceCount: 1,
+        html: currentWorkspaceGroupMarkup(active, 0, {
+            projectId: afterProjectId,
+            scopeIdentity: 'scope:five-roots',
+            navigationIdentity: 'navigation:reddb-dev',
+        }),
+    });
+    await row(page, 'codex', 'session-a')
+        .locator('.ai-session-primary-action')
+        .click();
+
+    assert.equal(
+        await page.locator('[data-current-workspace]').getAttribute('data-id'),
+        beforeProjectId
+    );
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'open-active-ai-session-conversation',
+        version: 1,
+        projectId: beforeProjectId,
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
 });
 
 test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card header without focusing another session', async t => {

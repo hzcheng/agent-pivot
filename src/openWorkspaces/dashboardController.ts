@@ -8,7 +8,6 @@ import { PREDEFINED_COLORS } from '../constants';
 import type { Group, WorkspaceCardViewModel } from '../models';
 import { buildOpenWorkspacesUpdatedMessage } from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
-import { getWorkspaceAttentionSummary } from '../workspaces/attentionProjection';
 import type { OpenWorkspace } from '../workspaces/types';
 import type { OpenWorkspaceBridgeStatus } from './bridgeClient';
 import {
@@ -36,6 +35,7 @@ export interface OpenWorkspaceDashboardControllerOptions {
     getWorkspaceProjectColor: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
     getWorkspaceProjectName?: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
     getCurrentWorkspaceAiSessions: (workspace: OpenWorkspace) => WorkspaceAiSessionViewModel | null;
+    getAiSessionProjectionRevision?: () => number;
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
@@ -136,7 +136,6 @@ export class OpenWorkspaceDashboardController {
         const currentCard = currentWorkspace
             ? this.createCurrentCard(
                 currentWorkspace,
-                attentionAggregate,
                 currentNavigationIdentity || currentWorkspace.navigationIdentity,
                 pinTimes.has(currentNavigationIdentity || currentWorkspace.navigationIdentity),
             )
@@ -283,7 +282,6 @@ export class OpenWorkspaceDashboardController {
 
     private createCurrentCard(
         workspace: OpenWorkspace,
-        attentionAggregate: AttentionAggregate | null,
         navigationIdentity: string,
         pinned: boolean,
     ): WorkspaceCardViewModel {
@@ -309,7 +307,7 @@ export class OpenWorkspaceDashboardController {
                 .sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id))
                 .map(root => ({ id: root.id, name: root.name, ordinal: root.ordinal })),
             aiSessions,
-            attentionCount: getWorkspaceAttentionSummary(workspace, attentionAggregate).attentionCount,
+            attentionCount: aiSessions?.attentionCount || 0,
         };
     }
 
@@ -385,6 +383,7 @@ export class OpenWorkspaceDashboardController {
             this.aggregate?.semanticRevision || null,
             this.pinSnapshot.revision,
             attentionAggregate?.aggregateRevision || null,
+            this.options.getAiSessionProjectionRevision?.() ?? null,
             workspace ? {
                 navigationIdentity: workspace.navigationIdentity,
                 scopeIdentity: workspace.scopeIdentity,

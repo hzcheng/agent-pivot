@@ -10,6 +10,9 @@ const { hydrateWorkspaceAiSessions } = require('../../../out/workspaces/sessionH
 const { getAttentionProjectKeys } = require('../../../out/aiSessions/attentionProject');
 const { getAiSessionTerminalCandidates } = require('../../../out/aiSessions/terminalCandidates');
 const ActiveAiSessionTerminalHighlighter = require('../../../out/aiSessions/activeTerminalHighlight').default;
+const {
+    projectWorkspaceActiveSessions,
+} = require('../../../out/workspaces/activeSessionPresentation');
 
 test('PROJECT-TERMINAL-CANDIDATE-001 reads provider sessions through the terminal-candidate cache reason', () => {
     const sessions = [{ id: 'candidate', name: 'Candidate' }];
@@ -97,6 +100,12 @@ test('PROJECT-ACTIVE-AI-SESSION-PROJECTION-001 OPEN-OPEN-PROJECT-AI-SESSION-VIEW
                 reasons: ['input-required'],
                 eventIds: ['attention'],
                 observedAtMs: 1,
+            }, {
+                projectId: getAttentionProjectKeys(['file:///fixtures/app'])[0],
+                sessionKey: 'codex:direct',
+                reasons: ['completed'],
+                eventIds: ['stale-running-attention'],
+                observedAtMs: 1,
             }],
         },
     });
@@ -104,22 +113,79 @@ test('PROJECT-ACTIVE-AI-SESSION-PROJECTION-001 OPEN-OPEN-PROJECT-AI-SESSION-VIEW
     assert.deepEqual(projected.activeSessions.map(runtime => ({
         provider: runtime.provider,
         backend: runtime.backend,
-        status: runtime.status,
+        executionState: runtime.executionState,
+        focused: runtime.focused,
+        needsAttention: runtime.needsAttention,
         attached: runtime.attached,
         conflict: runtime.conflict || false,
         stale: runtime.stale || false,
     })), [{
-        provider: 'kimi', backend: 'tmux', status: 'conflict', attached: false,
+        provider: 'kimi', backend: 'tmux', executionState: 'stopped', focused: false,
+        needsAttention: true, attached: false,
         conflict: true, stale: true,
     }, {
-        provider: 'codex', backend: 'vscode', status: 'focused', attached: true,
+        provider: 'codex', backend: 'vscode', executionState: 'running', focused: true,
+        needsAttention: false, attached: true,
         conflict: false, stale: false,
     }, {
-        provider: 'claude', backend: 'tmux', status: 'starting', attached: false,
+        provider: 'claude', backend: 'tmux', executionState: 'starting', focused: false,
+        needsAttention: false, attached: false,
         conflict: false, stale: false,
     }]);
+    assert.equal(projected.attentionCount, 1,
+        'a running Active Session suppresses its stale Attention from the card summary too');
     assert.equal(projected.sessionsByProvider.codex[0].active, true);
     assert.equal(projected.sessionsByProvider.kimi[0].attention.eventId, 'attention');
+});
+
+test('PROJECT-ACTIVE-AI-SESSION-PROJECTION-001 projects pending focus as an authoritative target', () => {
+    const workspace = {
+        navigationIdentity: 'navigation:pending-focus',
+        scopeIdentity: 'scope:pending-focus',
+        kind: 'singleFolder',
+        displayName: 'Pending Focus',
+        navigationUri: 'file:///fixtures/pending-focus',
+        environment: 'local',
+        roots: [{
+            id: 'root:pending-focus',
+            name: 'pending-focus',
+            uri: 'file:///fixtures/pending-focus',
+            hostPath: '/fixtures/pending-focus',
+            ordinal: 0,
+        }],
+    };
+    const identity = {
+        provider: 'codex',
+        workspaceScopeIdentity: workspace.scopeIdentity,
+        workspaceNavigationIdentity: workspace.navigationIdentity,
+        workspaceRootHostPaths: ['/fixtures/pending-focus'],
+        cwd: '/fixtures/pending-focus',
+        pendingId: 'pending-focus-one',
+    };
+
+    const presentation = projectWorkspaceActiveSessions({
+        workspace,
+        activeRuntimes: [],
+        pendingRuntimes: [{
+            identity,
+            backend: 'tmux',
+            state: 'pending',
+            markerPath: '/tmp/pending-focus.done',
+            runStartedAtMs: 30,
+            attached: true,
+            createdAt: '2026-08-10T00:00:00.000Z',
+            excludedSessionIds: [],
+            tmux: { layout: 'project', sessionName: 'pending-focus' },
+        }],
+        executionSnapshot: {},
+        focusedIdentity: identity,
+        attentionAggregate: null,
+    });
+
+    assert.deepEqual(presentation.focusedTarget, {
+        provider: 'codex',
+        pendingId: 'pending-focus-one',
+    });
 });
 
 test('PROJECT-ACTIVE-AI-SESSION-PROJECTION-001 keeps active session cards stable when terminal focus changes', () => {

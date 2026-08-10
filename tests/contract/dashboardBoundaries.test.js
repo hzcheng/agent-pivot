@@ -161,12 +161,10 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 refreshes and reveals only throug
     await assert.doesNotReject(revealThrows.controller.revealAgentPivotDashboard());
 });
 
-test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 publishes exact batch, terminal, mutation, color, and visibility effects', async () => {
+test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 publishes exact batch, mutation, color, and visibility effects', async () => {
     const harness = runtimeHarness();
     const batch = { type: 'ai-session-batch-archive-completed', archived: 2 };
     harness.controller.postBatchArchiveCompletion(batch);
-    harness.controller.postActiveAiSessionTerminalChanged({ provider: 'codex', sessionId: 's1' });
-    harness.controller.postActiveAiSessionTerminalChanged(null);
     harness.controller.applyProjectColorToCurrentWindow();
     harness.controller.applyProjectColorToCurrentWindow({ id: 'save', showSaveAction: true });
     harness.controller.refreshAfterMutation('saved');
@@ -174,8 +172,6 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 publishes exact batch, terminal, 
 
     assert.deepEqual(harness.events, [
         ['message', batch],
-        ['message', { type: 'active-ai-session-terminal-changed', provider: 'codex', sessionId: 's1' }],
-        ['message', { type: 'active-ai-session-terminal-changed', provider: null, sessionId: null }],
         ['color', 'project'],
         ['color', 'save'],
         ['color', 'project'],
@@ -232,12 +228,10 @@ test('RUNTIME-DASHBOARD-RUNTIME-CONTROLLER-001 maps rejected promises and synchr
             logError: (message, error) => errors.push([message, error.message]),
         });
         controller.postBatchArchiveCompletion({ type: 'batch' });
-        controller.postActiveAiSessionTerminalChanged(null);
         controller.applyProjectColorToCurrentWindow();
         await flushAsync();
         assert.deepEqual(errors, [
             ['Failed to post batch AI session archive completion.', `${mode} failure`],
-            ['Failed to post the active AI session terminal.', `${mode} failure`],
             ['Failed to apply project color to current window.', `${mode} failure`],
         ]);
     }

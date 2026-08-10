@@ -139,6 +139,7 @@ test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 coalesces rapid OPEN revisions be
 
 test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses one card projection across a burst of sidebar consumers', () => {
     let nowMs = 5_000;
+    let aiSessionProjectionRevision = 1;
     let hydrationCalls = 0;
     let savedAsProject = false;
     const controller = new OpenWorkspaceDashboardController(createOptions({
@@ -147,6 +148,7 @@ test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses one card projection across
             hydrationCalls += 1;
             return null;
         },
+        getAiSessionProjectionRevision: () => aiSessionProjectionRevision,
         nowMs: () => nowMs,
     }));
 
@@ -157,17 +159,34 @@ test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses one card projection across
     assert.equal(hydrationCalls, 1,
         'parallel dashboard consumers must share one expensive session projection');
 
+    aiSessionProjectionRevision += 1;
+    const freshAiProjection = controller.getCards();
+    assert.notStrictEqual(freshAiProjection, first,
+        'a newer AI Session projection must never reuse stale cached card HTML');
+    assert.equal(hydrationCalls, 2);
+
     savedAsProject = true;
     const savedProjection = controller.getCards();
-    assert.notStrictEqual(savedProjection, first,
+    assert.notStrictEqual(savedProjection, freshAiProjection,
         'a semantic workspace change must invalidate the burst immediately');
     assert.equal(savedProjection[0].showSaveAction, false);
-    assert.equal(hydrationCalls, 2);
+    assert.equal(hydrationCalls, 3);
 
     nowMs += 1_000;
     assert.notStrictEqual(controller.getCards(), savedProjection,
         'the burst cache must not become an authoritative long-lived snapshot');
-    assert.equal(hydrationCalls, 3);
+    assert.equal(hydrationCalls, 4);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 current cards consume the hydrated attention projection', () => {
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspaceAiSessions: () => ({
+            activeSessions: [],
+            attentionCount: 2,
+        }),
+    }));
+
+    assert.equal(controller.getCards()[0].attentionCount, 2);
 });
 
 test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together without focus-driven movement', () => {

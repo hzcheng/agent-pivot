@@ -1,8 +1,7 @@
 'use strict';
 
-import type { AiSessionProviderId, Project } from '../models';
-import type { AiSessionActiveTerminalChangedMessage, AiSessionBatchArchiveCompletedMessage } from '../aiSessions/types';
-import type { ActiveAiSessionTerminalIdentity } from '../aiSessions/activeTerminalHighlight';
+import type { Project } from '../models';
+import type { AiSessionBatchArchiveCompletedMessage } from '../aiSessions/types';
 import {
     AGENT_PIVOT_EXTENSION_ID,
     AGENT_PIVOT_VIEW_CONTAINER_ID,
@@ -112,21 +111,6 @@ export class DashboardRuntimeController<TProject extends Project = Project> {
     postBatchArchiveCompletion(message: AiSessionBatchArchiveCompletedMessage): void {
         this.runAsync(() => this.options.postMessage(message)).then(undefined, error => {
             this.options.logError('Failed to post batch AI session archive completion.', error);
-        });
-    }
-
-    postActiveAiSessionTerminalChanged(
-        identity: ActiveAiSessionTerminalIdentity | null,
-        projectionRevision?: number,
-    ): void {
-        const message: AiSessionActiveTerminalChangedMessage & { projectionRevision?: number } = {
-            type: 'active-ai-session-terminal-changed',
-            ...(Number.isSafeInteger(projectionRevision) ? { projectionRevision } : {}),
-            provider: identity?.provider as AiSessionProviderId || null,
-            sessionId: identity?.sessionId || null,
-        };
-        this.runAsync(() => this.options.postMessage(message)).then(undefined, error => {
-            this.options.logError('Failed to post the active AI session terminal.', error);
         });
     }
 

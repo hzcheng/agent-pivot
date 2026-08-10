@@ -423,19 +423,17 @@ async function runTerminalCloseContract(transform = source => source, scenario =
                 'incremental AI-session render after the active terminal change',
             );
             const renderedMessages = postedMessages.slice(messageMark);
-            const attentionStateIndex = renderedMessages
-                .findIndex(message => message && message.type === 'ai-session-attention-state');
+            const presentationStateIndex = renderedMessages
+                .findIndex(message => message && message.type === 'ai-session-presentation-state');
             const updateIndex = renderedMessages
                 .findIndex(message => message && message.type === 'ai-sessions-updated');
-            assert.ok(attentionStateIndex >= 0,
-                'WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 every incremental render must publish the current attention event map');
-            assert.ok(updateIndex > attentionStateIndex,
-                'WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 the attention event map must reach the webview before the HTML update');
-            assert.deepEqual(renderedMessages[attentionStateIndex].sessionEvents,
-                [{ sessionKey: 'codex:session', eventIds: ['attention-event'] }],
-                'WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 the attention state must carry every recovery session event');
-            assert.deepEqual(renderedMessages[attentionStateIndex].eventIds, ['attention-event'],
-                'WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 the attention state must carry the current attention event ids');
+            assert.ok(presentationStateIndex >= 0,
+                'WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 every incremental render must publish the current presentation snapshot');
+            assert.ok(updateIndex > presentationStateIndex,
+                'WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 the presentation snapshot must reach the webview before the HTML update');
+            assert.deepEqual(renderedMessages[presentationStateIndex].attentionSessions, [],
+                'WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 the snapshot must not revive stale Attention owners');
+            assert.equal(renderedMessages[presentationStateIndex].attentionCount, 0);
             return calls;
         }
 

@@ -44,7 +44,7 @@ export async function submitConversationPrompt<
     if (!workspace || !session || typeof prompt !== 'string' || !prompt.trim()) {
         throw new ConversationCommentError('unavailable');
     }
-    if (session.conflict || session.status === 'conflict') {
+    if (session.conflict) {
         throw new ConversationCommentError('conflict');
     }
     if (session.executionState === 'running'

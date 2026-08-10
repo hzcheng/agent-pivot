@@ -17,6 +17,7 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     sessionsByProvider: Partial<Record<AiSessionProviderId, AiSessionViewModel[]>>;
     unavailableProviders: readonly AiSessionProviderId[];
     activeSessions: readonly ActiveAiSessionViewModel[];
+    attentionCount: number;
     activeProvider?: AiSessionProviderId;
     providerSelection?: AiSessionProviderSelection;
     expanded?: boolean;
@@ -60,9 +61,7 @@ export function buildWorkspaceAiSessionViewModel(
             .filter(provider => unavailableProviders.has(provider.id))
             .map(provider => provider.id),
         aiSessionCount: providers.reduce((count, provider) => count + provider.count, 0),
-        attentionCount: Object.values(sessionsByProvider)
-            .reduce((count, sessions) => count + (sessions || [])
-                .filter(session => session.attention?.unread).length, 0),
+        attentionCount: input.attentionCount,
         defaultTab: activeSessions.length ? 'active' : 'sessions',
         activeSessions,
         activeSessionCount: activeSessions.length,

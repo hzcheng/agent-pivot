@@ -1166,7 +1166,22 @@ async function runOpenWorkspaceClientAndControllerChecks() {
             if (workspace.navigationUri === duplicateNewer.navigationUri) return '#abcdef';
             return '';
         },
-        getCurrentWorkspaceAiSessions: () => null,
+        getCurrentWorkspaceAiSessions: () => ({
+            workspaceScopeIdentity: current.scopeIdentity,
+            workspaceNavigationIdentity: current.navigationIdentity,
+            activeProvider: 'codex',
+            selectedProviders: ['codex'],
+            expanded: false,
+            providers: [],
+            sessionsByProvider: {},
+            unavailableProviders: [],
+            aiSessionCount: 0,
+            activeSessions: [],
+            activeSessionCount: 0,
+            activeAttentionCount: 0,
+            defaultTab: 'active',
+            attentionCount: dashboardAttention ? 1 : 0,
+        }),
         getGroups: () => [],
         getTodoSearchItems: () => [],
         getCollapsed: () => false,

@@ -692,7 +692,9 @@ function runWorkspaceSessionHydrationChecks() {
         && session.backend === 'tmux' && session.primaryRootId === 'root-web'));
     const activeWeb = result.activeSessions.find(session => session.sessionId === 'web-history');
     assert.strictEqual(activeWeb.needsAttention, true);
-    assert.strictEqual(activeWeb.status, 'needsAttention');
+    assert.strictEqual(activeWeb.executionState, 'stopped');
+    assert.strictEqual(activeWeb.focused, false);
+    assert.strictEqual(activeWeb.conflict, undefined);
     assert.strictEqual(activeWeb.attentionEventId, 'event-web-new');
     assert.strictEqual(result.attentionCount, 2);
     assert.strictEqual(result.activeAttentionCount, 1);
@@ -4961,6 +4963,14 @@ function runWebviewContentChecks() {
     const attentionMonitorSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'attentionMonitor.ts'), 'utf8');
     const executionControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'aiSessions', 'executionController.ts'), 'utf8');
     const dashboardRuntimeControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'runtimeController.ts'), 'utf8');
+    const activeSessionPresentationSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'workspaces', 'activeSessionPresentation.ts'),
+        'utf8'
+    );
+    const openWorkspaceDashboardSource = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'openWorkspaces', 'dashboardController.ts'),
+        'utf8'
+    );
     const dashboardLifecycleControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard', 'lifecycleController.ts'), 'utf8');
     const evaluateAttentionFunction = extractMethodBody(attentionControllerSource, 'evaluate');
     const evaluateAttentionMonitorFunction = extractMethodBody(attentionMonitorSource, 'evaluate');
@@ -5062,6 +5072,7 @@ function runWebviewContentChecks() {
             },
             {
                 key: 'pending:claude:2026-07-18T03:00:00Z', provider: 'claude', name: 'New Claude',
+                pendingId: 'pending-claude',
                 executionState: 'starting', focused: false, needsAttention: false, pending: true,
                 createdAt: '2026-07-18T03:00:00Z',
                 backend: 'vscode', attached: true,
@@ -5162,6 +5173,7 @@ function runWebviewContentChecks() {
     assert.ok(attentionRows[0].includes('data-session-needs-attention'));
     assert.ok(!sessionTabsHtml.includes('data-session-status='));
     assert.ok(sessionTabsHtml.includes('data-session-pending'));
+    assert.ok(sessionTabsHtml.includes('data-pending-id="pending-claude"'));
     assert.ok(sessionTabsHtml.includes('data-session-active'));
     assert.ok(sessionTabsHtml.includes('Stop the active runtime before archiving.'));
     assert.ok(sessionTabsHtml.includes('aria-live="polite"'));
@@ -5219,7 +5231,31 @@ function runWebviewContentChecks() {
     assert.ok(!pendingTerminalResolverSource.includes('.terminal'));
     assert.ok(resumeControllerSource.includes('runtimeCoordinator.resume(request)'));
     assert.ok(!dashboardRuntimeControllerSource.includes("type: 'ai-session-attention-projects-updated'"));
-    assert.ok(webviewProjectScripts.includes('message.sessionEvents'));
+    assert.ok(webviewProjectScripts.includes('message.attentionSessions'));
+    assert.ok(!webviewProjectScripts.includes('message.sessionEvents'));
+    assert.ok(dashboard.includes("type: 'ai-session-presentation-state'"));
+    assert.ok(webviewProjectScripts.includes("message.type === 'ai-session-presentation-state'"));
+    assert.ok(!webviewProjectScripts.includes("message.type === 'ai-session-attention-state'"));
+    assert.ok(!webviewProjectScripts.includes("message.type === 'active-ai-session-terminal-changed'"));
+    assert.ok(activeSessionPresentationSource.includes(
+        "needsAttention: executionState !== 'running' && eventIds.length > 0"
+    ));
+    assert.ok(activeSessionPresentationSource.includes('focusedTarget,'));
+    assert.ok(webviewProjectScripts.includes('message.focusedTarget'));
+    assert.ok(webviewContent.includes(
+        'runtime ? runtime.needsAttention : !!session.attention?.unread'
+    ));
+    assert.ok(openWorkspaceDashboardSource.includes(
+        'attentionCount: aiSessions?.attentionCount || 0'
+    ));
+    assert.ok(openWorkspaceDashboardSource.includes(
+        'this.options.getAiSessionProjectionRevision?.() ?? null'
+    ));
+    assert.ok(!openWorkspaceDashboardSource.includes('getWorkspaceAttentionSummary'));
+    assert.ok(!webviewProjectScripts.includes("data-execution-state') === 'running'"),
+        'the Webview must apply Host presentation decisions without recombining lifecycle state');
+    assert.ok(!webviewProjectScripts.includes('latestAiSessionFocusProjectionRevision'));
+    assert.ok(!webviewProjectScripts.includes('latestAiSessionAttentionProjectionRevision'));
     assert.ok(runtimeSettlement.includes('settleAiSessionRuntimeLifecycles'));
     assert.match(runtimeSettlement,
         /for \(const runtime of runtimes\) \{\s*if \(!runtimeBelongsToCurrentWorkspace\(runtime\)\) \{\s*continue;\s*\}/,
@@ -5386,9 +5422,9 @@ function runWebviewContentChecks() {
     assert.ok(messageHandlersSource.includes("'request-active-ai-session-terminal': () =>"));
     assert.ok(dashboard.includes('requestActiveAiSessionTerminalHighlight: () => activeAiSessionTerminalHighlighter.request()'),
         'the dashboard wires the highlighter request into the extracted handlers');
-    assert.ok(dashboardRuntimeControllerSource.includes("type: 'active-ai-session-terminal-changed'"));
+    assert.ok(!dashboardRuntimeControllerSource.includes("type: 'active-ai-session-terminal-changed'"));
     assert.ok(webviewProjectScripts.includes("type: 'request-active-ai-session-terminal'"));
-    assert.ok(webviewProjectScripts.includes("message.type === 'active-ai-session-terminal-changed'"));
+    assert.ok(webviewProjectScripts.includes("message.type === 'ai-session-presentation-state'"));
     assert.ok(webviewProjectScripts.includes('data-ai-session-active-terminal'));
     assert.ok(dashboard.includes('onVisibleChanged: async visible =>'));
     assert.ok(dashboard.includes('activeAiSessionTerminalHighlighter.setVisible(visible)'));
@@ -6616,7 +6652,7 @@ function runBatchAiSessionWebviewChecks() {
                 remove: () => {},
             }),
             querySelector: selector => selector
-                === '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+                === '.codex-session-row[data-session-focused][data-session-provider]'
                 ? projects.flatMap(project => project.rows)
                     .find(row => row.hasAttribute('data-session-focused')) || null
                 : null,
@@ -6630,6 +6666,10 @@ function runBatchAiSessionWebviewChecks() {
                 if (selector === '.project[data-ai-session-managing], .project[data-ai-session-pending]') {
                     return projects.filter(project => project.hasAttribute('data-ai-session-managing')
                         || project.hasAttribute('data-ai-session-pending'));
+                }
+                if (selector === '.codex-session-row[data-session-provider][data-session-id],'
+                    + '.codex-session-row[data-session-provider][data-pending-id]') {
+                    return projects.flatMap(project => project.rows);
                 }
                 if (selector === '.codex-session-row[data-session-id]') {
                     return projects.flatMap(project => project.rows);
@@ -6830,6 +6870,7 @@ function runBatchAiSessionWebviewChecks() {
     const pendingRow = createSessionRow('claude', '');
     pendingRow.project = projectA;
     pendingRow.setAttribute('data-session-pending', '');
+    pendingRow.setAttribute('data-pending-id', 'pending-claude');
     pendingRow.setAttribute('data-pending-created-at', '2026-07-18T08:00:00Z');
     let primarySpacePrevented = false;
     eventListeners.keydown({
@@ -7026,14 +7067,9 @@ function runBatchAiSessionWebviewChecks() {
 
     attentionRow.setAttribute('data-ai-session-attention', '');
     attentionRow.setAttribute('data-session-event-id', 'full-owner-event-a');
-    windowEventListeners.message({ data: {
-        type: 'ai-session-attention-state',
-        eventIds: ['full-owner-event-a', 'full-owner-event-b', 'existing-event'],
-        sessionEvents: [{
-            sessionKey: 'codex:attention-session',
-            eventIds: ['full-owner-event-a', 'full-owner-event-b'],
-        }],
-    } });
+    context.window.__agentPivotAttentionSessionEvents = {
+        'codex:attention-session': ['full-owner-event-a', 'full-owner-event-b'],
+    };
     messages.length = 0;
     eventListeners.click({ button: 0, target: attentionRow.primaryAction });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages[0])), {
@@ -7041,33 +7077,6 @@ function runBatchAiSessionWebviewChecks() {
         eventIds: ['full-owner-event-a', 'full-owner-event-b'],
     }, 'a fresh full render must acknowledge every current owner event before an incremental update');
     messages.length = 0;
-    windowEventListeners.message({ data: {
-        type: 'active-ai-session-terminal-changed',
-        provider: 'codex',
-        sessionId: 'active-session',
-    } });
-    assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), true);
-    assert.strictEqual(otherCodexRow.hasAttribute('data-ai-session-active-terminal'), false);
-    assert.strictEqual(sameIdOtherProviderRow.hasAttribute('data-ai-session-active-terminal'), false);
-
-    windowEventListeners.message({ data: {
-        type: 'active-ai-session-terminal-changed',
-        provider: null,
-        sessionId: null,
-    } });
-    assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), false);
-
-    windowEventListeners.message({ data: {
-        type: 'active-ai-session-terminal-changed',
-        provider: 'codex',
-        sessionId: 'active-session',
-    } });
-    windowEventListeners.message({ data: {
-        type: 'active-ai-session-terminal-changed',
-        provider: null,
-        sessionId: null,
-    } });
-    assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), false);
     activeRow.setAttribute('data-session-focused', '');
     context.applyWorkspaceUpdate = message => message.type === 'workspace-updated'
         && message.version === 2
@@ -7088,28 +7097,6 @@ function runBatchAiSessionWebviewChecks() {
         'AI incremental rendering must preserve the non-empty TODO catalog replacement'
     );
     assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), true);
-    windowEventListeners.message({ data: {
-        type: 'active-ai-session-terminal-changed',
-        projectionRevision: 1,
-        provider: null,
-        sessionId: null,
-    } });
-    assert.strictEqual(
-        activeRow.hasAttribute('data-ai-session-active-terminal'),
-        true,
-        'ACTIVE-SESSION-FOCUS-REVEAL-001 a stale focus message must not override a newer rendered session projection'
-    );
-    windowEventListeners.message({ data: {
-        type: 'ai-session-attention-state',
-        projectionRevision: 1,
-        eventIds: ['newer-direct-event'],
-        sessionEvents: [],
-    } });
-    assert.strictEqual(context.window.__agentPivotAttentionEvents['newer-direct-event'], true,
-        'a rendered content revision must not suppress the independent direct attention stream');
-    assert.strictEqual(context.window.__agentPivotAttentionEvents['existing-event'], true,
-        'accepting the next direct attention projection must preserve known event identities');
-
     const manager = context.window.__agentPivotBatchAiSessions;
     manager.enter('project-a');
     manager.toggle('codex', 'plain');

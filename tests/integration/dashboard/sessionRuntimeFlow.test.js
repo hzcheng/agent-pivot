@@ -5,6 +5,7 @@ const test = require('node:test');
 const { createFakeClock } = require('../../helpers/fakeClock');
 const { loadFreshWithFakeVscode } = require('../../helpers/runtimeContract');
 const { AI_SESSION_PROVIDER_DEFINITIONS } = require('../../../out/aiSessions/providers');
+const { AiSessionTerminalCommandController } = require('../../../out/aiSessions/terminalCommandController');
 const { hydrateWorkspaceAiSessions } = require('../../../out/workspaces/sessionHydration');
 const { getAttentionProjectKeys } = require('../../../out/aiSessions/attentionProject');
 const { getAiSessionTerminalCandidates } = require('../../../out/aiSessions/terminalCandidates');
@@ -194,6 +195,97 @@ test('PROJECT-ACTIVE-AI-SESSION-PROJECTION-001 keeps active session cards stable
     assert.deepEqual(before.activeSessions.map(session => session.sessionId), ['newer', 'older']);
     assert.deepEqual(after.activeSessions.map(session => session.sessionId), ['newer', 'older']);
     assert.equal(after.activeSessions.find(session => session.sessionId === 'older').focused, true);
+});
+
+test('RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 keeps a projected Active Session actionable after workspace roots change', async () => {
+    const workspace = {
+        navigationIdentity: 'navigation:reddb-dev',
+        scopeIdentity: 'scope:five-roots',
+        kind: 'savedMultiRoot',
+        displayName: 'reddb-dev',
+        navigationUri: 'file:///work/reddb-dev.code-workspace',
+        environment: 'local',
+        roots: [{
+            id: 'root:existing', name: 'existing', uri: 'file:///work/existing',
+            hostPath: '/work/existing', ordinal: 0,
+        }, {
+            id: 'root:added', name: 'added', uri: 'file:///work/added',
+            hostPath: '/work/added', ordinal: 1,
+        }],
+    };
+    const runtime = {
+        identity: {
+            provider: 'codex',
+            sessionId: 'still-active',
+            workspaceScopeIdentity: 'scope:three-roots',
+            workspaceNavigationIdentity: workspace.navigationIdentity,
+            workspaceRootHostPaths: ['/work/existing'],
+            cwd: '/work/existing',
+        },
+        backend: 'tmux', state: 'active', markerPath: '/tmp/still-active.done',
+        runStartedAtMs: 10, attached: true,
+        tmux: { layout: 'project', sessionName: 'reddb-dev', windowName: 'still-active' },
+    };
+    const projected = hydrateWorkspaceAiSessions({
+        workspace,
+        providers: [{ id: 'codex', label: 'Codex' }],
+        sessionResults: {
+            codex: { available: true, sessions: [{
+                id: 'still-active', name: 'Still active', cwd: '/work/existing',
+            }] },
+        },
+        getSessionComparableCwd: (_provider, session) => session.cwd,
+        pinnedSessions: new Set(), aliases: {}, activeRuntimes: [runtime],
+    });
+    assert.equal(projected.activeSessions.length, 1,
+        'the navigation identity keeps the runtime visible after the scope changes');
+
+    const focused = [];
+    const detached = [];
+    let activeRuntimes = [runtime];
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: projectId => projectId === 'current-card' ? {
+            cardId: projectId,
+            workspace,
+            sessions: projected,
+        } : null,
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex',
+        refresh: () => undefined,
+        runtimeCoordinator: {
+            getById: (provider, sessionId, scopeIdentity) => activeRuntimes.find(candidate =>
+                candidate.identity.provider === provider
+                && candidate.identity.sessionId === sessionId
+                && candidate.identity.workspaceScopeIdentity === scopeIdentity) || null,
+            getActive: () => activeRuntimes,
+            getPending: () => [],
+            focus: async identity => focused.push(identity),
+            detach: async identity => detached.push(identity),
+            terminate: async () => undefined,
+        },
+        confirmRuntimeClose: async (_message, action) => action,
+        announceStatus: async () => undefined,
+    });
+
+    assert.equal(await controller.focusActive('current-card', 'codex', 'still-active'), true);
+    assert.deepEqual(focused, [runtime.identity],
+        'the action must use the surviving runtime identity instead of the new workspace scope');
+
+    activeRuntimes = [runtime, {
+        ...runtime,
+        identity: {
+            ...runtime.identity,
+            workspaceScopeIdentity: workspace.scopeIdentity,
+            workspaceRootHostPaths: workspace.roots.map(root => root.hostPath),
+        },
+        runStartedAtMs: 20,
+    }];
+    await controller.closeTerminal({
+        projectId: 'current-card', providerId: 'codex', sessionId: 'still-active',
+    });
+    assert.deepEqual(detached, [],
+        'an ambiguous pre-change and post-change runtime must fail closed');
 });
 
 test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 coalesces watcher refreshes and preserves attention refresh priority', async () => {

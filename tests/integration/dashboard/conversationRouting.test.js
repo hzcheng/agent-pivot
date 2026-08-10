@@ -704,6 +704,47 @@ test('PRODUCTION-CONVERSATION-COMPOSITION-002 surfaces unknown and empty convers
     await emptyHarness.dispose();
 });
 
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 retries one transient authoritative read before reporting unavailable', async () => {
+    let readAttempts = 0;
+    const harness = createDashboardConversationHarness({
+        readOutline(provider, sessionId) {
+            readAttempts += 1;
+            if (readAttempts === 1) {
+                throw new Error('transient provider read failure');
+            }
+            return fakeConversationOutline(provider, sessionId);
+        },
+    });
+    await harness.activate();
+
+    assert.equal(await harness.openActiveConversation(), 'opened');
+    assert.equal(readAttempts, 2);
+    assert.deepEqual(
+        harness.viewerTargets.map(target => target.interactionId),
+        ['input-b']
+    );
+
+    await harness.dispose();
+
+    let unavailableAttempts = 0;
+    const unavailableHarness = createDashboardConversationHarness({
+        readOutline() {
+            unavailableAttempts += 1;
+            throw new Error('persistent provider read failure');
+        },
+    });
+    await unavailableHarness.activate();
+
+    assert.equal(
+        await unavailableHarness.openActiveConversation(),
+        'unavailable'
+    );
+    assert.equal(unavailableAttempts, 2);
+    assert.equal(unavailableHarness.viewerTargets.length, 0);
+
+    await unavailableHarness.dispose();
+});
+
 test('ACTIVE-SESSION-CONVERSATION-OPEN-001 routes validated open requests and ignores malformed envelopes', async () => {
     const harness = createDashboardConversationHarness();
     await harness.activate();

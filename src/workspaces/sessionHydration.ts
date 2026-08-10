@@ -24,6 +24,8 @@ import {
     getWorkspaceHostPathComparisonKey,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
+import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
+export { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 import type { OpenWorkspace, WorkspaceRoot } from './types';
 import {
     buildWorkspaceSessionAttentionIndex,
@@ -89,7 +91,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
     const activeRuntimes = deduplicateActiveRuntimes((input.activeRuntimes || [])
         .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)));
     const pendingRuntimes = deduplicatePendingRuntimes((input.pendingRuntimes || [])
-        .filter(runtime => runtime.identity.workspaceScopeIdentity === input.workspace.scopeIdentity
+        .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)
             && !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots)));
     const activeSessionKeys = new Set(activeRuntimes
         .filter(runtime => !!runtime.identity.sessionId)
@@ -159,25 +161,6 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
     });
 }
 
-export function hasWorkspaceRuntimeContinuity(
-    workspace: OpenWorkspace,
-    runtime: Pick<AiSessionRuntimeSnapshot, 'identity'>
-): boolean {
-    const identity = runtime?.identity;
-    if (!workspace || !identity) {
-        return false;
-    }
-    if (identity.workspaceScopeIdentity === workspace.scopeIdentity
-        || identity.workspaceNavigationIdentity === workspace.navigationIdentity) {
-        return true;
-    }
-    const currentRoots = new Set(workspace.roots
-        .map(root => getWorkspaceHostPathComparisonKey(root.hostPath))
-        .filter(Boolean));
-    return (identity.workspaceRootHostPaths || [])
-        .some(root => currentRoots.has(getWorkspaceHostPathComparisonKey(root)));
-}
-
 function assignHistorySessions(
     providerId: AiSessionProviderId,
     sessions: readonly CodexSession[],
@@ -217,14 +200,16 @@ function buildActiveSessions<TTerminal>(input: {
                 ?.find(candidate => candidate.id === sessionId);
             const root = assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
             const focused = input.focusedSessionKey === key;
-            const needsAttention = session?.attention?.unread === true;
+            const executionState = input.input.executionSnapshot?.[key]?.state || 'stopped';
+            const needsAttention = executionState !== 'running'
+                && session?.attention?.unread === true;
             const conflict = runtime.state === 'conflict';
             return {
                 key,
                 provider: providerId,
                 sessionId,
                 name: session?.name || `${providerLabel(input.input.providers, providerId)} ${shortId(sessionId)}`,
-                executionState: input.input.executionSnapshot?.[key]?.state || 'stopped',
+                executionState,
                 status: establishedStatus(needsAttention, focused, conflict),
                 focused,
                 needsAttention,
@@ -236,7 +221,9 @@ function buildActiveSessions<TTerminal>(input: {
                 ...(runtime.stale ? { stale: true } : {}),
                 ...(session?.updatedAt ? { updatedAt: session.updatedAt } : {}),
                 ...(session?.pinned !== undefined ? { pinned: session.pinned } : {}),
-                ...(session?.attention?.eventId ? { attentionEventId: session.attention.eventId } : {}),
+                ...(needsAttention && session?.attention?.eventId
+                    ? { attentionEventId: session.attention.eventId }
+                    : {}),
                 ...rootMetadata(root),
                 activityMs: finiteNumber(runtime.runStartedAtMs),
                 sourceOrder,

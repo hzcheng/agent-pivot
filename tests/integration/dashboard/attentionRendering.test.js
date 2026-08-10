@@ -247,6 +247,94 @@ test('ATTENTION-BRIDGE-STALENESS-001 an acknowledged completion stays absent fro
     assert.doesNotMatch(html, /class="ai-session-attention-count"/);
 });
 
+test('ATTENTION-EXECUTION-STATE-SYNC-001 never renders a running animation and stale attention dot together', () => {
+    const workspacePath = '/work/execution-attention-sync';
+    const eventId = 'codex:current-session:completed:stale-event';
+    const aggregate = aggregateAttentionSnapshots([{
+        version: 1,
+        generatedAtMs: 1_000,
+        items: [{
+            projectId: getAttentionProjectKey(workspacePath),
+            sessionKey: 'codex:current-session',
+            state: 'needsAttention',
+            eventId,
+            reason: 'completed',
+            observedAtMs: 1_000,
+        }],
+        instanceId: 'c'.repeat(32),
+        sequence: 1,
+        heartbeat: 1,
+    }], new Set(), 1_000);
+    const workspace = {
+        navigationIdentity: 'navigation:execution-attention-sync',
+        scopeIdentity: 'scope:execution-attention-sync',
+        kind: 'singleFolder',
+        displayName: 'Execution Attention Sync',
+        navigationUri: `file://${workspacePath}`,
+        environment: 'local',
+        roots: [{
+            id: 'root:execution-attention-sync',
+            name: 'execution-attention-sync',
+            uri: `file://${workspacePath}`,
+            hostPath: workspacePath,
+            ordinal: 0,
+        }],
+    };
+    const projected = hydrateWorkspaceAiSessions({
+        workspace,
+        providers: [{ id: 'codex', label: 'Codex' }],
+        sessionResults: {
+            codex: {
+                available: true,
+                sessions: [{ id: 'current-session', name: 'Current Session', cwd: workspacePath }],
+            },
+        },
+        getSessionComparableCwd: (_provider, session) => session.cwd,
+        pinnedSessions: new Set(),
+        aliases: {},
+        activeRuntimes: [{
+            identity: {
+                provider: 'codex',
+                workspaceScopeIdentity: workspace.scopeIdentity,
+                workspaceNavigationIdentity: workspace.navigationIdentity,
+                workspaceRootHostPaths: [workspacePath],
+                cwd: workspacePath,
+                sessionId: 'current-session',
+            },
+            backend: 'vscode',
+            state: 'active',
+            markerPath: '/tmp/current-session.done',
+            runStartedAtMs: 900,
+            attached: true,
+        }],
+        executionSnapshot: {
+            'codex:current-session': { state: 'running', stateChangedAt: 1_100 },
+        },
+        attentionAggregate: aggregate,
+    });
+    const activeSession = projected.activeSessions[0];
+    const html = stewardContent([{
+        id: 'execution-attention-sync',
+        name: workspace.displayName,
+        color: '#00aacc',
+        codexSessions: projected.sessionsByProvider.codex,
+        activeAiSessions: projected.activeSessions,
+    }]);
+    const sessionRow = html.match(
+        /<div class="codex-session-row active-ai-session-row"[^>]*data-session-id="current-session"[^>]*>[\s\S]*?<\/div><\/div>/
+    )?.[0];
+
+    assert.equal(activeSession.executionState, 'running');
+    assert.equal(activeSession.needsAttention, false,
+        'the newer running state suppresses stale aggregate attention in the Active projection');
+    assert.ok(sessionRow, 'the current running session remains rendered');
+    assert.match(sessionRow, /data-execution-state="running"/);
+    assert.match(sessionRow, /data-session-icon-fx=/);
+    assert.doesNotMatch(sessionRow,
+        /data-ai-session-attention|data-session-needs-attention|ai-session-attention-indicator/);
+    assert.doesNotMatch(html, /class="ai-session-attention-count"/);
+});
+
 test('OPEN-OTHER-WINDOWS-SUMMARY-001 renders shared attention as a summary without session ownership', () => {
     const html = stewardContent([{
         id: 'current',

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "94bb7eb3c9881f960a04567bfaea8010fae538e2",
+        "head": "5a6571198bc5c396db1fbd2ac45ae12c26f1a1b1",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -246,7 +246,12 @@
             "3363eb2837186021d1342c708533e1636ad080d5",
             "d9187a4aa59e8c81a4b906732164f4425a0c1ac0",
             "49a6d3494a6d88b7e31f16bd2183b177ec19e07f",
-            "258e6f3b76492528a4ca798842dfb448cd6f6e77"
+            "258e6f3b76492528a4ca798842dfb448cd6f6e77",
+            "91c9ca51ea7e3fdd0500f4ea1f14f2f233039839",
+            "dbf89c05a5b34dfcaabb1daf9aa5f1e28f76cdb9",
+            "1e47d70675ea31304f5cc6394fed4fb9955037e3",
+            "643e0775788e7da09b914cc7b7526bb3909ff3db",
+            "7ab84c7fb628f73041909c12f3055124e4cca81c"
         ]
     },
     "capabilities": [
@@ -300,10 +305,12 @@
                 "dcd46f63711ea800a07e4bdcba2a123c44c4d64d",
                 "b2f672bd1182df7d1088a2e4c8e3e5f8d3ee7e27",
                 "6b9a8fa2697ab7aa0a79da5a589c538f1e51c564",
-                "7e307205e7ff42e9acb30431051fecd4c379a0ed"
+                "7e307205e7ff42e9acb30431051fecd4c379a0ed",
+                "2867df3c5ac0cd2ee69e6cb6d91fde9f53e26369"
             ],
             "behaviors": [
-                "RUNTIME-RUNTIME-PROJECTION-001"
+                "RUNTIME-RUNTIME-PROJECTION-001",
+                "RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001"
             ],
             "prGates": [
                 "test:deterministic:run"
@@ -698,7 +705,8 @@
                 "fcc2af40ea5c3a4941dfe13be97e16c9a0c10b20",
                 "91094fccf74d20e553514ebfbb3705be7c5c1556",
                 "b388dee9464be7e0ac6850cd12c3a943b5868f3b",
-                "9c6a7223c606f3cdaaa2e3a3ef6f9a38f239a7c2"
+                "9c6a7223c606f3cdaaa2e3a3ef6f9a38f239a7c2",
+                "48ecf9d5e2127ab94879a7a899789892881b7fe5"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",
@@ -878,7 +886,9 @@
                 "b3af83ee68f9eac78dcf7c0f49d6401494b1884c",
                 "16dc36ed5da9f6ba589fb8b748f723056657bcef",
                 "f3e53a32c81c87dc0df919c8f0d3355c37ca69fb",
-                "687e3f6959ffce62db59daed3fc785a78a284ed1"
+                "687e3f6959ffce62db59daed3fc785a78a284ed1",
+                "f45c91eb03a0dd604ea8cc3b667b4972327a1efa",
+                "5a6571198bc5c396db1fbd2ac45ae12c26f1a1b1"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -896,7 +906,8 @@
                 "PERSIST-LIFECYCLE-PARSER-001"
             ],
             "prGates": [
-                "test:deterministic:run"
+                "test:deterministic:run",
+                "test:ci:linux"
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
@@ -1184,7 +1195,8 @@
                 "a9ab1f23959547152581dd031c131a9ff21acc82",
                 "09932f96ba19f74b57eb2ddffa482b182d32fee5",
                 "c79183114269860b29eec03d0d316899072b16b9",
-                "0b06155e7043d14ece0d17ca682d09c6c0d8bdcb"
+                "0b06155e7043d14ece0d17ca682d09c6c0d8bdcb",
+                "b55f68c5d67b705d3f0edabc01183788f5146b2a"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -1503,7 +1515,9 @@
                 "b012cd88e557d70cc0d459727c71cccbc4acc3f8",
                 "2390fc13ca86aeadd6c470a92bbff673855f4310",
                 "17cf2c716dbf8b28e2f95c5f6a5de1dc14452c68",
-                "1cd090c4fcd84dd94b28f5a26117c6525958572c"
+                "1cd090c4fcd84dd94b28f5a26117c6525958572c",
+                "7f160387ab60ba5d22730b7be8978b10ae6fa949",
+                "a9c981442fa9166f9a34ec2f9ea832f5ee9dc711"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",

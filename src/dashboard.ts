@@ -207,6 +207,7 @@ import { WorkspacePrimaryRootStore } from './workspaces/primaryRootStore';
 import { PendingWorkspaceSaveStore } from './workspaces/pendingWorkspaceSaveStore';
 import { SavedWorkspaceProjectAdapter } from './workspaces/savedWorkspaceProjectAdapter';
 import { WorkspacePendingSessionPromotionController } from './workspaces/pendingSessionPromotionController';
+import { hasWorkspaceRuntimeContinuity } from './workspaces/runtimeOwnership';
 import {
     AiSessionProjectionCoordinator,
     WorkspaceSessionHydrationController,
@@ -1700,7 +1701,7 @@ async function initializeDashboard(
             const executionSnapshot = aiSessionExecutionController.getSnapshot();
             return aiSessionRuntimeCoordinator.getActive().filter(runtime => {
                 const sessionId = runtime.identity.sessionId;
-                return runtime.identity.workspaceScopeIdentity === workspace.scopeIdentity
+                return hasWorkspaceRuntimeContinuity(workspace, runtime)
                     && Boolean(sessionId)
                     && executionSnapshot[getAiSessionKey(
                         runtime.identity.provider,

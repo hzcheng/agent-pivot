@@ -502,7 +502,10 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an ind
         currentWorkspaceCount: 1,
         html: `<div class="open-current-workspace-group">${projectMarkup([
             session('codex', 'session-a', true),
-            session('codex', 'session-b', false),
+            {
+                ...session('codex', 'session-b', false),
+                executionState: 'stopped',
+            },
         ])}</div>`,
         searchCatalog: {
             version: 2,
@@ -526,12 +529,60 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an ind
     );
 });
 
+test('ATTENTION-EXECUTION-STATE-SYNC-001 ignores stale Attention DOM state while an Active Session is running', async t => {
+    const page = await openCardPage(t, [session('codex', 'current-session', true)]);
+
+    await postHostMessage(page, {
+        type: 'ai-session-attention-state',
+        projectionRevision: 2,
+        eventIds: ['stale-event'],
+        sessionEvents: [{
+            sessionKey: 'codex:current-session',
+            eventIds: ['stale-event'],
+        }],
+    });
+
+    const currentRow = row(page, 'codex', 'current-session');
+    assert.equal(await currentRow.getAttribute('data-execution-state'), 'running');
+    assert.notEqual(await currentRow.getAttribute('data-session-icon-fx'), null);
+    assert.equal(await currentRow.getAttribute('data-session-needs-attention'), null);
+    assert.equal(await currentRow.getAttribute('data-ai-session-attention'), null);
+    assert.equal(await currentRow.getAttribute('data-session-event-id'), null);
+    assert.equal(await currentRow.locator('.ai-session-attention-indicator').count(), 0);
+
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 1,
+        projectionRevision: 3,
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([{
+            ...session('codex', 'current-session', true),
+            executionState: 'stopped',
+        }])}</div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+
+    const stoppedRow = row(page, 'codex', 'current-session');
+    assert.equal(await stoppedRow.getAttribute('data-session-icon-fx'), null);
+    assert.equal(await stoppedRow.getAttribute('data-ai-session-attention'), '');
+    assert.equal(await stoppedRow.getAttribute('data-session-event-id'), 'stale-event');
+    assert.equal(await stoppedRow.locator('.ai-session-attention-indicator').count(), 1,
+        'suppressing the running dot does not discard the authoritative Attention event');
+});
+
 test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention during a window-switch projection', async t => {
     const active = [
         session('codex', 'session-a', false),
         session('codex', 'session-b', true),
         session('codex', 'session-c', false),
-    ];
+    ].map(entry => ({ ...entry, executionState: 'stopped' }));
     const page = await openCardPage(t, active);
     await postHostMessage(page, {
         type: 'ai-session-attention-state',

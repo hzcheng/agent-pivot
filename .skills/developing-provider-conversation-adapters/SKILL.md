@@ -21,6 +21,9 @@ Green self-authored fixtures alone are not evidence.
    docs, or a sibling provider's layout:
    - census record shapes: `type` distribution, field presence per record
      kind, single-record size bounds
+   - for a framed protocol, record the sanitized full response byte size and
+     duration of a valid large live response, verify it remains below a
+     bounded transport cap, and never infer response size from source-file size
    - find lifecycle markers (start / finish / interrupt) and cross-file
      links (toolUseId, promptId, sidechain flags)
    - detect continuation records (distinct promptIds, injected user turns)

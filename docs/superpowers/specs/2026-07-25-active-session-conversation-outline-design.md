@@ -728,7 +728,7 @@ authoritative update.
   payload. The viewer retains at most 100 interactions or 4 MiB, whichever is
   reached first, evicting the farthest page while preserving the selected
   anchor.
-- One Codex app-server response is capped at 16 MiB and every request has a
+- One Codex app-server response is capped at 64 MiB and every request has a
   ten-second deadline.
 - Each provider retains at most eight inactive session indexes for ten minutes.
   There is one shared provider poller per extension host and one ref-counted

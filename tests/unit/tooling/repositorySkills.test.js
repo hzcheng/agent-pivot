@@ -142,6 +142,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies provider adapters against real
         ['real data verification rule', /real on-disk provider data/i],
         ['self-consistent fixture trap', /self-consistent trap/i],
         ['probe before assuming', /probe real data first/i],
+        ['large framed responses are measured against the transport cap', /framed protocol[\s\S]*full response byte size[\s\S]*large live response[\s\S]*transport cap/i],
         ['layout mirroring', /mirror the real layout/i],
         ['status inference guidance', /no status[\s\S]*transcript tail/i],
         ['type imports remain inside the Codex boundary', /full relative-import graph[\s\S]*type-only imports[\s\S]*architecture-guarded/i],

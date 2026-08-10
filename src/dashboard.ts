@@ -2053,9 +2053,7 @@ async function initializeDashboard(
             }
         },
         onRunningFocusRequest: request =>
-            runningSessionJumpHandler.jumpToNextLocalRunningSession(
-                request.sourceNavigationIdentity,
-            ),
+            runningSessionJumpHandler.jumpToNextLocalRunningSession(request),
         onAttentionFocusRequest: request =>
             jumpToNextAttentionSession.jumpToAttentionSession({
                 projectId: request.projectId,

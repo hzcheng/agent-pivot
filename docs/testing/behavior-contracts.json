@@ -784,7 +784,7 @@
   {
     "id": "AI-SESSION-NEXT-RUNNING-COMMAND-001",
     "domain": "session",
-    "title": "The Next Running Session command cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps use the shared navigation transaction to focus the session terminal and open its conversation, interleaved Running and Attention commands settle in invocation order, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v3 delivered mailbox hand-off carries its source so a degraded local ring cannot bounce back and starve another running window",
+    "title": "The Next Running Session command cycles every running AI session one jump per invocation with independent local-session and cross-window cursors: manual focus changes re-anchor the cursor, local jumps use the shared navigation transaction to focus the session terminal and open its conversation, interleaved Running and Attention commands settle in invocation order, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v3 delivered source-to-target hand-off supplies an authoritative ring anchor so incomplete snapshots cannot starve a session or window",
     "priority": "P1",
     "status": "automated",
     "owners": [

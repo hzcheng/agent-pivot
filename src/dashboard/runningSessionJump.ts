@@ -18,6 +18,7 @@ import type {
 
 interface RunningSessionJumpBaseOptions {
     navigationCoordinator?: SessionNavigationCoordinator;
+    nowMs?: () => number;
     buildQueue: () => RunningSessionQueue;
     requestRemoteFocus: (item: RunningSessionQueueRemoteItem) => Promise<boolean>;
     openNavigationCard: (cardId: string) => Promise<void>;
@@ -45,7 +46,13 @@ export type RunningSessionJumpOptions = RunningSessionJumpBaseOptions & (
 
 export interface RunningSessionJumpHandler {
     jumpToNextRunningSession(): Promise<void>;
-    jumpToNextLocalRunningSession(sourceNavigationIdentity?: string): Promise<void>;
+    jumpToNextLocalRunningSession(handoff?: RunningSessionFocusHandoff): Promise<void>;
+}
+
+export interface RunningSessionFocusHandoff {
+    sourceNavigationIdentity: string;
+    targetNavigationIdentity: string;
+    createdAtMs: number;
 }
 
 /**
@@ -57,10 +64,9 @@ export interface RunningSessionJumpHandler {
  * bridge) the press degrades to a plain window switch and the next press in
  * the destination window completes the landing.
  *
- * A delivered hand-off also records the source window. If a temporarily
- * incomplete ring would immediately send the next press back there while a
- * third running window is available, the handler advances to that third
- * window instead. A two-window ring still returns to its only peer normally.
+ * A delivered hand-off also records its authoritative target window. If a
+ * temporarily incomplete snapshot cannot rotate the remote queue itself, the
+ * handler still selects the target's stable successor for any ring size.
  *
  * The cursor advances even when a jump fails, so a session that ended
  * mid-cycle is skipped by the next press instead of trapping the user on a
@@ -69,28 +75,36 @@ export interface RunningSessionJumpHandler {
 export function createRunningSessionJumpHandler(
     options: RunningSessionJumpOptions
 ): RunningSessionJumpHandler {
+    // Cross-window navigation and within-window session rotation advance at
+    // different rates, so neither cursor may overwrite the other.
     let lastKey: string | null = null;
+    let lastLocalKey: string | null = null;
     let lastObservedCurrentKey: string | null = null;
-    let returnSourceKey: string | null = null;
+    let handoffTargetKey: string | null = null;
+    let lastDirectInvocationAtMs = Number.NEGATIVE_INFINITY;
     const navigationCoordinator = options.navigationCoordinator
         || createSessionNavigationCoordinator();
+    const nowMs = options.nowMs || (() => Date.now());
 
     async function jumpToLocal(item: RunningSessionQueueLocalItem): Promise<void> {
         const result = options.navigateSession
             ? await options.navigateSession(item, {
                 onFocused: () => {
                     lastKey = item.key;
+                    lastLocalKey = item.key;
                     lastObservedCurrentKey = item.key;
                 },
             })
             : await navigateWithLegacyCallbacks(item, {
                 onFocused: () => {
                     lastKey = item.key;
+                    lastLocalKey = item.key;
                     lastObservedCurrentKey = item.key;
                 },
             });
         if (!result.focused) {
             lastKey = item.key;
+            lastLocalKey = item.key;
             options.showWarningMessage(
                 'Agent Pivot: the selected AI session is no longer active.'
             );
@@ -124,7 +138,6 @@ export function createRunningSessionJumpHandler(
             handedOff = false;
         }
         lastKey = item.key;
-        returnSourceKey = null;
         await options.openNavigationCard(item.cardId);
         if (!handedOff) {
             options.showInformationMessage(
@@ -136,11 +149,14 @@ export function createRunningSessionJumpHandler(
 
     async function jump(
         scope: 'all' | 'local',
-        sourceNavigationIdentity?: string,
+        handoff?: RunningSessionFocusHandoff,
     ): Promise<void> {
-        if (scope === 'local' && sourceNavigationIdentity) {
-            returnSourceKey = `window:${sourceNavigationIdentity}`;
+        if (scope === 'local' && handoff) {
+            handoffTargetKey = `window:${handoff.targetNavigationIdentity}`;
         }
+        const advancesLocalCursor = Boolean(
+            handoff && handoff.createdAtMs > lastDirectInvocationAtMs
+        );
         const queue = options.buildQueue();
         const items: RunningSessionQueueItem[] = scope === 'local'
             ? queue.items.filter(item => item.kind === 'local')
@@ -160,24 +176,26 @@ export function createRunningSessionJumpHandler(
         const currentChanged = current !== null
             && current.key !== lastObservedCurrentKey;
         lastObservedCurrentKey = current?.key || null;
-        const cursorKey = scope === 'all'
-            && currentChanged
+        const cursorKey = currentChanged
             ? null
-            : lastKey;
-        let next = scope === 'local' && current?.kind === 'local'
+            : scope === 'local'
+                ? advancesLocalCursor
+                    ? lastLocalKey
+                    : lastKey
+                : lastKey;
+        let next = scope === 'local'
+            && current?.kind === 'local'
+            && (!advancesLocalCursor || cursorKey === null)
             ? current
             : getNextRunningSessionQueueItem(items, cursorKey, currentKey);
         if (scope === 'all'
             && next?.kind === 'remote'
-            && next.key === returnSourceKey) {
-            const sourceIndex = items.findIndex(item => item.key === returnSourceKey);
-            for (let offset = 1; offset < items.length; offset += 1) {
-                const candidate = items[(sourceIndex + offset) % items.length];
-                if (candidate.kind === 'remote' && candidate.key !== returnSourceKey) {
-                    next = candidate;
-                    break;
-                }
-            }
+            && handoffTargetKey) {
+            const targetKey = handoffTargetKey;
+            const remotes = items
+                .filter((item): item is RunningSessionQueueRemoteItem => item.kind === 'remote')
+                .sort((left, right) => left.key.localeCompare(right.key));
+            next = remotes.find(item => item.key > targetKey) || remotes[0] || next;
         }
         if (!next) {
             return;
@@ -190,8 +208,11 @@ export function createRunningSessionJumpHandler(
     }
 
     return {
-        jumpToNextRunningSession: () => navigationCoordinator.enqueue(() => jump('all')),
-        jumpToNextLocalRunningSession: sourceNavigationIdentity =>
-            navigationCoordinator.enqueue(() => jump('local', sourceNavigationIdentity)),
+        jumpToNextRunningSession: () => {
+            lastDirectInvocationAtMs = Math.max(lastDirectInvocationAtMs, nowMs());
+            return navigationCoordinator.enqueue(() => jump('all'));
+        },
+        jumpToNextLocalRunningSession: handoff =>
+            navigationCoordinator.enqueue(() => jump('local', handoff)),
     };
 }

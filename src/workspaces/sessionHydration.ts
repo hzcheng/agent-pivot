@@ -24,6 +24,8 @@ import {
     getWorkspaceHostPathComparisonKey,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
+import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
+export { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 import type { OpenWorkspace, WorkspaceRoot } from './types';
 import {
     buildWorkspaceSessionAttentionIndex,
@@ -89,7 +91,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
     const activeRuntimes = deduplicateActiveRuntimes((input.activeRuntimes || [])
         .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)));
     const pendingRuntimes = deduplicatePendingRuntimes((input.pendingRuntimes || [])
-        .filter(runtime => runtime.identity.workspaceScopeIdentity === input.workspace.scopeIdentity
+        .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)
             && !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots)));
     const activeSessionKeys = new Set(activeRuntimes
         .filter(runtime => !!runtime.identity.sessionId)
@@ -157,25 +159,6 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         providerSelection: input.providerSelection,
         expanded: input.expanded,
     });
-}
-
-export function hasWorkspaceRuntimeContinuity(
-    workspace: OpenWorkspace,
-    runtime: Pick<AiSessionRuntimeSnapshot, 'identity'>
-): boolean {
-    const identity = runtime?.identity;
-    if (!workspace || !identity) {
-        return false;
-    }
-    if (identity.workspaceScopeIdentity === workspace.scopeIdentity
-        || identity.workspaceNavigationIdentity === workspace.navigationIdentity) {
-        return true;
-    }
-    const currentRoots = new Set(workspace.roots
-        .map(root => getWorkspaceHostPathComparisonKey(root.hostPath))
-        .filter(Boolean));
-    return (identity.workspaceRootHostPaths || [])
-        .some(root => currentRoots.has(getWorkspaceHostPathComparisonKey(root)));
 }
 
 function assignHistorySessions(

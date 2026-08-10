@@ -3,6 +3,7 @@
 import type * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
+import { hasWorkspaceRuntimeContinuity } from '../workspaces/runtimeOwnership';
 import type ActiveAiSessionTerminalHighlighter from './activeTerminalHighlight';
 import type { ActiveAiSessionTerminalIdentity } from './activeTerminalHighlight';
 import type { AttentionAggregate } from './attentionAggregate';
@@ -214,10 +215,11 @@ export function createAiSessionAttentionEventCapability(
         providerId: AiSessionProviderId,
         sessionId: string
     ): AiSessionRuntimeSnapshot<vscode.Terminal> | null {
-        const workspaceScopeIdentity = getCurrentOpenWorkspace()?.scopeIdentity;
-        if (!workspaceScopeIdentity) {
+        const workspace = getCurrentOpenWorkspace();
+        if (!workspace) {
             return null;
         }
+        const workspaceScopeIdentity = workspace.scopeIdentity;
         const collision = getAiSessionRuntimeCollision(
             providerId, sessionId, workspaceScopeIdentity
         );
@@ -227,19 +229,22 @@ export function createAiSessionAttentionEventCapability(
         const live = getRuntimeCoordinator().getById(
             providerId, sessionId, workspaceScopeIdentity
         );
-        if (live) {
-            return live;
-        }
         const liveConflicts = getRuntimeCoordinator().getActive().filter(runtime =>
             runtime.identity.provider === providerId && runtime.identity.sessionId === sessionId
-            && runtime.identity.workspaceScopeIdentity === workspaceScopeIdentity);
+            && hasWorkspaceRuntimeContinuity(workspace, runtime));
+        if (liveConflicts.length === 1) {
+            return liveConflicts[0];
+        }
         if (liveConflicts.length > 1) {
             return { ...liveConflicts[0], state: 'conflict' };
+        }
+        if (live) {
+            return live;
         }
         const inactiveTmux: AiSessionRuntimeSnapshot<vscode.Terminal>[] = tmuxRuntimeDiscovery.getInactive()
             .filter(runtime => runtime.identity.provider === providerId
                 && runtime.identity.sessionId === sessionId
-                && runtime.identity.workspaceScopeIdentity === workspaceScopeIdentity)
+                && hasWorkspaceRuntimeContinuity(workspace, runtime))
             .map(runtime => {
                 const { terminal: _terminal, ...detached } = runtime;
                 return {
@@ -251,7 +256,9 @@ export function createAiSessionAttentionEventCapability(
         const completedDirect = aiSessionTerminalService.getTrackedTerminalEntries()
             .filter(entry => entry.provider === providerId && entry.sessionId === sessionId
                 && aiSessionTerminalService.isComplete(entry) && !!entry.runtimeIdentity
-                && entry.runtimeIdentity.workspaceScopeIdentity === workspaceScopeIdentity)
+                && hasWorkspaceRuntimeContinuity(workspace, {
+                    identity: entry.runtimeIdentity,
+                }))
             .map(entry => ({
                 identity: cloneAiSessionRuntimeIdentity(entry.runtimeIdentity),
                 backend: 'vscode' as const,
@@ -287,9 +294,8 @@ export function createAiSessionAttentionEventCapability(
     function runtimeBelongsToCurrentWorkspace(
         runtime: AiSessionRuntimeSnapshot<vscode.Terminal>
     ): boolean {
-        const workspaceScopeIdentity = getCurrentOpenWorkspace()?.scopeIdentity;
-        return !!workspaceScopeIdentity
-            && runtime.identity.workspaceScopeIdentity === workspaceScopeIdentity;
+        const workspace = getCurrentOpenWorkspace();
+        return !!workspace && hasWorkspaceRuntimeContinuity(workspace, runtime);
     }
 
     function scheduleAttentionViewsRefresh() {

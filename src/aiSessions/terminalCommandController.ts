@@ -9,8 +9,10 @@ import type {
 } from './runtimeTypes';
 import type { WorkspaceAiSessionActionTarget } from './types';
 import { aiSessionRuntimeIdentitiesEqual, cloneAiSessionRuntimeIdentity } from './runtimeTypes';
+import { hasWorkspaceRuntimeContinuity } from '../workspaces/runtimeOwnership';
 
 export interface AiSessionTerminalCommandRuntimeCoordinator<TTerminal> {
+    getActive?(): AiSessionRuntimeSnapshot<TTerminal>[];
     getById(
         provider: AiSessionProviderId,
         sessionId: string,
@@ -416,9 +418,18 @@ export class AiSessionTerminalCommandController<
         options: AiSessionTerminalCommandRuntimeControllerOptions<TTerminal>
     ): AiSessionRuntimeSnapshot<TTerminal> | null {
         const ownership = this.getRuntimeWorkspaceOwnership(projectId, options);
-        const runtime = ownership ? options.runtimeCoordinator.getById(
+        const scopedRuntime = ownership ? options.runtimeCoordinator.getById(
             providerId, sessionId, ownership.workspaceScopeIdentity
         ) : null;
+        const continuityMatches = ownership && options.runtimeCoordinator.getActive
+            ? options.runtimeCoordinator.getActive().filter(runtime =>
+                runtime.identity.provider === providerId
+                && runtime.identity.sessionId === sessionId
+                && this.runtimeBelongsToWorkspace(
+                    ownership, providerId, sessionId, runtime
+                ))
+            : (scopedRuntime ? [scopedRuntime] : []);
+        const runtime = continuityMatches.length === 1 ? continuityMatches[0] : null;
         return ownership && runtime && this.runtimeBelongsToWorkspace(
             ownership, providerId, sessionId, runtime
         )
@@ -437,13 +448,21 @@ export class AiSessionTerminalCommandController<
             return [];
         }
         const coordinator = options.runtimeCoordinator;
-        const candidates = coordinator.getActiveCandidates
+        const scopedCandidates = coordinator.getActiveCandidates
             ? coordinator.getActiveCandidates(
                 providerId, sessionId, ownership.workspaceScopeIdentity
             )
             : [coordinator.getById(
                 providerId, sessionId, ownership.workspaceScopeIdentity
             )].filter(Boolean) as AiSessionRuntimeSnapshot<TTerminal>[];
+        const continuityCandidates = (coordinator.getActive?.() || []).filter(runtime =>
+            runtime.identity.workspaceScopeIdentity !== ownership.workspaceScopeIdentity
+            && runtime.identity.provider === providerId
+            && runtime.identity.sessionId === sessionId
+            && this.runtimeBelongsToWorkspace(
+                ownership, providerId, sessionId, runtime
+            ));
+        const candidates = [...scopedCandidates, ...continuityCandidates];
         return candidates.filter(runtime => this.runtimeBelongsToWorkspace(
             ownership, providerId, sessionId, runtime
         )).map(cloneRuntime);
@@ -502,7 +521,7 @@ export class AiSessionTerminalCommandController<
         sessionId: string | undefined,
         runtime: AiSessionRuntimeSnapshot<TTerminal>
     ): boolean {
-        if (runtime.identity.workspaceScopeIdentity !== ownership.workspaceScopeIdentity) {
+        if (!hasWorkspaceRuntimeContinuity(ownership.workspaceTarget.workspace, runtime)) {
             return false;
         }
         return !sessionId

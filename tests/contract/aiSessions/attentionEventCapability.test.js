@@ -543,6 +543,44 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 runtime lookups resolve collision, live
     ), false);
 });
 
+test('RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 keeps attention ownership after workspace roots change', () => {
+    const runtime = makeRuntime({ identity: makeIdentity({
+        workspaceScopeIdentity: 'scope-three-roots',
+        workspaceNavigationIdentity: 'nav-1',
+        workspaceRootHostPaths: ['/work'],
+    }) });
+    const workspace = {
+        scopeIdentity: 'scope-five-roots',
+        navigationIdentity: 'nav-1',
+        roots: [{ hostPath: '/work' }, { hostPath: '/work/added' }],
+    };
+    const fixture = createFixture({
+        workspace,
+        activeRuntimes: [runtime],
+        focusedTmuxRuntime: runtime,
+    });
+
+    assert.equal(fixture.capability.getRuntimeById('codex', 'session-a'), runtime,
+        'attention evaluation must still resolve the live runtime');
+    assert.equal(fixture.capability.belongsToCurrentWorkspace(runtime), true,
+        'attention focus must use the same continuity rule as Active Session projection');
+    assert.deepEqual(fixture.capability.getFocusedRuntimeIdentity(), runtime.identity,
+        'the focused runtime must not fall back to a stale highlighter identity');
+
+    const replacement = makeRuntime({ identity: makeIdentity({
+        workspaceScopeIdentity: workspace.scopeIdentity,
+        workspaceNavigationIdentity: workspace.navigationIdentity,
+        workspaceRootHostPaths: ['/work', '/work/added'],
+    }), runStartedAtMs: 800 });
+    const ambiguous = createFixture({
+        workspace,
+        liveRuntime: replacement,
+        activeRuntimes: [runtime, replacement],
+    });
+    assert.equal(ambiguous.capability.getRuntimeById('codex', 'session-a').state, 'conflict',
+        'attention must surface cross-scope ambiguity instead of selecting the newer scope');
+});
+
 test('ATTENTION-EXECUTION-STATE-SYNC-001 attention state posts the recovery session events and event ids', () => {
     const { capability, calls } = createFixture({});
     capability.postAttentionState();

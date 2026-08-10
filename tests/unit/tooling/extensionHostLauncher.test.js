@@ -9,6 +9,7 @@ const { EventEmitter } = require('node:events');
 
 const {
     EXTENSION_HOST_TIMEOUT_MS,
+    EXTENSION_HOST_WORKER_COMPLETED_MESSAGE,
     EXTENSION_HOST_WORKER_TIMEOUT_MS,
     HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS,
     BRIDGE_EXTENSION_ID,
@@ -427,6 +428,73 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 watchdog treats ESRCH as a cleanly ab
     assert.equal(timers[0].cleared, true);
     assert.equal(child.listenerCount('error'), 0);
     assert.equal(child.listenerCount('close'), 0);
+});
+
+// RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001
+test('RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001 watchdog accepts authenticated completion and terminates a lingering POSIX worker', async () => {
+    const child = new EventEmitter();
+    child.pid = 2468;
+    const kills = [];
+    const timers = [];
+    const promise = runWorkerWithWatchdog(() => child, {
+        timeoutMs: 25,
+        platform: 'linux',
+        killProcess: (pid, signal) => { kills.push([pid, signal]); },
+        setTimeout: (callback, delay) => {
+            const timer = { callback, cleared: false, delay };
+            timers.push(timer);
+            return timer;
+        },
+        clearTimeout: timer => { timer.cleared = true; },
+    });
+
+    try {
+        assert.equal(child.listenerCount('message'), 1);
+        child.emit('message', { type: 'untrusted-completion', version: 1 });
+        assert.deepEqual(kills, [], 'unknown worker messages must not settle the run');
+
+        child.emit('message', EXTENSION_HOST_WORKER_COMPLETED_MESSAGE);
+        assert.deepEqual(kills, [[-2468, 'SIGTERM']]);
+        assert.equal(timers[0].cleared, true, 'completion must clear the failure watchdog');
+        assert.equal(timers[1].delay, 5000, 'completion cleanup retains force-kill protection');
+
+        child.emit('close', null, 'SIGTERM');
+        await promise;
+        assert.equal(timers[1].cleared, true);
+        assert.equal(child.listenerCount('error'), 0);
+        assert.equal(child.listenerCount('close'), 0);
+        assert.equal(child.listenerCount('message'), 0);
+    } finally {
+        child.emit('close', 0, null);
+        await promise.catch(() => {});
+    }
+});
+
+// RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001
+test('RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001 authenticated completion survives force-kill cleanup', async () => {
+    const child = new EventEmitter();
+    child.pid = 1357;
+    const kills = [];
+    const timers = [];
+    const promise = runWorkerWithWatchdog(() => child, {
+        timeoutMs: 25,
+        platform: 'linux',
+        killProcess: (pid, signal) => { kills.push([pid, signal]); },
+        setTimeout: (callback, delay) => {
+            const timer = { callback, cleared: false, delay };
+            timers.push(timer);
+            return timer;
+        },
+        clearTimeout: timer => { timer.cleared = true; },
+    });
+
+    child.emit('message', EXTENSION_HOST_WORKER_COMPLETED_MESSAGE);
+    timers[1].callback();
+
+    await promise;
+    assert.deepEqual(kills, [[-1357, 'SIGTERM'], [-1357, 'SIGKILL']]);
+    assert.equal(timers.every(timer => timer.cleared), true);
+    assert.equal(child.listenerCount('message'), 0);
 });
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001

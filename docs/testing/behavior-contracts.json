@@ -3562,6 +3562,23 @@
     ]
   },
   {
+    "id": "RELEASE-EXTENSION-HOST-WORKER-COMPLETION-001",
+    "domain": "release",
+    "title": "A successful real Extension Host run settles even when the worker retains cleanup handles",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/extensionHostLauncher.test.js",
+      "tests/unit/tooling/extensionHostRunner.test.js",
+      "tests/unit/tooling/extensionHostWorker.test.js"
+    ],
+    "evidence": [
+      "scripts/lib/extensionHostLauncher.js",
+      "scripts/run-extension-host-tests.js",
+      "scripts/run-extension-host-worker.js"
+    ]
+  },
+  {
     "id": "ARCH-EXTENSION-HOST-PLACEMENT-001",
     "domain": "architecture",
     "title": "Session and filesystem ownership remains in the workspace extension host",

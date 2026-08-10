@@ -12,6 +12,10 @@ const {
 const VSCODE_STABLE_VERSION = '1.130.0';
 const EXTENSION_HOST_TIMEOUT_MS = 120000;
 const EXTENSION_HOST_WORKER_TIMEOUT_MS = 480000;
+const EXTENSION_HOST_WORKER_COMPLETED_MESSAGE = Object.freeze({
+    type: 'agent-pivot-extension-host-worker-completed',
+    version: 1,
+});
 const HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS = Object.freeze([
     'ELECTRON_RUN_AS_NODE',
     'VSCODE_ESM_ENTRYPOINT',
@@ -365,6 +369,7 @@ function runWorkerWithWatchdog(spawnWorker, options = {}) {
     const clearTimeoutFn = options.clearTimeout || clearTimeout;
     return new Promise((resolve, reject) => {
         let child;
+        let completionReported = false;
         let timedOut = false;
         let forceTimer;
         let timeoutTimer;
@@ -384,6 +389,7 @@ function runWorkerWithWatchdog(spawnWorker, options = {}) {
             if (child) {
                 child.removeListener('error', onError);
                 child.removeListener('close', onClose);
+                child.removeListener('message', onMessage);
             }
             error ? reject(error) : resolve();
         };
@@ -397,8 +403,34 @@ function runWorkerWithWatchdog(spawnWorker, options = {}) {
         };
         const onClose = (code, signal) => {
             if (timedOut) return;
+            if (completionReported) {
+                finish();
+                return;
+            }
             if (code === 0) finish();
             else finish(new Error(`Extension Host worker failed with code ${code === null ? signal : code}`));
+        };
+        const onMessage = message => {
+            if (timedOut || completionReported
+                || !isExtensionHostWorkerCompletedMessage(message)) return;
+            completionReported = true;
+            if (timeoutTimer !== undefined) {
+                clearTimeoutFn(timeoutTimer);
+                timeoutTimer = undefined;
+            }
+            forceTimer = setTimeoutFn(() => {
+                try {
+                    terminate('SIGKILL');
+                    finish();
+                } catch (error) {
+                    finish(isMissingProcessGroup(error) ? undefined : error);
+                }
+            }, 5000);
+            try {
+                terminate('SIGTERM');
+            } catch (error) {
+                finish(isMissingProcessGroup(error) ? undefined : error);
+            }
         };
         try {
             child = spawnWorker();
@@ -408,6 +440,7 @@ function runWorkerWithWatchdog(spawnWorker, options = {}) {
         }
         child.once('error', onError);
         child.once('close', onClose);
+        child.on('message', onMessage);
         timeoutTimer = setTimeoutFn(() => {
             timedOut = true;
             try {
@@ -427,6 +460,16 @@ function runWorkerWithWatchdog(spawnWorker, options = {}) {
     });
 }
 
+function isExtensionHostWorkerCompletedMessage(message) {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) return false;
+    const keys = Object.keys(message);
+    return keys.length === 2
+        && keys.includes('type')
+        && keys.includes('version')
+        && message.type === EXTENSION_HOST_WORKER_COMPLETED_MESSAGE.type
+        && message.version === EXTENSION_HOST_WORKER_COMPLETED_MESSAGE.version;
+}
+
 function removeExtensionHostTestEnvironment(isolatedRoot) {
     const markerPath = path.join(isolatedRoot, OWNERSHIP_MARKER);
     if (!path.isAbsolute(isolatedRoot) || !fs.existsSync(markerPath)
@@ -438,6 +481,7 @@ function removeExtensionHostTestEnvironment(isolatedRoot) {
 
 module.exports = {
     EXTENSION_HOST_TIMEOUT_MS,
+    EXTENSION_HOST_WORKER_COMPLETED_MESSAGE,
     EXTENSION_HOST_WORKER_TIMEOUT_MS,
     HOSTILE_EXTENSION_HOST_ENVIRONMENT_KEYS,
     BRIDGE_EXTENSION_ID,
@@ -450,6 +494,7 @@ module.exports = {
     createRunTestsOptions,
     extensionHostTemporaryRootPrefix,
     installPackagedExtensions,
+    isExtensionHostWorkerCompletedMessage,
     removeExtensionHostTestEnvironment,
     runWorkerWithWatchdog,
     resolveInstalledExtensionRoots,

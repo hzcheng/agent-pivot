@@ -5,11 +5,23 @@ const {
     runTests,
 } = require('@vscode/test-electron');
 const {
+    EXTENSION_HOST_WORKER_COMPLETED_MESSAGE,
     VSCODE_STABLE_VERSION,
     createExtensionHostTestHarness,
     createRunTestsOptions,
     installPackagedExtensions,
 } = require('./lib/extensionHostLauncher');
+
+function notifyParentOfCompletion(message) {
+    if (typeof process.send !== 'function') return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        try {
+            process.send(message, error => error ? reject(error) : resolve());
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
 
 async function runExtensionHostWorker(repositoryRoot, environment, options = {}) {
     if (!repositoryRoot || !environment || typeof environment.workspace !== 'string') {
@@ -57,6 +69,8 @@ async function main(argv = process.argv.slice(2), options = {}) {
     const [repositoryRoot, serializedEnvironment] = argv;
     const environment = JSON.parse(serializedEnvironment || 'null');
     await runExtensionHostWorker(repositoryRoot, environment, options);
+    const notifyCompletion = options.notifyCompletion || notifyParentOfCompletion;
+    await notifyCompletion(EXTENSION_HOST_WORKER_COMPLETED_MESSAGE);
 }
 
 if (require.main === module) {

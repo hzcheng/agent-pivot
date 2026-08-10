@@ -40,7 +40,7 @@ async function main(options = {}) {
             ], {
                 detached: process.platform !== 'win32',
                 env: { ...process.env },
-                stdio: 'inherit',
+                stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
             }),
             { timeoutMs: EXTENSION_HOST_WORKER_TIMEOUT_MS }
         ));

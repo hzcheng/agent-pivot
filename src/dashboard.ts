@@ -124,7 +124,7 @@ import {
 import { TmuxRuntimeBackend } from './aiSessions/tmuxRuntimeBackend';
 import { TmuxFocusedRuntimeMonitor } from './aiSessions/tmuxFocusedRuntimeMonitor';
 import { withTmuxCreationLock } from './aiSessions/tmuxCreationLock';
-import type { AiSessionBatchArchiveCompletedMessage, AiSessionProvider, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
+import type { AiSessionBatchArchiveCompletedMessage, AiSessionPresentationStateMessage, AiSessionProvider, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
 import {
     ConversationCapability,
     createConversationCapability,
@@ -208,6 +208,7 @@ import { PendingWorkspaceSaveStore } from './workspaces/pendingWorkspaceSaveStor
 import { SavedWorkspaceProjectAdapter } from './workspaces/savedWorkspaceProjectAdapter';
 import { WorkspacePendingSessionPromotionController } from './workspaces/pendingSessionPromotionController';
 import { hasWorkspaceRuntimeContinuity } from './workspaces/runtimeOwnership';
+import { projectWorkspaceActiveSessions } from './workspaces/activeSessionPresentation';
 import {
     AiSessionProjectionCoordinator,
     WorkspaceSessionHydrationController,
@@ -1006,16 +1007,7 @@ async function initializeDashboard(
         getRuntimeConfiguration: () => aiSessionRuntimeConfiguration,
         getCurrentOpenWorkspace: () => getCurrentOpenWorkspace(),
         getActiveTerminal: () => vscode.window.activeTerminal || null,
-        postMessage: message => {
-            const versionedMessage = message && typeof message === 'object'
-                && (message as { type?: unknown }).type === 'ai-session-attention-state'
-                ? {
-                    ...message,
-                    projectionRevision: aiSessionProjectionCoordinator.nextRevision(),
-                }
-                : message;
-            void provider.postMessage(versionedMessage);
-        },
+        postAttentionState: () => postAiSessionPresentationState(false),
         isVisible: () => provider.visible,
         assertActive: () => resources.assertActive(),
         createBridgeClient: (onAggregate, onError) => new AttentionBridgeClient(onAggregate, onError),
@@ -1736,6 +1728,7 @@ async function initializeDashboard(
         getWorkspaceProjectColor: workspace => getSavedProjectForWorkspace(workspace)?.color || '',
         getWorkspaceProjectName: workspace => getSavedProjectForWorkspace(workspace)?.name || '',
         getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace),
+        getAiSessionProjectionRevision: () => aiSessionProjectionCoordinator.capture().revision,
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
@@ -2569,18 +2562,36 @@ async function initializeDashboard(
 
     function postActiveAiSessionTerminalChanged() {
         void conversationCapability.reconcile();
-        const projection = aiSessionProjectionCoordinator.captureNext();
-        const focusedIdentity = projection.focusedIdentity;
-        dashboardRuntimeController.postActiveAiSessionTerminalChanged(
-            focusedIdentity?.sessionId
-                ? {
-                    provider: focusedIdentity.provider,
-                    sessionId: focusedIdentity.sessionId,
-                    workspaceScopeIdentity: focusedIdentity.workspaceScopeIdentity,
-                }
-                : null,
-            projection.revision,
-        );
+        postAiSessionPresentationState(true);
+    }
+
+    function postAiSessionPresentationState(revealFocused: boolean = false): void {
+        const snapshot = aiSessionProjectionCoordinator.captureNext();
+        const presentation = projectWorkspaceActiveSessions({
+            workspace: getCurrentOpenWorkspace(),
+            activeRuntimes: snapshot.activeRuntimes,
+            pendingRuntimes: snapshot.pendingRuntimes,
+            executionSnapshot: snapshot.executionSnapshot,
+            focusedIdentity: snapshot.focusedIdentity,
+            attentionAggregate: snapshot.attentionAggregate,
+        });
+        const configuration = getAgentPivotConfiguration();
+        const message: AiSessionPresentationStateMessage = {
+            type: 'ai-session-presentation-state',
+            version: 1,
+            projectionRevision: snapshot.revision,
+            ...presentation,
+            runningCardAnimation: getEffectiveRunningCardAnimation(configuration),
+            runningIconAnimation: getEffectiveRunningIconAnimation(configuration),
+            revealFocused,
+        };
+        try {
+            void provider.postMessage(message).then(undefined, error => {
+                logError('Failed to post the Active Session presentation.', error);
+            });
+        } catch (error) {
+            logError('Failed to post the Active Session presentation.', error);
+        }
     }
 
     function invalidateAiSessionCache(providerId: AiSessionProviderId) {

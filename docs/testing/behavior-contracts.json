@@ -1284,6 +1284,10 @@
       "src/aiSessions/runtimeSettlementCapability.ts"
     ,
       "src/aiSessions/attentionEventCapability.ts"
+    ,
+      "src/workspaces/activeSessionPresentation.ts"
+    ,
+      "src/webview/webviewProjectScripts.js"
     ]
   },
   {

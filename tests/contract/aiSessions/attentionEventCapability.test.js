@@ -165,9 +165,7 @@ function createFixture(overrides = {}) {
             ? { scopeIdentity: 'scope-1' }
             : overrides.workspace,
         getActiveTerminal: () => overrides.activeTerminal === undefined ? terminal : overrides.activeTerminal,
-        postMessage: message => {
-            calls.push(['post-message', message]);
-        },
+        postAttentionState: () => { calls.push(['post-attention-state']); },
         isVisible: () => overrides.visible !== false,
         assertActive: () => {
             if (overrides.assertActiveError) {
@@ -581,12 +579,10 @@ test('RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 keeps attention ownership after 
         'attention must surface cross-scope ambiguity instead of selecting the newer scope');
 });
 
-test('ATTENTION-EXECUTION-STATE-SYNC-001 attention state posts the recovery session events and event ids', () => {
+test('ATTENTION-EXECUTION-STATE-SYNC-001 attention mutations request one authoritative presentation snapshot', () => {
     const { capability, calls } = createFixture({});
     capability.postAttentionState();
-    assert.deepEqual(calls.filter(call => call[0] === 'post-message'), [['post-message', {
-        type: 'ai-session-attention-state',
-        sessionEvents: [{ sessionKey: 'codex:session-a', eventIds: ['evt-1', 'evt-1', 'evt-2'] }],
-        eventIds: ['evt-1', 'evt-2'],
-    }]]);
+    assert.deepEqual(calls.filter(call => call[0] === 'post-attention-state'), [
+        ['post-attention-state'],
+    ]);
 });

@@ -105,6 +105,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/out/openWorkspaces/protocol.js',
     'extension/out/openWorkspaces/runningFocusProtocol.js',
     'extension/out/openWorkspaces/workspaceController.js',
+    'extension/out/workspaces/activeSessionPresentation.js',
     'extension/out/workspaces/attentionProjection.js',
     'extension/out/workspaces/contextResolver.js',
     'extension/out/workspaces/identity.js',

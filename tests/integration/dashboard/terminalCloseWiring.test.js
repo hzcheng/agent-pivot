@@ -39,14 +39,14 @@ test('ATTENTION-USER-TERMINAL-CLOSE-001 controlled bridge-first acknowledgement 
         /must be awaited only after the local refresh/);
 });
 
-test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 attention state publication precedes the incremental render', async () => {
+test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 presentation publication precedes the incremental render', async () => {
     await execFile(process.execPath, [harnessPath, 'attention-state-order'], { env: harnessEnvironment() });
 });
 
-test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 controlled render-before-attention-state mutation is rejected', async () => {
+test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 controlled render-before-presentation mutation is rejected', async () => {
     await assert.rejects(
         execFile(process.execPath, [harnessPath, 'mutation:attention-state-before-render'], { env: harnessEnvironment() }),
-        /must publish the current attention event map/);
+        /must publish the current presentation snapshot/);
 });
 
 test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 remote aggregate schedules a refresh without auto-acknowledging', async () => {

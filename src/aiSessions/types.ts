@@ -34,7 +34,6 @@ export interface AiSessionDirectoryScope {
 
 export type AiSessionTabId = 'active' | 'sessions';
 export type ActiveAiSessionExecutionState = 'starting' | AiSessionExecutionState;
-export type ActiveAiSessionStatus = 'starting' | 'running' | 'focused' | 'needsAttention' | 'conflict';
 
 export interface AiSessionActiveTerminalRuntime {
     provider: AiSessionProviderId;
@@ -48,9 +47,9 @@ export interface ActiveAiSessionViewModel {
     key: string;
     provider: AiSessionProviderId;
     sessionId?: string;
+    pendingId?: string;
     name: string;
     executionState: ActiveAiSessionExecutionState;
-    status: ActiveAiSessionStatus;
     focused: boolean;
     needsAttention: boolean;
     pending: boolean;
@@ -214,10 +213,35 @@ export interface AiSessionsUpdatedMessage {
     searchCatalog: DashboardWorkspaceSearchCatalog;
 }
 
-export interface AiSessionActiveTerminalChangedMessage {
-    type: 'active-ai-session-terminal-changed';
-    provider: AiSessionProviderId | null;
-    sessionId: string | null;
+export interface ActiveAiSessionPresentation {
+    provider: AiSessionProviderId;
+    sessionId: string;
+    executionState: AiSessionExecutionState;
+    focused: boolean;
+    needsAttention: boolean;
+    conflict: boolean;
+    eventIds: string[];
+}
+
+export type ActiveAiSessionFocusedTarget =
+    | { provider: AiSessionProviderId; sessionId: string; pendingId?: never }
+    | { provider: AiSessionProviderId; pendingId: string; sessionId?: never };
+
+export interface AiSessionPresentationStateMessage {
+    type: 'ai-session-presentation-state';
+    version: 1;
+    projectionRevision: number;
+    workspaceScopeIdentity: string | null;
+    workspaceNavigationIdentity: string | null;
+    attentionCount: number;
+    activeAttentionCount: number;
+    runningSessionCount: number;
+    runningCardAnimation: string;
+    runningIconAnimation: string;
+    revealFocused: boolean;
+    focusedTarget: ActiveAiSessionFocusedTarget | null;
+    attentionSessions: Array<{ sessionKey: string; eventIds: string[] }>;
+    sessions: ActiveAiSessionPresentation[];
 }
 
 export interface AiSessionAssignmentCandidate<TProject = { id: string }> {

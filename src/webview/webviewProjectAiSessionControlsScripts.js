@@ -11,7 +11,7 @@ function initProjectAiSessionControls(options) {
         pending: false,
         requestId: null,
     };
-    var activeAiSessionTerminalState = { provider: null, sessionId: null };
+    var activeAiSessionTerminalState = { provider: null, sessionId: null, pendingId: null };
     var nextAiSessionBatchArchiveRequestId = 0;
     var nextAiSessionProviderSelectionRequestId = 0;
     var pendingAiSessionProviderSelectionProjectId = null;

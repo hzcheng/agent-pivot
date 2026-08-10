@@ -44,7 +44,7 @@ export interface AiSessionAttentionEventCapabilityOptions {
     getRuntimeConfiguration: () => AiSessionRuntimeConfiguration;
     getCurrentOpenWorkspace: () => OpenWorkspace | null;
     getActiveTerminal: () => vscode.Terminal | null;
-    postMessage: (message: unknown) => void;
+    postAttentionState: () => void;
     isVisible: () => boolean;
     assertActive: () => void;
     createBridgeClient: (
@@ -130,7 +130,7 @@ export function createAiSessionAttentionEventCapability(
     const getRuntimeConfiguration = options.getRuntimeConfiguration;
     const getCurrentOpenWorkspace = options.getCurrentOpenWorkspace;
     const getActiveTerminal = options.getActiveTerminal;
-    const postMessage = options.postMessage;
+    const postAttentionState = options.postAttentionState;
     const isVisible = options.isVisible;
     const assertActive = options.assertActive;
     const createBridgeClient = options.createBridgeClient;
@@ -324,11 +324,7 @@ export function createAiSessionAttentionEventCapability(
     }
 
     function postAiSessionAttentionState() {
-        void postMessage({
-            type: 'ai-session-attention-state',
-            sessionEvents: getAttentionController().getRecoverySessionEvents(),
-            eventIds: getAttentionController().getAttentionEventIds(),
-        });
+        postAttentionState();
     }
 
     const getAiSessionAttentionEventIds = (identity: ActiveAiSessionTerminalIdentity): string[] => {

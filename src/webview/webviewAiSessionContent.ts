@@ -335,7 +335,8 @@ function getCodexSessionRow(
     var metadata = [staleStatus, updatedAt, shortId].filter(value => !!value).join(' · ');
     var providerLabel = getAiProviderLabel(provider);
     var pinned = !!session.pinned;
-    var needsAttention = !!session.attention?.unread;
+    var needsAttention = runtime ? runtime.needsAttention : !!session.attention?.unread;
+    var attentionEventId = runtime?.attentionEventId || session.attention?.eventId || '';
     var attentionIndicator = needsAttention
         ? '<span class="ai-session-attention-indicator" title="AI session needs attention" aria-label="AI session needs attention"></span>'
         : '';
@@ -375,7 +376,7 @@ function getCodexSessionRow(
     var providerBadge = `<span class="ai-session-provider-badge">${providerLabel}</span>`;
 
     return `
-<div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(session.attention.eventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}">
+<div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(attentionEventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}">
     ${batchCheckbox}
     <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session">
         ${attentionIndicator}
@@ -413,7 +414,7 @@ function getActiveAiSessionRow(
         ? normalizeRunningIconAnimation(runningIconAnimation)
         : '';
     var executionStatus = `<span class="ai-session-execution-status" aria-label="${executionAriaLabel}"><span class="ai-session-execution-dot" aria-hidden="true"></span>${executionLabel}</span>`;
-    var runtimeStatusLabel = model.status === 'conflict' || model.conflict ? 'Runtime conflict' : '';
+    var runtimeStatusLabel = model.conflict ? 'Runtime conflict' : '';
     var runtimeBadgeDescription = model.backend === 'tmux'
         ? 'Managed tmux runtime'
         : 'Direct VS Code terminal';
@@ -429,12 +430,12 @@ function getActiveAiSessionRow(
     var pinAction = model.pending
         ? ''
         : `<button type="button" class="codex-session-pin ${model.pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" title="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
-    var conflict = model.status === 'conflict' || model.conflict === true;
+    var conflict = model.conflict === true;
     var terminalAction = conflict ? '' : model.backend === 'tmux'
         ? `<button type="button" class="ai-session-close-terminal ai-session-stop-session" data-action="stop-ai-session-runtime" title="Stop Session… Terminates the AI task running in tmux." aria-label="Stop Session">${Icons.remove}</button>`
         : `<button type="button" class="ai-session-close-terminal" data-action="close-ai-session-terminal" title="Close Terminal…" aria-label="Close Terminal">${Icons.remove}</button>`;
     var pendingAttributes = model.pending
-        ? ` data-session-pending data-pending-created-at="${escapeAttribute(model.createdAt || '')}"`
+        ? ` data-session-pending data-pending-id="${escapeAttribute(model.pendingId || '')}" data-pending-created-at="${escapeAttribute(model.createdAt || '')}"`
         : ` data-session-active data-session-id="${sessionId}"`;
     var attentionAttributes = model.needsAttention && model.attentionEventId
         ? ` data-ai-session-attention data-session-event-id="${escapeAttribute(model.attentionEventId)}"`

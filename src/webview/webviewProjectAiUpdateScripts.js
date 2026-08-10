@@ -18,12 +18,7 @@ function initProjectAiSessionsUpdate(options) {
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
     var latestAiSessionProjectionRevision = 0;
-    var latestAiSessionFocusProjectionRevision = 0;
-    var latestAiSessionAttentionProjectionRevision = 0;
-    // Rendered HTML bootstraps attention only until the dedicated stream arrives.
-    // Later content replacements can carry an older snapshot with a newer delivery
-    // revision, so they must preserve the direct stream instead of reviving stale dots.
-    var hasDirectAiSessionAttentionProjection = false;
+    var latestAiSessionPresentationProjectionRevision = 0;
 
     function canApplyRevision(revision, latestRevision) {
         if (typeof revision === 'undefined') {
@@ -38,50 +33,28 @@ function initProjectAiSessionsUpdate(options) {
         return canApplyRevision(revision, latestAiSessionProjectionRevision);
     }
 
-    function canApplyFocusProjectionRevision(revision) {
-        return canApplyRevision(revision, latestAiSessionFocusProjectionRevision);
+    function canApplyPresentationProjectionRevision(revision) {
+        return canApplyRevision(revision, latestAiSessionPresentationProjectionRevision);
     }
 
-    function canApplyAttentionProjectionRevision(revision) {
-        return !hasDirectAiSessionAttentionProjection
-            && canApplyRevision(revision, latestAiSessionAttentionProjectionRevision);
-    }
-
-    function commitProjectionRevision(revision, adoptedFocus, adoptedAttention) {
+    function commitProjectionRevision(revision, adoptedPresentation) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
-            if (adoptedFocus) {
-                latestAiSessionFocusProjectionRevision = Math.max(
-                    latestAiSessionFocusProjectionRevision,
-                    revision
-                );
-            }
-            if (adoptedAttention) {
-                latestAiSessionAttentionProjectionRevision = Math.max(
-                    latestAiSessionAttentionProjectionRevision,
+            if (adoptedPresentation) {
+                latestAiSessionPresentationProjectionRevision = Math.max(
+                    latestAiSessionPresentationProjectionRevision,
                     revision
                 );
             }
         }
     }
 
-    function acceptFocusProjectionRevision(revision) {
-        if (!canApplyFocusProjectionRevision(revision)) {
+    function acceptPresentationProjectionRevision(revision) {
+        if (!canApplyPresentationProjectionRevision(revision)) {
             return false;
         }
         if (Number.isSafeInteger(revision) && revision > 0) {
-            latestAiSessionFocusProjectionRevision = revision;
-        }
-        return true;
-    }
-
-    function acceptAttentionProjectionRevision(revision) {
-        if (!canApplyRevision(revision, latestAiSessionAttentionProjectionRevision)) {
-            return false;
-        }
-        hasDirectAiSessionAttentionProjection = true;
-        if (Number.isSafeInteger(revision) && revision > 0) {
-            latestAiSessionAttentionProjectionRevision = revision;
+            latestAiSessionPresentationProjectionRevision = revision;
         }
         return true;
     }
@@ -104,8 +77,7 @@ function initProjectAiSessionsUpdate(options) {
         if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
-        var adoptRenderedFocus = canApplyFocusProjectionRevision(message.projectionRevision);
-        var adoptRenderedAttention = canApplyAttentionProjectionRevision(
+        var adoptRenderedPresentation = canApplyPresentationProjectionRevision(
             message.projectionRevision
         );
 
@@ -126,8 +98,7 @@ function initProjectAiSessionsUpdate(options) {
         latestAiSessionUpdateSequence = message.sequence;
         commitProjectionRevision(
             message.projectionRevision,
-            adoptRenderedFocus,
-            adoptRenderedAttention
+            adoptRenderedPresentation
         );
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
@@ -139,7 +110,7 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncAiSessionProjectionDom(adoptRenderedFocus, adoptRenderedAttention);
+        syncAiSessionProjectionDom(adoptRenderedPresentation);
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -248,10 +219,8 @@ function initProjectAiSessionsUpdate(options) {
 
     return {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
-        acceptAttentionProjectionRevision: acceptAttentionProjectionRevision,
-        acceptFocusProjectionRevision: acceptFocusProjectionRevision,
-        canApplyAttentionProjectionRevision: canApplyAttentionProjectionRevision,
-        canApplyFocusProjectionRevision: canApplyFocusProjectionRevision,
+        acceptPresentationProjectionRevision: acceptPresentationProjectionRevision,
+        canApplyPresentationProjectionRevision: canApplyPresentationProjectionRevision,
         canApplyProjectionRevision: canApplyProjectionRevision,
         commitProjectionRevision: commitProjectionRevision,
         findCurrentWorkspaceDiv: findCurrentWorkspaceDiv,

@@ -25,7 +25,7 @@ function loadWebviewContent() {
     }
 }
 
-const { getAiSessionsDiv } = loadWebviewContent();
+const { getAiSessionsDiv, getCurrentWorkspaceGroupContent } = loadWebviewContent();
 const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
     'utf8'
@@ -155,6 +155,37 @@ function projectMarkup(activeAiSessions) {
     </div>`;
 }
 
+function currentWorkspaceGroupMarkup(activeAiSessions, attentionCount = 0) {
+    return getCurrentWorkspaceGroupContent({
+        id: 'project-a',
+        kind: 'current',
+        workspaceKind: 'singleFolder',
+        showSaveAction: false,
+        runningSessionCount: activeAiSessions
+            .filter(entry => entry.executionState === 'running').length,
+        navigationIdentity: 'navigation-project-a',
+        scopeIdentity: 'scope-project-a',
+        name: 'Project A',
+        environment: 'local',
+        environmentLabel: 'Local',
+        color: '',
+        roots: [{ id: 'root-project-a', name: 'Project A', ordinal: 0 }],
+        attentionCount,
+        aiSessions: {
+            activeProvider: 'codex',
+            selectedProviders: ['codex'],
+            expanded: true,
+            sessionsByProvider: { codex: [], kimi: [], claude: [] },
+            unavailableProviders: [],
+            activeSessions: activeAiSessions,
+            aiSessionCount: 1,
+            activeSessionCount: activeAiSessions.length,
+            activeAttentionCount: activeAiSessions
+                .filter(entry => entry.needsAttention).length,
+        },
+    });
+}
+
 function listProjectMarkup(activeAiSessions, historySessions, selectedTab = 'active') {
     return `<div class="project workspace-card" data-id="project-a" data-current-workspace
         data-codex-expanded
@@ -221,26 +252,31 @@ async function isRowFullyVisibleInList(rowLocator) {
     });
 }
 
-function documentMarkup(activeAiSessions) {
+function documentMarkup(activeAiSessions, currentWorkspaceMarkup) {
     return `<!doctype html>
         <html>
             <head><style>${styles}</style></head>
             <body class="steward-sidebar">
                 <div class="steward-sticky-header"></div>
                 <div class="sticky-groups-wrapper">
-                    <div class="open-current-workspace-group">
+                    ${currentWorkspaceMarkup || `<div class="open-current-workspace-group">
                         ${projectMarkup(activeAiSessions)}
-                    </div>
+                    </div>`}
                 </div>
             </body>
         </html>`;
 }
 
-async function openCardPage(t, activeAiSessions, viewport = { width: 360, height: 900 }) {
+async function openCardPage(
+    t,
+    activeAiSessions,
+    viewport = { width: 360, height: 900 },
+    currentWorkspaceMarkup
+) {
     const page = await browser.newPage({ viewport });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
-    await page.setContent(documentMarkup(activeAiSessions));
+    await page.setContent(documentMarkup(activeAiSessions, currentWorkspaceMarkup));
     await page.evaluate(() => {
         window.__postedMessages = [];
         window.normalizeDashboardSearchCatalog = catalog => catalog;
@@ -307,6 +343,51 @@ async function postHostMessage(page, message) {
     await page.evaluate(value => {
         window.dispatchEvent(new MessageEvent('message', { data: value }));
     }, message);
+}
+
+function presentationMessage(activeSessions, projectionRevision, options = {}) {
+    const attention = options.attention || {};
+    const attentionSessions = Object.entries(attention).map(([sessionKey, eventIds]) => ({
+        sessionKey,
+        eventIds,
+    }));
+    const focusedEntry = activeSessions.find(entry => entry.focused);
+    const focusedTarget = options.focusedTarget ?? (focusedEntry
+        ? focusedEntry.pending
+            ? { provider: focusedEntry.provider, pendingId: focusedEntry.pendingId }
+            : { provider: focusedEntry.provider, sessionId: focusedEntry.sessionId }
+        : null);
+    return {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision,
+        workspaceScopeIdentity: 'scope-project-a',
+        workspaceNavigationIdentity: 'navigation-project-a',
+        attentionCount: options.attentionCount ?? attentionSessions.length,
+        activeAttentionCount: activeSessions.filter(entry =>
+            (attention[`${entry.provider}:${entry.sessionId}`] || []).length > 0
+        ).length,
+        runningSessionCount: activeSessions.filter(entry =>
+            entry.executionState === 'running'
+        ).length,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: options.revealFocused === true,
+        focusedTarget,
+        attentionSessions,
+        sessions: activeSessions.filter(entry => !entry.pending).map(entry => {
+            const eventIds = attention[`${entry.provider}:${entry.sessionId}`] || [];
+            return {
+                provider: entry.provider,
+                sessionId: entry.sessionId,
+                executionState: entry.executionState,
+                focused: entry.focused,
+                needsAttention: eventIds.length > 0,
+                conflict: entry.conflict === true,
+                eventIds,
+            };
+        }),
+    };
 }
 
 function focusOrigin(overrides = {}) {
@@ -410,17 +491,13 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when a work
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-2')), true);
 });
 
-test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an independent Attention message arrives first', async t => {
-    const page = await openCardPage(t, [
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when older HTML arrives later', async t => {
+    const initial = [
         session('codex', 'session-a', true),
         session('codex', 'session-b', false),
-    ]);
-    await postHostMessage(page, {
-        type: 'ai-session-attention-state',
-        projectionRevision: 2,
-        eventIds: [],
-        sessionEvents: [],
-    });
+    ];
+    const page = await openCardPage(t, initial);
+    await postHostMessage(page, presentationMessage(initial, 2));
     await postHostMessage(page, {
         type: 'ai-sessions-updated',
         version: 2,
@@ -440,22 +517,17 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an ind
         },
     });
 
-    assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), '');
+    assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
     assert.equal(
-        await row(page, 'codex', 'session-b').getAttribute('data-ai-session-active-terminal'),
+        await row(page, 'codex', 'session-a').getAttribute('data-ai-session-active-terminal'),
         ''
     );
     assert.equal(
-        await row(page, 'codex', 'session-a').getAttribute('data-ai-session-active-terminal'),
+        await row(page, 'codex', 'session-b').getAttribute('data-ai-session-active-terminal'),
         null
     );
 
-    await postHostMessage(page, {
-        type: 'active-ai-session-terminal-changed',
-        projectionRevision: 4,
-        provider: 'codex',
-        sessionId: 'session-a',
-    });
+    await postHostMessage(page, presentationMessage(initial, 4, { revealFocused: true }));
     await postHostMessage(page, {
         type: 'ai-sessions-updated',
         version: 2,
@@ -488,12 +560,13 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an ind
         0
     );
 
-    await postHostMessage(page, {
-        type: 'ai-session-attention-state',
-        projectionRevision: 6,
-        eventIds: ['event-b'],
-        sessionEvents: [{ sessionKey: 'codex:session-b', eventIds: ['event-b'] }],
-    });
+    const attentionState = [
+        session('codex', 'session-a', true),
+        { ...session('codex', 'session-b', false), executionState: 'stopped' },
+    ];
+    await postHostMessage(page, presentationMessage(attentionState, 6, {
+        attention: { 'codex:session-b': ['event-b'] },
+    }));
     await postHostMessage(page, {
         type: 'ai-sessions-updated',
         version: 2,
@@ -529,18 +602,64 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an ind
     );
 });
 
-test('ATTENTION-EXECUTION-STATE-SYNC-001 ignores stale Attention DOM state while an Active Session is running', async t => {
-    const page = await openCardPage(t, [session('codex', 'current-session', true)]);
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 transfers pending focus through the complete presentation', async t => {
+    const pending = {
+        key: 'pending:codex:pending-one',
+        provider: 'codex',
+        pendingId: 'pending-one',
+        name: 'New Codex session',
+        executionState: 'starting',
+        focused: true,
+        needsAttention: false,
+        pending: true,
+        backend: 'tmux',
+        tmuxLayout: 'project',
+        attached: true,
+        createdAt: '2026-08-10T00:00:00.000Z',
+    };
+    const established = session('codex', 'established-one', false);
+    const page = await openCardPage(t, [pending, established]);
+    const pendingRow = page.locator(
+        '.active-ai-session-row[data-session-provider="codex"][data-pending-id="pending-one"]'
+    );
+    assert.equal(await pendingRow.getAttribute('data-session-focused'), '');
+    await postHostMessage(page, presentationMessage(
+        [pending, established],
+        2,
+        { focusedTarget: { provider: 'codex', pendingId: 'pending-one' } }
+    ));
+    assert.equal(
+        await pendingRow.locator('.ai-session-primary-action').getAttribute('title'),
+        'Focus pending Codex Session'
+    );
+    assert.equal(
+        await pendingRow.locator('.ai-session-open-conversation-hint').count(),
+        0
+    );
 
-    await postHostMessage(page, {
-        type: 'ai-session-attention-state',
-        projectionRevision: 2,
-        eventIds: ['stale-event'],
-        sessionEvents: [{
-            sessionKey: 'codex:current-session',
-            eventIds: ['stale-event'],
-        }],
-    });
+    const focusedEstablished = { ...established, focused: true };
+    await postHostMessage(page, presentationMessage(
+        [pending, focusedEstablished],
+        3,
+        { focusedTarget: { provider: 'codex', sessionId: 'established-one' } }
+    ));
+
+    assert.equal(await pendingRow.getAttribute('data-session-focused'), null);
+    assert.equal(
+        await row(page, 'codex', 'established-one').getAttribute('data-session-focused'),
+        ''
+    );
+    assert.equal(
+        await page.locator('.codex-session-row[data-session-focused]').count(),
+        1
+    );
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 ignores stale Attention DOM state while an Active Session is running', async t => {
+    const running = session('codex', 'current-session', true);
+    const page = await openCardPage(t, [running]);
+
+    await postHostMessage(page, presentationMessage([running], 2));
 
     const currentRow = row(page, 'codex', 'current-session');
     assert.equal(await currentRow.getAttribute('data-execution-state'), 'running');
@@ -550,24 +669,10 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 ignores stale Attention DOM state while
     assert.equal(await currentRow.getAttribute('data-session-event-id'), null);
     assert.equal(await currentRow.locator('.ai-session-attention-indicator').count(), 0);
 
-    await postHostMessage(page, {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 1,
-        projectionRevision: 3,
-        currentWorkspaceCount: 1,
-        html: `<div class="open-current-workspace-group">${projectMarkup([{
-            ...session('codex', 'current-session', true),
-            executionState: 'stopped',
-        }])}</div>`,
-        searchCatalog: {
-            version: 2,
-            sessions: [],
-            openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
-        },
-    });
+    const stopped = { ...running, executionState: 'stopped' };
+    await postHostMessage(page, presentationMessage([stopped], 3, {
+        attention: { 'codex:current-session': ['stale-event'] },
+    }));
 
     const stoppedRow = row(page, 'codex', 'current-session');
     assert.equal(await stoppedRow.getAttribute('data-session-icon-fx'), null);
@@ -577,6 +682,163 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 ignores stale Attention DOM state while
         'suppressing the running dot does not discard the authoritative Attention event');
 });
 
+test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentation surface atomically', async t => {
+    const stoppedSession = {
+        ...session('codex', 'current-session', true),
+        executionState: 'stopped',
+    };
+    const page = await openCardPage(
+        t,
+        [stoppedSession],
+        { width: 360, height: 900 },
+        `${currentWorkspaceGroupMarkup([stoppedSession])}
+            <div class="open-other-windows-group">${currentOpenWorkspaceProjectMarkup()}</div>`
+    );
+    await page.evaluate(() => {
+        document.querySelector('.workspace-card[data-current-workspace]')
+            .setAttribute('data-workspace-scope-identity', 'scope-before-root-change');
+        window.__activeSessionPresentationSnapshots = [];
+        window.__readActiveSessionPresentation = () => {
+            const card = document.querySelector('.workspace-card[data-current-workspace]');
+            const row = card.querySelector('.active-ai-session-row[data-session-id="current-session"]');
+            const summary = card.querySelector('.project-codex-badge');
+            const compact = document.querySelector(
+                '.workspace-card[data-open-workspace-current]'
+            );
+            return {
+                rowAttention: row.hasAttribute('data-ai-session-attention'),
+                tabAttention: !!card.querySelector('[data-ai-session-tab="active"] .ai-session-tab-attention'),
+                summaryAttention: Number(summary.getAttribute('data-ai-session-attention-count')),
+                rowRunning: row.getAttribute('data-execution-state') === 'running'
+                    && row.getAttribute('data-session-icon-fx') === 'current',
+                cardRunning: card.classList.contains('session-running')
+                    && card.getAttribute('data-session-fx') === 'current'
+                    && !!card.querySelector('.project-session-fx'),
+                compactAttention: Number(
+                    compact.querySelector('.project-ai-attention-badge')?.textContent || 0
+                ),
+                compactRunning: compact.classList.contains('session-running')
+                    && compact.getAttribute('data-session-fx') === 'current'
+                    && Number(compact.querySelector(
+                        '.project-codex-badge[data-ai-session-active-count]'
+                    )?.getAttribute('data-ai-session-active-count') || 0) === 1,
+            };
+        };
+        window.__activeSessionPresentationObserver = new MutationObserver(() => {
+            window.__activeSessionPresentationSnapshots.push(
+                window.__readActiveSessionPresentation()
+            );
+        });
+        window.__activeSessionPresentationObserver.observe(
+            document.querySelector('.workspace-card[data-current-workspace]'),
+            { attributes: true, childList: true, subtree: true }
+        );
+    });
+
+    await postHostMessage(page, {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision: 2,
+        workspaceScopeIdentity: 'scope-project-a',
+        workspaceNavigationIdentity: 'navigation-project-a',
+        attentionCount: 1,
+        activeAttentionCount: 1,
+        runningSessionCount: 0,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: false,
+        focusedTarget: { provider: 'codex', sessionId: 'current-session' },
+        attentionSessions: [{
+            sessionKey: 'codex:current-session',
+            eventIds: ['attention-event'],
+        }],
+        sessions: [{
+            provider: 'codex',
+            sessionId: 'current-session',
+            executionState: 'stopped',
+            focused: true,
+            needsAttention: true,
+            conflict: false,
+            eventIds: ['attention-event'],
+        }],
+    });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    const attentionState = {
+        rowAttention: true,
+        tabAttention: true,
+        summaryAttention: 1,
+        rowRunning: false,
+        cardRunning: false,
+        compactAttention: 1,
+        compactRunning: false,
+    };
+    assert.deepEqual(await page.evaluate(() => window.__readActiveSessionPresentation()), attentionState);
+    assert.deepEqual(
+        await page.evaluate(() => window.__activeSessionPresentationSnapshots),
+        [attentionState]
+    );
+
+    await page.evaluate(() => { window.__activeSessionPresentationSnapshots = []; });
+    await postHostMessage(page, {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision: 3,
+        workspaceScopeIdentity: 'scope-project-a',
+        workspaceNavigationIdentity: 'navigation-project-a',
+        attentionCount: 0,
+        activeAttentionCount: 0,
+        runningSessionCount: 1,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: false,
+        focusedTarget: { provider: 'codex', sessionId: 'current-session' },
+        attentionSessions: [],
+        sessions: [{
+            provider: 'codex',
+            sessionId: 'current-session',
+            executionState: 'running',
+            focused: true,
+            needsAttention: false,
+            conflict: false,
+            eventIds: [],
+        }],
+    });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    const runningState = {
+        rowAttention: false,
+        tabAttention: false,
+        summaryAttention: 0,
+        rowRunning: true,
+        cardRunning: true,
+        compactAttention: 0,
+        compactRunning: true,
+    };
+    assert.deepEqual(await page.evaluate(() => window.__readActiveSessionPresentation()), runningState);
+    assert.deepEqual(
+        await page.evaluate(() => window.__activeSessionPresentationSnapshots),
+        [runningState]
+    );
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 creates and clears a previously empty current summary', async t => {
+    const page = await openCardPage(t, []);
+    const card = page.locator('.workspace-card[data-current-workspace]');
+    assert.equal(await card.locator('.project-codex-badge').count(), 0);
+
+    await postHostMessage(page, presentationMessage([], 2, {
+        attention: { 'codex:history-only': ['history-attention'] },
+    }));
+    assert.equal(
+        await card.locator('.ai-session-attention-count').textContent(),
+        '1'
+    );
+    assert.equal(await card.getAttribute('data-has-ai-session-badge'), '');
+
+    await postHostMessage(page, presentationMessage([], 3));
+    assert.equal(await card.locator('.project-codex-badge').count(), 0);
+    assert.equal(await card.getAttribute('data-has-ai-session-badge'), null);
+});
+
 test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention during a window-switch projection', async t => {
     const active = [
         session('codex', 'session-a', false),
@@ -584,12 +846,9 @@ test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention duri
         session('codex', 'session-c', false),
     ].map(entry => ({ ...entry, executionState: 'stopped' }));
     const page = await openCardPage(t, active);
-    await postHostMessage(page, {
-        type: 'ai-session-attention-state',
-        projectionRevision: 2,
-        eventIds: ['event-b'],
-        sessionEvents: [{ sessionKey: 'codex:session-b', eventIds: ['event-b'] }],
-    });
+    await postHostMessage(page, presentationMessage(active, 2, {
+        attention: { 'codex:session-b': ['event-b'] },
+    }));
     await page.evaluate(() => {
         window.__attentionProjectionSnapshots = [];
         const recordAttentionProjection = () => {
@@ -604,10 +863,10 @@ test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention duri
         );
     });
 
-    const staleAttention = active.map(entry => ({
+    const authoritativeAttention = active.map(entry => ({
         ...entry,
-        needsAttention: true,
-        attentionEventId: `stale-${entry.sessionId}`,
+        needsAttention: entry.sessionId === 'session-c',
+        ...(entry.sessionId === 'session-c' ? { attentionEventId: 'event-c' } : {}),
     }));
     await postHostMessage(page, {
         type: 'open-workspaces-updated',
@@ -617,7 +876,7 @@ test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention duri
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 0,
         otherWindowsStatus: 'ready',
-        html: `<div class="open-current-workspace-group">${projectMarkup(staleAttention)}</div>
+        html: `<div class="open-current-workspace-group">${projectMarkup(authoritativeAttention)}</div>
             <div class="open-other-windows-group" data-other-windows-status="ready">
                 ${currentOpenWorkspaceProjectMarkup()}
             </div>`,
@@ -630,12 +889,9 @@ test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention duri
         },
     });
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
-    await postHostMessage(page, {
-        type: 'ai-session-attention-state',
-        projectionRevision: 3,
-        eventIds: ['event-c'],
-        sessionEvents: [{ sessionKey: 'codex:session-c', eventIds: ['event-c'] }],
-    });
+    await postHostMessage(page, presentationMessage(active, 3, {
+        attention: { 'codex:session-b': ['stale-event-b'] },
+    }));
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
 
     const snapshots = await page.evaluate(() => {
@@ -669,12 +925,10 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals a newer direct focus projection in
     });
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
 
-    await postHostMessage(page, {
-        type: 'active-ai-session-terminal-changed',
-        projectionRevision: 2,
-        provider: 'codex',
-        sessionId: 'active-7',
-    });
+    await postHostMessage(page, presentationMessage(active.map((entry, index) => ({
+        ...entry,
+        focused: index === 6,
+    })), 2, { revealFocused: true }));
 
     assert.equal(await row(page, 'codex', 'active-7').getAttribute('data-session-focused'), '');
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);

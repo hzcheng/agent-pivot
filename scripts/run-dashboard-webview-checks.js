@@ -3307,16 +3307,10 @@ async function runDashboardRuntimeControllerChecks() {
     assert.deepStrictEqual(commands[commands.length - 1], ['workbench.action.openSettings', '@ext:hzcheng.agent-pivot']);
 
     controller.postBatchArchiveCompletion({ type: 'ai-session-batch-archive-completed', projectId: 'p', provider: 'codex', status: 'finished' });
-    controller.postActiveAiSessionTerminalChanged({ provider: 'codex', sessionId: 's1' });
-    controller.postActiveAiSessionTerminalChanged(null);
     await new Promise(resolve => setImmediate(resolve));
     assert.deepStrictEqual(posted.map(message => message.type), [
         'ai-session-batch-archive-completed',
-        'active-ai-session-terminal-changed',
-        'active-ai-session-terminal-changed',
     ]);
-    assert.deepStrictEqual(posted[1], { type: 'active-ai-session-terminal-changed', provider: 'codex', sessionId: 's1' });
-    assert.deepStrictEqual(posted[2], { type: 'active-ai-session-terminal-changed', provider: null, sessionId: null });
 
     controller.applyProjectColorToCurrentWindow();
     controller.applyProjectColorToCurrentWindow({ id: 'save', showSaveAction: true });

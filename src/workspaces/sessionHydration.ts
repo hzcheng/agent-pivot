@@ -10,7 +10,6 @@ import type {
     AiSessionRuntimeSnapshot,
 } from '../aiSessions/runtimeTypes';
 import type {
-    ActiveAiSessionStatus,
     ActiveAiSessionViewModel,
     AiSessionProviderDefinition,
     AiSessionReadResult,
@@ -26,6 +25,10 @@ import {
 } from './sessionAssignment';
 import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 export { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
+import {
+    projectWorkspaceActiveSessions,
+    WorkspaceActiveSessionPresentation,
+} from './activeSessionPresentation';
 import type { OpenWorkspace, WorkspaceRoot } from './types';
 import {
     buildWorkspaceSessionAttentionIndex,
@@ -85,6 +88,14 @@ interface ProjectablePendingRuntime<TTerminal> extends AiSessionPendingRuntimeSn
 export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
     input: HydrateWorkspaceAiSessionsInput<TTerminal>
 ): WorkspaceAiSessionViewModel {
+    const activePresentation = projectWorkspaceActiveSessions({
+        workspace: input.workspace,
+        activeRuntimes: input.activeRuntimes || [],
+        pendingRuntimes: input.pendingRuntimes || [],
+        executionSnapshot: input.executionSnapshot || {},
+        focusedIdentity: input.focusedIdentity || null,
+        attentionAggregate: input.attentionAggregate || null,
+    });
     const attentionByRootAndSession = buildWorkspaceSessionAttentionIndex(
         input.attentionAggregate || null
     );
@@ -96,8 +107,13 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
     const activeSessionKeys = new Set(activeRuntimes
         .filter(runtime => !!runtime.identity.sessionId)
         .map(runtime => getAiSessionKey(runtime.identity.provider, runtime.identity.sessionId)));
-    const focusedSessionKey = getFocusedSessionKey(input.focusedIdentity, activeRuntimes);
-    const focusedPendingKey = getFocusedPendingKey(input.focusedIdentity, pendingRuntimes);
+    const focusedTarget = activePresentation.focusedTarget;
+    const focusedSessionKey = focusedTarget?.sessionId
+        ? getAiSessionKey(focusedTarget.provider, focusedTarget.sessionId)
+        : null;
+    const focusedPendingKey = focusedTarget?.pendingId
+        ? pendingKey(focusedTarget.provider, focusedTarget.pendingId)
+        : null;
     const sessionsByProvider: Partial<Record<AiSessionProviderId, AiSessionViewModel[]>> = {};
     const unavailableProviders: AiSessionProviderId[] = [];
 
@@ -146,7 +162,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         sessionsByProvider,
         activeRuntimes,
         pendingRuntimes,
-        focusedSessionKey,
+        activePresentation,
         focusedPendingKey,
     });
     return buildWorkspaceAiSessionViewModel({
@@ -155,6 +171,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         sessionsByProvider,
         unavailableProviders,
         activeSessions,
+        attentionCount: activePresentation.attentionCount,
         activeProvider: input.activeProvider,
         providerSelection: input.providerSelection,
         expanded: input.expanded,
@@ -187,7 +204,7 @@ function buildActiveSessions<TTerminal>(input: {
     sessionsByProvider: Partial<Record<AiSessionProviderId, AiSessionViewModel[]>>;
     activeRuntimes: AiSessionRuntimeSnapshot<TTerminal>[];
     pendingRuntimes: ProjectablePendingRuntime<TTerminal>[];
-    focusedSessionKey: string | null;
+    activePresentation: WorkspaceActiveSessionPresentation;
     focusedPendingKey: string | null;
 }): ActiveAiSessionViewModel[] {
     const active = input.activeRuntimes
@@ -199,18 +216,19 @@ function buildActiveSessions<TTerminal>(input: {
             const session = input.sessionsByProvider[providerId]
                 ?.find(candidate => candidate.id === sessionId);
             const root = assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
-            const focused = input.focusedSessionKey === key;
-            const executionState = input.input.executionSnapshot?.[key]?.state || 'stopped';
-            const needsAttention = executionState !== 'running'
-                && session?.attention?.unread === true;
-            const conflict = runtime.state === 'conflict';
+            const presentation = input.activePresentation.sessions.find(candidate =>
+                candidate.provider === providerId && candidate.sessionId === sessionId
+            );
+            const focused = presentation?.focused === true;
+            const executionState = presentation?.executionState || 'stopped';
+            const needsAttention = presentation?.needsAttention === true;
+            const conflict = presentation?.conflict === true;
             return {
                 key,
                 provider: providerId,
                 sessionId,
                 name: session?.name || `${providerLabel(input.input.providers, providerId)} ${shortId(sessionId)}`,
                 executionState,
-                status: establishedStatus(needsAttention, focused, conflict),
                 focused,
                 needsAttention,
                 pending: false,
@@ -221,8 +239,8 @@ function buildActiveSessions<TTerminal>(input: {
                 ...(runtime.stale ? { stale: true } : {}),
                 ...(session?.updatedAt ? { updatedAt: session.updatedAt } : {}),
                 ...(session?.pinned !== undefined ? { pinned: session.pinned } : {}),
-                ...(needsAttention && session?.attention?.eventId
-                    ? { attentionEventId: session.attention.eventId }
+                ...(needsAttention && presentation?.eventIds[0]
+                    ? { attentionEventId: presentation.eventIds[0] }
                     : {}),
                 ...rootMetadata(root),
                 activityMs: finiteNumber(runtime.runStartedAtMs),
@@ -239,9 +257,9 @@ function buildActiveSessions<TTerminal>(input: {
         return {
             key,
             provider: providerId,
+            pendingId,
             name: runtime.title || `New ${providerLabel(input.input.providers, providerId)} session`,
             executionState: 'starting',
-            status: conflict ? 'conflict' : focused ? 'focused' : 'starting',
             focused,
             needsAttention: false,
             pending: true,
@@ -337,37 +355,8 @@ function cloneRuntime<TTerminal>(runtime: AiSessionRuntimeSnapshot<TTerminal>): 
     };
 }
 
-function getFocusedSessionKey<TTerminal>(
-    focused: AiSessionRuntimeIdentity | ActiveAiSessionTerminalIdentity | null | undefined,
-    runtimes: readonly AiSessionRuntimeSnapshot<TTerminal>[]
-): string | null {
-    if (!focused?.sessionId || !runtimes.some(runtime => runtime.identity.provider === focused.provider
-        && runtime.identity.sessionId === focused.sessionId
-        && runtime.identity.workspaceScopeIdentity === focused.workspaceScopeIdentity)) {
-        return null;
-    }
-    return getAiSessionKey(focused.provider, focused.sessionId);
-}
-
-function getFocusedPendingKey<TTerminal>(
-    focused: AiSessionRuntimeIdentity | ActiveAiSessionTerminalIdentity | null | undefined,
-    runtimes: readonly ProjectablePendingRuntime<TTerminal>[]
-): string | null {
-    if (!focused || !('pendingId' in focused) || !focused.pendingId
-        || !runtimes.some(runtime => runtime.identity.provider === focused.provider
-            && runtime.identity.pendingId === focused.pendingId
-            && runtime.identity.workspaceScopeIdentity === focused.workspaceScopeIdentity)) {
-        return null;
-    }
-    return pendingKey(focused.provider, focused.pendingId);
-}
-
 function providerLabel(providers: readonly HydrationProvider[], providerId: AiSessionProviderId): string {
     return providers.find(provider => provider.id === providerId)?.label || 'AI';
-}
-
-function establishedStatus(needsAttention: boolean, focused: boolean, conflict: boolean): ActiveAiSessionStatus {
-    return conflict ? 'conflict' : needsAttention ? 'needsAttention' : focused ? 'focused' : 'running';
 }
 
 function compareActiveSessions(left: SortableActiveSession, right: SortableActiveSession): number {

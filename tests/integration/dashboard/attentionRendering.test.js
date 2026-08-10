@@ -332,6 +332,8 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 never renders a running animation and s
     assert.match(sessionRow, /data-session-icon-fx=/);
     assert.doesNotMatch(sessionRow,
         /data-ai-session-attention|data-session-needs-attention|ai-session-attention-indicator/);
+    assert.doesNotMatch(html, new RegExp(`data-session-event-id="${eventId}"`),
+        'the History row must consume the same running-state attention projection');
     assert.doesNotMatch(html, /class="ai-session-attention-count"/);
 });
 

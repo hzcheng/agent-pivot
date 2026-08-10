@@ -784,7 +784,7 @@
   {
     "id": "AI-SESSION-NEXT-RUNNING-COMMAND-001",
     "domain": "session",
-    "title": "The Next Running Session command cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps use the shared navigation transaction to focus the session terminal and open its conversation, interleaved Running and Attention commands settle in invocation order, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v2 delivered mailbox hand-off is accepted so stale requests cannot steal focus from newer navigation",
+    "title": "The Next Running Session command cycles running AI sessions one jump per invocation with a stable local-first queue and a resilient cursor: manual focus changes re-anchor the cursor, local jumps use the shared navigation transaction to focus the session terminal and open its conversation, interleaved Running and Attention commands settle in invocation order, sessions that ended mid-cycle are skipped with a warning, and remote jumps switch windows only after a v3 delivered mailbox hand-off carries its source so a degraded local ring cannot bounce back and starve another running window",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -832,7 +832,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001",
     "domain": "open-project",
-    "title": "Running focus hand-off protocol v2 rejects legacy early-acceptance peers and strictly validates bounded requests with correlated delivered outcomes",
+    "title": "Running focus hand-off protocol v3 rejects legacy early-acceptance peers and strictly validates bounded source-to-target requests with correlated delivered outcomes",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -873,7 +873,7 @@
   {
     "id": "OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001",
     "domain": "open-project",
-    "title": "The main-extension bridge client sends correlated running focus v2 requests, degrades safely when delivery is unavailable or legacy, and delivers received requests exactly once while rejecting malformed payloads",
+    "title": "The main-extension bridge client sends correlated running focus v3 requests with explicit source context, degrades safely when delivery is unavailable or legacy, and delivers received requests exactly once while rejecting malformed payloads",
     "priority": "P1",
     "status": "automated",
     "owners": [

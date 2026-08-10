@@ -193,7 +193,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
     private readonly onStatusChange: (status: OpenWorkspaceBridgeStatus) => void;
     private readonly onPinSnapshot: (snapshot: OpenWorkspacePinSnapshot) => unknown;
     private readonly runningFocusChannel: OpenWorkspaceFocusBridgeChannel<
-        undefined,
+        string,
         OpenWorkspaceRunningFocusRequest,
         OpenWorkspaceRunningFocusOutcome
     >;
@@ -253,6 +253,7 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
             validateRequest: validateOpenWorkspaceRunningFocusRequest,
             createRequest: input => createOpenWorkspaceRunningFocusRequest({
                 requestId: input.requestId,
+                sourceNavigationIdentity: input.target,
                 targetNavigationIdentity: input.targetNavigationIdentity,
                 nowMs: input.nowMs,
             }),
@@ -442,12 +443,16 @@ export default class OpenWorkspaceBridgeClient implements vscode.Disposable {
 
     /**
      * Hands a running-session focus request to the window owning
-     * `targetNavigationIdentity`. Returns false when the hand-off channel is
-     * unavailable (older bridge, broken handshake) so the caller can degrade
-     * to a plain window switch.
+     * `targetNavigationIdentity`, carrying `sourceNavigationIdentity` so the
+     * receiver can continue the global rotation. Returns false when the
+     * hand-off channel is unavailable (older bridge, broken handshake) so the
+     * caller can degrade to a plain window switch.
      */
-    async requestRunningFocus(targetNavigationIdentity: string): Promise<boolean> {
-        return this.runningFocusChannel.request(targetNavigationIdentity, undefined);
+    async requestRunningFocus(
+        targetNavigationIdentity: string,
+        sourceNavigationIdentity: string,
+    ): Promise<boolean> {
+        return this.runningFocusChannel.request(targetNavigationIdentity, sourceNavigationIdentity);
     }
 
     receiveAttentionFocusRequest(raw: unknown): void {

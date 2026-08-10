@@ -45,7 +45,7 @@ export type RunningSessionJumpOptions = RunningSessionJumpBaseOptions & (
 
 export interface RunningSessionJumpHandler {
     jumpToNextRunningSession(): Promise<void>;
-    jumpToNextLocalRunningSession(): Promise<void>;
+    jumpToNextLocalRunningSession(sourceNavigationIdentity?: string): Promise<void>;
 }
 
 /**
@@ -57,6 +57,11 @@ export interface RunningSessionJumpHandler {
  * bridge) the press degrades to a plain window switch and the next press in
  * the destination window completes the landing.
  *
+ * A delivered hand-off also records the source window. If a temporarily
+ * incomplete ring would immediately send the next press back there while a
+ * third running window is available, the handler advances to that third
+ * window instead. A two-window ring still returns to its only peer normally.
+ *
  * The cursor advances even when a jump fails, so a session that ended
  * mid-cycle is skipped by the next press instead of trapping the user on a
  * dead target.
@@ -66,6 +71,7 @@ export function createRunningSessionJumpHandler(
 ): RunningSessionJumpHandler {
     let lastKey: string | null = null;
     let lastObservedCurrentKey: string | null = null;
+    let returnSourceKey: string | null = null;
     const navigationCoordinator = options.navigationCoordinator
         || createSessionNavigationCoordinator();
 
@@ -118,6 +124,7 @@ export function createRunningSessionJumpHandler(
             handedOff = false;
         }
         lastKey = item.key;
+        returnSourceKey = null;
         await options.openNavigationCard(item.cardId);
         if (!handedOff) {
             options.showInformationMessage(
@@ -127,7 +134,13 @@ export function createRunningSessionJumpHandler(
         }
     }
 
-    async function jump(scope: 'all' | 'local'): Promise<void> {
+    async function jump(
+        scope: 'all' | 'local',
+        sourceNavigationIdentity?: string,
+    ): Promise<void> {
+        if (scope === 'local' && sourceNavigationIdentity) {
+            returnSourceKey = `window:${sourceNavigationIdentity}`;
+        }
         const queue = options.buildQueue();
         const items: RunningSessionQueueItem[] = scope === 'local'
             ? queue.items.filter(item => item.kind === 'local')
@@ -151,9 +164,21 @@ export function createRunningSessionJumpHandler(
             && currentChanged
             ? null
             : lastKey;
-        const next = scope === 'local' && current?.kind === 'local'
+        let next = scope === 'local' && current?.kind === 'local'
             ? current
             : getNextRunningSessionQueueItem(items, cursorKey, currentKey);
+        if (scope === 'all'
+            && next?.kind === 'remote'
+            && next.key === returnSourceKey) {
+            const sourceIndex = items.findIndex(item => item.key === returnSourceKey);
+            for (let offset = 1; offset < items.length; offset += 1) {
+                const candidate = items[(sourceIndex + offset) % items.length];
+                if (candidate.kind === 'remote' && candidate.key !== returnSourceKey) {
+                    next = candidate;
+                    break;
+                }
+            }
+        }
         if (!next) {
             return;
         }
@@ -166,6 +191,7 @@ export function createRunningSessionJumpHandler(
 
     return {
         jumpToNextRunningSession: () => navigationCoordinator.enqueue(() => jump('all')),
-        jumpToNextLocalRunningSession: () => navigationCoordinator.enqueue(() => jump('local')),
+        jumpToNextLocalRunningSession: sourceNavigationIdentity =>
+            navigationCoordinator.enqueue(() => jump('local', sourceNavigationIdentity)),
     };
 }

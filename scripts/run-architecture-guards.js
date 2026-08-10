@@ -866,7 +866,8 @@ const guards = {
             ['receiveRunningFocusRequest', 'this.runningFocusChannel.receive(raw);'],
             [
                 'requestRunningFocus',
-                'return this.runningFocusChannel.request(targetNavigationIdentity, undefined);',
+                'return this.runningFocusChannel.request('
+                    + 'targetNavigationIdentity, sourceNavigationIdentity);',
             ],
             ['receiveAttentionFocusRequest', 'this.attentionFocusChannel.receive(raw);'],
             [

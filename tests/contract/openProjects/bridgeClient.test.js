@@ -22,13 +22,14 @@ const {
 const FOCUS_CHANNELS = [
     {
         label: 'Running',
-        requestCommand: '_agentPivotOpenWorkspaces.bridge.requestRunningFocusV2',
-        deliverCommand: '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2',
+        requestCommand: '_agentPivotOpenWorkspaces.bridge.requestRunningFocusV3',
+        deliverCommand: '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV3',
         dependency: 'onRunningFocusRequest',
-        request: (client, identity) => client.requestRunningFocus(identity),
+        request: (client, identity) => client.requestRunningFocus(identity, 'e'.repeat(64)),
         makeRequest: requestId => ({
-            protocolVersion: 2,
+            protocolVersion: 3,
             requestId,
+            sourceNavigationIdentity: 'e'.repeat(64),
             targetNavigationIdentity: 'f'.repeat(64),
             createdAtMs: 4000,
             expiresAtMs: 64_000,
@@ -231,7 +232,7 @@ test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before
     assert.deepEqual([...activeRegistrations.keys()], []);
     assert.deepEqual(disposedRegistrations, [
         '_agentPivotOpenWorkspaces.workspace.attentionFocusRequested',
-        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2',
+        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV3',
         '_agentPivotOpenWorkspaces.workspace.pinSnapshot',
         '_agentPivotOpenWorkspaces.workspace.aggregate',
     ]);
@@ -252,7 +253,7 @@ test('OPEN-BRIDGE-CLIENT-001 rolls back partial constructor registrations before
         '_agentPivotOpenWorkspaces.workspace.attentionFocusRequested',
         '_agentPivotOpenWorkspaces.workspace.diagnostic',
         '_agentPivotOpenWorkspaces.workspace.pinSnapshot',
-        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2',
+        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV3',
     ]);
     assert.equal(heartbeatStarts, 1);
 
@@ -268,13 +269,13 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 sends correlated focus requests an
     commands.register('_agentPivotOpenWorkspaces.bridge.unregister', () => undefined);
     const requests = [];
     let rejectRequests = false;
-    commands.register('_agentPivotOpenWorkspaces.bridge.requestRunningFocusV2', request => {
+    commands.register('_agentPivotOpenWorkspaces.bridge.requestRunningFocusV3', request => {
         if (rejectRequests) {
             throw new Error('command is not registered: simulated legacy bridge');
         }
         requests.push(request);
         return {
-            protocolVersion: 2,
+            protocolVersion: 3,
             requestId: request.requestId,
             targetNavigationIdentity: request.targetNavigationIdentity,
             delivered: true,
@@ -298,18 +299,20 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 sends correlated focus requests an
     await flushAsync();
 
     const identity = 'f'.repeat(64);
-    assert.equal(await client.requestRunningFocus(identity), true);
+    const sourceIdentity = 'e'.repeat(64);
+    assert.equal(await client.requestRunningFocus(identity, sourceIdentity), true);
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].protocolVersion, 2);
+    assert.equal(requests[0].protocolVersion, 3);
     assert.match(requests[0].requestId, /^[a-f0-9]{32}$/);
+    assert.equal(requests[0].sourceNavigationIdentity, sourceIdentity);
     assert.equal(requests[0].targetNavigationIdentity, identity);
     assert.equal(requests[0].createdAtMs, 5000);
     assert.equal(requests[0].expiresAtMs, 65_000);
 
     rejectRequests = true;
-    assert.equal(await client.requestRunningFocus(identity), false);
+    assert.equal(await client.requestRunningFocus(identity, sourceIdentity), false);
     assert.equal(errors.length, 1);
-    assert.equal(await client.requestRunningFocus('not-an-identity'), false);
+    assert.equal(await client.requestRunningFocus('not-an-identity', sourceIdentity), false);
     assert.equal(errors.length, 2);
 });
 
@@ -344,12 +347,13 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-CLIENT-001 delivers focus requests exactly on
     await flushAsync();
 
     const deliver = commands.handlers.get(
-        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2'
+        '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV3'
     );
     assert.ok(deliver, 'the client must register the running focus delivery command');
     const request = {
-        protocolVersion: 2,
+        protocolVersion: 3,
         requestId: 'a'.repeat(32),
+        sourceNavigationIdentity: 'e'.repeat(64),
         targetNavigationIdentity: 'f'.repeat(64),
         createdAtMs: 4000,
         expiresAtMs: 64_000,

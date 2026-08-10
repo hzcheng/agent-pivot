@@ -380,6 +380,75 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 cycles three single-session windows in
     ]);
 });
 
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 does not starve a window when local ring context is unavailable', async () => {
+    const WINDOW_C = 'c'.repeat(64);
+    const identities = [WINDOW_A, WINDOW_B, WINDOW_C];
+    const sessionOf = identity => `s-${identity[0]}`;
+    const cardOf = identity => `card-${identity[0]}`;
+    const world = {
+        activeWindow: WINDOW_A,
+        focused: new Map(identities.map(identity => [identity, sessionOf(identity)])),
+    };
+    const handlers = new Map();
+    for (const identity of identities) {
+        const others = identities.filter(candidate => candidate !== identity);
+        handlers.set(identity, createRunningSessionJumpHandler({
+            buildQueue: () => buildRunningSessionQueue({
+                localSessions: [local('codex', sessionOf(identity))],
+                remoteWindows: others.map(other => remote(other, 1, cardOf(other))),
+                // A bridge snapshot can temporarily lack the current window's
+                // ring anchor. The hand-off source must still prevent A/B
+                // ping-pong from starving C.
+            }),
+            focusSession: item => {
+                world.focused.set(identity, item.sessionId);
+                return Promise.resolve(true);
+            },
+            openConversation: () => Promise.resolve(),
+            requestRemoteFocus: item => handlers.get(item.navigationIdentity)
+                .jumpToNextLocalRunningSession(identity)
+                .then(() => true),
+            openNavigationCard: cardId => {
+                world.activeWindow = identities
+                    .find(candidate => cardOf(candidate) === cardId);
+                return Promise.resolve();
+            },
+            showInformationMessage: () => {},
+            showWarningMessage: () => {},
+            getCurrentKey: () => `session:codex:${world.focused.get(identity)}`,
+        }));
+    }
+
+    const visited = [];
+    for (let press = 0; press < 6; press += 1) {
+        await handlers.get(world.activeWindow).jumpToNextRunningSession();
+        visited.push(world.activeWindow);
+    }
+
+    assert.deepEqual(visited, [
+        WINDOW_B, WINDOW_C, WINDOW_A, WINDOW_B, WINDOW_C, WINDOW_A,
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 returns to the source when only two windows are running', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: [local('codex', 'a')],
+        remoteWindows: [remote(WINDOW_B)],
+    });
+    const { calls, options } = makeJumpOptions({ queue });
+    options.getCurrentKey = () => null;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextLocalRunningSession(WINDOW_B);
+    calls.length = 0;
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(calls, [
+        ['request', WINDOW_B],
+        ['navigate', `card-${'b'.repeat(8)}`],
+    ]);
+});
+
 test('AI-SESSION-NEXT-RUNNING-COMMAND-001 re-anchors after a manual detour with three local sessions', async () => {
     const queue = buildRunningSessionQueue({
         localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),

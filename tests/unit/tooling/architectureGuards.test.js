@@ -356,6 +356,17 @@ for (const mutation of [
         ),
     },
     {
+        id: 'ARCH-OPEN-WORKSPACE-FOCUS-CLIENT-OWNERSHIP-001',
+        file: 'src/openWorkspaces/bridgeClient.ts',
+        expectedDetail: 'requestRunningFocus must remain a thin shared-channel delegate',
+        mutate: source => source.replace(
+            'return this.runningFocusChannel.request('
+                + 'targetNavigationIdentity, sourceNavigationIdentity);',
+            'return this.requestLegacyRunningFocus('
+                + 'targetNavigationIdentity, sourceNavigationIdentity);',
+        ),
+    },
+    {
         id: 'ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001',
         file: 'extensions/attention-ui-bridge/src/openWorkspaceAttentionFocusStore.ts',
         expectedDetail: 'Attention focus store must extend the shared mailbox store',

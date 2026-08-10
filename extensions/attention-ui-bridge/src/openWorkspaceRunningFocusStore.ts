@@ -12,12 +12,12 @@ export class OpenWorkspaceRunningFocusStore
     extends OpenWorkspaceFocusMailboxStore<OpenWorkspaceRunningFocusRequest> {
     constructor(rootDirectory: string) {
         super(rootDirectory, {
-            directorySegments: ['open-workspaces', 'running-focus', 'v2'],
+            directorySegments: ['open-workspaces', 'running-focus', 'v3'],
             maxPendingRequests: MAX_OPEN_WORKSPACE_RUNNING_FOCUS_REQUESTS,
             pendingRequestDescription: 'running focus requests',
             validateRequest: validateOpenWorkspaceRunningFocusRequest,
             temporaryFileStem: requestId => requestId,
-            // Preserve the v2 implementation's best-effort temp-file cleanup.
+            // Preserve the running-focus mailbox's best-effort temp-file cleanup.
             ignoreTemporaryCleanupErrors: true,
         });
     }

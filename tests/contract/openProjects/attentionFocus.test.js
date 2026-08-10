@@ -121,19 +121,20 @@ test('ARCH-OPEN-WORKSPACE-FOCUS-TRANSPORT-OWNERSHIP-001 keeps protocol mailboxes
     assert.equal(attentionStore.directoryPath,
         path.join(root, 'open-workspaces', 'attention-focus', 'v1'));
     assert.equal(runningStore.directoryPath,
-        path.join(root, 'open-workspaces', 'running-focus', 'v2'));
+        path.join(root, 'open-workspaces', 'running-focus', 'v3'));
 
     await attentionStore.submit(makeRequest());
     await runningStore.submit({
-        protocolVersion: 2,
+        protocolVersion: 3,
         requestId: 'a'.repeat(32),
+        sourceNavigationIdentity: 'e'.repeat(64),
         targetNavigationIdentity: TARGET_IDENTITY,
         createdAtMs: 1000,
         expiresAtMs: 61_000,
     });
 
     assert.equal((await attentionStore.scan(1000))[0].sessionId, 'session-1');
-    assert.equal((await runningStore.scan(1000))[0].protocolVersion, 2);
+    assert.equal((await runningStore.scan(1000))[0].protocolVersion, 3);
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 reports delivery only after the target queues the exact focus', async t => {

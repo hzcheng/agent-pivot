@@ -745,6 +745,12 @@ const guards = {
             || !webviewSource.includes(
                 'revision <= latestAiSessionClosedPresentationRevision'
             )
+            || !webviewSource.includes(
+                'revision >= latestAiSessionPresentationProjectionRevision'
+            )
+            || !webviewSource.includes(
+                'revision > latestAiSessionClosedPresentationRevision'
+            )
             || !webviewSource.includes('revision <= latestAiSessionDirectPresentationRevision')) {
             fail(this.id, risk,
                 'the Webview must close v3 envelopes while preserving v2 same-revision Presentation');
@@ -796,12 +802,16 @@ const guards = {
             'applyValidatedAiSessionPresentationState(message.presentation);'
         ) || !webviewSource.includes(
             'adoptRenderedPresentation,\n            isAtomicEnvelope'
+        ) || !webviewSource.includes(
+            '? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)'
         ) || !projectWebviewSource.includes(
             'invalid-open-workspaces-presentation-envelope'
         ) || !projectWebviewSource.includes(
             'applyValidatedAiSessionPresentationState(message.presentation);'
         ) || !projectWebviewSource.includes(
             'adoptOpenWorkspacePresentation,\n                isAtomicOpenWorkspacesEnvelope'
+        ) || !projectWebviewSource.includes(
+            '? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision('
         )) {
             fail(this.id, risk,
                 'the Webview must validate and apply each HTML-Presentation envelope atomically');

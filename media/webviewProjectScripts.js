@@ -852,13 +852,16 @@ function initProjects() {
                 return;
             }
             if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
-            if (isAtomicOpenWorkspacesEnvelope
-                && !aiSessionsUpdate.canApplyPresentationProjectionRevision(
+            var canApplyOpenWorkspacePresentation = isAtomicOpenWorkspacesEnvelope
+                ? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(
                     message.projectionRevision
-                )) return;
-            var adoptOpenWorkspacePresentation = aiSessionsUpdate.canApplyPresentationProjectionRevision(
-                message.projectionRevision
-            );
+                )
+                : aiSessionsUpdate.canApplyPresentationProjectionRevision(
+                    message.projectionRevision
+                );
+            if (isAtomicOpenWorkspacesEnvelope
+                && !canApplyOpenWorkspacePresentation) return;
+            var adoptOpenWorkspacePresentation = canApplyOpenWorkspacePresentation;
             if (!applyOpenWorkspacesUpdate(message)) {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;

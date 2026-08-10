@@ -1709,6 +1709,13 @@ function initProjectAiSessionsUpdate(options) {
         return canApplyRevision(revision, latestAiSessionPresentationProjectionRevision);
     }
 
+    function canApplyAtomicPresentationProjectionRevision(revision) {
+        return Number.isSafeInteger(revision)
+            && revision > 0
+            && revision >= latestAiSessionPresentationProjectionRevision
+            && revision > latestAiSessionClosedPresentationRevision;
+    }
+
     function commitProjectionRevision(revision, adoptedPresentation, closePresentation) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
@@ -1791,13 +1798,13 @@ function initProjectAiSessionsUpdate(options) {
         if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
-        if (isAtomicEnvelope
-            && !canApplyPresentationProjectionRevision(message.projectionRevision)) {
+        var canApplyMessagePresentation = isAtomicEnvelope
+            ? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)
+            : canApplyPresentationProjectionRevision(message.projectionRevision);
+        if (isAtomicEnvelope && !canApplyMessagePresentation) {
             return;
         }
-        var adoptRenderedPresentation = canApplyPresentationProjectionRevision(
-            message.projectionRevision
-        );
+        var adoptRenderedPresentation = canApplyMessagePresentation;
 
         if (!applyWorkspaceUpdate({
             type: 'workspace-updated',
@@ -1944,6 +1951,7 @@ function initProjectAiSessionsUpdate(options) {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
         acceptInitialPresentationProjectionRevision: acceptInitialPresentationProjectionRevision,
         acceptPresentationProjectionRevision: acceptPresentationProjectionRevision,
+        canApplyAtomicPresentationProjectionRevision: canApplyAtomicPresentationProjectionRevision,
         canApplyPresentationProjectionRevision: canApplyPresentationProjectionRevision,
         canApplyProjectionRevision: canApplyProjectionRevision,
         commitProjectionRevision: commitProjectionRevision,
@@ -3517,13 +3525,16 @@ function initProjects() {
                 return;
             }
             if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
-            if (isAtomicOpenWorkspacesEnvelope
-                && !aiSessionsUpdate.canApplyPresentationProjectionRevision(
+            var canApplyOpenWorkspacePresentation = isAtomicOpenWorkspacesEnvelope
+                ? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(
                     message.projectionRevision
-                )) return;
-            var adoptOpenWorkspacePresentation = aiSessionsUpdate.canApplyPresentationProjectionRevision(
-                message.projectionRevision
-            );
+                )
+                : aiSessionsUpdate.canApplyPresentationProjectionRevision(
+                    message.projectionRevision
+                );
+            if (isAtomicOpenWorkspacesEnvelope
+                && !canApplyOpenWorkspacePresentation) return;
+            var adoptOpenWorkspacePresentation = canApplyOpenWorkspacePresentation;
             if (!applyOpenWorkspacesUpdate(message)) {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;

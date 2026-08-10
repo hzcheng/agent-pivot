@@ -746,6 +746,16 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
+        mutate: source => replaceFixtureSource(
+            source,
+            'revision >= latestAiSessionPresentationProjectionRevision',
+            'revision > latestAiSessionPresentationProjectionRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/openWorkspaces/dashboardController.ts',
         expectedDetail: 'OPEN HTML and Presentation must share one Host message',
         mutate: source => replaceFixtureSource(
@@ -786,12 +796,32 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            '? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)',
+            '? canApplyPresentationProjectionRevision(message.projectionRevision)'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectScripts.js',
         expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
         mutate: source => replaceFixtureSource(
             source,
             'adoptOpenWorkspacePresentation,\n                isAtomicOpenWorkspacesEnvelope',
             'adoptOpenWorkspacePresentation,\n                false'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            '? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(',
+            '? aiSessionsUpdate.canApplyPresentationProjectionRevision('
         ),
     },
     {

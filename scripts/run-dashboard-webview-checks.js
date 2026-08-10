@@ -4887,7 +4887,8 @@ function runSourceContractChecks(source) {
     assert.ok(aiSessionControllerSource.includes('buildAiSessionsUpdatedMessage({'));
     assert.ok(aiSessionControllerSource.includes('groups: this.options.getGroups()'));
     assert.ok(aiSessionControllerSource.includes('cards'));
-    assert.ok(aiSessionControllerSource.includes('sequence: this.options.nextSequence()'));
+    assert.ok(aiSessionControllerSource.includes('sequence: projection.revision'));
+    assert.ok(aiSessionControllerSource.includes('this.options.getCards(projection)'));
     assert.ok(projectSource.includes('replaceSearchCatalog(message.searchCatalog)'));
     assert.ok(projectSource.includes("type: 'open-bridge-extension'"));
     assert.ok(extensionHostSource.includes("'workbench.extensions.action.showExtensionsWithIds'"));

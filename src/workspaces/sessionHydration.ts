@@ -50,6 +50,7 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     executionSnapshot?: Readonly<Record<string, AiSessionExecutionSnapshot>>;
     focusedIdentity?: AiSessionRuntimeIdentity | ActiveAiSessionTerminalIdentity | null;
     attentionAggregate?: AttentionAggregate | null;
+    activePresentation?: WorkspaceActiveSessionPresentation;
     activeProvider?: AiSessionProviderId;
     providerSelection?: AiSessionProviderSelection;
     expanded?: boolean;
@@ -88,14 +89,15 @@ interface ProjectablePendingRuntime<TTerminal> extends AiSessionPendingRuntimeSn
 export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
     input: HydrateWorkspaceAiSessionsInput<TTerminal>
 ): WorkspaceAiSessionViewModel {
-    const activePresentation = projectWorkspaceActiveSessions({
-        workspace: input.workspace,
-        activeRuntimes: input.activeRuntimes || [],
-        pendingRuntimes: input.pendingRuntimes || [],
-        executionSnapshot: input.executionSnapshot || {},
-        focusedIdentity: input.focusedIdentity || null,
-        attentionAggregate: input.attentionAggregate || null,
-    });
+    const activePresentation = input.activePresentation
+        || projectWorkspaceActiveSessions({
+            workspace: input.workspace,
+            activeRuntimes: input.activeRuntimes || [],
+            pendingRuntimes: input.pendingRuntimes || [],
+            executionSnapshot: input.executionSnapshot || {},
+            focusedIdentity: input.focusedIdentity || null,
+            attentionAggregate: input.attentionAggregate || null,
+        });
     const attentionByRootAndSession = buildWorkspaceSessionAttentionIndex(
         input.attentionAggregate || null
     );

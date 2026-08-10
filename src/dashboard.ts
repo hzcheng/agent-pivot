@@ -211,9 +211,9 @@ import {
     CurrentWorkspaceSessionAuthority,
 } from './workspaces/currentWorkspaceSessionAuthority';
 import { hasWorkspaceRuntimeContinuity } from './workspaces/runtimeOwnership';
-import { projectWorkspaceActiveSessions } from './workspaces/activeSessionPresentation';
 import {
     AiSessionProjectionCoordinator,
+    AiSessionPresentationTransaction,
     WorkspaceSessionHydrationController,
 } from './workspaces/sessionHydrationController';
 import type { OpenWorkspace } from './workspaces/types';
@@ -1151,7 +1151,7 @@ async function initializeDashboard(
     const aiSessionWorkspaceStateStore = new AiSessionWorkspaceStateStore(context.globalState, isAiSessionProviderId);
     const workspacePrimaryRootStore = new WorkspacePrimaryRootStore(context.globalState);
     let openWorkspaceController: OpenWorkspaceController;
-    let openWorkspaceDashboardController: OpenWorkspaceDashboardController;
+    let openWorkspaceDashboardController: OpenWorkspaceDashboardController<vscode.Terminal>;
     let projectsPanelController: ProjectsPanelController | undefined;
     let workspaceNavigationController: WorkspaceNavigationController;
     let openWorkspacePinController: OpenWorkspacePinController;
@@ -1427,7 +1427,9 @@ async function initializeDashboard(
         handle => clearTimeout(handle),
     );
     let conversationCapability: ConversationCapability;
-    const aiSessionDashboardController = ownResource(() => new AiSessionDashboardController({
+    const aiSessionDashboardController = ownResource(() => new AiSessionDashboardController<
+        AiSessionPresentationTransaction<vscode.Terminal>
+    >({
         providerIds: aiSessionProviders.map(provider => provider.id),
         isVisible: () => provider.visible,
         invalidateCache: providerId => invalidateAiSessionCache(providerId),
@@ -1435,10 +1437,18 @@ async function initializeDashboard(
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
-        getCards: getOpenWorkspaceCards,
+        getCards: projection => getOpenWorkspaceCards(projection),
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
-        nextSequence: () => aiSessionProjectionCoordinator.nextRevision(),
+        beginProjection: reason => {
+            aiSessionAttentionController.invalidateWorkspaceTarget();
+            currentAiSessionRefreshReason = reason;
+            const transaction = aiSessionProjectionCoordinator.captureNext(
+                getCurrentOpenWorkspace()
+            );
+            postAiSessionPresentationState(false, transaction);
+            return transaction;
+        },
         postMessage: message => provider.postMessage({
             ...(message as unknown as Record<string, unknown>),
             projectionRevision: (message as AiSessionsUpdatedMessage).sequence,
@@ -1446,11 +1456,6 @@ async function initializeDashboard(
         refresh: refreshStewardViews,
         logError,
         logDiagnostic: logAiSessionDiagnostic,
-        beforeRefresh: reason => {
-            aiSessionAttentionController.invalidateWorkspaceTarget();
-            currentAiSessionRefreshReason = reason;
-            postAiSessionAttentionState();
-        },
         afterRefresh: () => {
             currentAiSessionRefreshReason = 'refresh';
             void conversationCapability.reconcile();
@@ -1751,12 +1756,13 @@ async function initializeDashboard(
         refreshAiSessionRuntimes: (_reason, force) => aiSessionRuntimeCoordinator.refreshForHost(force),
         logAiSessionRuntimeFailure,
     });
-    openWorkspaceDashboardController = new OpenWorkspaceDashboardController({
+    openWorkspaceDashboardController = new OpenWorkspaceDashboardController<vscode.Terminal>({
         getCurrentWorkspace: getCurrentOpenWorkspace,
         isWorkspaceSavedAsProject: workspace => Boolean(getSavedProjectForWorkspace(workspace)),
         getWorkspaceProjectColor: workspace => getSavedProjectForWorkspace(workspace)?.color || '',
         getWorkspaceProjectName: workspace => getSavedProjectForWorkspace(workspace)?.name || '',
-        getCurrentWorkspaceAiSessions: workspace => workspaceSessionHydrationController.hydrate(workspace),
+        getCurrentWorkspaceAiSessions: (workspace, projection) =>
+            workspaceSessionHydrationController.hydrate(workspace, projection),
         getCurrentWorkspaceSessionProjectId: identity =>
             currentWorkspaceSessionAuthority.getProjectId(identity),
         getAiSessionProjectionRevision: () => aiSessionProjectionCoordinator.capture().revision,
@@ -2603,22 +2609,17 @@ async function initializeDashboard(
         postAiSessionPresentationState(true);
     }
 
-    function postAiSessionPresentationState(revealFocused: boolean = false): void {
-        const snapshot = aiSessionProjectionCoordinator.captureNext();
-        const presentation = projectWorkspaceActiveSessions({
-            workspace: getCurrentOpenWorkspace(),
-            activeRuntimes: snapshot.activeRuntimes,
-            pendingRuntimes: snapshot.pendingRuntimes,
-            executionSnapshot: snapshot.executionSnapshot,
-            focusedIdentity: snapshot.focusedIdentity,
-            attentionAggregate: snapshot.attentionAggregate,
-        });
+    function postAiSessionPresentationState(
+        revealFocused: boolean = false,
+        transaction: AiSessionPresentationTransaction<vscode.Terminal>
+            = aiSessionProjectionCoordinator.captureNext(getCurrentOpenWorkspace())
+    ): void {
         const configuration = getAgentPivotConfiguration();
         const message: AiSessionPresentationStateMessage = {
             type: 'ai-session-presentation-state',
             version: 1,
-            projectionRevision: snapshot.revision,
-            ...presentation,
+            projectionRevision: transaction.revision,
+            ...transaction.presentation,
             runningCardAnimation: getEffectiveRunningCardAnimation(configuration),
             runningIconAnimation: getEffectiveRunningIconAnimation(configuration),
             revealFocused,
@@ -2644,8 +2645,10 @@ async function initializeDashboard(
         return gitRepositoryDetector.isGitRepositoryPath(fPath);
     }
 
-    function getOpenWorkspaceCards() {
-        return openWorkspaceDashboardController.getCards();
+    function getOpenWorkspaceCards(
+        projection?: AiSessionPresentationTransaction<vscode.Terminal>
+    ) {
+        return openWorkspaceDashboardController.getCards(projection);
     }
 
     function getSavedProjectForCurrentWorkspace(): Project | null {

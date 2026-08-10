@@ -9,6 +9,7 @@ import type { Group, WorkspaceCardViewModel } from '../models';
 import { buildOpenWorkspacesUpdatedMessage } from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import type { OpenWorkspace } from '../workspaces/types';
+import type { AiSessionProjectionSnapshot } from '../workspaces/sessionHydrationController';
 import {
     CurrentWorkspaceSessionAuthority,
 } from '../workspaces/currentWorkspaceSessionAuthority';
@@ -32,12 +33,15 @@ export interface OpenWorkspaceDashboardState {
     otherWindows: { status: OpenWorkspaceBridgeStatus };
 }
 
-export interface OpenWorkspaceDashboardControllerOptions {
+export interface OpenWorkspaceDashboardControllerOptions<TTerminal = unknown> {
     getCurrentWorkspace: () => OpenWorkspace | null;
     isWorkspaceSavedAsProject: (workspace: OpenWorkspace) => boolean;
     getWorkspaceProjectColor: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
     getWorkspaceProjectName?: (workspace: Pick<OpenWorkspace, 'kind' | 'navigationUri'>) => string;
-    getCurrentWorkspaceAiSessions: (workspace: OpenWorkspace) => WorkspaceAiSessionViewModel | null;
+    getCurrentWorkspaceAiSessions: (
+        workspace: OpenWorkspace,
+        projection?: AiSessionProjectionSnapshot<TTerminal>
+    ) => WorkspaceAiSessionViewModel | null;
     getCurrentWorkspaceSessionProjectId?: (
         identity: {
             workspaceNavigationIdentity: string;
@@ -61,7 +65,7 @@ export interface OpenWorkspaceDashboardControllerOptions {
     nowMs?: () => number;
 }
 
-export class OpenWorkspaceDashboardController {
+export class OpenWorkspaceDashboardController<TTerminal = unknown> {
     private aggregate: OpenWorkspaceAggregate | null = null;
     private pinSnapshot: OpenWorkspacePinSnapshot = createOpenWorkspacePinSnapshot([]);
     private bridgeStatus: OpenWorkspaceBridgeStatus = 'connecting';
@@ -79,7 +83,7 @@ export class OpenWorkspaceDashboardController {
     private readonly fallbackCurrentWorkspaceSessionAuthority =
         new CurrentWorkspaceSessionAuthority();
 
-    constructor(private readonly options: OpenWorkspaceDashboardControllerOptions) {
+    constructor(private readonly options: OpenWorkspaceDashboardControllerOptions<TTerminal>) {
         this.fallbackOpenedAtMs = this.nowMs();
     }
 
@@ -124,13 +128,16 @@ export class OpenWorkspaceDashboardController {
         return this.pinNavigationIdentityById.get(cardId) || null;
     }
 
-    getCards(): WorkspaceCardViewModel[] {
+    getCards(
+        projection?: AiSessionProjectionSnapshot<TTerminal>
+    ): WorkspaceCardViewModel[] {
         const startedAt = this.nowMs();
         const currentWorkspace = this.options.getCurrentWorkspace();
         const attentionAggregate = this.options.getAttentionAggregate();
         const cacheKey = this.getCardProjectionCacheKey(
             currentWorkspace,
             attentionAggregate,
+            projection?.revision,
         );
         if (this.cachedCards
             && cacheKey === this.cachedCardsKey
@@ -149,6 +156,7 @@ export class OpenWorkspaceDashboardController {
                 currentWorkspace,
                 currentNavigationIdentity || currentWorkspace.navigationIdentity,
                 pinTimes.has(currentNavigationIdentity || currentWorkspace.navigationIdentity),
+                projection,
             )
             : null;
         const navigationProjections = projectOpenWorkspaceNavigationCards(
@@ -295,6 +303,7 @@ export class OpenWorkspaceDashboardController {
         workspace: OpenWorkspace,
         navigationIdentity: string,
         pinned: boolean,
+        projection?: AiSessionProjectionSnapshot<TTerminal>,
     ): WorkspaceCardViewModel {
         const projectId = (
             this.options.getCurrentWorkspaceSessionProjectId
@@ -304,7 +313,10 @@ export class OpenWorkspaceDashboardController {
             workspaceNavigationIdentity: navigationIdentity,
             workspaceScopeIdentity: workspace.scopeIdentity,
         });
-        const aiSessions = this.options.getCurrentWorkspaceAiSessions(workspace) || undefined;
+        const aiSessions = this.options.getCurrentWorkspaceAiSessions(
+            workspace,
+            projection
+        ) || undefined;
         return {
             id: projectId,
             kind: 'current',
@@ -395,13 +407,16 @@ export class OpenWorkspaceDashboardController {
     private getCardProjectionCacheKey(
         workspace: OpenWorkspace | null,
         attentionAggregate: AttentionAggregate | null,
+        projectionRevision?: number,
     ): string {
         return JSON.stringify([
             this.bridgeStatus,
             this.aggregate?.semanticRevision || null,
             this.pinSnapshot.revision,
             attentionAggregate?.aggregateRevision || null,
-            this.options.getAiSessionProjectionRevision?.() ?? null,
+            projectionRevision
+                ?? this.options.getAiSessionProjectionRevision?.()
+                ?? null,
             workspace ? {
                 navigationIdentity: workspace.navigationIdentity,
                 scopeIdentity: workspace.scopeIdentity,

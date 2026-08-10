@@ -17,6 +17,8 @@ import type {
 } from '../aiSessions/types';
 import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
 import type { OpenWorkspace } from './types';
+import { projectWorkspaceActiveSessions } from './activeSessionPresentation';
+import type { WorkspaceActiveSessionPresentation } from './activeSessionPresentation';
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label' | 'terminalCwdFields'>;
@@ -36,6 +38,11 @@ export interface AiSessionProjectionSnapshot<TTerminal = unknown> {
     executionSnapshot: Readonly<Record<string, AiSessionExecutionSnapshot>>;
     focusedIdentity: AiSessionRuntimeIdentity | ActiveAiSessionTerminalIdentity | null;
     attentionAggregate: AttentionAggregate | null;
+}
+
+export interface AiSessionPresentationTransaction<TTerminal = unknown>
+    extends AiSessionProjectionSnapshot<TTerminal> {
+    presentation: WorkspaceActiveSessionPresentation;
 }
 
 export interface AiSessionProjectionCoordinatorOptions<TTerminal = unknown> {
@@ -75,9 +82,22 @@ export class AiSessionProjectionCoordinator<TTerminal = unknown> {
         };
     }
 
-    captureNext(): AiSessionProjectionSnapshot<TTerminal> {
+    captureNext(
+        workspace: OpenWorkspace | null = null
+    ): AiSessionPresentationTransaction<TTerminal> {
         this.nextRevision();
-        return this.capture();
+        const snapshot = this.capture();
+        return {
+            ...snapshot,
+            presentation: projectWorkspaceActiveSessions({
+                workspace,
+                activeRuntimes: snapshot.activeRuntimes,
+                pendingRuntimes: snapshot.pendingRuntimes,
+                executionSnapshot: snapshot.executionSnapshot,
+                focusedIdentity: snapshot.focusedIdentity,
+                attentionAggregate: snapshot.attentionAggregate,
+            }),
+        };
     }
 }
 
@@ -107,7 +127,11 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
     constructor(private readonly options: WorkspaceSessionHydrationControllerOptions<TTerminal>) {
     }
 
-    hydrate(workspace: OpenWorkspace | null): WorkspaceAiSessionViewModel | null {
+    hydrate(
+        workspace: OpenWorkspace | null,
+        projectionOverride?: AiSessionProjectionSnapshot<TTerminal>
+            | AiSessionPresentationTransaction<TTerminal>
+    ): WorkspaceAiSessionViewModel | null {
         const startedAt = this.nowMs();
         const reason = this.options.getRefreshReason();
         if (!workspace) {
@@ -127,7 +151,19 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
         const maxFiles = getAiSessionScanMaxFiles(reason, this.options.incrementalScanMaxFiles);
         const sessionResults = this.options.readCoordinator.getResults({ candidatePaths, reason, maxFiles });
         this.options.onDidReadSessions?.(workspace, sessionResults, reason);
-        const projection = this.options.getProjectionSnapshot();
+        const projection = projectionOverride || this.options.getProjectionSnapshot();
+        const activePresentation = Object.prototype.hasOwnProperty.call(
+            projection,
+            'presentation'
+        )
+            ? (projection as AiSessionPresentationTransaction<TTerminal>).presentation
+            : undefined;
+        if (activePresentation
+            && (activePresentation.workspaceScopeIdentity !== workspace.scopeIdentity
+                || activePresentation.workspaceNavigationIdentity
+                    !== workspace.navigationIdentity)) {
+            throw new Error('AI Session presentation transaction does not match the hydrated workspace.');
+        }
         const result = hydrateWorkspaceAiSessions({
             workspace,
             providers: this.options.providers,
@@ -140,6 +176,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             executionSnapshot: projection.executionSnapshot,
             focusedIdentity: projection.focusedIdentity,
             attentionAggregate: projection.attentionAggregate,
+            activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
             expanded: this.options.getExpanded(workspace.scopeIdentity),
         });

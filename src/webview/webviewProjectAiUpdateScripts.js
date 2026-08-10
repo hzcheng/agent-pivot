@@ -19,6 +19,7 @@ function initProjectAiSessionsUpdate(options) {
     var latestAiSessionUpdateSequence = 0;
     var latestAiSessionProjectionRevision = 0;
     var latestAiSessionPresentationProjectionRevision = 0;
+    var latestAiSessionDirectPresentationRevision = 0;
 
     function canApplyRevision(revision, latestRevision) {
         if (typeof revision === 'undefined') {
@@ -50,12 +51,18 @@ function initProjectAiSessionsUpdate(options) {
     }
 
     function acceptPresentationProjectionRevision(revision) {
-        if (!canApplyPresentationProjectionRevision(revision)) {
+        if (!Number.isSafeInteger(revision)
+            || revision <= 0
+            || revision < latestAiSessionProjectionRevision
+            || revision < latestAiSessionPresentationProjectionRevision
+            || revision <= latestAiSessionDirectPresentationRevision) {
             return false;
         }
-        if (Number.isSafeInteger(revision) && revision > 0) {
-            latestAiSessionPresentationProjectionRevision = revision;
-        }
+        latestAiSessionPresentationProjectionRevision = Math.max(
+            latestAiSessionPresentationProjectionRevision,
+            revision
+        );
+        latestAiSessionDirectPresentationRevision = revision;
         return true;
     }
 

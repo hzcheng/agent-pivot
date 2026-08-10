@@ -642,6 +642,83 @@ const guards = {
         }
     },
 
+    // ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001
+    'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001'(root) {
+        const risk = 'separately sampled HTML and Presentation can publish conflicting state at adjacent revisions';
+        const dashboard = parseTypescript(root, 'src/dashboard.ts', this.id, risk);
+        const controller = parseTypescript(
+            root,
+            'src/aiSessions/dashboardController.ts',
+            this.id,
+            risk
+        );
+        const hydrationController = parseTypescript(
+            root,
+            'src/workspaces/sessionHydrationController.ts',
+            this.id,
+            risk
+        );
+        const hydration = parseTypescript(
+            root,
+            'src/workspaces/sessionHydration.ts',
+            this.id,
+            risk
+        );
+        const webview = parseJavascript(
+            root,
+            'src/webview/webviewProjectAiUpdateScripts.js',
+            this.id,
+            risk
+        );
+        const controllerSource = controller.getFullText();
+        if (controllerSource.includes('nextSequence')
+            || controllerSource.includes('beforeRefresh')) {
+            fail(this.id, risk,
+                'the incremental controller must begin one explicit projection transaction');
+        }
+        const cardCalls = callArguments(controller, 'this.options.getCards');
+        const buildCalls = callArguments(controller, 'buildAiSessionsUpdatedMessage');
+        const buildInput = buildCalls.length === 1 ? buildCalls[0][0] : null;
+        const sequenceAssignment = buildInput && ts.isObjectLiteralExpression(buildInput)
+            ? buildInput.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(controller) === 'sequence')
+            : null;
+        if (cardCalls.length !== 1
+            || cardCalls[0].length !== 1
+            || cardCalls[0][0].getText(controller) !== 'projection'
+            || !sequenceAssignment
+            || !ts.isPropertyAssignment(sequenceAssignment)
+            || sequenceAssignment.initializer.getText(controller)
+                !== 'projection.revision') {
+            fail(this.id, risk,
+                'cards and HTML must consume the transaction and publish its revision');
+        }
+        const dashboardSource = dashboard.getFullText();
+        if (!/getCards:\s*projection\s*=>\s*getOpenWorkspaceCards\(projection\)/
+            .test(dashboardSource)
+            || !/postAiSessionPresentationState\(false,\s*transaction\);\s*return transaction;/
+                .test(dashboardSource)) {
+            fail(this.id, risk,
+                'Dashboard composition must pass one captured transaction to both channels');
+        }
+        const hydrationControllerSource = hydrationController.getFullText();
+        const hydrationSource = hydration.getFullText();
+        if (!hydrationControllerSource.includes('activePresentation,')
+            || !hydrationSource.includes('input.activePresentation')
+            || !hydrationSource.includes('projectWorkspaceActiveSessions({')) {
+            fail(this.id, risk,
+                'hydration must consume the transaction presentation with only an explicit fallback');
+        }
+        const webviewSource = webview.getFullText();
+        if (!webviewSource.includes('latestAiSessionDirectPresentationRevision')
+            || !webviewSource.includes('revision < latestAiSessionProjectionRevision')
+            || !webviewSource.includes('revision <= latestAiSessionDirectPresentationRevision')) {
+            fail(this.id, risk,
+                'the Webview must accept one same-revision direct Presentation after HTML');
+        }
+    },
+
     // ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001
     'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001'(root) {
         const risk = 'terminal-moving session commands can race and project different targets';

@@ -1685,16 +1685,22 @@ async function initializeDashboard(
     });
     const providerOptions: AgentPivotViewProviderOptions = {
         getWebviewOptions: () => getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
-        renderContent: (webview, documentGeneration) => getStewardContent(
-            context,
-            webview,
-            projectService.getGroups(),
-            stewardInfos,
-            true,
-            getOpenWorkspaceCards(),
-            openWorkspaceDashboardController.getState().otherWindows.status,
-            documentGeneration,
-        ),
+        renderContent: (webview, documentGeneration) => {
+            const transaction = aiSessionProjectionCoordinator.captureNext(
+                getCurrentOpenWorkspace()
+            );
+            return getStewardContent(
+                context,
+                webview,
+                projectService.getGroups(),
+                stewardInfos,
+                true,
+                getOpenWorkspaceCards(transaction),
+                openWorkspaceDashboardController.getState().otherWindows.status,
+                documentGeneration,
+                buildAiSessionPresentationState(false, transaction),
+            );
+        },
         renderError: getErrorContent,
         onMessage: message => messageRequiresStorageMigration(message)
             ? runAfterStorageMigration(() => dashboardMessageRouter(message))
@@ -2618,8 +2624,22 @@ async function initializeDashboard(
         transaction: AiSessionPresentationTransaction<vscode.Terminal>
             = aiSessionProjectionCoordinator.captureNext(getCurrentOpenWorkspace())
     ): void {
+        const message = buildAiSessionPresentationState(revealFocused, transaction);
+        try {
+            void provider.postMessage(message).then(undefined, error => {
+                logError('Failed to post the Active Session presentation.', error);
+            });
+        } catch (error) {
+            logError('Failed to post the Active Session presentation.', error);
+        }
+    }
+
+    function buildAiSessionPresentationState(
+        revealFocused: boolean,
+        transaction: AiSessionPresentationTransaction<vscode.Terminal>
+    ): AiSessionPresentationStateMessage {
         const configuration = getAgentPivotConfiguration();
-        const message: AiSessionPresentationStateMessage = {
+        return {
             type: 'ai-session-presentation-state',
             version: 1,
             projectionRevision: transaction.revision,
@@ -2628,13 +2648,6 @@ async function initializeDashboard(
             runningIconAnimation: getEffectiveRunningIconAnimation(configuration),
             revealFocused,
         };
-        try {
-            void provider.postMessage(message).then(undefined, error => {
-                logError('Failed to post the Active Session presentation.', error);
-            });
-        } catch (error) {
-            logError('Failed to post the Active Session presentation.', error);
-        }
     }
 
     function invalidateAiSessionCache(providerId: AiSessionProviderId) {

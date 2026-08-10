@@ -682,6 +682,18 @@ const guards = {
             this.id,
             risk
         );
+        const fullDocument = parseTypescript(
+            root,
+            'src/webview/webviewContent.ts',
+            this.id,
+            risk
+        );
+        const projectWebview = parseJavascript(
+            root,
+            'src/webview/webviewProjectScripts.js',
+            this.id,
+            risk
+        );
         const controllerSource = controller.getFullText();
         if (controllerSource.includes('nextSequence')
             || controllerSource.includes('beforeRefresh')) {
@@ -728,6 +740,26 @@ const guards = {
             || !webviewSource.includes('revision <= latestAiSessionDirectPresentationRevision')) {
             fail(this.id, risk,
                 'the Webview must accept one same-revision direct Presentation after HTML');
+        }
+        if (!/renderContent:\s*\(webview,\s*documentGeneration\)\s*=>\s*\{[\s\S]*?const transaction = aiSessionProjectionCoordinator\.captureNext\([\s\S]*?getOpenWorkspaceCards\(transaction\)[\s\S]*?buildAiSessionPresentationState\(false,\s*transaction\)/
+            .test(dashboardSource)
+            || !fullDocument.getFullText().includes(
+                'id="dashboard-ai-session-presentation"'
+            )) {
+            fail(this.id, risk,
+                'the full Dashboard document must capture and embed one Presentation transaction');
+        }
+        const projectWebviewSource = projectWebview.getFullText();
+        if (!webviewSource.includes('acceptInitialPresentationProjectionRevision')
+            || !webviewSource.includes('latestAiSessionProjectionRevision = revision;')
+            || !projectWebviewSource.includes(
+                "getElementById('dashboard-ai-session-presentation')"
+            )
+            || !projectWebviewSource.includes(
+                'applyAiSessionPresentationState(initialAiSessionPresentationState, true)'
+            )) {
+            fail(this.id, risk,
+                'the Webview must seed revision and complete owners from the full document');
         }
         const openWorkspaceSource = openWorkspaceController.getFullText();
         const updateMessageSource = updateMessages.getFullText();

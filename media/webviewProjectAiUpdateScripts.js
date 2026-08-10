@@ -66,6 +66,20 @@ function initProjectAiSessionsUpdate(options) {
         return true;
     }
 
+    function acceptInitialPresentationProjectionRevision(revision) {
+        if (!Number.isSafeInteger(revision)
+            || revision <= 0
+            || latestAiSessionProjectionRevision !== 0
+            || latestAiSessionPresentationProjectionRevision !== 0
+            || latestAiSessionDirectPresentationRevision !== 0) {
+            return false;
+        }
+        latestAiSessionProjectionRevision = revision;
+        latestAiSessionPresentationProjectionRevision = revision;
+        latestAiSessionDirectPresentationRevision = revision;
+        return true;
+    }
+
     function applyAiSessionsUpdate(message) {
         if (message.version !== 2
             || typeof message.sequence !== 'number'
@@ -226,6 +240,7 @@ function initProjectAiSessionsUpdate(options) {
 
     return {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
+        acceptInitialPresentationProjectionRevision: acceptInitialPresentationProjectionRevision,
         acceptPresentationProjectionRevision: acceptPresentationProjectionRevision,
         canApplyPresentationProjectionRevision: canApplyPresentationProjectionRevision,
         canApplyProjectionRevision: canApplyProjectionRevision,

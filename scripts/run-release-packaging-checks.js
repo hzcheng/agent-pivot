@@ -111,6 +111,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/out/workspaces/pendingSessionPromotionController.js',
     'extension/out/workspaces/pendingWorkspaceSaveStore.js',
     'extension/out/workspaces/primaryRootStore.js',
+    'extension/out/workspaces/runtimeOwnership.js',
     'extension/out/workspaces/savedWorkspaceProjectAdapter.js',
     'extension/out/workspaces/sessionAssignment.js',
     'extension/out/workspaces/sessionAttention.js',

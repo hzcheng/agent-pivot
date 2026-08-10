@@ -668,7 +668,7 @@ async function openLatestConversation(
     isCurrent: () => boolean,
     snapshotWarmup?: ConversationSnapshotWarmup
 ): Promise<OpenLatestConversationResult> {
-    const resolution = await resolveLatestConversationTarget(
+    let resolution = await resolveLatestConversationTarget(
         options,
         coordinator,
         target,
@@ -676,6 +676,16 @@ async function openLatestConversation(
         undefined,
         snapshotWarmup
     );
+    if (resolution.result === 'unavailable' && isCurrent()) {
+        resolution = await resolveLatestConversationTarget(
+            options,
+            coordinator,
+            target,
+            undefined,
+            undefined,
+            snapshotWarmup
+        );
+    }
     if (!isCurrent()) {
         return 'superseded';
     }

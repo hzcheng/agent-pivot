@@ -2288,6 +2288,7 @@ async function initializeDashboard(
         changeGlobalSkillsLocation: () =>
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
+        seekLatestConversationInteraction: () => seekLatestConversationInteractionWithFeedback(),
         previousActiveSession: () => sessionNavigationCoordinator.enqueue(
             () => followAdjacentActiveConversationWithFeedback('previous')
         ),
@@ -2485,6 +2486,18 @@ async function initializeDashboard(
             provider: selected.provider,
             sessionId: selected.sessionId,
         }, terminalAuthoritative);
+    }
+
+    async function seekLatestConversationInteractionWithFeedback(): Promise<void> {
+        const viewer = conversationCapability.viewer;
+        if (!viewer.isOpen()) {
+            void vscode.window.showInformationMessage(
+                'Agent Pivot: open an AI Conversation editor to seek to the latest interaction.'
+            );
+            return;
+        }
+        viewer.focus();
+        await viewer.navigateLatest();
     }
 
     async function openAiSessionConversationWithFeedback(target: {

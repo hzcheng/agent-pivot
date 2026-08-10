@@ -5101,6 +5101,24 @@
     ]
   },
   {
+    "id": "CONVERSATION-SEEK-LATEST-COMMAND-001",
+    "domain": "session",
+    "title": "Seek to Latest Conversation Interaction command reveals the open AI Conversation editor and navigates to its latest interaction exactly like the Latest navigation button, and points the user to open an editor when none is open",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/dashboard/commandRegistration.ts",
+      "src/dashboard.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts"
+    ]
+  },
+  {
     "id": "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
     "domain": "session",
     "title": "Conversation history enforces canonical sources, opaque protocol tokens, and bounded private content",

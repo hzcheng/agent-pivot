@@ -619,6 +619,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
         async reconcileReboundSession() {
             return false;
         },
+        async navigateLatest() {},
         async refresh() {},
         async refreshPresentation() {},
         async reconcileAuthority() {},

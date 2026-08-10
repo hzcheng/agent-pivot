@@ -366,6 +366,7 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral', 'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.seekLatestConversationInteraction',
     'agentPivot.previousActiveSession', 'agentPivot.nextActiveSession',
     'agentPivot.nextAttentionSession',
     'agentPivot.nextRunningSession',
@@ -394,6 +395,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
         'migrateSkillsToCentral', 'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
+        'seekLatestConversationInteraction',
         'previousActiveSession', 'nextActiveSession',
         'nextAttentionSession',
         'nextRunningSession',
@@ -559,6 +561,25 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 contributes the next-running command w
     assert.deepEqual(
         manifest.contributes.keybindings.filter(
             keybinding => keybinding.command === 'agentPivot.nextRunningSession'
+        ),
+        []
+    );
+});
+
+test('CONVERSATION-SEEK-LATEST-COMMAND-001 contributes the seek-latest command without a default keybinding', () => {
+    const manifest = require('../../package.json');
+    assert.deepEqual(
+        manifest.contributes.commands.filter(
+            command => command.command === 'agentPivot.seekLatestConversationInteraction'
+        ),
+        [{
+            command: 'agentPivot.seekLatestConversationInteraction',
+            title: 'Agent Pivot: Seek to Latest Conversation Interaction',
+        }]
+    );
+    assert.deepEqual(
+        manifest.contributes.keybindings.filter(
+            keybinding => keybinding.command === 'agentPivot.seekLatestConversationInteraction'
         ),
         []
     );

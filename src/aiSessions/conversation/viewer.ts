@@ -175,6 +175,7 @@ export interface ConversationViewerApi extends AiSessionDisposable {
             target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
         ) => Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
     ): Promise<boolean>;
+    navigateLatest(): Promise<void>;
     refresh(): Promise<void>;
     revalidateLatest?(expectedInteractionId: string): Promise<void>;
     refreshPresentation(): Promise<void>;
@@ -1157,7 +1158,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }, direction, false, 'navigation', nextInteractionId);
     }
 
-    private async navigateLatest(): Promise<void> {
+    async navigateLatest(): Promise<void> {
         const target = this.target;
         const outline = this.outlineController.snapshot;
         const latestInteractionId = this.outlineController.latestInteractionId();

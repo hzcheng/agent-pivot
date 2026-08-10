@@ -6291,6 +6291,7 @@ function runBatchAiSessionWebviewChecks() {
         };
         const classes = new Set();
         let attentionIndicator = null;
+        let conversationHint = null;
         const row = {
             provider,
             sessionId,
@@ -6315,7 +6316,8 @@ function runBatchAiSessionWebviewChecks() {
                 indicator.remove = () => { attentionIndicator = null; };
             },
             querySelector: selector => selector === '.ai-session-attention-indicator' ? attentionIndicator
-                : selector === '.ai-session-primary-action' ? row.primaryAction : null,
+                : selector === '.ai-session-open-conversation-hint' ? conversationHint
+                    : selector === '.ai-session-primary-action' ? row.primaryAction : null,
             removeAttribute: attribute => {
                 attributes.delete(attribute);
                 delete attributeValues[attribute];
@@ -6341,10 +6343,19 @@ function runBatchAiSessionWebviewChecks() {
                 return null;
             },
             focus: () => {},
+            scrollIntoView: () => { row.scrolledIntoView = true; },
             getBoundingClientRect: () => ({ left: 10, top: 10 }),
         };
         row.primaryAction = {
+            firstChild: {},
+            appendChild: hint => {
+                conversationHint = hint;
+                hint.remove = () => { conversationHint = null; };
+            },
             focus: () => { row.primaryAction.focused = true; },
+            getAttribute: () => null,
+            insertBefore: indicator => row.insertBefore(indicator),
+            setAttribute: () => {},
             closest: selector => {
                 if (selector === '[data-action="activate-ai-session"]'
                     || selector === '.ai-session-primary-action'

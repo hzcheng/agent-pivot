@@ -35,6 +35,7 @@ export interface SessionNavigationFocusExecutorOptions {
         provider: AiSessionProviderId;
         sessionId: string;
     }): Promise<boolean>;
+    onFocused?(target: SessionNavigationFocusTarget): void;
 }
 
 /**
@@ -62,6 +63,7 @@ export function createSessionNavigationFocusExecutor(
             if (!focused) {
                 return { focused: false, conversationOpened: false };
             }
+            options.onFocused?.(target);
             executionOptions.onFocused?.();
             const conversationOpened = await options.openConversation({
                 projectId,

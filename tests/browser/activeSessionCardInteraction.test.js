@@ -410,6 +410,163 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when a work
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-2')), true);
 });
 
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer focus projection when an independent Attention message arrives first', async t => {
+    const page = await openCardPage(t, [
+        session('codex', 'session-a', true),
+        session('codex', 'session-b', false),
+    ]);
+    await postHostMessage(page, {
+        type: 'ai-session-attention-state',
+        projectionRevision: 2,
+        eventIds: [],
+        sessionEvents: [],
+    });
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 1,
+        projectionRevision: 1,
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            session('codex', 'session-a', false),
+            session('codex', 'session-b', true),
+        ])}</div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+
+    assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), '');
+    assert.equal(
+        await row(page, 'codex', 'session-b').getAttribute('data-ai-session-active-terminal'),
+        ''
+    );
+    assert.equal(
+        await row(page, 'codex', 'session-a').getAttribute('data-ai-session-active-terminal'),
+        null
+    );
+
+    await postHostMessage(page, {
+        type: 'active-ai-session-terminal-changed',
+        projectionRevision: 4,
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 3,
+        projectionRevision: 3,
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            session('codex', 'session-a', false),
+            session('codex', 'session-b', true),
+        ])}</div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+    assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
+    assert.equal(
+        await row(page, 'codex', 'session-a').getAttribute('data-ai-session-active-terminal'),
+        ''
+    );
+    assert.equal(
+        await row(page, 'codex', 'session-a').locator('.ai-session-open-conversation-hint').count(),
+        1
+    );
+    assert.equal(
+        await row(page, 'codex', 'session-b').locator('.ai-session-open-conversation-hint').count(),
+        0
+    );
+
+    await postHostMessage(page, {
+        type: 'ai-session-attention-state',
+        projectionRevision: 6,
+        eventIds: ['event-b'],
+        sessionEvents: [{ sessionKey: 'codex:session-b', eventIds: ['event-b'] }],
+    });
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 2,
+        sequence: 5,
+        projectionRevision: 5,
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            session('codex', 'session-a', true),
+            session('codex', 'session-b', false),
+        ])}</div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+    });
+    assert.equal(
+        await row(page, 'codex', 'session-b').getAttribute('data-ai-session-attention'),
+        ''
+    );
+    assert.equal(
+        await row(page, 'codex', 'session-b').getAttribute('data-session-event-id'),
+        'event-b'
+    );
+    assert.equal(
+        await row(page, 'codex', 'session-b').locator('.ai-session-attention-indicator').count(),
+        1
+    );
+});
+
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals a newer direct focus projection inside the bounded Active list', async t => {
+    const active = Array.from({ length: 8 }, (_, index) => session(
+        'codex', `active-${index + 1}`, index === 0
+    ));
+    const history = Array.from({ length: 8 }, (_, index) =>
+        historySession('codex', `history-${index + 1}`)
+    );
+    const page = await openListPage(t, active, history);
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
+
+    await postHostMessage(page, {
+        type: 'active-ai-session-terminal-changed',
+        projectionRevision: 2,
+        provider: 'codex',
+        sessionId: 'active-7',
+    });
+
+    assert.equal(await row(page, 'codex', 'active-7').getAttribute('data-session-focused'), '');
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);
+    assert.equal(
+        await row(page, 'codex', 'active-7').locator('.ai-session-primary-action').getAttribute('title'),
+        'Open AI conversation for Codex Session'
+    );
+    assert.equal(
+        await row(page, 'codex', 'active-7').locator('.ai-session-primary-action').getAttribute('aria-label'),
+        'Open AI conversation for Codex session codex active-7'
+    );
+    assert.equal(
+        await row(page, 'codex', 'active-1').locator('.ai-session-primary-action').getAttribute('title'),
+        'Focus Codex Session'
+    );
+    assert.equal(
+        await row(page, 'codex', 'active-1').locator('.ai-session-primary-action').getAttribute('aria-label'),
+        'Focus Codex session codex active-1 using Direct VS Code terminal, attached'
+    );
+});
+
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 scrolls the origin card into view when conversation focus returns to the sidebar', async t => {
     const active = Array.from({ length: 8 }, (_, index) => session(
         'codex', `active-${index + 1}`, index === 6

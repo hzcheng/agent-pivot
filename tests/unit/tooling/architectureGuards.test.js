@@ -727,11 +727,21 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must accept one same-revision direct Presentation after HTML',
+        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
         mutate: source => replaceFixtureSource(
             source,
             'revision <= latestAiSessionDirectPresentationRevision',
             'revision < latestAiSessionDirectPresentationRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
+        mutate: source => replaceFixtureSource(
+            source,
+            'revision <= latestAiSessionClosedPresentationRevision',
+            'revision < latestAiSessionClosedPresentationRevision'
         ),
     },
     {
@@ -762,6 +772,26 @@ for (const mutation of [
             source,
             'message.presentation.projectionRevision !== message.projectionRevision',
             'message.presentation.projectionRevision < message.projectionRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            'adoptRenderedPresentation,\n            isAtomicEnvelope',
+            'adoptRenderedPresentation,\n            false'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            'adoptOpenWorkspacePresentation,\n                isAtomicOpenWorkspacesEnvelope',
+            'adoptOpenWorkspacePresentation,\n                false'
         ),
     },
     {

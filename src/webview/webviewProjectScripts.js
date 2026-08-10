@@ -865,7 +865,8 @@ function initProjects() {
             }
             aiSessionsUpdate.commitProjectionRevision(
                 message.projectionRevision,
-                adoptOpenWorkspacePresentation
+                adoptOpenWorkspacePresentation,
+                isAtomicOpenWorkspacesEnvelope
             );
             if (isAtomicOpenWorkspacesEnvelope) {
                 applyValidatedAiSessionPresentationState(message.presentation);

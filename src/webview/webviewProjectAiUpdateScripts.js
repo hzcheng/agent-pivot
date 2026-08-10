@@ -22,6 +22,7 @@ function initProjectAiSessionsUpdate(options) {
     var latestAiSessionProjectionRevision = 0;
     var latestAiSessionPresentationProjectionRevision = 0;
     var latestAiSessionDirectPresentationRevision = 0;
+    var latestAiSessionClosedPresentationRevision = 0;
 
     function canApplyRevision(revision, latestRevision) {
         if (typeof revision === 'undefined') {
@@ -40,12 +41,18 @@ function initProjectAiSessionsUpdate(options) {
         return canApplyRevision(revision, latestAiSessionPresentationProjectionRevision);
     }
 
-    function commitProjectionRevision(revision, adoptedPresentation) {
+    function commitProjectionRevision(revision, adoptedPresentation, closePresentation) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
             if (adoptedPresentation) {
                 latestAiSessionPresentationProjectionRevision = Math.max(
                     latestAiSessionPresentationProjectionRevision,
+                    revision
+                );
+            }
+            if (closePresentation) {
+                latestAiSessionClosedPresentationRevision = Math.max(
+                    latestAiSessionClosedPresentationRevision,
                     revision
                 );
             }
@@ -57,6 +64,7 @@ function initProjectAiSessionsUpdate(options) {
             || revision <= 0
             || revision < latestAiSessionProjectionRevision
             || revision < latestAiSessionPresentationProjectionRevision
+            || revision <= latestAiSessionClosedPresentationRevision
             || revision <= latestAiSessionDirectPresentationRevision) {
             return false;
         }
@@ -140,7 +148,8 @@ function initProjectAiSessionsUpdate(options) {
         latestAiSessionUpdateSequence = message.sequence;
         commitProjectionRevision(
             message.projectionRevision,
-            adoptRenderedPresentation
+            adoptRenderedPresentation,
+            isAtomicEnvelope
         );
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);

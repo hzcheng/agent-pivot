@@ -807,6 +807,112 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and
     }]);
 });
 
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope revision against conflicting direct presentation', async t => {
+    const attentionSession = {
+        ...session('codex', 'session-a', true),
+        executionState: 'stopped',
+        status: 'stopped',
+        needsAttention: true,
+        attentionEventId: 'event-a',
+    };
+    const otherSession = session('codex', 'session-b', false);
+    const page = await openCardPage(t, [session('codex', 'session-a', true)]);
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 3,
+        sequence: 2,
+        projectionRevision: 2,
+        generatedAt: '2026-08-11T00:00:00.000Z',
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            attentionSession,
+            otherSession,
+        ])}</div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+        presentation: presentationMessage([attentionSession, otherSession], 2, {
+            attention: { 'codex:session-a': ['event-a', 'event-b'] },
+        }),
+    });
+    await postHostMessage(page, presentationMessage([
+        { ...attentionSession, focused: false },
+        { ...otherSession, focused: true },
+    ], 2));
+
+    assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
+    assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), null);
+    assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'), '');
+    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    const acknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.deepEqual(acknowledgements, [{
+        type: 'acknowledge-ai-session-attention',
+        eventIds: ['event-a', 'event-b'],
+    }]);
+});
+
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelope revision against conflicting direct presentation', async t => {
+    const attentionSession = {
+        ...session('codex', 'session-a', true),
+        executionState: 'stopped',
+        status: 'stopped',
+        needsAttention: true,
+        attentionEventId: 'open-event-a',
+    };
+    const otherSession = session('codex', 'session-b', false);
+    const page = await openCardPage(t, [session('codex', 'session-a', true)]);
+    await postHostMessage(page, {
+        type: 'open-workspaces-updated',
+        version: 3,
+        projectionRevision: 2,
+        semanticRevision: 'closed-open-envelope-revision',
+        currentWorkspaceCount: 1,
+        navigationWorkspaceCount: 0,
+        otherWindowsStatus: 'ready',
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            attentionSession,
+            otherSession,
+        ])}</div>
+            <div class="open-other-windows-group" data-other-windows-status="ready">
+                ${currentOpenWorkspaceProjectMarkup()}
+            </div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [{ identity: 'project-a' }],
+            savedProjects: [],
+            todos: [],
+        },
+        presentation: presentationMessage([attentionSession, otherSession], 2, {
+            attention: {
+                'codex:session-a': ['open-event-a', 'open-event-b'],
+            },
+        }),
+    });
+    await postHostMessage(page, presentationMessage([
+        { ...attentionSession, focused: false },
+        { ...otherSession, focused: true },
+    ], 2));
+
+    assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
+    assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), null);
+    assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'), '');
+    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    const acknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.deepEqual(acknowledgements, [{
+        type: 'acknowledge-ai-session-attention',
+        eventIds: ['open-event-a', 'open-event-b'],
+    }]);
+});
+
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid presentation before replacing HTML', async t => {
     const initial = [session('codex', 'session-a', true)];
     const replacement = [session('codex', 'session-b', true)];

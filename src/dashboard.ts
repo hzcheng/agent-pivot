@@ -1907,8 +1907,15 @@ async function initializeDashboard(
                 && Boolean(candidate.identity.sessionId));
         return direct?.identity || null;
     };
-    const requestRemoteAiSessionFocus = (navigationIdentity: string): Promise<boolean> =>
-        openWorkspaceBridgeClient.requestRunningFocus(navigationIdentity);
+    const requestRemoteAiSessionFocus = (navigationIdentity: string): Promise<boolean> => {
+        const sourceNavigationIdentity = getCurrentOpenWorkspace()?.navigationIdentity;
+        return sourceNavigationIdentity
+            ? openWorkspaceBridgeClient.requestRunningFocus(
+                navigationIdentity,
+                sourceNavigationIdentity,
+            )
+            : Promise.resolve(false);
+    };
     const runningSessionJumpHandler = createRunningSessionJumpHandler({
         navigationCoordinator: sessionNavigationCoordinator,
         buildQueue: () => buildRunningSessionQueue({
@@ -2045,8 +2052,8 @@ async function initializeDashboard(
                 postOpenWorkspacesUpdated();
             }
         },
-        onRunningFocusRequest: () =>
-            runningSessionJumpHandler.jumpToNextLocalRunningSession(),
+        onRunningFocusRequest: request =>
+            runningSessionJumpHandler.jumpToNextLocalRunningSession(request),
         onAttentionFocusRequest: request =>
             jumpToNextAttentionSession.jumpToAttentionSession({
                 projectId: request.projectId,

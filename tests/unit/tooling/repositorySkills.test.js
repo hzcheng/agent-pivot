@@ -90,6 +90,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies ambiguous GitHub writes and tr
         ['workflow lesson harvest before audit', /harvesting-workflow-lessons[\s\S]*before[\s\S]*final capability audit/i],
         ['explicit repository selection', /--repo <owner\/name>[\s\S]*automatic remote[\s\S]*selection/i],
         ['base freshness before final artifacts', /before final verification[\s\S]*feature branch is behind[\s\S]*rebase[\s\S]*Never publish or report artifacts built before the[\s\S]*rebase/i],
+        ['companion protocol version bump', /separately packaged extension[\s\S]*runtime or protocol[\s\S]*manifest version[\s\S]*origin\/main[\s\S]*higher version/i],
         ['transport result verification', /HTTP 408[\s\S]*unexpected EOF[\s\S]*remote branch SHA/i],
         ['HTTP/1.1 retry', /http\.version=HTTP\/1\.1 push/i],
         ['non-force retry', /same non-force refspec/i],

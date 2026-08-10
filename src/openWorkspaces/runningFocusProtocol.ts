@@ -1,10 +1,10 @@
 'use strict';
 
-export const OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION = 2;
+export const OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION = 3;
 export const OPEN_WORKSPACE_RUNNING_FOCUS_REQUEST_COMMAND =
-    '_agentPivotOpenWorkspaces.bridge.requestRunningFocusV2';
+    '_agentPivotOpenWorkspaces.bridge.requestRunningFocusV3';
 export const OPEN_WORKSPACE_RUNNING_FOCUS_DELIVER_COMMAND =
-    '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV2';
+    '_agentPivotOpenWorkspaces.workspace.runningFocusRequestedV3';
 export const OPEN_WORKSPACE_RUNNING_FOCUS_LEASE_MS = 60_000;
 export const MAX_OPEN_WORKSPACE_RUNNING_FOCUS_REQUESTS = 100;
 
@@ -12,15 +12,16 @@ const REQUEST_ID_PATTERN = /^[a-f0-9]{32}$/;
 const NAVIGATION_IDENTITY_PATTERN = /^[a-f0-9]{64}$/;
 
 export interface OpenWorkspaceRunningFocusRequest {
-    protocolVersion: 2;
+    protocolVersion: 3;
     requestId: string;
+    sourceNavigationIdentity: string;
     targetNavigationIdentity: string;
     createdAtMs: number;
     expiresAtMs: number;
 }
 
 export interface OpenWorkspaceRunningFocusOutcome {
-    protocolVersion: 2;
+    protocolVersion: 3;
     requestId: string;
     targetNavigationIdentity: string;
     delivered: true;
@@ -46,7 +47,7 @@ function requireExactKeys(
     }
 }
 
-function requireProtocolVersion(value: unknown): 2 {
+function requireProtocolVersion(value: unknown): 3 {
     if (value !== OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION) {
         throw new Error('open workspace running focus protocol version is incompatible');
     }
@@ -62,10 +63,10 @@ function requireRequestId(value: unknown): string {
     return value;
 }
 
-function requireNavigationIdentity(value: unknown): string {
+function requireNavigationIdentity(value: unknown, label: string): string {
     if (typeof value !== 'string' || !NAVIGATION_IDENTITY_PATTERN.test(value)) {
         throw new Error(
-            'open workspace running focus targetNavigationIdentity must be 64 lowercase hexadecimal characters',
+            `open workspace running focus ${label} must be 64 lowercase hexadecimal characters`,
         );
     }
     return value;
@@ -80,12 +81,14 @@ function requireTimestamp(value: unknown, label: string): number {
 
 export function createOpenWorkspaceRunningFocusRequest(input: {
     requestId: string;
+    sourceNavigationIdentity: string;
     targetNavigationIdentity: string;
     nowMs: number;
 }): OpenWorkspaceRunningFocusRequest {
     return validateOpenWorkspaceRunningFocusRequest({
         protocolVersion: OPEN_WORKSPACE_RUNNING_FOCUS_PROTOCOL_VERSION,
         requestId: input.requestId,
+        sourceNavigationIdentity: input.sourceNavigationIdentity,
         targetNavigationIdentity: input.targetNavigationIdentity,
         createdAtMs: input.nowMs,
         expiresAtMs: input.nowMs + OPEN_WORKSPACE_RUNNING_FOCUS_LEASE_MS,
@@ -98,7 +101,14 @@ export function validateOpenWorkspaceRunningFocusRequest(
     const request = requireObject(raw, 'open workspace running focus request');
     requireExactKeys(
         request,
-        ['protocolVersion', 'requestId', 'targetNavigationIdentity', 'createdAtMs', 'expiresAtMs'],
+        [
+            'protocolVersion',
+            'requestId',
+            'sourceNavigationIdentity',
+            'targetNavigationIdentity',
+            'createdAtMs',
+            'expiresAtMs',
+        ],
         'open workspace running focus request',
     );
     const createdAtMs = requireTimestamp(request.createdAtMs, 'createdAtMs');
@@ -109,10 +119,22 @@ export function validateOpenWorkspaceRunningFocusRequest(
             'open workspace running focus request expiry must be within its lease',
         );
     }
+    const sourceNavigationIdentity = requireNavigationIdentity(
+        request.sourceNavigationIdentity,
+        'sourceNavigationIdentity',
+    );
+    const targetNavigationIdentity = requireNavigationIdentity(
+        request.targetNavigationIdentity,
+        'targetNavigationIdentity',
+    );
+    if (sourceNavigationIdentity === targetNavigationIdentity) {
+        throw new Error('open workspace running focus source and target must differ');
+    }
     return {
         protocolVersion: requireProtocolVersion(request.protocolVersion),
         requestId: requireRequestId(request.requestId),
-        targetNavigationIdentity: requireNavigationIdentity(request.targetNavigationIdentity),
+        sourceNavigationIdentity,
+        targetNavigationIdentity,
         createdAtMs,
         expiresAtMs,
     };
@@ -133,7 +155,10 @@ export function validateOpenWorkspaceRunningFocusOutcome(
     return {
         protocolVersion: requireProtocolVersion(outcome.protocolVersion),
         requestId: requireRequestId(outcome.requestId),
-        targetNavigationIdentity: requireNavigationIdentity(outcome.targetNavigationIdentity),
+        targetNavigationIdentity: requireNavigationIdentity(
+            outcome.targetNavigationIdentity,
+            'targetNavigationIdentity',
+        ),
         delivered: true,
     };
 }

@@ -31,11 +31,13 @@ const {
 } = require('./helpers');
 
 const TARGET_IDENTITY = 'f'.repeat(64);
+const SOURCE_IDENTITY = 'e'.repeat(64);
 
 function makeRequest(overrides = {}) {
     return {
-        protocolVersion: 2,
+        protocolVersion: 3,
         requestId: 'a'.repeat(32),
+        sourceNavigationIdentity: SOURCE_IDENTITY,
         targetNavigationIdentity: TARGET_IDENTITY,
         createdAtMs: 1000,
         expiresAtMs: 61_000,
@@ -49,6 +51,7 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001 strictly validates focus request
     assert.deepEqual(
         createOpenWorkspaceRunningFocusRequest({
             requestId: 'b'.repeat(32),
+            sourceNavigationIdentity: SOURCE_IDENTITY,
             targetNavigationIdentity: TARGET_IDENTITY,
             nowMs: 2000,
         }),
@@ -67,6 +70,17 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001 strictly validates focus request
         /targetNavigationIdentity/,
     );
     assert.throws(
+        () => validateOpenWorkspaceRunningFocusRequest({ ...request, sourceNavigationIdentity: 'nope' }),
+        /sourceNavigationIdentity/,
+    );
+    assert.throws(
+        () => validateOpenWorkspaceRunningFocusRequest({
+            ...request,
+            sourceNavigationIdentity: TARGET_IDENTITY,
+        }),
+        /source and target must differ/,
+    );
+    assert.throws(
         () => validateOpenWorkspaceRunningFocusRequest({ ...request, expiresAtMs: 1000 }),
         /within its lease/,
     );
@@ -80,7 +94,7 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-PROTOCOL-001 strictly validates focus request
     );
 
     const outcome = {
-        protocolVersion: 2,
+        protocolVersion: 3,
         requestId: request.requestId,
         targetNavigationIdentity: TARGET_IDENTITY,
         delivered: true,
@@ -255,7 +269,7 @@ test('OPEN-WORKSPACE-RUNNING-FOCUS-COORDINATOR-001 delivers mailbox requests onl
     coordinator.requestDelivery();
     const outcome = await submission;
     assert.deepEqual(outcome, {
-        protocolVersion: 2,
+        protocolVersion: 3,
         requestId: 'a'.repeat(32),
         targetNavigationIdentity: TARGET_IDENTITY,
         delivered: true,

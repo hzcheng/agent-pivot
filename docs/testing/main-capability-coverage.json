@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "769e02650fbfbfce96a47e3a3798a8ab93e9b8ad",
+        "head": "736d1b87398bf0bd75f171a3c4698295aff38c32",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -256,7 +256,11 @@
             "70ac4fa2ff17fceb29d84ba9193c9d31541a3124",
             "ed622f02fb6d6a352d954c46c45003e1bb30ff75",
             "69238185ffd3617c9ce247520e8a6da0d4c0366c",
-            "e2f2356d250624dfedf359e34375933b03589dcd"
+            "e2f2356d250624dfedf359e34375933b03589dcd",
+            "790c4275073bd2be05735c12fe714b9bee27e231",
+            "f2e803793868d93772ddd3a78c8bb3f00fc00e99",
+            "713e563edec30161b5a34c45a4cabca4bab0263b",
+            "b8351a89e297c70998cad5c4aa2ec375b1885288"
         ]
     },
     "capabilities": [
@@ -714,7 +718,9 @@
                 "b388dee9464be7e0ac6850cd12c3a943b5868f3b",
                 "9c6a7223c606f3cdaaa2e3a3ef6f9a38f239a7c2",
                 "48ecf9d5e2127ab94879a7a899789892881b7fe5",
-                "c8df4355af418e21ca9efc6ff1511b05e85c21a4"
+                "c8df4355af418e21ca9efc6ff1511b05e85c21a4",
+                "5b3f34942480cfe1f3a695cb4114c0c64c62ca6b",
+                "736d1b87398bf0bd75f171a3c4698295aff38c32"
             ],
             "behaviors": [
                 "RELEASE-VSIX-PACKAGING-001",
@@ -1207,7 +1213,8 @@
                 "09932f96ba19f74b57eb2ddffa482b182d32fee5",
                 "c79183114269860b29eec03d0d316899072b16b9",
                 "0b06155e7043d14ece0d17ca682d09c6c0d8bdcb",
-                "b55f68c5d67b705d3f0edabc01183788f5146b2a"
+                "b55f68c5d67b705d3f0edabc01183788f5146b2a",
+                "5b308c507e0e21eab46aa1ee6103728a10cda243"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -1746,7 +1753,9 @@
                 "0651bb2aa5339a882b3d7fffa705907df6b9c796",
                 "858736b4bbe4543033fce1b5c9e7e88b6223ed9a",
                 "3f912d7a2300db39d98c62c41f4cbb4c0eddc908",
-                "fee9ab8a22adbfa55f0bcef2aca42b7458203d91"
+                "fee9ab8a22adbfa55f0bcef2aca42b7458203d91",
+                "8f158765b41ad3ea5ff862e885ccdd052cb570aa",
+                "7b72e2b4b30a3e6ec72f51cde609a95471b9cd8d"
             ],
             "behaviors": [
                 "AI-SESSION-NEXT-RUNNING-COMMAND-001",

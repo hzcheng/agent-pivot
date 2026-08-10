@@ -13,6 +13,7 @@ const BRAND_IDENTITY = Object.freeze({
     mainVersion: '1.1.0',
     bridgePackageName: 'agent-pivot-attention-ui-bridge',
     bridgeExtensionId: 'hzcheng.agent-pivot-attention-ui-bridge',
+    bridgeVersion: '1.0.2',
     commandPrefix: 'agentPivot.',
     configurationSection: 'agentPivot',
     viewContainerId: 'agentPivot',
@@ -132,7 +133,7 @@ function validateManifestPair(mainManifest, bridgeManifest) {
         `Bridge manifest display name is stale: ${formatValue(bridgeManifest.displayName)}`);
     assert.equal(bridgeManifest.publisher, BRAND_IDENTITY.publisher,
         `Bridge manifest publisher is stale: ${formatValue(bridgeManifest.publisher)}`);
-    assert.equal(bridgeManifest.version, '1.0.1',
+    assert.equal(bridgeManifest.version, BRAND_IDENTITY.bridgeVersion,
         `Bridge manifest version is stale: ${formatValue(bridgeManifest.version)}`);
     assert.equal(bridgeManifest.icon, 'media/extension_icon.png',
         `Bridge manifest icon is invalid: ${formatValue(bridgeManifest.icon)}`);

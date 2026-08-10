@@ -58,6 +58,7 @@ function makeJumpOptions(overrides = {}) {
         },
         showInformationMessage: message => calls.push(['info', message]),
         showWarningMessage: message => calls.push(['warn', message]),
+        nowMs: overrides.nowMs || (() => 0),
     };
     return { calls, options };
 }
@@ -334,6 +335,7 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 cycles three single-session windows in
     for (const identity of identities) {
         const others = identities.filter(candidate => candidate !== identity);
         handlers.set(identity, createRunningSessionJumpHandler({
+            nowMs: () => 0,
             buildQueue: () => buildRunningSessionQueue({
                 localSessions: [local('codex', sessionOf(identity))],
                 remoteWindows: others.map(other => remote(other, 1, cardOf(other))),
@@ -377,6 +379,202 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 cycles three single-session windows in
         `${WINDOW_B}:s-b`,
         `${WINDOW_C}:s-c`,
         `${WINDOW_A}:s-a`,
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 visits every running session in a multi-session window', async () => {
+    const WINDOW_C = 'c'.repeat(64);
+    const identities = [WINDOW_A, WINDOW_B, WINDOW_C];
+    const sessions = new Map([
+        [WINDOW_A, [local('codex', 'a1')]],
+        [WINDOW_B, [local('codex', 'b1'), local('kimi', 'b2')]],
+        [WINDOW_C, [local('codex', 'c1')]],
+    ]);
+    const world = {
+        activeWindow: WINDOW_A,
+        focused: new Map([
+            [WINDOW_A, 'session:codex:a1'],
+            [WINDOW_B, 'session:codex:b1'],
+            [WINDOW_C, 'session:codex:c1'],
+        ]),
+    };
+    const handlers = new Map();
+    for (const identity of identities) {
+        const others = identities.filter(candidate => candidate !== identity);
+        handlers.set(identity, createRunningSessionJumpHandler({
+            nowMs: () => 0,
+            buildQueue: () => buildRunningSessionQueue({
+                localSessions: sessions.get(identity),
+                remoteWindows: others.map(other => remote(
+                    other,
+                    sessions.get(other).length,
+                    `card-${other[0]}`,
+                )),
+                selfNavigationIdentity: identity,
+            }),
+            focusSession: item => {
+                world.focused.set(identity, item.key);
+                return Promise.resolve(true);
+            },
+            openConversation: () => Promise.resolve(),
+            requestRemoteFocus: item => handlers.get(item.navigationIdentity)
+                .jumpToNextLocalRunningSession({
+                    sourceNavigationIdentity: identity,
+                    targetNavigationIdentity: item.navigationIdentity,
+                    createdAtMs: 1,
+                })
+                .then(() => true),
+            openNavigationCard: cardId => {
+                world.activeWindow = identities
+                    .find(candidate => `card-${candidate[0]}` === cardId);
+                return Promise.resolve();
+            },
+            showInformationMessage: () => {},
+            showWarningMessage: () => {},
+            getCurrentKey: () => world.focused.get(identity),
+        }));
+    }
+
+    const visited = [];
+    for (let press = 0; press < 8; press += 1) {
+        await handlers.get(world.activeWindow).jumpToNextRunningSession();
+        visited.push(`${world.activeWindow[0]}:${world.focused.get(world.activeWindow)}`);
+    }
+
+    assert.deepEqual(visited, [
+        'b:session:codex:b1',
+        'b:session:kimi:b2',
+        'c:session:codex:c1',
+        'a:session:codex:a1',
+        'b:session:codex:b1',
+        'b:session:kimi:b2',
+        'c:session:codex:c1',
+        'a:session:codex:a1',
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 does not starve a window when local ring context is unavailable', async () => {
+    const WINDOW_C = 'c'.repeat(64);
+    const identities = [WINDOW_A, WINDOW_B, WINDOW_C];
+    const sessionOf = identity => `s-${identity[0]}`;
+    const cardOf = identity => `card-${identity[0]}`;
+    const world = {
+        activeWindow: WINDOW_A,
+        focused: new Map(identities.map(identity => [identity, sessionOf(identity)])),
+    };
+    const handlers = new Map();
+    for (const identity of identities) {
+        const others = identities.filter(candidate => candidate !== identity);
+        handlers.set(identity, createRunningSessionJumpHandler({
+            nowMs: () => 0,
+            buildQueue: () => buildRunningSessionQueue({
+                localSessions: [local('codex', sessionOf(identity))],
+                remoteWindows: others.map(other => remote(other, 1, cardOf(other))),
+                // A bridge snapshot can temporarily lack the current window's
+                // ring anchor. The authoritative hand-off target must still
+                // prevent A/B ping-pong from starving C.
+            }),
+            focusSession: item => {
+                world.focused.set(identity, item.sessionId);
+                return Promise.resolve(true);
+            },
+            openConversation: () => Promise.resolve(),
+            requestRemoteFocus: item => handlers.get(item.navigationIdentity)
+                .jumpToNextLocalRunningSession({
+                    sourceNavigationIdentity: identity,
+                    targetNavigationIdentity: item.navigationIdentity,
+                    createdAtMs: 1,
+                })
+                .then(() => true),
+            openNavigationCard: cardId => {
+                world.activeWindow = identities
+                    .find(candidate => cardOf(candidate) === cardId);
+                return Promise.resolve();
+            },
+            showInformationMessage: () => {},
+            showWarningMessage: () => {},
+            getCurrentKey: () => `session:codex:${world.focused.get(identity)}`,
+        }));
+    }
+
+    const visited = [];
+    for (let press = 0; press < 6; press += 1) {
+        await handlers.get(world.activeWindow).jumpToNextRunningSession();
+        visited.push(world.activeWindow);
+    }
+
+    assert.deepEqual(visited, [
+        WINDOW_B, WINDOW_C, WINDOW_A, WINDOW_B, WINDOW_C, WINDOW_A,
+    ]);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 keeps every window reachable in a four-window degraded ring', async () => {
+    const identities = [WINDOW_A, WINDOW_B, 'c'.repeat(64), 'd'.repeat(64)];
+    const world = {
+        activeWindow: WINDOW_A,
+        focused: new Map(identities.map(identity => [identity, `session:codex:s-${identity[0]}`])),
+    };
+    const handlers = new Map();
+    for (const identity of identities) {
+        const others = identities.filter(candidate => candidate !== identity);
+        handlers.set(identity, createRunningSessionJumpHandler({
+            nowMs: () => 0,
+            buildQueue: () => buildRunningSessionQueue({
+                localSessions: [local('codex', `s-${identity[0]}`)],
+                remoteWindows: others.map(other => remote(other, 1, `card-${other[0]}`)),
+            }),
+            focusSession: item => {
+                world.focused.set(identity, item.key);
+                return Promise.resolve(true);
+            },
+            openConversation: () => Promise.resolve(),
+            requestRemoteFocus: item => handlers.get(item.navigationIdentity)
+                .jumpToNextLocalRunningSession({
+                    sourceNavigationIdentity: identity,
+                    targetNavigationIdentity: item.navigationIdentity,
+                    createdAtMs: 1,
+                })
+                .then(() => true),
+            openNavigationCard: cardId => {
+                world.activeWindow = identities
+                    .find(candidate => `card-${candidate[0]}` === cardId);
+                return Promise.resolve();
+            },
+            showInformationMessage: () => {},
+            showWarningMessage: () => {},
+            getCurrentKey: () => world.focused.get(identity),
+        }));
+    }
+
+    const visited = [];
+    for (let press = 0; press < 8; press += 1) {
+        await handlers.get(world.activeWindow).jumpToNextRunningSession();
+        visited.push(world.activeWindow[0]);
+    }
+
+    assert.deepEqual(visited, ['b', 'c', 'd', 'a', 'b', 'c', 'd', 'a']);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 returns to the source when only two windows are running', async () => {
+    const queue = buildRunningSessionQueue({
+        localSessions: [local('codex', 'a')],
+        remoteWindows: [remote(WINDOW_B)],
+    });
+    const { calls, options } = makeJumpOptions({ queue });
+    options.getCurrentKey = () => null;
+    const handler = createRunningSessionJumpHandler(options);
+
+    await handler.jumpToNextLocalRunningSession({
+        sourceNavigationIdentity: WINDOW_B,
+        targetNavigationIdentity: WINDOW_A,
+        createdAtMs: 1,
+    });
+    calls.length = 0;
+    await handler.jumpToNextRunningSession();
+
+    assert.deepEqual(calls, [
+        ['request', WINDOW_B],
+        ['navigate', `card-${'b'.repeat(8)}`],
     ]);
 });
 
@@ -443,7 +641,7 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 makes a late handoff idempotent with a
     });
     let focused = 'b1';
     const picked = [];
-    const { options } = makeJumpOptions({ queue });
+    const { options } = makeJumpOptions({ queue, nowMs: () => 2000 });
     options.focusSession = item => {
         focused = item.sessionId;
         picked.push(item.sessionId);
@@ -453,7 +651,11 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 makes a late handoff idempotent with a
     const handler = createRunningSessionJumpHandler(options);
 
     await handler.jumpToNextRunningSession();
-    await handler.jumpToNextLocalRunningSession();
+    await handler.jumpToNextLocalRunningSession({
+        sourceNavigationIdentity: WINDOW_A,
+        targetNavigationIdentity: WINDOW_B,
+        createdAtMs: 1000,
+    });
 
     assert.deepEqual(picked, ['b2', 'b2'],
         'a handoff delivered after a user jump may reaffirm, but never reverse, that jump');

@@ -838,8 +838,8 @@ for (const mutation of [
         expectedDetail: 'session-bearing workspace HTML must have no standalone replacement path outside atomic Presentation envelopes',
         mutate: source => replaceFixtureSource(
             source,
-            'replaceContent: () => applyWorkspaceUpdate({',
-            'replaceContent: () => applyOpenWorkspacesUpdate({'
+            'replaceContent: validateReplacement => applyWorkspaceUpdate({',
+            'replaceContent: validateReplacement => applyOpenWorkspacesUpdate({'
         ),
     },
     {
@@ -848,9 +848,9 @@ for (const mutation of [
         expectedDetail: 'session-bearing workspace HTML must have no standalone replacement path outside atomic Presentation envelopes',
         mutate: source => replaceFixtureSource(
             source,
-            'replaceContent: () => applyWorkspaceUpdate({',
-            'replaceContent: () => true,\n'
-                + '            detachedWorkspaceReplacement: () => applyWorkspaceUpdate({'
+            'replaceContent: validateReplacement => applyWorkspaceUpdate({',
+            'replaceContent: validateReplacement => true,\n'
+                + '            detachedWorkspaceReplacement: validateReplacement => applyWorkspaceUpdate({'
         ),
     },
     {
@@ -1190,12 +1190,8 @@ for (const mutation of [
         expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
         mutate: source => replaceFixtureSource(
             source,
-            'var focusedTarget = hasMatchingWorkspace\n'
-                + '            ? presentationStateStore.getFocusedTarget()\n'
-                + '            : null;',
-            'var focusedTarget = hasMatchingWorkspace\n'
-                + '            ? presentationStateStore.getFocusedTarget()\n'
-                + '            : null;\n'
+            'var focusedTarget = presentationStateStore.getFocusedTarget();',
+            'var focusedTarget = presentationStateStore.getFocusedTarget();\n'
                 + '        focusedTarget = null;'
         ),
     },
@@ -1451,6 +1447,112 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            'canApplyAiSessionPresentationState: aiSessionPresentationDom.canApply,',
+            'canApplyAiSessionPresentationState: () => true,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;',
+            'return true;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
+        mutate: source => replaceFixtureSource(
+            source,
+            'validateReplacement: validateReplacement,',
+            'validateReplacement: () => true,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
+        mutate: source => replaceFixtureSource(
+            source,
+            '{ validateReplacement: validateReplacement }',
+            '{ validateReplacement: () => true }'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewWorkspaceUpdateScripts.js',
+        expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
+        mutate: source => replaceFixtureSource(
+            source,
+            '&& !options.validateReplacement(replacement)',
+            '&& false'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewWorkspaceUpdateScripts.js',
+        expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
+        mutate: source => replaceFixtureSource(
+            source,
+            '&& !options.validateReplacement(holder)',
+            '&& false'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
+        mutate: source => replaceFixtureSource(
+            source,
+            "requestFullRefresh('invalid-direct-ai-session-presentation-state');\n"
+                + '            return false;\n'
+                + '        }\n'
+                + '        if (!hasMatchingPresentationWorkspace(message)) return false;\n'
+                + '        if (!acceptPresentationProjectionRevision(message.projectionRevision)) {',
+            "requestFullRefresh('invalid-direct-ai-session-presentation-state');\n"
+                + '            return false;\n'
+                + '        }\n'
+                + '        if (!acceptPresentationProjectionRevision(message.projectionRevision)) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
+        mutate: source => replaceFixtureSource(
+            source,
+            "requestFullRefresh('invalid-initial-ai-session-presentation-state');\n"
+                + '            return false;\n'
+                + '        }\n'
+                + '        if (!hasMatchingPresentationWorkspace(message)) return false;\n'
+                + '        if (!acceptInitialPresentationProjectionRevision(message.projectionRevision)) {',
+            "requestFullRefresh('invalid-initial-ai-session-presentation-state');\n"
+                + '            return false;\n'
+                + '        }\n'
+                + '        if (!acceptInitialPresentationProjectionRevision(message.projectionRevision)) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        mutate: source => replaceFixtureSource(
+            source,
+            'if (!hasMatchingPresentationWorkspace(message.presentation)) return false;\n'
+                + '        commitAtomicProjectionRevision(message.projectionRevision);',
+            'commitAtomicProjectionRevision(message.projectionRevision);\n'
+                + '        if (!hasMatchingPresentationWorkspace(message.presentation)) return false;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
         expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
@@ -1465,16 +1567,36 @@ for (const mutation of [
         expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            "if (!input.replaceContent()) {\n"
-                + "            requestFullRefresh(input.invalidReplacementReason);\n"
+            "var replacementWorkspaceMatches = null;\n"
+                + "        if (!input.replaceContent(replacementRoot => {\n"
+                + "            replacementWorkspaceMatches = canApplyAiSessionPresentationState(\n"
+                + "                message.presentation,\n"
+                + "                replacementRoot\n"
+                + "            );\n"
+                + "            return replacementWorkspaceMatches;\n"
+                + "        })) {\n"
+                + "            requestFullRefresh(replacementWorkspaceMatches === false\n"
+                + "                ? 'mismatched-ai-session-presentation-workspace'\n"
+                + "                : input.invalidReplacementReason);\n"
                 + "            return false;\n"
                 + "        }\n"
+                + "        if (!hasMatchingPresentationWorkspace(message.presentation)) return false;\n"
                 + "        commitAtomicProjectionRevision(message.projectionRevision);",
             "commitAtomicProjectionRevision(message.projectionRevision);\n"
-                + "        if (!input.replaceContent()) {\n"
-                + "            requestFullRefresh(input.invalidReplacementReason);\n"
+                + "        var replacementWorkspaceMatches = null;\n"
+                + "        if (!input.replaceContent(replacementRoot => {\n"
+                + "            replacementWorkspaceMatches = canApplyAiSessionPresentationState(\n"
+                + "                message.presentation,\n"
+                + "                replacementRoot\n"
+                + "            );\n"
+                + "            return replacementWorkspaceMatches;\n"
+                + "        })) {\n"
+                + "            requestFullRefresh(replacementWorkspaceMatches === false\n"
+                + "                ? 'mismatched-ai-session-presentation-workspace'\n"
+                + "                : input.invalidReplacementReason);\n"
                 + "            return false;\n"
-                + "        }"
+                + "        }\n"
+                + "        if (!hasMatchingPresentationWorkspace(message.presentation)) return false;"
         ),
     },
     {

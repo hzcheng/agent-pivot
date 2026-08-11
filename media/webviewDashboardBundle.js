@@ -541,6 +541,10 @@ function applyWorkspaceUpdate(message, options) {
         || !isWorkspaceUpdateDomConsistent(message, replacement)) {
         return false;
     }
+    if (options && typeof options.validateReplacement === 'function'
+        && !options.validateReplacement(replacement)) {
+        return false;
+    }
 
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(currentGroup);
     var currentListScroll = captureOpenTabListScroll(
@@ -702,7 +706,7 @@ function completeOpenWorkspacePin(message) {
     return true;
 }
 
-function applyOpenWorkspacesUpdate(message) {
+function applyOpenWorkspacesUpdate(message, options) {
     if (!message
         || message.type !== 'open-workspaces-updated'
         || message.version !== 3
@@ -727,6 +731,18 @@ function applyOpenWorkspacesUpdate(message) {
     }
     var wrapper = document.querySelector('.sticky-groups-wrapper');
     if (!wrapper) return false;
+    var holder = null;
+    if (typeof document.createElement === 'function') {
+        holder = document.createElement('div');
+        holder.innerHTML = message.html;
+        if (!isOpenWorkspacesUpdateDomConsistent(message, holder)
+            || (options && typeof options.validateReplacement === 'function'
+                && !options.validateReplacement(holder))) {
+            return false;
+        }
+    } else if (options && typeof options.validateReplacement === 'function') {
+        return false;
+    }
     var previousHtml = wrapper.innerHTML;
     var focusedPinButton = document.activeElement
         && document.activeElement.matches?.(
@@ -740,7 +756,7 @@ function applyOpenWorkspacesUpdate(message) {
         OPEN_TAB_OTHER_ITEM_SELECTOR,
         'data-workspace-navigation-identity'
     );
-    wrapper.innerHTML = message.html;
+    wrapper.innerHTML = holder ? holder.innerHTML : message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
         restoreOpenTabListScroll(
@@ -785,12 +801,14 @@ function applyOpenWorkspacesUpdate(message) {
     return true;
 }
 
-function getOpenWorkspacesUpdateDomState() {
-    var otherWindowsGroup = document.querySelector(
-        '.sticky-groups-wrapper .open-other-windows-group[data-other-windows-status]'
+function getOpenWorkspacesUpdateDomState(root) {
+    var projectionRoot = root || document;
+    var wrapperPrefix = root ? '' : '.sticky-groups-wrapper ';
+    var otherWindowsGroup = projectionRoot.querySelector(
+        wrapperPrefix + '.open-other-windows-group[data-other-windows-status]'
     );
-    var openWorkspaceCards = Array.from(document.querySelectorAll(
-        '.sticky-groups-wrapper .open-other-windows-group '
+    var openWorkspaceCards = Array.from(projectionRoot.querySelectorAll(
+        wrapperPrefix + '.open-other-windows-group '
         + '.workspace-card[data-open-workspace-list-card][data-workspace-navigation-identity]'
     ));
     var navigationCards = openWorkspaceCards.filter(card =>
@@ -800,15 +818,16 @@ function getOpenWorkspacesUpdateDomState() {
         card.getAttribute('data-workspace-navigation-identity')
     );
     return {
-        currentWorkspaceCount: document.querySelectorAll(
-            '.sticky-groups-wrapper .workspace-card[data-current-workspace][data-workspace-scope-identity]'
+        currentWorkspaceCount: projectionRoot.querySelectorAll(
+            wrapperPrefix
+                + '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
         ).length,
         navigationWorkspaceCount: navigationCards.length,
         openWorkspaceListCount: openWorkspaceCards.length,
         hasUniqueNavigationIdentities: navigationIdentities.every(identity => !!identity)
             && new Set(navigationIdentities).size === navigationIdentities.length,
-        hasOtherWindowsGroup: document.querySelectorAll(
-            '.sticky-groups-wrapper .open-other-windows-group'
+        hasOtherWindowsGroup: projectionRoot.querySelectorAll(
+            wrapperPrefix + '.open-other-windows-group'
         ).length > 0,
         otherWindowsStatus: otherWindowsGroup
             ? otherWindowsGroup.getAttribute('data-other-windows-status')
@@ -816,8 +835,8 @@ function getOpenWorkspacesUpdateDomState() {
     };
 }
 
-function isOpenWorkspacesUpdateDomConsistent(message) {
-    var rendered = getOpenWorkspacesUpdateDomState();
+function isOpenWorkspacesUpdateDomConsistent(message, root) {
+    var rendered = getOpenWorkspacesUpdateDomState(root);
     return rendered.currentWorkspaceCount === message.currentWorkspaceCount
         && rendered.navigationWorkspaceCount === message.navigationWorkspaceCount
         && rendered.hasUniqueNavigationIdentities
@@ -2099,6 +2118,7 @@ function initAiSessionPresentationTransactions(options) {
 
     options = options || {};
     var isValidAiSessionPresentationState = options.isValidAiSessionPresentationState;
+    var canApplyAiSessionPresentationState = options.canApplyAiSessionPresentationState;
     var applyValidatedAiSessionPresentationState = options.applyValidatedAiSessionPresentationState;
     var latestAiSessionProjectionRevision = 0;
     var latestAiSessionPresentationProjectionRevision = 0;
@@ -2109,6 +2129,12 @@ function initAiSessionPresentationTransactions(options) {
             type: 'request-full-refresh',
             reason,
         });
+    }
+
+    function hasMatchingPresentationWorkspace(message) {
+        if (canApplyAiSessionPresentationState(message)) return true;
+        requestFullRefresh('mismatched-ai-session-presentation-workspace');
+        return false;
     }
 
     function canApplyRevision(revision, latestRevision) {
@@ -2174,6 +2200,7 @@ function initAiSessionPresentationTransactions(options) {
             requestFullRefresh('invalid-initial-ai-session-presentation-state');
             return false;
         }
+        if (!hasMatchingPresentationWorkspace(message)) return false;
         if (!acceptInitialPresentationProjectionRevision(message.projectionRevision)) {
             return false;
         }
@@ -2187,6 +2214,7 @@ function initAiSessionPresentationTransactions(options) {
             requestFullRefresh('invalid-direct-ai-session-presentation-state');
             return false;
         }
+        if (!hasMatchingPresentationWorkspace(message)) return false;
         if (!acceptPresentationProjectionRevision(message.projectionRevision)) {
             return false;
         }
@@ -2208,10 +2236,20 @@ function initAiSessionPresentationTransactions(options) {
             || !canApplyAtomicPresentationProjectionRevision(message.projectionRevision)) {
             return false;
         }
-        if (!input.replaceContent()) {
-            requestFullRefresh(input.invalidReplacementReason);
+        var replacementWorkspaceMatches = null;
+        if (!input.replaceContent(replacementRoot => {
+            replacementWorkspaceMatches = canApplyAiSessionPresentationState(
+                message.presentation,
+                replacementRoot
+            );
+            return replacementWorkspaceMatches;
+        })) {
+            requestFullRefresh(replacementWorkspaceMatches === false
+                ? 'mismatched-ai-session-presentation-workspace'
+                : input.invalidReplacementReason);
             return false;
         }
+        if (!hasMatchingPresentationWorkspace(message.presentation)) return false;
         commitAtomicProjectionRevision(message.projectionRevision);
         if (typeof input.afterReplacement === 'function') {
             input.afterReplacement();
@@ -2234,10 +2272,8 @@ function initAiSessionPresentationDom(options) {
     options = options || {};
     var presentationStateStore = options.presentationStateStore;
 
-    function syncActiveAiSessionProjectionDom(hasMatchingWorkspace, revealFocused) {
-        var focusedTarget = hasMatchingWorkspace
-            ? presentationStateStore.getFocusedTarget()
-            : null;
+    function syncActiveAiSessionProjectionDom(revealFocused) {
+        var focusedTarget = presentationStateStore.getFocusedTarget();
         var projectedFocusedRow = null;
         document.querySelectorAll(
             '.codex-session-row[data-session-provider][data-session-id],'
@@ -2456,8 +2492,10 @@ function initAiSessionPresentationDom(options) {
         );
         setCurrentWorkspaceRunningDom(projectDiv, message);
     }
-    function applyAiSessionPresentationDom(message) {
-        var currentCards = Array.from(document.querySelectorAll(
+    function getAiSessionPresentationCurrentCards(message, root) {
+        if (typeof message.workspaceNavigationIdentity !== 'string'
+            || !message.workspaceNavigationIdentity) return [];
+        return Array.from((root || document).querySelectorAll(
             '.workspace-card[data-workspace-navigation-identity="'
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
                 + '[data-current-workspace],'
@@ -2465,7 +2503,20 @@ function initAiSessionPresentationDom(options) {
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
                 + '[data-open-workspace-current]'
         ));
-        syncActiveAiSessionProjectionDom(currentCards.length > 0, message.revealFocused);
+    }
+    function canApplyAiSessionPresentationDom(message, root) {
+        var projectionRoot = root || document;
+        if (message.workspaceNavigationIdentity === null) {
+            return !projectionRoot.querySelector(
+                '.workspace-card[data-current-workspace],'
+                    + '.workspace-card[data-open-workspace-current]'
+            );
+        }
+        return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;
+    }
+    function applyAiSessionPresentationDom(message) {
+        var currentCards = getAiSessionPresentationCurrentCards(message);
+        syncActiveAiSessionProjectionDom(message.revealFocused);
         if (!currentCards.length) return;
         var projectDiv = currentCards.find(card => card.hasAttribute('data-current-workspace'));
         var presentations = {};
@@ -2507,6 +2558,7 @@ function initAiSessionPresentationDom(options) {
 
     return {
         apply: applyAiSessionPresentationDom,
+        canApply: canApplyAiSessionPresentationDom,
     };
 }
 
@@ -2556,7 +2608,7 @@ function initProjectAiSessionsUpdate(options) {
             message: message,
             invalidPresentationReason: 'invalid-ai-session-presentation-envelope',
             invalidReplacementReason: 'invalid-ai-session-workspace-update',
-            replaceContent: () => applyWorkspaceUpdate({
+            replaceContent: validateReplacement => applyWorkspaceUpdate({
                 type: 'workspace-updated',
                 version: 2,
                 currentWorkspaceCount: message.currentWorkspaceCount,
@@ -2565,6 +2617,7 @@ function initProjectAiSessionsUpdate(options) {
                 canRestoreAiSessionProviderMenu: () =>
                     !getPendingAiSessionProviderSelectionProjectId()
                     && !batchAiSessionState.pending,
+                validateReplacement: validateReplacement,
             }),
             afterReplacement: () => {
                 if (batchAiSessionState.projectId) {
@@ -3821,6 +3874,7 @@ function initProjects() {
     });
     var presentationTransactions = initAiSessionPresentationTransactions({
         isValidAiSessionPresentationState: aiSessionPresentationStateStore.isValid,
+        canApplyAiSessionPresentationState: aiSessionPresentationDom.canApply,
         applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
     });
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
@@ -4018,7 +4072,10 @@ function initProjects() {
                 message: message,
                 invalidPresentationReason: 'invalid-open-workspaces-presentation-envelope',
                 invalidReplacementReason: 'invalid-open-workspaces-update',
-                replaceContent: () => applyOpenWorkspacesUpdate(message),
+                replaceContent: validateReplacement => applyOpenWorkspacesUpdate(
+                    message,
+                    { validateReplacement: validateReplacement }
+                ),
             })) {
                 return;
             }

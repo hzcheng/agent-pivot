@@ -67,6 +67,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies remote extension installation 
         ['wrapper resolves to active Server installation', /wrapper[\s\S]*resolve[\s\S]*verify[\s\S]*active Server installation/i],
         ['remote-cli active IPC gate', /remote-cli[\s\S]*(?:only|unless)[\s\S]*reachable[\s\S]*active host/i],
         ['representative hash comparison', /representative[\s\S]*hash/i],
+        ['post-install Extension Host activation', /Extension Host process start time[\s\S]*installed-file timestamp[\s\S]*Developer: Reload Window[\s\S]*observed before that reload/i],
+        ['installation versus runtime activation', /verified disk bytes[\s\S]*verified runtime activation/i],
     ]);
 });
 

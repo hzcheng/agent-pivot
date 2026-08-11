@@ -776,18 +776,26 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
     );
 });
 
-test('ACTIVE-SESSION-FOCUS-REVEAL-001 clears stale card focus when another workspace has the same session identity', async t => {
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps the focused card highlight when another workspace has the same session identity', async t => {
     const initial = [
         session('codex', 'session-a', true),
         session('codex', 'session-b', false),
     ];
     const page = await openCardPage(t, initial);
+    await page.addStyleTag({
+        content: ':root { --vscode-focusBorder: rgb(0, 127, 212); }'
+            + ' *, *::before, *::after { transition: none !important; }',
+    });
     const focusedRow = row(page, 'codex', 'session-a');
     const primaryAction = focusedRow.locator('.ai-session-primary-action');
     await postHostMessage(page, presentationMessage(initial, 2, { revealFocused: true }));
     assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
     assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), '');
     assert.equal(await primaryAction.getAttribute('title'), 'Open AI conversation for Codex Session');
+    assert.match(
+        await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
+        /rgba?\(0, 127, 212/
+    );
 
     const otherWorkspacePresentation = presentationMessage(
         initial,
@@ -801,12 +809,109 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 clears stale card focus when another works
     otherWorkspacePresentation.workspaceNavigationIdentity = 'navigation-project-b';
     await postHostMessage(page, otherWorkspacePresentation);
 
-    assert.equal(await focusedRow.getAttribute('data-session-focused'), null);
-    assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), null);
-    assert.equal(await focusedRow.locator('.ai-session-open-conversation-hint').count(), 0);
-    assert.equal(await primaryAction.getAttribute('title'), 'Focus Codex Session');
+    assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
+    assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), '');
+    assert.equal(await focusedRow.locator('.ai-session-open-conversation-hint').count(), 1);
+    assert.equal(await primaryAction.getAttribute('title'), 'Open AI conversation for Codex Session');
+    assert.match(
+        await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
+        /rgba?\(0, 127, 212/
+    );
+    await page.setViewportSize({ width: 240, height: 900 });
+    assert.match(
+        await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
+        /rgba?\(0, 127, 212/
+    );
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'request-full-refresh',
+        reason: 'mismatched-ai-session-presentation-workspace',
+    });
+
+    await page.evaluate(() => { window.__postedMessages.length = 0; });
+    const replacement = [session('codex', 'session-c', true)];
+    for (const envelope of [
+        aiSessionsEnvelope(replacement, 4, {
+            presentationOverrides: {
+                workspaceScopeIdentity: 'scope-project-b',
+                workspaceNavigationIdentity: 'navigation-project-b',
+            },
+        }),
+        openWorkspacesEnvelope(replacement, 5, {
+            presentationOverrides: {
+                workspaceScopeIdentity: 'scope-project-b',
+                workspaceNavigationIdentity: 'navigation-project-b',
+            },
+        }),
+    ]) {
+        await postHostMessage(page, envelope);
+        assert.equal(await row(page, 'codex', 'session-c').count(), 0);
+        assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
+        assert.match(
+            await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
+            /rgba?\(0, 127, 212/
+        );
+        assert.deepEqual((await postedMessages(page)).at(-1), {
+            type: 'request-full-refresh',
+            reason: 'mismatched-ai-session-presentation-workspace',
+        });
+    }
+    await postHostMessage(page, presentationMessage(initial, 5, { revealFocused: true }));
+    assert.equal(await focusedRow.getAttribute('data-session-focused'), '',
+        'a rejected workspace envelope must not commit its projection revision');
     await primaryAction.click();
-    assert.equal((await postedMessages(page)).at(-1).type, 'focus-ai-session-terminal');
+    assert.equal((await postedMessages(page)).at(-1).type, 'open-active-ai-session-conversation');
+});
+
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 rejects a reused OPEN semantic revision before adopting another workspace focus', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const page = await openCardPage(t, initial);
+    await page.addStyleTag({
+        content: ':root { --vscode-focusBorder: rgb(0, 127, 212); }'
+            + ' *, *::before, *::after { transition: none !important; }',
+    });
+    await postHostMessage(page, openWorkspacesEnvelope(initial, 2, {
+        semanticRevision: 'reused-open-revision',
+    }));
+    await page.evaluate(() => { window.__postedMessages.length = 0; });
+
+    const otherWorkspace = openWorkspacesEnvelope(
+        [session('codex', 'session-b', true)],
+        3,
+        {
+            semanticRevision: 'reused-open-revision',
+            presentationOverrides: {
+                workspaceScopeIdentity: 'scope-project-b',
+                workspaceNavigationIdentity: 'navigation-project-b',
+            },
+        }
+    );
+    otherWorkspace.html = `${currentWorkspaceGroupMarkup(
+        [session('codex', 'session-b', true)],
+        0,
+        {
+            scopeIdentity: 'scope-project-b',
+            navigationIdentity: 'navigation-project-b',
+        }
+    )}<div class="open-other-windows-group" data-other-windows-status="ready">
+        ${currentOpenWorkspaceProjectMarkup()}
+    </div>`;
+    await postHostMessage(page, otherWorkspace);
+
+    const focusedRow = row(page, 'codex', 'session-a');
+    assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
+    assert.equal(await row(page, 'codex', 'session-b').count(), 0);
+    assert.match(
+        await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
+        /rgba?\(0, 127, 212/
+    );
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'request-full-refresh',
+        reason: 'mismatched-ai-session-presentation-workspace',
+    }]);
+
+    await postHostMessage(page, presentationMessage(initial, 3, { revealFocused: true }));
+    assert.equal(await focusedRow.getAttribute('data-session-focused'), '',
+        'the rejected no-op replacement must not commit its projection revision');
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy AI update messages', async t => {
@@ -1644,13 +1749,18 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 scopes pending acknowledgement 
         message.type === 'acknowledge-ai-session-attention'
     );
 
-    await postHostMessage(page, aiSessionsEnvelope([attentionSession], 6, {
+    const workspaceBEnvelope = aiSessionsEnvelope([attentionSession], 6, {
             attention: { 'codex:session-a': ['event-a'] },
             presentationOverrides: {
                 workspaceScopeIdentity: 'scope-project-b',
                 workspaceNavigationIdentity: 'navigation-project-b',
             },
-        }));
+        });
+    workspaceBEnvelope.html = currentWorkspaceGroupMarkup([attentionSession], 1, {
+        scopeIdentity: 'scope-project-b',
+        navigationIdentity: 'navigation-project-b',
+    });
+    await postHostMessage(page, workspaceBEnvelope);
     await page.evaluate(() => {
         window.__agentPivotAttentionAcknowledgementTimeoutMs = 1_000;
         window.__agentPivotAcknowledgeSession('codex', 'session-a');

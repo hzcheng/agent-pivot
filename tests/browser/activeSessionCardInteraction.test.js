@@ -479,10 +479,10 @@ function attentionAggregate(revision, projectId, sessionKey, eventIds) {
     };
 }
 
-function createAttentionAcknowledgementHandler(acknowledgeEventIds) {
+function createAttentionAcknowledgementHandler(acknowledgeEventIds, postMessage) {
     const ignored = async () => undefined;
     return createDashboardMessageHandlers({
-        postMessage: ignored,
+        postMessage: postMessage || ignored,
         getStewardInfos: () => ({ config: { get: (_key, fallback) => fallback } }),
         projectService: { getGroups: () => [] },
         promptDashboardController: { getPanelContent: ignored, handle: ignored },
@@ -522,6 +522,7 @@ async function assertAttentionCleared(page, provider, sessionId) {
     assert.equal(await sessionRow.getAttribute('data-session-needs-attention'), null);
     assert.equal(await sessionRow.getAttribute('data-ai-session-attention'), null);
     assert.equal(await sessionRow.getAttribute('data-session-event-id'), null);
+    assert.equal(await sessionRow.getAttribute('data-attention-acknowledgement-pending'), null);
     assert.equal(await sessionRow.locator('.ai-session-attention-indicator').count(), 0);
     assert.equal(await project.locator('[data-ai-session-tab="active"] .ai-session-tab-attention').count(), 0);
     assert.equal(await project.locator('.ai-session-attention-count').count(), 0);
@@ -770,10 +771,9 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 accepts same-revision owner ev
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['event-a', 'event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['event-a', 'event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 keeps OPEN HTML and owner events in one revision', async t => {
@@ -817,10 +817,9 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 keeps OPEN HTML and owner even
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['open-event-a', 'open-event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['open-event-a', 'open-event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and complete attention owners from one message', async t => {
@@ -862,10 +861,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and c
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['event-a', 'event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['event-a', 'event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and complete attention owners from one message', async t => {
@@ -913,10 +911,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['open-event-a', 'open-event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['open-event-a', 'open-event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope revision against conflicting direct presentation', async t => {
@@ -963,10 +960,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['event-a', 'event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['event-a', 'event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelope revision against conflicting direct presentation', async t => {
@@ -1019,10 +1015,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelo
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['open-event-a', 'open-event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['open-event-a', 'open-event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes AI envelope after matching direct presentation', async t => {
@@ -1085,10 +1080,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes AI
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['event-a', 'event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['event-a', 'event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OPEN envelope after matching direct presentation', async t => {
@@ -1157,10 +1151,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OP
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
-        type: 'acknowledge-ai-session-attention',
-        eventIds: ['open-event-a', 'open-event-b'],
-    }]);
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['open-event-a', 'open-event-b'],
+    ]);
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid presentation before replacing HTML', async t => {
@@ -1277,10 +1270,255 @@ test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 seeds the full document revisio
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
-    assert.deepEqual(acknowledgements, [{
+    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
+        ['event-a', 'event-b'],
+    ]);
+});
+
+test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps acknowledgement pending until its committed v3 presentation is applied', async t => {
+    const eventIds = ['event-a', 'event-b'];
+    const attentionSession = {
+        ...session('codex', 'session-a', true),
+        executionState: 'stopped',
+        status: 'stopped',
+        needsAttention: true,
+        attentionEventId: eventIds[0],
+    };
+    const page = await openCardPage(
+        t,
+        [attentionSession],
+        undefined,
+        undefined,
+        presentationMessage([attentionSession], 5, {
+            attention: { 'codex:session-a': eventIds },
+        })
+    );
+    const primaryAction = row(page, 'codex', 'session-a')
+        .locator('.ai-session-primary-action');
+
+    await primaryAction.click();
+    await primaryAction.click();
+    const posted = await postedMessages(page);
+    const acknowledgements = posted.filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.equal(acknowledgements.length, 1,
+        'rapid activation must share the pending acknowledgement request');
+    const request = acknowledgements[0];
+    assert.deepEqual(request, {
         type: 'acknowledge-ai-session-attention',
-        eventIds: ['event-a', 'event-b'],
-    }]);
+        version: 1,
+        requestId: request.requestId,
+        provider: 'codex',
+        sessionId: 'session-a',
+        workspaceScopeIdentity: 'scope-project-a',
+        projectionRevision: 5,
+        eventIds,
+    });
+    assert.ok(Number.isSafeInteger(request.requestId) && request.requestId > 0,
+        'the acknowledgement requestId must be a safe positive integer');
+    assert.equal(posted.filter(message =>
+        message.type === 'open-active-ai-session-conversation'
+    ).length, 2, 'pending acknowledgement must not suppress the independent open action');
+
+    const result = overrides => ({
+        type: 'ai-session-attention-acknowledgement-result',
+        version: 1,
+        requestId: request.requestId,
+        provider: request.provider,
+        sessionId: request.sessionId,
+        workspaceScopeIdentity: request.workspaceScopeIdentity,
+        projectionRevision: request.projectionRevision,
+        outcome: 'committed',
+        ...overrides,
+    });
+    const retry = async () => {
+        await page.evaluate(() => {
+            window.__agentPivotAcknowledgeSession('codex', 'session-a');
+        });
+        return (await postedMessages(page)).filter(message =>
+            message.type === 'acknowledge-ai-session-attention'
+        ).length;
+    };
+    await postHostMessage(page, result({ projectionRevision: 4 }));
+    assert.equal(await retry(), 1, 'an old settlement cannot release pending');
+    await postHostMessage(page, result({ sessionId: 'session-b' }));
+    assert.equal(await retry(), 1, 'an unrelated settlement cannot release pending');
+    await postHostMessage(page, result({}));
+    assert.equal(await retry(), 1,
+        'a matching committed settlement alone cannot release pending');
+
+    const postV3 = async (projectionRevision, renderedSession, attention) => {
+        await postHostMessage(page, {
+            type: 'ai-sessions-updated',
+            version: 3,
+            sequence: projectionRevision,
+            projectionRevision,
+            generatedAt: '2026-08-11T00:00:00.000Z',
+            currentWorkspaceCount: 1,
+            html: `<div class="open-current-workspace-group">${projectMarkup([
+                renderedSession,
+            ])}</div>`,
+            searchCatalog: {
+                version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [],
+            },
+            presentation: presentationMessage([renderedSession], projectionRevision, {
+                attention: { 'codex:session-a': attention },
+            }),
+        });
+    };
+    await postV3(6, attentionSession, eventIds);
+    assert.equal(await retry(), 1,
+        'a newer presentation retaining an observed event cannot release pending');
+
+    const clearedSession = { ...attentionSession, needsAttention: false };
+    delete clearedSession.attentionEventId;
+    await postV3(7, clearedSession, []);
+    const nextEventIds = ['event-c'];
+    await postV3(8, {
+        ...attentionSession,
+        attentionEventId: nextEventIds[0],
+    }, nextEventIds);
+    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    let finalAcknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.equal(finalAcknowledgements.length, 2,
+        'matching committed outcome plus applied cleared v3 presentation releases pending');
+    assert.deepEqual(finalAcknowledgements[1].eventIds, nextEventIds);
+    assert.equal(finalAcknowledgements[1].projectionRevision, 8);
+
+    await postV3(9, clearedSession, []);
+    assert.equal(await retry(), 2,
+        'a cleared v3 presentation alone cannot release pending before its result');
+    await postHostMessage(page, result({
+        requestId: finalAcknowledgements[1].requestId,
+        projectionRevision: finalAcknowledgements[1].projectionRevision,
+    }));
+    await postHostMessage(page, result({
+        requestId: finalAcknowledgements[1].requestId,
+        projectionRevision: finalAcknowledgements[1].projectionRevision,
+    }));
+    const degradedEventIds = ['event-d'];
+    await postV3(10, {
+        ...attentionSession, attentionEventId: degradedEventIds[0],
+    }, degradedEventIds);
+    await retry();
+    finalAcknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    const degradedRequest = finalAcknowledgements.at(-1);
+    await postHostMessage(page, result({
+        requestId: degradedRequest.requestId,
+        projectionRevision: degradedRequest.projectionRevision,
+        outcome: 'degraded-local',
+    }));
+    assert.equal(await row(page, 'codex', 'session-a')
+        .getAttribute('data-attention-acknowledgement-pending'), null);
+    assert.match(await page.locator('[data-ai-session-live-region]').textContent(),
+        /cross-window sync could not be confirmed/i);
+
+    const rejectedEventIds = ['event-e'];
+    await postV3(11, {
+        ...attentionSession, attentionEventId: rejectedEventIds[0],
+    }, rejectedEventIds);
+    await retry();
+    finalAcknowledgements = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    const rejectedRequest = finalAcknowledgements.at(-1);
+    await postHostMessage(page, result({
+        requestId: rejectedRequest.requestId,
+        projectionRevision: rejectedRequest.projectionRevision,
+        outcome: 'rejected',
+    }));
+    assert.match(await page.locator('[data-ai-session-live-region]').textContent(),
+        /could not clear session attention/i);
+
+    const timeoutEventIds = ['event-f'];
+    await postV3(12, {
+        ...attentionSession, attentionEventId: timeoutEventIds[0],
+    }, timeoutEventIds);
+    await page.evaluate(() => {
+        window.__agentPivotAttentionAcknowledgementTimeoutMs = 10;
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
+    await waitForPageCondition(page, () => window.__postedMessages.some(message =>
+        message.type === 'request-full-refresh'
+            && message.reason === 'ai-session-attention-acknowledgement-timeout'
+    ));
+    assert.equal(await row(page, 'codex', 'session-a')
+        .getAttribute('data-attention-acknowledgement-pending'), null);
+    assert.match(await page.locator('[data-ai-session-live-region]').textContent(),
+        /timed out/i);
+});
+
+test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 scopes pending acknowledgement to one workspace presentation', async t => {
+    const attentionSession = {
+        ...session('codex', 'session-a', true),
+        executionState: 'stopped', status: 'stopped', needsAttention: true,
+        attentionEventId: 'event-a',
+    };
+    const initial = presentationMessage([attentionSession], 5, {
+        attention: { 'codex:session-a': ['event-a'] },
+    });
+    const page = await openCardPage(t, [attentionSession], undefined, undefined, initial);
+    await page.evaluate(() => {
+        window.__attentionAcknowledgementTimers = [];
+        window.setTimeout = callback => {
+            var handle = { callback: callback, cleared: false };
+            window.__attentionAcknowledgementTimers.push(handle);
+            return handle;
+        };
+        window.clearTimeout = handle => { handle.cleared = true; };
+        window.__agentPivotAttentionAcknowledgementTimeoutMs = 10;
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
+    const firstRequest = (await postedMessages(page)).find(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+
+    await postHostMessage(page, {
+        ...presentationMessage([attentionSession], 6, {
+            attention: { 'codex:session-a': ['event-a'] },
+        }),
+        workspaceScopeIdentity: 'scope-project-b',
+    });
+    await page.evaluate(() => {
+        window.__agentPivotAttentionAcknowledgementTimeoutMs = 1_000;
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+        var oldTimer = window.__attentionAcknowledgementTimers[0];
+        if (!oldTimer.cleared) throw new Error('the old workspace timer was not cancelled');
+        oldTimer.callback();
+    });
+    const requests = (await postedMessages(page)).filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    );
+    assert.deepEqual(requests.map(message => message.workspaceScopeIdentity), [
+        'scope-project-a', 'scope-project-b',
+    ], 'an old workspace pending entry cannot suppress the same session identity in a new scope');
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'request-full-refresh'
+            && message.reason === 'ai-session-attention-acknowledgement-timeout'
+    ).length, 0, 'the old workspace timeout must be cancelled silently');
+    assert.equal(await page.locator('[data-ai-session-live-region]').textContent(), '');
+    assert.equal(await row(page, 'codex', 'session-a')
+        .getAttribute('data-attention-acknowledgement-pending'), '');
+    await postHostMessage(page, {
+        type: 'ai-session-attention-acknowledgement-result',
+        version: 1,
+        requestId: firstRequest.requestId,
+        provider: firstRequest.provider,
+        sessionId: firstRequest.sessionId,
+        workspaceScopeIdentity: firstRequest.workspaceScopeIdentity,
+        projectionRevision: firstRequest.projectionRevision,
+        outcome: 'degraded-local',
+    });
+    assert.equal(await page.locator('[data-ai-session-live-region]').textContent(), '',
+        'a late result from the old workspace must not announce in the new workspace');
+    assert.equal(await row(page, 'codex', 'session-a')
+        .getAttribute('data-attention-acknowledgement-pending'), '',
+    'a late old-workspace result must not clear the new workspace request');
 });
 
 test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card through the production v3 refresh', async t => {
@@ -1439,6 +1677,7 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
             bridgeAggregateListener(attentionAggregate(
                 'stale-fixture-replay', projectId, sessionKey, eventIds
             ));
+            return 'committed';
         },
         publish: async () => true,
         dispose() {},
@@ -1518,8 +1757,13 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         await compact.locator('.project-ai-attention-badge').getAttribute('aria-label'),
         '1 item needs attention'
     );
+    const acknowledgementResults = [];
     const hostHandler = createAttentionAcknowledgementHandler(
-        ids => attentionCapability.acknowledgeEventIds(ids)
+        (ids, target) => attentionCapability.acknowledgeEventIds(ids, target),
+        message => {
+            acknowledgementResults.push(message);
+            return postHostMessage(page, message);
+        }
     );
     const exposedName = '__hostAttentionMessage_fixture';
     await page.exposeFunction(exposedName, message => {
@@ -1558,6 +1802,8 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
     }
     await Promise.all(deliveryPromises);
 
+    assert.deepEqual(acknowledgementResults.map(message => message.outcome), ['committed'],
+        'the Host must settle the authoritative acknowledgement as committed');
     assert.deepEqual(bridgeAcknowledgements, [eventIds],
         'the Host acknowledges the complete presentation owner, not only the row fallback');
     assert.deepEqual(attentionController.getEffectiveAggregate().sessions, [],

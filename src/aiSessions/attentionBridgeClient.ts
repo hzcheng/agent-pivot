@@ -21,6 +21,8 @@ export interface AttentionBridgeClientOptions {
     mainExtensionVersion?: string;
 }
 
+export type AttentionBridgeAcknowledgementOutcome = 'committed' | 'degraded-local';
+
 export default class AttentionBridgeClient implements vscode.Disposable {
     private readonly instanceId = crypto.randomBytes(16).toString('hex');
     private sequence = 0;
@@ -87,21 +89,34 @@ export default class AttentionBridgeClient implements vscode.Disposable {
         return this.shutdownFlight;
     }
 
-    async acknowledge(eventIds: string[]): Promise<void> {
+    async acknowledge(eventIds: string[]): Promise<AttentionBridgeAcknowledgementOutcome> {
         const ids = new Set(eventIds || []);
         const acknowledgements = this.lastItems
             .filter(item => item.eventId && ids.has(item.eventId))
             .map(item => ({ ...item, state: 'acknowledged' as const, observedAtMs: this.now() }));
-        if (!ids.size) return;
+        if (!ids.size) return 'committed';
+        let persisted = false;
         try {
-            await vscode.commands.executeCommand(ACKNOWLEDGE_COMMAND, { eventIds: Array.from(ids) });
+            const result = await vscode.commands.executeCommand<{ acknowledged?: unknown }>(
+                ACKNOWLEDGE_COMMAND,
+                { eventIds: Array.from(ids) }
+            );
+            persisted = Boolean(result)
+                && typeof result === 'object'
+                && !Array.isArray(result)
+                && Object.keys(result).length === 1
+                && Object.prototype.hasOwnProperty.call(result, 'acknowledged')
+                && Number.isSafeInteger(result.acknowledged)
+                && result.acknowledged === ids.size;
         } catch (error) {
             this.reportError(error);
         }
-        if (!acknowledgements.length) return;
-        const bySession = new Map(this.latestItems.map(item => [item.sessionKey, item]));
-        acknowledgements.forEach(item => bySession.set(item.sessionKey, item));
-        await this.publish(Array.from(bySession.values()), true);
+        if (acknowledgements.length) {
+            const bySession = new Map(this.latestItems.map(item => [item.sessionKey, item]));
+            acknowledgements.forEach(item => bySession.set(item.sessionKey, item));
+            await this.publish(Array.from(bySession.values()), true);
+        }
+        return persisted ? 'committed' : 'degraded-local';
     }
 
     private enqueuePublication(items: AttentionPayloadItem[], forceHeartbeat: boolean): Promise<boolean> {

@@ -650,6 +650,7 @@ function initProjects() {
     function applyValidatedAiSessionPresentationState(message) {
         window.__agentPivotAiSessionPresentationState = message;
         applyAiSessionPresentationDom(message);
+        aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);
     }
 
     function readInitialAiSessionPresentationState() {
@@ -797,6 +798,10 @@ function initProjects() {
         }
         if (message && message.type === 'ai-session-provider-selection-result') {
             aiSessionControls.applyAiSessionProviderSelectionResult(message);
+            return;
+        }
+        if (message && message.type === 'ai-session-attention-acknowledgement-result') {
+            aiSessionControls.applyAiSessionAttentionAcknowledgementResult(message);
             return;
         }
         if (message && (message.type === 'todo-panel-content' || message.type === 'todo-panel-updated')) {

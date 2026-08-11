@@ -2929,8 +2929,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             "    var sessionStatusRunning = document.querySelector(\n"
                 + "        '[data-session-status-running]'\n"
                 + "    );\n"
+                + "    var sessionStatusRunningCount = document.querySelector(\n"
+                + "        '[data-session-status-running-count]'\n"
+                + "    );\n"
                 + "    var sessionStatusAttention = document.querySelector(\n"
                 + "        '[data-session-status-attention]'\n"
+                + "    );\n"
+                + "    var sessionStatusAttentionCount = document.querySelector(\n"
+                + "        '[data-session-status-attention-count]'\n"
                 + "    );\n",
             ''
         )
@@ -9159,11 +9165,17 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
     });
     const running = page.locator('[data-session-status-running]');
     const attention = page.locator('[data-session-status-attention]');
+    const runningCount = page.locator('[data-session-status-running-count]');
+    const attentionCount = page.locator(
+        '[data-session-status-attention-count]'
+    );
 
     assert.equal(
         await running.getAttribute('title'),
         '2 AI sessions running across all windows'
     );
+    assert.equal(await runningCount.textContent(), '2');
+    assert.equal(await attentionCount.textContent(), '1');
     assert.equal(
         await attention.getAttribute('aria-label'),
         '1 AI session needs attention across all windows'
@@ -9194,6 +9206,8 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
         await running.getAttribute('title'),
         'No AI sessions running'
     );
+    assert.equal(await runningCount.textContent(), '0');
+    assert.equal(await attentionCount.textContent(), '3');
     assert.equal(await running.evaluate(element =>
         element.classList.contains('conversation-session-status-active')
     ), false);
@@ -9222,6 +9236,20 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
         'stale requestIds and foreign generations must be ignored'
     );
 
+    const centered = await page.evaluate(() => {
+        const header = document.querySelector(
+            '.conversation-header'
+        ).getBoundingClientRect();
+        const statusGroup = document.querySelector(
+            '[data-conversation-session-status]'
+        ).getBoundingClientRect();
+        return Math.abs(
+            (statusGroup.left + statusGroup.width / 2)
+                - (header.left + header.width / 2)
+        ) <= 2;
+    });
+    assert.equal(centered, true,
+        'session status must stay centered in the header');
     for (const width of [700, 240]) {
         await page.setViewportSize({ width, height: 500 });
         const fitsViewport = await page.locator(

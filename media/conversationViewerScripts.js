@@ -66,8 +66,14 @@
     var sessionStatusRunning = document.querySelector(
         '[data-session-status-running]'
     );
+    var sessionStatusRunningCount = document.querySelector(
+        '[data-session-status-running-count]'
+    );
     var sessionStatusAttention = document.querySelector(
         '[data-session-status-attention]'
+    );
+    var sessionStatusAttentionCount = document.querySelector(
+        '[data-session-status-attention-count]'
     );
     var sessionNavButtons = Array.prototype.slice.call(
         document.querySelectorAll('[data-session-nav]')
@@ -1521,7 +1527,7 @@
             && value.attentionSessions >= 0
             && value.attentionSessions <= 100000;
     }
-    function applySessionStatusDot(element, kind, count) {
+    function applySessionStatusDot(element, countElement, kind, count) {
         var label = sessionStatusDotLabel(kind, count);
         element.classList.toggle(
             'conversation-session-status-active',
@@ -1529,6 +1535,7 @@
         );
         element.title = label;
         element.setAttribute('aria-label', label);
+        countElement.textContent = String(count);
     }
     function applySessionStatusMessage(message) {
         if (!message || typeof message !== 'object'
@@ -1538,17 +1545,20 @@
             || message.requestId < state.latestStatusRequestId
             || message.subscriptionGeneration !== state.subscriptionGeneration
             || !validSessionStatus(message.status)
-            || !sessionStatusRunning || !sessionStatusAttention) {
+            || !sessionStatusRunning || !sessionStatusRunningCount
+            || !sessionStatusAttention || !sessionStatusAttentionCount) {
             return false;
         }
         state.latestStatusRequestId = message.requestId;
         applySessionStatusDot(
             sessionStatusRunning,
+            sessionStatusRunningCount,
             'running',
             message.status.runningSessions
         );
         applySessionStatusDot(
             sessionStatusAttention,
+            sessionStatusAttentionCount,
             'attention',
             message.status.attentionSessions
         );

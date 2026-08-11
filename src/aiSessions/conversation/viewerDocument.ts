@@ -584,7 +584,9 @@ function renderSessionStatusDot(
         : ''}"
         data-session-status-${kind} role="img"
         title="${escapeAttribute(label)}"
-        aria-label="${escapeAttribute(label)}"></span>`;
+        aria-label="${escapeAttribute(label)}"></span><span
+        class="conversation-session-status-count"
+        data-session-status-${kind}-count>${count}</span>`;
 }
 
 function providerLabel(provider: AiSessionProviderId): string {

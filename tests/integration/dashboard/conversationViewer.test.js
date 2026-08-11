@@ -371,6 +371,12 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated global
         '1 AI session needs attention across all windows'
     ));
     assert.ok(panel.webview.html.includes(
+        'data-session-status-running-count>2</span>'
+    ));
+    assert.ok(panel.webview.html.includes(
+        'data-session-status-attention-count>1</span>'
+    ));
+    assert.ok(panel.webview.html.includes(
         'data-session-status-request-id'
     ));
 

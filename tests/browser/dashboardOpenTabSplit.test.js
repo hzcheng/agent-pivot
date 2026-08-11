@@ -480,7 +480,7 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 keeps the OPEN WINDOWS scroll anchor across aut
     const after = await page.evaluate(payload => {
         const applied = window.applyOpenWorkspacesUpdate({
             type: 'open-workspaces-updated',
-            version: 2,
+            version: 3,
             semanticRevision: 'scroll-restore',
             currentWorkspaceCount: 1,
             navigationWorkspaceCount: payload.navigationCount,

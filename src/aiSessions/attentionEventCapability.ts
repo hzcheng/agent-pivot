@@ -56,7 +56,6 @@ export interface AiSessionAttentionEventCapabilityOptions {
     getRuntimeConfiguration: () => AiSessionRuntimeConfiguration;
     getCurrentOpenWorkspace: () => OpenWorkspace | null;
     getActiveTerminal: () => vscode.Terminal | null;
-    postAttentionState: () => void;
     isVisible: () => boolean;
     assertActive: () => void;
     createBridgeClient: (
@@ -111,7 +110,6 @@ export interface AiSessionAttentionEventCapability {
     belongsToCurrentWorkspace(runtime: AiSessionRuntimeSnapshot<vscode.Terminal>): boolean;
     refreshViewsIncrementally(): void;
     scheduleViewsRefresh(): void;
-    postAttentionState(): void;
     acknowledgeEventIds(
         eventIds: string[],
         target?: AiSessionAttentionAcknowledgementTarget
@@ -145,7 +143,6 @@ export function createAiSessionAttentionEventCapability(
     const getRuntimeConfiguration = options.getRuntimeConfiguration;
     const getCurrentOpenWorkspace = options.getCurrentOpenWorkspace;
     const getActiveTerminal = options.getActiveTerminal;
-    const postAttentionState = options.postAttentionState;
     const isVisible = options.isVisible;
     const assertActive = options.assertActive;
     const createBridgeClient = options.createBridgeClient;
@@ -338,10 +335,6 @@ export function createAiSessionAttentionEventCapability(
         void refreshViewsNow('tmux-bootstrap-restore');
     }
 
-    function postAiSessionAttentionState() {
-        postAttentionState();
-    }
-
     const getAiSessionAttentionEventIds = (identity: ActiveAiSessionTerminalIdentity): string[] => {
         const sessionKey = getAiSessionKey(identity.provider, identity.sessionId);
         return getAttentionController().getRecoverySessionEvents()
@@ -485,7 +478,6 @@ export function createAiSessionAttentionEventCapability(
         belongsToCurrentWorkspace: runtimeBelongsToCurrentWorkspace,
         refreshViewsIncrementally: refreshAiSessionViewsIncrementally,
         scheduleViewsRefresh: scheduleAttentionViewsRefresh,
-        postAttentionState: postAiSessionAttentionState,
         acknowledgeEventIds: acknowledgeAiSessionAttentionEventIds,
         acknowledgeAttention: acknowledgeAiSessionAttention,
         publish: (items, forceHeartbeat) => aiSessionAttentionBridgeClient.publish(items, forceHeartbeat),

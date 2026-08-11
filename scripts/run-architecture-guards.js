@@ -694,6 +694,12 @@ const guards = {
             this.id,
             risk
         );
+        const workspaceWebview = parseJavascript(
+            root,
+            'src/webview/webviewWorkspaceUpdateScripts.js',
+            this.id,
+            risk
+        );
         const controllerSource = controller.getFullText();
         if (controllerSource.includes('nextSequence')
             || controllerSource.includes('beforeRefresh')) {
@@ -721,12 +727,9 @@ const guards = {
         const dashboardSource = dashboard.getFullText();
         if (!/getCards:\s*projection\s*=>\s*getOpenWorkspaceCards\(projection\)/
             .test(dashboardSource)
-            || !controllerSource.includes(
-                'presentation: buildAiSessionPresentationState('
-            )
-            || dashboardSource.includes(
-                'postAiSessionPresentationState(false, transaction);'
-            )) {
+            || !/presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,/
+                .test(controllerSource)
+            || dashboardSource.includes('postAiSessionPresentationState(')) {
             fail(this.id, risk,
                 'AI incremental HTML and Presentation must share one Host message');
         }
@@ -739,8 +742,7 @@ const guards = {
                 'hydration must consume the transaction presentation with only an explicit fallback');
         }
         const webviewSource = webview.getFullText();
-        if (!webviewSource.includes('latestAiSessionDirectPresentationRevision')
-            || !webviewSource.includes('latestAiSessionClosedPresentationRevision')
+        if (!webviewSource.includes('latestAiSessionClosedPresentationRevision')
             || !webviewSource.includes('revision < latestAiSessionProjectionRevision')
             || !webviewSource.includes(
                 'revision <= latestAiSessionClosedPresentationRevision'
@@ -751,9 +753,15 @@ const guards = {
             || !webviewSource.includes(
                 'revision > latestAiSessionClosedPresentationRevision'
             )
-            || !webviewSource.includes('revision <= latestAiSessionDirectPresentationRevision')) {
+            || !webviewSource.includes(
+                'revision <= latestAiSessionPresentationProjectionRevision'
+            )
+            || webviewSource.includes('latestAiSessionDirectPresentationRevision')
+            || webviewSource.includes('canApplyPresentationProjectionRevision')
+            || !webviewSource.includes('message.version !== 3')
+            || webviewSource.includes('message.version !== 2')) {
             fail(this.id, risk,
-                'the Webview must close v3 envelopes while preserving v2 same-revision Presentation');
+                'the Webview must accept only v3 envelopes and close each revision against direct Presentation');
         }
         if (!/renderContent:\s*\(webview,\s*documentGeneration\)\s*=>\s*\{[\s\S]*?const transaction = aiSessionProjectionCoordinator\.captureNext\([\s\S]*?getOpenWorkspaceCards\(transaction\)[\s\S]*?buildAiSessionPresentationState\(\s*false,\s*transaction,/
             .test(dashboardSource)
@@ -764,6 +772,7 @@ const guards = {
                 'the full Dashboard document must capture and embed one Presentation transaction');
         }
         const projectWebviewSource = projectWebview.getFullText();
+        const workspaceWebviewSource = workspaceWebview.getFullText();
         if (!webviewSource.includes('acceptInitialPresentationProjectionRevision')
             || !webviewSource.includes('latestAiSessionProjectionRevision = revision;')
             || !projectWebviewSource.includes(
@@ -783,15 +792,15 @@ const guards = {
             || !openWorkspaceSource.includes('projectionRevision: projection.revision')
             || !updateMessageSource.includes(
                 'projectionRevision: input.projectionRevision'
-            ) || !openWorkspaceSource.includes(
-                'presentation: buildAiSessionPresentationState('
-            ) || !updateMessageSource.includes('presentation: input.presentation')
+            ) || !/presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,/
+                .test(openWorkspaceSource)
+            || !updateMessageSource.includes('presentation: input.presentation')
             || !updateMessageSource.includes('version: 3')
             || dashboardSource.includes(
                 'projectionRevision: aiSessionProjectionCoordinator.nextRevision()'
-            ) || dashboardSource.includes(
-                'postAiSessionPresentationState(false, transaction);'
-            )
+            ) || dashboardSource.includes('postAiSessionPresentationState(')
+            || !/function postActiveAiSessionTerminalPresentation\([\s\S]*?buildAiSessionPresentationState\(\s*true,\s*transaction,/
+                .test(dashboardSource)
             ) {
             fail(this.id, risk,
                 'OPEN HTML and Presentation must share one Host message');
@@ -799,22 +808,33 @@ const guards = {
         if (!webviewSource.includes(
             'message.presentation.projectionRevision !== message.projectionRevision'
         ) || !webviewSource.includes(
+            'message.presentation.revealFocused !== false'
+        ) || !webviewSource.includes(
             'applyValidatedAiSessionPresentationState(message.presentation);'
         ) || !webviewSource.includes(
-            'adoptRenderedPresentation,\n            isAtomicEnvelope'
+            'canApplyAtomicPresentationProjectionRevision(message.projectionRevision)'
         ) || !webviewSource.includes(
-            '? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)'
+            'commitAtomicProjectionRevision(message.projectionRevision)'
         ) || !projectWebviewSource.includes(
             'invalid-open-workspaces-presentation-envelope'
         ) || !projectWebviewSource.includes(
+            'message.presentation.revealFocused !== false'
+        ) || !projectWebviewSource.includes(
             'applyValidatedAiSessionPresentationState(message.presentation);'
         ) || !projectWebviewSource.includes(
-            'adoptOpenWorkspacePresentation,\n                isAtomicOpenWorkspacesEnvelope'
+            'aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision('
         ) || !projectWebviewSource.includes(
-            '? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision('
-        )) {
+            'aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision)'
+        ) || !projectWebviewSource.includes('message.version !== 3')
+            || projectWebviewSource.includes('isAtomicOpenWorkspacesEnvelope')
+            || !projectWebviewSource.includes('message.revealFocused !== true')
+            || projectWebviewSource.includes(
+                "type: 'request-ai-session-attention-state'"
+            ) || !workspaceWebviewSource.includes(
+                "message.type !== 'open-workspaces-updated'\n        || message.version !== 3"
+            )) {
             fail(this.id, risk,
-                'the Webview must validate and apply each HTML-Presentation envelope atomically');
+                'the Webview must validate v3 envelopes atomically and reserve direct Presentation for focus');
         }
     },
 

@@ -154,8 +154,10 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
     await page.evaluate(({ html, sequence }) => {
         window.dispatchEvent(new MessageEvent('message', { data: {
             type: 'ai-sessions-updated',
-            version: 2,
+            version: 3,
             sequence,
+            projectionRevision: sequence,
+            generatedAt: '2026-08-11T00:00:00.000Z',
             currentWorkspaceCount: 1,
             html,
             searchCatalog: {
@@ -164,6 +166,22 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
                 openWorkspaces: [],
                 savedProjects: [],
                 todos: [],
+            },
+            presentation: {
+                type: 'ai-session-presentation-state',
+                version: 1,
+                projectionRevision: sequence,
+                workspaceScopeIdentity: 'scope-project-a',
+                workspaceNavigationIdentity: 'navigation-project-a',
+                attentionCount: 0,
+                activeAttentionCount: 0,
+                runningSessionCount: 0,
+                runningCardAnimation: 'current',
+                runningIconAnimation: 'current',
+                revealFocused: false,
+                focusedTarget: null,
+                attentionSessions: [],
+                sessions: [],
             },
         } }));
     }, { html, sequence });

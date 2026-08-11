@@ -318,7 +318,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
 
     assert.equal(context.applyOpenWorkspacesUpdate({
         type: 'open-workspaces-updated',
-        version: 2,
+        version: 3,
         semanticRevision: 'valid',
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 2,
@@ -334,7 +334,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
     );
     assert.equal(context.applyOpenWorkspacesUpdate({
         type: 'open-workspaces-updated',
-        version: 2,
+        version: 3,
         semanticRevision: 'attention-only',
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 2,
@@ -349,7 +349,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
     );
     assert.equal(context.applyOpenWorkspacesUpdate({
         type: 'open-workspaces-updated',
-        version: 2,
+        version: 3,
         semanticRevision: 'running-only',
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 2,
@@ -366,7 +366,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
     );
     assert.equal(context.applyOpenWorkspacesUpdate({
         type: 'open-workspaces-updated',
-        version: 2,
+        version: 3,
         semanticRevision: 'duplicate-navigation',
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 2,
@@ -378,7 +378,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
 
     assert.equal(context.applyOpenWorkspacesUpdate({
         type: 'open-workspaces-updated',
-        version: 2,
+        version: 3,
         semanticRevision: 'lost-peer',
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 2,

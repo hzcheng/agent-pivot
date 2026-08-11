@@ -229,7 +229,7 @@ function currentWorkspaceGroupMarkup(
             sessionsByProvider: { codex: [], kimi: [], claude: [] },
             unavailableProviders: [],
             activeSessions: activeAiSessions,
-            aiSessionCount: 1,
+            aiSessionCount: activeAiSessions.length,
             activeSessionCount: activeAiSessions.length,
             activeAttentionCount: activeAiSessions
                 .filter(entry => entry.needsAttention).length,
@@ -271,17 +271,20 @@ async function postListOpenWorkspacesUpdate(page, activeAiSessions, historySessi
     <div class="open-other-windows-group" data-other-windows-status="ready">
         ${currentOpenWorkspaceProjectMarkup()}
     </div>`;
-    await page.evaluate(htmlValue => {
+    const presentation = presentationMessage(activeAiSessions, 2);
+    await page.evaluate(({ htmlValue, presentationValue }) => {
         window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'open-workspaces-updated', version: 2, semanticRevision: 'list-replacement',
+            type: 'open-workspaces-updated', version: 3, semanticRevision: 'list-replacement',
+            projectionRevision: 2,
             currentWorkspaceCount: 1, navigationWorkspaceCount: 0, otherWindowsStatus: 'ready',
             html: htmlValue,
             searchCatalog: {
                 version: 2, sessions: [], openWorkspaces: [{ identity: 'project-a' }],
                 savedProjects: [], todos: [],
             },
+            presentation: presentationValue,
         } }));
-    }, html);
+    }, { htmlValue: html, presentationValue: presentation });
 }
 
 async function relativeTop(locator) {
@@ -452,6 +455,62 @@ function presentationMessage(activeSessions, projectionRevision, options = {}) {
     };
 }
 
+function aiSessionsEnvelope(activeSessions, projectionRevision, options = {}) {
+    const presentation = {
+        ...presentationMessage(activeSessions, projectionRevision, options),
+        ...(options.presentationOverrides || {}),
+    };
+    const attentionCount = options.attentionCount
+        ?? Object.keys(options.attention || {}).length;
+    return {
+        type: 'ai-sessions-updated',
+        version: 3,
+        sequence: projectionRevision,
+        projectionRevision,
+        generatedAt: '2026-08-11T00:00:00.000Z',
+        currentWorkspaceCount: 1,
+        html: currentWorkspaceGroupMarkup(activeSessions, attentionCount),
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [],
+            savedProjects: [],
+            todos: [],
+        },
+        presentation,
+    };
+}
+
+function openWorkspacesEnvelope(activeSessions, projectionRevision, options = {}) {
+    const presentation = {
+        ...presentationMessage(activeSessions, projectionRevision, options),
+        ...(options.presentationOverrides || {}),
+    };
+    const attentionCount = options.attentionCount
+        ?? Object.keys(options.attention || {}).length;
+    return {
+        type: 'open-workspaces-updated',
+        version: 3,
+        projectionRevision,
+        semanticRevision: options.semanticRevision || `open-revision-${projectionRevision}`,
+        currentWorkspaceCount: 1,
+        navigationWorkspaceCount: 0,
+        otherWindowsStatus: 'ready',
+        html: `${currentWorkspaceGroupMarkup(activeSessions, attentionCount)}
+            <div class="open-other-windows-group" data-other-windows-status="ready">
+                ${currentOpenWorkspaceProjectMarkup()}
+            </div>`,
+        searchCatalog: {
+            version: 2,
+            sessions: [],
+            openWorkspaces: [{ identity: 'project-a' }],
+            savedProjects: [],
+            todos: [],
+        },
+        presentation,
+    };
+}
+
 function focusOrigin(overrides = {}) {
     return {
         type: 'focus-ai-session-conversation-origin',
@@ -506,7 +565,6 @@ function createAttentionAcknowledgementHandler(acknowledgeEventIds, postMessage)
         logOpenWorkspaceDiagnostic() {},
         refreshStewardViews() {},
         requestActiveAiSessionTerminalHighlight() {},
-        postAiSessionAttentionState() {},
         onOpenWorkspacesRendererReady() {},
         showAgentPivotSettings: ignored,
         showBridgeExtension: ignored,
@@ -632,25 +690,11 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
         session('codex', 'session-b', false),
     ];
     const page = await openCardPage(t, initial);
-    await postHostMessage(page, presentationMessage(initial, 2));
-    await postHostMessage(page, {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 1,
-        projectionRevision: 1,
-        currentWorkspaceCount: 1,
-        html: `<div class="open-current-workspace-group">${projectMarkup([
-            session('codex', 'session-a', false),
-            session('codex', 'session-b', true),
-        ])}</div>`,
-        searchCatalog: {
-            version: 2,
-            sessions: [],
-            openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
-        },
-    });
+    await postHostMessage(page, presentationMessage(initial, 2, { revealFocused: true }));
+    await postHostMessage(page, aiSessionsEnvelope([
+        session('codex', 'session-a', false),
+        session('codex', 'session-b', true),
+    ], 1));
 
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
     assert.equal(
@@ -663,24 +707,10 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
     );
 
     await postHostMessage(page, presentationMessage(initial, 4, { revealFocused: true }));
-    await postHostMessage(page, {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 3,
-        projectionRevision: 3,
-        currentWorkspaceCount: 1,
-        html: `<div class="open-current-workspace-group">${projectMarkup([
-            session('codex', 'session-a', false),
-            session('codex', 'session-b', true),
-        ])}</div>`,
-        searchCatalog: {
-            version: 2,
-            sessions: [],
-            openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
-        },
-    });
+    await postHostMessage(page, aiSessionsEnvelope([
+        session('codex', 'session-a', false),
+        session('codex', 'session-b', true),
+    ], 3));
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
     assert.equal(
         await row(page, 'codex', 'session-a').getAttribute('data-ai-session-active-terminal'),
@@ -701,28 +731,15 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
     ];
     await postHostMessage(page, presentationMessage(attentionState, 6, {
         attention: { 'codex:session-b': ['event-b'] },
+        revealFocused: true,
     }));
-    await postHostMessage(page, {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 5,
-        projectionRevision: 5,
-        currentWorkspaceCount: 1,
-        html: `<div class="open-current-workspace-group">${projectMarkup([
-            session('codex', 'session-a', true),
-            {
-                ...session('codex', 'session-b', false),
-                executionState: 'stopped',
-            },
-        ])}</div>`,
-        searchCatalog: {
-            version: 2,
-            sessions: [],
-            openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
+    await postHostMessage(page, aiSessionsEnvelope([
+        session('codex', 'session-a', true),
+        {
+            ...session('codex', 'session-b', false),
+            executionState: 'stopped',
         },
-    });
+    ], 5));
     assert.equal(
         await row(page, 'codex', 'session-b').getAttribute('data-ai-session-attention'),
         ''
@@ -737,23 +754,18 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
     );
 });
 
-test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 accepts same-revision owner events after HTML arrives first', async t => {
-    const attentionSession = {
-        ...session('codex', 'session-a', true),
-        executionState: 'stopped',
-        status: 'stopped',
-        needsAttention: true,
-        attentionEventId: 'event-a',
-    };
-    const page = await openCardPage(t, [session('codex', 'session-a', true)]);
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy AI update messages', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const page = await openCardPage(t, initial);
+
     await postHostMessage(page, {
         type: 'ai-sessions-updated',
         version: 2,
-        sequence: 1,
+        sequence: 2,
         projectionRevision: 2,
         currentWorkspaceCount: 1,
         html: `<div class="open-current-workspace-group">${projectMarkup([
-            attentionSession,
+            session('codex', 'legacy-session', true),
         ])}</div>`,
         searchCatalog: {
             version: 2,
@@ -763,38 +775,31 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 accepts same-revision owner ev
             todos: [],
         },
     });
-    await postHostMessage(page, presentationMessage([attentionSession], 2, {
-        attention: { 'codex:session-a': ['event-a', 'event-b'] },
-    }));
 
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
-    const acknowledgements = (await postedMessages(page)).filter(message =>
-        message.type === 'acknowledge-ai-session-attention'
+    assert.equal(await row(page, 'codex', 'session-a').count(), 1);
+    assert.equal(await row(page, 'codex', 'legacy-session').count(), 0);
+    assert.deepEqual(
+        (await postedMessages(page))
+            .filter(message => message.type === 'request-full-refresh')
+            .map(message => message.reason),
+        ['unsupported-ai-session-message'],
     );
-    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
-        ['event-a', 'event-b'],
-    ]);
 });
 
-test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 keeps OPEN HTML and owner events in one revision', async t => {
-    const attentionSession = {
-        ...session('codex', 'session-a', true),
-        executionState: 'stopped',
-        status: 'stopped',
-        needsAttention: true,
-        attentionEventId: 'open-event-a',
-    };
-    const page = await openCardPage(t, [session('codex', 'session-a', true)]);
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy OPEN update messages', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const page = await openCardPage(t, initial);
+
     await postHostMessage(page, {
         type: 'open-workspaces-updated',
         version: 2,
         projectionRevision: 2,
-        semanticRevision: 'open-transaction-revision',
+        semanticRevision: 'legacy-open-update',
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 0,
         otherWindowsStatus: 'ready',
         html: `<div class="open-current-workspace-group">${projectMarkup([
-            attentionSession,
+            session('codex', 'legacy-session', true),
         ])}</div>
             <div class="open-other-windows-group" data-other-windows-status="ready">
                 ${currentOpenWorkspaceProjectMarkup()}
@@ -807,19 +812,32 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 keeps OPEN HTML and owner even
             todos: [],
         },
     });
-    await postHostMessage(page, presentationMessage([attentionSession], 2, {
-        attention: {
-            'codex:session-a': ['open-event-a', 'open-event-b'],
-        },
-    }));
 
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
-    const acknowledgements = (await postedMessages(page)).filter(message =>
-        message.type === 'acknowledge-ai-session-attention'
+    assert.equal(await row(page, 'codex', 'session-a').count(), 1);
+    assert.equal(await row(page, 'codex', 'legacy-session').count(), 0);
+    assert.deepEqual(
+        (await postedMessages(page))
+            .filter(message => message.type === 'request-full-refresh')
+            .map(message => message.reason),
+        ['unsupported-open-workspaces-message'],
     );
-    assert.deepEqual(acknowledgements.map(message => message.eventIds), [
-        ['open-event-a', 'open-event-b'],
-    ]);
+});
+
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 rejects non-focus standalone presentation messages', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const page = await openCardPage(t, initial);
+
+    await postHostMessage(page, presentationMessage([
+        session('codex', 'session-a', false),
+    ], 2, { revealFocused: false }));
+
+    assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
+    assert.deepEqual(
+        (await postedMessages(page))
+            .filter(message => message.type === 'request-full-refresh')
+            .map(message => message.reason),
+        ['invalid-direct-ai-session-presentation-state'],
+    );
 });
 
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and complete attention owners from one message', async t => {
@@ -951,7 +969,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope
     await postHostMessage(page, presentationMessage([
         { ...attentionSession, focused: false },
         { ...otherSession, focused: true },
-    ], 2));
+    ], 2, { revealFocused: true }));
 
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
     assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), null);
@@ -1006,7 +1024,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelo
     await postHostMessage(page, presentationMessage([
         { ...attentionSession, focused: false },
         { ...otherSession, focused: true },
-    ], 2));
+    ], 2, { revealFocused: true }));
 
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
     assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), null);
@@ -1037,7 +1055,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes AI
     const conflictingPresentation = presentationMessage([
         { ...attentionSession, focused: false },
         { ...otherSession, focused: true },
-    ], 2);
+    ], 2, { revealFocused: true });
     const page = await openCardPage(t, initialSessions);
 
     await postHostMessage(page, conflictingPresentation);
@@ -1102,7 +1120,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OP
     const conflictingPresentation = presentationMessage([
         { ...attentionSession, focused: false },
         { ...otherSession, focused: true },
-    ], 2);
+    ], 2, { revealFocused: true });
     const page = await openCardPage(t, initialSessions);
 
     await postHostMessage(page, conflictingPresentation);
@@ -1224,6 +1242,40 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid OP
     }]);
 });
 
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects focus reveal inside an AI envelope', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const replacement = [session('codex', 'session-b', true)];
+    const page = await openCardPage(t, initial);
+
+    await postHostMessage(page, aiSessionsEnvelope(replacement, 2, {
+        presentationOverrides: { revealFocused: true },
+    }));
+
+    assert.equal(await row(page, 'codex', 'session-a').count(), 1);
+    assert.equal(await row(page, 'codex', 'session-b').count(), 0);
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'request-full-refresh',
+        reason: 'invalid-ai-session-presentation-envelope',
+    }]);
+});
+
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects focus reveal inside an OPEN envelope', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const replacement = [session('codex', 'session-b', true)];
+    const page = await openCardPage(t, initial);
+
+    await postHostMessage(page, openWorkspacesEnvelope(replacement, 2, {
+        presentationOverrides: { revealFocused: true },
+    }));
+
+    assert.equal(await row(page, 'codex', 'session-a').count(), 1);
+    assert.equal(await row(page, 'codex', 'session-b').count(), 0);
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'request-full-refresh',
+        reason: 'invalid-open-workspaces-presentation-envelope',
+    }]);
+});
+
 test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 seeds the full document revision and complete attention owners', async t => {
     const attentionSession = {
         ...session('codex', 'session-a', true),
@@ -1243,24 +1295,10 @@ test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 seeds the full document revisio
         initialPresentation
     );
 
-    await postHostMessage(page, {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 4,
-        projectionRevision: 4,
-        currentWorkspaceCount: 1,
-        html: `<div class="open-current-workspace-group">${projectMarkup([{
+    await postHostMessage(page, aiSessionsEnvelope([{
             ...attentionSession,
             attentionEventId: 'stale-event',
-        }])}</div>`,
-        searchCatalog: {
-            version: 2,
-            sessions: [],
-            openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
-        },
-    });
+        }], 4, { attention: { 'codex:session-a': ['stale-event'] } }));
 
     assert.equal(
         await row(page, 'codex', 'session-a').getAttribute('data-session-event-id'),
@@ -1478,12 +1516,13 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 scopes pending acknowledgement 
         message.type === 'acknowledge-ai-session-attention'
     );
 
-    await postHostMessage(page, {
-        ...presentationMessage([attentionSession], 6, {
+    await postHostMessage(page, aiSessionsEnvelope([attentionSession], 6, {
             attention: { 'codex:session-a': ['event-a'] },
-        }),
-        workspaceScopeIdentity: 'scope-project-b',
-    });
+            presentationOverrides: {
+                workspaceScopeIdentity: 'scope-project-b',
+                workspaceNavigationIdentity: 'navigation-project-b',
+            },
+        }));
     await page.evaluate(() => {
         window.__agentPivotAttentionAcknowledgementTimeoutMs = 1_000;
         window.__agentPivotAcknowledgeSession('codex', 'session-a');
@@ -1702,7 +1741,6 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         getRuntimeConfiguration: () => ({ mode: 'vscode' }),
         getCurrentOpenWorkspace: () => workspace,
         getActiveTerminal: () => null,
-        postAttentionState() {},
         isVisible: () => true,
         assertActive() {},
         createBridgeClient: onAggregate => {
@@ -1845,7 +1883,10 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 transfers pending focus through the comple
     await postHostMessage(page, presentationMessage(
         [pending, established],
         2,
-        { focusedTarget: { provider: 'codex', pendingId: 'pending-one' } }
+        {
+            focusedTarget: { provider: 'codex', pendingId: 'pending-one' },
+            revealFocused: true,
+        }
     ));
     assert.equal(
         await pendingRow.locator('.ai-session-primary-action').getAttribute('title'),
@@ -1860,7 +1901,10 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 transfers pending focus through the comple
     await postHostMessage(page, presentationMessage(
         [pending, focusedEstablished],
         3,
-        { focusedTarget: { provider: 'codex', sessionId: 'established-one' } }
+        {
+            focusedTarget: { provider: 'codex', sessionId: 'established-one' },
+            revealFocused: true,
+        }
     ));
 
     assert.equal(await pendingRow.getAttribute('data-session-focused'), null);
@@ -1878,7 +1922,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 ignores stale Attention DOM state while
     const running = session('codex', 'current-session', true);
     const page = await openCardPage(t, [running]);
 
-    await postHostMessage(page, presentationMessage([running], 2));
+    await postHostMessage(page, aiSessionsEnvelope([running], 2));
 
     const currentRow = row(page, 'codex', 'current-session');
     assert.equal(await currentRow.getAttribute('data-execution-state'), 'running');
@@ -1889,7 +1933,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 ignores stale Attention DOM state while
     assert.equal(await currentRow.locator('.ai-session-attention-indicator').count(), 0);
 
     const stopped = { ...running, executionState: 'stopped' };
-    await postHostMessage(page, presentationMessage([stopped], 3, {
+    await postHostMessage(page, aiSessionsEnvelope([stopped], 3, {
         attention: { 'codex:current-session': ['stale-event'] },
     }));
 
@@ -1949,38 +1993,14 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
             );
         });
         window.__activeSessionPresentationObserver.observe(
-            document.querySelector('.workspace-card[data-current-workspace]'),
+            document.querySelector('.sticky-groups-wrapper'),
             { attributes: true, childList: true, subtree: true }
         );
     });
 
-    await postHostMessage(page, {
-        type: 'ai-session-presentation-state',
-        version: 1,
-        projectionRevision: 2,
-        workspaceScopeIdentity: 'scope-project-a',
-        workspaceNavigationIdentity: 'navigation-project-a',
-        attentionCount: 1,
-        activeAttentionCount: 1,
-        runningSessionCount: 0,
-        runningCardAnimation: 'current',
-        runningIconAnimation: 'current',
-        revealFocused: false,
-        focusedTarget: { provider: 'codex', sessionId: 'current-session' },
-        attentionSessions: [{
-            sessionKey: 'codex:current-session',
-            eventIds: ['attention-event'],
-        }],
-        sessions: [{
-            provider: 'codex',
-            sessionId: 'current-session',
-            executionState: 'stopped',
-            focused: true,
-            needsAttention: true,
-            conflict: false,
-            eventIds: ['attention-event'],
-        }],
-    });
+    await postHostMessage(page, aiSessionsEnvelope([stoppedSession], 2, {
+        attention: { 'codex:current-session': ['attention-event'] },
+    }));
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
     const attentionState = {
         rowAttention: true,
@@ -1998,30 +2018,9 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
     );
 
     await page.evaluate(() => { window.__activeSessionPresentationSnapshots = []; });
-    await postHostMessage(page, {
-        type: 'ai-session-presentation-state',
-        version: 1,
-        projectionRevision: 3,
-        workspaceScopeIdentity: 'scope-project-a',
-        workspaceNavigationIdentity: 'navigation-project-a',
-        attentionCount: 0,
-        activeAttentionCount: 0,
-        runningSessionCount: 1,
-        runningCardAnimation: 'current',
-        runningIconAnimation: 'current',
-        revealFocused: false,
-        focusedTarget: { provider: 'codex', sessionId: 'current-session' },
-        attentionSessions: [],
-        sessions: [{
-            provider: 'codex',
-            sessionId: 'current-session',
-            executionState: 'running',
-            focused: true,
-            needsAttention: false,
-            conflict: false,
-            eventIds: [],
-        }],
-    });
+    await postHostMessage(page, aiSessionsEnvelope([
+        { ...stoppedSession, executionState: 'running' },
+    ], 3));
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
     const runningState = {
         rowAttention: false,
@@ -2044,7 +2043,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 creates and clears a previously empty c
     const card = page.locator('.workspace-card[data-current-workspace]');
     assert.equal(await card.locator('.project-codex-badge').count(), 0);
 
-    await postHostMessage(page, presentationMessage([], 2, {
+    await postHostMessage(page, aiSessionsEnvelope([], 2, {
         attention: { 'codex:history-only': ['history-attention'] },
     }));
     assert.equal(
@@ -2053,7 +2052,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 creates and clears a previously empty c
     );
     assert.equal(await card.getAttribute('data-has-ai-session-badge'), '');
 
-    await postHostMessage(page, presentationMessage([], 3));
+    await postHostMessage(page, aiSessionsEnvelope([], 3));
     assert.equal(await card.locator('.project-codex-badge').count(), 0);
     assert.equal(await card.getAttribute('data-has-ai-session-badge'), null);
 });
@@ -2065,7 +2064,7 @@ test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention duri
         session('codex', 'session-c', false),
     ].map(entry => ({ ...entry, executionState: 'stopped' }));
     const page = await openCardPage(t, active);
-    await postHostMessage(page, presentationMessage(active, 2, {
+    await postHostMessage(page, aiSessionsEnvelope(active, 2, {
         attention: { 'codex:session-b': ['event-b'] },
     }));
     await page.evaluate(() => {
@@ -2087,29 +2086,14 @@ test('ACTIVE-SESSION-ATTENTION-PROJECTION-001 never flashes stale attention duri
         needsAttention: entry.sessionId === 'session-c',
         ...(entry.sessionId === 'session-c' ? { attentionEventId: 'event-c' } : {}),
     }));
-    await postHostMessage(page, {
-        type: 'open-workspaces-updated',
-        version: 2,
-        projectionRevision: 4,
+    await postHostMessage(page, openWorkspacesEnvelope(authoritativeAttention, 4, {
         semanticRevision: 'stale-window-switch-attention',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 0,
-        otherWindowsStatus: 'ready',
-        html: `<div class="open-current-workspace-group">${projectMarkup(authoritativeAttention)}</div>
-            <div class="open-other-windows-group" data-other-windows-status="ready">
-                ${currentOpenWorkspaceProjectMarkup()}
-            </div>`,
-        searchCatalog: {
-            version: 2,
-            sessions: [],
-            openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
-            todos: [],
-        },
-    });
+        attention: { 'codex:session-c': ['event-c'] },
+    }));
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
     await postHostMessage(page, presentationMessage(active, 3, {
         attention: { 'codex:session-b': ['stale-event-b'] },
+        revealFocused: true,
     }));
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
 

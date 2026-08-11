@@ -15,6 +15,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Changed
 
+- The OPEN tab splits CURRENT WINDOW and OPEN WINDOWS into two independent
+  regions that scroll on their own below their pinned headers, with a
+  separator between them that resizes the CURRENT WINDOW share by mouse drag
+  or arrow keys (the share persists across reloads); each region keeps its
+  scroll position when open windows refresh.
 - The AI tab's SKILLS subtab is reworked into a quiet list surface: Global
   and Project sections sit in independently scrolling panes with a draggable
   (and keyboard-accessible) separator whose share persists across reloads;

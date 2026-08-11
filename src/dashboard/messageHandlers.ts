@@ -39,7 +39,6 @@ export interface DashboardMessageHandlersOptions {
     onOpenWorkspacesRendererReady: () => void;
     /** Late-bound: the highlighter is constructed after the message router. */
     requestActiveAiSessionTerminalHighlight: () => void;
-    postAiSessionAttentionState: () => void;
     showAgentPivotSettings: () => Promise<void>;
     showBridgeExtension: () => Thenable<unknown>;
     showSponsorOptions: () => Promise<void>;
@@ -74,7 +73,6 @@ export function createDashboardMessageHandlers(
     const refreshStewardViews = options.refreshStewardViews;
     const onOpenWorkspacesRendererReady = options.onOpenWorkspacesRendererReady;
     const requestActiveAiSessionTerminalHighlight = options.requestActiveAiSessionTerminalHighlight;
-    const postAiSessionAttentionState = options.postAiSessionAttentionState;
     const showAgentPivotSettings = options.showAgentPivotSettings;
     const showBridgeExtension = options.showBridgeExtension;
     const showSponsorOptions = options.showSponsorOptions;
@@ -343,9 +341,6 @@ export function createDashboardMessageHandlers(
         },
         'request-active-ai-session-terminal': () => {
             requestActiveAiSessionTerminalHighlight();
-        },
-        'request-ai-session-attention-state': () => {
-            postAiSessionAttentionState();
         },
         'open-settings': async () => {
             await showAgentPivotSettings();

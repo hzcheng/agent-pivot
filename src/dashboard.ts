@@ -1042,7 +1042,6 @@ async function initializeDashboard(
         getRuntimeConfiguration: () => aiSessionRuntimeConfiguration,
         getCurrentOpenWorkspace: () => getCurrentOpenWorkspace(),
         getActiveTerminal: () => vscode.window.activeTerminal || null,
-        postAttentionState: () => postAiSessionPresentationState(false),
         isVisible: () => provider.visible,
         assertActive: () => resources.assertActive(),
         createBridgeClient: (onAggregate, onError) => new AttentionBridgeClient(onAggregate, onError),
@@ -1070,7 +1069,6 @@ async function initializeDashboard(
     const getFocusedAiSessionRuntimeIdentity = aiSessionAttentionEvent.getFocusedRuntimeIdentity;
     const runtimeBelongsToCurrentWorkspace = aiSessionAttentionEvent.belongsToCurrentWorkspace;
     const refreshAiSessionViewsIncrementally = aiSessionAttentionEvent.refreshViewsIncrementally;
-    const postAiSessionAttentionState = aiSessionAttentionEvent.postAttentionState;
     const acknowledgeAiSessionAttentionEventIds = aiSessionAttentionEvent.acknowledgeEventIds;
     const acknowledgeAiSessionAttention = aiSessionAttentionEvent.acknowledgeAttention;
     const publishDeferredTmuxRestoreIfReady = aiSessionAttentionEvent.publishDeferredRestoreIfReady;
@@ -1653,7 +1651,6 @@ async function initializeDashboard(
             });
         },
         requestActiveAiSessionTerminalHighlight: () => activeAiSessionTerminalHighlighter.request(),
-        postAiSessionAttentionState,
         showAgentPivotSettings,
         showBridgeExtension: () => vscode.commands.executeCommand(
             'workbench.extensions.action.showExtensionsWithIds',
@@ -2646,17 +2643,16 @@ async function initializeDashboard(
 
     function postActiveAiSessionTerminalChanged() {
         void conversationCapability.reconcile();
-        postAiSessionPresentationState(true);
+        postActiveAiSessionTerminalPresentation();
     }
 
-    function postAiSessionPresentationState(
-        revealFocused: boolean = false,
+    function postActiveAiSessionTerminalPresentation(
         transaction: AiSessionPresentationTransaction<vscode.Terminal>
             = aiSessionProjectionCoordinator.captureNext(getCurrentOpenWorkspace())
     ): void {
         const configuration = getAgentPivotConfiguration();
         const message = buildAiSessionPresentationState(
-            revealFocused,
+            true,
             transaction,
             getEffectiveRunningCardAnimation(configuration),
             getEffectiveRunningIconAnimation(configuration),

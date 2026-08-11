@@ -18,10 +18,8 @@ function initProjectAiSessionsUpdate(options) {
     var applyValidatedAiSessionPresentationState = options.applyValidatedAiSessionPresentationState;
 
     var pendingWorkspaceSessionReveal = null;
-    var latestAiSessionUpdateSequence = 0;
     var latestAiSessionProjectionRevision = 0;
     var latestAiSessionPresentationProjectionRevision = 0;
-    var latestAiSessionDirectPresentationRevision = 0;
     var latestAiSessionClosedPresentationRevision = 0;
 
     function canApplyRevision(revision, latestRevision) {
@@ -37,10 +35,6 @@ function initProjectAiSessionsUpdate(options) {
         return canApplyRevision(revision, latestAiSessionProjectionRevision);
     }
 
-    function canApplyPresentationProjectionRevision(revision) {
-        return canApplyRevision(revision, latestAiSessionPresentationProjectionRevision);
-    }
-
     function canApplyAtomicPresentationProjectionRevision(revision) {
         return Number.isSafeInteger(revision)
             && revision > 0
@@ -48,21 +42,17 @@ function initProjectAiSessionsUpdate(options) {
             && revision > latestAiSessionClosedPresentationRevision;
     }
 
-    function commitProjectionRevision(revision, adoptedPresentation, closePresentation) {
+    function commitAtomicProjectionRevision(revision) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
-            if (adoptedPresentation) {
-                latestAiSessionPresentationProjectionRevision = Math.max(
-                    latestAiSessionPresentationProjectionRevision,
-                    revision
-                );
-            }
-            if (closePresentation) {
-                latestAiSessionClosedPresentationRevision = Math.max(
-                    latestAiSessionClosedPresentationRevision,
-                    revision
-                );
-            }
+            latestAiSessionPresentationProjectionRevision = Math.max(
+                latestAiSessionPresentationProjectionRevision,
+                revision
+            );
+            latestAiSessionClosedPresentationRevision = Math.max(
+                latestAiSessionClosedPresentationRevision,
+                revision
+            );
         }
     }
 
@@ -70,16 +60,11 @@ function initProjectAiSessionsUpdate(options) {
         if (!Number.isSafeInteger(revision)
             || revision <= 0
             || revision < latestAiSessionProjectionRevision
-            || revision < latestAiSessionPresentationProjectionRevision
-            || revision <= latestAiSessionClosedPresentationRevision
-            || revision <= latestAiSessionDirectPresentationRevision) {
+            || revision <= latestAiSessionPresentationProjectionRevision
+            || revision <= latestAiSessionClosedPresentationRevision) {
             return false;
         }
-        latestAiSessionPresentationProjectionRevision = Math.max(
-            latestAiSessionPresentationProjectionRevision,
-            revision
-        );
-        latestAiSessionDirectPresentationRevision = revision;
+        latestAiSessionPresentationProjectionRevision = revision;
         return true;
     }
 
@@ -88,18 +73,17 @@ function initProjectAiSessionsUpdate(options) {
             || revision <= 0
             || latestAiSessionProjectionRevision !== 0
             || latestAiSessionPresentationProjectionRevision !== 0
-            || latestAiSessionDirectPresentationRevision !== 0) {
+            || latestAiSessionClosedPresentationRevision !== 0) {
             return false;
         }
         latestAiSessionProjectionRevision = revision;
         latestAiSessionPresentationProjectionRevision = revision;
-        latestAiSessionDirectPresentationRevision = revision;
+        latestAiSessionClosedPresentationRevision = revision;
         return true;
     }
 
     function applyAiSessionsUpdate(message) {
-        var isAtomicEnvelope = message.version === 3;
-        if ((message.version !== 2 && !isAtomicEnvelope)
+        if (message.version !== 3
             || typeof message.sequence !== 'number'
             || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
             || typeof message.html !== 'string'
@@ -110,8 +94,7 @@ function initProjectAiSessionsUpdate(options) {
             return;
         }
 
-        if (isAtomicEnvelope
-            && (!Number.isSafeInteger(message.projectionRevision)
+        if (!Number.isSafeInteger(message.projectionRevision)
                 || message.projectionRevision <= 0
                 || message.sequence !== message.projectionRevision
                 || typeof message.generatedAt !== 'string'
@@ -119,24 +102,18 @@ function initProjectAiSessionsUpdate(options) {
                 || typeof isValidAiSessionPresentationState !== 'function'
                 || !isValidAiSessionPresentationState(message.presentation)
                 || message.presentation.projectionRevision !== message.projectionRevision
-                || typeof applyValidatedAiSessionPresentationState !== 'function')) {
+                || message.presentation.revealFocused !== false
+                || typeof applyValidatedAiSessionPresentationState !== 'function') {
             requestFullRefresh('invalid-ai-session-presentation-envelope');
             return;
         }
 
-        if (message.sequence <= latestAiSessionUpdateSequence) {
-            return;
-        }
         if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
-        var canApplyMessagePresentation = isAtomicEnvelope
-            ? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)
-            : canApplyPresentationProjectionRevision(message.projectionRevision);
-        if (isAtomicEnvelope && !canApplyMessagePresentation) {
+        if (!canApplyAtomicPresentationProjectionRevision(message.projectionRevision)) {
             return;
         }
-        var adoptRenderedPresentation = canApplyMessagePresentation;
 
         if (!applyWorkspaceUpdate({
             type: 'workspace-updated',
@@ -152,12 +129,7 @@ function initProjectAiSessionsUpdate(options) {
             return;
         }
 
-        latestAiSessionUpdateSequence = message.sequence;
-        commitProjectionRevision(
-            message.projectionRevision,
-            adoptRenderedPresentation,
-            isAtomicEnvelope
-        );
+        commitAtomicProjectionRevision(message.projectionRevision);
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
             if (projectDiv) {
@@ -168,11 +140,7 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        if (isAtomicEnvelope) {
-            applyValidatedAiSessionPresentationState(message.presentation);
-        } else {
-            syncAiSessionProjectionDom(adoptRenderedPresentation);
-        }
+        applyValidatedAiSessionPresentationState(message.presentation);
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -284,9 +252,8 @@ function initProjectAiSessionsUpdate(options) {
         acceptInitialPresentationProjectionRevision: acceptInitialPresentationProjectionRevision,
         acceptPresentationProjectionRevision: acceptPresentationProjectionRevision,
         canApplyAtomicPresentationProjectionRevision: canApplyAtomicPresentationProjectionRevision,
-        canApplyPresentationProjectionRevision: canApplyPresentationProjectionRevision,
         canApplyProjectionRevision: canApplyProjectionRevision,
-        commitProjectionRevision: commitProjectionRevision,
+        commitAtomicProjectionRevision: commitAtomicProjectionRevision,
         findCurrentWorkspaceDiv: findCurrentWorkspaceDiv,
         findWorkspaceDiv: findWorkspaceDiv,
         focusSearchRevealTarget: focusSearchRevealTarget,

@@ -648,6 +648,17 @@ function initProjects() {
         return true;
     }
 
+    function applyDirectAiSessionPresentationState(message) {
+        if (!isValidAiSessionPresentationState(message)
+            || message.revealFocused !== true) {
+            aiSessionsUpdate.requestFullRefresh(
+                'invalid-direct-ai-session-presentation-state'
+            );
+            return false;
+        }
+        return applyAiSessionPresentationState(message, false);
+    }
+
     function applyValidatedAiSessionPresentationState(message) {
         window.__agentPivotAiSessionPresentationState = message;
         applyAiSessionPresentationDom(message);
@@ -850,41 +861,31 @@ function initProjects() {
             return;
         }
         if (message && message.type === 'open-workspaces-updated') {
-            var isAtomicOpenWorkspacesEnvelope = message.version === 3;
-            if (isAtomicOpenWorkspacesEnvelope
-                && (!isValidAiSessionPresentationState(message.presentation)
+            if (message.version !== 3) {
+                aiSessionsUpdate.requestFullRefresh(
+                    'unsupported-open-workspaces-message'
+                );
+                return;
+            }
+            if (!isValidAiSessionPresentationState(message.presentation)
                     || message.presentation.projectionRevision
-                        !== message.projectionRevision)) {
+                        !== message.projectionRevision
+                    || message.presentation.revealFocused !== false) {
                 aiSessionsUpdate.requestFullRefresh(
                     'invalid-open-workspaces-presentation-envelope'
                 );
                 return;
             }
             if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
-            var canApplyOpenWorkspacePresentation = isAtomicOpenWorkspacesEnvelope
-                ? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(
-                    message.projectionRevision
-                )
-                : aiSessionsUpdate.canApplyPresentationProjectionRevision(
-                    message.projectionRevision
-                );
-            if (isAtomicOpenWorkspacesEnvelope
-                && !canApplyOpenWorkspacePresentation) return;
-            var adoptOpenWorkspacePresentation = canApplyOpenWorkspacePresentation;
+            if (!aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(
+                message.projectionRevision
+            )) return;
             if (!applyOpenWorkspacesUpdate(message)) {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;
             }
-            aiSessionsUpdate.commitProjectionRevision(
-                message.projectionRevision,
-                adoptOpenWorkspacePresentation,
-                isAtomicOpenWorkspacesEnvelope
-            );
-            if (isAtomicOpenWorkspacesEnvelope) {
-                applyValidatedAiSessionPresentationState(message.presentation);
-            } else {
-                syncAiSessionProjectionDom(adoptOpenWorkspacePresentation);
-            }
+            aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision);
+            applyValidatedAiSessionPresentationState(message.presentation);
             updateStickyGroupHeaderOffset();
             if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
                 openTabSplit.syncResizer();
@@ -923,7 +924,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-presentation-state') {
-            applyAiSessionPresentationState(message, false);
+            applyDirectAiSessionPresentationState(message);
             return;
         }
 
@@ -1139,7 +1140,6 @@ function initProjects() {
     });
     restoreAiSessionTabsFromState(document, window.vscode);
     window.vscode.postMessage({ type: 'request-active-ai-session-terminal' });
-    window.vscode.postMessage({ type: 'request-ai-session-attention-state' });
 
     observeStickyGroupHeaderOffset();
 }

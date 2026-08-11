@@ -257,7 +257,7 @@ function completeOpenWorkspacePin(message) {
 function applyOpenWorkspacesUpdate(message) {
     if (!message
         || message.type !== 'open-workspaces-updated'
-        || (message.version !== 2 && message.version !== 3)
+        || message.version !== 3
         || typeof message.semanticRevision !== 'string'
         || !message.semanticRevision
         || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)

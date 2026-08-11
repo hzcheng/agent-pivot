@@ -65,7 +65,6 @@ function createFixture(overrides = {}) {
         logOpenWorkspaceDiagnostic: (component, event) => calls.push(['rendererDiagnostic', component, event]),
         refreshStewardViews: reason => calls.push(['refreshStewardViews', reason]),
         requestActiveAiSessionTerminalHighlight: () => calls.push(['requestHighlight']),
-        postAiSessionAttentionState: () => calls.push(['postAttentionState']),
         onOpenWorkspacesRendererReady: () => calls.push(['openWorkspacesRendererReady']),
         showAgentPivotSettings: async () => { calls.push(['showSettings']); },
         showBridgeExtension: async () => { calls.push(['showBridgeExtension']); },
@@ -98,7 +97,6 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'open-workspaces-renderer-ready',
         'open-workspaces-rendered',
         'request-active-ai-session-terminal',
-        'request-ai-session-attention-state',
         'open-settings',
         'open-bridge-extension',
         'sponsor',
@@ -193,11 +191,10 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 sanitizes renderer diagnostics and re
     }, 'malformed renderer reports sanitize to invalid markers');
 });
 
-test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and state requests', async () => {
+test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and focus projection request', async () => {
     const { handlers, calls } = createFixture();
 
     await handlers['request-active-ai-session-terminal']({});
-    await handlers['request-ai-session-attention-state']({});
     await handlers['open-workspaces-renderer-ready']({
         type: 'open-workspaces-renderer-ready', version: 1,
     });
@@ -211,7 +208,6 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and stat
 
     assert.deepEqual(calls, [
         ['requestHighlight'],
-        ['postAttentionState'],
         ['rendererDiagnostic', 'Renderer', {
             event: 'open-workspaces-renderer-ready',
         }],

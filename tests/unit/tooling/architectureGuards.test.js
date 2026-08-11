@@ -728,17 +728,17 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
+        expectedDetail: 'Webview must accept only v3 envelopes and close each revision against direct Presentation',
         mutate: source => replaceFixtureSource(
             source,
-            'revision <= latestAiSessionDirectPresentationRevision',
-            'revision < latestAiSessionDirectPresentationRevision'
+            'revision <= latestAiSessionPresentationProjectionRevision',
+            'revision < latestAiSessionPresentationProjectionRevision'
         ),
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
+        expectedDetail: 'Webview must accept only v3 envelopes and close each revision against direct Presentation',
         mutate: source => replaceFixtureSource(
             source,
             'revision <= latestAiSessionClosedPresentationRevision',
@@ -748,7 +748,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
+        expectedDetail: 'Webview must accept only v3 envelopes and close each revision against direct Presentation',
         mutate: source => replaceFixtureSource(
             source,
             'revision >= latestAiSessionPresentationProjectionRevision',
@@ -777,8 +777,38 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/aiSessions/dashboardController.ts',
+        expectedDetail: 'AI incremental HTML and Presentation must share one Host message',
+        mutate: source => replaceFixtureSource(
+            source,
+            'presentation: buildAiSessionPresentationState(\n                false,\n                projection,',
+            'presentation: buildAiSessionPresentationState(\n                true,\n                projection,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/openWorkspaces/dashboardController.ts',
+        expectedDetail: 'OPEN HTML and Presentation must share one Host message',
+        mutate: source => replaceFixtureSource(
+            source,
+            'presentation: buildAiSessionPresentationState(\n                false,\n                projection,',
+            'presentation: buildAiSessionPresentationState(\n                true,\n                projection,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'OPEN HTML and Presentation must share one Host message',
+        mutate: source => replaceFixtureSource(
+            source,
+            'const message = buildAiSessionPresentationState(\n            true,\n            transaction,',
+            'const message = buildAiSessionPresentationState(\n            false,\n            transaction,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'message.presentation.projectionRevision !== message.projectionRevision',
@@ -788,41 +818,91 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            'adoptRenderedPresentation,\n            isAtomicEnvelope',
-            'adoptRenderedPresentation,\n            false'
+            'message.presentation.revealFocused !== false',
+            'message.presentation.revealFocused !== true'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        mutate: source => replaceFixtureSource(
+            source,
+            'message.presentation.revealFocused !== false',
+            'message.presentation.revealFocused !== true'
         ),
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            '? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)',
-            '? canApplyPresentationProjectionRevision(message.projectionRevision)'
+            'commitAtomicProjectionRevision(message.projectionRevision)',
+            'commitAtomicProjectionRevision(message.projectionRevision - 1)'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        mutate: source => replaceFixtureSource(
+            source,
+            'if (!canApplyAtomicPresentationProjectionRevision(message.projectionRevision))',
+            'if (!canApplyProjectionRevision(message.projectionRevision))'
         ),
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectScripts.js',
-        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            'adoptOpenWorkspacePresentation,\n                isAtomicOpenWorkspacesEnvelope',
-            'adoptOpenWorkspacePresentation,\n                false'
+            'aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision)',
+            'aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision - 1)'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must accept only v3 envelopes and close each revision against direct Presentation',
+        mutate: source => replaceFixtureSource(
+            source,
+            'message.version !== 3',
+            'message.version !== 2'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewWorkspaceUpdateScripts.js',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        mutate: source => replaceFixtureSource(
+            source,
+            "message.type !== 'open-workspaces-updated'\n        || message.version !== 3",
+            "message.type !== 'open-workspaces-updated'\n        || message.version !== 2"
         ),
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectScripts.js',
-        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            '? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(',
-            '? aiSessionsUpdate.canApplyPresentationProjectionRevision('
+            'if (!aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(',
+            'if (!aiSessionsUpdate.canApplyProjectionRevision('
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        mutate: source => replaceFixtureSource(
+            source,
+            'message.revealFocused !== true',
+            'message.revealFocused === undefined'
         ),
     },
     {

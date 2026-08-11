@@ -173,7 +173,6 @@ function createFixture(overrides = {}) {
             ? { scopeIdentity: 'scope-1' }
             : overrides.workspace,
         getActiveTerminal: () => overrides.activeTerminal === undefined ? terminal : overrides.activeTerminal,
-        postAttentionState: () => { calls.push(['post-attention-state']); },
         isVisible: () => overrides.visible !== false,
         assertActive: () => {
             if (overrides.assertActiveError) {
@@ -626,12 +625,4 @@ test('RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 keeps attention ownership after 
     });
     assert.equal(ambiguous.capability.getRuntimeById('codex', 'session-a').state, 'conflict',
         'attention must surface cross-scope ambiguity instead of selecting the newer scope');
-});
-
-test('ATTENTION-EXECUTION-STATE-SYNC-001 attention mutations request one authoritative presentation snapshot', () => {
-    const { capability, calls } = createFixture({});
-    capability.postAttentionState();
-    assert.deepEqual(calls.filter(call => call[0] === 'post-attention-state'), [
-        ['post-attention-state'],
-    ]);
 });

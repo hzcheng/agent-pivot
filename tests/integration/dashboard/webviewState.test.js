@@ -167,6 +167,40 @@ function makeCatalog(suffix = '') {
     };
 }
 
+function makeAiSessionPresentation(projectionRevision) {
+    return {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision,
+        workspaceScopeIdentity: null,
+        workspaceNavigationIdentity: null,
+        attentionCount: 0,
+        activeAttentionCount: 0,
+        runningSessionCount: 0,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: false,
+        focusedTarget: null,
+        attentionSessions: [],
+        sessions: [],
+    };
+}
+
+function makeAiSessionsUpdatedMessage(projectionRevision, overrides = {}) {
+    return {
+        type: 'ai-sessions-updated',
+        version: 3,
+        sequence: projectionRevision,
+        projectionRevision,
+        generatedAt: NOW,
+        currentWorkspaceCount: 1,
+        html: '<div class="open-current-workspace-group"></div>',
+        searchCatalog: makeCatalog(),
+        presentation: makeAiSessionPresentation(projectionRevision),
+        ...overrides,
+    };
+}
+
 function makePromptSnapshot(revision = 0) {
     return {
         version: 1,
@@ -1954,6 +1988,8 @@ function createProjectVm({
     const replacedCatalogs = [];
     let webviewState = { unrelated: 'preserved' };
     const context = {
+        CSS: { escape: value => String(value) },
+        Node: { TEXT_NODE: 3 },
         normalizeDashboardSearchCatalog: value => value
             && value.version === 2
             && Array.isArray(value.sessions)
@@ -2318,14 +2354,9 @@ function assertBatchSelectionReconcilesAuthoritativeRows(source = projectVmSourc
         { provider: 'claude', sessionId: 'same', active: true },
     ]);
     harness.context.applyWorkspaceUpdate = () => true;
-    harness.windowListeners.message({ data: {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 1,
-        currentWorkspaceCount: 1,
-        html: '<div class="open-current-workspace-group"></div>',
+    harness.windowListeners.message({ data: makeAiSessionsUpdatedMessage(1, {
         searchCatalog: makeCatalog('batch'),
-    } });
+    }) });
     assert.deepEqual(toPlain(manager.snapshot().selectedItems), [
         { provider: 'codex', sessionId: 'pinned' },
     ]);
@@ -2567,22 +2598,14 @@ test('WEBVIEW-AI-DASHBOARD-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 preserve
 test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 rejects stale AI session update sequences', () => {
     const harness = createProjectVm();
     harness.context.applyWorkspaceUpdate = () => true;
-    harness.windowListeners.message({ data: {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 2,
+    harness.windowListeners.message({ data: makeAiSessionsUpdatedMessage(2, {
         currentWorkspaceCount: 0,
-        html: '<div class="open-current-workspace-group"></div>',
         searchCatalog: makeCatalog('new'),
-    } });
-    harness.windowListeners.message({ data: {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 1,
+    }) });
+    harness.windowListeners.message({ data: makeAiSessionsUpdatedMessage(1, {
         currentWorkspaceCount: 0,
-        html: '<div class="open-current-workspace-group"></div>',
         searchCatalog: makeCatalog('stale'),
-    } });
+    }) });
 
     assert.equal(harness.replacedCatalogs.length, 1);
     assert.equal(harness.replacedCatalogs[0].todos[0].todoId, 'tnew');
@@ -2591,14 +2614,9 @@ test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 rejects stale AI session update seque
 test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 requests full refresh when the workspace replacement is invalid', () => {
     const harness = createProjectVm();
     harness.context.applyWorkspaceUpdate = () => false;
-    harness.windowListeners.message({ data: {
-        type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 1,
-        currentWorkspaceCount: 1,
+    harness.windowListeners.message({ data: makeAiSessionsUpdatedMessage(1, {
         html: '<div class="invalid-workspace"></div>',
-        searchCatalog: makeCatalog(),
-    } });
+    }) });
     assert.deepEqual(toPlain(harness.messages), [{
         type: 'request-full-refresh', reason: 'invalid-ai-session-workspace-update',
     }]);

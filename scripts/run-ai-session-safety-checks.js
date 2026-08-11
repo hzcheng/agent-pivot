@@ -6650,6 +6650,8 @@ function runBatchAiSessionWebviewChecks() {
                         ? aiSessionMenuItems.find(item => !item.classList.contains('disabled')) : null,
     };
     const context = {
+        CSS: { escape: value => String(value) },
+        Node: { TEXT_NODE: 3 },
         normalizeDashboardSearchCatalog: value => value
             && Array.isArray(value.sessions)
             && Array.isArray(value.savedProjects)
@@ -6815,9 +6817,8 @@ function runBatchAiSessionWebviewChecks() {
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.shift())), {
         type: 'request-active-ai-session-terminal',
     });
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.shift())), {
-        type: 'request-ai-session-attention-state',
-    });
+    assert.strictEqual(messages.length, 0,
+        'initial attention is embedded in the document and must not request a second direct projection');
     messages.length = 0;
 
     assert.strictEqual(context.window.__agentPivotRevealWorkspaceSession(
@@ -7104,19 +7105,32 @@ function runBatchAiSessionWebviewChecks() {
         && typeof message.html === 'string';
     windowEventListeners.message({ data: {
         type: 'ai-sessions-updated',
-        version: 2,
-        sequence: 1,
+        version: 3,
+        sequence: 2,
         projectionRevision: 2,
+        generatedAt: '2026-08-11T00:00:00.000Z',
         currentWorkspaceCount: 1,
         html: '<div class="open-current-workspace-group"></div>',
         searchCatalog: { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: TODO_SEARCH_ITEMS },
+        presentation: {
+            type: 'ai-session-presentation-state', version: 1, projectionRevision: 2,
+            workspaceScopeIdentity: null, workspaceNavigationIdentity: null,
+            attentionCount: 0, activeAttentionCount: 0, runningSessionCount: 1,
+            runningCardAnimation: 'current', runningIconAnimation: 'current',
+            revealFocused: false,
+            focusedTarget: { provider: 'codex', sessionId: 'active-session' },
+            attentionSessions: [],
+            sessions: [{
+                provider: 'codex', sessionId: 'active-session', executionState: 'running',
+                focused: true, needsAttention: false, conflict: false, eventIds: [],
+            }],
+        },
     } });
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(replacedSearchCatalog.todos)),
         TODO_SEARCH_ITEMS,
         'AI incremental rendering must preserve the non-empty TODO catalog replacement'
     );
-    assert.strictEqual(activeRow.hasAttribute('data-ai-session-active-terminal'), true);
     const manager = context.window.__agentPivotBatchAiSessions;
     manager.enter('project-a');
     manager.toggle('codex', 'plain');
@@ -7356,7 +7370,8 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     const aiSessionUpdateBody = extractFunctionBody(projectWebviewSource, 'applyAiSessionsUpdate');
     assert.ok(aiSessionUpdateBody.includes('syncAiSessionBatchManagementDom(projectDiv)'));
     assert.ok(projectWebviewSource.includes("message.type !== 'ai-sessions-updated'"));
-    assert.ok(aiSessionUpdateBody.includes('message.version !== 2'));
+    assert.ok(aiSessionUpdateBody.includes('message.version !== 3'));
+    assert.strictEqual(aiSessionUpdateBody.includes('message.version !== 2'), false);
 
     assert.ok(dashboard.includes('AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS'));
     assert.ok(dashboard.includes('watcherRefreshMinIntervalMs: AI_SESSION_WATCHER_REFRESH_MIN_INTERVAL_MS'));
@@ -7394,7 +7409,8 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.strictEqual(dashboard.includes('getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),'), true);
     assert.ok(dashboard.includes('getCards: projection => getOpenWorkspaceCards(projection),'));
     assert.ok(dashboard.includes('const transaction = aiSessionProjectionCoordinator.captureNext('));
-    assert.ok(!dashboard.includes('postAiSessionPresentationState(false, transaction);'));
+    assert.ok(!dashboard.includes('postAiSessionPresentationState('));
+    assert.ok(dashboard.includes('postActiveAiSessionTerminalPresentation()'));
     assert.ok(controllerSource.includes('presentation: buildAiSessionPresentationState('));
     assert.ok(workspaceHydrationSource.includes('activePresentation,'));
     assert.ok(dashboard.includes('beginAiSessionProjection: () => {'));

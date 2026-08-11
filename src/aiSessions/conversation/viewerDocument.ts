@@ -9,6 +9,11 @@ import type { ProjectCommentSnapshot } from './projectCommentStore';
 import type { ConversationBookmarkSnapshot } from './bookmarkStore';
 import { renderConversationTelemetry } from './conversationTelemetryController';
 import {
+    ConversationSessionStatus,
+    formatConversationSessionStatusLabel,
+    sanitizeConversationSessionStatus,
+} from './sessionStatusController';
+import {
     CONVERSATION_LIMITS,
     ConversationTelemetry,
 } from './types';
@@ -44,6 +49,8 @@ export interface ConversationViewerDocumentOptions {
     projectCommentSnapshot: ProjectCommentSnapshot;
     bookmarkSnapshot: ConversationBookmarkSnapshot;
     telemetrySnapshot: ConversationTelemetry | undefined;
+    sessionStatusSnapshot?: ConversationSessionStatus;
+    sessionStatusRequestId?: number;
     subscriptionGeneration: number;
     initialPage?: ConversationViewerPageMessage;
     initialStatus?: string;
@@ -130,6 +137,14 @@ export function renderConversationViewerDocument(
             ...(target.subagent ? { subagentId: target.subagent.id } : {}),
         })
     )}"`;
+    const sessionStatus = sanitizeConversationSessionStatus(
+        options.sessionStatusSnapshot
+    );
+    const sessionStatusRequestId = Number.isSafeInteger(
+        options.sessionStatusRequestId
+    ) && (options.sessionStatusRequestId as number) >= 0
+        ? options.sessionStatusRequestId
+        : 0;
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -146,6 +161,7 @@ export function renderConversationViewerDocument(
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
+    data-session-status-request-id="${sessionStatusRequestId}"
     data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${projectCommentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
@@ -155,6 +171,11 @@ export function renderConversationViewerDocument(
             <span data-conversation-display-name>${escapeHtml(
                 target.displayName + duplicateId
             )}</span>
+        </div>
+        <div class="conversation-session-status" data-conversation-session-status
+            role="group" aria-label="Global AI session status">
+            ${renderSessionStatusDot('running', sessionStatus.runningSessions)}
+            ${renderSessionStatusDot('attention', sessionStatus.attentionSessions)}
         </div>
         <nav class="conversation-navigation" aria-label="Conversation navigation">
             <button class="conversation-icon-button" type="button"
@@ -551,6 +572,21 @@ export function renderConversationViewerDocument(
     )}"></script>
 </body>
 </html>`;
+}
+
+function renderSessionStatusDot(
+    kind: 'running' | 'attention',
+    count: number
+): string {
+    const label = formatConversationSessionStatusLabel(kind, count);
+    return `<span class="conversation-session-status-dot conversation-session-status-${kind}${count > 0
+        ? ' conversation-session-status-active'
+        : ''}"
+        data-session-status-${kind} role="img"
+        title="${escapeAttribute(label)}"
+        aria-label="${escapeAttribute(label)}"></span><span
+        class="conversation-session-status-count"
+        data-session-status-${kind}-count>${count}</span>`;
 }
 
 function providerLabel(provider: AiSessionProviderId): string {

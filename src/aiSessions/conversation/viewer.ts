@@ -22,6 +22,10 @@ import type {
 import { ConversationBookmarkController } from './bookmarkController';
 import { ConversationTelemetryController } from './conversationTelemetryController';
 import {
+    ConversationSessionStatus,
+    ConversationSessionStatusController,
+} from './sessionStatusController';
+import {
     escapeAttribute,
     renderConversationViewerDocument,
 } from './viewerDocument';
@@ -93,6 +97,7 @@ export interface ConversationViewerOptions {
         sessionId: string,
         signal?: ConversationAbortSignal
     ) => Promise<ConversationTelemetry | undefined>;
+    readSessionStatus?: () => ConversationSessionStatus | undefined;
     watch: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -176,6 +181,7 @@ export interface ConversationViewerApi extends AiSessionDisposable {
         ) => Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
     ): Promise<boolean>;
     navigateLatest(): Promise<void>;
+    publishSessionStatus(): Promise<void>;
     refresh(): Promise<void>;
     revalidateLatest?(expectedInteractionId: string): Promise<void>;
     refreshPresentation(): Promise<void>;
@@ -252,6 +258,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private readonly bookmarkController: ConversationBookmarkController;
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
+    private readonly sessionStatusController: ConversationSessionStatusController;
 
     constructor(private readonly options: ConversationViewerOptions) {
         this.telemetryController = new ConversationTelemetryController({
@@ -264,6 +271,14 @@ export class ConversationViewer implements ConversationViewerApi {
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
             setTimer: options.setTimer,
             clearTimer: options.clearTimer,
+        });
+        this.sessionStatusController = new ConversationSessionStatusController({
+            readStatus: options.readSessionStatus,
+            getPanel: () => this.panel,
+            getSubscriptionGeneration: () => this.subscriptionGeneration,
+            getCurrentRequestId: () => this.currentRequestId,
+            isSuspended: () => this.suspended,
+            rebuildLatestDocument: () => this.rebuildLatestDocument(),
         });
         this.commentController = new ConversationCommentController({
             commentStore: options.commentStore,
@@ -551,6 +566,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 generation,
                 this.effectiveSessionId(activeTarget)
             );
+            // Heal status updates that were discarded by the Webview while
+            // this target transition was in flight.
+            void this.sessionStatusController.republish();
         }
         return loaded;
     }
@@ -674,6 +692,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 this.subscriptionGeneration,
                 this.effectiveSessionId(target)
             );
+            // Replay statuses that were skipped while the viewer was
+            // suspended.
+            void this.sessionStatusController.republish();
         }
         const expectedDisplayName = visibleConversationDisplayName(target);
         if (metadataChanged
@@ -1017,6 +1038,12 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.ensureWatch(generation);
         await this.loadAuthoritative('initial', false);
+        if (this.target === activeTarget
+            && this.subscriptionGeneration === generation) {
+            // Heal status updates that were discarded by the Webview while
+            // the in-place view switch was in flight.
+            void this.sessionStatusController.republish();
+        }
     }
 
     private async openSubagent(subagentId: string): Promise<void> {
@@ -1177,6 +1204,10 @@ export class ConversationViewer implements ConversationViewerApi {
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
         }, 'replace', false, 'navigation', latestInteractionId);
+    }
+
+    publishSessionStatus(): Promise<void> {
+        return this.sessionStatusController.publish();
     }
 
     private async navigateToInteraction(
@@ -2098,6 +2129,8 @@ export class ConversationViewer implements ConversationViewerApi {
             projectCommentSnapshot: this.projectCommentController.snapshot,
             bookmarkSnapshot: this.bookmarkController.snapshot,
             telemetrySnapshot: this.telemetryController.snapshot,
+            sessionStatusSnapshot: this.sessionStatusController.snapshot,
+            sessionStatusRequestId: this.currentRequestId,
             subscriptionGeneration: this.subscriptionGeneration,
             initialPage,
             initialStatus,

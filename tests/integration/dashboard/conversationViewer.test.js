@@ -255,6 +255,7 @@ function createViewer(options = {}) {
             page(request.sessionId, request.anchorInteractionId)),
         readSubagents: options.readSubagents,
         readTelemetry: options.readTelemetry,
+        readSessionStatus: options.readSessionStatus,
         watch: options.watch || ((_provider, sessionId) => ({
             dispose() {
                 watchDisposals.push(sessionId);
@@ -351,6 +352,84 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in 
         fakeVscode.ViewColumn.Active,
         fakeVscode.ViewColumn.Active,
     ]);
+});
+
+test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated global Session status', async () => {
+    let status = { runningSessions: 2, attentionSessions: 1 };
+    const { viewer, panel } = createViewer({
+        readSessionStatus: () => status,
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    assert.ok(panel.webview.html.includes(
+        'data-conversation-session-status'
+    ));
+    assert.ok(panel.webview.html.includes(
+        '2 AI sessions running across all windows'
+    ));
+    assert.ok(panel.webview.html.includes(
+        '1 AI session needs attention across all windows'
+    ));
+    assert.ok(panel.webview.html.includes(
+        'data-session-status-running-count>2</span>'
+    ));
+    assert.ok(panel.webview.html.includes(
+        'data-session-status-attention-count>1</span>'
+    ));
+    assert.ok(panel.webview.html.includes(
+        'data-session-status-request-id'
+    ));
+
+    const statusMessages = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-session-status'
+    );
+    await viewer.publishSessionStatus();
+    assert.equal(statusMessages().length, 1);
+    const message = statusMessages()[0];
+    assert.equal(message.version, 1);
+    assert.ok(Number.isSafeInteger(message.requestId));
+    assert.ok(message.subscriptionGeneration >= 1);
+    assert.deepEqual(message.status, {
+        runningSessions: 2,
+        attentionSessions: 1,
+    });
+
+    await viewer.publishSessionStatus();
+    assert.equal(statusMessages().length, 1,
+        'an unchanged status must not be reposted');
+
+    status = { runningSessions: 3, attentionSessions: 0 };
+    await viewer.publishSessionStatus();
+    assert.equal(statusMessages().length, 2);
+    assert.deepEqual(statusMessages()[1].status, {
+        runningSessions: 3,
+        attentionSessions: 0,
+    });
+});
+
+test('CONVERSATION-SESSION-STATUS-001 republishes the status after a retarget even when unchanged', async () => {
+    const status = { runningSessions: 1, attentionSessions: 1 };
+    const { viewer, panel } = createViewer({
+        readSessionStatus: () => status,
+    });
+    await viewer.open(target('session-a', 'input-1'));
+    const statusMessages = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-session-status'
+    );
+    assert.equal(statusMessages().length, 1,
+        'opening a viewer publishes the embedded status once');
+
+    await viewer.publishSessionStatus();
+    assert.equal(statusMessages().length, 1,
+        'an unchanged status must not be reposted');
+
+    await viewer.open(target('session-b', 'input-1'));
+    const messages = statusMessages();
+    assert.equal(messages.length, 2,
+        'a retarget must republish the current status to heal gap discards');
+    assert.ok(messages[1].subscriptionGeneration
+        > messages[0].subscriptionGeneration);
+    assert.deepEqual(messages[1].status, status);
 });
 
 test('CONVERSATION-SESSION-REBIND-001 retargets an open viewer from the exact old Session to the new Session', async () => {

@@ -34,7 +34,7 @@ body {
 .conversation-identity {
     display: flex;
     min-width: 0;
-    flex: 0 1 auto;
+    flex: 1 1 0;
     gap: 0.5rem;
     align-items: baseline;
 
@@ -51,11 +51,75 @@ body {
 
 .conversation-navigation {
     display: flex;
+    min-width: 0;
+    flex: 1 1 0;
     flex-wrap: wrap;
-    margin-left: auto;
     gap: 0.375rem;
     align-items: center;
     justify-content: flex-end;
+}
+
+.conversation-session-status {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.3rem;
+    align-items: center;
+    padding: 0 0.25rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.conversation-session-status-attention {
+    margin-left: 0.4rem;
+}
+
+.conversation-session-status-count {
+    min-width: 1ch;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.85em;
+    opacity: 0.55;
+    transition: opacity 160ms ease-in-out;
+}
+
+.conversation-session-status-active + .conversation-session-status-count {
+    opacity: 1;
+}
+
+.conversation-session-status-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    opacity: 0.28;
+    transition: opacity 160ms ease-in-out;
+}
+
+.conversation-session-status-running {
+    background: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+}
+
+.conversation-session-status-attention {
+    background: var(--vscode-errorForeground, var(--vscode-foreground));
+}
+
+.conversation-session-status-active {
+    opacity: 1;
+    animation: conversation-session-status-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes conversation-session-status-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conversation-session-status-active {
+        animation: none;
+    }
 }
 
 button {

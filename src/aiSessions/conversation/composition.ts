@@ -137,6 +137,7 @@ export interface ConversationCapabilityOptions {
     projectCommentStore?: ProjectCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
+    readSessionStatus?: ConversationViewerOptions['readSessionStatus'];
     setConversationFocusContext?: (
         focused: boolean
     ) => PromiseLike<void> | Promise<void> | void;
@@ -331,6 +332,7 @@ function createAvailableConversationCapability(
         openLocalFile: options.openLocalFile,
         mediaUri: getConversationMediaUri,
         showThinking: options.getShowThinking,
+        readSessionStatus: options.readSessionStatus,
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,
         commentStore: options.commentStore,
@@ -620,6 +622,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
             return false;
         },
         async navigateLatest() {},
+        async publishSessionStatus() {},
         async refresh() {},
         async refreshPresentation() {},
         async reconcileAuthority() {},

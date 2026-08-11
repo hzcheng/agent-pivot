@@ -9,6 +9,7 @@ const {
     createOpenWorkspacePublication,
     projectOpenWorkspaceCards,
     projectOpenWorkspaceNavigationCards,
+    sumOpenWorkspaceRunningAiSessionCounts,
 } = require('../../../out/openWorkspaces/projection');
 const {
     createWorkspaceUriIdentity,
@@ -31,6 +32,21 @@ const {
 function authoritativeUri(value, scheme, authority, uriPath) {
     return { value, scheme, authority, path: uriPath };
 }
+
+test('CONVERSATION-SESSION-STATUS-001 sums running Session counts across the open workspace aggregate', () => {
+    assert.equal(sumOpenWorkspaceRunningAiSessionCounts(null), 0);
+    assert.equal(sumOpenWorkspaceRunningAiSessionCounts({
+        registrations: [],
+    }), 0);
+    assert.equal(sumOpenWorkspaceRunningAiSessionCounts({
+        registrations: [
+            { workspace: { runningAiSessionCount: 2 } },
+            { workspace: null },
+            { workspace: { runningAiSessionCount: 3 } },
+            { workspace: {} },
+        ],
+    }), 5);
+});
 
 test('OPEN-OPEN-PROJECT-PUBLICATION-001 replaces workspace URIs by ordinal without mutating publications', () => {
     const publication = makePublication({

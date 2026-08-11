@@ -2007,6 +2007,88 @@ function initProjectContextMenus(options) {
 }
 
 /* src/webview/webviewProjectAiUpdateScripts.js */
+function initAiSessionPresentationStateStore(options) {
+    'use strict';
+
+    options = options || {};
+    var isAiSessionProvider = options.isAiSessionProvider;
+    var currentPresentation = null;
+
+    function isValid(message) {
+        return message && message.type === 'ai-session-presentation-state'
+            && message.version === 1
+            && Number.isSafeInteger(message.projectionRevision)
+            && message.projectionRevision > 0
+            && (typeof message.workspaceScopeIdentity === 'string'
+                || message.workspaceScopeIdentity === null)
+            && (typeof message.workspaceNavigationIdentity === 'string'
+                || message.workspaceNavigationIdentity === null)
+            && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
+            && Number.isSafeInteger(message.activeAttentionCount)
+            && message.activeAttentionCount >= 0
+            && Number.isSafeInteger(message.runningSessionCount)
+            && message.runningSessionCount >= 0
+            && ['current', 'sweep', 'orbit', 'halo', 'ripple', 'breath', 'custom', 'none']
+                .includes(message.runningCardAnimation)
+            && ['current', 'halo', 'custom', 'none'].includes(message.runningIconAnimation)
+            && typeof message.revealFocused === 'boolean'
+            && (message.focusedTarget === null
+                || (message.focusedTarget
+                    && isAiSessionProvider(message.focusedTarget.provider)
+                    && ((typeof message.focusedTarget.sessionId === 'string'
+                        && !!message.focusedTarget.sessionId
+                        && typeof message.focusedTarget.pendingId === 'undefined')
+                        || (typeof message.focusedTarget.pendingId === 'string'
+                            && !!message.focusedTarget.pendingId
+                            && typeof message.focusedTarget.sessionId === 'undefined'))))
+            && Array.isArray(message.sessions) && message.sessions.length <= 1000
+            && message.sessions.every(session => session
+                && isAiSessionProvider(session.provider)
+                && typeof session.sessionId === 'string' && !!session.sessionId
+                && (session.executionState === 'running'
+                    || session.executionState === 'stopped')
+                && typeof session.focused === 'boolean'
+                && typeof session.needsAttention === 'boolean'
+                && typeof session.conflict === 'boolean'
+                && Array.isArray(session.eventIds)
+                && session.eventIds.length <= 1000
+                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId))
+            && Array.isArray(message.attentionSessions)
+            && message.attentionSessions.length <= 1000
+            && message.attentionSessions.every(session => session
+                && typeof session.sessionKey === 'string' && !!session.sessionKey
+                && Array.isArray(session.eventIds)
+                && session.eventIds.length <= 1000
+                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId));
+    }
+
+    function adopt(message) {
+        if (!isValid(message)) return false;
+        currentPresentation = message;
+        return true;
+    }
+
+    function getCurrent() {
+        return currentPresentation;
+    }
+
+    function getAttentionEventIds(provider, sessionId) {
+        if (!currentPresentation) return [];
+        var sessionKey = provider + ':' + sessionId;
+        var owner = currentPresentation.attentionSessions.find(session =>
+            session && session.sessionKey === sessionKey
+        );
+        return owner ? owner.eventIds.slice() : [];
+    }
+
+    return {
+        adopt: adopt,
+        getAttentionEventIds: getAttentionEventIds,
+        getCurrent: getCurrent,
+        isValid: isValid,
+    };
+}
+
 function initAiSessionPresentationTransactions(options) {
     'use strict';
 
@@ -2404,7 +2486,6 @@ function initAiSessionPresentationDom(options) {
         message.attentionSessions.forEach(session => {
             attentionEvents[session.sessionKey] = session.eventIds.slice();
         });
-        window.__agentPivotAttentionSessionEvents = attentionEvents;
         var focused = message.focusedTarget;
         aiSessionControls.activeAiSessionTerminalState.provider = focused ? focused.provider : null;
         aiSessionControls.activeAiSessionTerminalState.sessionId = focused?.sessionId || null;
@@ -2629,6 +2710,7 @@ function initProjectAiSessionControls(options) {
 
     options = options || {};
     var getAiSessionsUpdate = options.getAiSessionsUpdate;
+    var getAiSessionPresentationStateStore = options.getAiSessionPresentationStateStore;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
 
     var batchAiSessionState = {
@@ -2974,14 +3056,16 @@ function initProjectAiSessionControls(options) {
 
     function acknowledgeAiSession(provider, sessionId, fallbackEventId) {
         var sessionKey = provider + ':' + sessionId;
-        window.__agentPivotAttentionSessionEvents = window.__agentPivotAttentionSessionEvents || {};
-        var eventIds = window.__agentPivotAttentionSessionEvents[sessionKey] || [];
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var eventIds = stateStore
+            ? stateStore.getAttentionEventIds(provider, sessionId) : [];
         if (!eventIds.length && fallbackEventId) {
             eventIds = [fallbackEventId];
         }
         eventIds = Array.from(new Set(eventIds.filter(eventId => typeof eventId === 'string' && !!eventId)));
         if (eventIds.length) {
-            var presentation = window.__agentPivotAiSessionPresentationState;
+            var presentation = stateStore ? stateStore.getCurrent() : null;
             if (!presentation
                 || presentation.type !== 'ai-session-presentation-state'
                 || presentation.version !== 1
@@ -3010,7 +3094,7 @@ function initProjectAiSessionControls(options) {
             if (typeof window.setTimeout === 'function') {
                 pending.timeoutHandle = window.setTimeout(() => {
                     if (pendingAiSessionAttentionAcknowledgements.get(pendingKey) !== pending) return;
-                    var currentPresentation = window.__agentPivotAiSessionPresentationState;
+                    var currentPresentation = stateStore ? stateStore.getCurrent() : null;
                     if (!currentPresentation
                         || currentPresentation.workspaceScopeIdentity
                             !== pending.workspaceScopeIdentity) {
@@ -3052,7 +3136,9 @@ function initProjectAiSessionControls(options) {
     }
 
     function announceAiSessionAttentionAcknowledgement(pending, message) {
-        var presentation = window.__agentPivotAiSessionPresentationState;
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var presentation = stateStore ? stateStore.getCurrent() : null;
         if (!presentation
             || presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) return;
         var row = document.querySelector(
@@ -3067,7 +3153,9 @@ function initProjectAiSessionControls(options) {
     function syncAiSessionAttentionAcknowledgementDom() {
         document.querySelectorAll('.codex-session-row[data-attention-acknowledgement-pending]')
             .forEach(row => row.removeAttribute('data-attention-acknowledgement-pending'));
-        var presentation = window.__agentPivotAiSessionPresentationState;
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var presentation = stateStore ? stateStore.getCurrent() : null;
         pendingAiSessionAttentionAcknowledgements.forEach(pending => {
             if (!presentation
                 || presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) return;
@@ -3081,7 +3169,10 @@ function initProjectAiSessionControls(options) {
         });
     }
 
-    function reconcileAiSessionAttentionAcknowledgements(presentation) {
+    function reconcileAiSessionAttentionAcknowledgements() {
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var presentation = stateStore ? stateStore.getCurrent() : null;
         if (!presentation || presentation.type !== 'ai-session-presentation-state') return;
         pendingAiSessionAttentionAcknowledgements.forEach((pending, pendingKey) => {
             if (presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) {
@@ -3090,11 +3181,10 @@ function initProjectAiSessionControls(options) {
             }
             if (!pending.committed
                 || presentation.projectionRevision < pending.projectionRevision) return;
-            var ownerSessionKey = pending.provider + ':' + pending.sessionId;
-            var owner = presentation.attentionSessions.find(session =>
-                session && session.sessionKey === ownerSessionKey
+            var currentEventIds = stateStore.getAttentionEventIds(
+                pending.provider,
+                pending.sessionId
             );
-            var currentEventIds = owner && Array.isArray(owner.eventIds) ? owner.eventIds : [];
             if (pending.eventIds.some(eventId => currentEventIds.includes(eventId))) return;
             clearAiSessionAttentionAcknowledgement(pendingKey, pending);
         });
@@ -3126,9 +3216,7 @@ function initProjectAiSessionControls(options) {
             || pending.projectionRevision !== message.projectionRevision) return true;
         if (message.outcome === 'committed') {
             pending.committed = true;
-            reconcileAiSessionAttentionAcknowledgements(
-                window.__agentPivotAiSessionPresentationState
-            );
+            reconcileAiSessionAttentionAcknowledgements();
             return true;
         }
         clearAiSessionAttentionAcknowledgement(pendingKey, pending);
@@ -3742,8 +3830,10 @@ function initProjects() {
     var todoControls = initProjectTodoControls({
         syncCollapseButton: () => groupCollapse.syncCollapseButton(),
     });
+    var aiSessionPresentationStateStore = null;
     var aiSessionControls = initProjectAiSessionControls({
         getAiSessionsUpdate: () => aiSessionsUpdate,
+        getAiSessionPresentationStateStore: () => aiSessionPresentationStateStore,
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
     });
     var contextMenus = initProjectContextMenus({
@@ -3753,11 +3843,14 @@ function initProjects() {
         getArchiveAiSessionMessageType: aiSessionControls.getArchiveAiSessionMessageType,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
+    aiSessionPresentationStateStore = initAiSessionPresentationStateStore({
+        isAiSessionProvider: aiSessionControls.isAiSessionProvider,
+    });
     var aiSessionPresentationDom = initAiSessionPresentationDom({
         aiSessionControls: aiSessionControls,
     });
     var presentationTransactions = initAiSessionPresentationTransactions({
-        isValidAiSessionPresentationState: isValidAiSessionPresentationState,
+        isValidAiSessionPresentationState: aiSessionPresentationStateStore.isValid,
         applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
     });
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
@@ -3775,60 +3868,10 @@ function initProjects() {
         presentationTransactions: presentationTransactions,
     });
 
-    function isValidAiSessionPresentationState(message) {
-        return message && message.type === 'ai-session-presentation-state'
-            && message.version === 1
-            && Number.isSafeInteger(message.projectionRevision)
-            && message.projectionRevision > 0
-            && (typeof message.workspaceScopeIdentity === 'string'
-                || message.workspaceScopeIdentity === null)
-            && (typeof message.workspaceNavigationIdentity === 'string'
-                || message.workspaceNavigationIdentity === null)
-            && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
-            && Number.isSafeInteger(message.activeAttentionCount)
-            && message.activeAttentionCount >= 0
-            && Number.isSafeInteger(message.runningSessionCount)
-            && message.runningSessionCount >= 0
-            && ['current', 'sweep', 'orbit', 'halo', 'ripple', 'breath', 'custom', 'none']
-                .includes(message.runningCardAnimation)
-            && ['current', 'halo', 'custom', 'none'].includes(message.runningIconAnimation)
-            && typeof message.revealFocused === 'boolean'
-            && (message.focusedTarget === null
-                || (message.focusedTarget
-                    && aiSessionControls.isAiSessionProvider(
-                        message.focusedTarget.provider
-                    )
-                    && ((typeof message.focusedTarget.sessionId === 'string'
-                        && !!message.focusedTarget.sessionId
-                        && typeof message.focusedTarget.pendingId === 'undefined')
-                        || (typeof message.focusedTarget.pendingId === 'string'
-                            && !!message.focusedTarget.pendingId
-                            && typeof message.focusedTarget.sessionId === 'undefined'))))
-            && Array.isArray(message.sessions) && message.sessions.length <= 1000
-            && message.sessions.every(session => session
-                && aiSessionControls.isAiSessionProvider(session.provider)
-                && typeof session.sessionId === 'string' && !!session.sessionId
-                && (session.executionState === 'running'
-                    || session.executionState === 'stopped')
-                && typeof session.focused === 'boolean'
-                && typeof session.needsAttention === 'boolean'
-                && typeof session.conflict === 'boolean'
-                && Array.isArray(session.eventIds)
-                && session.eventIds.length <= 1000
-                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId))
-            && Array.isArray(message.attentionSessions)
-            && message.attentionSessions.length <= 1000
-            && message.attentionSessions.every(session => session
-                && typeof session.sessionKey === 'string' && !!session.sessionKey
-                && Array.isArray(session.eventIds)
-                && session.eventIds.length <= 1000
-                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId));
-    }
-
     function applyValidatedAiSessionPresentationState(message) {
-        window.__agentPivotAiSessionPresentationState = message;
+        if (!aiSessionPresentationStateStore.adopt(message)) return;
         aiSessionPresentationDom.apply(message);
-        aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);
+        aiSessionControls.reconcileAiSessionAttentionAcknowledgements();
     }
 
     function readInitialAiSessionPresentationState() {

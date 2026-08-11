@@ -248,8 +248,10 @@ function initProjects() {
     var todoControls = initProjectTodoControls({
         syncCollapseButton: () => groupCollapse.syncCollapseButton(),
     });
+    var aiSessionPresentationStateStore = null;
     var aiSessionControls = initProjectAiSessionControls({
         getAiSessionsUpdate: () => aiSessionsUpdate,
+        getAiSessionPresentationStateStore: () => aiSessionPresentationStateStore,
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
     });
     var contextMenus = initProjectContextMenus({
@@ -259,11 +261,14 @@ function initProjects() {
         getArchiveAiSessionMessageType: aiSessionControls.getArchiveAiSessionMessageType,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
+    aiSessionPresentationStateStore = initAiSessionPresentationStateStore({
+        isAiSessionProvider: aiSessionControls.isAiSessionProvider,
+    });
     var aiSessionPresentationDom = initAiSessionPresentationDom({
         aiSessionControls: aiSessionControls,
     });
     var presentationTransactions = initAiSessionPresentationTransactions({
-        isValidAiSessionPresentationState: isValidAiSessionPresentationState,
+        isValidAiSessionPresentationState: aiSessionPresentationStateStore.isValid,
         applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
     });
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
@@ -281,60 +286,10 @@ function initProjects() {
         presentationTransactions: presentationTransactions,
     });
 
-    function isValidAiSessionPresentationState(message) {
-        return message && message.type === 'ai-session-presentation-state'
-            && message.version === 1
-            && Number.isSafeInteger(message.projectionRevision)
-            && message.projectionRevision > 0
-            && (typeof message.workspaceScopeIdentity === 'string'
-                || message.workspaceScopeIdentity === null)
-            && (typeof message.workspaceNavigationIdentity === 'string'
-                || message.workspaceNavigationIdentity === null)
-            && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
-            && Number.isSafeInteger(message.activeAttentionCount)
-            && message.activeAttentionCount >= 0
-            && Number.isSafeInteger(message.runningSessionCount)
-            && message.runningSessionCount >= 0
-            && ['current', 'sweep', 'orbit', 'halo', 'ripple', 'breath', 'custom', 'none']
-                .includes(message.runningCardAnimation)
-            && ['current', 'halo', 'custom', 'none'].includes(message.runningIconAnimation)
-            && typeof message.revealFocused === 'boolean'
-            && (message.focusedTarget === null
-                || (message.focusedTarget
-                    && aiSessionControls.isAiSessionProvider(
-                        message.focusedTarget.provider
-                    )
-                    && ((typeof message.focusedTarget.sessionId === 'string'
-                        && !!message.focusedTarget.sessionId
-                        && typeof message.focusedTarget.pendingId === 'undefined')
-                        || (typeof message.focusedTarget.pendingId === 'string'
-                            && !!message.focusedTarget.pendingId
-                            && typeof message.focusedTarget.sessionId === 'undefined'))))
-            && Array.isArray(message.sessions) && message.sessions.length <= 1000
-            && message.sessions.every(session => session
-                && aiSessionControls.isAiSessionProvider(session.provider)
-                && typeof session.sessionId === 'string' && !!session.sessionId
-                && (session.executionState === 'running'
-                    || session.executionState === 'stopped')
-                && typeof session.focused === 'boolean'
-                && typeof session.needsAttention === 'boolean'
-                && typeof session.conflict === 'boolean'
-                && Array.isArray(session.eventIds)
-                && session.eventIds.length <= 1000
-                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId))
-            && Array.isArray(message.attentionSessions)
-            && message.attentionSessions.length <= 1000
-            && message.attentionSessions.every(session => session
-                && typeof session.sessionKey === 'string' && !!session.sessionKey
-                && Array.isArray(session.eventIds)
-                && session.eventIds.length <= 1000
-                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId));
-    }
-
     function applyValidatedAiSessionPresentationState(message) {
-        window.__agentPivotAiSessionPresentationState = message;
+        if (!aiSessionPresentationStateStore.adopt(message)) return;
         aiSessionPresentationDom.apply(message);
-        aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);
+        aiSessionControls.reconcileAiSessionAttentionAcknowledgements();
     }
 
     function readInitialAiSessionPresentationState() {

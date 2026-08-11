@@ -6649,6 +6649,31 @@ function runBatchAiSessionWebviewChecks() {
                     : selector === '.custom-context-menu-item[data-action]:not(.disabled)'
                         ? aiSessionMenuItems.find(item => !item.classList.contains('disabled')) : null,
     };
+    const initialAiSessionPresentation = {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision: 1,
+        workspaceScopeIdentity: null,
+        workspaceNavigationIdentity: null,
+        attentionCount: 3,
+        activeAttentionCount: 3,
+        runningSessionCount: 1,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: false,
+        focusedTarget: null,
+        attentionSessions: [{
+            sessionKey: 'codex:active-session',
+            eventIds: ['attention-active-old', 'attention-active-new'],
+        }, {
+            sessionKey: 'kimi:tmux-session',
+            eventIds: ['attention-tmux-old', 'attention-tmux-new'],
+        }, {
+            sessionKey: 'codex:attention-session',
+            eventIds: ['full-owner-event-a', 'full-owner-event-b'],
+        }],
+        sessions: [],
+    };
     const context = {
         CSS: { escape: value => String(value) },
         Node: { TEXT_NODE: 3 },
@@ -6666,7 +6691,10 @@ function runBatchAiSessionWebviewChecks() {
                 style: { setProperty: () => {} },
             },
             addEventListener: (event, listener) => { eventListeners[event] = listener; },
-            getElementById: id => id === 'aiSessionContextMenu' ? aiSessionMenu : null,
+            getElementById: id => id === 'aiSessionContextMenu' ? aiSessionMenu
+                : id === 'dashboard-ai-session-presentation'
+                    ? { textContent: JSON.stringify(initialAiSessionPresentation) }
+                    : null,
             createElement: () => ({
                 className: '',
                 title: '',
@@ -6944,10 +6972,6 @@ function runBatchAiSessionWebviewChecks() {
     activeRow.setAttribute('data-session-event-id', 'attention-active-session');
     tmuxRow.setAttribute('data-ai-session-attention', '');
     tmuxRow.setAttribute('data-session-event-id', 'attention-tmux-session');
-    context.window.__agentPivotAttentionSessionEvents = {
-        'codex:active-session': ['attention-active-old', 'attention-active-new'],
-        'kimi:tmux-session': ['attention-tmux-old', 'attention-tmux-new'],
-    };
     const stopTmuxTarget = {
         getAttribute: attribute => attribute === 'data-action' ? 'stop-ai-session-runtime' : null,
         closest: selector => {
@@ -7088,9 +7112,6 @@ function runBatchAiSessionWebviewChecks() {
 
     attentionRow.setAttribute('data-ai-session-attention', '');
     attentionRow.setAttribute('data-session-event-id', 'full-owner-event-a');
-    context.window.__agentPivotAttentionSessionEvents = {
-        'codex:attention-session': ['full-owner-event-a', 'full-owner-event-b'],
-    };
     messages.length = 0;
     eventListeners.click({ button: 0, target: attentionRow.primaryAction });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages[0])), {

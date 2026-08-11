@@ -4470,10 +4470,12 @@
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/integration/dashboard/conversationOpenLatest.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/unit/aiSessions/messageRenderCache.test.js",
       "tests/unit/tooling/conversationPerformance.test.js"
     ],
     "evidence": [
       ".ci/conversation-performance.json",
+      "src/aiSessions/conversation/messageRenderCache.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/webview/conversationViewerScripts.js"
     ]

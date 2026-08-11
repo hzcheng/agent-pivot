@@ -562,6 +562,10 @@ function initProjects() {
             syncActiveAiSessionProjectionDom(true, false);
         }
     }
+    var presentationTransactions = initAiSessionPresentationTransactions({
+        isValidAiSessionPresentationState: isValidAiSessionPresentationState,
+        applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
+    });
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
         batchAiSessionState: aiSessionControls.batchAiSessionState,
         batchAiSessionManager: aiSessionControls.batchAiSessionManager,
@@ -575,8 +579,7 @@ function initProjects() {
         exitAiSessionBatchManagement: aiSessionControls.exitAiSessionBatchManagement,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
-        isValidAiSessionPresentationState: isValidAiSessionPresentationState,
-        applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
+        presentationTransactions: presentationTransactions,
     });
 
     function isValidAiSessionPresentationState(message) {
@@ -629,36 +632,6 @@ function initProjects() {
                 && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId));
     }
 
-    function applyAiSessionPresentationState(message, initialDocument) {
-        if (!isValidAiSessionPresentationState(message)) {
-            aiSessionsUpdate.requestFullRefresh(initialDocument
-                ? 'invalid-initial-ai-session-presentation-state'
-                : 'invalid-ai-session-presentation-state');
-            return false;
-        }
-        var accepted = initialDocument
-            ? aiSessionsUpdate.acceptInitialPresentationProjectionRevision(
-                message.projectionRevision
-            )
-            : aiSessionsUpdate.acceptPresentationProjectionRevision(
-                message.projectionRevision
-            );
-        if (!accepted) return false;
-        applyValidatedAiSessionPresentationState(message);
-        return true;
-    }
-
-    function applyDirectAiSessionPresentationState(message) {
-        if (!isValidAiSessionPresentationState(message)
-            || message.revealFocused !== true) {
-            aiSessionsUpdate.requestFullRefresh(
-                'invalid-direct-ai-session-presentation-state'
-            );
-            return false;
-        }
-        return applyAiSessionPresentationState(message, false);
-    }
-
     function applyValidatedAiSessionPresentationState(message) {
         window.__agentPivotAiSessionPresentationState = message;
         applyAiSessionPresentationDom(message);
@@ -677,7 +650,9 @@ function initProjects() {
 
     var initialAiSessionPresentationState = readInitialAiSessionPresentationState();
     if (initialAiSessionPresentationState) {
-        applyAiSessionPresentationState(initialAiSessionPresentationState, true);
+        presentationTransactions.applyInitialPresentation(
+            initialAiSessionPresentationState
+        );
     }
 
     function onMouseEvent(e) {
@@ -867,25 +842,14 @@ function initProjects() {
                 );
                 return;
             }
-            if (!isValidAiSessionPresentationState(message.presentation)
-                    || message.presentation.projectionRevision
-                        !== message.projectionRevision
-                    || message.presentation.revealFocused !== false) {
-                aiSessionsUpdate.requestFullRefresh(
-                    'invalid-open-workspaces-presentation-envelope'
-                );
+            if (!presentationTransactions.applyAtomicEnvelope({
+                message: message,
+                invalidPresentationReason: 'invalid-open-workspaces-presentation-envelope',
+                invalidReplacementReason: 'invalid-open-workspaces-update',
+                replaceContent: () => applyOpenWorkspacesUpdate(message),
+            })) {
                 return;
             }
-            if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
-            if (!aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(
-                message.projectionRevision
-            )) return;
-            if (!applyOpenWorkspacesUpdate(message)) {
-                aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
-                return;
-            }
-            aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision);
-            applyValidatedAiSessionPresentationState(message.presentation);
             updateStickyGroupHeaderOffset();
             if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
                 openTabSplit.syncResizer();
@@ -924,7 +888,7 @@ function initProjects() {
         }
 
         if (message && message.type === 'ai-session-presentation-state') {
-            applyDirectAiSessionPresentationState(message);
+            presentationTransactions.applyDirectPresentation(message);
             return;
         }
 

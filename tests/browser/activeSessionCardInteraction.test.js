@@ -332,7 +332,8 @@ async function openCardPage(
     activeAiSessions,
     viewport = { width: 360, height: 900 },
     currentWorkspaceMarkup,
-    initialPresentation
+    initialPresentation,
+    preserveInitialMessages = false
 ) {
     const page = await browser.newPage({ viewport });
     t.after(() => page.close());
@@ -361,10 +362,10 @@ async function openCardPage(
     await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: aiSessionControlsScript });
     await page.addScriptTag({ content: projectScript });
-    await page.evaluate(() => {
+    await page.evaluate(preserveMessages => {
         initProjects();
-        window.__postedMessages.length = 0;
-    });
+        if (!preserveMessages) window.__postedMessages.length = 0;
+    }, preserveInitialMessages);
     return page;
 }
 
@@ -1242,6 +1243,32 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid OP
     }]);
 });
 
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rolls back an invalid OPEN replacement without committing its revision', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const replacement = [session('codex', 'session-b', true)];
+    const page = await openCardPage(t, initial);
+    const invalidReplacement = openWorkspacesEnvelope(replacement, 2, {
+        semanticRevision: 'invalid-open-replacement',
+    });
+    invalidReplacement.html = '<div data-invalid-open-replacement></div>';
+
+    await postHostMessage(page, invalidReplacement);
+
+    assert.equal(await row(page, 'codex', 'session-a').count(), 1);
+    assert.equal(await row(page, 'codex', 'session-b').count(), 0);
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'request-full-refresh',
+        reason: 'invalid-open-workspaces-update',
+    }]);
+
+    await page.evaluate(() => { window.__postedMessages.length = 0; });
+    await postHostMessage(page, openWorkspacesEnvelope(replacement, 2, {
+        semanticRevision: 'valid-open-replacement',
+    }));
+    assert.equal(await row(page, 'codex', 'session-a').count(), 0);
+    assert.equal(await row(page, 'codex', 'session-b').count(), 1);
+});
+
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects focus reveal inside an AI envelope', async t => {
     const initial = [session('codex', 'session-a', true)];
     const replacement = [session('codex', 'session-b', true)];
@@ -1311,6 +1338,35 @@ test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 seeds the full document revisio
     assert.deepEqual(acknowledgements.map(message => message.eventIds), [
         ['event-a', 'event-b'],
     ]);
+});
+
+test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 rejects an invalid initial presentation without committing its revision', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const replacement = [session('codex', 'session-b', true)];
+    const invalidInitialPresentation = {
+        ...presentationMessage(initial, 1),
+        version: 2,
+    };
+    const page = await openCardPage(
+        t,
+        initial,
+        { width: 360, height: 900 },
+        undefined,
+        invalidInitialPresentation,
+        true
+    );
+
+    assert.deepEqual((await postedMessages(page)).filter(message =>
+        message.type === 'request-full-refresh'
+    ), [{
+        type: 'request-full-refresh',
+        reason: 'invalid-initial-ai-session-presentation-state',
+    }]);
+
+    await page.evaluate(() => { window.__postedMessages.length = 0; });
+    await postHostMessage(page, aiSessionsEnvelope(replacement, 1));
+    assert.equal(await row(page, 'codex', 'session-a').count(), 0);
+    assert.equal(await row(page, 'codex', 'session-b').count(), 1);
 });
 
 test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps acknowledgement pending until its committed v3 presentation is applied', async t => {

@@ -270,10 +270,11 @@ export class ConversationViewer implements ConversationViewerApi {
     // Advanced only by the Webview's correlated applied acknowledgement —
     // never by postMessage resolving, which proves queueing, not application.
     private appliedContentSignature?: string;
-    // Per-session record of the content the Webview has acknowledged
-    // applying, so a switch back can restore its stashed frame instead of
-    // resending and reparsing identical HTML.
-    private readonly frameTokens = new Map<string, string>();
+    // The Webview's own report of which session frames it currently holds,
+    // refreshed by every applied acknowledgement. Frame restores are
+    // offered only for entries on this authoritative list — an applied ack
+    // alone never implies the frame is still cached.
+    private readonly webviewFrames = new Map<string, string>();
     private syncRebuildRequestId = 0;
     private suspended = false;
     private rebindGeneration = 0;
@@ -854,7 +855,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pages = [];
         this.renderCache.clear();
         this.contentSignatures.clear();
-        this.frameTokens.clear();
+        this.webviewFrames.clear();
         this.outlineController.reset();
         this.target = undefined;
         this.stale = false;
@@ -1849,10 +1850,10 @@ export class ConversationViewer implements ConversationViewerApi {
         // a lost or unapplied page is always retried in full.
         const sameAsApplied = publication.htmlSignature
             === this.appliedContentSignature;
-        // A session switch whose content the Webview applied (and possibly
-        // stashed) earlier may restore the detached frame wholesale.
+        // A session switch whose content is on the Webview's own reported
+        // frame list may restore the detached frame wholesale.
         const frameRestorable = !sameAsApplied
-            && this.frameTokens.get(
+            && this.webviewFrames.get(
                 conversationFrameTokenKey(publication.target)
             ) === publication.htmlSignature;
         const wire: ConversationViewerPageMessage = sameAsApplied
@@ -1874,26 +1875,26 @@ export class ConversationViewer implements ConversationViewerApi {
     private acknowledgePublication(
         message: ConversationViewerAppliedMessage
     ): void {
+        if (message.subscriptionGeneration !== this.subscriptionGeneration) {
+            return;
+        }
+        // The Webview is the authority on which frames it still holds:
+        // replace the table with its latest report so evicted frames and
+        // document rebuilds stop being offered restores immediately.
+        this.webviewFrames.clear();
+        (message.frames ?? []).forEach(frame => {
+            this.webviewFrames.set(
+                `${frame.projectId}\u0001${frame.provider}\u0001${frame.sessionId}`,
+                frame.token
+            );
+        });
         const publication = this.latestPublication;
         if (!publication
-            || message.subscriptionGeneration !== this.subscriptionGeneration
             || message.requestId !== publication.requestId
             || message.htmlSignature !== publication.htmlSignature) {
             return;
         }
         this.appliedContentSignature = publication.htmlSignature;
-        // The Webview demonstrably built this session's content; remember
-        // the token so a later switch back can offer a frame restore.
-        const key = conversationFrameTokenKey(publication.target);
-        this.frameTokens.delete(key);
-        this.frameTokens.set(key, publication.htmlSignature);
-        while (this.frameTokens.size > 8) {
-            const oldestKey = this.frameTokens.keys().next().value;
-            if (oldestKey === undefined || oldestKey === key) {
-                break;
-            }
-            this.frameTokens.delete(oldestKey);
-        }
     }
 
     private rebuildLatestDocument(): void {

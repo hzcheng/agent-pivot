@@ -252,9 +252,13 @@
     var resyncRequested = false;
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
-    // DOM — no HTML transfer, sanitize, parse, or reconcile at all.
+    // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
+    // by both frame count and a total node budget so large conversations
+    // cannot balloon Webview memory.
     var frameCache = new Map();
+    var frameCacheNodes = 0;
     var FRAME_CACHE_LIMIT = 4;
+    var FRAME_CACHE_NODE_BUDGET = 600;
     var state = {
         atLatest: false,
         initialized: false,
@@ -1270,18 +1274,32 @@
                 }
             );
         });
-        frameCache.delete(key);
+        var existing = frameCache.get(key);
+        if (existing) {
+            frameCacheNodes -= existing.nodeCount;
+            frameCache.delete(key);
+        }
         frameCache.set(key, {
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
             token: state.appliedHtmlSignature,
             nodes: nodes,
+            nodeCount: nodes.length,
             messageIds: state.messageIds,
             messageSignatures: state.messageSignatures,
             worklogExpanded: state.worklogExpanded,
             scrollTop: scrollTop,
             anchor: anchor,
             followingEnd: followingEnd,
+            selectedInteractionId: restoreTarget
+                ? restoreTarget.interactionId
+                : undefined,
         });
-        while (frameCache.size > FRAME_CACHE_LIMIT) {
+        frameCacheNodes += nodes.length;
+        while ((frameCache.size > FRAME_CACHE_LIMIT
+                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)
+            && frameCache.size > 1) {
             var oldestKey = frameCache.keys().next().value;
             if (oldestKey === undefined || oldestKey === key) {
                 break;
@@ -1289,6 +1307,7 @@
             var evicted = frameCache.get(oldestKey);
             frameCache.delete(oldestKey);
             if (evicted) {
+                frameCacheNodes -= evicted.nodeCount;
                 evicted.nodes.forEach(function (node) {
                     if (node && node.nodeType === 1) {
                         mermaidRenderer.release(node);
@@ -1311,6 +1330,7 @@
         if (!frame || frame.token !== message.htmlSignature) {
             return undefined;
         }
+        frameCacheNodes -= frame.nodeCount;
         frameCache.delete(key);
         return frame;
     }
@@ -1325,15 +1345,27 @@
     function acknowledgePage(message) {
         // The correlated applied acknowledgement: the Host may omit HTML
         // from a later publication only after this confirms application.
+        // The frame inventory keeps the Host's restoreFrame offers truthful
+        // about what is actually still cached here.
         if (typeof message.htmlSignature !== 'string') {
             return;
         }
+        var frames = [];
+        frameCache.forEach(function (frame) {
+            frames.push({
+                projectId: frame.projectId,
+                provider: frame.provider,
+                sessionId: frame.sessionId,
+                token: frame.token,
+            });
+        });
         post({
             type: 'conversation-viewer-applied',
             version: 1,
             subscriptionGeneration: message.subscriptionGeneration,
             requestId: message.requestId,
             htmlSignature: message.htmlSignature,
+            frames: frames,
         });
     }
 
@@ -1514,17 +1546,21 @@
         if (!isLiveRefresh) {
             var openingAtLatest = message.atLatest
                 && message.updateKind === 'initial';
-            if (frame) {
-                // A restored frame returns to its own reading position.
-                if (frame.followingEnd && message.atLatest) {
-                    reconcileController.scrollToEnd();
-                } else {
-                    restoreViewportReadingPosition(
-                        frame.anchor,
-                        frame.scrollTop
-                    );
-                    reconcileController.trackEnd();
-                }
+            // A frame restore carrying a fresh navigation target behaves
+            // like that navigation, not like a return to the stashed
+            // reading position.
+            var resumeFramePosition = frame
+                && message.selectedInteractionId
+                    === frame.selectedInteractionId;
+            if (resumeFramePosition && frame.followingEnd
+                && message.atLatest) {
+                reconcileController.scrollToEnd();
+            } else if (resumeFramePosition) {
+                restoreViewportReadingPosition(
+                    frame.anchor,
+                    frame.scrollTop
+                );
+                reconcileController.trackEnd();
             } else if (openingAtLatest) {
                 reconcileController.scrollToEnd();
             } else if (selected) {
@@ -1534,7 +1570,9 @@
                 selected.tabIndex = -1;
                 selected.focus({ preventScroll: true });
             }
-            if (!openingAtLatest && !frame) reconcileController.trackEnd();
+            if (!openingAtLatest && !resumeFramePosition) {
+                reconcileController.trackEnd();
+            }
             acknowledgePage(message);
             return;
         }

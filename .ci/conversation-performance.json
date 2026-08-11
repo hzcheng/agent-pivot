@@ -6,5 +6,6 @@
   "hostIncrementalRefreshMs": 150,
   "hostSessionSwitchMs": 250,
   "webviewInitialPublicationMs": 500,
-  "webviewIncrementalRefreshMs": 250
+  "webviewIncrementalRefreshMs": 250,
+  "webviewWarmFrameRestoreMs": 100
 }

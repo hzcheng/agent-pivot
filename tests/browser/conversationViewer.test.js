@@ -511,12 +511,14 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         subscriptionGeneration: 1,
         requestId: 1,
         htmlSignature: 'sig-delta-1',
+        frames: [],
     }, {
         type: 'conversation-viewer-applied',
         version: 1,
         subscriptionGeneration: 1,
         requestId: 2,
         htmlSignature: 'sig-delta-1',
+        frames: [],
     }]);
 
     // A delta whose signature does not match the applied content is dropped
@@ -878,6 +880,169 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 mermaid releaseExcept keeps fig
         outcome.images[0],
         outcome.images[1],
     ], 'evicting the stashed frame revokes its figure URL');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 frame restore follows a fresh navigation target instead of the stashed scroll position', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({
+        content: '.tall-block { height: 120px; margin: 0; }',
+    });
+    const article = index => `<article data-message-id="alpha-${index}" `
+        + `data-interaction-id="alpha-input-${index}">`
+        + '<section class="conversation-markdown">'
+        + `<p class="tall-block">alpha block ${index}</p>`
+        + '</section></article>';
+    const sessionPage = (generation, sessionId, marker, signature, options = {}) => {
+        const message = {
+            ...hostileConversationPage,
+            requestId: generation * 10,
+            subscriptionGeneration: generation,
+            updateKind: 'initial',
+            html: `${article(0)}${article(1)}${article(2)}${article(3)}`,
+            htmlSignature: signature,
+            outline: [0, 1, 2, 3].map(index => ({
+                interactionId: `${marker}-input-${index}`,
+                userPreview: `${marker} ${index}`,
+                responseState: 'complete',
+            })),
+            selectedInteractionId: options.selectedInteractionId
+                || `${marker}-input-0`,
+            selectedInput: 1,
+            totalInputs: 4,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            target: {
+                projectId: 'project-1',
+                provider: 'codex',
+                sessionId,
+                interactionId: `${marker}-input-0`,
+                displayName: `${marker} session`,
+            },
+            comments: { revision: 0, comments: [] },
+            projectComments: { revision: 0, comments: [] },
+            bookmarks: { revision: 0, interactionIds: [] },
+        };
+        if (options.restoreFrame) {
+            delete message.html;
+            message.restoreFrame = true;
+        }
+        return message;
+    };
+
+    // Session alpha stays at the top (scrollTop 0) with input-0 selected.
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-scroll]').scrollTop = 0;
+    });
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-b1'));
+
+    // Returning with a new selected interaction must center that target,
+    // not resurrect the stashed top-of-conversation scroll position.
+    await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-a1', {
+        restoreFrame: true,
+        selectedInteractionId: 'alpha-input-3',
+    }));
+
+    const outcome = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const target = document.querySelector('[data-message-id="alpha-3"]');
+        const targetBounds = target.getBoundingClientRect();
+        const scrollBounds = scroll.getBoundingClientRect();
+        return {
+            scrollTop: scroll.scrollTop,
+            targetVisible: targetBounds.bottom > scrollBounds.top
+                && targetBounds.top < scrollBounds.bottom,
+        };
+    });
+    assert.equal(outcome.targetVisible, true,
+        'the freshly navigated interaction must be centered into view');
+    assert.ok(outcome.scrollTop > 40,
+        `the stashed scrollTop 0 must not win, got ${outcome.scrollTop}`);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond the cache budget and resyncs its restore', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature, options = {}) => {
+        const message = {
+            ...hostileConversationPage,
+            requestId: generation * 10,
+            subscriptionGeneration: generation,
+            updateKind: 'initial',
+            html: `<article data-message-id="${marker}-0" `
+                + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+            htmlSignature: signature,
+            outline: [{
+                interactionId: `${marker}-input`,
+                userPreview: marker,
+                responseState: 'complete',
+            }],
+            selectedInteractionId: `${marker}-input`,
+            selectedInput: 1,
+            totalInputs: 1,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            target: {
+                projectId: 'project-1',
+                provider: 'codex',
+                sessionId,
+                interactionId: `${marker}-input`,
+                displayName: marker,
+            },
+            comments: { revision: 0, comments: [] },
+            projectComments: { revision: 0, comments: [] },
+            bookmarks: { revision: 0, interactionIds: [] },
+        };
+        if (options.restoreFrame) {
+            delete message.html;
+            message.restoreFrame = true;
+        }
+        return message;
+    };
+
+    // Six sessions through a four-frame cache: alpha and beta are evicted.
+    const ids = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'];
+    for (let index = 0; index < ids.length; index += 1) {
+        await sendPage(page, sessionPage(
+            index + 2, `session-${ids[index]}`, ids[index], `sig-${ids[index]}`
+        ));
+    }
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'zeta'
+    );
+
+    // A restoreFrame offer for an evicted frame is answered with a resync.
+    await sendPage(page, sessionPage(
+        20, 'session-alpha', 'alpha', 'sig-alpha', { restoreFrame: true }
+    ));
+    const syncs = (await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    );
+    assert.deepEqual(syncs, [{
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+    }]);
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'zeta',
+        'the live session stays on screen until the resynced full page'
+    );
+
+    // A non-evicted recent session still restores its frame: zeta was
+    // stashed during the switch that brought the alpha offer, so even its
+    // full-HTML page is answered by a frame restore.
+    await sendPage(page, sessionPage(21, 'session-zeta', 'zeta', 'sig-zeta'));
+    assert.equal(
+        (await postedMessages(page)).filter(message =>
+            message.type === 'conversation-viewer-request-sync'
+        ).length,
+        1,
+        'no second resync for a cached frame'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'zeta'
+    );
 });
 
 test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
@@ -3352,18 +3517,37 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
 
     const previousViewerScript = viewerScript
         .replace(
+                '    var copyRequestSequence = 0;\n' +
+                '    var copyPending = new Map();\n' +
+                '    var resyncRequested = false;\n' +
                 '    // Detached conversation frames keyed by session: switching back to a\n' +
                 '    // session whose content token is unchanged reattaches the already-built\n' +
-                '    // DOM — no HTML transfer, sanitize, parse, or reconcile at all.\n' +
+                '    // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded\n' +
+                '    // by both frame count and a total node budget so large conversations\n' +
+                '    // cannot balloon Webview memory.\n' +
                 '    var frameCache = new Map();\n' +
-                '    var FRAME_CACHE_LIMIT = 4;\n',
+                '    var frameCacheNodes = 0;\n' +
+                '    var FRAME_CACHE_LIMIT = 4;\n' +
+                '    var FRAME_CACHE_NODE_BUDGET = 600;\n' +
+                '    var state = {\n' +
+                '        atLatest: false,\n' +
+                '        initialized: false,\n',
+                '    var copyRequestSequence = 0;\n' +
+                '    var copyPending = new Map();\n' +
+                '    var resyncRequested = false;\n' +
                 '    // Recently sanitized pages keyed by session, so switching back to a\n' +
                 '    // session whose content is unchanged (same htmlSignature) skips the\n' +
                 '    // multi-megabyte DOMPurify pass entirely.\n' +
                 '    var sanitizedPageCache = new Map();\n' +
                 '    var sanitizedPageCacheBytes = 0;\n' +
-                '    var SANITIZED_PAGE_CACHE_LIMIT = 16 * 1024 * 1024;\n')
+                '    var SANITIZED_PAGE_CACHE_LIMIT = 16 * 1024 * 1024;\n' +
+                '    var state = {\n' +
+                '        atLatest: false,\n' +
+                '        initialized: false,\n')
         .replace(
+                '        messages: messages,\n' +
+                '        messageSelector: conversationMessageSelector,\n' +
+                '        messageId: conversationMessageId,\n' +
                 '        releaseMermaid: function (root) {\n' +
                 '            if (root) {\n' +
                 '                mermaidRenderer.release(root);\n' +
@@ -3376,37 +3560,84 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '                stashed.push.apply(stashed, frame.nodes);\n' +
                 '            });\n' +
                 '            mermaidRenderer.releaseExcept(stashed);\n' +
-                '        },\n',
-                '        releaseMermaid: releaseMermaidObjectUrls,\n')
+                '        },\n' +
+                '        preserveMermaid: preserveMermaidContent,\n' +
+                '    });\n' +
+                '    var outlineController;\n',
+                '        messages: messages,\n' +
+                '        messageSelector: conversationMessageSelector,\n' +
+                '        messageId: conversationMessageId,\n' +
+                '        releaseMermaid: releaseMermaidObjectUrls,\n' +
+                '        preserveMermaid: preserveMermaidContent,\n' +
+                '    });\n' +
+                '    var outlineController;\n')
         .replace(
+                '            \'totalInputs\', \'partial\', \'atLatest\', \'stale\',\n' +
+                '        ];\n' +
+                '        var allowedKeys = new Set(requiredKeys.concat([\n' +
                 '            \'html\', \'htmlSignature\', \'restoreFrame\', \'previousCursor\',\n' +
                 '            \'nextCursor\', \'subagents\', \'activeSubagent\', \'displayName\',\n' +
-                '            \'target\', \'comments\', \'projectComments\', \'bookmarks\',\n',
+                '            \'target\', \'comments\', \'projectComments\', \'bookmarks\',\n' +
+                '        ]));\n' +
+                '        if (Object.keys(message).some(function (key) {\n' +
+                '            return !allowedKeys.has(key);\n',
+                '            \'totalInputs\', \'partial\', \'atLatest\', \'stale\',\n' +
+                '        ];\n' +
+                '        var allowedKeys = new Set(requiredKeys.concat([\n' +
                 '            \'html\', \'htmlSignature\', \'previousCursor\', \'nextCursor\',\n' +
                 '            \'subagents\', \'activeSubagent\', \'displayName\', \'target\',\n' +
-                '            \'comments\', \'projectComments\', \'bookmarks\',\n')
+                '            \'comments\', \'projectComments\', \'bookmarks\',\n' +
+                '        ]));\n' +
+                '        if (Object.keys(message).some(function (key) {\n' +
+                '            return !allowedKeys.has(key);\n')
         .replace(
+                '                || typeof message.htmlSignature === \'string\')\n' +
                 '            && (message.html !== undefined\n' +
                 '                || message.htmlSignature !== undefined)\n' +
                 '            && (message.restoreFrame === undefined\n' +
                 '                || typeof message.restoreFrame === \'boolean\')\n' +
-                '            && typeof message.selectedInteractionId === \'string\'\n',
+                '            && typeof message.selectedInteractionId === \'string\'\n' +
+                '            && validOutline(message.outline, message.selectedInteractionId)\n' +
+                '            && Number.isSafeInteger(message.selectedInput)\n',
+                '                || typeof message.htmlSignature === \'string\')\n' +
                 '            && (message.html !== undefined\n' +
                 '                || message.htmlSignature !== undefined)\n' +
-                '            && typeof message.selectedInteractionId === \'string\'\n')
+                '            && typeof message.selectedInteractionId === \'string\'\n' +
+                '            && validOutline(message.outline, message.selectedInteractionId)\n' +
+                '            && Number.isSafeInteger(message.selectedInput)\n')
         .replace(
+                '        )) {\n' +
+                '            return false;\n' +
+                '        }\n' +
                 '        // The session is really switching: stash the outgoing conversation\n' +
                 '        // as a detached frame before any state is reset, so a later switch\n' +
                 '        // back can reattach it whole.\n' +
                 '        stashCurrentFrame();\n' +
-                '        telemetryController.resetSession(\n',
-                '        telemetryController.resetSession(\n')
+                '        telemetryController.resetSession(\n' +
+                '            nextCommentTarget,\n' +
+                '            message.subscriptionGeneration\n',
+                '        )) {\n' +
+                '            return false;\n' +
+                '        }\n' +
+                '        telemetryController.resetSession(\n' +
+                '            nextCommentTarget,\n' +
+                '            message.subscriptionGeneration\n')
         .replace(
+                '        );\n' +
+                '    }\n' +
+                '\n' +
                 '    function frameSessionKey(target) {\n' +
                 '        if (!target) {\n' +
                 '            return null;\n' +
-                '        }\n' +
-                '        return target.projectId + \'\\u0001\' + target.provider\n' +
+                '        }\n',
+                '        );\n' +
+                '    }\n' +
+                '\n' +
+                '    function sanitizedPageSessionKey(target) {\n' +
+                '        if (!target) {\n' +
+                '            return null;\n' +
+                '        }\n')
+        .replace(
                 '            + \'\\u0001\' + target.sessionId;\n' +
                 '    }\n' +
                 '\n' +
@@ -3441,18 +3672,32 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '                }\n' +
                 '            );\n' +
                 '        });\n' +
-                '        frameCache.delete(key);\n' +
+                '        var existing = frameCache.get(key);\n' +
+                '        if (existing) {\n' +
+                '            frameCacheNodes -= existing.nodeCount;\n' +
+                '            frameCache.delete(key);\n' +
+                '        }\n' +
                 '        frameCache.set(key, {\n' +
+                '            projectId: commentTarget.projectId,\n' +
+                '            provider: commentTarget.provider,\n' +
+                '            sessionId: commentTarget.sessionId,\n' +
                 '            token: state.appliedHtmlSignature,\n' +
                 '            nodes: nodes,\n' +
+                '            nodeCount: nodes.length,\n' +
                 '            messageIds: state.messageIds,\n' +
                 '            messageSignatures: state.messageSignatures,\n' +
                 '            worklogExpanded: state.worklogExpanded,\n' +
                 '            scrollTop: scrollTop,\n' +
                 '            anchor: anchor,\n' +
                 '            followingEnd: followingEnd,\n' +
+                '            selectedInteractionId: restoreTarget\n' +
+                '                ? restoreTarget.interactionId\n' +
+                '                : undefined,\n' +
                 '        });\n' +
-                '        while (frameCache.size > FRAME_CACHE_LIMIT) {\n' +
+                '        frameCacheNodes += nodes.length;\n' +
+                '        while ((frameCache.size > FRAME_CACHE_LIMIT\n' +
+                '                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)\n' +
+                '            && frameCache.size > 1) {\n' +
                 '            var oldestKey = frameCache.keys().next().value;\n' +
                 '            if (oldestKey === undefined || oldestKey === key) {\n' +
                 '                break;\n' +
@@ -3460,6 +3705,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '            var evicted = frameCache.get(oldestKey);\n' +
                 '            frameCache.delete(oldestKey);\n' +
                 '            if (evicted) {\n' +
+                '                frameCacheNodes -= evicted.nodeCount;\n' +
                 '                evicted.nodes.forEach(function (node) {\n' +
                 '                    if (node && node.nodeType === 1) {\n' +
                 '                        mermaidRenderer.release(node);\n' +
@@ -3482,6 +3728,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '        if (!frame || frame.token !== message.htmlSignature) {\n' +
                 '            return undefined;\n' +
                 '        }\n' +
+                '        frameCacheNodes -= frame.nodeCount;\n' +
                 '        frameCache.delete(key);\n' +
                 '        return frame;\n' +
                 '    }\n' +
@@ -3491,12 +3738,35 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '        state.messageIds = frame.messageIds;\n' +
                 '        state.messageSignatures = frame.messageSignatures;\n' +
                 '        state.worklogExpanded = frame.worklogExpanded;\n' +
-                '    }\n',
-                '    function sanitizedPageSessionKey(target) {\n' +
-                '        if (!target) {\n' +
-                '            return null;\n' +
+                '    }\n' +
+                '\n' +
+                '    function acknowledgePage(message) {\n' +
+                '        // The correlated applied acknowledgement: the Host may omit HTML\n' +
+                '        // from a later publication only after this confirms application.\n' +
+                '        // The frame inventory keeps the Host\'s restoreFrame offers truthful\n' +
+                '        // about what is actually still cached here.\n' +
+                '        if (typeof message.htmlSignature !== \'string\') {\n' +
+                '            return;\n' +
                 '        }\n' +
-                '        return target.projectId + \'\\u0001\' + target.provider\n' +
+                '        var frames = [];\n' +
+                '        frameCache.forEach(function (frame) {\n' +
+                '            frames.push({\n' +
+                '                projectId: frame.projectId,\n' +
+                '                provider: frame.provider,\n' +
+                '                sessionId: frame.sessionId,\n' +
+                '                token: frame.token,\n' +
+                '            });\n' +
+                '        });\n' +
+                '        post({\n' +
+                '            type: \'conversation-viewer-applied\',\n' +
+                '            version: 1,\n' +
+                '            subscriptionGeneration: message.subscriptionGeneration,\n' +
+                '            requestId: message.requestId,\n' +
+                '            htmlSignature: message.htmlSignature,\n' +
+                '            frames: frames,\n' +
+                '        });\n' +
+                '    }\n' +
+                '\n',
                 '            + \'\\u0001\' + target.sessionId;\n' +
                 '    }\n' +
                 '\n' +
@@ -3559,8 +3829,26 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '            cacheSanitizedPage(sessionKey, message.htmlSignature, clean);\n' +
                 '        }\n' +
                 '        return clean;\n' +
-                '    }\n')
+                '    }\n' +
+                '\n' +
+                '    function acknowledgePage(message) {\n' +
+                '        // The correlated applied acknowledgement: the Host may omit HTML\n' +
+                '        // from a later publication only after this confirms application.\n' +
+                '        if (typeof message.htmlSignature !== \'string\') {\n' +
+                '            return;\n' +
+                '        }\n' +
+                '        post({\n' +
+                '            type: \'conversation-viewer-applied\',\n' +
+                '            version: 1,\n' +
+                '            subscriptionGeneration: message.subscriptionGeneration,\n' +
+                '            requestId: message.requestId,\n' +
+                '            htmlSignature: message.htmlSignature,\n' +
+                '        });\n' +
+                '    }\n' +
+                '\n')
         .replace(
+                '        }\n' +
+                '        state.latestRequestId = message.requestId;\n' +
                 '        var hasHtml = typeof message.html === \'string\';\n' +
                 '        // A stashed frame whose token matches this page\'s signature is\n' +
                 '        // byte-identical to what the Host published: restore it whole and\n' +
@@ -3581,7 +3869,11 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '                requestConversationResync();\n' +
                 '                return;\n' +
                 '            }\n' +
-                '        }\n',
+                '        }\n' +
+                '        var previousScrollTop = scroll.scrollTop;\n' +
+                '        var isLiveRefresh = state.initialized\n',
+                '        }\n' +
+                '        state.latestRequestId = message.requestId;\n' +
                 '        var hasHtml = typeof message.html === \'string\';\n' +
                 '        if (!hasHtml\n' +
                 '            && message.htmlSignature !== state.appliedHtmlSignature) {\n' +
@@ -3589,8 +3881,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '            // applied; request a full resync instead of staying stale.\n' +
                 '            requestConversationResync();\n' +
                 '            return;\n' +
-                '        }\n')
+                '        }\n' +
+                '        var previousScrollTop = scroll.scrollTop;\n' +
+                '        var isLiveRefresh = state.initialized\n')
         .replace(
+                '        var oldSignatures = state.messageSignatures;\n' +
+                '        state.renderGeneration += 1;\n' +
+                '        var renderGeneration = state.renderGeneration;\n' +
                 '        if (frame) {\n' +
                 '            restoreConversationFrame(frame);\n' +
                 '        } else if (hasHtml) {\n' +
@@ -3601,36 +3898,63 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '                ALLOW_ARIA_ATTR: false,\n' +
                 '            });\n' +
                 '\n' +
-                '            var reconciled = reconcileController.reconcile(\n',
+                '            var reconciled = reconcileController.reconcile(\n' +
+                '                clean,\n',
+                '        var oldSignatures = state.messageSignatures;\n' +
+                '        state.renderGeneration += 1;\n' +
+                '        var renderGeneration = state.renderGeneration;\n' +
                 '        if (hasHtml) {\n' +
                 '            var clean = sanitizeConversationPage(message);\n' +
                 '\n' +
-                '            var reconciled = reconcileController.reconcile(\n')
+                '            var reconciled = reconcileController.reconcile(\n' +
+                '                clean,\n')
         .replace(
-                '            if (frame) {\n' +
-                '                // A restored frame returns to its own reading position.\n' +
-                '                if (frame.followingEnd && message.atLatest) {\n' +
-                '                    reconcileController.scrollToEnd();\n' +
-                '                } else {\n' +
-                '                    restoreViewportReadingPosition(\n' +
-                '                        frame.anchor,\n' +
-                '                        frame.scrollTop\n' +
-                '                    );\n' +
-                '                    reconcileController.trackEnd();\n' +
-                '                }\n' +
+                '        if (!isLiveRefresh) {\n' +
+                '            var openingAtLatest = message.atLatest\n' +
+                '                && message.updateKind === \'initial\';\n' +
+                '            // A frame restore carrying a fresh navigation target behaves\n' +
+                '            // like that navigation, not like a return to the stashed\n' +
+                '            // reading position.\n' +
+                '            var resumeFramePosition = frame\n' +
+                '                && message.selectedInteractionId\n' +
+                '                    === frame.selectedInteractionId;\n' +
+                '            if (resumeFramePosition && frame.followingEnd\n' +
+                '                && message.atLatest) {\n' +
+                '                reconcileController.scrollToEnd();\n' +
+                '            } else if (resumeFramePosition) {\n' +
+                '                restoreViewportReadingPosition(\n' +
+                '                    frame.anchor,\n' +
+                '                    frame.scrollTop\n' +
+                '                );\n' +
+                '                reconcileController.trackEnd();\n' +
                 '            } else if (openingAtLatest) {\n' +
                 '                reconcileController.scrollToEnd();\n' +
                 '            } else if (selected) {\n' +
-                '                centerInMessageViewport(selected);\n' +
-                '            }\n',
+                '                centerInMessageViewport(selected);\n',
+                '        if (!isLiveRefresh) {\n' +
+                '            var openingAtLatest = message.atLatest\n' +
+                '                && message.updateKind === \'initial\';\n' +
                 '            if (openingAtLatest) {\n' +
                 '                reconcileController.scrollToEnd();\n' +
                 '            } else if (selected) {\n' +
-                '                centerInMessageViewport(selected);\n' +
-                '            }\n')
+                '                centerInMessageViewport(selected);\n')
         .replace(
-                '            if (!openingAtLatest && !frame) reconcileController.trackEnd();\n',
-                '            if (!openingAtLatest) reconcileController.trackEnd();\n')
+                '                selected.tabIndex = -1;\n' +
+                '                selected.focus({ preventScroll: true });\n' +
+                '            }\n' +
+                '            if (!openingAtLatest && !resumeFramePosition) {\n' +
+                '                reconcileController.trackEnd();\n' +
+                '            }\n' +
+                '            acknowledgePage(message);\n' +
+                '            return;\n' +
+                '        }\n',
+                '                selected.tabIndex = -1;\n' +
+                '                selected.focus({ preventScroll: true });\n' +
+                '            }\n' +
+                '            if (!openingAtLatest) reconcileController.trackEnd();\n' +
+                '            acknowledgePage(message);\n' +
+                '            return;\n' +
+                '        }\n')
         .replace(
             '    function acknowledgePage(message) {\n'
                 + '        // The correlated applied acknowledgement: the Host may omit HTML\n'
@@ -8896,6 +9220,66 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds initial and incremental 
     assert.equal(
         await page.locator('[data-conversation-messages] > article').count(),
         101
+    );
+
+    // Warm frame restore: switching away stashes the built DOM; switching
+    // back with the same content token reattaches it within budget.
+    const switchPage = (generation, sessionId, signature, htmlValue) => {
+        const message = {
+            ...hostileConversationPage,
+            requestId: generation * 10,
+            subscriptionGeneration: generation,
+            updateKind: 'initial',
+            outline: [{
+                interactionId: `${sessionId}-input`,
+                userPreview: sessionId,
+                responseState: 'complete',
+            }],
+            selectedInteractionId: `${sessionId}-input`,
+            selectedInput: 1,
+            totalInputs: 1,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            target: {
+                projectId: 'project-1',
+                provider: 'codex',
+                sessionId,
+                interactionId: `${sessionId}-input`,
+                displayName: sessionId,
+            },
+            comments: { revision: 0, comments: [] },
+            projectComments: { revision: 0, comments: [] },
+            bookmarks: { revision: 0, interactionIds: [] },
+            htmlSignature: signature,
+        };
+        if (htmlValue !== undefined) {
+            message.html = htmlValue;
+        } else {
+            delete message.html;
+            message.restoreFrame = true;
+        }
+        return message;
+    };
+    await measurePublication({
+        ...switchPage(2, 'warm-a', 'sig-warm-a1', initialHtml),
+        requestId: 20,
+    });
+    // Switch away: the large page's frame is stashed.
+    await measurePublication(
+        switchPage(3, 'warm-b', 'sig-warm-b1', largeMessageHtml(2, 200))
+    );
+    const restoreMs = await measurePublication(
+        switchPage(4, 'warm-a', 'sig-warm-a1', undefined)
+    );
+    assert.ok(
+        restoreMs <= conversationPerformanceBudgets.webviewWarmFrameRestoreMs,
+        `warm frame restore ${restoreMs}ms exceeds `
+            + `${conversationPerformanceBudgets.webviewWarmFrameRestoreMs}ms`
+    );
+    assert.equal(
+        await page.locator('[data-conversation-messages] > article').count(),
+        100,
+        'the restored frame brings back the full session DOM'
     );
 });
 

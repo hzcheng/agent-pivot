@@ -164,12 +164,20 @@ export interface ConversationViewerRequestSyncMessage {
     version: 1;
 }
 
+export interface ConversationViewerAppliedFrame {
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    token: string;
+}
+
 export interface ConversationViewerAppliedMessage {
     type: 'conversation-viewer-applied';
     version: 1;
     subscriptionGeneration: number;
     requestId: number;
     htmlSignature: string;
+    frames?: ConversationViewerAppliedFrame[];
 }
 
 export interface ConversationViewerFocusMessage {
@@ -298,11 +306,21 @@ export function parseConversationViewerMessage(
             'type', 'version', 'subscriptionGeneration', 'requestId',
             'htmlSignature',
         ])
-            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            && !hasExactKeys(value, [
+                'type', 'version', 'subscriptionGeneration', 'requestId',
+                'htmlSignature', 'frames',
+            ])) {
+            return undefined;
+        }
+        if (!isPositiveSafeInteger(value.subscriptionGeneration)
             || !isPositiveSafeInteger(value.requestId)
             || typeof value.htmlSignature !== 'string'
             || !value.htmlSignature
             || value.htmlSignature.length > 256) {
+            return undefined;
+        }
+        if (value.frames !== undefined
+            && !isAppliedFrameInventory(value.frames)) {
             return undefined;
         }
         return value as unknown as ConversationViewerAppliedMessage;
@@ -509,6 +527,23 @@ function isListedOperation(
     operations: readonly string[]
 ): boolean {
     return typeof value === 'string' && operations.includes(value);
+}
+
+function isAppliedFrameInventory(
+    value: unknown
+): value is ConversationViewerAppliedFrame[] {
+    return Array.isArray(value)
+        && value.length <= 16
+        && value.every(frame => isRecord(frame)
+            && hasExactKeys(frame, [
+                'projectId', 'provider', 'sessionId', 'token',
+            ])
+            && isConversationViewerTargetId(frame.projectId)
+            && isAiSessionProvider(frame.provider)
+            && isConversationViewerTargetId(frame.sessionId)
+            && typeof frame.token === 'string'
+            && frame.token.length > 0
+            && frame.token.length <= 256);
 }
 
 function hasOwn(value: object, key: string): boolean {

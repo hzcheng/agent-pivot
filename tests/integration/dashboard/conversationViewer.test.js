@@ -2281,65 +2281,132 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 offers a frame restore only for
             }
         ),
     });
+    const frameEntry = (sessionId, token) => ({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId,
+        token,
+    });
+    const ack = (publication, frames) => panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+        frames,
+    });
+    const lastPage = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
 
     await viewer.open(target('session-a', 'input-1'));
     const initial = decodeInitialPublication(panel.webview.html);
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: initial.subscriptionGeneration,
-        requestId: initial.requestId,
-        htmlSignature: initial.htmlSignature,
-    });
+    // Nothing is stashed in the Webview yet: an empty report.
+    await ack(initial, []);
 
-    // A session the Webview never acknowledged gets full HTML on switch.
+    // A session the Webview never reported gets full HTML on switch.
     await viewer.follow(target('session-b', 'input-1'));
-    let latest = panel.postedMessages.filter(message =>
-        message.type === 'conversation-viewer-page').at(-1);
+    let latest = lastPage();
     assert.equal(latest.html.includes('visible-session-b'), true);
     assert.equal(latest.restoreFrame, undefined);
+    const sessionBToken = latest.htmlSignature;
 
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: latest.subscriptionGeneration,
-        requestId: latest.requestId,
-        htmlSignature: latest.htmlSignature,
-    });
+    // The Webview reports it stashed session-a's frame with that token.
+    await ack(latest, [frameEntry('session-a', initial.htmlSignature)]);
 
-    // Switching back to session-a: its content is unchanged, and the Webview
-    // proved it built exactly this content, so the Host offers a frame
-    // restore instead of resending and reparsing the HTML.
+    // Switching back to session-a: its content is unchanged and the Webview
+    // proved it still holds the frame, so the Host offers a frame restore
+    // instead of resending and reparsing the HTML.
     await viewer.follow(target('session-a', 'input-1'));
-    latest = panel.postedMessages.filter(message =>
-        message.type === 'conversation-viewer-page').at(-1);
+    latest = lastPage();
     assert.equal(latest.html, undefined);
     assert.equal(latest.restoreFrame, true);
     assert.equal(latest.htmlSignature, initial.htmlSignature,
         'a reload of unchanged content must keep the same content token');
 
     // Content changed while away: the switch back must carry full HTML.
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: latest.subscriptionGeneration,
-        requestId: latest.requestId,
-        htmlSignature: latest.htmlSignature,
-    });
+    await ack(latest, [frameEntry('session-b', sessionBToken)]);
     await viewer.follow(target('session-b', 'input-1'));
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: panel.postedMessages.at(-1).subscriptionGeneration,
-        requestId: panel.postedMessages.at(-1).requestId,
-        htmlSignature: panel.postedMessages.at(-1).htmlSignature,
-    });
+    latest = lastPage();
+    assert.equal(latest.restoreFrame, true,
+        'session-b is on the reported list and unchanged');
+    await ack(latest, [frameEntry('session-a', initial.htmlSignature)]);
     changed = true;
     await viewer.follow(target('session-a', 'input-1'));
-    latest = panel.postedMessages.filter(message =>
-        message.type === 'conversation-viewer-page').at(-1);
+    latest = lastPage();
     assert.equal(latest.html.includes('changed-session-a'), true,
         'changed content must never be served a stale frame restore');
+    assert.equal(latest.restoreFrame, undefined);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 never offers a frame the Webview stopped reporting', async () => {
+    const ids = ['s-a', 's-b', 's-c', 's-d', 's-e', 's-f'];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1'],
+            { sourceRevision: `${sessionId}-r1` }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`,
+            { sourceRevision: request.expectedRevision }
+        ),
+    });
+    const frameEntry = (sessionId, token) => ({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId,
+        token,
+    });
+    const lastPage = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    const ack = (publication, frames) => panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+        frames,
+    });
+    // Simulated Webview holding at most four frames, stashing the outgoing
+    // session on every switch.
+    const tokens = new Map();
+    let stashed = [];
+    const reportedInventory = () => stashed.slice(-4)
+        .map(id => frameEntry(id, tokens.get(id)));
+
+    await viewer.open(target('s-a', 'input-1'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    tokens.set('s-a', initial.htmlSignature);
+    await ack(initial, []);
+
+    let previous = 's-a';
+    for (const id of ids.slice(1)) {
+        await viewer.follow(target(id, 'input-1'));
+        const publication = lastPage();
+        assert.equal(typeof publication.html, 'string',
+            `${id} is a first visit and must carry full HTML`);
+        tokens.set(id, publication.htmlSignature);
+        stashed = [...stashed.filter(entry => entry !== previous), previous];
+        await ack(publication, reportedInventory());
+        previous = id;
+    }
+    // The reported inventory now holds s-b..s-e; s-a was evicted from the
+    // Webview's four-frame cache.
+    await viewer.follow(target('s-a', 'input-1'));
+    let latest = lastPage();
+    assert.equal(typeof latest.html, 'string',
+        'an evicted frame must get full HTML, not a restoreFrame offer');
+    assert.equal(latest.restoreFrame, undefined);
+    tokens.set('s-a', latest.htmlSignature);
+    stashed = [...stashed.filter(entry => entry !== 's-f'), 's-f'];
+    await ack(latest, reportedInventory());
+
+    await viewer.follow(target('s-b', 'input-1'));
+    latest = lastPage();
+    assert.equal(typeof latest.html, 'string');
     assert.equal(latest.restoreFrame, undefined);
     viewer.dispose();
 });

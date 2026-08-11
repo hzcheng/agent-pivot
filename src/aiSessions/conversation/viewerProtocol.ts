@@ -299,9 +299,9 @@ export function parseConversationViewerMessage(
     }
     if (value.type === 'conversation-viewer-request-sync') {
         if (!hasExactKeys(value, [
-                'type', 'version', 'subscriptionGeneration',
-                'projectId', 'provider', 'sessionId',
-            ])
+            'type', 'version', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId',
+        ])
             || !isPositiveSafeInteger(value.subscriptionGeneration)
             || !isConversationViewerTargetId(value.projectId)
             || !isAiSessionProvider(value.provider)

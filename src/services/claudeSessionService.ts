@@ -45,6 +45,7 @@ export default class ClaudeSessionService {
     private cachedAt = 0;
     private sessionCache = new Map<string, { signature: string; session: CodexSession }>();
     private readonly sessionFilesById = new Map<string, string>();
+    private readonly duplicateSessionFileIds = new Set<string>();
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
@@ -65,18 +66,38 @@ export default class ClaudeSessionService {
             return null;
         }
         const normalizedCandidatePaths = normalizeAiSessionCandidatePaths(Array.from(candidatePaths));
+        // Fast path: a previous scan already located this session file. The
+        // full projects-tree scan below is far too expensive to repeat on
+        // every conversation load, refresh, and warmup prefetch.
+        const cached = !this.duplicateSessionFileIds.has(sessionId)
+            ? this.sessionFilesById.get(sessionId)
+            : null;
+        if (cached) {
+            if (!fs.existsSync(cached)) {
+                this.sessionFilesById.delete(sessionId);
+                this.lifecycleReader.delete(sessionId);
+            } else if (this.matchesConversationSourceCandidates(cached, sessionId, normalizedCandidatePaths)) {
+                return { providerHome: claudeHome, sourcePath: cached };
+            }
+        }
         const matches = this.getSessionFiles(path.join(claudeHome, 'projects'))
             .filter(sessionFile => path.basename(sessionFile) === `${sessionId}.jsonl`)
-            .filter(sessionFile => {
-                if (!normalizedCandidatePaths.length) {
-                    return true;
-                }
-                const cwd = this.readSessionCwd(sessionFile, sessionId);
-                return !!cwd && normalizedCandidatePaths.some(candidatePath => aiSessionPathContains(candidatePath, cwd));
-            });
+            .filter(sessionFile => this.matchesConversationSourceCandidates(sessionFile, sessionId, normalizedCandidatePaths));
         return matches.length === 1
             ? { providerHome: claudeHome, sourcePath: matches[0] }
             : null;
+    }
+
+    private matchesConversationSourceCandidates(
+        sessionFile: string,
+        sessionId: string,
+        normalizedCandidatePaths: readonly string[]
+    ): boolean {
+        if (!normalizedCandidatePaths.length) {
+            return true;
+        }
+        const cwd = this.readSessionCwd(sessionFile, sessionId);
+        return !!cwd && normalizedCandidatePaths.some(candidatePath => aiSessionPathContains(candidatePath, cwd));
     }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): ClaudeSessionReadResult {
@@ -316,9 +337,17 @@ export default class ClaudeSessionService {
 
         for (let entry of entries) {
             let sessionId = this.getSessionIdFromFileName(path.basename(entry.filePath));
-            if (sessionId) {
-                this.sessionFilesById.set(sessionId, entry.filePath);
+            if (!sessionId) {
+                continue;
             }
+            const known = this.sessionFilesById.get(sessionId);
+            if (known && known !== entry.filePath) {
+                // The same session id in two project directories is ambiguous:
+                // resolveConversationSource must keep declining it instead of
+                // trusting whichever file the cache happens to hold.
+                this.duplicateSessionFileIds.add(sessionId);
+            }
+            this.sessionFilesById.set(sessionId, entry.filePath);
         }
 
         return entries;

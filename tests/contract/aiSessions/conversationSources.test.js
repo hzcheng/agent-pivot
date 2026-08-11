@@ -91,6 +91,60 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 resolves known sources and rej
     });
 });
 
+test('claude conversation source resolution reuses the scanned session-file index', async t => {
+    await withProviderFixture(t, 'claude', async () => {
+        const claude = new ClaudeSessionService();
+
+        // First resolve scans the projects tree and indexes the session file.
+        const first = claude.resolveConversationSource(knownSessionId, ['/fixtures/project']);
+        assert.match(first.sourcePath, /11111111-1111-4111-8111-111111111111\.jsonl$/);
+
+        let scans = 0;
+        const originalGetSessionFiles = claude.getSessionFiles;
+        claude.getSessionFiles = (...args) => {
+            scans++;
+            return originalGetSessionFiles.apply(claude, args);
+        };
+
+        // Indexed resolves must not rescan the tree on every conversation load.
+        const second = claude.resolveConversationSource(knownSessionId, ['/fixtures/project']);
+        assert.equal(second.sourcePath, first.sourcePath);
+        assert.equal(scans, 0);
+
+        // A candidate-path mismatch still declines through the full scan.
+        assert.equal(claude.resolveConversationSource(knownSessionId, ['/unmatched/workspace']), null);
+        assert.equal(scans, 1);
+        scans = 0;
+
+        // A disappeared file invalidates the index entry and rescans.
+        await fs.promises.rm(first.sourcePath);
+        assert.equal(claude.resolveConversationSource(knownSessionId, ['/fixtures/project']), null);
+        assert.equal(scans, 1);
+    });
+});
+
+test('claude conversation source resolution keeps declining indexed duplicates', async t => {
+    await withProviderFixture(t, 'claude', async providerHome => {
+        const claude = new ClaudeSessionService();
+        const duplicateId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        await createClaudeDuplicateFixture(providerHome, duplicateId, [
+            '/fixtures/project-a',
+            '/fixtures/project-b',
+        ]);
+
+        // The first resolve scans, records the duplicate, and declines.
+        assert.equal(claude.resolveConversationSource(duplicateId, []), null);
+        // A cached fast path must never resolve an ambiguous session id.
+        assert.equal(claude.resolveConversationSource(duplicateId, []), null);
+
+        // Once only one file remains, a rescan resolves it again.
+        const remaining = path.join(providerHome, 'projects', '-duplicate-1', `${duplicateId}.jsonl`);
+        await fs.promises.rm(path.join(providerHome, 'projects', '-duplicate-0', `${duplicateId}.jsonl`));
+        const resolved = claude.resolveConversationSource(duplicateId, []);
+        assert.equal(resolved.sourcePath, remaining);
+    });
+});
+
 test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-002 revalidates opened files and distinguishes replacement from append continuation', async t => {
     const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'steward-conversation-identity-'));
     t.after(() => fs.promises.rm(sandbox, { recursive: true, force: true }));

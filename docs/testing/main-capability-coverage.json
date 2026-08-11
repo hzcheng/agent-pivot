@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "47cb385c19b44554d7598f081caf38ffb873cf36",
+        "head": "83910c204b19ba0daace9cce51b8d2c741dcca63",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -269,7 +269,8 @@
             "a514850f0b36137007a6e25aca0e093114aaa5cd",
             "aed096b76c6458b956a0749528d68c634381fb55",
             "2798f545688f46f633d18a95d20f16400f13db27",
-            "639b4b720bb2987becc200334d21944b71d61598"
+            "639b4b720bb2987becc200334d21944b71d61598",
+            "7e6bbfd491daa0e36072bb6a55d3564eed4ee731"
         ]
     },
     "capabilities": [
@@ -521,7 +522,8 @@
                 "6b1d7d6b074fef459a085181c4cc5f16b955831b",
                 "d2b9b3ad677d546a781265603fad088101616133",
                 "680cda193f6fb74064502fe463da5fb9b5154251",
-                "660ab41e2ff0da8f0c4b0f0abeed8a2a97ee87e1"
+                "660ab41e2ff0da8f0c4b0f0abeed8a2a97ee87e1",
+                "83910c204b19ba0daace9cce51b8d2c741dcca63"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",

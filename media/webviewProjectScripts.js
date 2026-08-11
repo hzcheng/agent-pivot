@@ -265,7 +265,7 @@ function initProjects() {
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
     var aiSessionPresentationDom = initAiSessionPresentationDom({
-        aiSessionControls: aiSessionControls,
+        presentationStateStore: aiSessionPresentationStateStore,
     });
     var presentationTransactions = initAiSessionPresentationTransactions({
         isValidAiSessionPresentationState: aiSessionPresentationStateStore.isValid,

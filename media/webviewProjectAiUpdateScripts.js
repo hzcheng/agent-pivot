@@ -63,6 +63,10 @@ function initAiSessionPresentationStateStore(options) {
         return currentPresentation;
     }
 
+    function getFocusedTarget() {
+        return currentPresentation ? currentPresentation.focusedTarget : null;
+    }
+
     function getAttentionEventIds(provider, sessionId) {
         if (!currentPresentation) return [];
         var sessionKey = provider + ':' + sessionId;
@@ -76,6 +80,7 @@ function initAiSessionPresentationStateStore(options) {
         adopt: adopt,
         getAttentionEventIds: getAttentionEventIds,
         getCurrent: getCurrent,
+        getFocusedTarget: getFocusedTarget,
         isValid: isValid,
     };
 }
@@ -218,71 +223,55 @@ function initAiSessionPresentationDom(options) {
     'use strict';
 
     options = options || {};
-    var aiSessionControls = options.aiSessionControls;
+    var presentationStateStore = options.presentationStateStore;
 
-    function syncActiveAiSessionProjectionDom(adoptRenderedFocus, revealFocused) {
-        if (adoptRenderedFocus !== false) {
-            var focusedRow = document.querySelector(
-                '.codex-session-row[data-session-focused][data-session-provider]'
+    function syncActiveAiSessionProjectionDom(hasMatchingWorkspace, revealFocused) {
+        var focusedTarget = hasMatchingWorkspace
+            ? presentationStateStore.getFocusedTarget()
+            : null;
+        var projectedFocusedRow = null;
+        document.querySelectorAll(
+            '.codex-session-row[data-session-provider][data-session-id],'
+                + '.codex-session-row[data-session-provider][data-pending-id]'
+        ).forEach(row => {
+            var providerMatches = focusedTarget
+                && row.getAttribute('data-session-provider') === focusedTarget.provider;
+            var focused = providerMatches && (
+                (typeof focusedTarget.sessionId === 'string'
+                    && row.getAttribute('data-session-id') === focusedTarget.sessionId)
+                || (typeof focusedTarget.pendingId === 'string'
+                    && row.getAttribute('data-pending-id') === focusedTarget.pendingId)
             );
-            var provider = focusedRow && focusedRow.getAttribute('data-session-provider');
-            aiSessionControls.activeAiSessionTerminalState.provider =
-                aiSessionControls.isAiSessionProvider(provider) ? provider : null;
-            aiSessionControls.activeAiSessionTerminalState.sessionId = focusedRow
-                ? focusedRow.getAttribute('data-session-id') : null;
-            aiSessionControls.activeAiSessionTerminalState.pendingId = focusedRow
-                ? focusedRow.getAttribute('data-pending-id') : null;
-        } else {
-            var projectedFocusedRow = null;
-            document.querySelectorAll(
-                '.codex-session-row[data-session-provider][data-session-id],'
-                    + '.codex-session-row[data-session-provider][data-pending-id]'
-            ).forEach(row => {
-                var providerMatches = row.getAttribute('data-session-provider')
-                    === aiSessionControls.activeAiSessionTerminalState.provider;
-                var focused = providerMatches && (
-                    (aiSessionControls.activeAiSessionTerminalState.sessionId !== null
-                        && row.getAttribute('data-session-id')
-                            === aiSessionControls.activeAiSessionTerminalState.sessionId)
-                    || (aiSessionControls.activeAiSessionTerminalState.pendingId !== null
-                        && row.getAttribute('data-pending-id')
-                            === aiSessionControls.activeAiSessionTerminalState.pendingId)
+            if (focused) projectedFocusedRow = row;
+            row.toggleAttribute('data-session-focused', focused);
+            var focusedConversation = focused && row.hasAttribute('data-session-id');
+            row.toggleAttribute('data-ai-session-active-terminal', focusedConversation);
+            var primaryAction = row.querySelector('.ai-session-primary-action');
+            if (primaryAction) {
+                var actionState = focusedConversation ? 'conversation' : 'focus';
+                var actionAriaLabel = primaryAction.getAttribute(
+                    'data-' + actionState + '-aria-label'
                 );
-                if (focused) projectedFocusedRow = row;
-                row.toggleAttribute(
-                    'data-session-focused',
-                    focused
+                var actionTitle = primaryAction.getAttribute(
+                    'data-' + actionState + '-title'
                 );
-                var primaryAction = row.querySelector('.ai-session-primary-action');
-                if (primaryAction) {
-                    var focusedConversation = focused && row.hasAttribute('data-session-id');
-                    var actionState = focusedConversation ? 'conversation' : 'focus';
-                    var actionAriaLabel = primaryAction.getAttribute(
-                        'data-' + actionState + '-aria-label'
-                    );
-                    var actionTitle = primaryAction.getAttribute(
-                        'data-' + actionState + '-title'
-                    );
-                    if (actionAriaLabel) primaryAction.setAttribute('aria-label', actionAriaLabel);
-                    if (actionTitle) primaryAction.setAttribute('title', actionTitle);
-                }
-                var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
-                if (focusedConversation
-                    && primaryAction && !conversationHint) {
-                    conversationHint = document.createElement('span');
-                    conversationHint.className = 'ai-session-open-conversation-hint';
-                    conversationHint.setAttribute('aria-hidden', 'true');
-                    conversationHint.textContent = '›';
-                    primaryAction.appendChild(conversationHint);
-                } else if (!focused && conversationHint) {
-                    conversationHint.remove();
-                }
-            });
-            if (projectedFocusedRow && revealFocused) {
-                projectedFocusedRow.scrollIntoView({ block: 'nearest' });
+                if (actionAriaLabel) primaryAction.setAttribute('aria-label', actionAriaLabel);
+                if (actionTitle) primaryAction.setAttribute('title', actionTitle);
             }
+            var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
+            if (focusedConversation && primaryAction && !conversationHint) {
+                conversationHint = document.createElement('span');
+                conversationHint.className = 'ai-session-open-conversation-hint';
+                conversationHint.setAttribute('aria-hidden', 'true');
+                conversationHint.textContent = '›';
+                primaryAction.appendChild(conversationHint);
+            } else if (!focused && conversationHint) {
+                conversationHint.remove();
+            }
+        });
+        if (projectedFocusedRow && revealFocused) {
+            projectedFocusedRow.scrollIntoView({ block: 'nearest' });
         }
-        aiSessionControls.syncActiveAiSessionTerminalDom();
     }
     function setAiSessionAttentionDom(row, eventIds, needsAttention) {
         row.toggleAttribute('data-session-needs-attention', needsAttention);
@@ -467,6 +456,7 @@ function initAiSessionPresentationDom(options) {
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
                 + '[data-open-workspace-current]'
         ));
+        syncActiveAiSessionProjectionDom(currentCards.length > 0, message.revealFocused);
         if (!currentCards.length) return;
         var projectDiv = currentCards.find(card => card.hasAttribute('data-current-workspace'));
         var presentations = {};
@@ -477,11 +467,6 @@ function initAiSessionPresentationDom(options) {
         message.attentionSessions.forEach(session => {
             attentionEvents[session.sessionKey] = session.eventIds.slice();
         });
-        var focused = message.focusedTarget;
-        aiSessionControls.activeAiSessionTerminalState.provider = focused ? focused.provider : null;
-        aiSessionControls.activeAiSessionTerminalState.sessionId = focused?.sessionId || null;
-        aiSessionControls.activeAiSessionTerminalState.pendingId = focused?.pendingId || null;
-        syncActiveAiSessionProjectionDom(false, message.revealFocused);
         projectDiv?.querySelectorAll(
             '.codex-session-row[data-session-provider][data-session-id]'
         ).forEach(row => {

@@ -107,6 +107,38 @@ function stringArgument(argument) {
         : undefined;
 }
 
+function accessMemberName(node) {
+    if (ts.isPropertyAccessExpression(node)) return node.name.text;
+    if (ts.isElementAccessExpression(node)) return stringArgument(node.argumentExpression);
+    return undefined;
+}
+
+function bindingMemberName(node) {
+    if (!ts.isBindingElement(node)) return undefined;
+    const propertyName = node.propertyName || node.name;
+    if (ts.isIdentifier(propertyName)) return propertyName.text;
+    const literalName = stringArgument(propertyName);
+    if (literalName !== undefined) return literalName;
+    return ts.isComputedPropertyName(propertyName)
+        ? stringArgument(propertyName.expression)
+        : undefined;
+}
+
+function datasetMemberName(node) {
+    if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) {
+        return undefined;
+    }
+    const datasetExpression = node.expression;
+    const isDataset = ts.isPropertyAccessExpression(datasetExpression)
+        ? datasetExpression.name.text === 'dataset'
+        : ts.isElementAccessExpression(datasetExpression)
+            && stringArgument(datasetExpression.argumentExpression) === 'dataset';
+    if (!isDataset) return undefined;
+    return ts.isPropertyAccessExpression(node)
+        ? node.name.text
+        : stringArgument(node.argumentExpression);
+}
+
 function normalizedAstText(node, sourceFile) {
     return node.getText(sourceFile).replace(/\s+/g, ' ').trim();
 }
@@ -851,6 +883,21 @@ const guards = {
             risk
         );
         const aiSessionControlsSource = aiSessionControlsWebview.getFullText();
+        const projectInitOwner = uniqueAstNode(
+            projectWebview,
+            node => ts.isFunctionDeclaration(node) && node.name?.text === 'initProjects',
+            this.id,
+            risk,
+            'Dashboard Projects composition owner'
+        );
+        const aiSessionControlsOwner = uniqueAstNode(
+            aiSessionControlsWebview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'initProjectAiSessionControls',
+            this.id,
+            risk,
+            'AI session controls owner'
+        );
         const presentationStateOwner = uniqueAstNode(
             webview,
             node => ts.isFunctionDeclaration(node)
@@ -863,6 +910,7 @@ const guards = {
             'isValid',
             'adopt',
             'getCurrent',
+            'getFocusedTarget',
             'getAttentionEventIds',
         ];
         const presentationStateHelpers = presentationStateHelperNames.map(name =>
@@ -896,6 +944,35 @@ const guards = {
         const adoptPresentationState = presentationStateHelpers[
             presentationStateHelperNames.indexOf('adopt')
         ];
+        const getFocusedTargetState = presentationStateHelpers[
+            presentationStateHelperNames.indexOf('getFocusedTarget')
+        ];
+        const focusedTargetStateReturns = [];
+        walk(getFocusedTargetState, node => {
+            if (ts.isReturnStatement(node)) {
+                focusedTargetStateReturns.push(node);
+            }
+        });
+        const focusedTargetStateReturn = focusedTargetStateReturns.length === 1
+            ? focusedTargetStateReturns[0].expression
+            : null;
+        const isCurrentPresentationFocusedTarget = expression =>
+            ts.isPropertyAccessExpression(expression)
+                && ts.isIdentifier(expression.expression)
+                && expression.expression.text === 'currentPresentation'
+                && expression.name.text === 'focusedTarget';
+        const hasValidFocusedTargetReturn = focusedTargetStateReturn
+            && ((ts.isConditionalExpression(focusedTargetStateReturn)
+                && ts.isIdentifier(focusedTargetStateReturn.condition)
+                && focusedTargetStateReturn.condition.text === 'currentPresentation'
+                && isCurrentPresentationFocusedTarget(focusedTargetStateReturn.whenTrue)
+                && focusedTargetStateReturn.whenFalse.kind === ts.SyntaxKind.NullKeyword)
+                || (ts.isBinaryExpression(focusedTargetStateReturn)
+                    && focusedTargetStateReturn.operatorToken.kind
+                        === ts.SyntaxKind.QuestionQuestionToken
+                    && isCurrentPresentationFocusedTarget(focusedTargetStateReturn.left)
+                    && focusedTargetStateReturn.left.questionDotToken
+                    && focusedTargetStateReturn.right.kind === ts.SyntaxKind.NullKeyword));
         const currentPresentationAssignments = [];
         walk(presentationStateOwner, node => {
             if (ts.isAssignmentExpression(node, false)
@@ -950,6 +1027,66 @@ const guards = {
         const webviewScriptSources = webviewScriptFileNames.map(fileName =>
             fs.readFileSync(path.join(webviewScriptsDirectory, fileName), 'utf8')
         );
+        const focusMarkerReadOwners = [];
+        const focusedTargetStoreCalls = [];
+        const presentationStateAdoptCalls = [];
+        const presentationStateAdoptMembers = [];
+        const presentationStateAdoptBindings = [];
+        for (const fileName of webviewScriptFileNames) {
+            const relativePath = path.join('src', 'webview', fileName);
+            const sourceFile = relativePath === webview.fileName
+                ? webview
+                : relativePath === projectWebview.fileName
+                    ? projectWebview
+                    : parseJavascript(root, relativePath, this.id, risk);
+            walk(sourceFile, node => {
+                if ((ts.isPropertyAccessExpression(node)
+                    || ts.isElementAccessExpression(node))
+                    && accessMemberName(node) === 'adopt') {
+                    presentationStateAdoptMembers.push({ node, sourceFile });
+                }
+                if (bindingMemberName(node) === 'adopt') {
+                    presentationStateAdoptBindings.push({ node, sourceFile });
+                }
+                const datasetField = datasetMemberName(node);
+                if (datasetField === 'sessionFocused'
+                    || datasetField === 'aiSessionActiveTerminal') {
+                    const isWrite = ts.isBinaryExpression(node.parent)
+                        && node.parent.left === node
+                        && ts.isAssignmentExpression(node.parent, false);
+                    if (!isWrite) {
+                        let owner = node.parent;
+                        while (owner && !ts.isFunctionDeclaration(owner)) {
+                            owner = owner.parent;
+                        }
+                        focusMarkerReadOwners.push(owner?.name?.text || null);
+                    }
+                }
+                if (!ts.isCallExpression(node)) {
+                    return;
+                }
+                const method = accessMemberName(node.expression);
+                if (!method) return;
+                if (['querySelector', 'querySelectorAll', 'closest', 'matches', 'hasAttribute',
+                    'getAttribute']
+                    .includes(method)
+                    && node.arguments[0]?.getText(sourceFile).includes(
+                        'data-session-focused'
+                    )) {
+                    let owner = node.parent;
+                    while (owner && !ts.isFunctionDeclaration(owner)) {
+                        owner = owner.parent;
+                    }
+                    focusMarkerReadOwners.push(owner?.name?.text || null);
+                }
+                if (method === 'getFocusedTarget') {
+                    focusedTargetStoreCalls.push({ node, sourceFile });
+                }
+                if (method === 'adopt') {
+                    presentationStateAdoptCalls.push({ node, sourceFile });
+                }
+            });
+        }
         if (presentationStateHelpers.some(helper =>
             helper.pos < presentationStateOwner.pos || helper.end > presentationStateOwner.end)
             || currentPresentationState.initializer?.getText(webview) !== 'null'
@@ -991,6 +1128,22 @@ const guards = {
                 webviewScriptSources.some(source => source.includes(globalName)))) {
             fail(this.id, risk,
                 'every accepted Session Presentation and attention owner lookup must belong to the single state store');
+        }
+        if (!presentationStateOwner.getText(webview).includes(
+            'function getFocusedTarget()'
+        ) || !hasValidFocusedTargetReturn
+            || webviewScriptSources.some(source =>
+                source.includes('activeAiSessionTerminalState'))
+            || focusMarkerReadOwners.length !== 4
+            || ![
+                'focusAiSessionConversationOrigin',
+                'getAiSessionCardActivation',
+                'getFocusedAiSessionCardIdentity',
+                'revealChangedFocusedAiSessionCard',
+            ].every(owner => focusMarkerReadOwners.filter(candidate =>
+                candidate === owner).length === 1)) {
+            fail(this.id, risk,
+                'the accepted Presentation focused target must be the only Webview focus state');
         }
         const presentationDomOwner = uniqueAstNode(
             webview,
@@ -1041,12 +1194,48 @@ const guards = {
         const presentationDomOptions = presentationDomCalls.length === 1
             ? presentationDomCalls[0][0]
             : null;
-        const aiSessionControlsOption = presentationDomOptions
+        const presentationDomStateStoreOption = presentationDomOptions
             && ts.isObjectLiteralExpression(presentationDomOptions)
             ? presentationDomOptions.properties.find(property =>
                 ts.isPropertyAssignment(property)
-                    && property.name.getText(projectWebview) === 'aiSessionControls')
+                    && property.name.getText(projectWebview) === 'presentationStateStore')
             : null;
+        const focusProjectionOwner = presentationDomHelpers[0];
+        const focusProjectionSource = focusProjectionOwner.getText(webview);
+        const focusedTargetProjectionCalls = focusedTargetStoreCalls.filter(({ node, sourceFile }) =>
+            sourceFile.fileName === webview.fileName
+                && node.pos >= focusProjectionOwner.pos
+                && node.end <= focusProjectionOwner.end
+        );
+        const focusedTargetDomOwnerCalls = focusedTargetStoreCalls.filter(({ node, sourceFile }) =>
+            sourceFile.fileName === webview.fileName
+                && node.pos >= presentationDomOwner.pos
+                && node.end <= presentationDomOwner.end
+        );
+        const focusedTargetControlsCalls = focusedTargetStoreCalls.filter(({ node, sourceFile }) =>
+            sourceFile.fileName === aiSessionControlsWebview.fileName
+                && node.pos >= aiSessionControlsOwner.pos
+                && node.end <= aiSessionControlsOwner.end
+        );
+        const focusedTargetProjectInitCalls = focusedTargetStoreCalls.filter(({ node, sourceFile }) =>
+            sourceFile.fileName === projectWebview.fileName
+                && node.pos >= projectInitOwner.pos
+                && node.end <= projectInitOwner.end
+        );
+        const focusedTargetProjectionState = findVariable(
+            focusProjectionOwner,
+            'focusedTarget',
+            this.id,
+            risk
+        );
+        const focusedTargetProjectionAssignments = [];
+        walk(focusProjectionOwner, node => {
+            if (ts.isAssignmentExpression(node, false)
+                && ts.isIdentifier(node.left)
+                && node.left.text === 'focusedTarget') {
+                focusedTargetProjectionAssignments.push(node);
+            }
+        });
         const applyValidatedPresentation = uniqueAstNode(
             projectWebview,
             node => ts.isFunctionDeclaration(node)
@@ -1067,6 +1256,7 @@ const guards = {
         );
         const protectedPresentationAttributes = new Set([
             'data-session-focused',
+            'data-ai-session-active-terminal',
             'data-session-needs-attention',
             'data-ai-session-attention',
             'data-session-event-id',
@@ -1097,11 +1287,14 @@ const guards = {
                     ? projectWebview
                     : parseJavascript(root, relativePath, this.id, risk);
             walk(sourceFile, node => {
-                if (ts.isCallExpression(node)
-                    && ts.isPropertyAccessExpression(node.expression)) {
-                    const method = node.expression.name.text;
-                    const marker = stringArgument(node.arguments[0]);
+                if (ts.isCallExpression(node)) {
+                    const method = accessMemberName(node.expression);
+                    const markerArgument = method === 'setAttributeNS'
+                        ? node.arguments[1]
+                        : node.arguments[0];
+                    const marker = stringArgument(markerArgument);
                     if ((method === 'setAttribute'
+                            || method === 'setAttributeNS'
                             || method === 'toggleAttribute'
                             || method === 'removeAttribute')
                         && protectedPresentationAttributes.has(marker)) {
@@ -1110,6 +1303,26 @@ const guards = {
                     if (method === 'toggle' && marker === 'session-running') {
                         presentationMutationNodes.push({ node, sourceFile });
                     }
+                    if (node.expression.getText(sourceFile) === 'Object.assign'
+                        && (ts.isPropertyAccessExpression(node.arguments[0])
+                            || ts.isElementAccessExpression(node.arguments[0]))
+                        && accessMemberName(node.arguments[0]) === 'dataset'
+                        && node.arguments[1]
+                        && ts.isObjectLiteralExpression(node.arguments[1])
+                        && node.arguments[1].properties.some(property =>
+                            property.name
+                                && ['sessionFocused', 'aiSessionActiveTerminal']
+                                    .includes(ts.isIdentifier(property.name)
+                                        ? property.name.text
+                                        : stringArgument(property.name)))) {
+                        presentationMutationNodes.push({ node, sourceFile });
+                    }
+                }
+                if (ts.isBinaryExpression(node)
+                    && ts.isAssignmentExpression(node, false)
+                    && (datasetMemberName(node.left) === 'sessionFocused'
+                        || datasetMemberName(node.left) === 'aiSessionActiveTerminal')) {
+                    presentationMutationNodes.push({ node, sourceFile });
                 }
                 if (ts.isBinaryExpression(node)
                     && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
@@ -1130,14 +1343,56 @@ const guards = {
                 !== 'applyAiSessionPresentationDom'
             || !presentationDomOptions
             || !ts.isObjectLiteralExpression(presentationDomOptions)
-            || !aiSessionControlsOption
-            || !ts.isPropertyAssignment(aiSessionControlsOption)
-            || aiSessionControlsOption.initializer.getText(projectWebview)
-                !== 'aiSessionControls'
+            || !presentationDomStateStoreOption
+            || !ts.isPropertyAssignment(presentationDomStateStoreOption)
+            || presentationDomStateStoreOption.initializer.getText(projectWebview)
+                !== 'aiSessionPresentationStateStore'
+            || !focusedTargetProjectionState.initializer
+            || !ts.isConditionalExpression(focusedTargetProjectionState.initializer)
+            || !ts.isIdentifier(focusedTargetProjectionState.initializer.condition)
+            || focusedTargetProjectionState.initializer.condition.text
+                !== 'hasMatchingWorkspace'
+            || !ts.isCallExpression(focusedTargetProjectionState.initializer.whenTrue)
+            || focusedTargetProjectionState.initializer.whenTrue.arguments.length !== 0
+            || !ts.isPropertyAccessExpression(
+                focusedTargetProjectionState.initializer.whenTrue.expression
+            )
+            || focusedTargetProjectionState.initializer.whenTrue.expression.getText(webview)
+                !== 'presentationStateStore.getFocusedTarget'
+            || focusedTargetProjectionState.initializer.whenFalse.kind
+                !== ts.SyntaxKind.NullKeyword
+            || focusedTargetProjectionAssignments.length !== 0
+            || focusedTargetProjectionCalls.length !== 1
+            || focusedTargetDomOwnerCalls.length !== 1
+            || focusedTargetControlsCalls.length !== 0
+            || focusedTargetProjectInitCalls.length !== 0
+            || focusProjectionSource.includes('[data-session-focused]')
+            || focusProjectionOwner.parameters.length !== 2
+            || focusProjectionOwner.parameters[0].name.getText(webview)
+                !== 'hasMatchingWorkspace'
+            || focusProjectionOwner.parameters[1].name.getText(webview) !== 'revealFocused'
             || callArguments(
                 applyValidatedPresentation,
                 'aiSessionPresentationDom.apply'
             ).length !== 1
+            || presentationStateAdoptMembers.filter(({ sourceFile }) =>
+                sourceFile.fileName === projectWebview.fileName).length !== 1
+            || presentationStateAdoptMembers.some(({ sourceFile }) =>
+                sourceFile.fileName === webview.fileName
+                    || sourceFile.fileName === aiSessionControlsWebview.fileName)
+            || presentationStateAdoptBindings.some(({ sourceFile }) =>
+                sourceFile.fileName === projectWebview.fileName
+                    || sourceFile.fileName === webview.fileName
+                    || sourceFile.fileName === aiSessionControlsWebview.fileName)
+            || presentationStateAdoptCalls.filter(({ node, sourceFile }) =>
+                sourceFile.fileName === projectWebview.fileName
+                    && node.pos >= applyValidatedPresentation.pos
+                    && node.end <= applyValidatedPresentation.end
+                    && (ts.isPropertyAccessExpression(node.expression)
+                        || ts.isElementAccessExpression(node.expression))
+                    && ts.isIdentifier(node.expression.expression)
+                    && node.expression.expression.text
+                        === 'aiSessionPresentationStateStore').length !== 1
             || adoptPresentationIndex < 0
             || projectPresentationIndex <= adoptPresentationIndex
             || reconcileAcknowledgementsIndex <= projectPresentationIndex
@@ -1145,7 +1400,7 @@ const guards = {
                 callArguments(presentationApplyOwner, name).length < 1)
             || !presentationApplySource.includes('[data-current-workspace]')
             || !presentationApplySource.includes('[data-open-workspace-current]')
-            || presentationMutationNodes.length !== 27
+            || presentationMutationNodes.length !== 28
             || presentationMutationNodes.some(({ node, sourceFile }) =>
                 sourceFile.fileName !== webview.fileName
                     || node.pos < presentationDomOwner.pos

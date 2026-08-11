@@ -113,6 +113,33 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 complete production fixture sa
     validateArchitectureGuards(copyGuardFixture(t));
 });
 
+test('ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001 accepts an equivalent focused target getter', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/webview/webviewProjectAiUpdateScripts.js',
+        source => replaceFixtureSource(
+            source,
+            'return currentPresentation ? currentPresentation.focusedTarget : null;',
+            'return currentPresentation?.focusedTarget ?? null;'
+        )
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001'],
+    });
+});
+
+test('ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001 permits unrelated focused target methods', t => {
+    const root = copyGuardFixture(
+        t,
+        'src/webview/webviewProjectContextMenuScripts.js',
+        source => `${source}\nfunction readUnrelatedFocusedTarget(controller) {\n`
+            + '    return controller.getFocusedTarget();\n}\n'
+    );
+    validateArchitectureGuards(root, {
+        ids: ['ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001'],
+    });
+});
+
 test('ARCH-CURRENT-WORKSPACE-SESSION-AUTHORITY-001 rejects scope identity at the current-card authority boundary', t => {
     const root = copyGuardFixture(
         t,
@@ -949,6 +976,291 @@ for (const mutation of [
             source,
             "    'use strict';",
             "    'use strict';\n\n    window.__agentPivotAttentionSessionEvents = {};"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'the accepted Presentation focused target must be the only Webview focus state',
+        mutate: source => replaceFixtureSource(
+            source,
+            'return currentPresentation ? currentPresentation.focusedTarget : null;',
+            'return null;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'the accepted Presentation focused target must be the only Webview focus state',
+        mutate: source => replaceFixtureSource(
+            source,
+            'return currentPresentation ? currentPresentation.focusedTarget : null;',
+            'return null && currentPresentation.focusedTarget;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'the accepted Presentation focused target must be the only Webview focus state',
+        mutate: source => replaceFixtureSource(
+            source,
+            "    'use strict';",
+            "    'use strict';\n\n    var activeAiSessionTerminalState = {};"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'the accepted Presentation focused target must be the only Webview focus state',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'var focusedAiSessionState = {};\n\n'
+                + 'function captureFocusedAiSessionAttribute() {\n'
+                + "    var row = Array.from(document.querySelectorAll('.codex-session-row'))\n"
+                + "        .find(candidate => candidate.getAttribute('data-session-focused') !== null);\n"
+                + "    focusedAiSessionState.provider = row?.getAttribute('data-session-provider');\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'the accepted Presentation focused target must be the only Webview focus state',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'var focusedAiSessionState = {};\n\n'
+                + 'function captureFocusedAiSessionDataset() {\n'
+                + "    var row = Array.from(document.querySelectorAll('.codex-session-row'))\n"
+                + '        .find(candidate => candidate.dataset.sessionFocused !== undefined);\n'
+                + '    focusedAiSessionState.provider = row?.dataset.sessionProvider;\n'
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'the accepted Presentation focused target must be the only Webview focus state',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'var focusedAiSessionState = {};\n\n'
+                + 'function captureFocusedAiSessionState() {\n'
+                + "    var row = document.querySelector('[data-session-focused]');\n"
+                + "    focusedAiSessionState.provider = row?.getAttribute('data-session-provider');\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'presentationStateStore: aiSessionPresentationStateStore,',
+            'presentationStateStore: null,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'if (!aiSessionPresentationStateStore.adopt(message)) return;',
+            'if (!aiSessionPresentationStateStore.adopt(message)) return;\n'
+                + '        var stateStoreAlias = aiSessionPresentationStateStore;\n'
+                + '        stateStoreAlias.adopt({ ...message, focusedTarget: null });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function initProjectAiSessionControls(options) {\n'
+                + '    var presentationStore = getAiSessionPresentationStateStore();\n'
+                + '    presentationStore.adopt({ revision: 999 });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'var presentationStateStore = options.presentationStateStore;',
+            'var presentationStateStore = options.presentationStateStore;\n'
+                + '    presentationStateStore.adopt({ revision: 999 });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function initProjectAiSessionControls(options) {\n'
+                + '    var presentationStore = getAiSessionPresentationStateStore();\n'
+                + '    presentationStore.adopt.call(presentationStore, { revision: 999 });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function initProjectAiSessionControls(options) {\n'
+                + '    var presentationStore = getAiSessionPresentationStateStore();\n'
+                + '    var { adopt } = presentationStore;\n'
+                + '    adopt({ revision: 999 });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function initProjectAiSessionControls(options) {\n'
+                + '    var presentationStore = getAiSessionPresentationStateStore();\n'
+                + "    var { 'adopt': accept } = presentationStore;\n"
+                + '    accept({ revision: 999 });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function initProjectAiSessionControls(options) {\n'
+                + '    var presentationStore = getAiSessionPresentationStateStore();\n'
+                + "    var { ['adopt']: accept } = presentationStore;\n"
+                + '    accept({ revision: 999 });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'var presentationStateStore = options.presentationStateStore;',
+            'var presentationStateStore = options.presentationStateStore;\n'
+                + '    var hiddenAdopt = presentationStateStore.adopt.bind(presentationStateStore);\n'
+                + '    hiddenAdopt({ revision: 999 });'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'the accepted Presentation focused target must be the only Webview focus state',
+        mutate: source => replaceFixtureSource(
+            source,
+            'presentationStateStore.getFocusedTarget()',
+            "document.querySelector('[data-session-focused]')"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'presentationStateStore.getFocusedTarget()',
+            'presentationStateStore.getFocusedTarget()\n'
+                + '                || presentationStateStore.getFocusedTarget()'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'var focusedTarget = hasMatchingWorkspace\n'
+                + '            ? presentationStateStore.getFocusedTarget()\n'
+                + '            : null;',
+            'var focusedTarget = hasMatchingWorkspace\n'
+                + '            ? presentationStateStore.getFocusedTarget()\n'
+                + '            : null;\n'
+                + '        focusedTarget = null;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'if (!aiSessionPresentationStateStore.adopt(message)) return;',
+            'if (!aiSessionPresentationStateStore.adopt(message)) return;\n'
+                + '        aiSessionPresentationStateStore.adopt(message);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function mutateActiveTerminal(row) {\n'
+                + "    row.toggleAttribute('data-ai-session-active-terminal', false);\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function mutateActiveTerminalObjectAssign(row) {\n'
+                + "    Object.assign(row.dataset, { sessionFocused: '', aiSessionActiveTerminal: '' });\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function mutateActiveTerminalNamespace(row) {\n'
+                + "    row.setAttributeNS(null, 'data-session-focused', '');\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function mutateActiveTerminalDataset(row) {\n'
+                + "    row.dataset.sessionFocused = '';\n"
+                + "    row.dataset.aiSessionActiveTerminal = '';\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
         ),
     },
     {

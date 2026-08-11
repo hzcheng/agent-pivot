@@ -244,6 +244,7 @@ function initProjects() {
 
 
     var groupCollapse = initProjectGroupCollapse();
+    var openTabSplit = typeof initOpenTabSplit === 'function' ? initOpenTabSplit() : null;
     var todoControls = initProjectTodoControls({
         syncCollapseButton: () => groupCollapse.syncCollapseButton(),
     });
@@ -837,6 +838,9 @@ function initProjects() {
                 window.__agentPivotAiSessionPresentationState ? false : true
             );
             updateStickyGroupHeaderOffset();
+            if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
+                openTabSplit.syncResizer();
+            }
             var renderedWorkspaceState = getWorkspaceUpdateDomState(document);
             window.vscode.postMessage({
                 type: 'workspace-rendered',
@@ -882,6 +886,9 @@ function initProjects() {
                 syncAiSessionProjectionDom(adoptOpenWorkspacePresentation);
             }
             updateStickyGroupHeaderOffset();
+            if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
+                openTabSplit.syncResizer();
+            }
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({
                 type: 'open-workspaces-rendered',

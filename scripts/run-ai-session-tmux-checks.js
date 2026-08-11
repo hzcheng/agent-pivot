@@ -9768,6 +9768,7 @@ function runTmuxWebviewExperienceChecks() {
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
+        'webviewOpenTabSplitScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',

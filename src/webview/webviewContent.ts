@@ -355,7 +355,12 @@ export function getOpenWorkspacesGroupContent(
     // collapse preference only to snap shut a few seconds later.
     const otherWindowsCollapsed = (otherWindowsStatus === 'ready'
         || otherWindowsStatus === 'connecting') && collapsed;
+    // The split resizer sits between the two window regions; the open-tab
+    // split script sizes the CURRENT WINDOW pane from it (mouse + keyboard)
+    // and the share survives authoritative innerHTML replacements because the
+    // wrapper node (which carries the share custom property) is preserved.
     return `${currentSection}
+<div class="open-tab-split-resizer" data-open-tab-split-resizer role="separator" tabindex="0" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-label="Resize window sections" title="Drag to resize window sections"></div>
 <div class="group steward-section open-other-windows-group ${otherWindowsCollapsed ? 'collapsed' : ''}" data-group-id="${OPEN_WORKSPACES_GROUP_ID}" data-virtual-group data-system-group="${OPEN_WORKSPACES_GROUP_ID}" data-other-windows-status="${otherWindowsStatus}">
     <div class="group-title steward-section-header steward-group-header">
         <span class="group-title-text" data-action="collapse">

@@ -464,6 +464,56 @@ function isWorkspaceUpdateDomConsistent(message, root) {
     return getWorkspaceUpdateDomState(root).currentWorkspaceCount === message.currentWorkspaceCount;
 }
 
+// The OPEN tab regions scroll independently, so an authoritative replacement
+// must carry each list's scroll position across the new nodes (same
+// anchor-based pattern as the todo/skills panes; the scroll-state helper is
+// optional and falls back to a clamped scrollTop).
+function captureOpenTabListScroll(list, itemSelector, keyAttribute) {
+    if (!list) {
+        return null;
+    }
+    if (window.__agentPivotScrollState
+        && typeof window.__agentPivotScrollState.capture === 'function') {
+        return {
+            anchor: window.__agentPivotScrollState.capture(list, {
+                itemSelector: itemSelector,
+                getKey: function (el) { return el.getAttribute(keyAttribute) || ''; },
+            }),
+        };
+    }
+    return { scrollTop: Math.max(0, Number(list.scrollTop) || 0) };
+}
+
+function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
+    if (!list || !saved) {
+        return;
+    }
+    if (saved.anchor && window.__agentPivotScrollState
+        && typeof window.__agentPivotScrollState.restore === 'function'
+        && window.__agentPivotScrollState.restore(list, saved.anchor, {
+            itemSelector: itemSelector,
+            getKey: function (el) { return el.getAttribute(keyAttribute) || ''; },
+        })) {
+        return;
+    }
+    var fallbackTop = saved.anchor ? saved.anchor.scrollTop : saved.scrollTop;
+    var maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+    list.scrollTop = Math.min(Math.max(0, Number(fallbackTop) || 0), maxScrollTop);
+}
+
+var OPEN_TAB_CURRENT_LIST_SELECTOR = '.open-current-workspace-group .group-list';
+var OPEN_TAB_CURRENT_ITEM_SELECTOR = '.workspace-card[data-workspace-scope-identity]';
+var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-other-windows-group .group-list';
+var OPEN_TAB_OTHER_ITEM_SELECTOR = '.workspace-card[data-workspace-navigation-identity]';
+
+// Minimal test doubles may not implement querySelector — treat them as
+// "no scrollable list" instead of throwing mid-replacement.
+function queryOpenTabList(root, selector) {
+    return root && typeof root.querySelector === 'function'
+        ? root.querySelector(selector)
+        : null;
+}
+
 function applyWorkspaceUpdate(message, options) {
     if (!message
         || message.type !== 'workspace-updated'
@@ -493,7 +543,18 @@ function applyWorkspaceUpdate(message, options) {
     }
 
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(currentGroup);
+    var currentListScroll = captureOpenTabListScroll(
+        queryOpenTabList(currentGroup, '.group-list'),
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
     currentGroup.replaceWith(replacement);
+    restoreOpenTabListScroll(
+        queryOpenTabList(replacement, '.group-list'),
+        currentListScroll,
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(replacement, window.vscode);
     }
@@ -674,9 +735,20 @@ function applyOpenWorkspacesUpdate(message) {
         ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
         : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
+    var otherListScroll = captureOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
+        OPEN_TAB_OTHER_ITEM_SELECTOR,
+        'data-workspace-navigation-identity'
+    );
     wrapper.innerHTML = message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
+        restoreOpenTabListScroll(
+            queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
+            otherListScroll,
+            OPEN_TAB_OTHER_ITEM_SELECTOR,
+            'data-workspace-navigation-identity'
+        );
         if (typeof restoreAiSessionTabsFromState === 'function') {
             restoreAiSessionTabsFromState(document, window.vscode);
         }
@@ -684,6 +756,12 @@ function applyOpenWorkspacesUpdate(message) {
         restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
         return false;
     }
+    restoreOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
+        otherListScroll,
+        OPEN_TAB_OTHER_ITEM_SELECTOR,
+        'data-workspace-navigation-identity'
+    );
     if (window.__agentPivotDashboard) {
         window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
     }
@@ -1004,6 +1082,269 @@ function initProjectGroupCollapse() {
         setGroupCollapsed: setGroupCollapsed,
         syncCollapseButton: syncCollapseButton,
         toggleAllGroups: toggleAllGroups,
+    };
+}
+
+/* src/webview/webviewOpenTabSplitScripts.js */
+function initOpenTabSplit() {
+    'use strict';
+
+    // --- OPEN tab window-region split --------------------------------------
+    // CURRENT WINDOW and OPEN WINDOWS scroll as two independent regions; the
+    // separator between them resizes the CURRENT WINDOW share (mouse drag or
+    // arrow keys). A null share means "auto": CURRENT WINDOW is content-sized
+    // up to a CSS cap. The dragged share is a fraction of the wrapper height
+    // and persists in webview view state (same pattern as the skills pane
+    // ratio) so it survives window reloads; it is applied as a custom
+    // property on .sticky-groups-wrapper, whose node survives authoritative
+    // innerHTML replacements, so replacements never have to replay it.
+    var OPEN_TAB_PANE_MIN_PX = 72;
+    var OPEN_TAB_KEY_STEP_PX = 24;
+    var OPEN_TAB_STATE_KEY = 'openTab';
+
+    function readOpenTabState() {
+        var api = window.vscode;
+        if (!api || typeof api.getState !== 'function') {
+            return {};
+        }
+        var state = api.getState() || {};
+        var tab = state[OPEN_TAB_STATE_KEY];
+        return tab && typeof tab === 'object' && !Array.isArray(tab) ? tab : {};
+    }
+
+    function readPersistedCurrentShare() {
+        var share = Number(readOpenTabState().currentWindowShare);
+        return Number.isFinite(share) && share > 0 && share < 1 ? share : null;
+    }
+
+    var currentShare = readPersistedCurrentShare();
+    var dragState = null;
+
+    function persistCurrentShare() {
+        var api = window.vscode;
+        if (!api || typeof api.setState !== 'function') {
+            return;
+        }
+        var state = typeof api.getState === 'function' ? api.getState() || {} : {};
+        var tab = Object.assign({}, readOpenTabState());
+        if (currentShare === null) {
+            delete tab.currentWindowShare;
+        } else {
+            tab.currentWindowShare = currentShare;
+        }
+        var patch = {};
+        patch[OPEN_TAB_STATE_KEY] = tab;
+        api.setState(Object.assign({}, state, patch));
+    }
+
+    function findOpenTabElement(selector) {
+        return document.querySelector
+            ? document.querySelector('#dashboard-tab-open ' + selector)
+            : null;
+    }
+
+    function findWrapper() {
+        return findOpenTabElement('.sticky-groups-wrapper');
+    }
+
+    function findResizer() {
+        return findOpenTabElement('[data-open-tab-split-resizer]');
+    }
+
+    function findCurrentGroup() {
+        return findOpenTabElement('.open-current-workspace-group');
+    }
+
+    function findOtherGroup() {
+        return findOpenTabElement('.open-other-windows-group');
+    }
+
+    // Apply the in-memory share: manual mode pins CURRENT WINDOW to a
+    // wrapper-height percentage; auto mode clears the override.
+    function applyShare() {
+        var wrapper = findWrapper();
+        if (!wrapper || !wrapper.style) {
+            return;
+        }
+        if (currentShare === null) {
+            wrapper.classList.remove('open-tab-split-manual');
+            wrapper.style.removeProperty('--open-tab-current-share');
+            return;
+        }
+        wrapper.classList.add('open-tab-split-manual');
+        wrapper.style.setProperty('--open-tab-current-share', (currentShare * 100) + '%');
+    }
+
+    // Split geometry: the wrapper's full height (the share basis) and the
+    // pane space inside it (resizer excluded; the aria percentage basis).
+    function measureSplit() {
+        var wrapper = findWrapper();
+        if (!wrapper || typeof wrapper.getBoundingClientRect !== 'function'
+            || !wrapper.getClientRects().length) {
+            return null; // hidden (another tab) — keep the last applied state
+        }
+        var resizer = findResizer();
+        var resizerHeight = resizer && !resizer.hidden
+            ? resizer.getBoundingClientRect().height
+            : 0;
+        var wrapperHeight = wrapper.getBoundingClientRect().height;
+        return {
+            wrapperHeight: wrapperHeight,
+            inner: Math.max(wrapperHeight - resizerHeight, OPEN_TAB_PANE_MIN_PX),
+        };
+    }
+
+    // Reconcile the (possibly freshly replaced) resizer with the live layout:
+    // hidden while OPEN WINDOWS is collapsed, aria-valuenow tracking the
+    // CURRENT WINDOW percentage of the pane space.
+    function syncResizer() {
+        var resizer = findResizer();
+        if (!resizer) {
+            return;
+        }
+        var otherGroup = findOtherGroup();
+        resizer.hidden = Boolean(
+            otherGroup && otherGroup.classList.contains('collapsed')
+        );
+        var currentGroup = findCurrentGroup();
+        var split = measureSplit();
+        if (!resizer.hidden && currentGroup && split
+            && typeof currentGroup.getBoundingClientRect === 'function' && split.inner > 0) {
+            var percent = Math.round(currentGroup.getBoundingClientRect().height / split.inner * 100);
+            resizer.setAttribute('aria-valuenow', String(Math.min(100, Math.max(0, percent))));
+        }
+    }
+
+    function scheduleSyncResizer() {
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function () { syncResizer(); });
+            return;
+        }
+        syncResizer();
+    }
+
+    function applySharePx(nextPx) {
+        var split = measureSplit();
+        if (!split || split.wrapperHeight <= 0) {
+            return;
+        }
+        var clamped = Math.min(
+            Math.max(nextPx, OPEN_TAB_PANE_MIN_PX),
+            Math.max(split.inner - OPEN_TAB_PANE_MIN_PX, OPEN_TAB_PANE_MIN_PX)
+        );
+        currentShare = clamped / split.wrapperHeight;
+        applyShare();
+        syncResizer();
+    }
+
+    function onPointerDown(event) {
+        var resizer = event.target && event.target.closest
+            ? event.target.closest('[data-open-tab-split-resizer]')
+            : null;
+        if (!resizer || resizer.hidden
+            || (event.button !== 0 && event.button !== undefined)) {
+            return;
+        }
+        var currentGroup = findCurrentGroup();
+        if (!currentGroup) {
+            return;
+        }
+        event.preventDefault();
+        dragState = {
+            pointerId: event.pointerId,
+            startY: event.clientY,
+            startHeight: currentGroup.getBoundingClientRect().height,
+            resizer: resizer,
+        };
+        resizer.classList.add('open-tab-split-resizer-active');
+        if (document.body) {
+            document.body.classList.add('open-tab-split-resizing');
+        }
+        if (event.pointerId !== undefined && typeof resizer.setPointerCapture === 'function') {
+            try {
+                resizer.setPointerCapture(event.pointerId);
+            } catch (_error) { /* capture is best-effort */ }
+        }
+    }
+
+    function onPointerMove(event) {
+        if (!dragState
+            || (dragState.pointerId !== undefined && event.pointerId !== dragState.pointerId)) {
+            return;
+        }
+        // CURRENT WINDOW sits above the resizer: dragging down grows it.
+        applySharePx(dragState.startHeight + (event.clientY - dragState.startY));
+    }
+
+    function onPointerUp(event) {
+        if (!dragState
+            || (dragState.pointerId !== undefined && event.pointerId !== dragState.pointerId)) {
+            return;
+        }
+        dragState.resizer.classList.remove('open-tab-split-resizer-active');
+        if (document.body) {
+            document.body.classList.remove('open-tab-split-resizing');
+        }
+        if (event.pointerId !== undefined
+            && typeof dragState.resizer.releasePointerCapture === 'function') {
+            try {
+                dragState.resizer.releasePointerCapture(event.pointerId);
+            } catch (_error) { /* capture is best-effort */ }
+        }
+        dragState = null;
+        persistCurrentShare();
+    }
+
+    function onKeydown(event) {
+        var resizer = event.target && event.target.closest
+            ? event.target.closest('[data-open-tab-split-resizer]')
+            : null;
+        if (!resizer || resizer.hidden
+            || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) {
+            return;
+        }
+        var currentGroup = findCurrentGroup();
+        if (!currentGroup) {
+            return;
+        }
+        event.preventDefault();
+        // ArrowDown grows the pane above the separator, ArrowUp shrinks it.
+        var direction = event.key === 'ArrowDown' ? 1 : -1;
+        applySharePx(currentGroup.getBoundingClientRect().height
+            + direction * OPEN_TAB_KEY_STEP_PX);
+        persistCurrentShare();
+    }
+
+    // Collapse toggles (group header, collapse-all button) change whether the
+    // resizer participates; window resizes change the auto-layout geometry.
+    // Both are measured after the frame so the class/geometry settles first.
+    function onClick(event) {
+        var togglesLayout = event.target && event.target.closest
+            ? event.target.closest('[data-action="collapse"], [data-action="toggle-all-groups"]')
+            : null;
+        if (togglesLayout) {
+            scheduleSyncResizer();
+        }
+    }
+
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('keydown', onKeydown);
+    document.addEventListener('click', onClick);
+    window.addEventListener('resize', scheduleSyncResizer);
+
+    applyShare();
+    syncResizer();
+
+    window.__agentPivotOpenTabSplit = {
+        sync: syncResizer,
+    };
+
+    return {
+        applyShare: applyShare,
+        syncResizer: syncResizer,
+        getCurrentShare: () => currentShare,
     };
 }
 
@@ -3077,6 +3418,7 @@ function initProjects() {
 
 
     var groupCollapse = initProjectGroupCollapse();
+    var openTabSplit = typeof initOpenTabSplit === 'function' ? initOpenTabSplit() : null;
     var todoControls = initProjectTodoControls({
         syncCollapseButton: () => groupCollapse.syncCollapseButton(),
     });
@@ -3670,6 +4012,9 @@ function initProjects() {
                 window.__agentPivotAiSessionPresentationState ? false : true
             );
             updateStickyGroupHeaderOffset();
+            if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
+                openTabSplit.syncResizer();
+            }
             var renderedWorkspaceState = getWorkspaceUpdateDomState(document);
             window.vscode.postMessage({
                 type: 'workspace-rendered',
@@ -3715,6 +4060,9 @@ function initProjects() {
                 syncAiSessionProjectionDom(adoptOpenWorkspacePresentation);
             }
             updateStickyGroupHeaderOffset();
+            if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
+                openTabSplit.syncResizer();
+            }
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({
                 type: 'open-workspaces-rendered',

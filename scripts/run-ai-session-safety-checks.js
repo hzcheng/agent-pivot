@@ -4939,6 +4939,7 @@ function runWebviewContentChecks() {
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
+        'webviewOpenTabSplitScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
@@ -6291,6 +6292,14 @@ function runBatchAiSessionWebviewChecks() {
     );
     const projectCollapseSource = fs.readFileSync(projectCollapseSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedProjectCollapsePath, 'utf8'), projectCollapseSource);
+    const openTabSplitSourcePath = path.join(
+        __dirname, '..', 'src', 'webview', 'webviewOpenTabSplitScripts.js'
+    );
+    const generatedOpenTabSplitPath = path.join(
+        __dirname, '..', 'media', 'webviewOpenTabSplitScripts.js'
+    );
+    const openTabSplitSource = fs.readFileSync(openTabSplitSourcePath, 'utf8');
+    assert.strictEqual(fs.readFileSync(generatedOpenTabSplitPath, 'utf8'), openTabSplitSource);
     const todoControlSourcePath = path.join(
         __dirname, '..', 'src', 'webview', 'webviewTodoControlScripts.js'
     );
@@ -7305,6 +7314,7 @@ function runAiSessionIncrementalRefreshSourceChecks() {
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
+        'webviewOpenTabSplitScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',

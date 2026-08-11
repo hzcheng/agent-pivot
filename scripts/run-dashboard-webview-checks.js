@@ -84,6 +84,9 @@ const todoGroupScriptPath = path.join(
 const projectCollapseScriptPath = path.join(
     root, 'src', 'webview', 'webviewProjectCollapseScripts.js'
 );
+const openTabSplitScriptPath = path.join(
+    root, 'src', 'webview', 'webviewOpenTabSplitScripts.js'
+);
 const todoControlScriptPath = path.join(
     root, 'src', 'webview', 'webviewTodoControlScripts.js'
 );
@@ -103,6 +106,7 @@ function readProjectWebviewSource() {
         workspaceUpdateScriptPath,
         todoGroupScriptPath,
         projectCollapseScriptPath,
+        openTabSplitScriptPath,
         todoControlScriptPath,
         projectContextMenuScriptPath,
         projectAiUpdateScriptPath,

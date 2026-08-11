@@ -16,6 +16,56 @@ function isWorkspaceUpdateDomConsistent(message, root) {
     return getWorkspaceUpdateDomState(root).currentWorkspaceCount === message.currentWorkspaceCount;
 }
 
+// The OPEN tab regions scroll independently, so an authoritative replacement
+// must carry each list's scroll position across the new nodes (same
+// anchor-based pattern as the todo/skills panes; the scroll-state helper is
+// optional and falls back to a clamped scrollTop).
+function captureOpenTabListScroll(list, itemSelector, keyAttribute) {
+    if (!list) {
+        return null;
+    }
+    if (window.__agentPivotScrollState
+        && typeof window.__agentPivotScrollState.capture === 'function') {
+        return {
+            anchor: window.__agentPivotScrollState.capture(list, {
+                itemSelector: itemSelector,
+                getKey: function (el) { return el.getAttribute(keyAttribute) || ''; },
+            }),
+        };
+    }
+    return { scrollTop: Math.max(0, Number(list.scrollTop) || 0) };
+}
+
+function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
+    if (!list || !saved) {
+        return;
+    }
+    if (saved.anchor && window.__agentPivotScrollState
+        && typeof window.__agentPivotScrollState.restore === 'function'
+        && window.__agentPivotScrollState.restore(list, saved.anchor, {
+            itemSelector: itemSelector,
+            getKey: function (el) { return el.getAttribute(keyAttribute) || ''; },
+        })) {
+        return;
+    }
+    var fallbackTop = saved.anchor ? saved.anchor.scrollTop : saved.scrollTop;
+    var maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+    list.scrollTop = Math.min(Math.max(0, Number(fallbackTop) || 0), maxScrollTop);
+}
+
+var OPEN_TAB_CURRENT_LIST_SELECTOR = '.open-current-workspace-group .group-list';
+var OPEN_TAB_CURRENT_ITEM_SELECTOR = '.workspace-card[data-workspace-scope-identity]';
+var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-other-windows-group .group-list';
+var OPEN_TAB_OTHER_ITEM_SELECTOR = '.workspace-card[data-workspace-navigation-identity]';
+
+// Minimal test doubles may not implement querySelector — treat them as
+// "no scrollable list" instead of throwing mid-replacement.
+function queryOpenTabList(root, selector) {
+    return root && typeof root.querySelector === 'function'
+        ? root.querySelector(selector)
+        : null;
+}
+
 function applyWorkspaceUpdate(message, options) {
     if (!message
         || message.type !== 'workspace-updated'
@@ -45,7 +95,18 @@ function applyWorkspaceUpdate(message, options) {
     }
 
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(currentGroup);
+    var currentListScroll = captureOpenTabListScroll(
+        queryOpenTabList(currentGroup, '.group-list'),
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
     currentGroup.replaceWith(replacement);
+    restoreOpenTabListScroll(
+        queryOpenTabList(replacement, '.group-list'),
+        currentListScroll,
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(replacement, window.vscode);
     }
@@ -226,9 +287,20 @@ function applyOpenWorkspacesUpdate(message) {
         ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
         : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
+    var otherListScroll = captureOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
+        OPEN_TAB_OTHER_ITEM_SELECTOR,
+        'data-workspace-navigation-identity'
+    );
     wrapper.innerHTML = message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
+        restoreOpenTabListScroll(
+            queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
+            otherListScroll,
+            OPEN_TAB_OTHER_ITEM_SELECTOR,
+            'data-workspace-navigation-identity'
+        );
         if (typeof restoreAiSessionTabsFromState === 'function') {
             restoreAiSessionTabsFromState(document, window.vscode);
         }
@@ -236,6 +308,12 @@ function applyOpenWorkspacesUpdate(message) {
         restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
         return false;
     }
+    restoreOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
+        otherListScroll,
+        OPEN_TAB_OTHER_ITEM_SELECTOR,
+        'data-workspace-navigation-identity'
+    );
     if (window.__agentPivotDashboard) {
         window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
     }

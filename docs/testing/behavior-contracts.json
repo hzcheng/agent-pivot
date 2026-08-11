@@ -2446,6 +2446,22 @@
     ]
   },
   {
+    "id": "WEBVIEW-OPEN-TAB-SPLIT-001",
+    "domain": "webview",
+    "title": "OPEN tab splits CURRENT WINDOW and OPEN WINDOWS into independent scroll regions with a draggable, keyboard-accessible, persisted separator",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/dashboardOpenTabSplit.test.js"
+    ],
+    "evidence": [
+      "media/styles.scss",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewOpenTabSplitScripts.js",
+      "src/webview/webviewWorkspaceUpdateScripts.js"
+    ]
+  },
+  {
     "id": "WEBVIEW-NONBLOCKING-FIRST-PAINT-001",
     "domain": "webview",
     "title": "Visible Agent Pivot views paint cached HTML before background runtime enrichment settles",

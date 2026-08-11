@@ -1976,6 +1976,131 @@ body .project {
     }
 }
 
+// OPEN tab: CURRENT WINDOW and OPEN WINDOWS are two independent regions that
+// scroll on their own; the separator between them resizes the CURRENT WINDOW
+// share (mouse drag or arrow keys) and the dragged share persists in webview
+// view state. The panel owns the viewport below the sticky header, so the
+// body never scrolls while the tab is visible. The :not([hidden]) guard keeps
+// display: flex from overriding the hidden attribute when another tab is
+// active.
+#dashboard-tab-open:not([hidden]) {
+    height: calc(100vh - var(--steward-sticky-header-height, 0px));
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+
+    .sticky-groups-wrapper {
+        flex: 1 1 auto;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .group {
+        display: flex;
+        flex-direction: column;
+
+        &.collapsed {
+            flex: 0 0 auto;
+        }
+    }
+
+    .group-title {
+        flex: 0 0 auto;
+    }
+
+    .group-list {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    // Auto layout: CURRENT WINDOW sizes to its content without shrinking
+    // (the 50% cap keeps OPEN WINDOWS at least half; overflow scrolls inside
+    // the region), and OPEN WINDOWS takes the remaining space.
+    .open-current-workspace-group {
+        flex: 0 0 auto;
+        max-height: 50%;
+    }
+
+    .open-other-windows-group {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    // Dragged layout: the wrapper carries --open-tab-current-share (a percent
+    // of the wrapper height). The wrapper node survives authoritative
+    // innerHTML replacements, so the share (and this class) needs no replay;
+    // new group nodes inherit the custom property.
+    .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group {
+        flex: 0 0 auto;
+        height: var(--open-tab-current-share);
+        max-height: none;
+        min-height: 72px;
+    }
+
+    .sticky-groups-wrapper.open-tab-split-manual .open-other-windows-group:not(.collapsed) {
+        min-height: 72px;
+    }
+
+    // Region separator: full-width hairline marks the exact boundary and the
+    // centered grip pill sits on top of it (same visual language as the
+    // skills pane resizer).
+    .open-tab-split-resizer {
+        position: relative;
+        flex: 0 0 auto;
+        height: 9px;
+        cursor: row-resize;
+
+        &::before {
+            content: '';
+            position: absolute;
+            top: 4px;
+            right: 0;
+            left: 0;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+
+        &::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 50%;
+            width: 44px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, .5));
+            transform: translateX(-50%);
+        }
+
+        &:hover::before,
+        &:focus-visible::before,
+        &.open-tab-split-resizer-active::before {
+            border-top-color: var(--vscode-focusBorder, #007fd4);
+        }
+
+        &:hover::after,
+        &:focus-visible::after,
+        &.open-tab-split-resizer-active::after {
+            background: var(--vscode-focusBorder, #007fd4);
+        }
+
+        &:focus-visible {
+            outline: none;
+        }
+    }
+}
+
+body.open-tab-split-resizing {
+    cursor: row-resize;
+    user-select: none;
+
+    * {
+        cursor: row-resize !important;
+    }
+}
+
 .open-other-windows-group .project-ai-attention-badge.attention-animate {
     animation: steward-ai-attention 900ms ease-in-out 3;
 }

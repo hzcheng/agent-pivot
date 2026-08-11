@@ -43,8 +43,27 @@ function loadDashboardMessageHandlers() {
     }
 }
 
-const { getAiSessionsDiv, getCurrentWorkspaceGroupContent } = loadWebviewContent();
+function loadOpenWorkspaceDashboardController() {
+    const vscode = createFakeVscode({});
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return vscode;
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return require('../../out/openWorkspaces/dashboardController');
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
+const {
+    getAiSessionsDiv,
+    getCurrentWorkspaceGroupContent,
+    getStewardContent,
+} = loadWebviewContent();
 const { createDashboardMessageHandlers } = loadDashboardMessageHandlers();
+const { OpenWorkspaceDashboardController } = loadOpenWorkspaceDashboardController();
 const {
     AiSessionAttentionController,
 } = require('../../out/aiSessions/attentionController');
@@ -69,6 +88,10 @@ const {
 const {
     buildOpenWorkspacesUpdatedMessage,
 } = require('../../out/dashboard/webviewUpdateMessages');
+const {
+    getRenderedCurrentWorkspaceNavigationIdentity,
+    buildAiSessionPresentationState,
+} = require('../../out/aiSessions/presentationMessage');
 const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
     'utf8'
@@ -364,6 +387,11 @@ async function openCardPage(
         currentWorkspaceMarkup,
         initialPresentation
     ));
+    await bootCardPageScripts(page, preserveInitialMessages);
+    return page;
+}
+
+async function bootCardPageScripts(page, preserveInitialMessages = false) {
     await page.evaluate(() => {
         window.__postedMessages = [];
         window.normalizeDashboardSearchCatalog = catalog => catalog;
@@ -387,7 +415,34 @@ async function openCardPage(
         initProjects();
         if (!preserveMessages) window.__postedMessages.length = 0;
     }, preserveInitialMessages);
-    return page;
+}
+
+function productionDashboardDocumentMarkup(cards, presentation) {
+    return getStewardContent(
+        { extensionPath: '/extension' },
+        {
+            cspSource: 'https://assets.test',
+            asWebviewUri: resource => ({
+                toString: () => `https://assets.test/${path.basename(resource.fsPath)}`,
+            }),
+        },
+        [],
+        {
+            config: { get: (_key, fallback) => fallback },
+            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
+            otherStorageHasData: false,
+        },
+        true,
+        cards,
+        'ready',
+        2,
+        presentation,
+    )
+        .replace(/<meta[^>]*Content-Security-Policy[^>]*>/, '')
+        .replace(/<link[^>]*rel="stylesheet"[^>]*>/, '')
+        .replace(/<script(?![^>]*type="application\/json")[\s\S]*?<\/script>/g, '')
+        .replace('</head>', `<style>${styles}</style></head>`)
+        .replace('class="dashboard-styles-pending"', '');
 }
 
 async function openListPage(t, activeAiSessions, historySessions) {
@@ -474,6 +529,35 @@ function presentationMessage(activeSessions, projectionRevision, options = {}) {
                 eventIds,
             };
         }),
+    };
+}
+
+function presentationSnapshot(activeSessions, options = {}) {
+    const message = presentationMessage(activeSessions, 1, options);
+    return {
+        workspaceScopeIdentity: message.workspaceScopeIdentity,
+        workspaceNavigationIdentity: message.workspaceNavigationIdentity,
+        attentionCount: message.attentionCount,
+        activeAttentionCount: message.activeAttentionCount,
+        runningSessionCount: message.runningSessionCount,
+        focusedTarget: message.focusedTarget,
+        attentionSessions: message.attentionSessions,
+        sessions: message.sessions,
+    };
+}
+
+function aiSessionViewModel(activeSessions) {
+    return {
+        activeProvider: 'codex',
+        selectedProviders: ['codex'],
+        expanded: true,
+        sessionsByProvider: { codex: [], kimi: [], claude: [] },
+        unavailableProviders: [],
+        activeSessions,
+        aiSessionCount: activeSessions.length,
+        activeSessionCount: activeSessions.length,
+        activeAttentionCount: activeSessions.filter(entry => entry.needsAttention).length,
+        attentionCount: activeSessions.filter(entry => entry.needsAttention).length,
     };
 }
 
@@ -860,6 +944,152 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps the focused card highlight when anot
         'a rejected workspace envelope must not commit its projection revision');
     await primaryAction.click();
     assert.equal((await postedMessages(page)).at(-1).type, 'open-active-ai-session-conversation');
+});
+
+test('OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001 applies a production OPEN transaction without refreshing when the Bridge self-registration lags', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const replacement = [session('codex', 'session-b', true)];
+    const page = await openCardPage(t, initial);
+    await page.addStyleTag({
+        content: ':root { --vscode-focusBorder: rgb(0, 127, 212); }'
+            + ' *, *::before, *::after { transition: none !important; }',
+    });
+    const currentWorkspace = {
+        navigationIdentity: 'navigation-project-a',
+        scopeIdentity: 'scope-project-a',
+        kind: 'singleFolder',
+        displayName: 'Project A',
+        navigationUri: 'file:///work/project-a',
+        environment: 'local',
+        roots: [{
+            id: 'root-project-a',
+            name: 'Project A',
+            uri: 'file:///work/project-a',
+            hostPath: '/work/project-a',
+            ordinal: 0,
+        }],
+    };
+    const staleBridgeWorkspace = {
+        ...currentWorkspace,
+        navigationIdentity: 'navigation-stale-bridge',
+        scopeIdentity: 'scope-stale-bridge',
+    };
+    const transaction = {
+        revision: 2,
+        presentation: presentationSnapshot(replacement),
+    };
+    const delivered = [];
+    const controller = new OpenWorkspaceDashboardController({
+        getCurrentWorkspace: () => currentWorkspace,
+        isWorkspaceSavedAsProject: () => true,
+        getWorkspaceProjectColor: () => '',
+        getCurrentWorkspaceAiSessions: () => aiSessionViewModel(replacement),
+        beginAiSessionProjection: () => transaction,
+        getGroups: () => [],
+        getTodoSearchItems: () => [],
+        getCollapsed: () => false,
+        getRunningCardAnimation: () => 'current',
+        getRunningIconAnimation: () => 'current',
+        getAttentionAggregate: () => null,
+        getBridgeInstanceId: () => '11111111111111111111111111111111',
+        postMessage: message => { delivered.push(message); return Promise.resolve(true); },
+        refresh() {},
+        isVisible: () => true,
+        logDiagnostic() {},
+        logError(error) { throw error; },
+        nowMs: () => 5_000,
+    });
+    controller.setAggregate({
+        protocolVersion: 4,
+        semanticRevision: 'b'.repeat(64),
+        observedAtMs: 5_000,
+        registrations: [{
+            protocolVersion: 4,
+            instanceId: '11111111111111111111111111111111',
+            sequence: 1,
+            openedAtMs: 1_000,
+            lastFocusedAtMs: 4_000,
+            leaseUpdatedAtMs: 4_500,
+            workspace: staleBridgeWorkspace,
+        }],
+    });
+
+    await controller.postUpdated();
+    assert.equal(delivered.length, 1);
+    assert.equal(
+        delivered[0].presentation.workspaceScopeIdentity,
+        currentWorkspace.scopeIdentity,
+    );
+    await postHostMessage(page, delivered[0]);
+
+    const focusedRow = row(page, 'codex', 'session-b');
+    assert.equal(await row(page, 'codex', 'session-a').count(), 0);
+    assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
+    assert.match(
+        await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
+        /rgba?\(0, 127, 212/,
+    );
+    assert.equal(
+        await page.locator('[data-current-workspace]')
+            .getAttribute('data-workspace-navigation-identity'),
+        staleBridgeWorkspace.navigationIdentity,
+    );
+    assert.equal(
+        await page.locator('[data-current-workspace]')
+            .getAttribute('data-workspace-scope-identity'),
+        currentWorkspace.scopeIdentity,
+    );
+    assert.deepEqual((await postedMessages(page)).filter(message =>
+        message.type === 'request-full-refresh'
+    ), []);
+
+    const mismatchedEnvelope = {
+        ...delivered[0],
+        projectionRevision: 3,
+        semanticRevision: 'c'.repeat(64),
+        presentation: {
+            ...delivered[0].presentation,
+            projectionRevision: 3,
+            workspaceScopeIdentity: currentWorkspace.scopeIdentity,
+            workspaceNavigationIdentity: currentWorkspace.navigationIdentity,
+        },
+    };
+    await postHostMessage(page, mismatchedEnvelope);
+    assert.deepEqual((await postedMessages(page)).filter(message =>
+        message.type === 'request-full-refresh'
+    ), [{
+        type: 'request-full-refresh',
+        reason: 'mismatched-ai-session-presentation-workspace',
+    }]);
+
+    const cards = controller.getCards(transaction);
+    const fullDocumentPresentation = buildAiSessionPresentationState(
+        false,
+        transaction,
+        getRenderedCurrentWorkspaceNavigationIdentity(cards),
+        'current',
+        'current',
+    );
+    await page.setContent(productionDashboardDocumentMarkup(
+        cards,
+        fullDocumentPresentation,
+    ));
+    await bootCardPageScripts(page, true);
+
+    assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), '');
+    assert.equal(
+        await page.locator('[data-current-workspace]')
+            .getAttribute('data-workspace-navigation-identity'),
+        staleBridgeWorkspace.navigationIdentity,
+    );
+    assert.equal(
+        await page.locator('[data-current-workspace]')
+            .getAttribute('data-workspace-scope-identity'),
+        currentWorkspace.scopeIdentity,
+    );
+    assert.deepEqual((await postedMessages(page)).filter(message =>
+        message.type === 'request-full-refresh'
+    ), [], 'the production full-refresh response must converge in one document generation');
 });
 
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 rejects a reused OPEN semantic revision before adopting another workspace focus', async t => {

@@ -125,7 +125,10 @@ import { TmuxRuntimeBackend } from './aiSessions/tmuxRuntimeBackend';
 import { TmuxFocusedRuntimeMonitor } from './aiSessions/tmuxFocusedRuntimeMonitor';
 import { withTmuxCreationLock } from './aiSessions/tmuxCreationLock';
 import type { AiSessionBatchArchiveCompletedMessage, AiSessionProvider, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
-import { buildAiSessionPresentationState } from './aiSessions/presentationMessage';
+import {
+    buildAiSessionPresentationState,
+    getRenderedCurrentWorkspaceNavigationIdentity,
+} from './aiSessions/presentationMessage';
 import {
     ConversationCapability,
     createConversationCapability,
@@ -1696,18 +1699,20 @@ async function initializeDashboard(
                 getCurrentOpenWorkspace()
             );
             const configuration = getAgentPivotConfiguration();
+            const cards = getOpenWorkspaceCards(transaction);
             return getStewardContent(
                 context,
                 webview,
                 projectService.getGroups(),
                 stewardInfos,
                 true,
-                getOpenWorkspaceCards(transaction),
+                cards,
                 openWorkspaceDashboardController.getState().otherWindows.status,
                 documentGeneration,
                 buildAiSessionPresentationState(
                     false,
                     transaction,
+                    getRenderedCurrentWorkspaceNavigationIdentity(cards),
                     getEffectiveRunningCardAnimation(configuration),
                     getEffectiveRunningIconAnimation(configuration),
                 ),
@@ -2654,6 +2659,7 @@ async function initializeDashboard(
         const message = buildAiSessionPresentationState(
             true,
             transaction,
+            openWorkspaceDashboardController.getCurrentRenderedWorkspaceNavigationIdentity(),
             getEffectiveRunningCardAnimation(configuration),
             getEffectiveRunningIconAnimation(configuration),
         );

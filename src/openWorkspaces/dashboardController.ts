@@ -4,7 +4,10 @@ import * as crypto from 'crypto';
 
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import type { WorkspaceAiSessionViewModel } from '../aiSessions/types';
-import { buildAiSessionPresentationState } from '../aiSessions/presentationMessage';
+import {
+    buildAiSessionPresentationState,
+    getRenderedCurrentWorkspaceNavigationIdentity,
+} from '../aiSessions/presentationMessage';
 import { PREDEFINED_COLORS } from '../constants';
 import type { Group, WorkspaceCardViewModel } from '../models';
 import { buildOpenWorkspacesUpdatedMessage } from '../dashboard/webviewUpdateMessages';
@@ -133,6 +136,16 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         return this.pinNavigationIdentityById.get(cardId) || null;
     }
 
+    getCurrentRenderedWorkspaceNavigationIdentity(): string | null {
+        const currentWorkspace = this.options.getCurrentWorkspace();
+        if (!currentWorkspace) { return null; }
+        const ownRegistration = this.aggregate?.registrations.find(
+            registration => registration.instanceId === this.options.getBridgeInstanceId()
+        );
+        return ownRegistration?.workspace?.navigationIdentity
+            || currentWorkspace.navigationIdentity;
+    }
+
     getCards(
         projection?: AiSessionProjectionSnapshot<TTerminal>
     ): WorkspaceCardViewModel[] {
@@ -150,12 +163,8 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             return this.cachedCards;
         }
         const pinTimes = getOpenWorkspacePinTimes(this.pinSnapshot);
-        const ownRegistration = this.aggregate?.registrations.find(
-            registration => registration.instanceId === this.options.getBridgeInstanceId()
-        );
-        const currentNavigationIdentity = ownRegistration?.workspace?.navigationIdentity
-            || currentWorkspace?.navigationIdentity
-            || null;
+        const currentNavigationIdentity =
+            this.getCurrentRenderedWorkspaceNavigationIdentity();
         const currentCard = currentWorkspace
             ? this.createCurrentCard(
                 currentWorkspace,
@@ -264,9 +273,10 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         const projection = this.options.beginAiSessionProjection();
         const runningCardAnimation = this.options.getRunningCardAnimation();
         const runningIconAnimation = this.options.getRunningIconAnimation();
+        const cards = this.getCards(projection);
         const message = buildOpenWorkspacesUpdatedMessage({
             groups: this.options.getGroups(),
-            cards: this.getCards(projection),
+            cards,
             collapsed: this.options.getCollapsed(),
             semanticRevision,
             projectionRevision: projection.revision,
@@ -278,6 +288,7 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             presentation: buildAiSessionPresentationState(
                 false,
                 projection,
+                getRenderedCurrentWorkspaceNavigationIdentity(cards),
                 runningCardAnimation,
                 runningIconAnimation,
             ),

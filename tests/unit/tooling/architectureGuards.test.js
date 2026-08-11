@@ -788,8 +788,58 @@ for (const mutation of [
         expectedDetail: 'OPEN HTML and Presentation must share one Host message',
         mutate: source => replaceFixtureSource(
             source,
-            'cards: this.getCards(projection)',
-            'cards: this.getCards()'
+            'const cards = this.getCards(projection)',
+            'const cards = this.getCards()'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/aiSessions/dashboardController.ts',
+        expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
+        mutate: source => replaceFixtureSource(
+            source,
+            'getRenderedCurrentWorkspaceNavigationIdentity(cards),',
+            'projection.presentation.workspaceNavigationIdentity,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/openWorkspaces/dashboardController.ts',
+        expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
+        mutate: source => replaceFixtureSource(
+            source,
+            'getRenderedCurrentWorkspaceNavigationIdentity(cards),',
+            'projection.presentation.workspaceNavigationIdentity,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
+        mutate: source => replaceFixtureSource(
+            source,
+            'openWorkspaceDashboardController.getCurrentRenderedWorkspaceNavigationIdentity(),',
+            'transaction.presentation.workspaceNavigationIdentity,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/aiSessions/presentationMessage.ts',
+        expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
+        mutate: source => replaceFixtureSource(
+            source,
+            "cards.find(card => card.kind === 'current')?.navigationIdentity || null",
+            'null'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/aiSessions/presentationMessage.ts',
+        expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
+        mutate: source => replaceFixtureSource(
+            source,
+            'workspaceNavigationIdentity: renderedWorkspaceNavigationIdentity,',
+            'workspaceNavigationIdentity: transaction.presentation.workspaceNavigationIdentity,'
         ),
     },
     {
@@ -1621,8 +1671,8 @@ for (const mutation of [
         expectedDetail: 'full Dashboard document must capture and embed one Presentation transaction',
         mutate: source => replaceFixtureSource(
             source,
-            'getOpenWorkspaceCards(transaction),',
-            'getOpenWorkspaceCards(),'
+            'const cards = getOpenWorkspaceCards(transaction);',
+            'const cards = getOpenWorkspaceCards();'
         ),
     },
     {

@@ -2,7 +2,10 @@
 
 import type { AiSessionProviderId, Group, WorkspaceCardViewModel } from '../models';
 import type { AiSessionsUpdatedMessage } from './types';
-import { buildAiSessionPresentationState } from './presentationMessage';
+import {
+    buildAiSessionPresentationState,
+    getRenderedCurrentWorkspaceNavigationIdentity,
+} from './presentationMessage';
 import { buildAiSessionsUpdatedMessage } from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import type { AiSessionPresentationTransaction } from '../workspaces/sessionHydrationController';
@@ -196,6 +199,7 @@ export class AiSessionDashboardController<
             presentation: buildAiSessionPresentationState(
                 false,
                 projection,
+                getRenderedCurrentWorkspaceNavigationIdentity(cards),
                 runningCardAnimation,
                 runningIconAnimation,
             ),

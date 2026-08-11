@@ -41,6 +41,7 @@ import {
 import { parseConversationViewerMessage } from './viewerProtocol';
 import type {
     ConversationSessionSwitchDirection,
+    ConversationViewerAppliedMessage,
     ConversationViewerCopyMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
@@ -53,7 +54,8 @@ import {
 import type { ConversationClockTime } from './text';
 import { copyConversationMessage } from './model';
 import {
-    ConversationContentSignature,
+    ConversationContentSignatureRegistry,
+    ConversationContentStream,
     ConversationMessageRenderCache,
     createMessageRenderSignature,
 } from './messageRenderCache';
@@ -246,6 +248,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private abortController?: ConversationAbortController;
     private pages: RetainedConversationPage[] = [];
     private readonly renderCache = new ConversationMessageRenderCache();
+    private readonly contentSignatures =
+        new ConversationContentSignatureRegistry();
     private subagents: ConversationSubagentEntry[] = [];
     private mainInteractionId?: string;
     private subscriptionGeneration = 0;
@@ -253,7 +257,9 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
-    private lastDeliveredContentSignature?: string;
+    // Advanced only by the Webview's correlated applied acknowledgement —
+    // never by postMessage resolving, which proves queueing, not application.
+    private appliedContentSignature?: string;
     private syncRebuildRequestId = 0;
     private suspended = false;
     private rebindGeneration = 0;
@@ -735,7 +741,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetryController.reset();
         this.latestPublication = undefined;
-        this.lastDeliveredContentSignature = undefined;
+        this.appliedContentSignature = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -833,6 +839,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.viewStateListener = undefined;
         this.pages = [];
         this.renderCache.clear();
+        this.contentSignatures.clear();
         this.outlineController.reset();
         this.target = undefined;
         this.stale = false;
@@ -879,6 +886,10 @@ export class ConversationViewer implements ConversationViewerApi {
                 parsed.direction,
                 currentTarget
             );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-applied') {
+            this.acknowledgePublication(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-request-sync') {
@@ -1815,16 +1826,14 @@ export class ConversationViewer implements ConversationViewerApi {
         this.latestPublication = publication;
         if (replaceDocument) {
             panel.webview.html = this.renderDocument(publication);
-            this.lastDeliveredContentSignature = publication.htmlSignature;
             return;
         }
-        // Delta delivery: when the rendered content is identical to what the
-        // webview already applied (pure selection or presentation changes),
-        // omit the multi-megabyte HTML string from the wire. The webview
-        // skips sanitizing and rebuilding the DOM and applies only the
-        // outline, selection, and chrome fields.
+        // Delta delivery: only when the Webview has acknowledged applying
+        // exactly this content may the HTML string be omitted from the wire.
+        // Until that ack arrives, every publication carries the full HTML, so
+        // a lost or unapplied page is always retried in full.
         const wire: ConversationViewerPageMessage = publication.htmlSignature
-            === this.lastDeliveredContentSignature
+            === this.appliedContentSignature
             ? { ...publication, html: undefined }
             : publication;
         let delivered = false;
@@ -1833,16 +1842,22 @@ export class ConversationViewer implements ConversationViewerApi {
         } catch (_error) {
             delivered = false;
         }
-        if (delivered) {
-            // A superseded publication resolving late must not regress the
-            // delivered marker; the Webview applies messages in order, but
-            // this promise ordering is not ours to rely on.
-            if (this.latestPublication === publication) {
-                this.lastDeliveredContentSignature = publication.htmlSignature;
-            }
-        } else if (this.isCurrentPublication(publication)) {
+        if (!delivered && this.isCurrentPublication(publication)) {
             this.rebuildLatestDocument();
         }
+    }
+
+    private acknowledgePublication(
+        message: ConversationViewerAppliedMessage
+    ): void {
+        const publication = this.latestPublication;
+        if (!publication
+            || message.subscriptionGeneration !== this.subscriptionGeneration
+            || message.requestId !== publication.requestId
+            || message.htmlSignature !== publication.htmlSignature) {
+            return;
+        }
+        this.appliedContentSignature = publication.htmlSignature;
     }
 
     private rebuildLatestDocument(): void {
@@ -1852,7 +1867,6 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         panel.webview.html = this.renderDocument(publication);
-        this.lastDeliveredContentSignature = publication.htmlSignature;
     }
 
     private isCurrentPublication(
@@ -2152,6 +2166,7 @@ export class ConversationViewer implements ConversationViewerApi {
             this.showThinking(),
             interactionInfo,
             this.renderCache,
+            this.contentSignatures,
             this.effectiveSessionId(target)
         );
         return {
@@ -2594,6 +2609,7 @@ function renderMessages(
     showThinking: boolean,
     interactionInfo: Map<string, ConversationInteractionRenderInfo>,
     renderCache: ConversationMessageRenderCache,
+    contentSignatures: ConversationContentSignatureRegistry,
     sessionId: string
 ): RenderedConversationMessages {
     const groups: ConversationMessage[][] = [];
@@ -2605,7 +2621,7 @@ function renderMessages(
             groups.push([message]);
         }
     });
-    const contentSignature = new ConversationContentSignature();
+    const contentStream = new ConversationContentStream();
     const html = groups.map(group => {
         const info = interactionInfo.get(group[0].interactionId);
         const now = Date.now();
@@ -2635,7 +2651,7 @@ function renderMessages(
                 messageSignature,
                 () => renderMessage(message, showThinking, clock)
             );
-            contentSignature.mixMessage(
+            contentStream.mixMessage(
                 message,
                 messageSignature,
                 entry.version
@@ -2655,7 +2671,7 @@ function renderMessages(
             // The row heads the work group (accordion-style) so expanding
             // reveals entries below the toggle instead of pushing it down.
             const durationMs = worklogDurationMs(info);
-            contentSignature
+            contentStream
                 .mix(`${group[0].interactionId}:worklog`)
                 .mix(String(durationMs ?? ''));
             rendered.splice(firstWorkIndex, 0, renderWorklogRow(
@@ -2665,5 +2681,10 @@ function renderMessages(
         }
         return rendered.join('');
     }).join('');
-    return { html, contentSignature: contentSignature.toString() };
+    return {
+        html,
+        contentSignature: contentSignatures.tokenFor(
+            contentStream.toString()
+        ),
+    };
 }

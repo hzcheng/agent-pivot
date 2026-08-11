@@ -1283,6 +1283,21 @@
         return clean;
     }
 
+    function acknowledgePage(message) {
+        // The correlated applied acknowledgement: the Host may omit HTML
+        // from a later publication only after this confirms application.
+        if (typeof message.htmlSignature !== 'string') {
+            return;
+        }
+        post({
+            type: 'conversation-viewer-applied',
+            version: 1,
+            subscriptionGeneration: message.subscriptionGeneration,
+            requestId: message.requestId,
+            htmlSignature: message.htmlSignature,
+        });
+    }
+
     function applyPage(message) {
         if (!validPage(message)
             || !applySessionGeneration(message)
@@ -1293,9 +1308,9 @@
         var hasHtml = typeof message.html === 'string';
         if (!hasHtml
             && message.htmlSignature !== state.appliedHtmlSignature) {
-            // Delta publications omit the HTML string only when it is
-            // identical to what the webview already applied. Anything else
-            // cannot be applied; the next full publication resynchronizes.
+            // A delta that does not match the applied content cannot be
+            // applied; request a full resync instead of staying stale.
+            requestConversationResync();
             return;
         }
         var previousScrollTop = scroll.scrollTop;
@@ -1450,6 +1465,7 @@
                 selected.focus({ preventScroll: true });
             }
             if (!openingAtLatest) reconcileController.trackEnd();
+            acknowledgePage(message);
             return;
         }
 
@@ -1462,6 +1478,7 @@
             );
             reconcileController.trackEnd();
         }
+        acknowledgePage(message);
     }
 
     function postNavigation(type) {

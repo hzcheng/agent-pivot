@@ -2148,7 +2148,7 @@ test('CONVERSATION-THINKING-VISIBILITY-001 preserves thinking content across an 
     assert.equal(publication.html.includes('thinking revision 2'), true);
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 omits unchanged HTML from delta publications', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 omits unchanged HTML from delta publications only after the applied ack', async () => {
     let revision = 1;
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
@@ -2172,7 +2172,36 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 omits unchanged HTML from delta
     assert.equal(typeof initial.html, 'string');
     assert.equal(typeof initial.htmlSignature, 'string');
 
-    // A pure selection change must not resend the multi-megabyte HTML.
+    // Before the Webview acknowledges applying the content, even a pure
+    // selection change must carry the full HTML: postMessage resolving only
+    // proves queueing, never application.
+    await panel.receive({ type: 'conversation-viewer-next', version: 1 });
+    const unacknowledged = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(unacknowledged.selectedInteractionId, 'input-2');
+    assert.equal(unacknowledged.html.includes('visible-r1'), true);
+
+    // A mismatched or stale ack must not unlock omission.
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: unacknowledged.subscriptionGeneration,
+        requestId: unacknowledged.requestId,
+        htmlSignature: 'not-the-content-signature',
+    });
+    await panel.receive({ type: 'conversation-viewer-previous', version: 1 });
+    const wronglyAcked = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(wronglyAcked.html.includes('visible-r1'), true);
+
+    // The correlated ack for the latest publication unlocks delta delivery.
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: wronglyAcked.subscriptionGeneration,
+        requestId: wronglyAcked.requestId,
+        htmlSignature: wronglyAcked.htmlSignature,
+    });
     await panel.receive({ type: 'conversation-viewer-next', version: 1 });
     const delta = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);

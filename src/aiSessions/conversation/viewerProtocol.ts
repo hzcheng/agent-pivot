@@ -164,6 +164,14 @@ export interface ConversationViewerRequestSyncMessage {
     version: 1;
 }
 
+export interface ConversationViewerAppliedMessage {
+    type: 'conversation-viewer-applied';
+    version: 1;
+    subscriptionGeneration: number;
+    requestId: number;
+    htmlSignature: string;
+}
+
 export interface ConversationViewerFocusMessage {
     type: 'conversation-viewer-focus';
     version: 1;
@@ -189,6 +197,7 @@ export type ConversationViewerMessage =
     | ConversationViewerSendSelectionMessage
     | ConversationViewerSwitchSessionMessage
     | ConversationViewerRequestSyncMessage
+    | ConversationViewerAppliedMessage
     | ConversationViewerFocusMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
@@ -283,6 +292,20 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerRequestSyncMessage;
+    }
+    if (value.type === 'conversation-viewer-applied') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration', 'requestId',
+            'htmlSignature',
+        ])
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isPositiveSafeInteger(value.requestId)
+            || typeof value.htmlSignature !== 'string'
+            || !value.htmlSignature
+            || value.htmlSignature.length > 256) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerAppliedMessage;
     }
     if (value.type === 'conversation-viewer-focus') {
         if (!hasExactKeys(value, ['type', 'version', 'focused'])

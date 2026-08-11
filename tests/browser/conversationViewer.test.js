@@ -323,6 +323,13 @@ async function postedMessages(page) {
     return page.evaluate(() => window.__postedMessages);
 }
 
+// Applied acknowledgements are protocol traffic, not user intents.
+async function postedIntents(page) {
+    return (await postedMessages(page)).filter(message =>
+        message.type !== 'conversation-viewer-applied'
+    );
+}
+
 async function sendPage(page, payload) {
     await page.evaluate(message => window.dispatchEvent(
         new MessageEvent('message', { data: message })
@@ -493,7 +500,27 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         position: 'Input 2 of 2',
     });
 
-    // A delta whose signature does not match the applied content is dropped.
+    // Every successfully applied page is acknowledged with its correlated
+    // generation, request id, and content signature.
+    const appliedAcks = (await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-applied'
+    );
+    assert.deepEqual(appliedAcks, [{
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 1,
+        htmlSignature: 'sig-delta-1',
+    }, {
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 2,
+        htmlSignature: 'sig-delta-1',
+    }]);
+
+    // A delta whose signature does not match the applied content is dropped
+    // and answered with a resync request instead of staying silently stale.
     await sendPage(page, {
         ...deltaBase,
         requestId: 3,
@@ -506,6 +533,13 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         await page.locator('[data-conversation-position]').textContent(),
         'Input 2 of 2'
     );
+    const syncs = (await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    );
+    assert.deepEqual(syncs, [{
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+    }]);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when switching back to a recent session', async t => {
@@ -1381,7 +1415,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
         'the Webview must retain the native HTTPS navigation path'
     );
 
-    assert.deepEqual(await postedMessages(page), [
+    assert.deepEqual(await postedIntents(page), [
         {
             type: 'conversation-viewer-focus',
             version: 1,
@@ -1647,7 +1681,7 @@ test('CONVERSATION-FOLLOW-FEEDBACK-001 shows a dismissible follow notice and cle
     await page.locator('[data-notice-close]').click();
     assert.equal(await bannerDisplay(), 'none');
     assert.deepEqual(
-        (await postedMessages(page)).filter(
+        (await postedIntents(page)).filter(
             message => message.type !== 'conversation-viewer-focus'
         ),
         [],
@@ -1679,14 +1713,14 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert
         version: 1,
         focused: true,
     }];
-    assert.deepEqual(await postedMessages(page), initialFocus);
+    assert.deepEqual(await postedIntents(page), initialFocus);
 
     await previous.evaluate(element => element.click());
     await next.evaluate(element => element.click());
-    assert.deepEqual(await postedMessages(page), initialFocus);
+    assert.deepEqual(await postedIntents(page), initialFocus);
 
     await latest.click();
-    assert.deepEqual(await postedMessages(page), [
+    assert.deepEqual(await postedIntents(page), [
         ...initialFocus,
         { type: 'conversation-viewer-latest', version: 1 },
     ]);
@@ -3078,6 +3112,51 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        .replace(
+            '    function acknowledgePage(message) {\n'
+                + '        // The correlated applied acknowledgement: the Host may omit HTML\n'
+                + '        // from a later publication only after this confirms application.\n'
+                + "        if (typeof message.htmlSignature !== 'string') {\n"
+                + '            return;\n'
+                + '        }\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-applied',\n"
+                + '            version: 1,\n'
+                + '            subscriptionGeneration: message.subscriptionGeneration,\n'
+                + '            requestId: message.requestId,\n'
+                + '            htmlSignature: message.htmlSignature,\n'
+                + '        });\n'
+                + '    }\n'
+                + '\n'
+                + '    function applyPage(message) {\n',
+            '    function applyPage(message) {\n'
+        )
+        .replace(
+            '            // A delta that does not match the applied content cannot be\n'
+                + '            // applied; request a full resync instead of staying stale.\n'
+                + '            requestConversationResync();\n'
+                + '            return;\n',
+            '            // Delta publications omit the HTML string only when it is\n'
+                + '            // identical to what the webview already applied. Anything else\n'
+                + '            // cannot be applied; the next full publication resynchronizes.\n'
+                + '            return;\n'
+        )
+        .replace(
+            '            if (!openingAtLatest) reconcileController.trackEnd();\n'
+                + '            acknowledgePage(message);\n'
+                + '            return;\n',
+            '            if (!openingAtLatest) reconcileController.trackEnd();\n'
+                + '            return;\n'
+        )
+        .replace(
+            '            reconcileController.trackEnd();\n'
+                + '        }\n'
+                + '        acknowledgePage(message);\n'
+                + '    }\n',
+            '            reconcileController.trackEnd();\n'
+                + '        }\n'
+                + '    }\n'
+        )
         .replace(
             '    var copyRequestSequence = 0;\n'
                 + '    var copyPending = new Map();\n'

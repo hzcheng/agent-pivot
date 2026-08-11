@@ -17,7 +17,7 @@ function signature(overrides = {}) {
     });
 }
 
-test('conversation message render cache serves repeat renders without re-rendering', () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cache serves repeat renders without re-rendering', () => {
     const cache = new ConversationMessageRenderCache();
     let renders = 0;
     const render = () => {
@@ -34,7 +34,7 @@ test('conversation message render cache serves repeat renders without re-renderi
         'a cache hit must keep the entry version stable');
 });
 
-test('conversation message render cache re-renders on any signature change and bumps the version', () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cache re-renders on any signature change and bumps the version', () => {
     const cache = new ConversationMessageRenderCache();
     let renders = 0;
     const render = () => `<article>${++renders}</article>`;
@@ -62,7 +62,7 @@ test('conversation message render cache re-renders on any signature change and b
     assert.equal(renders, 5);
 });
 
-test('conversation message render cache invalidates every message of an interaction', () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cache invalidates every message of an interaction', () => {
     const cache = new ConversationMessageRenderCache();
     let renders = 0;
     const render = () => `<article>${++renders}</article>`;
@@ -81,7 +81,7 @@ test('conversation message render cache invalidates every message of an interact
     assert.equal(cache.render('input-2:user', signature(), render).html, '<article>3</article>');
 });
 
-test('conversation message render cache evicts least recently used entries beyond the byte budget', () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cache evicts least recently used entries beyond the byte budget', () => {
     const cache = new ConversationMessageRenderCache(100);
     const render = value => () => value;
 
@@ -96,14 +96,14 @@ test('conversation message render cache evicts least recently used entries beyon
     assert.equal(cache.trackedBytes <= 100, true);
 });
 
-test('conversation message render cache keeps the freshest entry even when it alone exceeds the budget', () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cache keeps the freshest entry even when it alone exceeds the budget', () => {
     const cache = new ConversationMessageRenderCache(10);
     cache.render('a:user', signature(), () => 'x'.repeat(50));
     assert.equal(cache.render('a:user', signature(), () => 'ignored').html, 'x'.repeat(50));
     assert.equal(cache.size, 1);
 });
 
-test('conversation content signature registry mints collision-free tokens for exact streams', () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation content signature registry mints collision-free tokens for exact streams', () => {
     const registry = new ConversationContentSignatureRegistry();
     const streamOf = (...parts) => JSON.stringify(parts);
 
@@ -119,7 +119,7 @@ test('conversation content signature registry mints collision-free tokens for ex
     assert.notEqual(withWorklog, first);
 });
 
-test('conversation content signature registry evicts least recently used streams beyond its bound', () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation content signature registry evicts least recently used streams beyond its bound', () => {
     const registry = new ConversationContentSignatureRegistry(2);
     const first = registry.tokenFor('stream-a');
     registry.tokenFor('stream-b');

@@ -346,6 +346,15 @@ export default class ClaudeSessionService {
             return [];
         }
 
+        // Capture the tree signature BEFORE walking: a matching signature at
+        // resolve time then proves the tree could not have changed since
+        // before this scan, so the recorded index is complete for exactly
+        // that tree. Any change between the capture and the walk mismatches
+        // at resolve time and forces a conservative rescan instead.
+        const walkedTreeSignature = !maxFiles
+            ? this.projectsTreeSignature(projectRoot)
+            : undefined;
+
         let files: string[] = [];
         try {
             for (let projectEntry of fs.readdirSync(projectRoot, { withFileTypes: true })) {
@@ -392,10 +401,10 @@ export default class ClaudeSessionService {
             this.sessionFilesById.set(sessionId, entry.filePath);
         }
 
-        if (!maxFiles) {
+        if (walkedTreeSignature !== undefined && walkedTreeSignature !== null) {
             // Only an unbounded scan proves per-id uniqueness, so only it
             // may arm the resolveConversationSource fast path.
-            this.fullScanTreeSignature = this.projectsTreeSignature(projectRoot);
+            this.fullScanTreeSignature = walkedTreeSignature;
         }
 
         return entries;

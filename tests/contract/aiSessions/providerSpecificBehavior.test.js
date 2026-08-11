@@ -376,11 +376,13 @@ test('SESSION-CLAUDE-SESSION-SERVICE-001 stats each session file once instead of
 
     assert.equal(result.available, true);
     assert.equal(result.sessions.length, sessionCount);
-    // Ordering by recency must not cost a syscall per comparison. Allow a small
+    // Ordering by recency must not cost a syscall per comparison. The
+    // projects-tree signature that arms the conversation-source fast path
+    // costs exactly one stat per project directory (one here). Allow a small
     // constant of extra probes, but nothing that scales with log n.
     assert.ok(
-        stats <= sessionCount * 2,
-        `expected at most ${sessionCount * 2} statSync calls for ${sessionCount} sessions, saw ${stats}`
+        stats <= sessionCount * 2 + 1,
+        `expected at most ${sessionCount * 2 + 1} statSync calls for ${sessionCount} sessions, saw ${stats}`
     );
 });
 

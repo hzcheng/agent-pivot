@@ -254,6 +254,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
     private lastDeliveredContentSignature?: string;
+    private syncRebuildRequestId = 0;
     private suspended = false;
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
@@ -878,6 +879,19 @@ export class ConversationViewer implements ConversationViewerApi {
                 parsed.direction,
                 currentTarget
             );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-request-sync') {
+            // The Webview failed to apply a delivered publication; rebuild
+            // the document with the full HTML so a dropped delta cannot
+            // strand it on stale content. Bound to one rebuild per
+            // publication: a persistent apply failure must not loop.
+            const publication = this.latestPublication;
+            if (publication
+                && publication.requestId !== this.syncRebuildRequestId) {
+                this.syncRebuildRequestId = publication.requestId;
+                this.rebuildLatestDocument();
+            }
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'
@@ -1820,10 +1834,14 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (delivered) {
-            this.lastDeliveredContentSignature = publication.htmlSignature;
+            // A superseded publication resolving late must not regress the
+            // delivered marker; the Webview applies messages in order, but
+            // this promise ordering is not ours to rely on.
+            if (this.latestPublication === publication) {
+                this.lastDeliveredContentSignature = publication.htmlSignature;
+            }
         } else if (this.isCurrentPublication(publication)) {
             this.rebuildLatestDocument();
-            this.lastDeliveredContentSignature = publication.htmlSignature;
         }
     }
 
@@ -1834,6 +1852,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         panel.webview.html = this.renderDocument(publication);
+        this.lastDeliveredContentSignature = publication.htmlSignature;
     }
 
     private isCurrentPublication(
@@ -2044,7 +2063,10 @@ export class ConversationViewer implements ConversationViewerApi {
                 // Retained pages never share interactions (mergeRefreshPage
                 // rebuilds one page per interaction and paged retains load
                 // disjoint ranges), so subtracting the victim's own counts
-                // keeps both running totals exact.
+                // keeps both running totals sound. The byte total is a
+                // conservative overestimate (the per-victim serialization
+                // omits the array separators), so eviction may release one
+                // page early, never late.
                 interactionCount -= new Set(
                     victim.page.interactionStates.map(
                         state => state.interactionId
@@ -2130,7 +2152,7 @@ export class ConversationViewer implements ConversationViewerApi {
             this.showThinking(),
             interactionInfo,
             this.renderCache,
-            target.sessionId
+            this.effectiveSessionId(target)
         );
         return {
             type: 'conversation-viewer-page',

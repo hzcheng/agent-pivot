@@ -953,7 +953,12 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
         // revalidating the just-opened warm snapshot is hygiene that can
         // wait until the prefetches are under way.
         this.schedule(async () => {
-            this.prefetchAdjacent(target, viewer);
+            try {
+                this.prefetchAdjacent(target, viewer);
+            } catch (_error) {
+                // A prefetch hiccup must not skip the warm-snapshot
+                // revalidation below; warmup remains best effort.
+            }
             if (!prefetchedSnapshot) {
                 return;
             }

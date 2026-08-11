@@ -145,6 +145,36 @@ test('claude conversation source resolution keeps declining indexed duplicates',
     });
 });
 
+test('claude conversation source fast path self-corrects when a duplicate appears after indexing', async t => {
+    await withProviderFixture(t, 'claude', async providerHome => {
+        const claude = new ClaudeSessionService();
+
+        // Index the fixture sessions, then resolve through the fast path.
+        const indexed = claude.resolveConversationSource(knownSessionId, ['/fixtures/project']);
+        assert.ok(indexed?.sourcePath);
+
+        // A duplicate appearing after the indexing scan is served from the
+        // index until the next scan observes it (documented window).
+        const projectDirectory = path.join(providerHome, 'projects', '-duplicate-late');
+        await fs.promises.mkdir(projectDirectory, { recursive: true });
+        await fs.promises.writeFile(
+            path.join(projectDirectory, `${knownSessionId}.jsonl`),
+            `${JSON.stringify({ sessionId: knownSessionId, cwd: '/fixtures/project' })}\n`
+        );
+        assert.equal(
+            claude.resolveConversationSource(knownSessionId, ['/fixtures/project'])?.sourcePath,
+            indexed.sourcePath
+        );
+
+        // The next scan marks the id ambiguous and the resolver declines.
+        claude.getSessions(true);
+        assert.equal(
+            claude.resolveConversationSource(knownSessionId, ['/fixtures/project']),
+            null
+        );
+    });
+});
+
 test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-002 revalidates opened files and distinguishes replacement from append continuation', async t => {
     const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'steward-conversation-identity-'));
     t.after(() => fs.promises.rm(sandbox, { recursive: true, force: true }));

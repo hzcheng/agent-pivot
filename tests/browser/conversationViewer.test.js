@@ -568,6 +568,45 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when 
     });
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applying a page fails', async t => {
+    const page = await openViewerPage(t);
+    await page.evaluate(() => {
+        window.DOMPurify.sanitize = function () {
+            throw new Error('sanitize unavailable');
+        };
+    });
+    const failingPage = requestId => ({
+        ...hostileConversationPage,
+        requestId,
+        html: '<article data-message-id="resync-0" '
+            + 'data-interaction-id="input-1"><p>Resync</p></article>',
+        htmlSignature: `sig-resync-${requestId}`,
+        outline: [{
+            interactionId: 'input-1',
+            userPreview: 'Input 1',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'input-1',
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    });
+
+    await sendPage(page, failingPage(1));
+    await sendPage(page, failingPage(2));
+
+    const syncs = (await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    );
+    assert.equal(syncs.length, 1,
+        'a failing apply requests exactly one resync per document');
+    assert.deepEqual(syncs[0], {
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+    });
+});
+
 test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {
@@ -3039,6 +3078,50 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        .replace(
+            '    var copyRequestSequence = 0;\n'
+                + '    var copyPending = new Map();\n'
+                + '    var resyncRequested = false;\n',
+            '    var copyRequestSequence = 0;\n'
+                + '    var copyPending = new Map();\n'
+        )
+        .replace(
+            '    function requestConversationResync() {\n'
+                + '        // One resync per document; the Host bounds rebuilds per\n'
+                + '        // publication, so a persistent apply failure cannot reload-loop.\n'
+                + '        if (resyncRequested) {\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        resyncRequested = true;\n'
+                + '        // Dropped deltas must not suppress the rebuilt full publication.\n'
+                + '        state.appliedHtmlSignature = undefined;\n'
+                + "        post({ type: 'conversation-viewer-request-sync', version: 1 });\n"
+                + '    }\n'
+                + '\n'
+                + "    window.addEventListener('message', function (event) {\n",
+            "    window.addEventListener('message', function (event) {\n"
+        )
+        .replace(
+            '        if (applyFollowNotice(event.data)) return;\n'
+                + '        try {\n'
+                + '            applyPage(event.data);\n'
+                + '        } catch (_applyError) {\n'
+                + '            requestConversationResync();\n'
+                + '        }\n'
+                + '    });\n',
+            '        if (applyFollowNotice(event.data)) return;\n'
+                + '        applyPage(event.data);\n'
+                + '    });\n'
+        )
+        .replace(
+            "        } catch (_error) {\n"
+                + "            status.textContent = 'Conversation history unavailable.';\n"
+                + '            requestConversationResync();\n'
+                + '        }\n',
+            "        } catch (_error) {\n"
+                + "            status.textContent = 'Conversation history unavailable.';\n"
+                + '        }\n'
+        )
         .replace(
             "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n",
             "    var outlineRoot = document.querySelector('[data-conversation-outline]');\n"

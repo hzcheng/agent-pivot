@@ -249,6 +249,7 @@
         && !!findPrevious && !!findNext && !!findClose;
     var copyRequestSequence = 0;
     var copyPending = new Map();
+    var resyncRequested = false;
     // Recently sanitized pages keyed by session, so switching back to a
     // session whose content is unchanged (same htmlSignature) skips the
     // multi-megabyte DOMPurify pass entirely.
@@ -1652,6 +1653,18 @@
         );
         return true;
     }
+    function requestConversationResync() {
+        // One resync per document; the Host bounds rebuilds per
+        // publication, so a persistent apply failure cannot reload-loop.
+        if (resyncRequested) {
+            return;
+        }
+        resyncRequested = true;
+        // Dropped deltas must not suppress the rebuilt full publication.
+        state.appliedHtmlSignature = undefined;
+        post({ type: 'conversation-viewer-request-sync', version: 1 });
+    }
+
     window.addEventListener('message', function (event) {
         if (applyCopyResult(event.data)) return;
         if (outlineController.applyBookmarksResult(event.data)) return;
@@ -1663,7 +1676,11 @@
         if (telemetryController.apply(event.data)) return;
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
-        applyPage(event.data);
+        try {
+            applyPage(event.data);
+        } catch (_applyError) {
+            requestConversationResync();
+        }
     });
     if (followNoticeClose) {
         followNoticeClose.addEventListener('click', hideFollowNotice);
@@ -1688,6 +1705,7 @@
             applyPage(JSON.parse(initialPage));
         } catch (_error) {
             status.textContent = 'Conversation history unavailable.';
+            requestConversationResync();
         }
     }
     if (sidebarUiAvailable) {

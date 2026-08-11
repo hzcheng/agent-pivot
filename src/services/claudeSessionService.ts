@@ -68,7 +68,11 @@ export default class ClaudeSessionService {
         const normalizedCandidatePaths = normalizeAiSessionCandidatePaths(Array.from(candidatePaths));
         // Fast path: a previous scan already located this session file. The
         // full projects-tree scan below is far too expensive to repeat on
-        // every conversation load, refresh, and warmup prefetch.
+        // every conversation load, refresh, and warmup prefetch. Deletion is
+        // revalidated with existsSync; a duplicate file created after the
+        // indexing scan is only observed by the next scan (background session
+        // polls keep that window to seconds), after which the duplicate
+        // guard below declines the id again.
         const cached = !this.duplicateSessionFileIds.has(sessionId)
             ? this.sessionFilesById.get(sessionId)
             : null;

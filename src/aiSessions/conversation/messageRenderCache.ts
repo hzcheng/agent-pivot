@@ -61,6 +61,9 @@ export class ConversationMessageRenderCache {
         const version = ++this.renderVersion;
         if (existing) {
             this.cachedBytes -= existing.html.length;
+            // Re-insert at the recency tail: a re-rendered entry is the
+            // freshest, not the position it first occupied.
+            this.entries.delete(messageId);
         }
         const entry = { signature, html, version };
         this.entries.set(messageId, entry);

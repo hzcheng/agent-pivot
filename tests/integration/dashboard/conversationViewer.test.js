@@ -2190,6 +2190,50 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 omits unchanged HTML from delta
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per publication when the Webview requests a resync', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            'visible-resync'
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    let htmlWrites = 0;
+    let stored = panel.webview.html;
+    Object.defineProperty(panel.webview, 'html', {
+        get: () => stored,
+        set: value => {
+            htmlWrites += 1;
+            stored = value;
+        },
+    });
+
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+    });
+    assert.equal(htmlWrites, 1, 'a resync request rebuilds the document');
+    assert.equal(
+        decodeInitialPublication(stored).html.includes('visible-resync'),
+        true
+    );
+
+    // The same publication is never rebuilt twice: a persistent apply
+    // failure in the Webview must not reload-loop the document.
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+    });
+    assert.equal(htmlWrites, 1);
+    viewer.dispose();
+});
+
 test('CONVERSATION-THINKING-VISIBILITY-001 hides Thinking by default and republishes it only when enabled', async () => {
     let showThinking = false;
     let pageReads = 0;

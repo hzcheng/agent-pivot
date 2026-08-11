@@ -7419,7 +7419,7 @@ function runAiSessionIncrementalRefreshSourceChecks() {
         false
     );
     assert.ok(projectWebviewSource.includes(
-        'aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)'
+        'presentationTransactions.applyAtomicEnvelope({'
     ));
     assert.strictEqual(
         extractMethodBody(workspaceHydrationSource, 'hydrate').includes('this.options.getActiveRuntimes()'),

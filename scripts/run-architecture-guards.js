@@ -742,6 +742,65 @@ const guards = {
                 'hydration must consume the transaction presentation with only an explicit fallback');
         }
         const webviewSource = webview.getFullText();
+        const transactionOwner = uniqueAstNode(
+            webview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'initAiSessionPresentationTransactions',
+            this.id,
+            risk,
+            'AI session Presentation transaction owner'
+        );
+        const transactionOwnerSource = transactionOwner.getText(webview);
+        const aiUpdateOwner = uniqueAstNode(
+            webview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'initProjectAiSessionsUpdate',
+            this.id,
+            risk,
+            'AI sessions incremental update owner'
+        );
+        const aiUpdateOwnerSource = aiUpdateOwner.getText(webview);
+        const aiAtomicCalls = callArguments(
+            aiUpdateOwner,
+            'presentationTransactions.applyAtomicEnvelope'
+        );
+        const aiAtomicInput = aiAtomicCalls.length === 1
+            ? aiAtomicCalls[0][0]
+            : null;
+        const aiAfterReplacement = aiAtomicInput
+            && ts.isObjectLiteralExpression(aiAtomicInput)
+            ? aiAtomicInput.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(webview) === 'afterReplacement')
+            : null;
+        const aiAfterReplacementSource = aiAfterReplacement
+            && ts.isPropertyAssignment(aiAfterReplacement)
+            && ts.isArrowFunction(aiAfterReplacement.initializer)
+            ? aiAfterReplacement.initializer.getText(webview)
+            : '';
+        if (!aiAfterReplacementSource.includes(
+            'batchAiSessionManager.reconcileVisible(projectDiv)'
+        ) || !aiAfterReplacementSource.includes(
+            'syncAiSessionBatchManagementDom(projectDiv)'
+        ) || !aiAfterReplacementSource.includes(
+            'exitAiSessionBatchManagement()'
+        ) || !aiAfterReplacementSource.includes(
+            'reconcilePendingAiSessionProviderSelectionDom()'
+        )) {
+            fail(this.id, risk,
+                'AI atomic replacement must reconcile batch and provider state inside the transaction hook');
+        }
+        for (const counterName of [
+            'latestAiSessionProjectionRevision',
+            'latestAiSessionPresentationProjectionRevision',
+            'latestAiSessionClosedPresentationRevision',
+        ]) {
+            const counter = findVariable(webview, counterName, this.id, risk);
+            if (counter.pos < transactionOwner.pos || counter.end > transactionOwner.end) {
+                fail(this.id, risk,
+                    'all Presentation revision counters must belong to the shared transaction owner');
+            }
+        }
         if (!webviewSource.includes('latestAiSessionClosedPresentationRevision')
             || !webviewSource.includes('revision < latestAiSessionProjectionRevision')
             || !webviewSource.includes(
@@ -779,7 +838,7 @@ const guards = {
                 "getElementById('dashboard-ai-session-presentation')"
             )
             || !projectWebviewSource.includes(
-                'applyAiSessionPresentationState(initialAiSessionPresentationState, true)'
+                'presentationTransactions.applyInitialPresentation('
             )) {
             fail(this.id, risk,
                 'the Webview must seed revision and complete owners from the full document');
@@ -805,29 +864,44 @@ const guards = {
             fail(this.id, risk,
                 'OPEN HTML and Presentation must share one Host message');
         }
-        if (!webviewSource.includes(
+        const transactionOrder = [
+            '!isValidAiSessionPresentationState(message.presentation)',
+            '!canApplyProjectionRevision(message.projectionRevision)',
+            '!canApplyAtomicPresentationProjectionRevision(message.projectionRevision)',
+            '!input.replaceContent()',
+            'commitAtomicProjectionRevision(message.projectionRevision)',
+            "typeof input.afterReplacement === 'function'",
+            'applyValidatedAiSessionPresentationState(message.presentation)',
+        ].map(fragment => transactionOwnerSource.indexOf(fragment));
+        if (transactionOrder.some(index => index < 0)
+            || transactionOrder.some((index, position) =>
+                position > 0 && index <= transactionOrder[position - 1])
+            || (webviewSource.match(/commitAtomicProjectionRevision\(message\.projectionRevision\)/g) || []).length !== 1
+            || (webviewSource.match(/applyValidatedAiSessionPresentationState\(message\.presentation\)/g) || []).length !== 1
+            || !aiUpdateOwnerSource.includes(
+                'presentationTransactions.applyAtomicEnvelope({'
+            )
+            || aiUpdateOwnerSource.includes('commitAtomicProjectionRevision(')
+            || !projectWebviewSource.includes(
+                'presentationTransactions.applyAtomicEnvelope({'
+            )
+            || projectWebviewSource.includes(
+                'aiSessionsUpdate.commitAtomicProjectionRevision('
+            )
+            || !projectWebviewSource.includes(
+                'presentationTransactions.applyDirectPresentation(message)'
+            )
+            || !transactionOwnerSource.includes('message.revealFocused !== true')
+            || !webviewSource.includes(
             'message.presentation.projectionRevision !== message.projectionRevision'
         ) || !webviewSource.includes(
             'message.presentation.revealFocused !== false'
         ) || !webviewSource.includes(
             'applyValidatedAiSessionPresentationState(message.presentation);'
-        ) || !webviewSource.includes(
-            'canApplyAtomicPresentationProjectionRevision(message.projectionRevision)'
-        ) || !webviewSource.includes(
-            'commitAtomicProjectionRevision(message.projectionRevision)'
         ) || !projectWebviewSource.includes(
             'invalid-open-workspaces-presentation-envelope'
-        ) || !projectWebviewSource.includes(
-            'message.presentation.revealFocused !== false'
-        ) || !projectWebviewSource.includes(
-            'applyValidatedAiSessionPresentationState(message.presentation);'
-        ) || !projectWebviewSource.includes(
-            'aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision('
-        ) || !projectWebviewSource.includes(
-            'aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision)'
         ) || !projectWebviewSource.includes('message.version !== 3')
             || projectWebviewSource.includes('isAtomicOpenWorkspacesEnvelope')
-            || !projectWebviewSource.includes('message.revealFocused !== true')
             || projectWebviewSource.includes(
                 "type: 'request-ai-session-attention-state'"
             ) || !workspaceWebviewSource.includes(

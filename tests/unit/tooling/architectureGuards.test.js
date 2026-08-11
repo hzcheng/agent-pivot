@@ -808,6 +808,26 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'AI atomic replacement must reconcile batch and provider state inside the transaction hook',
+        mutate: source => replaceFixtureSource(
+            source,
+            'afterReplacement: () => {',
+            'detachedAfterReplacement: () => {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'AI atomic replacement must reconcile batch and provider state inside the transaction hook',
+        mutate: source => replaceFixtureSource(
+            source,
+            'syncAiSessionBatchManagementDom(projectDiv);',
+            'syncAiSessionProjectionDom(false);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
         expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
@@ -831,8 +851,8 @@ for (const mutation of [
         expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            'message.presentation.revealFocused !== false',
-            'message.presentation.revealFocused !== true'
+            'presentationTransactions.applyAtomicEnvelope({',
+            'presentationTransactions.applyDirectPresentation({'
         ),
     },
     {
@@ -851,18 +871,18 @@ for (const mutation of [
         expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            'if (!canApplyAtomicPresentationProjectionRevision(message.projectionRevision))',
-            'if (!canApplyProjectionRevision(message.projectionRevision))'
+            '|| !canApplyAtomicPresentationProjectionRevision(message.projectionRevision)',
+            '|| !canApplyProjectionRevision(message.projectionRevision)'
         ),
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
-        file: 'src/webview/webviewProjectScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'AI atomic replacement must reconcile batch and provider state inside the transaction hook',
         mutate: source => replaceFixtureSource(
             source,
-            'aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision)',
-            'aiSessionsUpdate.commitAtomicProjectionRevision(message.projectionRevision - 1)'
+            'presentationTransactions.applyAtomicEnvelope({',
+            'presentationTransactions.applyDirectPresentation({'
         ),
     },
     {
@@ -887,22 +907,61 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
-        file: 'src/webview/webviewProjectScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'all Presentation revision counters must belong to the shared transaction owner',
         mutate: source => replaceFixtureSource(
-            source,
-            'if (!aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(',
-            'if (!aiSessionsUpdate.canApplyProjectionRevision('
+            replaceFixtureSource(
+                source,
+                '    var latestAiSessionProjectionRevision = 0;\n',
+                ''
+            ),
+            'function initAiSessionPresentationTransactions(options) {',
+            'var latestAiSessionProjectionRevision = 0;\n\n'
+                + 'function initAiSessionPresentationTransactions(options) {'
         ),
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
-        file: 'src/webview/webviewProjectScripts.js',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
         expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'message.revealFocused !== true',
             'message.revealFocused === undefined'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        mutate: source => replaceFixtureSource(
+            source,
+            "if (!input.replaceContent()) {\n"
+                + "            requestFullRefresh(input.invalidReplacementReason);\n"
+                + "            return false;\n"
+                + "        }\n"
+                + "        commitAtomicProjectionRevision(message.projectionRevision);",
+            "commitAtomicProjectionRevision(message.projectionRevision);\n"
+                + "        if (!input.replaceContent()) {\n"
+                + "            requestFullRefresh(input.invalidReplacementReason);\n"
+                + "            return false;\n"
+                + "        }"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        mutate: source => replaceFixtureSource(
+            source,
+            "if (typeof input.afterReplacement === 'function') {\n"
+                + "            input.afterReplacement();\n"
+                + "        }\n"
+                + "        applyValidatedAiSessionPresentationState(message.presentation);",
+            "applyValidatedAiSessionPresentationState(message.presentation);\n"
+                + "        if (typeof input.afterReplacement === 'function') {\n"
+                + "            input.afterReplacement();\n"
+                + "        }"
         ),
     },
     {

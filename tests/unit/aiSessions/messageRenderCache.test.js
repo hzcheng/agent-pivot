@@ -67,18 +67,18 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cac
     let renders = 0;
     const render = () => `<article>${++renders}</article>`;
 
-    cache.render('input-1:user', signature(), render);
-    cache.render('input-1:assistant:0', signature(), render);
-    const untouched = cache.render('input-2:user', signature(), render);
+    cache.render('session-a\u0001input-1:user', signature(), render);
+    cache.render('session-a\u0001input-1:assistant:0', signature(), render);
+    const untouched = cache.render('session-a\u0001input-2:user', signature(), render);
     assert.equal(renders, 3);
 
-    cache.invalidateInteraction('input-1');
-    const rerendered = cache.render('input-1:user', signature(), render);
+    cache.invalidateInteraction('session-a', 'input-1');
+    const rerendered = cache.render('session-a\u0001input-1:user', signature(), render);
     assert.equal(rerendered.html, '<article>4</article>');
     assert.ok(rerendered.version > untouched.version,
         'an invalidated re-render must advance the content version');
-    assert.equal(cache.render('input-1:assistant:0', signature(), render).html, '<article>5</article>');
-    assert.equal(cache.render('input-2:user', signature(), render).html, '<article>3</article>');
+    assert.equal(cache.render('session-a\u0001input-1:assistant:0', signature(), render).html, '<article>5</article>');
+    assert.equal(cache.render('session-a\u0001input-2:user', signature(), render).html, '<article>3</article>');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cache evicts least recently used entries beyond the byte budget', () => {
@@ -101,6 +101,27 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cac
     cache.render('a:user', signature(), () => 'x'.repeat(50));
     assert.equal(cache.render('a:user', signature(), () => 'ignored').html, 'x'.repeat(50));
     assert.equal(cache.size, 1);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation message render cache revives a stale entry with its version when HTML is identical', () => {
+    const cache = new ConversationMessageRenderCache();
+    let renders = 0;
+    const render = () => {
+        renders += 1;
+        return '<article>same</article>';
+    };
+
+    const first = cache.render('session-a\u0001input-1:user', signature(), render);
+    cache.invalidateInteraction('session-a', 'input-1');
+    const revived = cache.render('session-a\u0001input-1:user', signature(), render);
+    assert.equal(renders, 2, 'stale entries re-render to prove freshness');
+    assert.equal(revived.version, first.version,
+        'identical HTML keeps the version, stabilizing publication tokens');
+
+    // A signature mismatch on a stale entry must still mint a new version.
+    cache.invalidateInteraction('session-a', 'input-1');
+    const changed = cache.render('session-a\u0001input-1:user', signature({ showThinking: true }), render);
+    assert.ok(changed.version > first.version);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 conversation content signature registry mints collision-free tokens for exact streams', () => {

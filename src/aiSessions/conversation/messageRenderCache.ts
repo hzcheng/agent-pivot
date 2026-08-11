@@ -14,21 +14,21 @@ import type {
  * switches and live refreshes. This cache makes publication cost
  * proportional to what actually changed.
  *
- * Correctness invariant: a message's HTML depends only on
+ * Entries are keyed by session id + deterministic message id, so two
+ * sessions whose providers mint colliding message ids never share an
+ * entry. A message's HTML otherwise depends only on
  * - its content (replaced wholesale per interaction by the retention
  *   layer — retain()/mergeRefreshPage() must call invalidateInteraction()
  *   for every incoming interaction id), and
  * - the render signature below (session, thinking visibility, response
  *   state, and the already-computed clock text).
- *
- * The session id in the signature keeps deterministic message ids from
- * colliding across sessions when the viewer is reused for a switch.
  */
 export class ConversationMessageRenderCache {
     private readonly entries = new Map<string, {
         signature: string;
         html: string;
         version: number;
+        stale: boolean;
     }>();
     private cachedBytes = 0;
     private renderVersion = 0;
@@ -39,11 +39,18 @@ export class ConversationMessageRenderCache {
 
     /**
      * Returns the cached HTML for a message, rendering it on a miss. Every
-     * (re)render advances a monotonically increasing version so callers can
-     * mix (message id, signature, version) into a publication-level content
-     * signature: within one viewer instance, a given (id, version) pair
-     * always identifies exactly one rendered HTML string, which is what
-     * makes delta publications safe without hashing message content.
+     * (re)render that produces different HTML advances a monotonically
+     * increasing version so callers can mix (message id, signature,
+     * version) into a publication-level content signature: within one
+     * viewer instance, a given (id, version) pair always identifies
+     * exactly one rendered HTML string, which is what makes delta
+     * publications safe without hashing message content.
+     *
+     * Entries invalidated by the retention layer are kept as stale: a
+     * re-render that reproduces the exact same HTML revives the entry and
+     * keeps its version, so re-reading unchanged content (a switch back,
+     * a redundant refresh) yields the same publication token and the
+     * Webview can reuse what it already built.
      */
     render(
         messageId: string,
@@ -51,13 +58,24 @@ export class ConversationMessageRenderCache {
         render: () => string
     ): { html: string; version: number } {
         const existing = this.entries.get(messageId);
-        if (existing && existing.signature === signature) {
+        if (existing
+            && !existing.stale
+            && existing.signature === signature) {
             // Refresh the recency order without touching the byte total.
             this.entries.delete(messageId);
             this.entries.set(messageId, existing);
             return existing;
         }
         const html = render();
+        if (existing
+            && existing.stale
+            && existing.signature === signature
+            && existing.html === html) {
+            existing.stale = false;
+            this.entries.delete(messageId);
+            this.entries.set(messageId, existing);
+            return existing;
+        }
         const version = ++this.renderVersion;
         if (existing) {
             this.cachedBytes -= existing.html.length;
@@ -65,7 +83,7 @@ export class ConversationMessageRenderCache {
             // freshest, not the position it first occupied.
             this.entries.delete(messageId);
         }
-        const entry = { signature, html, version };
+        const entry = { signature, html, version, stale: false };
         this.entries.set(messageId, entry);
         this.cachedBytes += html.length;
         while (this.cachedBytes > this.maxBytes && this.entries.size > 1) {
@@ -82,12 +100,11 @@ export class ConversationMessageRenderCache {
         return entry;
     }
 
-    invalidateInteraction(interactionId: string): void {
-        const prefix = `${interactionId}:`;
+    invalidateInteraction(sessionId: string, interactionId: string): void {
+        const prefix = `${sessionId}\u0001${interactionId}:`;
         for (const [key, entry] of Array.from(this.entries)) {
             if (key.startsWith(prefix)) {
-                this.cachedBytes -= entry.html.length;
-                this.entries.delete(key);
+                entry.stale = true;
             }
         }
     }

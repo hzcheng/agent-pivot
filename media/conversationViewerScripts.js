@@ -250,12 +250,15 @@
     var copyRequestSequence = 0;
     var copyPending = new Map();
     var resyncRequested = false;
-    // Recently sanitized pages keyed by session, so switching back to a
-    // session whose content is unchanged (same htmlSignature) skips the
-    // multi-megabyte DOMPurify pass entirely.
-    var sanitizedPageCache = new Map();
-    var sanitizedPageCacheBytes = 0;
-    var SANITIZED_PAGE_CACHE_LIMIT = 16 * 1024 * 1024;
+    // Detached conversation frames keyed by session: switching back to a
+    // session whose content token is unchanged reattaches the already-built
+    // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
+    // by both frame count and a total node budget so large conversations
+    // cannot balloon Webview memory.
+    var frameCache = new Map();
+    var frameCacheNodes = 0;
+    var FRAME_CACHE_LIMIT = 4;
+    var FRAME_CACHE_NODE_BUDGET = 600;
     var state = {
         atLatest: false,
         initialized: false,
@@ -300,7 +303,19 @@
         messages: messages,
         messageSelector: conversationMessageSelector,
         messageId: conversationMessageId,
-        releaseMermaid: releaseMermaidObjectUrls,
+        releaseMermaid: function (root) {
+            if (root) {
+                mermaidRenderer.release(root);
+                return;
+            }
+            // A global release must spare stashed frames: their figures are
+            // detached but alive and reattach on restore.
+            var stashed = [];
+            frameCache.forEach(function (frame) {
+                stashed.push.apply(stashed, frame.nodes);
+            });
+            mermaidRenderer.releaseExcept(stashed);
+        },
         preserveMermaid: preserveMermaidContent,
     });
     var outlineController;
@@ -819,9 +834,9 @@
             'totalInputs', 'partial', 'atLatest', 'stale',
         ];
         var allowedKeys = new Set(requiredKeys.concat([
-            'html', 'htmlSignature', 'previousCursor', 'nextCursor',
-            'subagents', 'activeSubagent', 'displayName', 'target',
-            'comments', 'projectComments', 'bookmarks',
+            'html', 'htmlSignature', 'restoreFrame', 'previousCursor',
+            'nextCursor', 'subagents', 'activeSubagent', 'displayName',
+            'target', 'comments', 'projectComments', 'bookmarks',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -845,6 +860,8 @@
                 || typeof message.htmlSignature === 'string')
             && (message.html !== undefined
                 || message.htmlSignature !== undefined)
+            && (message.restoreFrame === undefined
+                || typeof message.restoreFrame === 'boolean')
             && typeof message.selectedInteractionId === 'string'
             && validOutline(message.outline, message.selectedInteractionId)
             && Number.isSafeInteger(message.selectedInput)
@@ -943,6 +960,10 @@
         )) {
             return false;
         }
+        // The session is really switching: stash the outgoing conversation
+        // as a detached frame before any state is reset, so a later switch
+        // back can reattach it whole.
+        stashCurrentFrame();
         telemetryController.resetSession(
             nextCommentTarget,
             message.subscriptionGeneration
@@ -1214,7 +1235,7 @@
         );
     }
 
-    function sanitizedPageSessionKey(target) {
+    function frameSessionKey(target) {
         if (!target) {
             return null;
         }
@@ -1222,79 +1243,129 @@
             + '\u0001' + target.sessionId;
     }
 
-    function cachedSanitizedPage(sessionKey, signature) {
-        var entry = sanitizedPageCache.get(sessionKey);
-        if (!entry || entry.signature !== signature) {
-            return undefined;
+    // Stash the live conversation as a detached frame before a session
+    // switch resets the viewer state. Only a fully applied page is
+    // stashable; the content token is what makes the frame trustworthy.
+    function stashCurrentFrame() {
+        if (!state.initialized
+            || typeof state.appliedHtmlSignature !== 'string'
+            || !commentTarget
+            || !messages.firstChild) {
+            return;
         }
-        sanitizedPageCache.delete(sessionKey);
-        sanitizedPageCache.set(sessionKey, entry);
-        return entry.clean;
-    }
-
-    function cacheSanitizedPage(sessionKey, signature, clean) {
-        var existing = sanitizedPageCache.get(sessionKey);
-        if (existing) {
-            sanitizedPageCacheBytes -= existing.bytes;
-            sanitizedPageCache.delete(sessionKey);
+        var key = frameSessionKey(commentTarget);
+        if (!key) {
+            return;
         }
-        sanitizedPageCache.set(sessionKey, {
-            signature: signature,
-            clean: clean,
-            bytes: clean.length,
+        var anchor = captureReadingAnchor();
+        var scrollTop = scroll.scrollTop;
+        var followingEnd = reconcileController.atEnd();
+        var nodes = Array.prototype.slice.call(messages.childNodes);
+        // Pending mermaid renders never settle once detached (isConnected
+        // guards drop them); resetting lets a restore re-render from source.
+        nodes.forEach(function (node) {
+            if (!node || node.nodeType !== 1) {
+                return;
+            }
+            Array.prototype.forEach.call(
+                node.querySelectorAll('pre[aria-busy="true"]'),
+                function (pre) {
+                    pre.removeAttribute('aria-busy');
+                }
+            );
         });
-        sanitizedPageCacheBytes += clean.length;
-        while (sanitizedPageCacheBytes > SANITIZED_PAGE_CACHE_LIMIT
-            && sanitizedPageCache.size > 1) {
-            var oldestKey = sanitizedPageCache.keys().next().value;
-            if (oldestKey === undefined || oldestKey === sessionKey) {
+        var existing = frameCache.get(key);
+        if (existing) {
+            frameCacheNodes -= existing.nodeCount;
+            frameCache.delete(key);
+        }
+        frameCache.set(key, {
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            token: state.appliedHtmlSignature,
+            nodes: nodes,
+            nodeCount: nodes.length,
+            messageIds: state.messageIds,
+            messageSignatures: state.messageSignatures,
+            worklogExpanded: state.worklogExpanded,
+            scrollTop: scrollTop,
+            anchor: anchor,
+            followingEnd: followingEnd,
+            selectedInteractionId: restoreTarget
+                ? restoreTarget.interactionId
+                : undefined,
+        });
+        frameCacheNodes += nodes.length;
+        while ((frameCache.size > FRAME_CACHE_LIMIT
+                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)
+            && frameCache.size > 1) {
+            var oldestKey = frameCache.keys().next().value;
+            if (oldestKey === undefined || oldestKey === key) {
                 break;
             }
-            var oldest = sanitizedPageCache.get(oldestKey);
-            if (oldest) {
-                sanitizedPageCacheBytes -= oldest.bytes;
+            var evicted = frameCache.get(oldestKey);
+            frameCache.delete(oldestKey);
+            if (evicted) {
+                frameCacheNodes -= evicted.nodeCount;
+                evicted.nodes.forEach(function (node) {
+                    if (node && node.nodeType === 1) {
+                        mermaidRenderer.release(node);
+                    }
+                });
             }
-            sanitizedPageCache.delete(oldestKey);
         }
     }
 
-    function sanitizeConversationPage(message) {
-        var sessionKey = sanitizedPageSessionKey(message.target);
-        var cacheable = sessionKey !== null
-            && typeof message.htmlSignature === 'string';
-        if (cacheable) {
-            var cached = cachedSanitizedPage(
-                sessionKey,
-                message.htmlSignature
-            );
-            if (cached !== undefined) {
-                return cached;
-            }
+    // A frame is restorable only when its content token matches the page's
+    // signature — the token equality proves the DOM is byte-identical to
+    // what the Host just published. Restoring takes the frame out of the
+    // cache: its nodes move back into the live tree.
+    function takeRestorableFrame(message) {
+        var key = frameSessionKey(message.target);
+        if (!key || typeof message.htmlSignature !== 'string') {
+            return undefined;
         }
-        var clean = window.DOMPurify.sanitize(message.html, {
-            ALLOWED_TAGS: allowedTags,
-            ALLOWED_ATTR: allowedAttributes,
-            ALLOW_DATA_ATTR: false,
-            ALLOW_ARIA_ATTR: false,
-        });
-        if (cacheable) {
-            cacheSanitizedPage(sessionKey, message.htmlSignature, clean);
+        var frame = frameCache.get(key);
+        if (!frame || frame.token !== message.htmlSignature) {
+            return undefined;
         }
-        return clean;
+        frameCacheNodes -= frame.nodeCount;
+        frameCache.delete(key);
+        return frame;
+    }
+
+    function restoreConversationFrame(frame) {
+        messages.replaceChildren.apply(messages, frame.nodes);
+        state.messageIds = frame.messageIds;
+        state.messageSignatures = frame.messageSignatures;
+        state.worklogExpanded = frame.worklogExpanded;
     }
 
     function acknowledgePage(message) {
         // The correlated applied acknowledgement: the Host may omit HTML
         // from a later publication only after this confirms application.
+        // The frame inventory keeps the Host's restoreFrame offers truthful
+        // about what is actually still cached here.
         if (typeof message.htmlSignature !== 'string') {
             return;
         }
+        var frames = [];
+        frameCache.forEach(function (frame) {
+            frames.push({
+                projectId: frame.projectId,
+                provider: frame.provider,
+                sessionId: frame.sessionId,
+                token: frame.token,
+            });
+        });
         post({
             type: 'conversation-viewer-applied',
             version: 1,
             subscriptionGeneration: message.subscriptionGeneration,
             requestId: message.requestId,
             htmlSignature: message.htmlSignature,
+            frames: frames,
         });
     }
 
@@ -1306,12 +1377,25 @@
         }
         state.latestRequestId = message.requestId;
         var hasHtml = typeof message.html === 'string';
-        if (!hasHtml
-            && message.htmlSignature !== state.appliedHtmlSignature) {
-            // A delta that does not match the applied content cannot be
-            // applied; request a full resync instead of staying stale.
-            requestConversationResync();
-            return;
+        // A stashed frame whose token matches this page's signature is
+        // byte-identical to what the Host published: restore it whole and
+        // skip the sanitize, parse, and reconcile entirely.
+        var frame = hasHtml || message.restoreFrame === true
+            ? takeRestorableFrame(message)
+            : undefined;
+        if (!hasHtml && !frame) {
+            if (message.restoreFrame === true) {
+                // The Host believes this frame is cached but it is not (or
+                // its token moved on): request a full resync.
+                requestConversationResync();
+                return;
+            }
+            if (message.htmlSignature !== state.appliedHtmlSignature) {
+                // A delta that does not match the applied content cannot be
+                // applied; request a full resync instead of staying stale.
+                requestConversationResync();
+                return;
+            }
         }
         var previousScrollTop = scroll.scrollTop;
         var isLiveRefresh = state.initialized
@@ -1331,8 +1415,15 @@
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
         var renderGeneration = state.renderGeneration;
-        if (hasHtml) {
-            var clean = sanitizeConversationPage(message);
+        if (frame) {
+            restoreConversationFrame(frame);
+        } else if (hasHtml) {
+            var clean = window.DOMPurify.sanitize(message.html, {
+                ALLOWED_TAGS: allowedTags,
+                ALLOWED_ATTR: allowedAttributes,
+                ALLOW_DATA_ATTR: false,
+                ALLOW_ARIA_ATTR: false,
+            });
 
             var reconciled = reconcileController.reconcile(
                 clean,
@@ -1455,7 +1546,22 @@
         if (!isLiveRefresh) {
             var openingAtLatest = message.atLatest
                 && message.updateKind === 'initial';
-            if (openingAtLatest) {
+            // A frame restore carrying a fresh navigation target behaves
+            // like that navigation, not like a return to the stashed
+            // reading position.
+            var resumeFramePosition = frame
+                && message.selectedInteractionId
+                    === frame.selectedInteractionId;
+            if (resumeFramePosition && frame.followingEnd
+                && message.atLatest) {
+                reconcileController.scrollToEnd();
+            } else if (resumeFramePosition) {
+                restoreViewportReadingPosition(
+                    frame.anchor,
+                    frame.scrollTop
+                );
+                reconcileController.trackEnd();
+            } else if (openingAtLatest) {
                 reconcileController.scrollToEnd();
             } else if (selected) {
                 centerInMessageViewport(selected);
@@ -1464,7 +1570,9 @@
                 selected.tabIndex = -1;
                 selected.focus({ preventScroll: true });
             }
-            if (!openingAtLatest) reconcileController.trackEnd();
+            if (!openingAtLatest && !resumeFramePosition) {
+                reconcileController.trackEnd();
+            }
             acknowledgePage(message);
             return;
         }

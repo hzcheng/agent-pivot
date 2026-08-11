@@ -511,12 +511,14 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         subscriptionGeneration: 1,
         requestId: 1,
         htmlSignature: 'sig-delta-1',
+        frames: [],
     }, {
         type: 'conversation-viewer-applied',
         version: 1,
         subscriptionGeneration: 1,
         requestId: 2,
         htmlSignature: 'sig-delta-1',
+        frames: [],
     }]);
 
     // A delta whose signature does not match the applied content is dropped
@@ -582,24 +584,177 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when 
     });
 
     await sendPage(page, sessionPage(
-        1, 'session-alpha', 'alpha-content', 'sig-alpha-1'
+        2, 'session-alpha', 'alpha-content', 'sig-alpha-1'
     ));
+    await page.evaluate(() => {
+        window.__alphaNode = document.querySelector(
+            '[data-message-id="alpha-content-0"]'
+        );
+    });
     await sendPage(page, sessionPage(
-        2, 'session-beta', 'beta-content', 'sig-beta-1'
+        3, 'session-beta', 'beta-content', 'sig-beta-1'
     ));
     // Switching back to alpha with unchanged content must not re-sanitize.
     await sendPage(page, sessionPage(
-        3, 'session-alpha', 'alpha-content', 'sig-alpha-1'
+        4, 'session-alpha', 'alpha-content', 'sig-alpha-1'
     ));
 
     assert.deepEqual(await page.evaluate(() => ({
         sanitizeCalls: window.__sanitizeCalls,
         content: document.querySelector('[data-conversation-messages]')
             .textContent.trim(),
+        nodeIdentity: document.querySelector(
+            '[data-message-id="alpha-content-0"]'
+        ) === window.__alphaNode,
     })), {
         sanitizeCalls: 2,
         content: 'alpha-content',
+        nodeIdentity: true,
     });
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 restores a stashed frame with scroll position on a host restoreFrame page', async t => {
+    const page = await openViewerPage(t);
+    // Inline style attributes do not survive sanitizing; give the blocks
+    // height through a stylesheet instead so the viewport can scroll.
+    await page.addStyleTag({
+        content: '.alpha-tall { height: 120px; margin: 0; }',
+    });
+    await page.evaluate(() => {
+        window.__sanitizeCalls = 0;
+        const sanitize = window.DOMPurify.sanitize;
+        window.DOMPurify.sanitize = function () {
+            window.__sanitizeCalls += 1;
+            return sanitize.apply(window.DOMPurify, arguments);
+        };
+    });
+    const tall = Array.from({ length: 8 }, (_unused, index) =>
+        `<article data-message-id="alpha-${index}" `
+            + `data-interaction-id="alpha-input-${index}">`
+            + '<section class="conversation-markdown">'
+            + `<p class="alpha-tall">alpha block ${index}</p>`
+            + '</section></article>'
+    ).join('');
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: marker === 'alpha'
+            ? tall
+            : `<article data-message-id="${marker}-0" `
+                + `data-interaction-id="${marker}-input-0"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input-0`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input-0`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input-0`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = 240;
+        window.__alphaNode = document.querySelector(
+            '[data-message-id="alpha-3"]'
+        );
+    });
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-b1'));
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'beta'
+    );
+
+    // The Host judges the alpha frame cached and sends no HTML at all.
+    const restorePage = sessionPage(4, 'session-alpha', 'alpha', 'sig-a1');
+    delete restorePage.html;
+    restorePage.restoreFrame = true;
+    await sendPage(page, restorePage);
+
+    const outcome = await page.evaluate(() => ({
+        sanitizeCalls: window.__sanitizeCalls,
+        nodeIdentity: document.querySelector('[data-message-id="alpha-3"]')
+            === window.__alphaNode,
+        scrollTop: document.querySelector('[data-conversation-scroll]')
+            .scrollTop,
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.includes('alpha block 3'),
+    }));
+    assert.equal(outcome.sanitizeCalls, 2,
+        'the frame restore must not sanitize or parse');
+    assert.equal(outcome.nodeIdentity, true,
+        'the restore reattaches the very same DOM nodes');
+    assert.equal(outcome.content, true);
+    assert.ok(Math.abs(outcome.scrollTop - 240) <= 2,
+        `scroll position should return to 240, got ${outcome.scrollTop}`);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when a restoreFrame page has no cached frame', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
+
+    // The Host asks for a frame the Webview never cached: full resync.
+    const restorePage = sessionPage(3, 'session-gamma', 'gamma', 'sig-g1');
+    delete restorePage.html;
+    restorePage.restoreFrame = true;
+    await sendPage(page, restorePage);
+
+    const syncs = (await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    );
+    assert.deepEqual(syncs, [{
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+    }]);
+    // The previous session stays on screen until the full page arrives.
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'alpha'
+    );
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applying a page fails', async t => {
@@ -639,6 +794,255 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applyi
         type: 'conversation-viewer-request-sync',
         version: 1,
     });
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 mermaid releaseExcept keeps figures under excepted nodes alive', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.evaluate(() => {
+        window.__revokedUrls = [];
+        const revoke = URL.revokeObjectURL.bind(URL);
+        URL.revokeObjectURL = url => {
+            window.__revokedUrls.push(url);
+            return revoke(url);
+        };
+        const messages = document.querySelector('[data-conversation-messages]');
+        messages.innerHTML = '<article data-message-id="mm-a">'
+            + '<section class="conversation-markdown"><pre><code '
+            + 'class="language-mermaid">flowchart TB; A--&gt;B</code></pre>'
+            + '</section></article>'
+            + '<article data-message-id="mm-b">'
+            + '<section class="conversation-markdown"><pre><code '
+            + 'class="language-mermaid">flowchart TB; C--&gt;D</code></pre>'
+            + '</section></article>';
+        window.__mermaidController = window.__agentPivotConversationMermaid
+            .create({
+                source: null,
+                nonce: null,
+                messages,
+                scroll: document.querySelector('[data-conversation-scroll]'),
+                maxDiagrams: 40,
+                captureAnchor: () => null,
+                restoreAnchor: () => undefined,
+            });
+        window.__mermaidController.render(1);
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 1,
+        undefined,
+        { timeout: 3_000 }
+    );
+    // Diagrams render sequentially: resolve each to unblock the next.
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text>0</text></svg>',
+        });
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 2,
+        undefined,
+        { timeout: 3_000 }
+    );
+    await page.evaluate(() => {
+        window.__mermaidRenders[1].resolve({
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text>1</text></svg>',
+        });
+    });
+    await page.waitForFunction(
+        () => document.querySelectorAll('.conversation-mermaid-image')
+            .length === 2,
+        undefined,
+        { timeout: 3_000 }
+    );
+
+    const outcome = await page.evaluate(() => {
+        const images = Array.prototype.map.call(
+            document.querySelectorAll('.conversation-mermaid-image'),
+            image => image.src
+        );
+        const articleB = document.querySelector('[data-message-id="mm-b"]');
+        // Detach B the way a stashed conversation frame would, then run a
+        // global release that spares the stash.
+        const stash = document.createElement('div');
+        stash.appendChild(articleB);
+        window.__mermaidController.releaseExcept([articleB]);
+        const revokedByExcept = window.__revokedUrls.slice();
+        window.__mermaidController.release(articleB);
+        return {
+            images,
+            revokedByExcept,
+            revokedTotal: window.__revokedUrls.slice(),
+        };
+    });
+
+    assert.deepEqual(outcome.revokedByExcept, [outcome.images[0]],
+        'only the figure outside the excepted stash is revoked');
+    assert.deepEqual(outcome.revokedTotal, [
+        outcome.images[0],
+        outcome.images[1],
+    ], 'evicting the stashed frame revokes its figure URL');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 frame restore follows a fresh navigation target instead of the stashed scroll position', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({
+        content: '.tall-block { height: 120px; margin: 0; }',
+    });
+    const article = index => `<article data-message-id="alpha-${index}" `
+        + `data-interaction-id="alpha-input-${index}">`
+        + '<section class="conversation-markdown">'
+        + `<p class="tall-block">alpha block ${index}</p>`
+        + '</section></article>';
+    const sessionPage = (generation, sessionId, marker, signature, options = {}) => {
+        const message = {
+            ...hostileConversationPage,
+            requestId: generation * 10,
+            subscriptionGeneration: generation,
+            updateKind: 'initial',
+            html: `${article(0)}${article(1)}${article(2)}${article(3)}`,
+            htmlSignature: signature,
+            outline: [0, 1, 2, 3].map(index => ({
+                interactionId: `${marker}-input-${index}`,
+                userPreview: `${marker} ${index}`,
+                responseState: 'complete',
+            })),
+            selectedInteractionId: options.selectedInteractionId
+                || `${marker}-input-0`,
+            selectedInput: 1,
+            totalInputs: 4,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            target: {
+                projectId: 'project-1',
+                provider: 'codex',
+                sessionId,
+                interactionId: `${marker}-input-0`,
+                displayName: `${marker} session`,
+            },
+            comments: { revision: 0, comments: [] },
+            projectComments: { revision: 0, comments: [] },
+            bookmarks: { revision: 0, interactionIds: [] },
+        };
+        if (options.restoreFrame) {
+            delete message.html;
+            message.restoreFrame = true;
+        }
+        return message;
+    };
+
+    // Session alpha stays at the top (scrollTop 0) with input-0 selected.
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-scroll]').scrollTop = 0;
+    });
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-b1'));
+
+    // Returning with a new selected interaction must center that target,
+    // not resurrect the stashed top-of-conversation scroll position.
+    await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-a1', {
+        restoreFrame: true,
+        selectedInteractionId: 'alpha-input-3',
+    }));
+
+    const outcome = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const target = document.querySelector('[data-message-id="alpha-3"]');
+        const targetBounds = target.getBoundingClientRect();
+        const scrollBounds = scroll.getBoundingClientRect();
+        return {
+            scrollTop: scroll.scrollTop,
+            targetVisible: targetBounds.bottom > scrollBounds.top
+                && targetBounds.top < scrollBounds.bottom,
+        };
+    });
+    assert.equal(outcome.targetVisible, true,
+        'the freshly navigated interaction must be centered into view');
+    assert.ok(outcome.scrollTop > 40,
+        `the stashed scrollTop 0 must not win, got ${outcome.scrollTop}`);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond the cache budget and resyncs its restore', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature, options = {}) => {
+        const message = {
+            ...hostileConversationPage,
+            requestId: generation * 10,
+            subscriptionGeneration: generation,
+            updateKind: 'initial',
+            html: `<article data-message-id="${marker}-0" `
+                + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+            htmlSignature: signature,
+            outline: [{
+                interactionId: `${marker}-input`,
+                userPreview: marker,
+                responseState: 'complete',
+            }],
+            selectedInteractionId: `${marker}-input`,
+            selectedInput: 1,
+            totalInputs: 1,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            target: {
+                projectId: 'project-1',
+                provider: 'codex',
+                sessionId,
+                interactionId: `${marker}-input`,
+                displayName: marker,
+            },
+            comments: { revision: 0, comments: [] },
+            projectComments: { revision: 0, comments: [] },
+            bookmarks: { revision: 0, interactionIds: [] },
+        };
+        if (options.restoreFrame) {
+            delete message.html;
+            message.restoreFrame = true;
+        }
+        return message;
+    };
+
+    // Six sessions through a four-frame cache: alpha and beta are evicted.
+    const ids = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta'];
+    for (let index = 0; index < ids.length; index += 1) {
+        await sendPage(page, sessionPage(
+            index + 2, `session-${ids[index]}`, ids[index], `sig-${ids[index]}`
+        ));
+    }
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'zeta'
+    );
+
+    // A restoreFrame offer for an evicted frame is answered with a resync.
+    await sendPage(page, sessionPage(
+        20, 'session-alpha', 'alpha', 'sig-alpha', { restoreFrame: true }
+    ));
+    const syncs = (await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    );
+    assert.deepEqual(syncs, [{
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+    }]);
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'zeta',
+        'the live session stays on screen until the resynced full page'
+    );
+
+    // A non-evicted recent session still restores its frame: zeta was
+    // stashed during the switch that brought the alpha offer, so even its
+    // full-HTML page is answered by a frame restore.
+    await sendPage(page, sessionPage(21, 'session-zeta', 'zeta', 'sig-zeta'));
+    assert.equal(
+        (await postedMessages(page)).filter(message =>
+            message.type === 'conversation-viewer-request-sync'
+        ).length,
+        1,
+        'no second resync for a cached frame'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'zeta'
+    );
 });
 
 test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
@@ -3112,6 +3516,445 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        .replace(
+                '    var copyRequestSequence = 0;\n' +
+                '    var copyPending = new Map();\n' +
+                '    var resyncRequested = false;\n' +
+                '    // Detached conversation frames keyed by session: switching back to a\n' +
+                '    // session whose content token is unchanged reattaches the already-built\n' +
+                '    // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded\n' +
+                '    // by both frame count and a total node budget so large conversations\n' +
+                '    // cannot balloon Webview memory.\n' +
+                '    var frameCache = new Map();\n' +
+                '    var frameCacheNodes = 0;\n' +
+                '    var FRAME_CACHE_LIMIT = 4;\n' +
+                '    var FRAME_CACHE_NODE_BUDGET = 600;\n' +
+                '    var state = {\n' +
+                '        atLatest: false,\n' +
+                '        initialized: false,\n',
+                '    var copyRequestSequence = 0;\n' +
+                '    var copyPending = new Map();\n' +
+                '    var resyncRequested = false;\n' +
+                '    // Recently sanitized pages keyed by session, so switching back to a\n' +
+                '    // session whose content is unchanged (same htmlSignature) skips the\n' +
+                '    // multi-megabyte DOMPurify pass entirely.\n' +
+                '    var sanitizedPageCache = new Map();\n' +
+                '    var sanitizedPageCacheBytes = 0;\n' +
+                '    var SANITIZED_PAGE_CACHE_LIMIT = 16 * 1024 * 1024;\n' +
+                '    var state = {\n' +
+                '        atLatest: false,\n' +
+                '        initialized: false,\n')
+        .replace(
+                '        messages: messages,\n' +
+                '        messageSelector: conversationMessageSelector,\n' +
+                '        messageId: conversationMessageId,\n' +
+                '        releaseMermaid: function (root) {\n' +
+                '            if (root) {\n' +
+                '                mermaidRenderer.release(root);\n' +
+                '                return;\n' +
+                '            }\n' +
+                '            // A global release must spare stashed frames: their figures are\n' +
+                '            // detached but alive and reattach on restore.\n' +
+                '            var stashed = [];\n' +
+                '            frameCache.forEach(function (frame) {\n' +
+                '                stashed.push.apply(stashed, frame.nodes);\n' +
+                '            });\n' +
+                '            mermaidRenderer.releaseExcept(stashed);\n' +
+                '        },\n' +
+                '        preserveMermaid: preserveMermaidContent,\n' +
+                '    });\n' +
+                '    var outlineController;\n',
+                '        messages: messages,\n' +
+                '        messageSelector: conversationMessageSelector,\n' +
+                '        messageId: conversationMessageId,\n' +
+                '        releaseMermaid: releaseMermaidObjectUrls,\n' +
+                '        preserveMermaid: preserveMermaidContent,\n' +
+                '    });\n' +
+                '    var outlineController;\n')
+        .replace(
+                '            \'totalInputs\', \'partial\', \'atLatest\', \'stale\',\n' +
+                '        ];\n' +
+                '        var allowedKeys = new Set(requiredKeys.concat([\n' +
+                '            \'html\', \'htmlSignature\', \'restoreFrame\', \'previousCursor\',\n' +
+                '            \'nextCursor\', \'subagents\', \'activeSubagent\', \'displayName\',\n' +
+                '            \'target\', \'comments\', \'projectComments\', \'bookmarks\',\n' +
+                '        ]));\n' +
+                '        if (Object.keys(message).some(function (key) {\n' +
+                '            return !allowedKeys.has(key);\n',
+                '            \'totalInputs\', \'partial\', \'atLatest\', \'stale\',\n' +
+                '        ];\n' +
+                '        var allowedKeys = new Set(requiredKeys.concat([\n' +
+                '            \'html\', \'htmlSignature\', \'previousCursor\', \'nextCursor\',\n' +
+                '            \'subagents\', \'activeSubagent\', \'displayName\', \'target\',\n' +
+                '            \'comments\', \'projectComments\', \'bookmarks\',\n' +
+                '        ]));\n' +
+                '        if (Object.keys(message).some(function (key) {\n' +
+                '            return !allowedKeys.has(key);\n')
+        .replace(
+                '                || typeof message.htmlSignature === \'string\')\n' +
+                '            && (message.html !== undefined\n' +
+                '                || message.htmlSignature !== undefined)\n' +
+                '            && (message.restoreFrame === undefined\n' +
+                '                || typeof message.restoreFrame === \'boolean\')\n' +
+                '            && typeof message.selectedInteractionId === \'string\'\n' +
+                '            && validOutline(message.outline, message.selectedInteractionId)\n' +
+                '            && Number.isSafeInteger(message.selectedInput)\n',
+                '                || typeof message.htmlSignature === \'string\')\n' +
+                '            && (message.html !== undefined\n' +
+                '                || message.htmlSignature !== undefined)\n' +
+                '            && typeof message.selectedInteractionId === \'string\'\n' +
+                '            && validOutline(message.outline, message.selectedInteractionId)\n' +
+                '            && Number.isSafeInteger(message.selectedInput)\n')
+        .replace(
+                '        )) {\n' +
+                '            return false;\n' +
+                '        }\n' +
+                '        // The session is really switching: stash the outgoing conversation\n' +
+                '        // as a detached frame before any state is reset, so a later switch\n' +
+                '        // back can reattach it whole.\n' +
+                '        stashCurrentFrame();\n' +
+                '        telemetryController.resetSession(\n' +
+                '            nextCommentTarget,\n' +
+                '            message.subscriptionGeneration\n',
+                '        )) {\n' +
+                '            return false;\n' +
+                '        }\n' +
+                '        telemetryController.resetSession(\n' +
+                '            nextCommentTarget,\n' +
+                '            message.subscriptionGeneration\n')
+        .replace(
+                '        );\n' +
+                '    }\n' +
+                '\n' +
+                '    function frameSessionKey(target) {\n' +
+                '        if (!target) {\n' +
+                '            return null;\n' +
+                '        }\n',
+                '        );\n' +
+                '    }\n' +
+                '\n' +
+                '    function sanitizedPageSessionKey(target) {\n' +
+                '        if (!target) {\n' +
+                '            return null;\n' +
+                '        }\n')
+        .replace(
+                '            + \'\\u0001\' + target.sessionId;\n' +
+                '    }\n' +
+                '\n' +
+                '    // Stash the live conversation as a detached frame before a session\n' +
+                '    // switch resets the viewer state. Only a fully applied page is\n' +
+                '    // stashable; the content token is what makes the frame trustworthy.\n' +
+                '    function stashCurrentFrame() {\n' +
+                '        if (!state.initialized\n' +
+                '            || typeof state.appliedHtmlSignature !== \'string\'\n' +
+                '            || !commentTarget\n' +
+                '            || !messages.firstChild) {\n' +
+                '            return;\n' +
+                '        }\n' +
+                '        var key = frameSessionKey(commentTarget);\n' +
+                '        if (!key) {\n' +
+                '            return;\n' +
+                '        }\n' +
+                '        var anchor = captureReadingAnchor();\n' +
+                '        var scrollTop = scroll.scrollTop;\n' +
+                '        var followingEnd = reconcileController.atEnd();\n' +
+                '        var nodes = Array.prototype.slice.call(messages.childNodes);\n' +
+                '        // Pending mermaid renders never settle once detached (isConnected\n' +
+                '        // guards drop them); resetting lets a restore re-render from source.\n' +
+                '        nodes.forEach(function (node) {\n' +
+                '            if (!node || node.nodeType !== 1) {\n' +
+                '                return;\n' +
+                '            }\n' +
+                '            Array.prototype.forEach.call(\n' +
+                '                node.querySelectorAll(\'pre[aria-busy="true"]\'),\n' +
+                '                function (pre) {\n' +
+                '                    pre.removeAttribute(\'aria-busy\');\n' +
+                '                }\n' +
+                '            );\n' +
+                '        });\n' +
+                '        var existing = frameCache.get(key);\n' +
+                '        if (existing) {\n' +
+                '            frameCacheNodes -= existing.nodeCount;\n' +
+                '            frameCache.delete(key);\n' +
+                '        }\n' +
+                '        frameCache.set(key, {\n' +
+                '            projectId: commentTarget.projectId,\n' +
+                '            provider: commentTarget.provider,\n' +
+                '            sessionId: commentTarget.sessionId,\n' +
+                '            token: state.appliedHtmlSignature,\n' +
+                '            nodes: nodes,\n' +
+                '            nodeCount: nodes.length,\n' +
+                '            messageIds: state.messageIds,\n' +
+                '            messageSignatures: state.messageSignatures,\n' +
+                '            worklogExpanded: state.worklogExpanded,\n' +
+                '            scrollTop: scrollTop,\n' +
+                '            anchor: anchor,\n' +
+                '            followingEnd: followingEnd,\n' +
+                '            selectedInteractionId: restoreTarget\n' +
+                '                ? restoreTarget.interactionId\n' +
+                '                : undefined,\n' +
+                '        });\n' +
+                '        frameCacheNodes += nodes.length;\n' +
+                '        while ((frameCache.size > FRAME_CACHE_LIMIT\n' +
+                '                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)\n' +
+                '            && frameCache.size > 1) {\n' +
+                '            var oldestKey = frameCache.keys().next().value;\n' +
+                '            if (oldestKey === undefined || oldestKey === key) {\n' +
+                '                break;\n' +
+                '            }\n' +
+                '            var evicted = frameCache.get(oldestKey);\n' +
+                '            frameCache.delete(oldestKey);\n' +
+                '            if (evicted) {\n' +
+                '                frameCacheNodes -= evicted.nodeCount;\n' +
+                '                evicted.nodes.forEach(function (node) {\n' +
+                '                    if (node && node.nodeType === 1) {\n' +
+                '                        mermaidRenderer.release(node);\n' +
+                '                    }\n' +
+                '                });\n' +
+                '            }\n' +
+                '        }\n' +
+                '    }\n' +
+                '\n' +
+                '    // A frame is restorable only when its content token matches the page\'s\n' +
+                '    // signature — the token equality proves the DOM is byte-identical to\n' +
+                '    // what the Host just published. Restoring takes the frame out of the\n' +
+                '    // cache: its nodes move back into the live tree.\n' +
+                '    function takeRestorableFrame(message) {\n' +
+                '        var key = frameSessionKey(message.target);\n' +
+                '        if (!key || typeof message.htmlSignature !== \'string\') {\n' +
+                '            return undefined;\n' +
+                '        }\n' +
+                '        var frame = frameCache.get(key);\n' +
+                '        if (!frame || frame.token !== message.htmlSignature) {\n' +
+                '            return undefined;\n' +
+                '        }\n' +
+                '        frameCacheNodes -= frame.nodeCount;\n' +
+                '        frameCache.delete(key);\n' +
+                '        return frame;\n' +
+                '    }\n' +
+                '\n' +
+                '    function restoreConversationFrame(frame) {\n' +
+                '        messages.replaceChildren.apply(messages, frame.nodes);\n' +
+                '        state.messageIds = frame.messageIds;\n' +
+                '        state.messageSignatures = frame.messageSignatures;\n' +
+                '        state.worklogExpanded = frame.worklogExpanded;\n' +
+                '    }\n' +
+                '\n' +
+                '    function acknowledgePage(message) {\n' +
+                '        // The correlated applied acknowledgement: the Host may omit HTML\n' +
+                '        // from a later publication only after this confirms application.\n' +
+                '        // The frame inventory keeps the Host\'s restoreFrame offers truthful\n' +
+                '        // about what is actually still cached here.\n' +
+                '        if (typeof message.htmlSignature !== \'string\') {\n' +
+                '            return;\n' +
+                '        }\n' +
+                '        var frames = [];\n' +
+                '        frameCache.forEach(function (frame) {\n' +
+                '            frames.push({\n' +
+                '                projectId: frame.projectId,\n' +
+                '                provider: frame.provider,\n' +
+                '                sessionId: frame.sessionId,\n' +
+                '                token: frame.token,\n' +
+                '            });\n' +
+                '        });\n' +
+                '        post({\n' +
+                '            type: \'conversation-viewer-applied\',\n' +
+                '            version: 1,\n' +
+                '            subscriptionGeneration: message.subscriptionGeneration,\n' +
+                '            requestId: message.requestId,\n' +
+                '            htmlSignature: message.htmlSignature,\n' +
+                '            frames: frames,\n' +
+                '        });\n' +
+                '    }\n' +
+                '\n',
+                '            + \'\\u0001\' + target.sessionId;\n' +
+                '    }\n' +
+                '\n' +
+                '    function cachedSanitizedPage(sessionKey, signature) {\n' +
+                '        var entry = sanitizedPageCache.get(sessionKey);\n' +
+                '        if (!entry || entry.signature !== signature) {\n' +
+                '            return undefined;\n' +
+                '        }\n' +
+                '        sanitizedPageCache.delete(sessionKey);\n' +
+                '        sanitizedPageCache.set(sessionKey, entry);\n' +
+                '        return entry.clean;\n' +
+                '    }\n' +
+                '\n' +
+                '    function cacheSanitizedPage(sessionKey, signature, clean) {\n' +
+                '        var existing = sanitizedPageCache.get(sessionKey);\n' +
+                '        if (existing) {\n' +
+                '            sanitizedPageCacheBytes -= existing.bytes;\n' +
+                '            sanitizedPageCache.delete(sessionKey);\n' +
+                '        }\n' +
+                '        sanitizedPageCache.set(sessionKey, {\n' +
+                '            signature: signature,\n' +
+                '            clean: clean,\n' +
+                '            bytes: clean.length,\n' +
+                '        });\n' +
+                '        sanitizedPageCacheBytes += clean.length;\n' +
+                '        while (sanitizedPageCacheBytes > SANITIZED_PAGE_CACHE_LIMIT\n' +
+                '            && sanitizedPageCache.size > 1) {\n' +
+                '            var oldestKey = sanitizedPageCache.keys().next().value;\n' +
+                '            if (oldestKey === undefined || oldestKey === sessionKey) {\n' +
+                '                break;\n' +
+                '            }\n' +
+                '            var oldest = sanitizedPageCache.get(oldestKey);\n' +
+                '            if (oldest) {\n' +
+                '                sanitizedPageCacheBytes -= oldest.bytes;\n' +
+                '            }\n' +
+                '            sanitizedPageCache.delete(oldestKey);\n' +
+                '        }\n' +
+                '    }\n' +
+                '\n' +
+                '    function sanitizeConversationPage(message) {\n' +
+                '        var sessionKey = sanitizedPageSessionKey(message.target);\n' +
+                '        var cacheable = sessionKey !== null\n' +
+                '            && typeof message.htmlSignature === \'string\';\n' +
+                '        if (cacheable) {\n' +
+                '            var cached = cachedSanitizedPage(\n' +
+                '                sessionKey,\n' +
+                '                message.htmlSignature\n' +
+                '            );\n' +
+                '            if (cached !== undefined) {\n' +
+                '                return cached;\n' +
+                '            }\n' +
+                '        }\n' +
+                '        var clean = window.DOMPurify.sanitize(message.html, {\n' +
+                '            ALLOWED_TAGS: allowedTags,\n' +
+                '            ALLOWED_ATTR: allowedAttributes,\n' +
+                '            ALLOW_DATA_ATTR: false,\n' +
+                '            ALLOW_ARIA_ATTR: false,\n' +
+                '        });\n' +
+                '        if (cacheable) {\n' +
+                '            cacheSanitizedPage(sessionKey, message.htmlSignature, clean);\n' +
+                '        }\n' +
+                '        return clean;\n' +
+                '    }\n' +
+                '\n' +
+                '    function acknowledgePage(message) {\n' +
+                '        // The correlated applied acknowledgement: the Host may omit HTML\n' +
+                '        // from a later publication only after this confirms application.\n' +
+                '        if (typeof message.htmlSignature !== \'string\') {\n' +
+                '            return;\n' +
+                '        }\n' +
+                '        post({\n' +
+                '            type: \'conversation-viewer-applied\',\n' +
+                '            version: 1,\n' +
+                '            subscriptionGeneration: message.subscriptionGeneration,\n' +
+                '            requestId: message.requestId,\n' +
+                '            htmlSignature: message.htmlSignature,\n' +
+                '        });\n' +
+                '    }\n' +
+                '\n')
+        .replace(
+                '        }\n' +
+                '        state.latestRequestId = message.requestId;\n' +
+                '        var hasHtml = typeof message.html === \'string\';\n' +
+                '        // A stashed frame whose token matches this page\'s signature is\n' +
+                '        // byte-identical to what the Host published: restore it whole and\n' +
+                '        // skip the sanitize, parse, and reconcile entirely.\n' +
+                '        var frame = hasHtml || message.restoreFrame === true\n' +
+                '            ? takeRestorableFrame(message)\n' +
+                '            : undefined;\n' +
+                '        if (!hasHtml && !frame) {\n' +
+                '            if (message.restoreFrame === true) {\n' +
+                '                // The Host believes this frame is cached but it is not (or\n' +
+                '                // its token moved on): request a full resync.\n' +
+                '                requestConversationResync();\n' +
+                '                return;\n' +
+                '            }\n' +
+                '            if (message.htmlSignature !== state.appliedHtmlSignature) {\n' +
+                '                // A delta that does not match the applied content cannot be\n' +
+                '                // applied; request a full resync instead of staying stale.\n' +
+                '                requestConversationResync();\n' +
+                '                return;\n' +
+                '            }\n' +
+                '        }\n' +
+                '        var previousScrollTop = scroll.scrollTop;\n' +
+                '        var isLiveRefresh = state.initialized\n',
+                '        }\n' +
+                '        state.latestRequestId = message.requestId;\n' +
+                '        var hasHtml = typeof message.html === \'string\';\n' +
+                '        if (!hasHtml\n' +
+                '            && message.htmlSignature !== state.appliedHtmlSignature) {\n' +
+                '            // A delta that does not match the applied content cannot be\n' +
+                '            // applied; request a full resync instead of staying stale.\n' +
+                '            requestConversationResync();\n' +
+                '            return;\n' +
+                '        }\n' +
+                '        var previousScrollTop = scroll.scrollTop;\n' +
+                '        var isLiveRefresh = state.initialized\n')
+        .replace(
+                '        var oldSignatures = state.messageSignatures;\n' +
+                '        state.renderGeneration += 1;\n' +
+                '        var renderGeneration = state.renderGeneration;\n' +
+                '        if (frame) {\n' +
+                '            restoreConversationFrame(frame);\n' +
+                '        } else if (hasHtml) {\n' +
+                '            var clean = window.DOMPurify.sanitize(message.html, {\n' +
+                '                ALLOWED_TAGS: allowedTags,\n' +
+                '                ALLOWED_ATTR: allowedAttributes,\n' +
+                '                ALLOW_DATA_ATTR: false,\n' +
+                '                ALLOW_ARIA_ATTR: false,\n' +
+                '            });\n' +
+                '\n' +
+                '            var reconciled = reconcileController.reconcile(\n' +
+                '                clean,\n',
+                '        var oldSignatures = state.messageSignatures;\n' +
+                '        state.renderGeneration += 1;\n' +
+                '        var renderGeneration = state.renderGeneration;\n' +
+                '        if (hasHtml) {\n' +
+                '            var clean = sanitizeConversationPage(message);\n' +
+                '\n' +
+                '            var reconciled = reconcileController.reconcile(\n' +
+                '                clean,\n')
+        .replace(
+                '        if (!isLiveRefresh) {\n' +
+                '            var openingAtLatest = message.atLatest\n' +
+                '                && message.updateKind === \'initial\';\n' +
+                '            // A frame restore carrying a fresh navigation target behaves\n' +
+                '            // like that navigation, not like a return to the stashed\n' +
+                '            // reading position.\n' +
+                '            var resumeFramePosition = frame\n' +
+                '                && message.selectedInteractionId\n' +
+                '                    === frame.selectedInteractionId;\n' +
+                '            if (resumeFramePosition && frame.followingEnd\n' +
+                '                && message.atLatest) {\n' +
+                '                reconcileController.scrollToEnd();\n' +
+                '            } else if (resumeFramePosition) {\n' +
+                '                restoreViewportReadingPosition(\n' +
+                '                    frame.anchor,\n' +
+                '                    frame.scrollTop\n' +
+                '                );\n' +
+                '                reconcileController.trackEnd();\n' +
+                '            } else if (openingAtLatest) {\n' +
+                '                reconcileController.scrollToEnd();\n' +
+                '            } else if (selected) {\n' +
+                '                centerInMessageViewport(selected);\n',
+                '        if (!isLiveRefresh) {\n' +
+                '            var openingAtLatest = message.atLatest\n' +
+                '                && message.updateKind === \'initial\';\n' +
+                '            if (openingAtLatest) {\n' +
+                '                reconcileController.scrollToEnd();\n' +
+                '            } else if (selected) {\n' +
+                '                centerInMessageViewport(selected);\n')
+        .replace(
+                '                selected.tabIndex = -1;\n' +
+                '                selected.focus({ preventScroll: true });\n' +
+                '            }\n' +
+                '            if (!openingAtLatest && !resumeFramePosition) {\n' +
+                '                reconcileController.trackEnd();\n' +
+                '            }\n' +
+                '            acknowledgePage(message);\n' +
+                '            return;\n' +
+                '        }\n',
+                '                selected.tabIndex = -1;\n' +
+                '                selected.focus({ preventScroll: true });\n' +
+                '            }\n' +
+                '            if (!openingAtLatest) reconcileController.trackEnd();\n' +
+                '            acknowledgePage(message);\n' +
+                '            return;\n' +
+                '        }\n')
         .replace(
             '    function acknowledgePage(message) {\n'
                 + '        // The correlated applied acknowledgement: the Host may omit HTML\n'
@@ -8377,6 +9220,66 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds initial and incremental 
     assert.equal(
         await page.locator('[data-conversation-messages] > article').count(),
         101
+    );
+
+    // Warm frame restore: switching away stashes the built DOM; switching
+    // back with the same content token reattaches it within budget.
+    const switchPage = (generation, sessionId, signature, htmlValue) => {
+        const message = {
+            ...hostileConversationPage,
+            requestId: generation * 10,
+            subscriptionGeneration: generation,
+            updateKind: 'initial',
+            outline: [{
+                interactionId: `${sessionId}-input`,
+                userPreview: sessionId,
+                responseState: 'complete',
+            }],
+            selectedInteractionId: `${sessionId}-input`,
+            selectedInput: 1,
+            totalInputs: 1,
+            previousCursor: undefined,
+            nextCursor: undefined,
+            target: {
+                projectId: 'project-1',
+                provider: 'codex',
+                sessionId,
+                interactionId: `${sessionId}-input`,
+                displayName: sessionId,
+            },
+            comments: { revision: 0, comments: [] },
+            projectComments: { revision: 0, comments: [] },
+            bookmarks: { revision: 0, interactionIds: [] },
+            htmlSignature: signature,
+        };
+        if (htmlValue !== undefined) {
+            message.html = htmlValue;
+        } else {
+            delete message.html;
+            message.restoreFrame = true;
+        }
+        return message;
+    };
+    await measurePublication({
+        ...switchPage(2, 'warm-a', 'sig-warm-a1', initialHtml),
+        requestId: 20,
+    });
+    // Switch away: the large page's frame is stashed.
+    await measurePublication(
+        switchPage(3, 'warm-b', 'sig-warm-b1', largeMessageHtml(2, 200))
+    );
+    const restoreMs = await measurePublication(
+        switchPage(4, 'warm-a', 'sig-warm-a1', undefined)
+    );
+    assert.ok(
+        restoreMs <= conversationPerformanceBudgets.webviewWarmFrameRestoreMs,
+        `warm frame restore ${restoreMs}ms exceeds `
+            + `${conversationPerformanceBudgets.webviewWarmFrameRestoreMs}ms`
+    );
+    assert.equal(
+        await page.locator('[data-conversation-messages] > article').count(),
+        100,
+        'the restored frame brings back the full session DOM'
     );
 });
 

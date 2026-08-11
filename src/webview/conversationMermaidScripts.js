@@ -31,6 +31,37 @@
             });
         }
 
+        // Global release that spares the given subtrees: stashed
+        // conversation frames keep their rendered figures alive while
+        // everything else is revoked.
+        function releaseExcept(exceptNodes) {
+            var keep = new Set();
+            Array.prototype.forEach.call(exceptNodes || [], function (node) {
+                if (!node || node.nodeType !== 1) return;
+                Array.prototype.forEach.call(
+                    node.querySelectorAll(
+                        '.conversation-mermaid-image[src^="blob:"]'
+                    ),
+                    function (image) {
+                        keep.add(image.src);
+                    }
+                );
+            });
+            var kept = [];
+            var released = [];
+            objectUrls.forEach(function (url) {
+                (keep.has(url) ? kept : released).push(url);
+            });
+            released.forEach(function (url) {
+                try {
+                    URL.revokeObjectURL(url);
+                } catch (_error) {
+                    // Revocation is best-effort during document teardown.
+                }
+            });
+            objectUrls = kept;
+        }
+
         function themeValue(name, fallback) {
             var value = window.getComputedStyle(document.body)
                 .getPropertyValue(name)
@@ -340,6 +371,7 @@
         return Object.freeze({
             preserve: preserve,
             release: release,
+            releaseExcept: releaseExcept,
             render: render,
         });
     }

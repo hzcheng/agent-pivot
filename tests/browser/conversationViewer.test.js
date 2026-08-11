@@ -641,6 +641,92 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applyi
     });
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 mermaid releaseExcept keeps figures under excepted nodes alive', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.evaluate(() => {
+        window.__revokedUrls = [];
+        const revoke = URL.revokeObjectURL.bind(URL);
+        URL.revokeObjectURL = url => {
+            window.__revokedUrls.push(url);
+            return revoke(url);
+        };
+        const messages = document.querySelector('[data-conversation-messages]');
+        messages.innerHTML = '<article data-message-id="mm-a">'
+            + '<section class="conversation-markdown"><pre><code '
+            + 'class="language-mermaid">flowchart TB; A--&gt;B</code></pre>'
+            + '</section></article>'
+            + '<article data-message-id="mm-b">'
+            + '<section class="conversation-markdown"><pre><code '
+            + 'class="language-mermaid">flowchart TB; C--&gt;D</code></pre>'
+            + '</section></article>';
+        window.__mermaidController = window.__agentPivotConversationMermaid
+            .create({
+                source: null,
+                nonce: null,
+                messages,
+                scroll: document.querySelector('[data-conversation-scroll]'),
+                maxDiagrams: 40,
+                captureAnchor: () => null,
+                restoreAnchor: () => undefined,
+            });
+        window.__mermaidController.render(1);
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 1,
+        undefined,
+        { timeout: 3_000 }
+    );
+    // Diagrams render sequentially: resolve each to unblock the next.
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text>0</text></svg>',
+        });
+    });
+    await page.waitForFunction(
+        () => window.__mermaidRenders.length === 2,
+        undefined,
+        { timeout: 3_000 }
+    );
+    await page.evaluate(() => {
+        window.__mermaidRenders[1].resolve({
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text>1</text></svg>',
+        });
+    });
+    await page.waitForFunction(
+        () => document.querySelectorAll('.conversation-mermaid-image')
+            .length === 2,
+        undefined,
+        { timeout: 3_000 }
+    );
+
+    const outcome = await page.evaluate(() => {
+        const images = Array.prototype.map.call(
+            document.querySelectorAll('.conversation-mermaid-image'),
+            image => image.src
+        );
+        const articleB = document.querySelector('[data-message-id="mm-b"]');
+        // Detach B the way a stashed conversation frame would, then run a
+        // global release that spares the stash.
+        const stash = document.createElement('div');
+        stash.appendChild(articleB);
+        window.__mermaidController.releaseExcept([articleB]);
+        const revokedByExcept = window.__revokedUrls.slice();
+        window.__mermaidController.release(articleB);
+        return {
+            images,
+            revokedByExcept,
+            revokedTotal: window.__revokedUrls.slice(),
+        };
+    });
+
+    assert.deepEqual(outcome.revokedByExcept, [outcome.images[0]],
+        'only the figure outside the excepted stash is revoked');
+    assert.deepEqual(outcome.revokedTotal, [
+        outcome.images[0],
+        outcome.images[1],
+    ], 'evicting the stashed frame revokes its figure URL');
+});
+
 test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {

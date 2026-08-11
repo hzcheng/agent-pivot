@@ -269,6 +269,7 @@ function initProjects() {
     });
     var presentationTransactions = initAiSessionPresentationTransactions({
         isValidAiSessionPresentationState: aiSessionPresentationStateStore.isValid,
+        canApplyAiSessionPresentationState: aiSessionPresentationDom.canApply,
         applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
     });
     var aiSessionsUpdate = initProjectAiSessionsUpdate({
@@ -466,7 +467,10 @@ function initProjects() {
                 message: message,
                 invalidPresentationReason: 'invalid-open-workspaces-presentation-envelope',
                 invalidReplacementReason: 'invalid-open-workspaces-update',
-                replaceContent: () => applyOpenWorkspacesUpdate(message),
+                replaceContent: validateReplacement => applyOpenWorkspacesUpdate(
+                    message,
+                    { validateReplacement: validateReplacement }
+                ),
             })) {
                 return;
             }

@@ -783,6 +783,52 @@ const guards = {
             'AI session Presentation transaction owner'
         );
         const transactionOwnerSource = transactionOwner.getText(webview);
+        const matchingWorkspaceOwner = uniqueAstNode(
+            transactionOwner,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'hasMatchingPresentationWorkspace',
+            this.id,
+            risk,
+            'Presentation workspace precondition owner'
+        );
+        const initialPresentationOwner = uniqueAstNode(
+            transactionOwner,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'applyInitialPresentation',
+            this.id,
+            risk,
+            'initial Presentation transaction owner'
+        );
+        const directPresentationOwner = uniqueAstNode(
+            transactionOwner,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'applyDirectPresentation',
+            this.id,
+            risk,
+            'direct Presentation transaction owner'
+        );
+        const initialPresentationSource = initialPresentationOwner.getText(webview);
+        const directPresentationSource = directPresentationOwner.getText(webview);
+        const matchingWorkspaceSource = matchingWorkspaceOwner.getText(webview);
+        const applyWorkspaceUpdateOwner = uniqueAstNode(
+            workspaceWebview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'applyWorkspaceUpdate',
+            this.id,
+            risk,
+            'current workspace replacement owner'
+        );
+        const applyOpenWorkspacesUpdateOwner = uniqueAstNode(
+            workspaceWebview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'applyOpenWorkspacesUpdate',
+            this.id,
+            risk,
+            'open workspaces replacement owner'
+        );
+        const applyWorkspaceUpdateSource = applyWorkspaceUpdateOwner.getText(workspaceWebview);
+        const applyOpenWorkspacesUpdateSource =
+            applyOpenWorkspacesUpdateOwner.getText(workspaceWebview);
         const aiUpdateOwner = uniqueAstNode(
             webview,
             node => ts.isFunctionDeclaration(node)
@@ -810,6 +856,11 @@ const guards = {
             && ts.isArrowFunction(aiReplaceContent.initializer)
             ? callArguments(aiReplaceContent.initializer, 'applyWorkspaceUpdate')
             : [];
+        const aiReplaceContentSource = aiReplaceContent
+            && ts.isPropertyAssignment(aiReplaceContent)
+            && ts.isArrowFunction(aiReplaceContent.initializer)
+            ? aiReplaceContent.initializer.getText(webview)
+            : '';
         const aiAfterReplacement = aiAtomicInput
             && ts.isObjectLiteralExpression(aiAtomicInput)
             ? aiAtomicInput.properties.find(property =>
@@ -1017,6 +1068,13 @@ const guards = {
                     && property.name.getText(projectWebview)
                         === 'isValidAiSessionPresentationState')
             : null;
+        const transactionWorkspaceOption = transactionOptions
+            && ts.isObjectLiteralExpression(transactionOptions)
+            ? transactionOptions.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(projectWebview)
+                        === 'canApplyAiSessionPresentationState')
+            : null;
         const legacyPresentationGlobals = [
             '__agentPivotAiSessionPresentationState',
             '__agentPivotAttentionSessionEvents',
@@ -1116,6 +1174,10 @@ const guards = {
             || !ts.isPropertyAssignment(transactionValidatorOption)
             || transactionValidatorOption.initializer.getText(projectWebview)
                 !== 'aiSessionPresentationStateStore.isValid'
+            || !transactionWorkspaceOption
+            || !ts.isPropertyAssignment(transactionWorkspaceOption)
+            || transactionWorkspaceOption.initializer.getText(projectWebview)
+                !== 'aiSessionPresentationDom.canApply'
             || !aiSessionControlsSource.includes(
                 'stateStore.getAttentionEventIds(provider, sessionId)'
             )
@@ -1161,6 +1223,8 @@ const guards = {
             'setCurrentWorkspaceSummaryAttentionDom',
             'setCurrentWorkspaceRunningDom',
             'setCurrentOpenWorkspaceSummaryDom',
+            'getAiSessionPresentationCurrentCards',
+            'canApplyAiSessionPresentationDom',
             'applyAiSessionPresentationDom',
         ];
         const presentationDomHelpers = presentationDomHelperNames.map(name =>
@@ -1173,7 +1237,11 @@ const guards = {
             )
         );
         const presentationApplyOwner = presentationDomHelpers.at(-1);
+        const presentationCanApplyOwner = presentationDomHelpers.at(-2);
+        const presentationCurrentCardsOwner = presentationDomHelpers.at(-3);
         const presentationApplySource = presentationApplyOwner.getText(webview);
+        const presentationCanApplySource = presentationCanApplyOwner.getText(webview);
+        const presentationCurrentCardsSource = presentationCurrentCardsOwner.getText(webview);
         const presentationDomPublicReturn = uniqueAstNode(
             presentationDomOwner,
             node => ts.isReturnStatement(node)
@@ -1187,6 +1255,8 @@ const guards = {
         );
         const presentationDomPublicApply = presentationDomPublicReturn.expression.properties
             .find(property => property.name?.getText(webview) === 'apply');
+        const presentationDomPublicCanApply = presentationDomPublicReturn.expression.properties
+            .find(property => property.name?.getText(webview) === 'canApply');
         const presentationDomCalls = callArguments(
             projectWebview,
             'initAiSessionPresentationDom'
@@ -1348,29 +1418,35 @@ const guards = {
             || presentationDomStateStoreOption.initializer.getText(projectWebview)
                 !== 'aiSessionPresentationStateStore'
             || !focusedTargetProjectionState.initializer
-            || !ts.isConditionalExpression(focusedTargetProjectionState.initializer)
-            || !ts.isIdentifier(focusedTargetProjectionState.initializer.condition)
-            || focusedTargetProjectionState.initializer.condition.text
-                !== 'hasMatchingWorkspace'
-            || !ts.isCallExpression(focusedTargetProjectionState.initializer.whenTrue)
-            || focusedTargetProjectionState.initializer.whenTrue.arguments.length !== 0
+            || !ts.isCallExpression(focusedTargetProjectionState.initializer)
+            || focusedTargetProjectionState.initializer.arguments.length !== 0
             || !ts.isPropertyAccessExpression(
-                focusedTargetProjectionState.initializer.whenTrue.expression
+                focusedTargetProjectionState.initializer.expression
             )
-            || focusedTargetProjectionState.initializer.whenTrue.expression.getText(webview)
+            || focusedTargetProjectionState.initializer.expression.getText(webview)
                 !== 'presentationStateStore.getFocusedTarget'
-            || focusedTargetProjectionState.initializer.whenFalse.kind
-                !== ts.SyntaxKind.NullKeyword
             || focusedTargetProjectionAssignments.length !== 0
             || focusedTargetProjectionCalls.length !== 1
             || focusedTargetDomOwnerCalls.length !== 1
             || focusedTargetControlsCalls.length !== 0
             || focusedTargetProjectInitCalls.length !== 0
             || focusProjectionSource.includes('[data-session-focused]')
-            || focusProjectionOwner.parameters.length !== 2
+            || focusProjectionOwner.parameters.length !== 1
             || focusProjectionOwner.parameters[0].name.getText(webview)
-                !== 'hasMatchingWorkspace'
-            || focusProjectionOwner.parameters[1].name.getText(webview) !== 'revealFocused'
+                !== 'revealFocused'
+            || !presentationDomPublicCanApply
+            || !ts.isPropertyAssignment(presentationDomPublicCanApply)
+            || presentationDomPublicCanApply.initializer.getText(webview)
+                !== 'canApplyAiSessionPresentationDom'
+            || !presentationCanApplySource.includes(
+                'message.workspaceNavigationIdentity === null'
+            )
+            || !presentationCanApplySource.includes('[data-current-workspace]')
+            || !presentationCanApplySource.includes('[data-open-workspace-current]')
+            || callArguments(
+                presentationCanApplyOwner,
+                'getAiSessionPresentationCurrentCards'
+            ).length !== 1
             || callArguments(
                 applyValidatedPresentation,
                 'aiSessionPresentationDom.apply'
@@ -1396,10 +1472,11 @@ const guards = {
             || adoptPresentationIndex < 0
             || projectPresentationIndex <= adoptPresentationIndex
             || reconcileAcknowledgementsIndex <= projectPresentationIndex
-            || presentationDomHelperNames.slice(0, -1).some(name =>
+            || presentationDomHelperNames.slice(0, -1)
+                .filter(name => name !== 'canApplyAiSessionPresentationDom').some(name =>
                 callArguments(presentationApplyOwner, name).length < 1)
-            || !presentationApplySource.includes('[data-current-workspace]')
-            || !presentationApplySource.includes('[data-open-workspace-current]')
+            || !presentationCurrentCardsSource.includes('[data-current-workspace]')
+            || !presentationCurrentCardsSource.includes('[data-open-workspace-current]')
             || presentationMutationNodes.length !== 28
             || presentationMutationNodes.some(({ node, sourceFile }) =>
                 sourceFile.fileName !== webview.fileName
@@ -1452,11 +1529,80 @@ const guards = {
             fail(this.id, risk,
                 'OPEN HTML and Presentation must share one Host message');
         }
+        const initialWorkspaceIndex = initialPresentationSource.indexOf(
+            '!hasMatchingPresentationWorkspace(message)'
+        );
+        const initialRevisionIndex = initialPresentationSource.indexOf(
+            'acceptInitialPresentationProjectionRevision(message.projectionRevision)'
+        );
+        const directWorkspaceIndex = directPresentationSource.indexOf(
+            '!hasMatchingPresentationWorkspace(message)'
+        );
+        const directRevisionIndex = directPresentationSource.indexOf(
+            'acceptPresentationProjectionRevision(message.projectionRevision)'
+        );
+        if (!matchingWorkspaceSource.includes(
+            'canApplyAiSessionPresentationState(message)'
+        ) || !matchingWorkspaceSource.includes(
+            "requestFullRefresh('mismatched-ai-session-presentation-workspace')"
+        ) || callArguments(
+            transactionOwner,
+            'hasMatchingPresentationWorkspace'
+        ).length !== 3
+            || !transactionOwnerSource.includes(
+                'replacementWorkspaceMatches = canApplyAiSessionPresentationState('
+            )
+            || !transactionOwnerSource.includes('replacementWorkspaceMatches === false')
+            || aiReplaceContentSource.includes('() => applyWorkspaceUpdate(')
+            || !aiReplaceContentSource.includes('validateReplacement => applyWorkspaceUpdate(')
+            || !aiReplaceContentSource.includes(
+                'validateReplacement: validateReplacement'
+            )
+            || !projectWebviewSource.includes(
+                'replaceContent: validateReplacement => applyOpenWorkspacesUpdate('
+            )
+            || !projectWebviewSource.includes(
+                '{ validateReplacement: validateReplacement }'
+            )
+            || callArguments(
+                applyWorkspaceUpdateOwner,
+                'options.validateReplacement'
+            ).length !== 1
+            || callArguments(
+                applyOpenWorkspacesUpdateOwner,
+                'options.validateReplacement'
+            ).length !== 1
+            || applyWorkspaceUpdateSource.indexOf(
+                '!isWorkspaceUpdateDomConsistent(message, replacement)'
+            ) >= applyWorkspaceUpdateSource.indexOf(
+                '!options.validateReplacement(replacement)'
+            )
+            || applyWorkspaceUpdateSource.indexOf(
+                '!options.validateReplacement(replacement)'
+            ) >= applyWorkspaceUpdateSource.indexOf('currentGroup.replaceWith(replacement)')
+            || applyOpenWorkspacesUpdateSource.indexOf(
+                '!isOpenWorkspacesUpdateDomConsistent(message, holder)'
+            ) >= applyOpenWorkspacesUpdateSource.indexOf(
+                '!options.validateReplacement(holder)'
+            )
+            || applyOpenWorkspacesUpdateSource.indexOf(
+                '!options.validateReplacement(holder)'
+            ) >= applyOpenWorkspacesUpdateSource.indexOf(
+                'wrapper.innerHTML = holder ? holder.innerHTML : message.html'
+            )
+            || initialWorkspaceIndex < 0
+            || initialRevisionIndex <= initialWorkspaceIndex
+            || directWorkspaceIndex < 0
+            || directRevisionIndex <= directWorkspaceIndex) {
+            fail(this.id, risk,
+                'every Presentation must match the rendered workspace before revision adoption');
+        }
         const transactionOrder = [
             '!isValidAiSessionPresentationState(message.presentation)',
             '!canApplyProjectionRevision(message.projectionRevision)',
             '!canApplyAtomicPresentationProjectionRevision(message.projectionRevision)',
-            '!input.replaceContent()',
+            '!input.replaceContent(replacementRoot =>',
+            '!hasMatchingPresentationWorkspace(message.presentation)',
             'commitAtomicProjectionRevision(message.projectionRevision)',
             "typeof input.afterReplacement === 'function'",
             'applyValidatedAiSessionPresentationState(message.presentation)',

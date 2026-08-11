@@ -90,6 +90,7 @@ function initAiSessionPresentationTransactions(options) {
 
     options = options || {};
     var isValidAiSessionPresentationState = options.isValidAiSessionPresentationState;
+    var canApplyAiSessionPresentationState = options.canApplyAiSessionPresentationState;
     var applyValidatedAiSessionPresentationState = options.applyValidatedAiSessionPresentationState;
     var latestAiSessionProjectionRevision = 0;
     var latestAiSessionPresentationProjectionRevision = 0;
@@ -100,6 +101,12 @@ function initAiSessionPresentationTransactions(options) {
             type: 'request-full-refresh',
             reason,
         });
+    }
+
+    function hasMatchingPresentationWorkspace(message) {
+        if (canApplyAiSessionPresentationState(message)) return true;
+        requestFullRefresh('mismatched-ai-session-presentation-workspace');
+        return false;
     }
 
     function canApplyRevision(revision, latestRevision) {
@@ -165,6 +172,7 @@ function initAiSessionPresentationTransactions(options) {
             requestFullRefresh('invalid-initial-ai-session-presentation-state');
             return false;
         }
+        if (!hasMatchingPresentationWorkspace(message)) return false;
         if (!acceptInitialPresentationProjectionRevision(message.projectionRevision)) {
             return false;
         }
@@ -178,6 +186,7 @@ function initAiSessionPresentationTransactions(options) {
             requestFullRefresh('invalid-direct-ai-session-presentation-state');
             return false;
         }
+        if (!hasMatchingPresentationWorkspace(message)) return false;
         if (!acceptPresentationProjectionRevision(message.projectionRevision)) {
             return false;
         }
@@ -199,10 +208,20 @@ function initAiSessionPresentationTransactions(options) {
             || !canApplyAtomicPresentationProjectionRevision(message.projectionRevision)) {
             return false;
         }
-        if (!input.replaceContent()) {
-            requestFullRefresh(input.invalidReplacementReason);
+        var replacementWorkspaceMatches = null;
+        if (!input.replaceContent(replacementRoot => {
+            replacementWorkspaceMatches = canApplyAiSessionPresentationState(
+                message.presentation,
+                replacementRoot
+            );
+            return replacementWorkspaceMatches;
+        })) {
+            requestFullRefresh(replacementWorkspaceMatches === false
+                ? 'mismatched-ai-session-presentation-workspace'
+                : input.invalidReplacementReason);
             return false;
         }
+        if (!hasMatchingPresentationWorkspace(message.presentation)) return false;
         commitAtomicProjectionRevision(message.projectionRevision);
         if (typeof input.afterReplacement === 'function') {
             input.afterReplacement();
@@ -225,10 +244,8 @@ function initAiSessionPresentationDom(options) {
     options = options || {};
     var presentationStateStore = options.presentationStateStore;
 
-    function syncActiveAiSessionProjectionDom(hasMatchingWorkspace, revealFocused) {
-        var focusedTarget = hasMatchingWorkspace
-            ? presentationStateStore.getFocusedTarget()
-            : null;
+    function syncActiveAiSessionProjectionDom(revealFocused) {
+        var focusedTarget = presentationStateStore.getFocusedTarget();
         var projectedFocusedRow = null;
         document.querySelectorAll(
             '.codex-session-row[data-session-provider][data-session-id],'
@@ -447,8 +464,10 @@ function initAiSessionPresentationDom(options) {
         );
         setCurrentWorkspaceRunningDom(projectDiv, message);
     }
-    function applyAiSessionPresentationDom(message) {
-        var currentCards = Array.from(document.querySelectorAll(
+    function getAiSessionPresentationCurrentCards(message, root) {
+        if (typeof message.workspaceNavigationIdentity !== 'string'
+            || !message.workspaceNavigationIdentity) return [];
+        return Array.from((root || document).querySelectorAll(
             '.workspace-card[data-workspace-navigation-identity="'
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
                 + '[data-current-workspace],'
@@ -456,7 +475,20 @@ function initAiSessionPresentationDom(options) {
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
                 + '[data-open-workspace-current]'
         ));
-        syncActiveAiSessionProjectionDom(currentCards.length > 0, message.revealFocused);
+    }
+    function canApplyAiSessionPresentationDom(message, root) {
+        var projectionRoot = root || document;
+        if (message.workspaceNavigationIdentity === null) {
+            return !projectionRoot.querySelector(
+                '.workspace-card[data-current-workspace],'
+                    + '.workspace-card[data-open-workspace-current]'
+            );
+        }
+        return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;
+    }
+    function applyAiSessionPresentationDom(message) {
+        var currentCards = getAiSessionPresentationCurrentCards(message);
+        syncActiveAiSessionProjectionDom(message.revealFocused);
         if (!currentCards.length) return;
         var projectDiv = currentCards.find(card => card.hasAttribute('data-current-workspace'));
         var presentations = {};
@@ -498,6 +530,7 @@ function initAiSessionPresentationDom(options) {
 
     return {
         apply: applyAiSessionPresentationDom,
+        canApply: canApplyAiSessionPresentationDom,
     };
 }
 
@@ -547,7 +580,7 @@ function initProjectAiSessionsUpdate(options) {
             message: message,
             invalidPresentationReason: 'invalid-ai-session-presentation-envelope',
             invalidReplacementReason: 'invalid-ai-session-workspace-update',
-            replaceContent: () => applyWorkspaceUpdate({
+            replaceContent: validateReplacement => applyWorkspaceUpdate({
                 type: 'workspace-updated',
                 version: 2,
                 currentWorkspaceCount: message.currentWorkspaceCount,
@@ -556,6 +589,7 @@ function initProjectAiSessionsUpdate(options) {
                 canRestoreAiSessionProviderMenu: () =>
                     !getPendingAiSessionProviderSelectionProjectId()
                     && !batchAiSessionState.pending,
+                validateReplacement: validateReplacement,
             }),
             afterReplacement: () => {
                 if (batchAiSessionState.projectId) {

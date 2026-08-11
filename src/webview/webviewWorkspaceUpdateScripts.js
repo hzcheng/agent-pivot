@@ -93,6 +93,10 @@ function applyWorkspaceUpdate(message, options) {
         || !isWorkspaceUpdateDomConsistent(message, replacement)) {
         return false;
     }
+    if (options && typeof options.validateReplacement === 'function'
+        && !options.validateReplacement(replacement)) {
+        return false;
+    }
 
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(currentGroup);
     var currentListScroll = captureOpenTabListScroll(
@@ -254,7 +258,7 @@ function completeOpenWorkspacePin(message) {
     return true;
 }
 
-function applyOpenWorkspacesUpdate(message) {
+function applyOpenWorkspacesUpdate(message, options) {
     if (!message
         || message.type !== 'open-workspaces-updated'
         || message.version !== 3
@@ -279,6 +283,18 @@ function applyOpenWorkspacesUpdate(message) {
     }
     var wrapper = document.querySelector('.sticky-groups-wrapper');
     if (!wrapper) return false;
+    var holder = null;
+    if (typeof document.createElement === 'function') {
+        holder = document.createElement('div');
+        holder.innerHTML = message.html;
+        if (!isOpenWorkspacesUpdateDomConsistent(message, holder)
+            || (options && typeof options.validateReplacement === 'function'
+                && !options.validateReplacement(holder))) {
+            return false;
+        }
+    } else if (options && typeof options.validateReplacement === 'function') {
+        return false;
+    }
     var previousHtml = wrapper.innerHTML;
     var focusedPinButton = document.activeElement
         && document.activeElement.matches?.(
@@ -292,7 +308,7 @@ function applyOpenWorkspacesUpdate(message) {
         OPEN_TAB_OTHER_ITEM_SELECTOR,
         'data-workspace-navigation-identity'
     );
-    wrapper.innerHTML = message.html;
+    wrapper.innerHTML = holder ? holder.innerHTML : message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
         restoreOpenTabListScroll(
@@ -337,12 +353,14 @@ function applyOpenWorkspacesUpdate(message) {
     return true;
 }
 
-function getOpenWorkspacesUpdateDomState() {
-    var otherWindowsGroup = document.querySelector(
-        '.sticky-groups-wrapper .open-other-windows-group[data-other-windows-status]'
+function getOpenWorkspacesUpdateDomState(root) {
+    var projectionRoot = root || document;
+    var wrapperPrefix = root ? '' : '.sticky-groups-wrapper ';
+    var otherWindowsGroup = projectionRoot.querySelector(
+        wrapperPrefix + '.open-other-windows-group[data-other-windows-status]'
     );
-    var openWorkspaceCards = Array.from(document.querySelectorAll(
-        '.sticky-groups-wrapper .open-other-windows-group '
+    var openWorkspaceCards = Array.from(projectionRoot.querySelectorAll(
+        wrapperPrefix + '.open-other-windows-group '
         + '.workspace-card[data-open-workspace-list-card][data-workspace-navigation-identity]'
     ));
     var navigationCards = openWorkspaceCards.filter(card =>
@@ -352,15 +370,16 @@ function getOpenWorkspacesUpdateDomState() {
         card.getAttribute('data-workspace-navigation-identity')
     );
     return {
-        currentWorkspaceCount: document.querySelectorAll(
-            '.sticky-groups-wrapper .workspace-card[data-current-workspace][data-workspace-scope-identity]'
+        currentWorkspaceCount: projectionRoot.querySelectorAll(
+            wrapperPrefix
+                + '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
         ).length,
         navigationWorkspaceCount: navigationCards.length,
         openWorkspaceListCount: openWorkspaceCards.length,
         hasUniqueNavigationIdentities: navigationIdentities.every(identity => !!identity)
             && new Set(navigationIdentities).size === navigationIdentities.length,
-        hasOtherWindowsGroup: document.querySelectorAll(
-            '.sticky-groups-wrapper .open-other-windows-group'
+        hasOtherWindowsGroup: projectionRoot.querySelectorAll(
+            wrapperPrefix + '.open-other-windows-group'
         ).length > 0,
         otherWindowsStatus: otherWindowsGroup
             ? otherWindowsGroup.getAttribute('data-other-windows-status')
@@ -368,8 +387,8 @@ function getOpenWorkspacesUpdateDomState() {
     };
 }
 
-function isOpenWorkspacesUpdateDomConsistent(message) {
-    var rendered = getOpenWorkspacesUpdateDomState();
+function isOpenWorkspacesUpdateDomConsistent(message, root) {
+    var rendered = getOpenWorkspacesUpdateDomState(root);
     return rendered.currentWorkspaceCount === message.currentWorkspaceCount
         && rendered.navigationWorkspaceCount === message.navigationWorkspaceCount
         && rendered.hasUniqueNavigationIdentities

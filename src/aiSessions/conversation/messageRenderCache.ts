@@ -28,30 +28,42 @@ export class ConversationMessageRenderCache {
     private readonly entries = new Map<string, {
         signature: string;
         html: string;
+        version: number;
     }>();
     private cachedBytes = 0;
+    private renderVersion = 0;
 
     constructor(
         private readonly maxBytes = 8 * 1024 * 1024,
     ) {}
 
+    /**
+     * Returns the cached HTML for a message, rendering it on a miss. Every
+     * (re)render advances a monotonically increasing version so callers can
+     * mix (message id, signature, version) into a publication-level content
+     * signature: within one viewer instance, a given (id, version) pair
+     * always identifies exactly one rendered HTML string, which is what
+     * makes delta publications safe without hashing message content.
+     */
     render(
         messageId: string,
         signature: string,
         render: () => string
-    ): string {
+    ): { html: string; version: number } {
         const existing = this.entries.get(messageId);
         if (existing && existing.signature === signature) {
             // Refresh the recency order without touching the byte total.
             this.entries.delete(messageId);
             this.entries.set(messageId, existing);
-            return existing.html;
+            return existing;
         }
         const html = render();
+        const version = ++this.renderVersion;
         if (existing) {
             this.cachedBytes -= existing.html.length;
         }
-        this.entries.set(messageId, { signature, html });
+        const entry = { signature, html, version };
+        this.entries.set(messageId, entry);
         this.cachedBytes += html.length;
         while (this.cachedBytes > this.maxBytes && this.entries.size > 1) {
             const oldestKey = this.entries.keys().next().value;
@@ -64,7 +76,7 @@ export class ConversationMessageRenderCache {
             }
             this.entries.delete(oldestKey);
         }
-        return html;
+        return entry;
     }
 
     invalidateInteraction(interactionId: string): void {
@@ -136,9 +148,11 @@ export class ConversationContentSignature {
 
     mixMessage(
         message: ConversationMessage,
-        signature: string
+        signature: string,
+        renderVersion: number
     ): this {
-        return this.mix(message.id).mix(message.role).mix(signature);
+        return this.mix(message.id).mix(message.role).mix(signature)
+            .mix(String(renderVersion));
     }
 
     toString(): string {

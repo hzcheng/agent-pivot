@@ -25,31 +25,40 @@ test('conversation message render cache serves repeat renders without re-renderi
         return '<article>html</article>';
     };
 
-    assert.equal(cache.render('input-1:user', signature(), render), '<article>html</article>');
-    assert.equal(cache.render('input-1:user', signature(), render), '<article>html</article>');
+    const first = cache.render('input-1:user', signature(), render);
+    assert.equal(first.html, '<article>html</article>');
+    const second = cache.render('input-1:user', signature(), render);
+    assert.equal(second.html, '<article>html</article>');
     assert.equal(renders, 1);
+    assert.equal(second.version, first.version,
+        'a cache hit must keep the entry version stable');
 });
 
-test('conversation message render cache re-renders on any signature change', () => {
+test('conversation message render cache re-renders on any signature change and bumps the version', () => {
     const cache = new ConversationMessageRenderCache();
     let renders = 0;
     const render = () => `<article>${++renders}</article>`;
-    const base = signature();
 
-    cache.render('input-1:user', base, render);
-    assert.equal(cache.render('input-1:user', signature({ showThinking: true }), render), '<article>2</article>');
-    assert.equal(cache.render('input-1:user', signature({ responseState: 'inProgress' }), render), '<article>3</article>');
+    const base = cache.render('input-1:user', signature(), render);
+    const thinking = cache.render('input-1:user', signature({ showThinking: true }), render);
+    assert.equal(thinking.html, '<article>2</article>');
+    assert.ok(thinking.version > base.version);
+    const state = cache.render('input-1:user', signature({ responseState: 'inProgress' }), render);
+    assert.equal(state.html, '<article>3</article>');
+    const clocked = cache.render('input-1:user', signature({
+        clock: { label: '10:00', title: 'Today 10:00' },
+    }), render);
+    assert.equal(clocked.html, '<article>4</article>');
     assert.equal(cache.render('input-1:user', signature({
         clock: { label: '10:00', title: 'Today 10:00' },
-    }), render), '<article>4</article>');
-    assert.equal(cache.render('input-1:user', signature({
-        clock: { label: '10:00', title: 'Today 10:00' },
-    }), render), '<article>4</article>');
+    }), render).version, clocked.version);
     // Another session reusing the same deterministic message id must miss.
-    assert.equal(cache.render('input-1:user', signature({
+    const otherSession = cache.render('input-1:user', signature({
         sessionId: 'session-b',
         clock: { label: '10:00', title: 'Today 10:00' },
-    }), render), '<article>5</article>');
+    }), render);
+    assert.equal(otherSession.html, '<article>5</article>');
+    assert.ok(otherSession.version > clocked.version);
     assert.equal(renders, 5);
 });
 
@@ -60,13 +69,16 @@ test('conversation message render cache invalidates every message of an interact
 
     cache.render('input-1:user', signature(), render);
     cache.render('input-1:assistant:0', signature(), render);
-    cache.render('input-2:user', signature(), render);
+    const untouched = cache.render('input-2:user', signature(), render);
     assert.equal(renders, 3);
 
     cache.invalidateInteraction('input-1');
-    assert.equal(cache.render('input-1:user', signature(), render), '<article>4</article>');
-    assert.equal(cache.render('input-1:assistant:0', signature(), render), '<article>5</article>');
-    assert.equal(cache.render('input-2:user', signature(), render), '<article>3</article>');
+    const rerendered = cache.render('input-1:user', signature(), render);
+    assert.equal(rerendered.html, '<article>4</article>');
+    assert.ok(rerendered.version > untouched.version,
+        'an invalidated re-render must advance the content version');
+    assert.equal(cache.render('input-1:assistant:0', signature(), render).html, '<article>5</article>');
+    assert.equal(cache.render('input-2:user', signature(), render).html, '<article>3</article>');
 });
 
 test('conversation message render cache evicts least recently used entries beyond the byte budget', () => {
@@ -76,18 +88,18 @@ test('conversation message render cache evicts least recently used entries beyon
     cache.render('a:user', signature(), render('x'.repeat(40)));
     cache.render('b:user', signature(), render('y'.repeat(40)));
     // Touch a so b becomes the oldest entry.
-    assert.equal(cache.render('a:user', signature(), render('ignored')), 'x'.repeat(40));
+    assert.equal(cache.render('a:user', signature(), render('ignored')).html, 'x'.repeat(40));
     cache.render('c:user', signature(), render('z'.repeat(40)));
 
     assert.equal(cache.size, 2);
-    assert.equal(cache.render('b:user', signature(), render('new')), 'new');
+    assert.equal(cache.render('b:user', signature(), render('new')).html, 'new');
     assert.equal(cache.trackedBytes <= 100, true);
 });
 
 test('conversation message render cache keeps the freshest entry even when it alone exceeds the budget', () => {
     const cache = new ConversationMessageRenderCache(10);
     cache.render('a:user', signature(), () => 'x'.repeat(50));
-    assert.equal(cache.render('a:user', signature(), () => 'ignored'), 'x'.repeat(50));
+    assert.equal(cache.render('a:user', signature(), () => 'ignored').html, 'x'.repeat(50));
     assert.equal(cache.size, 1);
 });
 
@@ -96,20 +108,25 @@ test('conversation content signature tracks the ordered message stream', () => {
     const right = new ConversationContentSignature();
     const message = (id, role) => ({ id, role });
 
-    left.mixMessage(message('input-1:user', 'user'), 'sig-a');
-    right.mixMessage(message('input-1:user', 'user'), 'sig-a');
+    left.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
+    right.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
     assert.equal(left.toString(), right.toString());
 
-    right.mixMessage(message('input-1:assistant:0', 'assistant'), 'sig-b');
+    right.mixMessage(message('input-1:assistant:0', 'assistant'), 'sig-b', 2);
     assert.notEqual(left.toString(), right.toString());
 
     const reordered = new ConversationContentSignature();
-    reordered.mixMessage(message('input-1:assistant:0', 'assistant'), 'sig-b');
-    reordered.mixMessage(message('input-1:user', 'user'), 'sig-a');
+    reordered.mixMessage(message('input-1:assistant:0', 'assistant'), 'sig-b', 2);
+    reordered.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
     assert.notEqual(left.toString(), reordered.toString());
 
+    const rerendered = new ConversationContentSignature();
+    rerendered.mixMessage(message('input-1:user', 'user'), 'sig-a', 3);
+    assert.notEqual(left.toString(), rerendered.toString(),
+        'a re-rendered message must change the content signature');
+
     const worklog = new ConversationContentSignature();
-    worklog.mixMessage(message('input-1:user', 'user'), 'sig-a');
+    worklog.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
     worklog.mix('input-1:worklog').mix('5200');
     assert.notEqual(left.toString(), worklog.toString());
 });

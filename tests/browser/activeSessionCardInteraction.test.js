@@ -1946,11 +1946,16 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         message.version === 3 && message.presentation.attentionSessions.length === 0
     ));
     const finalEnvelope = deliveredEnvelopes[deliveredEnvelopes.length - 1];
-    assert.equal(
-        await page.evaluate(() => window.__agentPivotAiSessionPresentationState.projectionRevision),
-        finalEnvelope.projectionRevision,
-        'the final production v3 envelope must be fully applied before DOM assertions'
-    );
+    assert.equal(finalEnvelope.presentation.attentionSessions.length, 0);
+    await waitForPageCondition(page, ({ provider, id }) => {
+        var currentRow = document.querySelector(
+            '.active-ai-session-row[data-session-provider="' + provider
+                + '"][data-session-id="' + CSS.escape(id) + '"]'
+        );
+        return currentRow
+            && !currentRow.hasAttribute('data-ai-session-attention')
+            && !currentRow.hasAttribute('data-attention-acknowledgement-pending');
+    }, { provider: 'kimi', id: sessionId });
     await assertAttentionCleared(page, 'kimi', sessionId);
 });
 

@@ -3,6 +3,7 @@ function initProjectAiSessionControls(options) {
 
     options = options || {};
     var getAiSessionsUpdate = options.getAiSessionsUpdate;
+    var getAiSessionPresentationStateStore = options.getAiSessionPresentationStateStore;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
 
     var batchAiSessionState = {
@@ -348,14 +349,16 @@ function initProjectAiSessionControls(options) {
 
     function acknowledgeAiSession(provider, sessionId, fallbackEventId) {
         var sessionKey = provider + ':' + sessionId;
-        window.__agentPivotAttentionSessionEvents = window.__agentPivotAttentionSessionEvents || {};
-        var eventIds = window.__agentPivotAttentionSessionEvents[sessionKey] || [];
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var eventIds = stateStore
+            ? stateStore.getAttentionEventIds(provider, sessionId) : [];
         if (!eventIds.length && fallbackEventId) {
             eventIds = [fallbackEventId];
         }
         eventIds = Array.from(new Set(eventIds.filter(eventId => typeof eventId === 'string' && !!eventId)));
         if (eventIds.length) {
-            var presentation = window.__agentPivotAiSessionPresentationState;
+            var presentation = stateStore ? stateStore.getCurrent() : null;
             if (!presentation
                 || presentation.type !== 'ai-session-presentation-state'
                 || presentation.version !== 1
@@ -384,7 +387,7 @@ function initProjectAiSessionControls(options) {
             if (typeof window.setTimeout === 'function') {
                 pending.timeoutHandle = window.setTimeout(() => {
                     if (pendingAiSessionAttentionAcknowledgements.get(pendingKey) !== pending) return;
-                    var currentPresentation = window.__agentPivotAiSessionPresentationState;
+                    var currentPresentation = stateStore ? stateStore.getCurrent() : null;
                     if (!currentPresentation
                         || currentPresentation.workspaceScopeIdentity
                             !== pending.workspaceScopeIdentity) {
@@ -426,7 +429,9 @@ function initProjectAiSessionControls(options) {
     }
 
     function announceAiSessionAttentionAcknowledgement(pending, message) {
-        var presentation = window.__agentPivotAiSessionPresentationState;
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var presentation = stateStore ? stateStore.getCurrent() : null;
         if (!presentation
             || presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) return;
         var row = document.querySelector(
@@ -441,7 +446,9 @@ function initProjectAiSessionControls(options) {
     function syncAiSessionAttentionAcknowledgementDom() {
         document.querySelectorAll('.codex-session-row[data-attention-acknowledgement-pending]')
             .forEach(row => row.removeAttribute('data-attention-acknowledgement-pending'));
-        var presentation = window.__agentPivotAiSessionPresentationState;
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var presentation = stateStore ? stateStore.getCurrent() : null;
         pendingAiSessionAttentionAcknowledgements.forEach(pending => {
             if (!presentation
                 || presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) return;
@@ -455,7 +462,10 @@ function initProjectAiSessionControls(options) {
         });
     }
 
-    function reconcileAiSessionAttentionAcknowledgements(presentation) {
+    function reconcileAiSessionAttentionAcknowledgements() {
+        var stateStore = typeof getAiSessionPresentationStateStore === 'function'
+            ? getAiSessionPresentationStateStore() : null;
+        var presentation = stateStore ? stateStore.getCurrent() : null;
         if (!presentation || presentation.type !== 'ai-session-presentation-state') return;
         pendingAiSessionAttentionAcknowledgements.forEach((pending, pendingKey) => {
             if (presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) {
@@ -464,11 +474,10 @@ function initProjectAiSessionControls(options) {
             }
             if (!pending.committed
                 || presentation.projectionRevision < pending.projectionRevision) return;
-            var ownerSessionKey = pending.provider + ':' + pending.sessionId;
-            var owner = presentation.attentionSessions.find(session =>
-                session && session.sessionKey === ownerSessionKey
+            var currentEventIds = stateStore.getAttentionEventIds(
+                pending.provider,
+                pending.sessionId
             );
-            var currentEventIds = owner && Array.isArray(owner.eventIds) ? owner.eventIds : [];
             if (pending.eventIds.some(eventId => currentEventIds.includes(eventId))) return;
             clearAiSessionAttentionAcknowledgement(pendingKey, pending);
         });
@@ -500,9 +509,7 @@ function initProjectAiSessionControls(options) {
             || pending.projectionRevision !== message.projectionRevision) return true;
         if (message.outcome === 'committed') {
             pending.committed = true;
-            reconcileAiSessionAttentionAcknowledgements(
-                window.__agentPivotAiSessionPresentationState
-            );
+            reconcileAiSessionAttentionAcknowledgements();
             return true;
         }
         clearAiSessionAttentionAcknowledgement(pendingKey, pending);

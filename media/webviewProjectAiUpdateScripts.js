@@ -1,3 +1,85 @@
+function initAiSessionPresentationStateStore(options) {
+    'use strict';
+
+    options = options || {};
+    var isAiSessionProvider = options.isAiSessionProvider;
+    var currentPresentation = null;
+
+    function isValid(message) {
+        return message && message.type === 'ai-session-presentation-state'
+            && message.version === 1
+            && Number.isSafeInteger(message.projectionRevision)
+            && message.projectionRevision > 0
+            && (typeof message.workspaceScopeIdentity === 'string'
+                || message.workspaceScopeIdentity === null)
+            && (typeof message.workspaceNavigationIdentity === 'string'
+                || message.workspaceNavigationIdentity === null)
+            && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
+            && Number.isSafeInteger(message.activeAttentionCount)
+            && message.activeAttentionCount >= 0
+            && Number.isSafeInteger(message.runningSessionCount)
+            && message.runningSessionCount >= 0
+            && ['current', 'sweep', 'orbit', 'halo', 'ripple', 'breath', 'custom', 'none']
+                .includes(message.runningCardAnimation)
+            && ['current', 'halo', 'custom', 'none'].includes(message.runningIconAnimation)
+            && typeof message.revealFocused === 'boolean'
+            && (message.focusedTarget === null
+                || (message.focusedTarget
+                    && isAiSessionProvider(message.focusedTarget.provider)
+                    && ((typeof message.focusedTarget.sessionId === 'string'
+                        && !!message.focusedTarget.sessionId
+                        && typeof message.focusedTarget.pendingId === 'undefined')
+                        || (typeof message.focusedTarget.pendingId === 'string'
+                            && !!message.focusedTarget.pendingId
+                            && typeof message.focusedTarget.sessionId === 'undefined'))))
+            && Array.isArray(message.sessions) && message.sessions.length <= 1000
+            && message.sessions.every(session => session
+                && isAiSessionProvider(session.provider)
+                && typeof session.sessionId === 'string' && !!session.sessionId
+                && (session.executionState === 'running'
+                    || session.executionState === 'stopped')
+                && typeof session.focused === 'boolean'
+                && typeof session.needsAttention === 'boolean'
+                && typeof session.conflict === 'boolean'
+                && Array.isArray(session.eventIds)
+                && session.eventIds.length <= 1000
+                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId))
+            && Array.isArray(message.attentionSessions)
+            && message.attentionSessions.length <= 1000
+            && message.attentionSessions.every(session => session
+                && typeof session.sessionKey === 'string' && !!session.sessionKey
+                && Array.isArray(session.eventIds)
+                && session.eventIds.length <= 1000
+                && session.eventIds.every(eventId => typeof eventId === 'string' && !!eventId));
+    }
+
+    function adopt(message) {
+        if (!isValid(message)) return false;
+        currentPresentation = message;
+        return true;
+    }
+
+    function getCurrent() {
+        return currentPresentation;
+    }
+
+    function getAttentionEventIds(provider, sessionId) {
+        if (!currentPresentation) return [];
+        var sessionKey = provider + ':' + sessionId;
+        var owner = currentPresentation.attentionSessions.find(session =>
+            session && session.sessionKey === sessionKey
+        );
+        return owner ? owner.eventIds.slice() : [];
+    }
+
+    return {
+        adopt: adopt,
+        getAttentionEventIds: getAttentionEventIds,
+        getCurrent: getCurrent,
+        isValid: isValid,
+    };
+}
+
 function initAiSessionPresentationTransactions(options) {
     'use strict';
 
@@ -395,7 +477,6 @@ function initAiSessionPresentationDom(options) {
         message.attentionSessions.forEach(session => {
             attentionEvents[session.sessionKey] = session.eventIds.slice();
         });
-        window.__agentPivotAttentionSessionEvents = attentionEvents;
         var focused = message.focusedTarget;
         aiSessionControls.activeAiSessionTerminalState.provider = focused ? focused.provider : null;
         aiSessionControls.activeAiSessionTerminalState.sessionId = focused?.sessionId || null;

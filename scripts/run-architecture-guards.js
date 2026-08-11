@@ -844,6 +844,154 @@ const guards = {
         const projectWebviewSource = projectWebview.getFullText();
         const workspaceWebviewSource = workspaceWebview.getFullText();
         const updateMessageSource = updateMessages.getFullText();
+        const aiSessionControlsWebview = parseJavascript(
+            root,
+            'src/webview/webviewProjectAiSessionControlsScripts.js',
+            this.id,
+            risk
+        );
+        const aiSessionControlsSource = aiSessionControlsWebview.getFullText();
+        const presentationStateOwner = uniqueAstNode(
+            webview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'initAiSessionPresentationStateStore',
+            this.id,
+            risk,
+            'AI session Presentation state store owner'
+        );
+        const presentationStateHelperNames = [
+            'isValid',
+            'adopt',
+            'getCurrent',
+            'getAttentionEventIds',
+        ];
+        const presentationStateHelpers = presentationStateHelperNames.map(name =>
+            uniqueAstNode(
+                presentationStateOwner,
+                node => ts.isFunctionDeclaration(node) && node.name?.text === name,
+                this.id,
+                risk,
+                `AI session Presentation state helper ${name}`
+            )
+        );
+        const presentationStateReturn = uniqueAstNode(
+            presentationStateOwner,
+            node => ts.isReturnStatement(node)
+                && node.expression
+                && ts.isObjectLiteralExpression(node.expression)
+                && presentationStateHelperNames.every(name =>
+                    node.expression.properties.some(property =>
+                        property.name?.getText(webview) === name)),
+            this.id,
+            risk,
+            'AI session Presentation state store public API'
+        );
+        const presentationStateApi = presentationStateReturn.expression.properties;
+        const currentPresentationState = findVariable(
+            presentationStateOwner,
+            'currentPresentation',
+            this.id,
+            risk
+        );
+        const adoptPresentationState = presentationStateHelpers[
+            presentationStateHelperNames.indexOf('adopt')
+        ];
+        const currentPresentationAssignments = [];
+        walk(presentationStateOwner, node => {
+            if (ts.isAssignmentExpression(node, false)
+                && ts.isIdentifier(node.left)
+                && node.left.text === 'currentPresentation') {
+                currentPresentationAssignments.push(node);
+            }
+        });
+        const presentationStateCalls = callArguments(
+            projectWebview,
+            'initAiSessionPresentationStateStore'
+        );
+        const presentationStateOptions = presentationStateCalls.length === 1
+            ? presentationStateCalls[0][0]
+            : null;
+        const presentationStateProviderOption = presentationStateOptions
+            && ts.isObjectLiteralExpression(presentationStateOptions)
+            ? presentationStateOptions.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(projectWebview) === 'isAiSessionProvider')
+            : null;
+        const controlsCalls = callArguments(projectWebview, 'initProjectAiSessionControls');
+        const controlsOptions = controlsCalls.length === 1 ? controlsCalls[0][0] : null;
+        const controlsPresentationStoreOption = controlsOptions
+            && ts.isObjectLiteralExpression(controlsOptions)
+            ? controlsOptions.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(projectWebview)
+                        === 'getAiSessionPresentationStateStore')
+            : null;
+        const transactionCalls = callArguments(
+            projectWebview,
+            'initAiSessionPresentationTransactions'
+        );
+        const transactionOptions = transactionCalls.length === 1
+            ? transactionCalls[0][0]
+            : null;
+        const transactionValidatorOption = transactionOptions
+            && ts.isObjectLiteralExpression(transactionOptions)
+            ? transactionOptions.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(projectWebview)
+                        === 'isValidAiSessionPresentationState')
+            : null;
+        const legacyPresentationGlobals = [
+            '__agentPivotAiSessionPresentationState',
+            '__agentPivotAttentionSessionEvents',
+        ];
+        const webviewScriptsDirectory = path.join(root, 'src', 'webview');
+        const webviewScriptFileNames = fs.readdirSync(webviewScriptsDirectory)
+            .filter(name => name.endsWith('Scripts.js'));
+        const webviewScriptSources = webviewScriptFileNames.map(fileName =>
+            fs.readFileSync(path.join(webviewScriptsDirectory, fileName), 'utf8')
+        );
+        if (presentationStateHelpers.some(helper =>
+            helper.pos < presentationStateOwner.pos || helper.end > presentationStateOwner.end)
+            || currentPresentationState.initializer?.getText(webview) !== 'null'
+            || currentPresentationAssignments.length !== 1
+            || currentPresentationAssignments[0].operatorToken.kind
+                !== ts.SyntaxKind.EqualsToken
+            || currentPresentationAssignments[0].pos < adoptPresentationState.pos
+            || currentPresentationAssignments[0].end > adoptPresentationState.end
+            || currentPresentationAssignments[0].right.getText(webview) !== 'message'
+            || presentationStateHelperNames.some(name => {
+                const property = presentationStateApi.find(candidate =>
+                    candidate.name?.getText(webview) === name
+                );
+                return !property
+                    || !ts.isPropertyAssignment(property)
+                    || property.initializer.getText(webview) !== name;
+            })
+            || !presentationStateProviderOption
+            || !ts.isPropertyAssignment(presentationStateProviderOption)
+            || presentationStateProviderOption.initializer.getText(projectWebview)
+                !== 'aiSessionControls.isAiSessionProvider'
+            || !controlsPresentationStoreOption
+            || !ts.isPropertyAssignment(controlsPresentationStoreOption)
+            || controlsPresentationStoreOption.initializer.getText(projectWebview)
+                !== '() => aiSessionPresentationStateStore'
+            || !transactionValidatorOption
+            || !ts.isPropertyAssignment(transactionValidatorOption)
+            || transactionValidatorOption.initializer.getText(projectWebview)
+                !== 'aiSessionPresentationStateStore.isValid'
+            || !aiSessionControlsSource.includes(
+                'stateStore.getAttentionEventIds(provider, sessionId)'
+            )
+            || !aiSessionControlsSource.includes('stateStore.getCurrent()')
+            || aiSessionControlsSource.includes('.attentionSessions')
+            || !presentationStateOwner.getText(webview).includes(
+                'currentPresentation.attentionSessions.find('
+            )
+            || legacyPresentationGlobals.some(globalName =>
+                webviewScriptSources.some(source => source.includes(globalName)))) {
+            fail(this.id, risk,
+                'every accepted Session Presentation and attention owner lookup must belong to the single state store');
+        }
         const presentationDomOwner = uniqueAstNode(
             webview,
             node => ts.isFunctionDeclaration(node)
@@ -908,14 +1056,14 @@ const guards = {
             'validated AI session Presentation applicator'
         );
         const applyValidatedPresentationSource = applyValidatedPresentation.getText(projectWebview);
-        const cachePresentationIndex = applyValidatedPresentationSource.indexOf(
-            'window.__agentPivotAiSessionPresentationState = message;'
+        const adoptPresentationIndex = applyValidatedPresentationSource.indexOf(
+            'aiSessionPresentationStateStore.adopt(message)'
         );
         const projectPresentationIndex = applyValidatedPresentationSource.indexOf(
             'aiSessionPresentationDom.apply(message);'
         );
         const reconcileAcknowledgementsIndex = applyValidatedPresentationSource.indexOf(
-            'aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);'
+            'aiSessionControls.reconcileAiSessionAttentionAcknowledgements();'
         );
         const protectedPresentationAttributes = new Set([
             'data-session-focused',
@@ -941,9 +1089,7 @@ const guards = {
             'project-ai-attention-badge',
         ]);
         const presentationMutationNodes = [];
-        const webviewScriptsDirectory = path.join(root, 'src', 'webview');
-        for (const fileName of fs.readdirSync(webviewScriptsDirectory)
-            .filter(name => name.endsWith('Scripts.js'))) {
+        for (const fileName of webviewScriptFileNames) {
             const relativePath = path.join('src', 'webview', fileName);
             const sourceFile = relativePath === webview.fileName
                 ? webview
@@ -992,14 +1138,11 @@ const guards = {
                 applyValidatedPresentation,
                 'aiSessionPresentationDom.apply'
             ).length !== 1
-            || cachePresentationIndex < 0
-            || projectPresentationIndex <= cachePresentationIndex
+            || adoptPresentationIndex < 0
+            || projectPresentationIndex <= adoptPresentationIndex
             || reconcileAcknowledgementsIndex <= projectPresentationIndex
             || presentationDomHelperNames.slice(0, -1).some(name =>
                 callArguments(presentationApplyOwner, name).length < 1)
-            || !presentationApplySource.includes(
-                'window.__agentPivotAttentionSessionEvents = attentionEvents;'
-            )
             || !presentationApplySource.includes('[data-current-workspace]')
             || !presentationApplySource.includes('[data-open-workspace-current]')
             || presentationMutationNodes.length !== 27

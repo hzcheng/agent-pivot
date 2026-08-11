@@ -894,9 +894,93 @@ for (const mutation of [
         mutate: source => replaceFixtureSource(
             source,
             'aiSessionPresentationDom.apply(message);\n'
-                + '        aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);',
-            'aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);\n'
+                + '        aiSessionControls.reconcileAiSessionAttentionAcknowledgements();',
+            'aiSessionControls.reconcileAiSessionAttentionAcknowledgements();\n'
                 + '        aiSessionPresentationDom.apply(message);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'if (!aiSessionPresentationStateStore.adopt(message)) return;\n'
+                + '        aiSessionPresentationDom.apply(message);',
+            'aiSessionPresentationDom.apply(message);\n'
+                + '        if (!aiSessionPresentationStateStore.adopt(message)) return;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            'getAiSessionPresentationStateStore: () => aiSessionPresentationStateStore,',
+            'getAiSessionPresentationStateStore: () => null,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            'isValidAiSessionPresentationState: aiSessionPresentationStateStore.isValid,',
+            'isValidAiSessionPresentationState: () => true,'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            'stateStore.getAttentionEventIds(provider, sessionId)',
+            '[]'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            "    'use strict';",
+            "    'use strict';\n\n    window.__agentPivotAttentionSessionEvents = {};"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            'currentPresentation = message;',
+            'void message;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            'currentPresentation = message;',
+            'currentPresentation ||= message;'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every accepted Session Presentation and attention owner lookup must belong to the single state store',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function getCurrent() {\n        return currentPresentation;',
+            'function getCurrent() {\n'
+                + '        currentPresentation = null;\n'
+                + '        return currentPresentation;'
         ),
     },
     {

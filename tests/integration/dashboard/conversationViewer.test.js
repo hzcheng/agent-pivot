@@ -2264,16 +2264,17 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 offers a frame restore only for acknowledged session content', async () => {
+    let changed = false;
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
             sessionId,
             ['input-1', 'input-2'],
-            { sourceRevision: `${sessionId}-r1` }
+            { sourceRevision: `${sessionId}-${changed ? 'r2' : 'r1'}` }
         ),
         readPage: async request => page(
             request.sessionId,
             request.anchorInteractionId,
-            `visible-${request.sessionId}`,
+            `${changed ? 'changed' : 'visible'}-${request.sessionId}`,
             {
                 interactionIds: ['input-1', 'input-2'],
                 sourceRevision: request.expectedRevision,
@@ -2316,6 +2317,30 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 offers a frame restore only for
     assert.equal(latest.restoreFrame, true);
     assert.equal(latest.htmlSignature, initial.htmlSignature,
         'a reload of unchanged content must keep the same content token');
+
+    // Content changed while away: the switch back must carry full HTML.
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: latest.subscriptionGeneration,
+        requestId: latest.requestId,
+        htmlSignature: latest.htmlSignature,
+    });
+    await viewer.follow(target('session-b', 'input-1'));
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: panel.postedMessages.at(-1).subscriptionGeneration,
+        requestId: panel.postedMessages.at(-1).requestId,
+        htmlSignature: panel.postedMessages.at(-1).htmlSignature,
+    });
+    changed = true;
+    await viewer.follow(target('session-a', 'input-1'));
+    latest = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(latest.html.includes('changed-session-a'), true,
+        'changed content must never be served a stale frame restore');
+    assert.equal(latest.restoreFrame, undefined);
     viewer.dispose();
 });
 

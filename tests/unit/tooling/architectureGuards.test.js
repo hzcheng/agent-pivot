@@ -849,6 +849,97 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjects() {',
+            'function setAiSessionAttentionDom() {}\n\nfunction initProjects() {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'aiSessionPresentationDom.apply(message);',
+            'applyAiSessionPresentationDom(message);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            '.forEach(card => setCurrentOpenWorkspaceSummaryDom(card, message));',
+            '.forEach(card => setCurrentWorkspaceRunningDom(card, message));'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'apply: applyAiSessionPresentationDom,',
+            'apply: function () {},'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'aiSessionPresentationDom.apply(message);\n'
+                + '        aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);',
+            'aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);\n'
+                + '        aiSessionPresentationDom.apply(message);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function mutatePresentationAttention(row) {\n'
+                + "    row.toggleAttribute('data-session-needs-attention', false);\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function mutatePresentationActiveCount(summary) {\n'
+                + "    summary.setAttribute('data-ai-session-active-count', '1');\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiSessionControlsScripts.js',
+        expectedDetail: 'every Session Presentation DOM surface must belong to the single AI update projector',
+        mutate: source => replaceFixtureSource(
+            source,
+            'function initProjectAiSessionControls(options) {',
+            'function mutatePresentationAttentionCount(summary) {\n'
+                + "    summary.className = 'ai-session-attention-count';\n"
+                + '}\n\n'
+                + 'function initProjectAiSessionControls(options) {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
         expectedDetail: 'AI atomic replacement must reconcile batch and provider state inside the transaction hook',
         mutate: source => replaceFixtureSource(

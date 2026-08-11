@@ -132,6 +132,309 @@ function initAiSessionPresentationTransactions(options) {
     };
 }
 
+function initAiSessionPresentationDom(options) {
+    'use strict';
+
+    options = options || {};
+    var aiSessionControls = options.aiSessionControls;
+
+    function syncActiveAiSessionProjectionDom(adoptRenderedFocus, revealFocused) {
+        if (adoptRenderedFocus !== false) {
+            var focusedRow = document.querySelector(
+                '.codex-session-row[data-session-focused][data-session-provider]'
+            );
+            var provider = focusedRow && focusedRow.getAttribute('data-session-provider');
+            aiSessionControls.activeAiSessionTerminalState.provider =
+                aiSessionControls.isAiSessionProvider(provider) ? provider : null;
+            aiSessionControls.activeAiSessionTerminalState.sessionId = focusedRow
+                ? focusedRow.getAttribute('data-session-id') : null;
+            aiSessionControls.activeAiSessionTerminalState.pendingId = focusedRow
+                ? focusedRow.getAttribute('data-pending-id') : null;
+        } else {
+            var projectedFocusedRow = null;
+            document.querySelectorAll(
+                '.codex-session-row[data-session-provider][data-session-id],'
+                    + '.codex-session-row[data-session-provider][data-pending-id]'
+            ).forEach(row => {
+                var providerMatches = row.getAttribute('data-session-provider')
+                    === aiSessionControls.activeAiSessionTerminalState.provider;
+                var focused = providerMatches && (
+                    (aiSessionControls.activeAiSessionTerminalState.sessionId !== null
+                        && row.getAttribute('data-session-id')
+                            === aiSessionControls.activeAiSessionTerminalState.sessionId)
+                    || (aiSessionControls.activeAiSessionTerminalState.pendingId !== null
+                        && row.getAttribute('data-pending-id')
+                            === aiSessionControls.activeAiSessionTerminalState.pendingId)
+                );
+                if (focused) projectedFocusedRow = row;
+                row.toggleAttribute(
+                    'data-session-focused',
+                    focused
+                );
+                var primaryAction = row.querySelector('.ai-session-primary-action');
+                if (primaryAction) {
+                    var focusedConversation = focused && row.hasAttribute('data-session-id');
+                    var actionState = focusedConversation ? 'conversation' : 'focus';
+                    var actionAriaLabel = primaryAction.getAttribute(
+                        'data-' + actionState + '-aria-label'
+                    );
+                    var actionTitle = primaryAction.getAttribute(
+                        'data-' + actionState + '-title'
+                    );
+                    if (actionAriaLabel) primaryAction.setAttribute('aria-label', actionAriaLabel);
+                    if (actionTitle) primaryAction.setAttribute('title', actionTitle);
+                }
+                var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
+                if (focusedConversation
+                    && primaryAction && !conversationHint) {
+                    conversationHint = document.createElement('span');
+                    conversationHint.className = 'ai-session-open-conversation-hint';
+                    conversationHint.setAttribute('aria-hidden', 'true');
+                    conversationHint.textContent = '›';
+                    primaryAction.appendChild(conversationHint);
+                } else if (!focused && conversationHint) {
+                    conversationHint.remove();
+                }
+            });
+            if (projectedFocusedRow && revealFocused) {
+                projectedFocusedRow.scrollIntoView({ block: 'nearest' });
+            }
+        }
+        aiSessionControls.syncActiveAiSessionTerminalDom();
+    }
+    function setAiSessionAttentionDom(row, eventIds, needsAttention) {
+        row.toggleAttribute('data-session-needs-attention', needsAttention);
+        row.toggleAttribute('data-ai-session-attention', needsAttention);
+        if (needsAttention && eventIds.length) {
+            row.setAttribute('data-session-event-id', eventIds[0]);
+        } else {
+            row.removeAttribute('data-session-event-id');
+        }
+        var primaryAction = row.querySelector('.ai-session-primary-action');
+        var indicator = row.querySelector('.ai-session-attention-indicator');
+        if (needsAttention && primaryAction && !indicator) {
+            indicator = document.createElement('span');
+            indicator.className = 'ai-session-attention-indicator';
+            indicator.title = 'AI session needs attention';
+            indicator.setAttribute('aria-label', 'AI session needs attention');
+            primaryAction.insertBefore(indicator, primaryAction.firstChild);
+        } else if (!needsAttention && indicator) {
+            indicator.remove();
+        }
+    }
+    function setAiSessionExecutionDom(row, presentation, iconAnimation) {
+        row.setAttribute('data-execution-state', presentation.executionState);
+        if (presentation.executionState === 'running' && iconAnimation !== 'none') {
+            row.setAttribute('data-session-icon-fx', iconAnimation);
+        } else {
+            row.removeAttribute('data-session-icon-fx');
+        }
+        row.toggleAttribute('data-session-conflict', presentation.conflict);
+        var status = row.querySelector('.ai-session-execution-status');
+        if (status) {
+            var running = presentation.executionState === 'running';
+            status.setAttribute(
+                'aria-label',
+                running ? 'AI is currently executing' : 'AI is not currently executing'
+            );
+            var label = status.lastChild;
+            if (label && label.nodeType === Node.TEXT_NODE) {
+                label.nodeValue = running ? 'Running' : 'Stopped';
+            }
+        }
+    }
+    function setActiveSessionTabAttentionDom(projectDiv, attentionCount) {
+        var tab = projectDiv.querySelector('[data-ai-session-tab="active"]');
+        if (!tab) return;
+        var dot = tab.querySelector('.ai-session-tab-attention');
+        if (attentionCount > 0 && !dot) {
+            dot = document.createElement('span');
+            dot.className = 'ai-session-tab-attention';
+            tab.appendChild(dot);
+        } else if (attentionCount === 0 && dot) {
+            dot.remove();
+            return;
+        }
+        if (dot) {
+            dot.setAttribute(
+                'aria-label',
+                attentionCount + ' active AI session'
+                    + (attentionCount === 1 ? ' needs' : 's need') + ' attention'
+            );
+        }
+    }
+    function setCurrentWorkspaceSummaryAttentionDom(projectDiv, attentionCount) {
+        var summary = projectDiv.querySelector('.project-codex-badge');
+        if (!summary && attentionCount > 0) {
+            summary = document.createElement('span');
+            summary.className = 'project-codex-badge';
+            summary.setAttribute('data-ai-session-total-count', '0');
+            summary.setAttribute('data-ai-session-active-count', '0');
+            projectDiv.appendChild(summary);
+        }
+        if (!summary) return;
+        summary.setAttribute('data-ai-session-attention-count', String(attentionCount));
+        var count = summary.querySelector('.ai-session-attention-count');
+        if (attentionCount > 0 && !count) {
+            count = document.createElement('b');
+            count.className = 'ai-session-attention-count';
+            summary.appendChild(count);
+        } else if (attentionCount === 0 && count) {
+            count.remove();
+            count = null;
+        }
+        if (count) {
+            count.textContent = String(attentionCount);
+            count.setAttribute(
+                'aria-label',
+                attentionCount + ' AI session'
+                    + (attentionCount === 1 ? ' needs' : 's need') + ' attention'
+            );
+        }
+        var total = Number(summary.getAttribute('data-ai-session-total-count')) || 0;
+        var active = Number(summary.getAttribute('data-ai-session-active-count')) || 0;
+        var parts = [];
+        if (total) parts.push(total + ' AI session' + (total === 1 ? '' : 's'));
+        if (active) parts.push(active + ' active AI session' + (active === 1 ? '' : 's'));
+        if (attentionCount) parts.push(attentionCount + ' AI session'
+            + (attentionCount === 1 ? ' needs' : 's need') + ' attention');
+        if (!parts.length) {
+            summary.remove();
+            projectDiv.removeAttribute('data-has-ai-session-badge');
+            return;
+        }
+        projectDiv.setAttribute('data-has-ai-session-badge', '');
+        summary.title = parts.join(', ');
+        summary.setAttribute('aria-label', parts.join(', '));
+    }
+    function setCurrentWorkspaceRunningDom(projectDiv, message) {
+        var running = message.runningSessionCount > 0;
+        projectDiv.classList.toggle('session-running', running);
+        if (running) {
+            projectDiv.setAttribute('data-session-fx', message.runningCardAnimation);
+            projectDiv.title = 'Workspace — ' + message.runningSessionCount + ' active session'
+                + (message.runningSessionCount === 1 ? '' : 's') + ' running';
+        } else {
+            projectDiv.removeAttribute('data-session-fx');
+            projectDiv.removeAttribute('title');
+        }
+        var effect = projectDiv.querySelector('.project-session-fx');
+        var showEffect = running && message.runningCardAnimation !== 'none';
+        if (showEffect && !effect) {
+            effect = document.createElement('div');
+            effect.className = 'project-session-fx';
+            projectDiv.appendChild(effect);
+        } else if (!showEffect && effect) {
+            effect.remove();
+        }
+    }
+    function setCurrentOpenWorkspaceSummaryDom(projectDiv, message) {
+        var runningBadge = projectDiv.querySelector('.project-codex-badge');
+        if (message.runningSessionCount > 0 && !runningBadge) {
+            runningBadge = document.createElement('span');
+            runningBadge.className = 'project-codex-badge';
+            var runningCount = document.createElement('span');
+            runningCount.className = 'ai-session-active-count';
+            runningBadge.appendChild(runningCount);
+            projectDiv.appendChild(runningBadge);
+        } else if (message.runningSessionCount === 0 && runningBadge) {
+            runningBadge.remove();
+            runningBadge = null;
+        }
+        if (runningBadge) {
+            var runningLabel = message.runningSessionCount + ' active AI session'
+                + (message.runningSessionCount === 1 ? '' : 's');
+            runningBadge.setAttribute(
+                'data-ai-session-active-count', String(message.runningSessionCount)
+            );
+            runningBadge.title = runningLabel;
+            runningBadge.setAttribute('aria-label', runningLabel);
+            var runningCount = runningBadge.querySelector('.ai-session-active-count');
+            runningCount.textContent = '●' + message.runningSessionCount;
+            runningCount.setAttribute('aria-label', runningLabel);
+        }
+        var attentionBadge = projectDiv.querySelector('.project-ai-attention-badge');
+        if (message.attentionCount > 0 && !attentionBadge) {
+            attentionBadge = document.createElement('span');
+            attentionBadge.className = 'project-ai-attention-badge';
+            projectDiv.appendChild(attentionBadge);
+        } else if (message.attentionCount === 0 && attentionBadge) {
+            attentionBadge.remove();
+            attentionBadge = null;
+        }
+        if (attentionBadge) {
+            var attentionLabel = message.attentionCount + ' item'
+                + (message.attentionCount === 1 ? '' : 's') + ' need'
+                + (message.attentionCount === 1 ? 's' : '') + ' attention';
+            attentionBadge.textContent = String(message.attentionCount);
+            attentionBadge.title = attentionLabel;
+            attentionBadge.setAttribute('aria-label', attentionLabel);
+        }
+        projectDiv.toggleAttribute(
+            'data-has-ai-session-badge',
+            message.runningSessionCount > 0 || message.attentionCount > 0
+        );
+        setCurrentWorkspaceRunningDom(projectDiv, message);
+    }
+    function applyAiSessionPresentationDom(message) {
+        var currentCards = Array.from(document.querySelectorAll(
+            '.workspace-card[data-workspace-navigation-identity="'
+                + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
+                + '[data-current-workspace],'
+                + '.workspace-card[data-workspace-navigation-identity="'
+                + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
+                + '[data-open-workspace-current]'
+        ));
+        if (!currentCards.length) return;
+        var projectDiv = currentCards.find(card => card.hasAttribute('data-current-workspace'));
+        var presentations = {};
+        message.sessions.forEach(presentation => {
+            presentations[presentation.provider + ':' + presentation.sessionId] = presentation;
+        });
+        var attentionEvents = {};
+        message.attentionSessions.forEach(session => {
+            attentionEvents[session.sessionKey] = session.eventIds.slice();
+        });
+        window.__agentPivotAttentionSessionEvents = attentionEvents;
+        var focused = message.focusedTarget;
+        aiSessionControls.activeAiSessionTerminalState.provider = focused ? focused.provider : null;
+        aiSessionControls.activeAiSessionTerminalState.sessionId = focused?.sessionId || null;
+        aiSessionControls.activeAiSessionTerminalState.pendingId = focused?.pendingId || null;
+        syncActiveAiSessionProjectionDom(false, message.revealFocused);
+        projectDiv?.querySelectorAll(
+            '.codex-session-row[data-session-provider][data-session-id]'
+        ).forEach(row => {
+            var sessionKey = row.getAttribute('data-session-provider')
+                + ':' + row.getAttribute('data-session-id');
+            var presentation = presentations[sessionKey];
+            var eventIds = attentionEvents[sessionKey] || [];
+            if (presentation) {
+                setAiSessionExecutionDom(row, presentation, message.runningIconAnimation);
+                setAiSessionAttentionDom(
+                    row,
+                    presentation.eventIds,
+                    presentation.needsAttention
+                );
+            } else if (row.classList.contains('active-ai-session-row')) {
+                setAiSessionAttentionDom(row, [], false);
+            } else {
+                setAiSessionAttentionDom(row, eventIds, eventIds.length > 0);
+            }
+        });
+        if (projectDiv) {
+            setActiveSessionTabAttentionDom(projectDiv, message.activeAttentionCount);
+            setCurrentWorkspaceSummaryAttentionDom(projectDiv, message.attentionCount);
+            setCurrentWorkspaceRunningDom(projectDiv, message);
+        }
+        currentCards.filter(card => card.hasAttribute('data-open-workspace-current'))
+            .forEach(card => setCurrentOpenWorkspaceSummaryDom(card, message));
+    }
+
+    return {
+        apply: applyAiSessionPresentationDom,
+    };
+}
+
 function initProjectAiSessionsUpdate(options) {
     'use strict';
 

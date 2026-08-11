@@ -131,21 +131,59 @@ export function createMessageRenderSignature(
 }
 
 /**
- * Composes a publication-level content signature from the ordered stream
- * of per-message facts that fully determine the final HTML, without
- * re-hashing the HTML itself. FNV-1a over a few kilobytes of small strings
- * is effectively free compared to rendering.
+ * Collision-free publication content identity. The exact render stream
+ * (every retained message's id, role, render signature, and render-cache
+ * version, plus worklog markers) fully determines the published HTML, so
+ * the registry maps that exact stream to a short opaque token. Unlike a
+ * hash, the token sequence cannot collide: two identical tokens always
+ * mean identical HTML within a viewer instance. The registry is bounded
+ * with LRU eviction; an evicted stream simply mints a fresh token, which
+ * only costs a missed Webview-side cache hit, never a wrong one.
  */
-export class ConversationContentSignature {
-    private hash = 0x811c9dc5;
+export class ConversationContentSignatureRegistry {
+    private readonly tokens = new Map<string, string>();
+    private nextToken = 0;
+
+    constructor(private readonly maxEntries = 128) {}
+
+    tokenFor(stream: string): string {
+        const existing = this.tokens.get(stream);
+        if (existing !== undefined) {
+            this.tokens.delete(stream);
+            this.tokens.set(stream, existing);
+            return existing;
+        }
+        const token = `c${++this.nextToken}`;
+        this.tokens.set(stream, token);
+        while (this.tokens.size > this.maxEntries) {
+            const oldestKey = this.tokens.keys().next().value;
+            if (oldestKey === undefined || oldestKey === stream) {
+                break;
+            }
+            this.tokens.delete(oldestKey);
+        }
+        return token;
+    }
+
+    clear(): void {
+        this.tokens.clear();
+    }
+
+    get size(): number {
+        return this.tokens.size;
+    }
+}
+
+/**
+ * Builds the exact render-stream string for a publication. Every fact
+ * that can change the HTML appears exactly once per message, so two
+ * streams are equal if and only if the rendered HTML is identical.
+ */
+export class ConversationContentStream {
+    private readonly parts: string[] = [];
 
     mix(value: string): this {
-        for (let index = 0; index < value.length; index++) {
-            this.hash ^= value.charCodeAt(index);
-            this.hash = Math.imul(this.hash, 0x01000193);
-        }
-        this.hash ^= 0xff;
-        this.hash = Math.imul(this.hash, 0x01000193);
+        this.parts.push(value);
         return this;
     }
 
@@ -159,6 +197,6 @@ export class ConversationContentSignature {
     }
 
     toString(): string {
-        return (this.hash >>> 0).toString(16);
+        return JSON.stringify(this.parts);
     }
 }

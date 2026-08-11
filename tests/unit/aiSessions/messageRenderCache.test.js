@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
-    ConversationContentSignature,
+    ConversationContentSignatureRegistry,
     ConversationMessageRenderCache,
     createMessageRenderSignature,
 } = require('../../../out/aiSessions/conversation/messageRenderCache');
@@ -103,30 +103,34 @@ test('conversation message render cache keeps the freshest entry even when it al
     assert.equal(cache.size, 1);
 });
 
-test('conversation content signature tracks the ordered message stream', () => {
-    const left = new ConversationContentSignature();
-    const right = new ConversationContentSignature();
-    const message = (id, role) => ({ id, role });
+test('conversation content signature registry mints collision-free tokens for exact streams', () => {
+    const registry = new ConversationContentSignatureRegistry();
+    const streamOf = (...parts) => JSON.stringify(parts);
 
-    left.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
-    right.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
-    assert.equal(left.toString(), right.toString());
+    const first = registry.tokenFor(streamOf('input-1:user', 'user', 'sig-a', '1'));
+    assert.equal(registry.tokenFor(streamOf('input-1:user', 'user', 'sig-a', '1')), first,
+        'an identical render stream must reuse its token');
+    const rerendered = registry.tokenFor(streamOf('input-1:user', 'user', 'sig-a', '2'));
+    assert.notEqual(rerendered, first,
+        'a re-rendered message must produce a different token');
+    const reordered = registry.tokenFor(streamOf('input-1:assistant:0', 'assistant', 'sig-b', '2', 'input-1:user', 'user', 'sig-a', '1'));
+    assert.notEqual(reordered, first);
+    const withWorklog = registry.tokenFor(streamOf('input-1:user', 'user', 'sig-a', '1', 'input-1:worklog', '5200'));
+    assert.notEqual(withWorklog, first);
+});
 
-    right.mixMessage(message('input-1:assistant:0', 'assistant'), 'sig-b', 2);
-    assert.notEqual(left.toString(), right.toString());
+test('conversation content signature registry evicts least recently used streams beyond its bound', () => {
+    const registry = new ConversationContentSignatureRegistry(2);
+    const first = registry.tokenFor('stream-a');
+    registry.tokenFor('stream-b');
+    assert.equal(registry.tokenFor('stream-a'), first, 'recency touch');
+    const third = registry.tokenFor('stream-c');
 
-    const reordered = new ConversationContentSignature();
-    reordered.mixMessage(message('input-1:assistant:0', 'assistant'), 'sig-b', 2);
-    reordered.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
-    assert.notEqual(left.toString(), reordered.toString());
-
-    const rerendered = new ConversationContentSignature();
-    rerendered.mixMessage(message('input-1:user', 'user'), 'sig-a', 3);
-    assert.notEqual(left.toString(), rerendered.toString(),
-        'a re-rendered message must change the content signature');
-
-    const worklog = new ConversationContentSignature();
-    worklog.mixMessage(message('input-1:user', 'user'), 'sig-a', 1);
-    worklog.mix('input-1:worklog').mix('5200');
-    assert.notEqual(left.toString(), worklog.toString());
+    assert.equal(registry.size, 2);
+    const reminted = registry.tokenFor('stream-b');
+    assert.notEqual(reminted, first,
+        'an evicted stream mints a fresh token');
+    assert.equal(registry.size, 2);
+    assert.equal(registry.tokenFor('stream-c'), third,
+        'a retained stream keeps its token');
 });

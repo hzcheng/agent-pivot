@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import type { WorkspaceAiSessionViewModel } from '../aiSessions/types';
+import { buildAiSessionPresentationState } from '../aiSessions/presentationMessage';
 import { PREDEFINED_COLORS } from '../constants';
 import type { Group, WorkspaceCardViewModel } from '../models';
 import { buildOpenWorkspacesUpdatedMessage } from '../dashboard/webviewUpdateMessages';
@@ -261,6 +262,8 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         const semanticRevision = this.getViewSemanticRevision();
         if (semanticRevision === this.lastPostedSemanticRevision) { return Promise.resolve(); }
         const projection = this.options.beginAiSessionProjection();
+        const runningCardAnimation = this.options.getRunningCardAnimation();
+        const runningIconAnimation = this.options.getRunningIconAnimation();
         const message = buildOpenWorkspacesUpdatedMessage({
             groups: this.options.getGroups(),
             cards: this.getCards(projection),
@@ -270,8 +273,14 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             otherWindowsStatus: this.bridgeStatus,
             todoSearchItems: this.options.getTodoSearchItems(),
             skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],
-            runningCardAnimation: this.options.getRunningCardAnimation(),
-            runningIconAnimation: this.options.getRunningIconAnimation(),
+            runningCardAnimation,
+            runningIconAnimation,
+            presentation: buildAiSessionPresentationState(
+                false,
+                projection,
+                runningCardAnimation,
+                runningIconAnimation,
+            ),
         });
         this.lastPostedSemanticRevision = message.semanticRevision;
         const deliveryGeneration = this.deliveryGeneration;

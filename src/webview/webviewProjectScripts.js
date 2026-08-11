@@ -574,6 +574,8 @@ function initProjects() {
         exitAiSessionBatchManagement: aiSessionControls.exitAiSessionBatchManagement,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
+        isValidAiSessionPresentationState: isValidAiSessionPresentationState,
+        applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
     });
 
     function isValidAiSessionPresentationState(message) {
@@ -594,6 +596,17 @@ function initProjects() {
                 .includes(message.runningCardAnimation)
             && ['current', 'halo', 'custom', 'none'].includes(message.runningIconAnimation)
             && typeof message.revealFocused === 'boolean'
+            && (message.focusedTarget === null
+                || (message.focusedTarget
+                    && aiSessionControls.isAiSessionProvider(
+                        message.focusedTarget.provider
+                    )
+                    && ((typeof message.focusedTarget.sessionId === 'string'
+                        && !!message.focusedTarget.sessionId
+                        && typeof message.focusedTarget.pendingId === 'undefined')
+                        || (typeof message.focusedTarget.pendingId === 'string'
+                            && !!message.focusedTarget.pendingId
+                            && typeof message.focusedTarget.sessionId === 'undefined'))))
             && Array.isArray(message.sessions) && message.sessions.length <= 1000
             && message.sessions.every(session => session
                 && aiSessionControls.isAiSessionProvider(session.provider)
@@ -630,9 +643,13 @@ function initProjects() {
                 message.projectionRevision
             );
         if (!accepted) return false;
+        applyValidatedAiSessionPresentationState(message);
+        return true;
+    }
+
+    function applyValidatedAiSessionPresentationState(message) {
         window.__agentPivotAiSessionPresentationState = message;
         applyAiSessionPresentationDom(message);
-        return true;
     }
 
     function readInitialAiSessionPresentationState() {
@@ -824,19 +841,41 @@ function initProjects() {
             return;
         }
         if (message && message.type === 'open-workspaces-updated') {
+            var isAtomicOpenWorkspacesEnvelope = message.version === 3;
+            if (isAtomicOpenWorkspacesEnvelope
+                && (!isValidAiSessionPresentationState(message.presentation)
+                    || message.presentation.projectionRevision
+                        !== message.projectionRevision)) {
+                aiSessionsUpdate.requestFullRefresh(
+                    'invalid-open-workspaces-presentation-envelope'
+                );
+                return;
+            }
             if (!aiSessionsUpdate.canApplyProjectionRevision(message.projectionRevision)) return;
-            var adoptOpenWorkspacePresentation = aiSessionsUpdate.canApplyPresentationProjectionRevision(
-                message.projectionRevision
-            );
+            var canApplyOpenWorkspacePresentation = isAtomicOpenWorkspacesEnvelope
+                ? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(
+                    message.projectionRevision
+                )
+                : aiSessionsUpdate.canApplyPresentationProjectionRevision(
+                    message.projectionRevision
+                );
+            if (isAtomicOpenWorkspacesEnvelope
+                && !canApplyOpenWorkspacePresentation) return;
+            var adoptOpenWorkspacePresentation = canApplyOpenWorkspacePresentation;
             if (!applyOpenWorkspacesUpdate(message)) {
                 aiSessionsUpdate.requestFullRefresh('invalid-open-workspaces-update');
                 return;
             }
             aiSessionsUpdate.commitProjectionRevision(
                 message.projectionRevision,
-                adoptOpenWorkspacePresentation
+                adoptOpenWorkspacePresentation,
+                isAtomicOpenWorkspacesEnvelope
             );
-            syncAiSessionProjectionDom(adoptOpenWorkspacePresentation);
+            if (isAtomicOpenWorkspacesEnvelope) {
+                applyValidatedAiSessionPresentationState(message.presentation);
+            } else {
+                syncAiSessionProjectionDom(adoptOpenWorkspacePresentation);
+            }
             updateStickyGroupHeaderOffset();
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({

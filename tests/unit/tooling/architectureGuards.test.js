@@ -28,6 +28,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/workspaces/sessionHydrationController.ts',
         'src/workspaces/sessionHydration.ts',
         'src/aiSessions/dashboardController.ts',
+        'src/aiSessions/presentationMessage.ts',
         'src/aiSessions/providers.ts',
         'src/aiSessions/conversation/types.ts',
         'src/aiSessions/conversation/diffs.ts',
@@ -726,7 +727,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must accept one same-revision direct Presentation after HTML',
+        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
         mutate: source => replaceFixtureSource(
             source,
             'revision <= latestAiSessionDirectPresentationRevision',
@@ -735,8 +736,28 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
+        mutate: source => replaceFixtureSource(
+            source,
+            'revision <= latestAiSessionClosedPresentationRevision',
+            'revision < latestAiSessionClosedPresentationRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must close v3 envelopes while preserving v2 same-revision Presentation',
+        mutate: source => replaceFixtureSource(
+            source,
+            'revision >= latestAiSessionPresentationProjectionRevision',
+            'revision > latestAiSessionPresentationProjectionRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/openWorkspaces/dashboardController.ts',
-        expectedDetail: 'OPEN HTML must capture, hydrate, and publish the same Presentation transaction',
+        expectedDetail: 'OPEN HTML and Presentation must share one Host message',
         mutate: source => replaceFixtureSource(
             source,
             'cards: this.getCards(projection)',
@@ -745,12 +766,72 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/aiSessions/dashboardController.ts',
+        expectedDetail: 'AI incremental HTML and Presentation must share one Host message',
+        mutate: source => replaceFixtureSource(
+            source,
+            'presentation: buildAiSessionPresentationState(',
+            'detachedPresentation: buildAiSessionPresentationState('
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            'message.presentation.projectionRevision !== message.projectionRevision',
+            'message.presentation.projectionRevision < message.projectionRevision'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            'adoptRenderedPresentation,\n            isAtomicEnvelope',
+            'adoptRenderedPresentation,\n            false'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            '? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)',
+            '? canApplyPresentationProjectionRevision(message.projectionRevision)'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            'adoptOpenWorkspacePresentation,\n                isAtomicOpenWorkspacesEnvelope',
+            'adoptOpenWorkspacePresentation,\n                false'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'Webview must validate and apply each HTML-Presentation envelope atomically',
+        mutate: source => replaceFixtureSource(
+            source,
+            '? aiSessionsUpdate.canApplyAtomicPresentationProjectionRevision(',
+            '? aiSessionsUpdate.canApplyPresentationProjectionRevision('
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/dashboard.ts',
         expectedDetail: 'full Dashboard document must capture and embed one Presentation transaction',
         mutate: source => replaceFixtureSource(
             source,
-            'buildAiSessionPresentationState(false, transaction),',
-            'undefined,'
+            'getOpenWorkspaceCards(transaction),',
+            'getOpenWorkspaceCards(),'
         ),
     },
     {

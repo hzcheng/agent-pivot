@@ -379,6 +379,14 @@ function runDashboardUpdateMessageChecks() {
     }
     const todoSearchItems = makeDashboardCatalog().todos;
     const workspaceCard = makeWorkspaceCardFixture(3);
+    const makePresentation = projectionRevision => ({
+        type: 'ai-session-presentation-state', version: 1, projectionRevision,
+        workspaceScopeIdentity: 'scope-dashboard',
+        workspaceNavigationIdentity: 'navigation-current',
+        attentionCount: 0, activeAttentionCount: 0, runningSessionCount: 0,
+        runningCardAnimation: 'current', runningIconAnimation: 'current',
+        revealFocused: false, focusedTarget: null, attentionSessions: [], sessions: [],
+    });
     const aiMessage = dashboardUpdateMessages.buildAiSessionsUpdatedMessage({
         groups: [],
         cards: [workspaceCard],
@@ -387,6 +395,7 @@ function runDashboardUpdateMessageChecks() {
         todoSearchItems,
         runningCardAnimation: 'custom',
         runningIconAnimation: 'halo',
+        presentation: makePresentation(7),
     });
     const workspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({
         card: workspaceCard,
@@ -414,12 +423,15 @@ function runDashboardUpdateMessageChecks() {
         todoSearchItems,
         runningCardAnimation: 'breath',
         runningIconAnimation: 'custom',
+        presentation: makePresentation(1),
     });
     const workspaceSearchCatalog = buildWorkspaceDashboardSearchCatalog([], [workspaceCard], todoSearchItems);
 
     assert.deepStrictEqual(aiMessage.searchCatalog.todos, todoSearchItems,
         'AI incremental catalog rebuilds must preserve real TODO search items');
-    assert.strictEqual(aiMessage.version, 2);
+    assert.strictEqual(aiMessage.version, 3);
+    assert.strictEqual(aiMessage.projectionRevision, 7);
+    assert.strictEqual(aiMessage.presentation.projectionRevision, 7);
     assert.strictEqual(aiMessage.currentWorkspaceCount, 1);
     assert.strictEqual(aiMessage.searchCatalog.version, 2);
     assert.deepStrictEqual(aiMessage.searchCatalog.openWorkspaces.map(item => item.current), [true]);
@@ -444,7 +456,8 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(emptyWorkspaceMessage.currentWorkspaceCount, 0);
     assert.strictEqual(emptyWorkspaceMessage.html.includes('class="workspace-card'), false);
     assert.strictEqual(openWorkspacesMessage.type, 'open-workspaces-updated');
-    assert.strictEqual(openWorkspacesMessage.version, 2);
+    assert.strictEqual(openWorkspacesMessage.version, 3);
+    assert.strictEqual(openWorkspacesMessage.presentation.projectionRevision, 1);
     assert.strictEqual(openWorkspacesMessage.currentWorkspaceCount, 1);
     assert.strictEqual(openWorkspacesMessage.navigationWorkspaceCount, 1);
     assert.strictEqual(openWorkspacesMessage.searchCatalog.version, 2);

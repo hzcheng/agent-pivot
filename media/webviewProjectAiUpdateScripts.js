@@ -14,12 +14,15 @@ function initProjectAiSessionsUpdate(options) {
     var exitAiSessionBatchManagement = options.exitAiSessionBatchManagement;
     var isAiSessionProvider = options.isAiSessionProvider;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
+    var isValidAiSessionPresentationState = options.isValidAiSessionPresentationState;
+    var applyValidatedAiSessionPresentationState = options.applyValidatedAiSessionPresentationState;
 
     var pendingWorkspaceSessionReveal = null;
     var latestAiSessionUpdateSequence = 0;
     var latestAiSessionProjectionRevision = 0;
     var latestAiSessionPresentationProjectionRevision = 0;
     var latestAiSessionDirectPresentationRevision = 0;
+    var latestAiSessionClosedPresentationRevision = 0;
 
     function canApplyRevision(revision, latestRevision) {
         if (typeof revision === 'undefined') {
@@ -38,12 +41,25 @@ function initProjectAiSessionsUpdate(options) {
         return canApplyRevision(revision, latestAiSessionPresentationProjectionRevision);
     }
 
-    function commitProjectionRevision(revision, adoptedPresentation) {
+    function canApplyAtomicPresentationProjectionRevision(revision) {
+        return Number.isSafeInteger(revision)
+            && revision > 0
+            && revision >= latestAiSessionPresentationProjectionRevision
+            && revision > latestAiSessionClosedPresentationRevision;
+    }
+
+    function commitProjectionRevision(revision, adoptedPresentation, closePresentation) {
         if (Number.isSafeInteger(revision) && revision > 0) {
             latestAiSessionProjectionRevision = revision;
             if (adoptedPresentation) {
                 latestAiSessionPresentationProjectionRevision = Math.max(
                     latestAiSessionPresentationProjectionRevision,
+                    revision
+                );
+            }
+            if (closePresentation) {
+                latestAiSessionClosedPresentationRevision = Math.max(
+                    latestAiSessionClosedPresentationRevision,
                     revision
                 );
             }
@@ -55,6 +71,7 @@ function initProjectAiSessionsUpdate(options) {
             || revision <= 0
             || revision < latestAiSessionProjectionRevision
             || revision < latestAiSessionPresentationProjectionRevision
+            || revision <= latestAiSessionClosedPresentationRevision
             || revision <= latestAiSessionDirectPresentationRevision) {
             return false;
         }
@@ -81,7 +98,8 @@ function initProjectAiSessionsUpdate(options) {
     }
 
     function applyAiSessionsUpdate(message) {
-        if (message.version !== 2
+        var isAtomicEnvelope = message.version === 3;
+        if ((message.version !== 2 && !isAtomicEnvelope)
             || typeof message.sequence !== 'number'
             || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
             || typeof message.html !== 'string'
@@ -92,15 +110,33 @@ function initProjectAiSessionsUpdate(options) {
             return;
         }
 
+        if (isAtomicEnvelope
+            && (!Number.isSafeInteger(message.projectionRevision)
+                || message.projectionRevision <= 0
+                || message.sequence !== message.projectionRevision
+                || typeof message.generatedAt !== 'string'
+                || !message.generatedAt
+                || typeof isValidAiSessionPresentationState !== 'function'
+                || !isValidAiSessionPresentationState(message.presentation)
+                || message.presentation.projectionRevision !== message.projectionRevision
+                || typeof applyValidatedAiSessionPresentationState !== 'function')) {
+            requestFullRefresh('invalid-ai-session-presentation-envelope');
+            return;
+        }
+
         if (message.sequence <= latestAiSessionUpdateSequence) {
             return;
         }
         if (!canApplyProjectionRevision(message.projectionRevision)) {
             return;
         }
-        var adoptRenderedPresentation = canApplyPresentationProjectionRevision(
-            message.projectionRevision
-        );
+        var canApplyMessagePresentation = isAtomicEnvelope
+            ? canApplyAtomicPresentationProjectionRevision(message.projectionRevision)
+            : canApplyPresentationProjectionRevision(message.projectionRevision);
+        if (isAtomicEnvelope && !canApplyMessagePresentation) {
+            return;
+        }
+        var adoptRenderedPresentation = canApplyMessagePresentation;
 
         if (!applyWorkspaceUpdate({
             type: 'workspace-updated',
@@ -119,7 +155,8 @@ function initProjectAiSessionsUpdate(options) {
         latestAiSessionUpdateSequence = message.sequence;
         commitProjectionRevision(
             message.projectionRevision,
-            adoptRenderedPresentation
+            adoptRenderedPresentation,
+            isAtomicEnvelope
         );
         if (batchAiSessionState.projectId) {
             var projectDiv = findCurrentWorkspaceDiv(batchAiSessionState.projectId);
@@ -131,7 +168,11 @@ function initProjectAiSessionsUpdate(options) {
             }
         }
         reconcilePendingAiSessionProviderSelectionDom();
-        syncAiSessionProjectionDom(adoptRenderedPresentation);
+        if (isAtomicEnvelope) {
+            applyValidatedAiSessionPresentationState(message.presentation);
+        } else {
+            syncAiSessionProjectionDom(adoptRenderedPresentation);
+        }
         updateStickyGroupHeaderOffset();
         if (window.__agentPivotDashboard) {
             window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
@@ -242,6 +283,7 @@ function initProjectAiSessionsUpdate(options) {
         applyAiSessionsUpdate: applyAiSessionsUpdate,
         acceptInitialPresentationProjectionRevision: acceptInitialPresentationProjectionRevision,
         acceptPresentationProjectionRevision: acceptPresentationProjectionRevision,
+        canApplyAtomicPresentationProjectionRevision: canApplyAtomicPresentationProjectionRevision,
         canApplyPresentationProjectionRevision: canApplyPresentationProjectionRevision,
         canApplyProjectionRevision: canApplyProjectionRevision,
         commitProjectionRevision: commitProjectionRevision,

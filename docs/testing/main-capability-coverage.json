@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "40ed025328778dd8d6dc30d8983cec0e714b2abf",
+        "head": "fe852b6268c76ca437c49b628189ae1439bce0f3",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -265,7 +265,8 @@
             "1138487a7f97024092f1f362e8990b2b63883282",
             "00eb53cec68ca367088a5cce19bc2f2944d300e2",
             "41fa71745aaa981a03af4bbb7d0b8f2f6ba92e4b",
-            "23b03b8d4e540b534452dfa03ebc5608a667a260"
+            "23b03b8d4e540b534452dfa03ebc5608a667a260",
+            "a514850f0b36137007a6e25aca0e093114aaa5cd"
         ]
     },
     "capabilities": [
@@ -914,7 +915,10 @@
                 "7a89af3d4230e843f4d33aa37e5583d57361cbd0",
                 "bc6b1625e112e39d6aae8534e718bee9628ecae0",
                 "21a524b74b4eabde5a125bbe62469b89fa2d5fea",
-                "1c7cc4b8df13cc66d60b1e2352f3b2d7ca20f5c3"
+                "1c7cc4b8df13cc66d60b1e2352f3b2d7ca20f5c3",
+                "9387594a7a8a9310621f5da0fa675e0fe90564fa",
+                "c39b9f1d5a38563194b6d4423e91f89c4897212d",
+                "fe852b6268c76ca437c49b628189ae1439bce0f3"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -930,7 +934,8 @@
                 "SESSION-CODEX-SESSION-SERVICE-001",
                 "SESSION-FINGERPRINT-HASH-001",
                 "PERSIST-LIFECYCLE-PARSER-001",
-                "ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001"
+                "ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001",
+                "ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001"
             ],
             "prGates": [
                 "test:deterministic:run",

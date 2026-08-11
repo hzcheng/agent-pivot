@@ -2,15 +2,17 @@
 
 import type { AiSessionProviderId, Group, WorkspaceCardViewModel } from '../models';
 import type { AiSessionsUpdatedMessage } from './types';
+import { buildAiSessionPresentationState } from './presentationMessage';
 import { buildAiSessionsUpdatedMessage } from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
+import type { AiSessionPresentationTransaction } from '../workspaces/sessionHydrationController';
 
 interface DisposableLike {
     dispose(): void;
 }
 
 export interface AiSessionDashboardControllerOptions<
-    TProjection extends AiSessionDashboardProjection = AiSessionDashboardProjection
+    TProjection extends AiSessionPresentationTransaction = AiSessionPresentationTransaction
 > {
     providerIds: AiSessionProviderId[];
     isVisible: () => boolean;
@@ -37,16 +39,12 @@ export interface AiSessionDashboardControllerOptions<
     clearTimeout: (handle: NodeJS.Timeout) => void;
 }
 
-export interface AiSessionDashboardProjection {
-    revision: number;
-}
-
 export interface AiSessionDashboardRefreshOptions {
     fallbackToFullRefresh?: boolean;
 }
 
 export class AiSessionDashboardController<
-    TProjection extends AiSessionDashboardProjection = AiSessionDashboardProjection
+    TProjection extends AiSessionPresentationTransaction = AiSessionPresentationTransaction
 > {
     private refreshTimeout: NodeJS.Timeout = null;
     private watcherStopTimeout: NodeJS.Timeout = null;
@@ -184,6 +182,8 @@ export class AiSessionDashboardController<
     ): AiSessionsUpdatedMessage {
         const startedAt = this.nowMs();
         const cards = this.options.getCards(projection);
+        const runningCardAnimation = this.options.getRunningCardAnimation();
+        const runningIconAnimation = this.options.getRunningIconAnimation();
         const message = buildAiSessionsUpdatedMessage({
             groups: this.options.getGroups(),
             cards,
@@ -191,8 +191,14 @@ export class AiSessionDashboardController<
             generatedAt: new Date().toISOString(),
             todoSearchItems: this.options.getTodoSearchItems(),
             skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],
-            runningCardAnimation: this.options.getRunningCardAnimation(),
-            runningIconAnimation: this.options.getRunningIconAnimation(),
+            runningCardAnimation,
+            runningIconAnimation,
+            presentation: buildAiSessionPresentationState(
+                false,
+                projection,
+                runningCardAnimation,
+                runningIconAnimation,
+            ),
         });
         this.options.logDiagnostic?.({
             event: 'ai-session-message-build',
@@ -278,10 +284,15 @@ export class AiSessionDashboardController<
     }
 
     private getIncrementalMessageSignature(message: AiSessionsUpdatedMessage): string {
+        const {
+            projectionRevision: _projectionRevision,
+            ...presentation
+        } = message.presentation;
         return JSON.stringify({
             currentWorkspaceCount: message.currentWorkspaceCount,
             html: message.html,
             searchCatalog: this.stableValue(message.searchCatalog),
+            presentation: this.stableValue(presentation),
         });
     }
 

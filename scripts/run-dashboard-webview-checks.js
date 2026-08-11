@@ -4886,7 +4886,11 @@ function runSourceContractChecks(source) {
     assert.ok(openWorkspacesMessageBody.includes('openWorkspaceDashboardController.postUpdated()'));
     assert.ok(openWorkspaceControllerSource.includes('buildOpenWorkspacesUpdatedMessage({'));
     assert.ok(openWorkspaceControllerSource.includes('groups: this.options.getGroups()'));
-    assert.ok(openWorkspaceControllerSource.includes('cards: this.getCards(projection)'));
+    assert.ok(openWorkspaceControllerSource.includes('const cards = this.getCards(projection)'));
+    assert.ok(openWorkspaceControllerSource.includes('cards,'));
+    assert.ok(openWorkspaceControllerSource.includes(
+        'getRenderedCurrentWorkspaceNavigationIdentity(cards)'
+    ));
     assert.ok(openWorkspaceControllerSource.includes(
         'projectionRevision: projection.revision'
     ));
@@ -4899,6 +4903,15 @@ function runSourceContractChecks(source) {
     assert.ok(aiSessionControllerSource.includes('cards'));
     assert.ok(aiSessionControllerSource.includes('sequence: projection.revision'));
     assert.ok(aiSessionControllerSource.includes('this.options.getCards(projection)'));
+    assert.ok(aiSessionControllerSource.includes(
+        'getRenderedCurrentWorkspaceNavigationIdentity(cards)'
+    ));
+    assert.equal((extensionHostSource.match(
+        /getRenderedCurrentWorkspaceNavigationIdentity\(cards\)/g
+    ) || []).length, 1);
+    assert.ok(extensionHostSource.includes(
+        'openWorkspaceDashboardController.getCurrentRenderedWorkspaceNavigationIdentity()'
+    ));
     assert.ok(projectSource.includes('replaceSearchCatalog(message.searchCatalog)'));
     assert.ok(projectSource.includes("type: 'open-bridge-extension'"));
     assert.ok(extensionHostSource.includes("'workbench.extensions.action.showExtensionsWithIds'"));

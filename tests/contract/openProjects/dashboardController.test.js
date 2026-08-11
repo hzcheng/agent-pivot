@@ -146,6 +146,72 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 OPEN updates hydrate and publi
     assert.equal(posted[0].version, 3);
 });
 
+test('OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001 aligns Presentation with the rendered current identity while the Bridge lags', async () => {
+    const current = makeRecord({
+        name: 'Current',
+        navigationIdentity: 'navigation:live-current',
+        scopeIdentity: 'scope:live-current',
+        uri: '/work/current',
+    });
+    const staleBridgeWorkspace = makeRecord({
+        name: 'Current',
+        navigationIdentity: 'navigation:stale-bridge',
+        scopeIdentity: 'scope:stale-bridge',
+        uri: '/work/current',
+    });
+    const posted = [];
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => ({
+            ...current,
+            roots: current.roots.map(root => ({ ...root, hostPath: '/work/current' })),
+        }),
+        beginAiSessionProjection: () => ({
+            revision: 7,
+            presentation: {
+                workspaceScopeIdentity: current.scopeIdentity,
+                workspaceNavigationIdentity: current.navigationIdentity,
+                attentionCount: 0,
+                activeAttentionCount: 0,
+                runningSessionCount: 0,
+                focusedTarget: null,
+                attentionSessions: [],
+                sessions: [],
+            },
+        }),
+        postMessage: message => { posted.push(message); return Promise.resolve(true); },
+    }));
+    controller.setAggregate(makeAggregate([
+        makeRegistration(SELF, 4000, staleBridgeWorkspace.navigationUri, {
+            workspace: staleBridgeWorkspace,
+        }),
+    ], { semanticRevision: 'bridge-still-publishing-the-previous-identity' }));
+
+    assert.equal(
+        controller.getCurrentRenderedWorkspaceNavigationIdentity(),
+        staleBridgeWorkspace.navigationIdentity,
+        'direct focus publication must reuse the rendered identity without hydrating cards',
+    );
+
+    await controller.postUpdated();
+
+    assert.equal(posted.length, 1);
+    assert.equal(
+        posted[0].presentation.workspaceNavigationIdentity,
+        staleBridgeWorkspace.navigationIdentity,
+    );
+    assert.match(posted[0].html, new RegExp(
+        `data-workspace-navigation-identity="${staleBridgeWorkspace.navigationIdentity}"`,
+    ));
+    assert.doesNotMatch(posted[0].html, new RegExp(
+        `data-workspace-navigation-identity="${current.navigationIdentity}"`,
+    ));
+    assert.equal(
+        posted[0].presentation.workspaceScopeIdentity,
+        current.scopeIdentity,
+        'runtime ownership must remain scoped to the live Extension Host workspace',
+    );
+});
+
 test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 coalesces rapid OPEN revisions behind one delivery', async () => {
     const firstDelivery = createDeferred();
     const posted = [];

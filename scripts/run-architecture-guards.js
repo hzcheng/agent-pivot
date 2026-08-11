@@ -690,6 +690,12 @@ const guards = {
             this.id,
             risk
         );
+        const presentationMessage = parseTypescript(
+            root,
+            'src/aiSessions/presentationMessage.ts',
+            this.id,
+            risk
+        );
         const updateMessages = parseTypescript(
             root,
             'src/dashboard/webviewUpdateMessages.ts',
@@ -757,6 +763,7 @@ const guards = {
                 'cards and HTML must consume the transaction and publish its revision');
         }
         const dashboardSource = dashboard.getFullText();
+        const presentationMessageSource = presentationMessage.getFullText();
         if (!/getCards:\s*projection\s*=>\s*getOpenWorkspaceCards\(projection\)/
             .test(dashboardSource)
             || !/presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,/
@@ -1512,7 +1519,8 @@ const guards = {
         const openWorkspaceSource = openWorkspaceController.getFullText();
         if (!openWorkspaceSource.includes(
             'const projection = this.options.beginAiSessionProjection()'
-        ) || !openWorkspaceSource.includes('cards: this.getCards(projection)')
+        ) || !openWorkspaceSource.includes('const cards = this.getCards(projection)')
+            || !openWorkspaceSource.includes('cards,')
             || !openWorkspaceSource.includes('projectionRevision: projection.revision')
             || !updateMessageSource.includes(
                 'projectionRevision: input.projectionRevision'
@@ -1528,6 +1536,37 @@ const guards = {
             ) {
             fail(this.id, risk,
                 'OPEN HTML and Presentation must share one Host message');
+        }
+        if ((controllerSource.match(
+            /getRenderedCurrentWorkspaceNavigationIdentity\(cards\)/g
+        ) || []).length !== 1
+            || (openWorkspaceSource.match(
+                /getRenderedCurrentWorkspaceNavigationIdentity\(cards\)/g
+            ) || []).length !== 1
+            || (dashboardSource.match(
+                /getRenderedCurrentWorkspaceNavigationIdentity\(cards\)/g
+            ) || []).length !== 1
+            || !/const cards = this\.options\.getCards\(projection\)[\s\S]*?presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,[\s\S]*?getRenderedCurrentWorkspaceNavigationIdentity\(cards\),/
+                .test(controllerSource)
+            || !/const cards = this\.getCards\(projection\)[\s\S]*?presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,[\s\S]*?getRenderedCurrentWorkspaceNavigationIdentity\(cards\),/
+                .test(openWorkspaceSource)
+            || !/renderContent:\s*\(webview,\s*documentGeneration\)\s*=>\s*\{[\s\S]*?const cards = getOpenWorkspaceCards\(transaction\)[\s\S]*?buildAiSessionPresentationState\(\s*false,\s*transaction,[\s\S]*?getRenderedCurrentWorkspaceNavigationIdentity\(cards\),/
+                .test(dashboardSource)
+            || !/function postActiveAiSessionTerminalPresentation\([\s\S]*?buildAiSessionPresentationState\(\s*true,\s*transaction,[\s\S]*?openWorkspaceDashboardController\.getCurrentRenderedWorkspaceNavigationIdentity\(\),/
+                .test(dashboardSource)
+            || /function postActiveAiSessionTerminalPresentation\([\s\S]*?getOpenWorkspaceCards\(transaction\)/
+                .test(dashboardSource)
+            || !openWorkspaceSource.includes(
+                'getCurrentRenderedWorkspaceNavigationIdentity(): string | null'
+            )
+            || !presentationMessageSource.includes(
+                "cards.find(card => card.kind === 'current')?.navigationIdentity || null"
+            )
+            || !presentationMessageSource.includes(
+                'workspaceNavigationIdentity: renderedWorkspaceNavigationIdentity,'
+            )) {
+            fail(this.id, risk,
+                'every Host Presentation producer must align with its rendered current card identity');
         }
         const initialWorkspaceIndex = initialPresentationSource.indexOf(
             '!hasMatchingPresentationWorkspace(message)'

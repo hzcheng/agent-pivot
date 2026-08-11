@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "0d96cc1c2a41e56dded2f4608e64a3dfabbfce8d",
+        "head": "5f1b9ee8ecea224fc60b977de21759327128b51b",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -277,7 +277,8 @@
             "18ecf2273167690e3399c82a1b2b5d408a9661d6",
             "0ffa4a9095be981c3034c98ef5b4cd2dc530ca81",
             "b803fe787f08b6460d1f1e72ffa01d1e0865ba5e",
-            "12017e9f4031a0a74003dde0a12d68c7171b1852"
+            "12017e9f4031a0a74003dde0a12d68c7171b1852",
+            "c6bd9d89b371004a2a63d438f220a46f9ee2b61c"
         ]
     },
     "capabilities": [
@@ -531,7 +532,8 @@
                 "680cda193f6fb74064502fe463da5fb9b5154251",
                 "660ab41e2ff0da8f0c4b0f0abeed8a2a97ee87e1",
                 "83910c204b19ba0daace9cce51b8d2c741dcca63",
-                "f21da330003a44dc7e5eff624d36453bd7627884"
+                "f21da330003a44dc7e5eff624d36453bd7627884",
+                "5f1b9ee8ecea224fc60b977de21759327128b51b"
             ],
             "behaviors": [
                 "WEBVIEW-CURRENT-WORKSPACE-RENDERING-001",
@@ -539,7 +541,8 @@
                 "CUSTOM-RUNNING-IMAGE-001",
                 "CUSTOM-RUNNING-IMAGE-RESOLVER-001",
                 "WEBVIEW-AI-SESSION-LIST-SCROLL-001",
-                "ACTIVE-SESSION-FOCUS-REVEAL-001"
+                "ACTIVE-SESSION-FOCUS-REVEAL-001",
+                "OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001"
             ],
             "prGates": [
                 "test:deterministic:run",

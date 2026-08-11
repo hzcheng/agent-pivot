@@ -63,6 +63,12 @@
     var sidebarToggle = document.querySelector(
         '[data-action="toggle-sidebar"]'
     );
+    var sessionStatusRunning = document.querySelector(
+        '[data-session-status-running]'
+    );
+    var sessionStatusAttention = document.querySelector(
+        '[data-session-status-attention]'
+    );
     var sessionNavButtons = Array.prototype.slice.call(
         document.querySelectorAll('[data-session-nav]')
     );
@@ -241,6 +247,9 @@
         atLatest: false,
         initialized: false,
         latestRequestId: 0,
+        latestStatusRequestId: Number(document.body.getAttribute(
+            'data-session-status-request-id'
+        )) || 0,
         subscriptionGeneration: Number(document.body.getAttribute(
             'data-subscription-generation'
         )),
@@ -928,6 +937,7 @@
         };
         state.subscriptionGeneration = message.subscriptionGeneration;
         state.latestRequestId = 0;
+        state.latestStatusRequestId = 0;
         state.initialized = false;
         state.messageIds = [];
         state.messageSignatures = new Map();
@@ -1484,6 +1494,66 @@
         if (commentsController.handleEscape(event)) return;
         sidebarController.handleEscape(event);
     });
+    function sessionStatusDotLabel(kind, count) {
+        if (kind === 'running') {
+            if (count === 0) return 'No AI sessions running';
+            return count === 1
+                ? '1 AI session running across all windows'
+                : count + ' AI sessions running across all windows';
+        }
+        if (count === 0) return 'No AI sessions need attention';
+        return count === 1
+            ? '1 AI session needs attention across all windows'
+            : count + ' AI sessions need attention across all windows';
+    }
+    function validSessionStatus(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return false;
+        }
+        var keys = Object.keys(value);
+        return keys.length === 2
+            && keys.indexOf('runningSessions') !== -1
+            && keys.indexOf('attentionSessions') !== -1
+            && Number.isSafeInteger(value.runningSessions)
+            && value.runningSessions >= 0
+            && value.runningSessions <= 100000
+            && Number.isSafeInteger(value.attentionSessions)
+            && value.attentionSessions >= 0
+            && value.attentionSessions <= 100000;
+    }
+    function applySessionStatusDot(element, kind, count) {
+        var label = sessionStatusDotLabel(kind, count);
+        element.classList.toggle(
+            'conversation-session-status-active',
+            count > 0
+        );
+        element.title = label;
+        element.setAttribute('aria-label', label);
+    }
+    function applySessionStatusMessage(message) {
+        if (!message || typeof message !== 'object'
+            || message.type !== 'conversation-viewer-session-status'
+            || message.version !== 1
+            || !Number.isSafeInteger(message.requestId)
+            || message.requestId < state.latestStatusRequestId
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || !validSessionStatus(message.status)
+            || !sessionStatusRunning || !sessionStatusAttention) {
+            return false;
+        }
+        state.latestStatusRequestId = message.requestId;
+        applySessionStatusDot(
+            sessionStatusRunning,
+            'running',
+            message.status.runningSessions
+        );
+        applySessionStatusDot(
+            sessionStatusAttention,
+            'attention',
+            message.status.attentionSessions
+        );
+        return true;
+    }
     window.addEventListener('message', function (event) {
         if (applyCopyResult(event.data)) return;
         if (outlineController.applyBookmarksResult(event.data)) return;
@@ -1493,6 +1563,7 @@
         }
         if (commentsController.applyLocateResult(event.data)) return;
         if (telemetryController.apply(event.data)) return;
+        if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
         applyPage(event.data);
     });

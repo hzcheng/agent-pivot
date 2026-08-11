@@ -4,6 +4,15 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Added
+
+- The AI Conversation header carries a pair of global Session status dots
+  between the title and the navigation buttons: a green dot pulses while AI
+  Sessions are running in any open window and a red dot pulses while
+  Sessions need attention, both counted across every window through the
+  open-workspaces aggregate and the attention bridge. Each dot dims when its
+  count is zero, explains itself in a tooltip, and honors reduced motion.
+
 ### Changed
 
 - The AI tab's SKILLS subtab is reworked into a quiet list surface: Global

@@ -736,6 +736,7 @@ async function renderHostViewerDocument(options = {}) {
         mediaUri: fileName =>
             fakeHostUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
+        readSessionStatus: options.readSessionStatus,
         submitPrompt: options.submitPrompt || (async () => {}),
         bookmarkStore: options.bookmarkStore,
         commentStore: options.commentStore,
@@ -2922,6 +2923,30 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         )
         .replace(
             '        outlineSort: outlineSort,\n',
+            ''
+        )
+        .replace(
+            "    var sessionStatusRunning = document.querySelector(\n"
+                + "        '[data-session-status-running]'\n"
+                + "    );\n"
+                + "    var sessionStatusAttention = document.querySelector(\n"
+                + "        '[data-session-status-attention]'\n"
+                + "    );\n",
+            ''
+        )
+        .replace(
+            "        latestStatusRequestId: Number(document.body.getAttribute(\n"
+                + "            'data-session-status-request-id'\n"
+                + "        )) || 0,\n",
+            ''
+        )
+        .replace('        state.latestStatusRequestId = 0;\n', '')
+        .replace(
+            /\n    function sessionStatusDotLabel[\s\S]*?\n    \}\n    window.addEventListener\('message', function \(event\) \{/,
+            '\n    window.addEventListener(\'message\', function (event) {'
+        )
+        .replace(
+            '        if (applySessionStatusMessage(event.data)) return;\n',
             ''
         );
     const previousOutlineScript = conversationOutlineScript
@@ -9121,6 +9146,98 @@ test('CONVERSATION-PROVIDER-PARITY-001 keeps default disclosure and live status 
             `${fixture.label} must never require a New response content control`
         );
     }
+});
+
+test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session status dots in the header', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        readSessionStatus: () => ({
+            runningSessions: 2,
+            attentionSessions: 1,
+        }),
+    });
+    const running = page.locator('[data-session-status-running]');
+    const attention = page.locator('[data-session-status-attention]');
+
+    assert.equal(
+        await running.getAttribute('title'),
+        '2 AI sessions running across all windows'
+    );
+    assert.equal(
+        await attention.getAttribute('aria-label'),
+        '1 AI session needs attention across all windows'
+    );
+    assert.equal(await running.evaluate(element =>
+        element.classList.contains('conversation-session-status-active')
+    ), true);
+    assert.notEqual(await running.evaluate(element =>
+        getComputedStyle(element).animationName
+    ), 'none');
+
+    const correlation = await page.evaluate(() => ({
+        generation: Number(document.body.getAttribute(
+            'data-subscription-generation'
+        )),
+        requestId: Number(document.body.getAttribute(
+            'data-session-status-request-id'
+        )),
+    }));
+    await sendPage(page, {
+        type: 'conversation-viewer-session-status',
+        version: 1,
+        requestId: correlation.requestId,
+        subscriptionGeneration: correlation.generation,
+        status: { runningSessions: 0, attentionSessions: 3 },
+    });
+    assert.equal(
+        await running.getAttribute('title'),
+        'No AI sessions running'
+    );
+    assert.equal(await running.evaluate(element =>
+        element.classList.contains('conversation-session-status-active')
+    ), false);
+    assert.equal(
+        await attention.getAttribute('title'),
+        '3 AI sessions need attention across all windows'
+    );
+
+    await sendPage(page, {
+        type: 'conversation-viewer-session-status',
+        version: 1,
+        requestId: correlation.requestId - 1,
+        subscriptionGeneration: correlation.generation,
+        status: { runningSessions: 9, attentionSessions: 9 },
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-session-status',
+        version: 1,
+        requestId: correlation.requestId + 1,
+        subscriptionGeneration: correlation.generation + 1,
+        status: { runningSessions: 9, attentionSessions: 9 },
+    });
+    assert.equal(
+        await attention.getAttribute('title'),
+        '3 AI sessions need attention across all windows',
+        'stale requestIds and foreign generations must be ignored'
+    );
+
+    for (const width of [700, 240]) {
+        await page.setViewportSize({ width, height: 500 });
+        const fitsViewport = await page.locator(
+            '[data-conversation-session-status]'
+        ).evaluate(element => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.left >= 0
+                && bounds.right <= document.documentElement.clientWidth;
+        });
+        assert.equal(fitsViewport, true,
+            `session status fits at ${width}px`);
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await attention.evaluate(element =>
+        getComputedStyle(element).animationName
+    ), 'none');
 });
 
 test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message viewport bounded at wide and narrow widths', async t => {

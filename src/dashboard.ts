@@ -195,7 +195,11 @@ import { DashboardStartupController, settleMigration } from './dashboard/startup
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
 import { EarlyOpenWorkspaceBridge } from './openWorkspaces/earlyBridge';
-import { createOpenWorkspacePublication } from './openWorkspaces/projection';
+import {
+    createOpenWorkspacePublication,
+    sumOpenWorkspaceRunningAiSessionCounts,
+} from './openWorkspaces/projection';
+import type { OpenWorkspaceAggregate } from './openWorkspaces/protocol';
 import { OpenWorkspaceDashboardController } from './openWorkspaces/dashboardController';
 import { WorkspaceNavigationController } from './openWorkspaces/navigationController';
 import {
@@ -1345,6 +1349,7 @@ async function initializeDashboard(
         onAttentionCancelled: eventIds => notifyDispatcher.cancel(eventIds),
         onEffectiveAggregateChanged: () => {
             attentionStatusBarController?.refresh(buildCurrentAttentionQueue());
+            void conversationCapability?.viewer.publishSessionStatus();
         },
         nowMs: () => Date.now(),
     });
@@ -1545,6 +1550,13 @@ async function initializeDashboard(
             conversationSessionRebindCoordinator.resolve(target),
         getShowThinking: () => getAgentPivotConfiguration()
             .get<unknown>('aiConversation.showThinking', false) === true,
+        readSessionStatus: () => ({
+            runningSessions: sumOpenWorkspaceRunningAiSessionCounts(
+                latestOpenWorkspaceAggregate
+            ),
+            attentionSessions: aiSessionAttentionController
+                .getEffectiveAggregate()?.sessions.length ?? 0,
+        }),
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({
             getWorkspaceTarget: getCurrentWorkspaceActionTarget,
             getRuntime: getAiSessionRuntimeById,
@@ -1730,6 +1742,7 @@ async function initializeDashboard(
         logError,
     };
     let openWorkspaceBridgeClient: OpenWorkspaceBridgeClient;
+    let latestOpenWorkspaceAggregate: OpenWorkspaceAggregate | null = null;
     openWorkspaceController = new OpenWorkspaceController({
         getWorkspace: resolveCurrentOpenWorkspace,
         getRunningAiSessionCount: workspace => {
@@ -2054,10 +2067,12 @@ async function initializeDashboard(
     });
     openWorkspaceBridgeClient = earlyOpenWorkspaceBridge.adopt({
         onAggregate: aggregate => {
+            latestOpenWorkspaceAggregate = aggregate;
             const statusChanged = openWorkspaceDashboardController.setBridgeStatus('ready');
             if (openWorkspaceDashboardController.setAggregate(aggregate) || statusChanged) {
                 postOpenWorkspacesUpdated();
             }
+            void conversationCapability.viewer.publishSessionStatus();
         },
         onError: error => logOpenWorkspaceBridgeError(error),
         onStatusChange: status => {

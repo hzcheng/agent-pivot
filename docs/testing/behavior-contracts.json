@@ -5158,6 +5158,29 @@
     ]
   },
   {
+    "id": "CONVERSATION-SESSION-STATUS-001",
+    "domain": "webview",
+    "title": "AI Conversation header shows global running and attention Session status dots (summed across every open window) that pulse only while their count is non-zero, stay readable at narrow widths, and honor reduced motion",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationSessionStatusController.test.js",
+      "tests/contract/openProjects/projection.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/sessionStatusController.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/openWorkspaces/projection.ts",
+      "src/dashboard.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "SECURITY-AI-SESSION-CONVERSATION-SOURCE-001",
     "domain": "session",
     "title": "Conversation history enforces canonical sources, opaque protocol tokens, and bounded private content",

@@ -131,6 +131,16 @@ function getEnvironmentLabel(environment: OpenWorkspaceEnvironment): string {
     }
 }
 
+export function sumOpenWorkspaceRunningAiSessionCounts(
+    aggregate: OpenWorkspaceAggregateV4 | null,
+): number {
+    return (aggregate?.registrations || []).reduce(
+        (sum, registration) =>
+            sum + (registration.workspace?.runningAiSessionCount || 0),
+        0,
+    );
+}
+
 export function createOpenWorkspacePublication(
     workspace: OpenWorkspace | null,
     runningAiSessionCount = 0,

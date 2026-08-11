@@ -1220,7 +1220,6 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     }
 
     private scheduleInvalidation(): void {
-        this.invalidateLoadedConversationCache();
         if (this.invalidationTimer !== undefined || this.disposed) {
             return;
         }
@@ -1228,6 +1227,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         const handle = this.options.setTimeout(() => {
             firedSynchronously = true;
             this.invalidationTimer = undefined;
+            // Invalidate right before notifying, not on every watch event: a
+            // streaming session fires events continuously, and clearing the
+            // large-conversation cache per event forced every amplified read
+            // (switch, revalidation, warmup) into a full thread/read.
+            this.invalidateLoadedConversationCache();
             Array.from(this.subscriptions.values()).forEach(callbacks =>
                 Array.from(callbacks).forEach(callback => callback())
             );
@@ -1246,6 +1250,9 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         if (this.invalidationTimer !== undefined) {
             this.options.clearTimeout(this.invalidationTimer);
             this.invalidationTimer = undefined;
+            // The canceled debounce still represents a real change event;
+            // its invalidation must not be silently dropped.
+            this.invalidateLoadedConversationCache();
         }
     }
 }

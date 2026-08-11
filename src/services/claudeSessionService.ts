@@ -45,6 +45,8 @@ export default class ClaudeSessionService {
     private cachedAt = 0;
     private sessionCache = new Map<string, { signature: string; session: CodexSession }>();
     private readonly sessionFilesById = new Map<string, string>();
+    private readonly duplicateSessionFileIds = new Set<string>();
+    private fullScanTreeSignature?: string;
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
@@ -65,18 +67,79 @@ export default class ClaudeSessionService {
             return null;
         }
         const normalizedCandidatePaths = normalizeAiSessionCandidatePaths(Array.from(candidatePaths));
-        const matches = this.getSessionFiles(path.join(claudeHome, 'projects'))
+        // Fast path: a previous full scan already located this session file.
+        // The scan below walks and stats every transcript in the projects
+        // tree — far too expensive to repeat on every conversation load,
+        // refresh, and warmup prefetch. The cached resolution stays
+        // authoritative only while the cheap tree signature (subdirectory
+        // names + mtimes) matches the last full scan, so any added, removed,
+        // or renamed transcript file — including a duplicate of this session
+        // id appearing in another project directory — immediately forces a
+        // full rescan and the duplicate guard below declines the id again.
+        const projectsRoot = path.join(claudeHome, 'projects');
+        const cached = !this.duplicateSessionFileIds.has(sessionId)
+            && this.fullScanTreeSignature !== undefined
+            && this.fullScanTreeSignature
+                === this.projectsTreeSignature(projectsRoot)
+            ? this.sessionFilesById.get(sessionId)
+            : null;
+        if (cached) {
+            if (!fs.existsSync(cached)) {
+                this.sessionFilesById.delete(sessionId);
+                this.lifecycleReader.delete(sessionId);
+            } else if (this.matchesConversationSourceCandidates(cached, sessionId, normalizedCandidatePaths)) {
+                return { providerHome: claudeHome, sourcePath: cached };
+            }
+        }
+        const matches = this.getSessionFiles(projectsRoot)
             .filter(sessionFile => path.basename(sessionFile) === `${sessionId}.jsonl`)
-            .filter(sessionFile => {
-                if (!normalizedCandidatePaths.length) {
-                    return true;
-                }
-                const cwd = this.readSessionCwd(sessionFile, sessionId);
-                return !!cwd && normalizedCandidatePaths.some(candidatePath => aiSessionPathContains(candidatePath, cwd));
-            });
+            .filter(sessionFile => this.matchesConversationSourceCandidates(sessionFile, sessionId, normalizedCandidatePaths));
         return matches.length === 1
             ? { providerHome: claudeHome, sourcePath: matches[0] }
             : null;
+    }
+
+    /**
+     * One readdir plus one stat per project directory. A transcript file
+     * created, deleted, or renamed inside a project directory updates that
+     * directory's mtime, so this signature changes exactly when the set of
+     * session files may have changed; appends to an existing file do not
+     * affect it (and never change which file resolves a session id).
+     */
+    private projectsTreeSignature(projectRoot: string): string | null {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(projectRoot, { withFileTypes: true });
+        } catch (e) {
+            return null;
+        }
+        const parts: string[] = [];
+        for (let entry of entries) {
+            if (!entry.isDirectory()) {
+                continue;
+            }
+            let stat: fs.Stats;
+            try {
+                stat = fs.statSync(path.join(projectRoot, entry.name));
+            } catch (e) {
+                return null;
+            }
+            parts.push(`${entry.name}:${stat.mtimeMs}`);
+        }
+        parts.sort();
+        return parts.join('\n');
+    }
+
+    private matchesConversationSourceCandidates(
+        sessionFile: string,
+        sessionId: string,
+        normalizedCandidatePaths: readonly string[]
+    ): boolean {
+        if (!normalizedCandidatePaths.length) {
+            return true;
+        }
+        const cwd = this.readSessionCwd(sessionFile, sessionId);
+        return !!cwd && normalizedCandidatePaths.some(candidatePath => aiSessionPathContains(candidatePath, cwd));
     }
 
     getSessions(options: boolean | AiSessionQueryOptions = false): ClaudeSessionReadResult {
@@ -283,6 +346,15 @@ export default class ClaudeSessionService {
             return [];
         }
 
+        // Capture the tree signature BEFORE walking: a matching signature at
+        // resolve time then proves the tree could not have changed since
+        // before this scan, so the recorded index is complete for exactly
+        // that tree. Any change between the capture and the walk mismatches
+        // at resolve time and forces a conservative rescan instead.
+        const walkedTreeSignature = !maxFiles
+            ? this.projectsTreeSignature(projectRoot)
+            : undefined;
+
         let files: string[] = [];
         try {
             for (let projectEntry of fs.readdirSync(projectRoot, { withFileTypes: true })) {
@@ -316,9 +388,23 @@ export default class ClaudeSessionService {
 
         for (let entry of entries) {
             let sessionId = this.getSessionIdFromFileName(path.basename(entry.filePath));
-            if (sessionId) {
-                this.sessionFilesById.set(sessionId, entry.filePath);
+            if (!sessionId) {
+                continue;
             }
+            const known = this.sessionFilesById.get(sessionId);
+            if (known && known !== entry.filePath) {
+                // The same session id in two project directories is ambiguous:
+                // resolveConversationSource must keep declining it instead of
+                // trusting whichever file the cache happens to hold.
+                this.duplicateSessionFileIds.add(sessionId);
+            }
+            this.sessionFilesById.set(sessionId, entry.filePath);
+        }
+
+        if (walkedTreeSignature !== undefined && walkedTreeSignature !== null) {
+            // Only an unbounded scan proves per-id uniqueness, so only it
+            // may arm the resolveConversationSource fast path.
+            this.fullScanTreeSignature = walkedTreeSignature;
         }
 
         return entries;

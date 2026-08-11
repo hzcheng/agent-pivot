@@ -411,6 +411,12 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 warms adjacent Codex, Kimi, and
     await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal(harness.viewerRefreshes, 1,
         'only the latest warm switch may run its authoritative refresh');
+    assert.equal(harness.snapshotReadTargets.filter(target =>
+        target === 'codex:session-0'
+    ).length, 2, 'the latest switch must prefetch its new adjacent sessions');
+    assert.equal(harness.snapshotReadTargets.filter(target =>
+        target === 'kimi:session-1'
+    ).length, 2, 'the consumed warm snapshot must be prefetched again');
     harness.capability.dispose();
 });
 

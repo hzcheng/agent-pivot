@@ -41,6 +41,7 @@ import {
 import { parseConversationViewerMessage } from './viewerProtocol';
 import type {
     ConversationSessionSwitchDirection,
+    ConversationViewerAppliedMessage,
     ConversationViewerCopyMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
@@ -52,6 +53,12 @@ import {
 } from './text';
 import type { ConversationClockTime } from './text';
 import { copyConversationMessage } from './model';
+import {
+    ConversationContentSignatureRegistry,
+    ConversationContentStream,
+    ConversationMessageRenderCache,
+    createMessageRenderSignature,
+} from './messageRenderCache';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortController,
@@ -207,7 +214,8 @@ export interface ConversationViewerPageMessage {
     requestId: number;
     subscriptionGeneration: number;
     updateKind: 'initial' | 'navigation' | 'refresh';
-    html: string;
+    html?: string;
+    htmlSignature: string;
     outline: ConversationViewerOutlineEntry[];
     selectedInteractionId: string;
     selectedInput: number;
@@ -239,6 +247,9 @@ export class ConversationViewer implements ConversationViewerApi {
     private viewStateListener?: vscode.Disposable;
     private abortController?: ConversationAbortController;
     private pages: RetainedConversationPage[] = [];
+    private readonly renderCache = new ConversationMessageRenderCache();
+    private readonly contentSignatures =
+        new ConversationContentSignatureRegistry();
     private subagents: ConversationSubagentEntry[] = [];
     private mainInteractionId?: string;
     private subscriptionGeneration = 0;
@@ -246,6 +257,10 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
+    // Advanced only by the Webview's correlated applied acknowledgement —
+    // never by postMessage resolving, which proves queueing, not application.
+    private appliedContentSignature?: string;
+    private syncRebuildRequestId = 0;
     private suspended = false;
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
@@ -726,6 +741,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetryController.reset();
         this.latestPublication = undefined;
+        this.appliedContentSignature = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -822,6 +838,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.viewStateListener?.dispose();
         this.viewStateListener = undefined;
         this.pages = [];
+        this.renderCache.clear();
+        this.contentSignatures.clear();
         this.outlineController.reset();
         this.target = undefined;
         this.stale = false;
@@ -868,6 +886,23 @@ export class ConversationViewer implements ConversationViewerApi {
                 parsed.direction,
                 currentTarget
             );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-applied') {
+            this.acknowledgePublication(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-request-sync') {
+            // The Webview failed to apply a delivered publication; rebuild
+            // the document with the full HTML so a dropped delta cannot
+            // strand it on stale content. Bound to one rebuild per
+            // publication: a persistent apply failure must not loop.
+            const publication = this.latestPublication;
+            if (publication
+                && publication.requestId !== this.syncRebuildRequestId) {
+                this.syncRebuildRequestId = publication.requestId;
+                this.rebuildLatestDocument();
+            }
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'
@@ -1793,15 +1828,36 @@ export class ConversationViewer implements ConversationViewerApi {
             panel.webview.html = this.renderDocument(publication);
             return;
         }
+        // Delta delivery: only when the Webview has acknowledged applying
+        // exactly this content may the HTML string be omitted from the wire.
+        // Until that ack arrives, every publication carries the full HTML, so
+        // a lost or unapplied page is always retried in full.
+        const wire: ConversationViewerPageMessage = publication.htmlSignature
+            === this.appliedContentSignature
+            ? { ...publication, html: undefined }
+            : publication;
         let delivered = false;
         try {
-            delivered = await panel.webview.postMessage(publication);
+            delivered = await panel.webview.postMessage(wire);
         } catch (_error) {
             delivered = false;
         }
         if (!delivered && this.isCurrentPublication(publication)) {
             this.rebuildLatestDocument();
         }
+    }
+
+    private acknowledgePublication(
+        message: ConversationViewerAppliedMessage
+    ): void {
+        const publication = this.latestPublication;
+        if (!publication
+            || message.subscriptionGeneration !== this.subscriptionGeneration
+            || message.requestId !== publication.requestId
+            || message.htmlSignature !== publication.htmlSignature) {
+            return;
+        }
+        this.appliedContentSignature = publication.htmlSignature;
     }
 
     private rebuildLatestDocument(): void {
@@ -1880,6 +1936,11 @@ export class ConversationViewer implements ConversationViewerApi {
         page: ConversationPage,
         placement: 'replace' | 'before' | 'after'
     ): void {
+        // Incoming pages carry authoritative content for their interactions;
+        // drop any stale renders before they can be served from the cache.
+        page.interactionStates.forEach(state =>
+            this.renderCache.invalidateInteraction(state.interactionId)
+        );
         const retained = { page };
         if (placement === 'replace') {
             this.pages = [retained];
@@ -1932,6 +1993,7 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             loadedIds.add(state.interactionId);
             refreshedIds.add(state.interactionId);
+            this.renderCache.invalidateInteraction(state.interactionId);
             messagesByInteraction.set(state.interactionId, []);
             const previous = statesByInteraction.get(state.interactionId);
             statesByInteraction.set(state.interactionId, {
@@ -1983,27 +2045,51 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private evict(): void {
+        // Measure once per eviction run instead of once per loop iteration:
+        // snapshotBytes() serializes every retained page, which multiplied a
+        // 4 MiB stringify by the number of removed pages.
+        let interactionCount = this.snapshotSize;
+        let byteCount = this.snapshotBytes();
         while (this.pages.length > 1
-            && (this.snapshotSize > CONVERSATION_LIMITS.maxViewerInteractions
-                || this.snapshotBytes() > CONVERSATION_LIMITS.maxViewerBytes)) {
+            && (interactionCount > CONVERSATION_LIMITS.maxViewerInteractions
+                || byteCount > CONVERSATION_LIMITS.maxViewerBytes)) {
             const targetId = this.outlineController.selection;
             const anchorPage = this.pages.findIndex(retained =>
                 retained.page.interactionStates.some(
                     state => state.interactionId === targetId
                 ));
+            let victim: RetainedConversationPage | undefined;
             if (anchorPage < 0) {
-                this.pages.pop();
-                continue;
-            }
-            const distanceBefore = anchorPage;
-            const distanceAfter = this.pages.length - 1 - anchorPage;
-            if (distanceAfter >= distanceBefore && anchorPage
-                !== this.pages.length - 1) {
-                this.pages.pop();
-            } else if (anchorPage !== 0) {
-                this.pages.shift();
+                victim = this.pages.pop();
             } else {
-                break;
+                const distanceBefore = anchorPage;
+                const distanceAfter = this.pages.length - 1 - anchorPage;
+                if (distanceAfter >= distanceBefore && anchorPage
+                    !== this.pages.length - 1) {
+                    victim = this.pages.pop();
+                } else if (anchorPage !== 0) {
+                    victim = this.pages.shift();
+                } else {
+                    break;
+                }
+            }
+            if (victim) {
+                // Retained pages never share interactions (mergeRefreshPage
+                // rebuilds one page per interaction and paged retains load
+                // disjoint ranges), so subtracting the victim's own counts
+                // keeps both running totals sound. The byte total is a
+                // conservative overestimate (the per-victim serialization
+                // omits the array separators), so eviction may release one
+                // page early, never late.
+                interactionCount -= new Set(
+                    victim.page.interactionStates.map(
+                        state => state.interactionId
+                    )
+                ).size;
+                byteCount -= Buffer.byteLength(
+                    JSON.stringify(victim.page),
+                    'utf8'
+                );
             }
         }
     }
@@ -2075,17 +2161,22 @@ export class ConversationViewer implements ConversationViewerApi {
         );
         const first = this.pages[0]?.page;
         const last = this.pages[this.pages.length - 1]?.page;
+        const rendered = renderMessages(
+            this.messages(),
+            this.showThinking(),
+            interactionInfo,
+            this.renderCache,
+            this.contentSignatures,
+            this.effectiveSessionId(target)
+        );
         return {
             type: 'conversation-viewer-page',
             version: 1,
             requestId,
             subscriptionGeneration: generation,
             updateKind,
-            html: renderMessages(
-                this.messages(),
-                this.showThinking(),
-                interactionInfo
-            ),
+            html: rendered.html,
+            htmlSignature: rendered.contentSignature,
             ...projection,
             previousCursor: selectedIndex > 0
                 ? first?.previousCursor || ''
@@ -2508,11 +2599,19 @@ function renderMessage(
 </article>`;
 }
 
+interface RenderedConversationMessages {
+    html: string;
+    contentSignature: string;
+}
+
 function renderMessages(
     messages: ConversationMessage[],
     showThinking: boolean,
-    interactionInfo: Map<string, ConversationInteractionRenderInfo> = new Map()
-): string {
+    interactionInfo: Map<string, ConversationInteractionRenderInfo>,
+    renderCache: ConversationMessageRenderCache,
+    contentSignatures: ConversationContentSignatureRegistry,
+    sessionId: string
+): RenderedConversationMessages {
     const groups: ConversationMessage[][] = [];
     messages.forEach(message => {
         const last = groups[groups.length - 1];
@@ -2522,7 +2621,8 @@ function renderMessages(
             groups.push([message]);
         }
     });
-    return groups.map(group => {
+    const contentStream = new ConversationContentStream();
+    const html = groups.map(group => {
         const info = interactionInfo.get(group[0].interactionId);
         const now = Date.now();
         const inputClock = info
@@ -2534,11 +2634,30 @@ function renderMessages(
                 now
             )
             : undefined;
-        const rendered = group.map(message => renderMessage(
-            message,
-            showThinking,
-            message.role === 'user' ? inputClock : answerClock
-        ));
+        const rendered = group.map(message => {
+            const clock = message.role === 'user'
+                ? inputClock
+                : message.role === 'assistant'
+                    ? answerClock
+                    : undefined;
+            const messageSignature = createMessageRenderSignature({
+                sessionId,
+                showThinking,
+                responseState: info?.responseState,
+                clock,
+            });
+            const entry = renderCache.render(
+                message.id,
+                messageSignature,
+                () => renderMessage(message, showThinking, clock)
+            );
+            contentStream.mixMessage(
+                message,
+                messageSignature,
+                entry.version
+            );
+            return entry.html;
+        });
         const answerIndex = group.findIndex(
             message => message.role === 'assistant'
         );
@@ -2551,11 +2670,21 @@ function renderMessages(
             && firstWorkIndex >= 0) {
             // The row heads the work group (accordion-style) so expanding
             // reveals entries below the toggle instead of pushing it down.
+            const durationMs = worklogDurationMs(info);
+            contentStream
+                .mix(`${group[0].interactionId}:worklog`)
+                .mix(String(durationMs ?? ''));
             rendered.splice(firstWorkIndex, 0, renderWorklogRow(
                 group[0].interactionId,
-                worklogDurationMs(info)
+                durationMs
             ));
         }
         return rendered.join('');
     }).join('');
+    return {
+        html,
+        contentSignature: contentSignatures.tokenFor(
+            contentStream.toString()
+        ),
+    };
 }

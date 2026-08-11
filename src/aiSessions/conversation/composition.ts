@@ -948,15 +948,25 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
         prefetchedSnapshot: boolean,
         viewer: ConversationViewerApi
     ): void {
-        if (prefetchedSnapshot) {
-            this.schedule(async () => {
-                const current = viewer.getCurrentTarget();
-                if (current && hasSameConversationSession(current, target)) {
-                    await viewer.revalidateLatest?.(target.interactionId);
-                }
-            });
-        }
-        this.schedule(() => this.prefetchAdjacent(target, viewer));
+        // One serialized task instead of two racing ones: prefetching the
+        // adjacent sessions keeps a rapid follow-up switch instant, while
+        // revalidating the just-opened warm snapshot is hygiene that can
+        // wait until the prefetches are under way.
+        this.schedule(async () => {
+            try {
+                this.prefetchAdjacent(target, viewer);
+            } catch (_error) {
+                // A prefetch hiccup must not skip the warm-snapshot
+                // revalidation below; warmup remains best effort.
+            }
+            if (!prefetchedSnapshot) {
+                return;
+            }
+            const current = viewer.getCurrentTarget();
+            if (current && hasSameConversationSession(current, target)) {
+                await viewer.revalidateLatest?.(target.interactionId);
+            }
+        });
     }
 
     dispose(): void {

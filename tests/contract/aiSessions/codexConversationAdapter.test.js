@@ -326,6 +326,68 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a large Codex threa
     assert.equal(harness.requests.length, 2);
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 serves repeated reads from cache within a provider-change debounce window', async t => {
+    const large = createLargeThread();
+    let providerCallback;
+    let debounceCallback;
+    const harness = createAdapter(() => large, {
+        watchSessionChanges(callback) {
+            providerCallback = callback;
+            return { dispose() {} };
+        },
+        setTimeout(callback) {
+            debounceCallback = callback;
+            return 7;
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+    const subscription = harness.adapter.watch(sessionId, () => undefined);
+    t.after(() => subscription.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 1);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1);
+
+    // A provider change inside the debounce window keeps the warm cache so
+    // back-to-back reads (switch, revalidation, warmup) share one thread/read.
+    providerCallback();
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 1);
+
+    // The cache is invalidated right before subscribers are notified.
+    debounceCallback();
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 2);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a canceled debounce when the watch is released', async t => {
+    const large = createLargeThread();
+    let providerCallback;
+    const harness = createAdapter(() => large, {
+        watchSessionChanges(callback) {
+            providerCallback = callback;
+            return { dispose() {} };
+        },
+        setTimeout() {
+            return 7;
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+    const subscription = harness.adapter.watch(sessionId, () => undefined);
+
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1);
+
+    providerCallback();
+    // Releasing the last subscription cancels the pending debounce; the
+    // change event must still invalidate the cache.
+    subscription.dispose();
+    assert.equal(harness.adapter.loadedConversationCache.size, 0);
+
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 2);
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 actively releases an unread expired Codex thread', async t => {
     const large = createLargeThread();
     let expiryCallback;

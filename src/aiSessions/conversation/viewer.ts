@@ -566,6 +566,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 generation,
                 this.effectiveSessionId(activeTarget)
             );
+            // Heal status updates that were discarded by the Webview while
+            // this target transition was in flight.
+            void this.sessionStatusController.republish();
         }
         return loaded;
     }
@@ -689,6 +692,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 this.subscriptionGeneration,
                 this.effectiveSessionId(target)
             );
+            // Replay statuses that were skipped while the viewer was
+            // suspended.
+            void this.sessionStatusController.republish();
         }
         const expectedDisplayName = visibleConversationDisplayName(target);
         if (metadataChanged
@@ -1032,6 +1038,12 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.ensureWatch(generation);
         await this.loadAuthoritative('initial', false);
+        if (this.target === activeTarget
+            && this.subscriptionGeneration === generation) {
+            // Heal status updates that were discarded by the Webview while
+            // the in-place view switch was in flight.
+            void this.sessionStatusController.republish();
+        }
     }
 
     private async openSubagent(subagentId: string): Promise<void> {

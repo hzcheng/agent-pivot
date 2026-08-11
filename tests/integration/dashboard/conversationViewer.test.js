@@ -401,6 +401,31 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated global
     });
 });
 
+test('CONVERSATION-SESSION-STATUS-001 republishes the status after a retarget even when unchanged', async () => {
+    const status = { runningSessions: 1, attentionSessions: 1 };
+    const { viewer, panel } = createViewer({
+        readSessionStatus: () => status,
+    });
+    await viewer.open(target('session-a', 'input-1'));
+    const statusMessages = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-session-status'
+    );
+    assert.equal(statusMessages().length, 1,
+        'opening a viewer publishes the embedded status once');
+
+    await viewer.publishSessionStatus();
+    assert.equal(statusMessages().length, 1,
+        'an unchanged status must not be reposted');
+
+    await viewer.open(target('session-b', 'input-1'));
+    const messages = statusMessages();
+    assert.equal(messages.length, 2,
+        'a retarget must republish the current status to heal gap discards');
+    assert.ok(messages[1].subscriptionGeneration
+        > messages[0].subscriptionGeneration);
+    assert.deepEqual(messages[1].status, status);
+});
+
 test('CONVERSATION-SESSION-REBIND-001 retargets an open viewer from the exact old Session to the new Session', async () => {
     const outlineReads = [];
     const { viewer, panel, watchDisposals } = createViewer({

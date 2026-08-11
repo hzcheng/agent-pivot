@@ -24,9 +24,11 @@ export interface ConversationSessionStatusControllerOptions {
     rebuildLatestDocument: () => void;
 }
 
+const MAX_SESSION_STATUS_COUNT = 100_000;
+
 function sanitizeSessionCount(value: unknown): number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? Math.floor(value)
+        ? Math.min(Math.floor(value), MAX_SESSION_STATUS_COUNT)
         : 0;
 }
 
@@ -76,6 +78,11 @@ export class ConversationSessionStatusController {
         } catch (_error) {
             return undefined;
         }
+    }
+
+    async republish(): Promise<void> {
+        this.lastDeliveredKey = undefined;
+        return this.publish();
     }
 
     async publish(): Promise<void> {

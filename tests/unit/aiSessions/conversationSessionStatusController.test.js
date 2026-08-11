@@ -110,6 +110,37 @@ test('CONVERSATION-SESSION-STATUS-001 skips publishing without a panel, reader, 
     assert.equal(suspended.posted.length, 0);
 });
 
+test('CONVERSATION-SESSION-STATUS-001 republishes after target transitions even when unchanged', async () => {
+    const status = { runningSessions: 1, attentionSessions: 1 };
+    const { controller, posted } = createHarness({
+        readStatus: () => status,
+    });
+    await controller.publish();
+    await controller.publish();
+    assert.equal(posted.length, 1, 'unchanged status must not be reposted');
+
+    await controller.republish();
+    assert.equal(posted.length, 2,
+        'a transition republish must bypass the delivery dedup');
+    assert.deepEqual(posted[1].status, status);
+});
+
+test('CONVERSATION-SESSION-STATUS-001 does not rebuild when the panel changed during a failed delivery', async () => {
+    const status = { runningSessions: 1, attentionSessions: 1 };
+    const harness = createHarness({
+        readStatus: () => status,
+        delivered: false,
+        onPostMessage: harnessState => {
+            harnessState.panel = {
+                webview: { postMessage: async () => true },
+            };
+        },
+    });
+    await harness.controller.publish();
+    assert.equal(harness.state.rebuilds, 0,
+        'a stale panel must not trigger a rebuild');
+});
+
 test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () => {
     assert.deepEqual(sanitizeConversationSessionStatus(undefined), {
         runningSessions: 0,
@@ -123,6 +154,11 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
         runningSessions: Number.NaN,
         attentionSessions: Number.POSITIVE_INFINITY,
     }), { runningSessions: 0, attentionSessions: 0 });
+    assert.deepEqual(sanitizeConversationSessionStatus({
+        runningSessions: 100001,
+        attentionSessions: 250000.8,
+    }), { runningSessions: 100000, attentionSessions: 100000 },
+    'counts must clamp to the Webview validator bound');
 
     const throwing = createHarness({
         readStatus: () => {

@@ -401,11 +401,6 @@ function runDashboardUpdateMessageChecks() {
         runningIconAnimation: 'halo',
         presentation: makePresentation(7),
     });
-    const workspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({
-        card: workspaceCard,
-        runningCardAnimation: 'ripple',
-        runningIconAnimation: 'custom',
-    });
     const navigationCard = {
         ...makeWorkspaceCardFixture(2),
         id: 'workspace-other',
@@ -444,21 +439,10 @@ function runDashboardUpdateMessageChecks() {
         'AI session incremental updates must use the configured running icon animation');
     assert.ok(aiMessage.html.includes('data-session-fx="custom"'),
         'AI session incremental updates must preserve the independent running card animation');
-    assert.strictEqual(workspaceMessage.type, 'workspace-updated');
-    assert.strictEqual(workspaceMessage.version, 2);
     assert.strictEqual(workspaceSearchCatalog.version, 2);
     assert.deepStrictEqual(workspaceSearchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.deepStrictEqual(workspaceSearchCatalog.sessions.map(item => item.action), ['reveal-workspace-session']);
     assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
-    assert.strictEqual(workspaceMessage.currentWorkspaceCount, 1);
-    assert.ok(workspaceMessage.html.includes('data-workspace-scope-identity="scope-dashboard"'));
-    assert.ok(workspaceMessage.html.includes('data-session-icon-fx="custom"'),
-        'workspace incremental updates must use the configured running icon animation');
-    assert.ok(workspaceMessage.html.includes('data-session-fx="ripple"'),
-        'workspace incremental updates must preserve the independent running card animation');
-    const emptyWorkspaceMessage = dashboardUpdateMessages.buildWorkspaceUpdatedMessage({ card: null });
-    assert.strictEqual(emptyWorkspaceMessage.currentWorkspaceCount, 0);
-    assert.strictEqual(emptyWorkspaceMessage.html.includes('class="workspace-card'), false);
     assert.strictEqual(openWorkspacesMessage.type, 'open-workspaces-updated');
     assert.strictEqual(openWorkspacesMessage.version, 3);
     assert.strictEqual(openWorkspacesMessage.presentation.projectionRevision, 1);
@@ -4556,7 +4540,9 @@ function runSourceContractChecks(source) {
     assert.ok(updateMessages.includes("type: 'open-workspaces-updated'"));
     assert.ok(!updateMessages.includes("type: 'open-projects-updated'"));
     assert.ok(updateMessages.includes("type: 'ai-sessions-updated'"));
-    assert.ok(updateMessages.includes('version: 2'));
+    assert.ok(updateMessages.includes('version: 3'));
+    assert.ok(!updateMessages.includes('WorkspaceUpdatedMessage'));
+    assert.ok(!updateMessages.includes('buildWorkspaceUpdatedMessage'));
     const viewProviderPath = path.join(root, 'src', 'dashboard', 'viewProvider.ts');
     assert.ok(fs.existsSync(viewProviderPath));
     const viewProviderSource = fs.readFileSync(viewProviderPath, 'utf8');

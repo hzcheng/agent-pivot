@@ -2337,12 +2337,9 @@ function assertBatchSelectionReconcilesAuthoritativeRows(source = projectVmSourc
         { provider: 'claude', sessionId: 'same', active: true },
     ]);
     harness.context.applyWorkspaceUpdate = () => true;
-    harness.windowListeners.message({ data: {
-        type: 'workspace-updated',
-        version: 2,
-        currentWorkspaceCount: 1,
-        html: '<div class="open-current-workspace-group"></div>',
-    } });
+    harness.windowListeners.message({ data: makeAiSessionsUpdatedMessage(1, {
+        searchCatalog: makeCatalog('batch-first'),
+    }) });
     assert.deepEqual(toPlain(manager.snapshot().selectedItems), [
         { provider: 'codex', sessionId: 'pinned' },
     ]);
@@ -2354,8 +2351,8 @@ function assertBatchSelectionReconcilesAuthoritativeRows(source = projectVmSourc
         { provider: 'claude', sessionId: 'same', active: true },
     ]);
     harness.context.applyWorkspaceUpdate = () => true;
-    harness.windowListeners.message({ data: makeAiSessionsUpdatedMessage(1, {
-        searchCatalog: makeCatalog('batch'),
+    harness.windowListeners.message({ data: makeAiSessionsUpdatedMessage(2, {
+        searchCatalog: makeCatalog('batch-second'),
     }) });
     assert.deepEqual(toPlain(manager.snapshot().selectedItems), [
         { provider: 'codex', sessionId: 'pinned' },

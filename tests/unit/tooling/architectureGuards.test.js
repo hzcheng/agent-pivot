@@ -808,6 +808,48 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'session-bearing workspace HTML must have no standalone replacement path outside atomic Presentation envelopes',
+        mutate: source => replaceFixtureSource(
+            source,
+            'replaceContent: () => applyWorkspaceUpdate({',
+            'replaceContent: () => applyOpenWorkspacesUpdate({'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
+        expectedDetail: 'session-bearing workspace HTML must have no standalone replacement path outside atomic Presentation envelopes',
+        mutate: source => replaceFixtureSource(
+            source,
+            'replaceContent: () => applyWorkspaceUpdate({',
+            'replaceContent: () => true,\n'
+                + '            detachedWorkspaceReplacement: () => applyWorkspaceUpdate({'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectScripts.js',
+        expectedDetail: 'session-bearing workspace HTML must have no standalone replacement path outside atomic Presentation envelopes',
+        mutate: source => replaceFixtureSource(
+            source,
+            "message && message.type === 'open-workspaces-updated'",
+            "message && message.type === 'workspace-updated'"
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/dashboard/webviewUpdateMessages.ts',
+        expectedDetail: 'session-bearing workspace HTML must have no standalone replacement path outside atomic Presentation envelopes',
+        mutate: source => replaceFixtureSource(
+            source,
+            'export interface OpenWorkspacesUpdatedMessage {',
+            'export interface WorkspaceUpdatedMessage {}\n\n'
+                + 'export interface OpenWorkspacesUpdatedMessage {'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewProjectAiUpdateScripts.js',
         expectedDetail: 'AI atomic replacement must reconcile batch and provider state inside the transaction hook',
         mutate: source => replaceFixtureSource(
             source,

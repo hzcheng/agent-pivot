@@ -550,18 +550,6 @@ function initProjects() {
         currentCards.filter(card => card.hasAttribute('data-open-workspace-current'))
             .forEach(card => setCurrentOpenWorkspaceSummaryDom(card, message));
     }
-    function syncAiSessionProjectionDom(adoptRenderedPresentation) {
-        if (adoptRenderedPresentation !== false) {
-            window.__agentPivotAiSessionPresentationState = null;
-            syncActiveAiSessionProjectionDom(true, false);
-            return;
-        }
-        if (window.__agentPivotAiSessionPresentationState) {
-            applyAiSessionPresentationDom(window.__agentPivotAiSessionPresentationState);
-        } else {
-            syncActiveAiSessionProjectionDom(true, false);
-        }
-    }
     var presentationTransactions = initAiSessionPresentationTransactions({
         isValidAiSessionPresentationState: isValidAiSessionPresentationState,
         applyValidatedAiSessionPresentationState: applyValidatedAiSessionPresentationState,
@@ -572,7 +560,6 @@ function initProjects() {
         getPendingAiSessionProviderSelectionProjectId: () => aiSessionControls.getPendingAiSessionProviderSelectionProjectId(),
         getSelectedAiSessionProviders: aiSessionControls.getSelectedAiSessionProviders,
         syncAiSessionBatchManagementDom: aiSessionControls.syncAiSessionBatchManagementDom,
-        syncAiSessionProjectionDom: syncAiSessionProjectionDom,
         reconcilePendingAiSessionProviderSelectionDom: aiSessionControls.reconcilePendingAiSessionProviderSelectionDom,
         submitAiSessionProviderSelection: aiSessionControls.submitAiSessionProviderSelection,
         toggleCodexSessions: aiSessionControls.toggleCodexSessions,
@@ -800,40 +787,6 @@ function initProjects() {
                     groupCollapse.syncCollapseButton();
                 }
             }, 0);
-        }
-        if (message && message.type === 'workspace-updated') {
-            if (!applyWorkspaceUpdate(message, {
-                canRestoreAiSessionProviderMenu: () =>
-                    !aiSessionControls.getPendingAiSessionProviderSelectionProjectId()
-                    && !aiSessionControls.batchAiSessionState.pending,
-            })) {
-                aiSessionsUpdate.requestFullRefresh('invalid-workspace-update');
-                return;
-            }
-            if (aiSessionControls.batchAiSessionState.projectId) {
-                var managedProjectDiv = aiSessionsUpdate.findCurrentWorkspaceDiv(aiSessionControls.batchAiSessionState.projectId);
-                if (managedProjectDiv) {
-                    aiSessionControls.batchAiSessionManager.reconcileVisible(managedProjectDiv);
-                    aiSessionControls.syncAiSessionBatchManagementDom(managedProjectDiv);
-                } else {
-                    aiSessionControls.exitAiSessionBatchManagement();
-                }
-            }
-            aiSessionControls.reconcilePendingAiSessionProviderSelectionDom();
-            syncAiSessionProjectionDom(
-                window.__agentPivotAiSessionPresentationState ? false : true
-            );
-            updateStickyGroupHeaderOffset();
-            if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
-                openTabSplit.syncResizer();
-            }
-            var renderedWorkspaceState = getWorkspaceUpdateDomState(document);
-            window.vscode.postMessage({
-                type: 'workspace-rendered',
-                version: 2,
-                currentWorkspaceCount: renderedWorkspaceState.currentWorkspaceCount,
-            });
-            return;
         }
         if (message && message.type === 'open-workspaces-updated') {
             if (message.version !== 3) {

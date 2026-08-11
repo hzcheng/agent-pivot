@@ -2263,6 +2263,62 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 offers a frame restore only for acknowledged session content', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1', 'input-2'],
+            { sourceRevision: `${sessionId}-r1` }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`,
+            {
+                interactionIds: ['input-1', 'input-2'],
+                sourceRevision: request.expectedRevision,
+            }
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    // A session the Webview never acknowledged gets full HTML on switch.
+    await viewer.follow(target('session-b', 'input-1'));
+    let latest = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(latest.html.includes('visible-session-b'), true);
+    assert.equal(latest.restoreFrame, undefined);
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: latest.subscriptionGeneration,
+        requestId: latest.requestId,
+        htmlSignature: latest.htmlSignature,
+    });
+
+    // Switching back to session-a: its content is unchanged, and the Webview
+    // proved it built exactly this content, so the Host offers a frame
+    // restore instead of resending and reparsing the HTML.
+    await viewer.follow(target('session-a', 'input-1'));
+    latest = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(latest.html, undefined);
+    assert.equal(latest.restoreFrame, true);
+    assert.equal(latest.htmlSignature, initial.htmlSignature,
+        'a reload of unchanged content must keep the same content token');
+    viewer.dispose();
+});
+
 test('CONVERSATION-THINKING-VISIBILITY-001 hides Thinking by default and republishes it only when enabled', async () => {
     let showThinking = false;
     let pageReads = 0;

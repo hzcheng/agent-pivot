@@ -4107,6 +4107,24 @@
     ]
   },
   {
+    "id": "ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001",
+    "domain": "attention",
+    "title": "Clicking a stopped Active Session card acknowledges every authoritative owner event and clears all Dashboard attention surfaces without stale bridge resurrection",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/activeSessionCardInteraction.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/messageHandlers.ts",
+      "src/aiSessions/attentionEventCapability.ts",
+      "src/aiSessions/attentionController.ts",
+      "src/aiSessions/dashboardController.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
     "id": "ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001",
     "domain": "webview",
     "title": "Incremental workspace HTML and complete AI Session presentation arrive and apply atomically",

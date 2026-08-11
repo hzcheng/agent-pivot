@@ -25,10 +25,50 @@ function loadWebviewContent() {
     }
 }
 
+function loadDashboardMessageHandlers() {
+    const vscode = createFakeVscode({});
+    vscode.Uri = {
+        file: value => ({ fsPath: value, path: value, toString: () => `file://${value}` }),
+        parse: value => ({ fsPath: value, path: value, toString: () => value }),
+    };
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return vscode;
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return require('../../out/dashboard/messageHandlers');
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
 const { getAiSessionsDiv, getCurrentWorkspaceGroupContent } = loadWebviewContent();
+const { createDashboardMessageHandlers } = loadDashboardMessageHandlers();
+const {
+    AiSessionAttentionController,
+} = require('../../out/aiSessions/attentionController');
+const {
+    createAiSessionAttentionEventCapability,
+} = require('../../out/aiSessions/attentionEventCapability');
+const {
+    AiSessionDashboardController,
+} = require('../../out/aiSessions/dashboardController');
+const {
+    getAttentionProjectKey,
+} = require('../../out/aiSessions/attentionProject');
 const {
     CurrentWorkspaceSessionAuthority,
 } = require('../../out/workspaces/currentWorkspaceSessionAuthority');
+const {
+    AiSessionProjectionCoordinator,
+} = require('../../out/workspaces/sessionHydrationController');
+const {
+    hydrateWorkspaceAiSessions,
+} = require('../../out/workspaces/sessionHydration');
+const {
+    buildOpenWorkspacesUpdatedMessage,
+} = require('../../out/dashboard/webviewUpdateMessages');
 const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
     'utf8'
@@ -76,8 +116,8 @@ const styles = fs.readFileSync(
 
 const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
 
-function waitForPageCondition(page, condition) {
-    return page.waitForFunction(condition, undefined, {
+function waitForPageCondition(page, condition, argument) {
+    return page.waitForFunction(condition, argument, {
         timeout: BROWSER_CONDITION_TIMEOUT_MS,
     });
 }
@@ -422,6 +462,78 @@ function focusOrigin(overrides = {}) {
         interactionId: 'interaction-1',
         ...overrides,
     };
+}
+
+function attentionAggregate(revision, projectId, sessionKey, eventIds) {
+    return {
+        protocolVersion: 1,
+        aggregateRevision: revision,
+        generatedAtMs: 1_000,
+        sessions: eventIds.length ? [{
+            projectId,
+            sessionKey,
+            reasons: ['completed'],
+            eventIds,
+            observedAtMs: 1_000,
+        }] : [],
+    };
+}
+
+function createAttentionAcknowledgementHandler(acknowledgeEventIds) {
+    const ignored = async () => undefined;
+    return createDashboardMessageHandlers({
+        postMessage: ignored,
+        getStewardInfos: () => ({ config: { get: (_key, fallback) => fallback } }),
+        projectService: { getGroups: () => [] },
+        promptDashboardController: { getPanelContent: ignored, handle: ignored },
+        getPromptTerminalCommandController: () => ({ handleInsertRequest: ignored }),
+        aiSessionCommandController: {
+            toggleSessionsExpanded: ignored,
+            selectProviders: ignored,
+            togglePin: ignored,
+            renameSession: ignored,
+            copySessionId: ignored,
+        },
+        aiSessionTerminalCommandController: {
+            focusActive: async () => false,
+            focusPending: ignored,
+            closeTerminal: ignored,
+            stopSession: ignored,
+        },
+        conversationCapability: { followActiveConversation: ignored },
+        aiSessionArchiveController: { archiveSessions: ignored },
+        acknowledgeAiSessionAttentionEventIds: acknowledgeEventIds,
+        logOpenWorkspaceDiagnostic() {},
+        refreshStewardViews() {},
+        requestActiveAiSessionTerminalHighlight() {},
+        postAiSessionAttentionState() {},
+        onOpenWorkspacesRendererReady() {},
+        showAgentPivotSettings: ignored,
+        showBridgeExtension: ignored,
+        showSponsorOptions: ignored,
+        showWarningMessage() {},
+    })['acknowledge-ai-session-attention'];
+}
+
+async function assertAttentionCleared(page, provider, sessionId) {
+    const sessionRow = row(page, provider, sessionId);
+    const project = page.locator('.workspace-card[data-current-workspace]');
+    const compact = page.locator('.workspace-card[data-open-workspace-current]');
+    assert.equal(await sessionRow.getAttribute('data-session-needs-attention'), null);
+    assert.equal(await sessionRow.getAttribute('data-ai-session-attention'), null);
+    assert.equal(await sessionRow.getAttribute('data-session-event-id'), null);
+    assert.equal(await sessionRow.locator('.ai-session-attention-indicator').count(), 0);
+    assert.equal(await project.locator('[data-ai-session-tab="active"] .ai-session-tab-attention').count(), 0);
+    assert.equal(await project.locator('.ai-session-attention-count').count(), 0);
+    assert.equal(
+        await project.locator('.project-codex-badge').getAttribute('data-ai-session-attention-count'),
+        '0'
+    );
+    assert.doesNotMatch(
+        await project.locator('.project-codex-badge').getAttribute('aria-label'),
+        /attention/i
+    );
+    assert.equal(await compact.locator('.project-ai-attention-badge').count(), 0);
 }
 
 test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History anchors through both workspace replacement paths', async t => {
@@ -1169,6 +1281,298 @@ test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 seeds the full document revisio
         type: 'acknowledge-ai-session-attention',
         eventIds: ['event-a', 'event-b'],
     }]);
+});
+
+test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card through the production v3 refresh', async t => {
+    const sessionId = 'fixture-kimi-session-a';
+    const sessionKey = `kimi:${sessionId}`;
+    const eventIds = ['kimi-completed-event-a', 'kimi-completed-event-b'];
+    const rootPath = '/fixtures/attention-card';
+    const projectId = getAttentionProjectKey(rootPath);
+    const workspace = {
+        navigationIdentity: 'navigation:fixture-attention-card',
+        scopeIdentity: 'scope:fixture-attention-card',
+        kind: 'singleFolder',
+        displayName: 'Fixture Attention Card',
+        navigationUri: `file://${rootPath}`,
+        environment: 'local',
+        roots: [{
+            id: 'root:fixture-attention-card',
+            name: 'attention-card',
+            uri: `file://${rootPath}`,
+            hostPath: rootPath,
+            ordinal: 0,
+        }],
+    };
+    const runtime = {
+        identity: {
+            provider: 'kimi',
+            sessionId,
+            workspaceScopeIdentity: workspace.scopeIdentity,
+            workspaceNavigationIdentity: workspace.navigationIdentity,
+            workspaceRootHostPaths: [rootPath],
+            cwd: rootPath,
+        },
+        backend: 'tmux',
+        state: 'active',
+        markerPath: '/fixtures/attention-card.done',
+        runStartedAtMs: 900,
+        attached: false,
+        tmux: { layout: 'project', sessionName: 'fixture', windowName: 'fixture' },
+    };
+    const attentionController = new AiSessionAttentionController({
+        isEnabled: () => true,
+        getWorkspaceTarget: () => null,
+        getProviders: () => [],
+        getRuntimeById: () => runtime,
+        publish: async () => true,
+        scheduleRefresh() {},
+        nowMs: () => 1_000,
+    });
+    attentionController.setRemoteAggregate(attentionAggregate(
+        'initial-fixture-aggregate', projectId, sessionKey, eventIds
+    ));
+    const projectionCoordinator = new AiSessionProjectionCoordinator({
+        getActiveRuntimes: () => [runtime],
+        getPendingRuntimes: () => [],
+        getExecutionSnapshot: () => ({
+            [sessionKey]: { state: 'stopped', stateChangedAt: 1_000 },
+        }),
+        getFocusedIdentity: () => runtime.identity,
+        getAttentionAggregate: () => attentionController.getEffectiveAggregate(),
+    });
+    let lastProjectedCards = [];
+    const getCards = projection => {
+        const aiSessions = hydrateWorkspaceAiSessions({
+            workspace,
+            providers: [{ id: 'kimi', label: 'Kimi' }],
+            sessionResults: {
+                kimi: {
+                    available: true,
+                    sessions: [{ id: sessionId, name: 'Fixture Kimi Session', cwd: rootPath }],
+                },
+            },
+            getSessionComparableCwd: (_provider, item) => item.cwd,
+            pinnedSessions: new Set(),
+            aliases: {},
+            activeRuntimes: projection.activeRuntimes,
+            pendingRuntimes: projection.pendingRuntimes,
+            executionSnapshot: projection.executionSnapshot,
+            focusedIdentity: projection.focusedIdentity,
+            attentionAggregate: projection.attentionAggregate,
+            activePresentation: projection.presentation,
+            activeProvider: 'kimi',
+            providerSelection: { primaryProvider: 'kimi', selectedProviders: ['kimi'] },
+            expanded: true,
+        });
+        lastProjectedCards = [{
+            id: 'fixture-project',
+            kind: 'current',
+            workspaceKind: workspace.kind,
+            showSaveAction: false,
+            pinned: false,
+            runningSessionCount: aiSessions.activeSessions.filter(
+                item => item.executionState === 'running'
+            ).length,
+            navigationIdentity: workspace.navigationIdentity,
+            scopeIdentity: workspace.scopeIdentity,
+            name: workspace.displayName,
+            environment: workspace.environment,
+            environmentLabel: 'Local',
+            color: '',
+            roots: workspace.roots.map(({ id, name, ordinal }) => ({ id, name, ordinal })),
+            aiSessions,
+            attentionCount: aiSessions.attentionCount,
+        }];
+        return lastProjectedCards;
+    };
+    let page = null;
+    const deliveredEnvelopes = [];
+    const deliveryPromises = [];
+    let resolveSecondDelivery;
+    const secondDelivery = new Promise(resolve => { resolveSecondDelivery = resolve; });
+    const dashboardController = new AiSessionDashboardController({
+        providerIds: ['kimi'],
+        isVisible: () => true,
+        invalidateCache() {},
+        watchSessionChanges: () => ({ dispose() {} }),
+        getGroups: () => [],
+        getTodoSearchItems: () => [],
+        getCards,
+        getRunningCardAnimation: () => undefined,
+        getRunningIconAnimation: () => undefined,
+        beginProjection: () => projectionCoordinator.captureNext(workspace),
+        postMessage: message => {
+            assert.equal(message.type, 'ai-sessions-updated');
+            assert.equal(message.version, 3);
+            assert.equal(message.projectionRevision, message.presentation.projectionRevision);
+            deliveredEnvelopes.push(message);
+            const delivery = postHostMessage(page, message).then(() => true);
+            deliveryPromises.push(delivery);
+            if (deliveredEnvelopes.length === 2) resolveSecondDelivery();
+            return delivery;
+        },
+        refresh() {},
+        logError: (_message, error) => { throw error; },
+        debounceMs: 0,
+        watcherRefreshMinIntervalMs: 0,
+        newSessionRefreshDelaysMs: [],
+        setTimeout: (callback, delay) => setTimeout(callback, delay),
+        clearTimeout: handle => clearTimeout(handle),
+    });
+    const initialEnvelope = dashboardController.getUpdatedMessage('initial-fixture');
+    const initialOpenEnvelope = buildOpenWorkspacesUpdatedMessage({
+        groups: [],
+        cards: lastProjectedCards,
+        collapsed: false,
+        semanticRevision: 'initial-fixture-open-workspaces',
+        projectionRevision: initialEnvelope.projectionRevision,
+        otherWindowsStatus: 'ready',
+        todoSearchItems: [],
+        presentation: initialEnvelope.presentation,
+    });
+    const bridgeAcknowledgements = [];
+    let bridgeAggregateListener = () => undefined;
+    const fakeBridge = {
+        acknowledge: async ids => {
+            bridgeAcknowledgements.push(ids.slice());
+            bridgeAggregateListener(attentionAggregate(
+                'stale-fixture-replay', projectId, sessionKey, eventIds
+            ));
+        },
+        publish: async () => true,
+        dispose() {},
+    };
+    const attentionCapability = createAiSessionAttentionEventCapability({
+        tmuxRuntimeDiscovery: {
+            loadPersistedInactive: async () => undefined,
+            getActive: () => [], getPending: () => [], getInactive: () => [],
+            getDiagnostics: () => [],
+        },
+        tmuxRuntimeBackend: {
+            getConflicts: () => [], getFocusedRuntime: () => null,
+            isAttachTerminalCandidate: () => false,
+            restoreAttachTerminals: async () => undefined,
+        },
+        tmuxRuntimeStore: {
+            listKnown: async () => [], listPending: async () => [], listInactive: async () => [],
+        },
+        aiSessionTerminalService: {
+            getTrackedTerminalEntries: () => [], isComplete: () => false,
+        },
+        getRuntimeConfiguration: () => ({ mode: 'vscode' }),
+        getCurrentOpenWorkspace: () => workspace,
+        getActiveTerminal: () => null,
+        postAttentionState() {},
+        isVisible: () => true,
+        assertActive() {},
+        createBridgeClient: onAggregate => {
+            bridgeAggregateListener = onAggregate;
+            return fakeBridge;
+        },
+        onDidOpenTerminal: () => ({ dispose() {} }),
+        onDidChangeActiveTerminal: () => ({ dispose() {} }),
+        onDidCloseTerminal: () => ({ dispose() {} }),
+        logError: (_message, error) => { throw error; },
+        logAiSessionRuntimeFailure: (_operation, error) => { throw error; },
+        getRuntimeCoordinator: () => ({ getActive: () => [], getPending: () => [] }),
+        getAttentionController: () => attentionController,
+        runSafeLifecycleTask: async (_operation, task) => { await task(); },
+        evaluateLifecycleTick() {},
+        refreshViewsNow: reason => { void dashboardController.refreshNow(reason); },
+        scheduleRefresh: reason => dashboardController.scheduleRefresh(reason),
+        postOpenWorkspacesUpdated() {},
+        getActiveTerminalHighlighter: () => ({
+            sync() {}, handleTerminalClosed() {}, getIdentity: () => null,
+        }),
+        getTmuxFocusedRuntimeMonitor: () => ({ request: async () => undefined }),
+        publishRestoredAttachTerminal() {},
+    });
+    attentionCapability.startBridgeClient();
+    const initialMarkup = initialOpenEnvelope.html;
+    page = await openCardPage(
+        t,
+        [],
+        { width: 360, height: 900 },
+        initialMarkup,
+        initialEnvelope.presentation
+    );
+    t.after(() => {
+        attentionCapability.dispose();
+        dashboardController.dispose();
+    });
+    const project = page.locator('.workspace-card[data-current-workspace]');
+    const compact = page.locator('.workspace-card[data-open-workspace-current]');
+    assert.equal(await project.locator('.ai-session-attention-count').textContent(), '1');
+    assert.equal(
+        await project.locator('.ai-session-attention-count').getAttribute('aria-label'),
+        '1 AI session needs attention'
+    );
+    assert.equal(
+        await project.locator('[data-ai-session-tab="active"] .ai-session-tab-attention')
+            .getAttribute('aria-label'),
+        '1 active AI session needs attention'
+    );
+    assert.equal(await compact.locator('.project-ai-attention-badge').textContent(), '1');
+    assert.equal(
+        await compact.locator('.project-ai-attention-badge').getAttribute('aria-label'),
+        '1 item needs attention'
+    );
+    const hostHandler = createAttentionAcknowledgementHandler(
+        ids => attentionCapability.acknowledgeEventIds(ids)
+    );
+    const exposedName = '__hostAttentionMessage_fixture';
+    await page.exposeFunction(exposedName, message => {
+        if (message?.type === 'acknowledge-ai-session-attention') {
+            return hostHandler(message);
+        }
+    });
+    await page.evaluate(name => {
+        const originalPostMessage = window.vscode.postMessage;
+        window.__hostAttentionSettlements = [];
+        window.vscode.postMessage = message => {
+            originalPostMessage(message);
+            var settlement = Promise.resolve(window[name](message));
+            if (message.type === 'acknowledge-ai-session-attention') {
+                window.__hostAttentionSettlements.push(settlement);
+            }
+            return settlement;
+        };
+    }, exposedName);
+
+    await row(page, 'kimi', sessionId).locator('.ai-session-primary-action').click();
+    await page.evaluate(() => Promise.all(window.__hostAttentionSettlements));
+    let deliveryTimeout;
+    try {
+        await Promise.race([
+            secondDelivery,
+            new Promise((_, reject) => {
+                deliveryTimeout = setTimeout(
+                    () => reject(new Error('timed out waiting for the final v3 attention envelope')),
+                    BROWSER_CONDITION_TIMEOUT_MS
+                );
+            }),
+        ]);
+    } finally {
+        clearTimeout(deliveryTimeout);
+    }
+    await Promise.all(deliveryPromises);
+
+    assert.deepEqual(bridgeAcknowledgements, [eventIds],
+        'the Host acknowledges the complete presentation owner, not only the row fallback');
+    assert.deepEqual(attentionController.getEffectiveAggregate().sessions, [],
+        'a stale bridge aggregate must not resurrect acknowledged owner events');
+    assert.ok(deliveredEnvelopes.length >= 2);
+    assert.ok(deliveredEnvelopes.every(message =>
+        message.version === 3 && message.presentation.attentionSessions.length === 0
+    ));
+    const finalEnvelope = deliveredEnvelopes[deliveredEnvelopes.length - 1];
+    assert.equal(
+        await page.evaluate(() => window.__agentPivotAiSessionPresentationState.projectionRevision),
+        finalEnvelope.projectionRevision,
+        'the final production v3 envelope must be fully applied before DOM assertions'
+    );
+    await assertAttentionCleared(page, 'kimi', sessionId);
 });
 
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 transfers pending focus through the complete presentation', async t => {

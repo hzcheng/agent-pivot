@@ -212,7 +212,8 @@ export interface ConversationViewerPageMessage {
     requestId: number;
     subscriptionGeneration: number;
     updateKind: 'initial' | 'navigation' | 'refresh';
-    html: string;
+    html?: string;
+    htmlSignature: string;
     outline: ConversationViewerOutlineEntry[];
     selectedInteractionId: string;
     selectedInput: number;
@@ -252,6 +253,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
+    private lastDeliveredContentSignature?: string;
     private suspended = false;
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
@@ -732,6 +734,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetryController.reset();
         this.latestPublication = undefined;
+        this.lastDeliveredContentSignature = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1798,16 +1801,29 @@ export class ConversationViewer implements ConversationViewerApi {
         this.latestPublication = publication;
         if (replaceDocument) {
             panel.webview.html = this.renderDocument(publication);
+            this.lastDeliveredContentSignature = publication.htmlSignature;
             return;
         }
+        // Delta delivery: when the rendered content is identical to what the
+        // webview already applied (pure selection or presentation changes),
+        // omit the multi-megabyte HTML string from the wire. The webview
+        // skips sanitizing and rebuilding the DOM and applies only the
+        // outline, selection, and chrome fields.
+        const wire: ConversationViewerPageMessage = publication.htmlSignature
+            === this.lastDeliveredContentSignature
+            ? { ...publication, html: undefined }
+            : publication;
         let delivered = false;
         try {
-            delivered = await panel.webview.postMessage(publication);
+            delivered = await panel.webview.postMessage(wire);
         } catch (_error) {
             delivered = false;
         }
-        if (!delivered && this.isCurrentPublication(publication)) {
+        if (delivered) {
+            this.lastDeliveredContentSignature = publication.htmlSignature;
+        } else if (this.isCurrentPublication(publication)) {
             this.rebuildLatestDocument();
+            this.lastDeliveredContentSignature = publication.htmlSignature;
         }
     }
 
@@ -2123,6 +2139,7 @@ export class ConversationViewer implements ConversationViewerApi {
             subscriptionGeneration: generation,
             updateKind,
             html: rendered.html,
+            htmlSignature: rendered.contentSignature,
             ...projection,
             previousCursor: selectedIndex > 0
                 ? first?.previousCursor || ''
@@ -2591,9 +2608,17 @@ function renderMessages(
                 responseState: info?.responseState,
                 clock,
             });
-            contentSignature.mixMessage(message, messageSignature);
-            return renderCache.render(message.id, messageSignature, () =>
-                renderMessage(message, showThinking, clock));
+            const entry = renderCache.render(
+                message.id,
+                messageSignature,
+                () => renderMessage(message, showThinking, clock)
+            );
+            contentSignature.mixMessage(
+                message,
+                messageSignature,
+                entry.version
+            );
+            return entry.html;
         });
         const answerIndex = group.findIndex(
             message => message.role === 'assistant'

@@ -249,6 +249,12 @@
         && !!findPrevious && !!findNext && !!findClose;
     var copyRequestSequence = 0;
     var copyPending = new Map();
+    // Recently sanitized pages keyed by session, so switching back to a
+    // session whose content is unchanged (same htmlSignature) skips the
+    // multi-megabyte DOMPurify pass entirely.
+    var sanitizedPageCache = new Map();
+    var sanitizedPageCacheBytes = 0;
+    var SANITIZED_PAGE_CACHE_LIMIT = 16 * 1024 * 1024;
     var state = {
         atLatest: false,
         initialized: false,
@@ -263,6 +269,7 @@
         messageSignatures: new Map(),
         worklogExpanded: new Map(),
         renderGeneration: 0,
+        appliedHtmlSignature: undefined,
     };
     var readingAnchorController =
         window.__agentPivotConversationReadingAnchor.create({
@@ -807,13 +814,13 @@
         }
         var requiredKeys = [
             'type', 'version', 'requestId', 'subscriptionGeneration',
-            'updateKind', 'html', 'outline', 'selectedInteractionId', 'selectedInput',
+            'updateKind', 'outline', 'selectedInteractionId', 'selectedInput',
             'totalInputs', 'partial', 'atLatest', 'stale',
         ];
         var allowedKeys = new Set(requiredKeys.concat([
-            'previousCursor', 'nextCursor', 'subagents', 'activeSubagent',
-            'displayName', 'target', 'comments', 'projectComments',
-            'bookmarks',
+            'html', 'htmlSignature', 'previousCursor', 'nextCursor',
+            'subagents', 'activeSubagent', 'displayName', 'target',
+            'comments', 'projectComments', 'bookmarks',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -831,7 +838,12 @@
             && (message.updateKind === 'initial'
                 || message.updateKind === 'navigation'
                 || message.updateKind === 'refresh')
-            && typeof message.html === 'string'
+            && (message.html === undefined
+                || typeof message.html === 'string')
+            && (message.htmlSignature === undefined
+                || typeof message.htmlSignature === 'string')
+            && (message.html !== undefined
+                || message.htmlSignature !== undefined)
             && typeof message.selectedInteractionId === 'string'
             && validOutline(message.outline, message.selectedInteractionId)
             && Number.isSafeInteger(message.selectedInput)
@@ -948,6 +960,7 @@
         state.messageIds = [];
         state.messageSignatures = new Map();
         state.worklogExpanded = new Map();
+        state.appliedHtmlSignature = undefined;
         copyPending = new Map();
         document.body.setAttribute(
             'data-subscription-generation',
@@ -1200,6 +1213,75 @@
         );
     }
 
+    function sanitizedPageSessionKey(target) {
+        if (!target) {
+            return null;
+        }
+        return target.projectId + '\u0001' + target.provider
+            + '\u0001' + target.sessionId;
+    }
+
+    function cachedSanitizedPage(sessionKey, signature) {
+        var entry = sanitizedPageCache.get(sessionKey);
+        if (!entry || entry.signature !== signature) {
+            return undefined;
+        }
+        sanitizedPageCache.delete(sessionKey);
+        sanitizedPageCache.set(sessionKey, entry);
+        return entry.clean;
+    }
+
+    function cacheSanitizedPage(sessionKey, signature, clean) {
+        var existing = sanitizedPageCache.get(sessionKey);
+        if (existing) {
+            sanitizedPageCacheBytes -= existing.bytes;
+            sanitizedPageCache.delete(sessionKey);
+        }
+        sanitizedPageCache.set(sessionKey, {
+            signature: signature,
+            clean: clean,
+            bytes: clean.length,
+        });
+        sanitizedPageCacheBytes += clean.length;
+        while (sanitizedPageCacheBytes > SANITIZED_PAGE_CACHE_LIMIT
+            && sanitizedPageCache.size > 1) {
+            var oldestKey = sanitizedPageCache.keys().next().value;
+            if (oldestKey === undefined || oldestKey === sessionKey) {
+                break;
+            }
+            var oldest = sanitizedPageCache.get(oldestKey);
+            if (oldest) {
+                sanitizedPageCacheBytes -= oldest.bytes;
+            }
+            sanitizedPageCache.delete(oldestKey);
+        }
+    }
+
+    function sanitizeConversationPage(message) {
+        var sessionKey = sanitizedPageSessionKey(message.target);
+        var cacheable = sessionKey !== null
+            && typeof message.htmlSignature === 'string';
+        if (cacheable) {
+            var cached = cachedSanitizedPage(
+                sessionKey,
+                message.htmlSignature
+            );
+            if (cached !== undefined) {
+                return cached;
+            }
+        }
+        var clean = window.DOMPurify.sanitize(message.html, {
+            ALLOWED_TAGS: allowedTags,
+            ALLOWED_ATTR: allowedAttributes,
+            ALLOW_DATA_ATTR: false,
+            ALLOW_ARIA_ATTR: false,
+        });
+        if (cacheable) {
+            cacheSanitizedPage(sessionKey, message.htmlSignature, clean);
+        }
+        return clean;
+    }
+
     function applyPage(message) {
         if (!validPage(message)
             || !applySessionGeneration(message)
@@ -1207,6 +1289,14 @@
             return;
         }
         state.latestRequestId = message.requestId;
+        var hasHtml = typeof message.html === 'string';
+        if (!hasHtml
+            && message.htmlSignature !== state.appliedHtmlSignature) {
+            // Delta publications omit the HTML string only when it is
+            // identical to what the webview already applied. Anything else
+            // cannot be applied; the next full publication resynchronizes.
+            return;
+        }
         var previousScrollTop = scroll.scrollTop;
         var isLiveRefresh = state.initialized
             && message.updateKind === 'refresh';
@@ -1225,33 +1315,31 @@
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
         var renderGeneration = state.renderGeneration;
-        var clean = window.DOMPurify.sanitize(message.html, {
-            ALLOWED_TAGS: allowedTags,
-            ALLOWED_ATTR: allowedAttributes,
-            ALLOW_DATA_ATTR: false,
-            ALLOW_ARIA_ATTR: false,
-        });
+        if (hasHtml) {
+            var clean = sanitizeConversationPage(message);
 
-        var reconciled = reconcileController.reconcile(
-            clean,
-            isLiveRefresh,
-            oldSignatures
-        );
-        enhanceCodeBlockIndentation();
-        Array.prototype.forEach.call(
-            messages.querySelectorAll('img'),
-            function (image) {
-                image.loading = 'lazy';
-                image.decoding = 'async';
-                image.referrerPolicy = 'no-referrer';
-            }
-        );
-        applyWorklogStates();
-        applyCopyButtonLabels();
-        var nextIds = reconciled.ids;
-        var nextSignatures = reconciled.signatures;
-        state.messageIds = nextIds;
-        state.messageSignatures = nextSignatures;
+            var reconciled = reconcileController.reconcile(
+                clean,
+                isLiveRefresh,
+                oldSignatures
+            );
+            enhanceCodeBlockIndentation();
+            Array.prototype.forEach.call(
+                messages.querySelectorAll('img'),
+                function (image) {
+                    image.loading = 'lazy';
+                    image.decoding = 'async';
+                    image.referrerPolicy = 'no-referrer';
+                }
+            );
+            applyWorklogStates();
+            applyCopyButtonLabels();
+            state.messageIds = reconciled.ids;
+            state.messageSignatures = reconciled.signatures;
+        }
+        if (typeof message.htmlSignature === 'string') {
+            state.appliedHtmlSignature = message.htmlSignature;
+        }
         state.atLatest = message.atLatest;
         state.initialized = true;
         var nextRestoreTarget = Object.assign({}, restoreTarget || {}, {

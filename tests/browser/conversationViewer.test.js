@@ -430,6 +430,144 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 adds late subagents without rep
     );
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications without resending or re-sanitizing HTML', async t => {
+    const page = await openViewerPage(t);
+    const fullPage = {
+        ...hostileConversationPage,
+        requestId: 1,
+        html: '<article data-message-id="delta-0" '
+            + 'data-interaction-id="input-1"><p>Delta one</p></article>'
+            + '<article data-message-id="delta-1" '
+            + 'data-interaction-id="input-2"><p>Delta two</p></article>',
+        htmlSignature: 'sig-delta-1',
+        outline: [{
+            interactionId: 'input-1',
+            userPreview: 'Input 1',
+            responseState: 'complete',
+        }, {
+            interactionId: 'input-2',
+            userPreview: 'Input 2',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'input-1',
+        selectedInput: 1,
+        totalInputs: 2,
+        previousCursor: undefined,
+        nextCursor: undefined,
+    };
+    await sendPage(page, fullPage);
+    assert.equal(
+        await page.locator('[data-conversation-position]').textContent(),
+        'Input 1 of 2'
+    );
+    await page.evaluate(() => {
+        window.__deltaNode = document.querySelector(
+            '[data-message-id="delta-0"]'
+        );
+        window.__sanitizeCalls = 0;
+        const sanitize = window.DOMPurify.sanitize;
+        window.DOMPurify.sanitize = function () {
+            window.__sanitizeCalls += 1;
+            return sanitize.apply(window.DOMPurify, arguments);
+        };
+    });
+
+    const { html, ...deltaBase } = fullPage;
+    await sendPage(page, {
+        ...deltaBase,
+        requestId: 2,
+        updateKind: 'navigation',
+        selectedInteractionId: 'input-2',
+        selectedInput: 2,
+    });
+
+    assert.deepEqual(await page.evaluate(() => ({
+        nodeRetained: document.querySelector('[data-message-id="delta-0"]')
+            === window.__deltaNode,
+        sanitizeCalls: window.__sanitizeCalls,
+        position: document.querySelector('[data-conversation-position]')
+            .textContent,
+    })), {
+        nodeRetained: true,
+        sanitizeCalls: 0,
+        position: 'Input 2 of 2',
+    });
+
+    // A delta whose signature does not match the applied content is dropped.
+    await sendPage(page, {
+        ...deltaBase,
+        requestId: 3,
+        htmlSignature: 'sig-unrelated',
+        updateKind: 'navigation',
+        selectedInteractionId: 'input-1',
+        selectedInput: 1,
+    });
+    assert.equal(
+        await page.locator('[data-conversation-position]').textContent(),
+        'Input 2 of 2'
+    );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when switching back to a recent session', async t => {
+    const page = await openViewerPage(t);
+    await page.evaluate(() => {
+        window.__sanitizeCalls = 0;
+        const sanitize = window.DOMPurify.sanitize;
+        window.DOMPurify.sanitize = function () {
+            window.__sanitizeCalls += 1;
+            return sanitize.apply(window.DOMPurify, arguments);
+        };
+    });
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+
+    await sendPage(page, sessionPage(
+        1, 'session-alpha', 'alpha-content', 'sig-alpha-1'
+    ));
+    await sendPage(page, sessionPage(
+        2, 'session-beta', 'beta-content', 'sig-beta-1'
+    ));
+    // Switching back to alpha with unchanged content must not re-sanitize.
+    await sendPage(page, sessionPage(
+        3, 'session-alpha', 'alpha-content', 'sig-alpha-1'
+    ));
+
+    assert.deepEqual(await page.evaluate(() => ({
+        sanitizeCalls: window.__sanitizeCalls,
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+    })), {
+        sanitizeCalls: 2,
+        content: 'alpha-content',
+    });
+});
+
 test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders correlated model, context, and weekly quota updates in place', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {
@@ -2954,6 +3092,213 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .replace(
             '        if (applySessionStatusMessage(event.data)) return;\n',
             ''
+        )
+        .replace(
+            '    var copyRequestSequence = 0;\n'
+                + '    var copyPending = new Map();\n'
+                + '    // Recently sanitized pages keyed by session, so switching back to a\n'
+                + '    // session whose content is unchanged (same htmlSignature) skips the\n'
+                + '    // multi-megabyte DOMPurify pass entirely.\n'
+                + '    var sanitizedPageCache = new Map();\n'
+                + '    var sanitizedPageCacheBytes = 0;\n'
+                + '    var SANITIZED_PAGE_CACHE_LIMIT = 16 * 1024 * 1024;\n',
+            '    var copyRequestSequence = 0;\n'
+                + '    var copyPending = new Map();\n'
+        )
+        .replace(
+            "    function sanitizedPageSessionKey(target) {\n"
+                + '        if (!target) {\n'
+                + '            return null;\n'
+                + '        }\n'
+                + "        return target.projectId + '\\u0001' + target.provider\n"
+                + "            + '\\u0001' + target.sessionId;\n"
+                + '    }\n'
+                + '\n'
+                + '    function cachedSanitizedPage(sessionKey, signature) {\n'
+                + '        var entry = sanitizedPageCache.get(sessionKey);\n'
+                + '        if (!entry || entry.signature !== signature) {\n'
+                + '            return undefined;\n'
+                + '        }\n'
+                + '        sanitizedPageCache.delete(sessionKey);\n'
+                + '        sanitizedPageCache.set(sessionKey, entry);\n'
+                + '        return entry.clean;\n'
+                + '    }\n'
+                + '\n'
+                + '    function cacheSanitizedPage(sessionKey, signature, clean) {\n'
+                + '        var existing = sanitizedPageCache.get(sessionKey);\n'
+                + '        if (existing) {\n'
+                + '            sanitizedPageCacheBytes -= existing.bytes;\n'
+                + '            sanitizedPageCache.delete(sessionKey);\n'
+                + '        }\n'
+                + '        sanitizedPageCache.set(sessionKey, {\n'
+                + '            signature: signature,\n'
+                + '            clean: clean,\n'
+                + '            bytes: clean.length,\n'
+                + '        });\n'
+                + '        sanitizedPageCacheBytes += clean.length;\n'
+                + '        while (sanitizedPageCacheBytes > SANITIZED_PAGE_CACHE_LIMIT\n'
+                + '            && sanitizedPageCache.size > 1) {\n'
+                + '            var oldestKey = sanitizedPageCache.keys().next().value;\n'
+                + '            if (oldestKey === undefined || oldestKey === sessionKey) {\n'
+                + '                break;\n'
+                + '            }\n'
+                + '            var oldest = sanitizedPageCache.get(oldestKey);\n'
+                + '            if (oldest) {\n'
+                + '                sanitizedPageCacheBytes -= oldest.bytes;\n'
+                + '            }\n'
+                + '            sanitizedPageCache.delete(oldestKey);\n'
+                + '        }\n'
+                + '    }\n'
+                + '\n'
+                + '    function sanitizeConversationPage(message) {\n'
+                + '        var sessionKey = sanitizedPageSessionKey(message.target);\n'
+                + '        var cacheable = sessionKey !== null\n'
+                + "            && typeof message.htmlSignature === 'string';\n"
+                + '        if (cacheable) {\n'
+                + '            var cached = cachedSanitizedPage(\n'
+                + '                sessionKey,\n'
+                + '                message.htmlSignature\n'
+                + '            );\n'
+                + '            if (cached !== undefined) {\n'
+                + '                return cached;\n'
+                + '            }\n'
+                + '        }\n'
+                + '        var clean = window.DOMPurify.sanitize(message.html, {\n'
+                + '            ALLOWED_TAGS: allowedTags,\n'
+                + '            ALLOWED_ATTR: allowedAttributes,\n'
+                + '            ALLOW_DATA_ATTR: false,\n'
+                + '            ALLOW_ARIA_ATTR: false,\n'
+                + '        });\n'
+                + '        if (cacheable) {\n'
+                + '            cacheSanitizedPage(sessionKey, message.htmlSignature, clean);\n'
+                + '        }\n'
+                + '        return clean;\n'
+                + '    }\n'
+                + '\n'
+                + '    function applyPage(message) {\n',
+            '    function applyPage(message) {\n'
+        )
+        .replace(
+            '        if (hasHtml) {\n'
+                + '            var clean = sanitizeConversationPage(message);\n'
+                + '\n'
+                + '            var reconciled = reconcileController.reconcile(\n',
+            '        if (hasHtml) {\n'
+                + '            var clean = window.DOMPurify.sanitize(message.html, {\n'
+                + '                ALLOWED_TAGS: allowedTags,\n'
+                + '                ALLOWED_ATTR: allowedAttributes,\n'
+                + '                ALLOW_DATA_ATTR: false,\n'
+                + '                ALLOW_ARIA_ATTR: false,\n'
+                + '            });\n'
+                + '\n'
+                + '            var reconciled = reconcileController.reconcile(\n'
+        )
+        .replace(
+            '        renderGeneration: 0,\n        appliedHtmlSignature: undefined,\n',
+            '        renderGeneration: 0,\n'
+        )
+        .replace(
+            "            'updateKind', 'outline', 'selectedInteractionId', 'selectedInput',\n",
+            "            'updateKind', 'html', 'outline', 'selectedInteractionId', 'selectedInput',\n"
+        )
+        .replace(
+            "            'html', 'htmlSignature', 'previousCursor', 'nextCursor',\n"
+                + "            'subagents', 'activeSubagent', 'displayName', 'target',\n"
+                + "            'comments', 'projectComments', 'bookmarks',\n",
+            "            'previousCursor', 'nextCursor', 'subagents', 'activeSubagent',\n"
+                + "            'displayName', 'target', 'comments', 'projectComments',\n"
+                + "            'bookmarks',\n"
+        )
+        .replace(
+            '            && (message.html === undefined\n'
+                + "                || typeof message.html === 'string')\n"
+                + '            && (message.htmlSignature === undefined\n'
+                + "                || typeof message.htmlSignature === 'string')\n"
+                + '            && (message.html !== undefined\n'
+                + '                || message.htmlSignature !== undefined)\n'
+                + "            && typeof message.selectedInteractionId === 'string'\n",
+            "            && typeof message.html === 'string'\n"
+                + "            && typeof message.selectedInteractionId === 'string'\n"
+        )
+        .replace(
+            '        state.worklogExpanded = new Map();\n'
+                + '        state.appliedHtmlSignature = undefined;\n'
+                + '        copyPending = new Map();\n',
+            '        state.worklogExpanded = new Map();\n'
+                + '        copyPending = new Map();\n'
+        )
+        .replace(
+            '        state.latestRequestId = message.requestId;\n'
+                + "        var hasHtml = typeof message.html === 'string';\n"
+                + '        if (!hasHtml\n'
+                + '            && message.htmlSignature !== state.appliedHtmlSignature) {\n'
+                + '            // Delta publications omit the HTML string only when it is\n'
+                + '            // identical to what the webview already applied. Anything else\n'
+                + '            // cannot be applied; the next full publication resynchronizes.\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        var previousScrollTop = scroll.scrollTop;\n',
+            '        state.latestRequestId = message.requestId;\n'
+                + '        var previousScrollTop = scroll.scrollTop;\n'
+        )
+        .replace(
+            '        if (hasHtml) {\n'
+                + '            var clean = window.DOMPurify.sanitize(message.html, {\n'
+                + '                ALLOWED_TAGS: allowedTags,\n'
+                + '                ALLOWED_ATTR: allowedAttributes,\n'
+                + '                ALLOW_DATA_ATTR: false,\n'
+                + '                ALLOW_ARIA_ATTR: false,\n'
+                + '            });\n'
+                + '\n'
+                + '            var reconciled = reconcileController.reconcile(\n'
+                + '                clean,\n'
+                + '                isLiveRefresh,\n'
+                + '                oldSignatures\n'
+                + '            );\n'
+                + '            enhanceCodeBlockIndentation();\n'
+                + '            Array.prototype.forEach.call(\n'
+                + "                messages.querySelectorAll('img'),\n"
+                + '                function (image) {\n'
+                + "                    image.loading = 'lazy';\n"
+                + "                    image.decoding = 'async';\n"
+                + "                    image.referrerPolicy = 'no-referrer';\n"
+                + '                }\n'
+                + '            );\n'
+                + '            applyWorklogStates();\n'
+                + '            applyCopyButtonLabels();\n'
+                + '            state.messageIds = reconciled.ids;\n'
+                + '            state.messageSignatures = reconciled.signatures;\n'
+                + '        }\n'
+                + "        if (typeof message.htmlSignature === 'string') {\n"
+                + '            state.appliedHtmlSignature = message.htmlSignature;\n'
+                + '        }\n',
+            '        var clean = window.DOMPurify.sanitize(message.html, {\n'
+                + '            ALLOWED_TAGS: allowedTags,\n'
+                + '            ALLOWED_ATTR: allowedAttributes,\n'
+                + '            ALLOW_DATA_ATTR: false,\n'
+                + '            ALLOW_ARIA_ATTR: false,\n'
+                + '        });\n'
+                + '\n'
+                + '        var reconciled = reconcileController.reconcile(\n'
+                + '            clean,\n'
+                + '            isLiveRefresh,\n'
+                + '            oldSignatures\n'
+                + '        );\n'
+                + '        enhanceCodeBlockIndentation();\n'
+                + '        Array.prototype.forEach.call(\n'
+                + "            messages.querySelectorAll('img'),\n"
+                + '            function (image) {\n'
+                + "                image.loading = 'lazy';\n"
+                + "                image.decoding = 'async';\n"
+                + "                image.referrerPolicy = 'no-referrer';\n"
+                + '            }\n'
+                + '        );\n'
+                + '        applyWorklogStates();\n'
+                + '        applyCopyButtonLabels();\n'
+                + '        var nextIds = reconciled.ids;\n'
+                + '        var nextSignatures = reconciled.signatures;\n'
+                + '        state.messageIds = nextIds;\n'
+                + '        state.messageSignatures = nextSignatures;\n'
         );
     const previousOutlineScript = conversationOutlineScript
         .replace(

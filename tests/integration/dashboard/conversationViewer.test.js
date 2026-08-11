@@ -140,6 +140,18 @@ function decodeInitialPublication(html) {
         .replace(/&amp;/g, '&'));
 }
 
+// Delta publications omit the HTML string when the rendered content is
+// identical to what the Webview already applied. Content assertions must
+// therefore target the last publication that actually carried HTML.
+function lastContentPublication(panel) {
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && typeof message.html === 'string'
+    ).at(-1);
+    assert.ok(publication, 'a content-bearing publication must exist');
+    return publication;
+}
+
 function decodeInitialBookmarks(html) {
     const match = html.match(/data-initial-bookmarks="([^"]+)"/);
     assert.ok(match, 'Host document must contain bookmark state');
@@ -976,7 +988,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 prevents an older subagent resu
         panel.postedMessages.at(-1).subagents.map(entry => entry.id),
         ['current-worker']
     );
-    assert.match(panel.postedMessages.at(-1).html, /r2/);
+    assert.match(lastContentPublication(panel).html, /r2/);
     viewer.dispose();
 });
 
@@ -1036,7 +1048,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 prevents an older subagent resu
     await new Promise(resolve => setImmediate(resolve));
 
     assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-1');
-    assert.match(panel.postedMessages.at(-1).html, /navigated/);
+    assert.match(lastContentPublication(panel).html, /navigated/);
     assert.deepEqual(
         panel.postedMessages.at(-1).subagents.map(entry => entry.id),
         ['current-worker']
@@ -1743,12 +1755,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 evicts above 100 interactions w
 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
+    const contentPublication = lastContentPublication(panel);
     assert.equal(viewer.snapshotSize, 100);
-    assert.equal(publication.html.includes('selected-anchor'), false);
-    assert.equal(publication.html.includes('visible-page-5'), true);
+    assert.equal(contentPublication.html.includes('selected-anchor'), false);
+    assert.equal(contentPublication.html.includes('visible-page-5'), true);
     assert.equal(publication.selectedInteractionId, 'page-5-119');
     assert.equal(publication.previousCursor, 'back-cursor-1');
-    assert.ok(Buffer.byteLength(publication.html, 'utf8') <= 4 * 1024 * 1024);
+    assert.ok(Buffer.byteLength(contentPublication.html, 'utf8') <= 4 * 1024 * 1024);
 });
 
 test('CONVERSATION-VIEWER-BOUNDS-002 evicts above 4 MiB using individually valid page envelopes', async () => {
@@ -1801,13 +1814,14 @@ test('CONVERSATION-VIEWER-BOUNDS-002 evicts above 4 MiB using individually valid
 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    assert.equal(publication.html.includes('selected-anchor'), false);
-    assert.equal(publication.html.includes('visible-byte-page-9'), true);
+    const contentPublication = lastContentPublication(panel);
+    assert.equal(contentPublication.html.includes('selected-anchor'), false);
+    assert.equal(contentPublication.html.includes('visible-byte-page-9'), true);
     assert.equal(publication.selectedInteractionId, 'byte-page-9-99');
     assert.equal(publication.previousCursor, 'byte-back-cursor-2');
     assert.equal(publication.nextCursor, undefined);
     assert.ok(viewer.snapshotSize < 100);
-    assert.ok(Buffer.byteLength(publication.html, 'utf8') <= 4 * 1024 * 1024);
+    assert.ok(Buffer.byteLength(contentPublication.html, 'utf8') <= 4 * 1024 * 1024);
 });
 
 test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTTPS links', async () => {
@@ -2076,8 +2090,14 @@ test('CONVERSATION-VIEWER-REFRESH-001 retains stale content after a watched fail
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.stale, true);
     assert.equal(publication.updateKind, 'refresh');
-    assert.equal(publication.html.includes('visible-initial'), true);
-    assert.equal(publication.html.includes('private source failure'), false);
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html.includes('visible-initial'),
+        true
+    );
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html.includes('private source failure'),
+        false
+    );
 
     await viewer.refresh();
     publication = panel.postedMessages.filter(message =>
@@ -2126,6 +2146,48 @@ test('CONVERSATION-THINKING-VISIBILITY-001 preserves thinking content across an 
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.html.includes('thinking revision 2'), true);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 omits unchanged HTML from delta publications', async () => {
+    let revision = 1;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1', 'input-2'],
+            { sourceRevision: `r${revision}` }
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-r${revision}`,
+            {
+                interactionIds: ['input-1', 'input-2'],
+                sourceRevision: request.expectedRevision,
+            }
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.equal(typeof initial.html, 'string');
+    assert.equal(typeof initial.htmlSignature, 'string');
+
+    // A pure selection change must not resend the multi-megabyte HTML.
+    await panel.receive({ type: 'conversation-viewer-next', version: 1 });
+    const delta = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(delta.selectedInteractionId, 'input-2');
+    assert.equal(delta.html, undefined);
+    assert.equal(delta.htmlSignature, initial.htmlSignature);
+
+    // A content change republishes the full HTML under a new signature.
+    revision = 2;
+    await viewer.refresh();
+    const refreshed = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(refreshed.html.includes('visible-r2'), true);
+    assert.notEqual(refreshed.htmlSignature, initial.htmlSignature);
+    viewer.dispose();
 });
 
 test('CONVERSATION-THINKING-VISIBILITY-001 hides Thinking by default and republishes it only when enabled', async () => {
@@ -2494,7 +2556,10 @@ test('CONVERSATION-VIEWER-AUTHORITY-003 suspends exact authority without clearin
     let publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.stale, true);
-    assert.equal(publication.html.includes('visible-1'), true);
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html.includes('visible-1'),
+        true
+    );
 
     const readsWhileSuspended = pageReads;
     await panel.receive({ type: 'conversation-viewer-next', version: 1 });
@@ -2938,8 +3003,14 @@ test('CONVERSATION-VIEWER-STALE-004 fails a follow-latest refresh retry closed w
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-1');
     assert.equal(publication.stale, true);
-    assert.equal(publication.html.includes('visible-established'), true);
-    assert.equal(publication.html.includes('must-not-follow'), false);
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html.includes('visible-established'),
+        true
+    );
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html.includes('must-not-follow'),
+        false
+    );
 });
 
 test('CONVERSATION-VIEWER-STALE-002 recovers expired navigation cursors through one fresh authoritative around read', async () => {
@@ -3028,7 +3099,10 @@ test('CONVERSATION-VIEWER-STALE-003 bounds persistent stale revision recovery to
     const publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.stale, true);
-    assert.equal(publication.html.includes('visible-retained'), true);
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html.includes('visible-retained'),
+        true
+    );
 });
 
 test('CONVERSATION-VIEWER-AUTHORITY-002 retains stale content when the established exact selection disappears', async () => {
@@ -3065,9 +3139,12 @@ test('CONVERSATION-VIEWER-AUTHORITY-002 retains stale content when the establish
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-1');
     assert.equal(publication.stale, true);
-    assert.equal(publication.html.includes('visible-established'), true);
     assert.equal(
-        publication.html.includes('must-not-replace-established'),
+        decodeInitialPublication(panel.webview.html).html.includes('visible-established'),
+        true
+    );
+    assert.equal(
+        decodeInitialPublication(panel.webview.html).html.includes('must-not-replace-established'),
         false
     );
 });

@@ -46,6 +46,7 @@ export default class ClaudeSessionService {
     private sessionCache = new Map<string, { signature: string; session: CodexSession }>();
     private readonly sessionFilesById = new Map<string, string>();
     private readonly duplicateSessionFileIds = new Set<string>();
+    private fullScanTreeSignature?: string;
     private readonly lifecycleReader = new IncrementalJsonlLifecycleReader();
     private readonly cacheTtlMs = 5000;
     private readonly changePollIntervalMs = 3000;
@@ -66,14 +67,20 @@ export default class ClaudeSessionService {
             return null;
         }
         const normalizedCandidatePaths = normalizeAiSessionCandidatePaths(Array.from(candidatePaths));
-        // Fast path: a previous scan already located this session file. The
-        // full projects-tree scan below is far too expensive to repeat on
-        // every conversation load, refresh, and warmup prefetch. Deletion is
-        // revalidated with existsSync; a duplicate file created after the
-        // indexing scan is only observed by the next scan (background session
-        // polls keep that window to seconds), after which the duplicate
-        // guard below declines the id again.
+        // Fast path: a previous full scan already located this session file.
+        // The scan below walks and stats every transcript in the projects
+        // tree — far too expensive to repeat on every conversation load,
+        // refresh, and warmup prefetch. The cached resolution stays
+        // authoritative only while the cheap tree signature (subdirectory
+        // names + mtimes) matches the last full scan, so any added, removed,
+        // or renamed transcript file — including a duplicate of this session
+        // id appearing in another project directory — immediately forces a
+        // full rescan and the duplicate guard below declines the id again.
+        const projectsRoot = path.join(claudeHome, 'projects');
         const cached = !this.duplicateSessionFileIds.has(sessionId)
+            && this.fullScanTreeSignature !== undefined
+            && this.fullScanTreeSignature
+                === this.projectsTreeSignature(projectsRoot)
             ? this.sessionFilesById.get(sessionId)
             : null;
         if (cached) {
@@ -84,12 +91,43 @@ export default class ClaudeSessionService {
                 return { providerHome: claudeHome, sourcePath: cached };
             }
         }
-        const matches = this.getSessionFiles(path.join(claudeHome, 'projects'))
+        const matches = this.getSessionFiles(projectsRoot)
             .filter(sessionFile => path.basename(sessionFile) === `${sessionId}.jsonl`)
             .filter(sessionFile => this.matchesConversationSourceCandidates(sessionFile, sessionId, normalizedCandidatePaths));
         return matches.length === 1
             ? { providerHome: claudeHome, sourcePath: matches[0] }
             : null;
+    }
+
+    /**
+     * One readdir plus one stat per project directory. A transcript file
+     * created, deleted, or renamed inside a project directory updates that
+     * directory's mtime, so this signature changes exactly when the set of
+     * session files may have changed; appends to an existing file do not
+     * affect it (and never change which file resolves a session id).
+     */
+    private projectsTreeSignature(projectRoot: string): string | null {
+        let entries: fs.Dirent[];
+        try {
+            entries = fs.readdirSync(projectRoot, { withFileTypes: true });
+        } catch (e) {
+            return null;
+        }
+        const parts: string[] = [];
+        for (let entry of entries) {
+            if (!entry.isDirectory()) {
+                continue;
+            }
+            let stat: fs.Stats;
+            try {
+                stat = fs.statSync(path.join(projectRoot, entry.name));
+            } catch (e) {
+                return null;
+            }
+            parts.push(`${entry.name}:${stat.mtimeMs}`);
+        }
+        parts.sort();
+        return parts.join('\n');
     }
 
     private matchesConversationSourceCandidates(
@@ -352,6 +390,12 @@ export default class ClaudeSessionService {
                 this.duplicateSessionFileIds.add(sessionId);
             }
             this.sessionFilesById.set(sessionId, entry.filePath);
+        }
+
+        if (!maxFiles) {
+            // Only an unbounded scan proves per-id uniqueness, so only it
+            // may arm the resolveConversationSource fast path.
+            this.fullScanTreeSignature = this.projectsTreeSignature(projectRoot);
         }
 
         return entries;

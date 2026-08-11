@@ -145,7 +145,7 @@ test('claude conversation source resolution keeps declining indexed duplicates',
     });
 });
 
-test('claude conversation source fast path self-corrects when a duplicate appears after indexing', async t => {
+test('claude conversation source fast path declines the moment a duplicate appears', async t => {
     await withProviderFixture(t, 'claude', async providerHome => {
         const claude = new ClaudeSessionService();
 
@@ -153,21 +153,16 @@ test('claude conversation source fast path self-corrects when a duplicate appear
         const indexed = claude.resolveConversationSource(knownSessionId, ['/fixtures/project']);
         assert.ok(indexed?.sourcePath);
 
-        // A duplicate appearing after the indexing scan is served from the
-        // index until the next scan observes it (documented window).
+        // A duplicate appearing after indexing invalidates the fast path
+        // immediately: the projects tree signature no longer matches the
+        // last full scan, so the resolver rescans and declines the
+        // ambiguous id — no stale-copy window.
         const projectDirectory = path.join(providerHome, 'projects', '-duplicate-late');
         await fs.promises.mkdir(projectDirectory, { recursive: true });
         await fs.promises.writeFile(
             path.join(projectDirectory, `${knownSessionId}.jsonl`),
             `${JSON.stringify({ sessionId: knownSessionId, cwd: '/fixtures/project' })}\n`
         );
-        assert.equal(
-            claude.resolveConversationSource(knownSessionId, ['/fixtures/project'])?.sourcePath,
-            indexed.sourcePath
-        );
-
-        // The next scan marks the id ambiguous and the resolver declines.
-        claude.getSessions(true);
         assert.equal(
             claude.resolveConversationSource(knownSessionId, ['/fixtures/project']),
             null

@@ -12,7 +12,6 @@ function initProjectAiSessionControls(options) {
         pending: false,
         requestId: null,
     };
-    var activeAiSessionTerminalState = { provider: null, sessionId: null, pendingId: null };
     var nextAiSessionBatchArchiveRequestId = 0;
     var nextAiSessionProviderSelectionRequestId = 0;
     var nextAiSessionAttentionAcknowledgementRequestId = 0;
@@ -674,18 +673,6 @@ function initProjectAiSessionControls(options) {
         return selectedProviders.split(',').find(isAiSessionProvider) || null;
     }
 
-    function syncActiveAiSessionTerminalDom() {
-        document.querySelectorAll('.codex-session-row[data-session-id]').forEach(row => {
-            var provider = row.getAttribute('data-session-provider') || 'codex';
-            var sessionId = row.getAttribute('data-session-id');
-            row.toggleAttribute(
-                'data-ai-session-active-terminal',
-                provider === activeAiSessionTerminalState.provider
-                    && sessionId === activeAiSessionTerminalState.sessionId
-            );
-        });
-    }
-
     function syncAiSessionBatchManagementDom(projectDiv) {
         var snapshot = batchAiSessionManager.snapshot();
         document.querySelectorAll('.project[data-ai-session-managing], .project[data-ai-session-pending]').forEach(project => {
@@ -847,7 +834,6 @@ function initProjectAiSessionControls(options) {
     return {
         batchAiSessionManager: batchAiSessionManager,
         batchAiSessionState: batchAiSessionState,
-        activeAiSessionTerminalState: activeAiSessionTerminalState,
         applyAiSessionAttentionAcknowledgementResult: applyAiSessionAttentionAcknowledgementResult,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
@@ -865,7 +851,6 @@ function initProjectAiSessionControls(options) {
         reconcileAiSessionAttentionAcknowledgements: reconcileAiSessionAttentionAcknowledgements,
         setAiSessionProviderMenuOpen: setAiSessionProviderMenuOpen,
         submitAiSessionProviderSelection: submitAiSessionProviderSelection,
-        syncActiveAiSessionTerminalDom: syncActiveAiSessionTerminalDom,
         syncAiSessionBatchManagementDom: syncAiSessionBatchManagementDom,
         toggleAiSessionProviderMenu: toggleAiSessionProviderMenu,
         toggleCodexSessions: toggleCodexSessions,

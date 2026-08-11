@@ -776,6 +776,39 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
     );
 });
 
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 clears stale card focus when another workspace has the same session identity', async t => {
+    const initial = [
+        session('codex', 'session-a', true),
+        session('codex', 'session-b', false),
+    ];
+    const page = await openCardPage(t, initial);
+    const focusedRow = row(page, 'codex', 'session-a');
+    const primaryAction = focusedRow.locator('.ai-session-primary-action');
+    await postHostMessage(page, presentationMessage(initial, 2, { revealFocused: true }));
+    assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
+    assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), '');
+    assert.equal(await primaryAction.getAttribute('title'), 'Open AI conversation for Codex Session');
+
+    const otherWorkspacePresentation = presentationMessage(
+        initial,
+        3,
+        {
+            focusedTarget: { provider: 'codex', sessionId: 'session-a' },
+            revealFocused: true,
+        }
+    );
+    otherWorkspacePresentation.workspaceScopeIdentity = 'scope-project-b';
+    otherWorkspacePresentation.workspaceNavigationIdentity = 'navigation-project-b';
+    await postHostMessage(page, otherWorkspacePresentation);
+
+    assert.equal(await focusedRow.getAttribute('data-session-focused'), null);
+    assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), null);
+    assert.equal(await focusedRow.locator('.ai-session-open-conversation-hint').count(), 0);
+    assert.equal(await primaryAction.getAttribute('title'), 'Focus Codex Session');
+    await primaryAction.click();
+    assert.equal((await postedMessages(page)).at(-1).type, 'focus-ai-session-terminal');
+});
+
 test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy AI update messages', async t => {
     const initial = [session('codex', 'session-a', true)];
     const page = await openCardPage(t, initial);

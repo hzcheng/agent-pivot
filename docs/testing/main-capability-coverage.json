@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "fe852b6268c76ca437c49b628189ae1439bce0f3",
+        "head": "464afaaa5924f5834da6ec428c5f805e05514093",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -266,7 +266,8 @@
             "00eb53cec68ca367088a5cce19bc2f2944d300e2",
             "41fa71745aaa981a03af4bbb7d0b8f2f6ba92e4b",
             "23b03b8d4e540b534452dfa03ebc5608a667a260",
-            "a514850f0b36137007a6e25aca0e093114aaa5cd"
+            "a514850f0b36137007a6e25aca0e093114aaa5cd",
+            "aed096b76c6458b956a0749528d68c634381fb55"
         ]
     },
     "capabilities": [
@@ -918,7 +919,8 @@
                 "1c7cc4b8df13cc66d60b1e2352f3b2d7ca20f5c3",
                 "9387594a7a8a9310621f5da0fa675e0fe90564fa",
                 "c39b9f1d5a38563194b6d4423e91f89c4897212d",
-                "fe852b6268c76ca437c49b628189ae1439bce0f3"
+                "fe852b6268c76ca437c49b628189ae1439bce0f3",
+                "464afaaa5924f5834da6ec428c5f805e05514093"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",
@@ -935,7 +937,8 @@
                 "SESSION-FINGERPRINT-HASH-001",
                 "PERSIST-LIFECYCLE-PARSER-001",
                 "ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001",
-                "ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001"
+                "ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001",
+                "ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001"
             ],
             "prGates": [
                 "test:deterministic:run",

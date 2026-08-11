@@ -767,6 +767,17 @@ const guards = {
         const aiAtomicInput = aiAtomicCalls.length === 1
             ? aiAtomicCalls[0][0]
             : null;
+        const aiReplaceContent = aiAtomicInput
+            && ts.isObjectLiteralExpression(aiAtomicInput)
+            ? aiAtomicInput.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(webview) === 'replaceContent')
+            : null;
+        const aiReplaceContentCalls = aiReplaceContent
+            && ts.isPropertyAssignment(aiReplaceContent)
+            && ts.isArrowFunction(aiReplaceContent.initializer)
+            ? callArguments(aiReplaceContent.initializer, 'applyWorkspaceUpdate')
+            : [];
         const aiAfterReplacement = aiAtomicInput
             && ts.isObjectLiteralExpression(aiAtomicInput)
             ? aiAtomicInput.properties.find(property =>
@@ -832,6 +843,20 @@ const guards = {
         }
         const projectWebviewSource = projectWebview.getFullText();
         const workspaceWebviewSource = workspaceWebview.getFullText();
+        const updateMessageSource = updateMessages.getFullText();
+        if (updateMessageSource.includes('WorkspaceUpdatedMessage')
+            || updateMessageSource.includes('buildWorkspaceUpdatedMessage')
+            || projectWebviewSource.includes(
+                "message && message.type === 'workspace-updated'"
+            )
+            || projectWebviewSource.includes('syncAiSessionProjectionDom')
+            || webviewSource.includes('syncAiSessionProjectionDom')
+            || callArguments(webview, 'applyWorkspaceUpdate').length !== 1
+            || callArguments(aiUpdateOwner, 'applyWorkspaceUpdate').length !== 1
+            || aiReplaceContentCalls.length !== 1) {
+            fail(this.id, risk,
+                'session-bearing workspace HTML must have no standalone replacement path outside atomic Presentation envelopes');
+        }
         if (!webviewSource.includes('acceptInitialPresentationProjectionRevision')
             || !webviewSource.includes('latestAiSessionProjectionRevision = revision;')
             || !projectWebviewSource.includes(
@@ -844,7 +869,6 @@ const guards = {
                 'the Webview must seed revision and complete owners from the full document');
         }
         const openWorkspaceSource = openWorkspaceController.getFullText();
-        const updateMessageSource = updateMessages.getFullText();
         if (!openWorkspaceSource.includes(
             'const projection = this.options.beginAiSessionProjection()'
         ) || !openWorkspaceSource.includes('cards: this.getCards(projection)')

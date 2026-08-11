@@ -253,29 +253,50 @@ function currentOpenWorkspaceProjectMarkup() {
         data-workspace-navigation-identity="navigation-project-a"></div>`;
 }
 
-async function postListWorkspaceUpdate(page, activeAiSessions, historySessions, selectedTab = 'active') {
+async function postListAiSessionsUpdate(
+    page,
+    activeAiSessions,
+    historySessions,
+    selectedTab = 'active',
+    projectionRevision = 2
+) {
     const html = `<div class="open-current-workspace-group">
         ${listProjectMarkup(activeAiSessions, historySessions, selectedTab)}
     </div>`;
-    await page.evaluate(htmlValue => {
+    const presentation = presentationMessage(activeAiSessions, projectionRevision);
+    await page.evaluate(({ htmlValue, presentationValue, revision }) => {
         window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'workspace-updated', version: 2, currentWorkspaceCount: 1, html: htmlValue,
+            type: 'ai-sessions-updated', version: 3,
+            sequence: revision, projectionRevision: revision,
+            generatedAt: '2026-08-11T00:00:00.000Z',
+            currentWorkspaceCount: 1, html: htmlValue,
+            searchCatalog: {
+                version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [],
+            },
+            presentation: presentationValue,
         } }));
-    }, html);
+    }, { htmlValue: html, presentationValue: presentation, revision: projectionRevision });
 }
 
-async function postListOpenWorkspacesUpdate(page, activeAiSessions, historySessions, selectedTab = 'active') {
+async function postListOpenWorkspacesUpdate(
+    page,
+    activeAiSessions,
+    historySessions,
+    selectedTab = 'active',
+    projectionRevision = 2
+) {
     const html = `<div class="open-current-workspace-group">
         ${listProjectMarkup(activeAiSessions, historySessions, selectedTab)}
     </div>
     <div class="open-other-windows-group" data-other-windows-status="ready">
         ${currentOpenWorkspaceProjectMarkup()}
     </div>`;
-    const presentation = presentationMessage(activeAiSessions, 2);
-    await page.evaluate(({ htmlValue, presentationValue }) => {
+    const presentation = presentationMessage(activeAiSessions, projectionRevision);
+    await page.evaluate(({ htmlValue, presentationValue, revision }) => {
         window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'open-workspaces-updated', version: 3, semanticRevision: 'list-replacement',
-            projectionRevision: 2,
+            type: 'open-workspaces-updated', version: 3,
+            semanticRevision: `list-replacement-${revision}`,
+            projectionRevision: revision,
             currentWorkspaceCount: 1, navigationWorkspaceCount: 0, otherWindowsStatus: 'ready',
             html: htmlValue,
             searchCatalog: {
@@ -284,7 +305,7 @@ async function postListOpenWorkspacesUpdate(page, activeAiSessions, historySessi
             },
             presentation: presentationValue,
         } }));
-    }, { htmlValue: html, presentationValue: presentation });
+    }, { htmlValue: html, presentationValue: presentation, revision: projectionRevision });
 }
 
 async function relativeTop(locator) {
@@ -596,7 +617,7 @@ async function assertAttentionCleared(page, provider, sessionId) {
     assert.equal(await compact.locator('.project-ai-attention-badge').count(), 0);
 }
 
-test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History anchors through both workspace replacement paths', async t => {
+test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History anchors through both atomic replacement paths', async t => {
     const active = Array.from({ length: 8 }, (_, index) => session(
         'codex', `active-${index + 1}`, index === 4
     ));
@@ -615,7 +636,7 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
         node.querySelector('.ai-session-primary-action').focus();
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
     });
-    await postListWorkspaceUpdate(page, [
+    await postListAiSessionsUpdate(page, [
         session('codex', 'active-inserted', false), ...active,
     ], history);
     const activeRestored = row(page, 'codex', 'active-5');
@@ -640,7 +661,7 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
     await postListOpenWorkspacesUpdate(page, active, [
         history[3], history[1], historySession('codex', 'history-inserted'),
         history[0], history[2], ...history.slice(4),
-    ]);
+    ], 'active', 3);
     const historyRestored = page.locator(
         '.ai-session-history-panel .codex-session-row[data-session-id="history-5"]'
     );
@@ -649,7 +670,7 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
     assert.equal(await historyRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
 });
 
-test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when a workspace or open-workspaces refresh moves focus', async t => {
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI or open-workspaces refresh moves focus', async t => {
     const active = Array.from({ length: 8 }, (_, index) => session(
         'codex', `active-${index + 1}`, index === 0
     ));
@@ -663,7 +684,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when a work
     });
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
 
-    await postListWorkspaceUpdate(page, active.map((entry, index) => ({
+    await postListAiSessionsUpdate(page, active.map((entry, index) => ({
         ...entry,
         focused: index === 6,
     })), history);
@@ -677,7 +698,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when a work
     await postListOpenWorkspacesUpdate(page, active.map((entry, index) => ({
         ...entry,
         focused: index === 1,
-    })), history);
+    })), history, 'active', 3);
     assert.equal(
         await page.locator('[data-ai-session-tab="active"]').getAttribute('aria-selected'),
         'true'
@@ -822,6 +843,24 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy OPEN u
             .map(message => message.reason),
         ['unsupported-open-workspaces-message'],
     );
+});
+
+test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 ignores standalone workspace replacement messages', async t => {
+    const initial = [session('codex', 'session-a', true)];
+    const page = await openCardPage(t, initial);
+
+    await postHostMessage(page, {
+        type: 'workspace-updated',
+        version: 2,
+        currentWorkspaceCount: 1,
+        html: `<div class="open-current-workspace-group">${projectMarkup([
+            session('codex', 'legacy-session', true),
+        ])}</div>`,
+    });
+
+    assert.equal(await row(page, 'codex', 'session-a').count(), 1);
+    assert.equal(await row(page, 'codex', 'legacy-session').count(), 0);
+    assert.deepEqual(await postedMessages(page), []);
 });
 
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 rejects non-focus standalone presentation messages', async t => {
@@ -2290,9 +2329,12 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY
     });
 
     await postHostMessage(page, {
-        type: 'workspace-updated',
-        version: 2,
-        currentWorkspaceCount: 1,
+        ...aiSessionsEnvelope(active, 2, {
+            presentationOverrides: {
+                workspaceScopeIdentity: 'scope:five-roots',
+                workspaceNavigationIdentity: 'navigation:reddb-dev',
+            },
+        }),
         html: currentWorkspaceGroupMarkup(active, 0, {
             projectId: afterProjectId,
             scopeIdentity: 'scope:five-roots',

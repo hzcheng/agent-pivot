@@ -187,18 +187,6 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
     }, { html, sequence });
 }
 
-async function postWorkspaceUpdate(page, selectedProviders) {
-    const html = getAiSessionsUpdateHtml(selectedProviders);
-    await page.evaluate(html => {
-        window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'workspace-updated',
-            version: 2,
-            currentWorkspaceCount: 1,
-            html,
-        } }));
-    }, html);
-}
-
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 AI-SESSION-PROVIDER-MENU-001 opens and posts the complete selected provider set', async t => {
     const page = await openMenuPage(t);
     const project = page.locator('.project[data-id="project-a"]');
@@ -470,14 +458,14 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 preserves an open provider popu
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
 
     await trigger.click();
-    await postWorkspaceUpdate(page, ['codex', 'claude']);
+    await postAiSessionsUpdate(page, ['codex', 'claude'], 1);
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     assert.equal(await project.locator('[data-ai-provider-menu]').isHidden(), false);
     assert.equal(await trigger.evaluate(element => document.activeElement === element), true);
 
     const claude = project.locator('[data-ai-provider-option][data-provider="claude"]');
     await claude.focus();
-    await postAiSessionsUpdate(page, ['codex', 'claude'], 1);
+    await postAiSessionsUpdate(page, ['codex', 'claude'], 2);
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     assert.equal(await project.locator('[data-ai-provider-menu]').isHidden(), false);
     assert.equal(await claude.evaluate(element => document.activeElement === element), true);
@@ -521,7 +509,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider pop
         projectElement.querySelector('[data-ai-provider-menu]').hidden = false;
         projectElement.querySelector('[data-ai-provider-option][data-provider="kimi"]').focus();
     });
-    await postWorkspaceUpdate(page, ['codex']);
+    await postAiSessionsUpdate(page, ['codex'], 1);
 
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
     assert.equal(await project.locator('[data-ai-provider-menu]').isHidden(), true);

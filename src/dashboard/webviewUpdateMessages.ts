@@ -43,13 +43,6 @@ export interface BuildProjectsPanelUpdatedMessageInput {
     favoriteProjectIds: string[];
 }
 
-export interface WorkspaceUpdatedMessage {
-    type: 'workspace-updated';
-    version: 2;
-    currentWorkspaceCount: 0 | 1;
-    html: string;
-}
-
 export function buildProjectsPanelUpdatedMessage(
     input: BuildProjectsPanelUpdatedMessageInput
 ): ProjectsPanelUpdatedMessage {
@@ -66,12 +59,6 @@ export function buildProjectsPanelUpdatedMessage(
         })),
         favoriteProjectIds: [...input.favoriteProjectIds],
     };
-}
-
-export interface BuildWorkspaceUpdatedMessageInput {
-    card: WorkspaceCardViewModel | null;
-    runningCardAnimation?: string;
-    runningIconAnimation?: string;
 }
 
 export interface OpenWorkspacesUpdatedMessage {
@@ -140,23 +127,6 @@ export function buildOpenWorkspacesUpdatedMessage(
             input.runningIconAnimation,
         ),
         presentation: input.presentation,
-    };
-}
-
-export function buildWorkspaceUpdatedMessage(input: BuildWorkspaceUpdatedMessageInput): WorkspaceUpdatedMessage {
-    const card = input.card && input.card.kind === 'current'
-        ? input.card
-        : null;
-    return {
-        type: 'workspace-updated',
-        version: 2,
-        currentWorkspaceCount: card ? 1 : 0,
-        html: getCurrentWorkspaceGroupContent(
-            card,
-            false,
-            input.runningCardAnimation,
-            input.runningIconAnimation,
-        ),
     };
 }
 

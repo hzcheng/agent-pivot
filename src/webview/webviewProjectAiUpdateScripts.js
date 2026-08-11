@@ -141,7 +141,6 @@ function initProjectAiSessionsUpdate(options) {
     var getPendingAiSessionProviderSelectionProjectId = options.getPendingAiSessionProviderSelectionProjectId;
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
-    var syncAiSessionProjectionDom = options.syncAiSessionProjectionDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;

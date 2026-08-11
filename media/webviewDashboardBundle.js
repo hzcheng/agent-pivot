@@ -1979,6 +1979,8 @@ function initProjectAiSessionControls(options) {
     var activeAiSessionTerminalState = { provider: null, sessionId: null, pendingId: null };
     var nextAiSessionBatchArchiveRequestId = 0;
     var nextAiSessionProviderSelectionRequestId = 0;
+    var nextAiSessionAttentionAcknowledgementRequestId = 0;
+    var pendingAiSessionAttentionAcknowledgements = new Map();
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
     var pendingAiSessionProviderSelectionProviders = [];
@@ -2318,8 +2320,164 @@ function initProjectAiSessionControls(options) {
         }
         eventIds = Array.from(new Set(eventIds.filter(eventId => typeof eventId === 'string' && !!eventId)));
         if (eventIds.length) {
-            window.vscode.postMessage({ type: 'acknowledge-ai-session-attention', eventIds: eventIds });
+            var presentation = window.__agentPivotAiSessionPresentationState;
+            if (!presentation
+                || presentation.type !== 'ai-session-presentation-state'
+                || presentation.version !== 1
+                || !Number.isSafeInteger(presentation.projectionRevision)
+                || presentation.projectionRevision < 1
+                || typeof presentation.workspaceScopeIdentity !== 'string'
+                || !presentation.workspaceScopeIdentity) {
+                window.vscode.postMessage({ type: 'acknowledge-ai-session-attention', eventIds: eventIds });
+                return;
+            }
+            var pendingKey = presentation.workspaceScopeIdentity + '|' + sessionKey;
+            if (pendingAiSessionAttentionAcknowledgements.has(pendingKey)) return;
+            nextAiSessionAttentionAcknowledgementRequestId =
+                nextAiSessionAttentionAcknowledgementRequestId >= Number.MAX_SAFE_INTEGER
+                    ? 1 : nextAiSessionAttentionAcknowledgementRequestId + 1;
+            var pending = {
+                requestId: nextAiSessionAttentionAcknowledgementRequestId,
+                provider: provider,
+                sessionId: sessionId,
+                workspaceScopeIdentity: presentation.workspaceScopeIdentity,
+                projectionRevision: presentation.projectionRevision,
+                eventIds: eventIds.slice(),
+                committed: false,
+                timeoutHandle: null,
+            };
+            if (typeof window.setTimeout === 'function') {
+                pending.timeoutHandle = window.setTimeout(() => {
+                    if (pendingAiSessionAttentionAcknowledgements.get(pendingKey) !== pending) return;
+                    var currentPresentation = window.__agentPivotAiSessionPresentationState;
+                    if (!currentPresentation
+                        || currentPresentation.workspaceScopeIdentity
+                            !== pending.workspaceScopeIdentity) {
+                        clearAiSessionAttentionAcknowledgement(pendingKey, pending);
+                        return;
+                    }
+                    clearAiSessionAttentionAcknowledgement(pendingKey, pending);
+                    announceAiSessionAttentionAcknowledgement(
+                        pending,
+                        'Attention update timed out. Refreshing…'
+                    );
+                    getAiSessionsUpdate().requestFullRefresh('ai-session-attention-acknowledgement-timeout');
+                }, Number.isSafeInteger(window.__agentPivotAttentionAcknowledgementTimeoutMs)
+                    && window.__agentPivotAttentionAcknowledgementTimeoutMs > 0
+                    ? window.__agentPivotAttentionAcknowledgementTimeoutMs : 15_000);
+            }
+            pendingAiSessionAttentionAcknowledgements.set(pendingKey, pending);
+            syncAiSessionAttentionAcknowledgementDom();
+            window.vscode.postMessage({
+                type: 'acknowledge-ai-session-attention',
+                version: 1,
+                requestId: pending.requestId,
+                provider: provider,
+                sessionId: sessionId,
+                workspaceScopeIdentity: pending.workspaceScopeIdentity,
+                projectionRevision: pending.projectionRevision,
+                eventIds: pending.eventIds,
+            });
         }
+    }
+
+    function clearAiSessionAttentionAcknowledgement(sessionKey, pending) {
+        if (pendingAiSessionAttentionAcknowledgements.get(sessionKey) !== pending) return;
+        if (pending.timeoutHandle !== null && typeof window.clearTimeout === 'function') {
+            window.clearTimeout(pending.timeoutHandle);
+        }
+        pendingAiSessionAttentionAcknowledgements.delete(sessionKey);
+        syncAiSessionAttentionAcknowledgementDom();
+    }
+
+    function announceAiSessionAttentionAcknowledgement(pending, message) {
+        var presentation = window.__agentPivotAiSessionPresentationState;
+        if (!presentation
+            || presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) return;
+        var row = document.querySelector(
+            '.codex-session-row[data-session-provider="' + pending.provider
+                + '"][data-session-id="' + CSS.escape(pending.sessionId) + '"]'
+        );
+        var project = row && row.closest('.workspace-card[data-current-workspace]');
+        var liveRegion = project && project.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) liveRegion.textContent = message;
+    }
+
+    function syncAiSessionAttentionAcknowledgementDom() {
+        document.querySelectorAll('.codex-session-row[data-attention-acknowledgement-pending]')
+            .forEach(row => row.removeAttribute('data-attention-acknowledgement-pending'));
+        var presentation = window.__agentPivotAiSessionPresentationState;
+        pendingAiSessionAttentionAcknowledgements.forEach(pending => {
+            if (!presentation
+                || presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) return;
+            document.querySelectorAll('.codex-session-row[data-session-provider][data-session-id]')
+                .forEach(row => {
+                    if (row.getAttribute('data-session-provider') === pending.provider
+                        && row.getAttribute('data-session-id') === pending.sessionId) {
+                        row.setAttribute('data-attention-acknowledgement-pending', '');
+                    }
+                });
+        });
+    }
+
+    function reconcileAiSessionAttentionAcknowledgements(presentation) {
+        if (!presentation || presentation.type !== 'ai-session-presentation-state') return;
+        pendingAiSessionAttentionAcknowledgements.forEach((pending, pendingKey) => {
+            if (presentation.workspaceScopeIdentity !== pending.workspaceScopeIdentity) {
+                clearAiSessionAttentionAcknowledgement(pendingKey, pending);
+                return;
+            }
+            if (!pending.committed
+                || presentation.projectionRevision < pending.projectionRevision) return;
+            var ownerSessionKey = pending.provider + ':' + pending.sessionId;
+            var owner = presentation.attentionSessions.find(session =>
+                session && session.sessionKey === ownerSessionKey
+            );
+            var currentEventIds = owner && Array.isArray(owner.eventIds) ? owner.eventIds : [];
+            if (pending.eventIds.some(eventId => currentEventIds.includes(eventId))) return;
+            clearAiSessionAttentionAcknowledgement(pendingKey, pending);
+        });
+        syncAiSessionAttentionAcknowledgementDom();
+    }
+
+    function applyAiSessionAttentionAcknowledgementResult(message) {
+        if (!message
+            || Object.keys(message).sort().join('\n') !== [
+                'outcome', 'projectionRevision', 'provider', 'requestId', 'sessionId',
+                'type', 'version', 'workspaceScopeIdentity',
+            ].sort().join('\n')
+            || message.type !== 'ai-session-attention-acknowledgement-result'
+            || message.version !== 1
+            || !Number.isSafeInteger(message.requestId) || message.requestId < 1
+            || !isAiSessionProvider(message.provider)
+            || typeof message.sessionId !== 'string' || !message.sessionId
+            || typeof message.workspaceScopeIdentity !== 'string' || !message.workspaceScopeIdentity
+            || !Number.isSafeInteger(message.projectionRevision) || message.projectionRevision < 1
+            || !['committed', 'degraded-local', 'rejected'].includes(message.outcome)) {
+            return false;
+        }
+        var pendingKey = message.workspaceScopeIdentity + '|'
+            + message.provider + ':' + message.sessionId;
+        var pending = pendingAiSessionAttentionAcknowledgements.get(pendingKey);
+        if (!pending
+            || pending.requestId !== message.requestId
+            || pending.workspaceScopeIdentity !== message.workspaceScopeIdentity
+            || pending.projectionRevision !== message.projectionRevision) return true;
+        if (message.outcome === 'committed') {
+            pending.committed = true;
+            reconcileAiSessionAttentionAcknowledgements(
+                window.__agentPivotAiSessionPresentationState
+            );
+            return true;
+        }
+        clearAiSessionAttentionAcknowledgement(pendingKey, pending);
+        announceAiSessionAttentionAcknowledgement(
+            pending,
+            message.outcome === 'degraded-local'
+                ? 'Attention cleared in this window, but cross-window sync could not be confirmed.'
+                : 'Could not clear session attention. Try again.'
+        );
+        return true;
     }
 
     window.__agentPivotAcknowledgeSession = (provider, sessionId) => {
@@ -2648,6 +2806,7 @@ function initProjectAiSessionControls(options) {
         batchAiSessionManager: batchAiSessionManager,
         batchAiSessionState: batchAiSessionState,
         activeAiSessionTerminalState: activeAiSessionTerminalState,
+        applyAiSessionAttentionAcknowledgementResult: applyAiSessionAttentionAcknowledgementResult,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
         applyAiSessionProviderSelectionResult: applyAiSessionProviderSelectionResult,
@@ -2661,6 +2820,7 @@ function initProjectAiSessionControls(options) {
         isAiSessionProvider: isAiSessionProvider,
         onTriggerAiSessionAction: onTriggerAiSessionAction,
         reconcilePendingAiSessionProviderSelectionDom: reconcilePendingAiSessionProviderSelectionDom,
+        reconcileAiSessionAttentionAcknowledgements: reconcileAiSessionAttentionAcknowledgements,
         setAiSessionProviderMenuOpen: setAiSessionProviderMenuOpen,
         submitAiSessionProviderSelection: submitAiSessionProviderSelection,
         syncActiveAiSessionTerminalDom: syncActiveAiSessionTerminalDom,
@@ -3323,6 +3483,7 @@ function initProjects() {
     function applyValidatedAiSessionPresentationState(message) {
         window.__agentPivotAiSessionPresentationState = message;
         applyAiSessionPresentationDom(message);
+        aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);
     }
 
     function readInitialAiSessionPresentationState() {
@@ -3470,6 +3631,10 @@ function initProjects() {
         }
         if (message && message.type === 'ai-session-provider-selection-result') {
             aiSessionControls.applyAiSessionProviderSelectionResult(message);
+            return;
+        }
+        if (message && message.type === 'ai-session-attention-acknowledgement-result') {
+            aiSessionControls.applyAiSessionAttentionAcknowledgementResult(message);
             return;
         }
         if (message && (message.type === 'todo-panel-content' || message.type === 'todo-panel-updated')) {

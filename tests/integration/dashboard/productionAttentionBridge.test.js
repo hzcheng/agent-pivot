@@ -7,7 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 
-test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
+test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
     const executed = [];
@@ -168,6 +168,36 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 OPEN-WORKSPACE-UI-HO
         assert.deepEqual(errors, []);
         assert.ok(aggregates.length > 0);
         assert.deepEqual(aggregates.at(-1).sessions[0].eventIds, ['integration-event']);
+        assert.equal(await client.acknowledge(['integration-event']), 'committed');
+        assert.deepEqual(aggregates.at(-1).sessions, [],
+            'a committed acknowledgement is persisted and broadcast by the production bridge');
+        const acknowledgeCommand = '_agentPivotAttention.bridge.acknowledge';
+        const productionAcknowledge = registered.get(acknowledgeCommand);
+        await client.publish([{
+            projectId: 'a'.repeat(64), sessionKey: 'codex:malformed-result',
+            state: 'needsAttention', eventId: 'malformed-result-event',
+            reason: 'completed', observedAtMs: 2,
+        }]);
+        registered.set(acknowledgeCommand, async raw => {
+            await productionAcknowledge(raw);
+            return { acknowledged: raw.eventIds.length, unexpected: true };
+        });
+        assert.equal(await client.acknowledge(['malformed-result-event']), 'degraded-local',
+            'a malformed bridge result must fail closed even after persistence');
+        registered.set(acknowledgeCommand, async raw => {
+            const malformed = [];
+            malformed.acknowledged = raw.eventIds.length;
+            return malformed;
+        });
+        assert.equal(await client.acknowledge(['array-result-event']), 'degraded-local',
+            'an array with an acknowledged property is not a valid bridge result record');
+        registered.set(acknowledgeCommand, async () => {
+            throw new Error('fixture acknowledgement failure');
+        });
+        assert.equal(await client.acknowledge(['missing-event']), 'degraded-local');
+        assert.match(String(errors.at(-1)), /fixture acknowledgement failure/,
+            'a rejected acknowledgement is reported before local degradation');
+        registered.set(acknowledgeCommand, productionAcknowledge);
 
         const handshake = registered.get('_agentPivotAttention.bridge.handshake');
         const publish = registered.get('_agentPivotAttention.bridge.publish');

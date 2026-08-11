@@ -60,7 +60,8 @@ function createFixture(overrides = {}) {
         },
         conversationCapability: { followActiveConversation: record('followActiveConversation') },
         aiSessionArchiveController: { archiveSessions: record('archiveSessions') },
-        acknowledgeAiSessionAttentionEventIds: record('acknowledgeAttention'),
+        acknowledgeAiSessionAttentionEventIds: overrides.acknowledgeAttention
+            || record('acknowledgeAttention'),
         logOpenWorkspaceDiagnostic: (component, event) => calls.push(['rendererDiagnostic', component, event]),
         refreshStewardViews: reason => calls.push(['refreshStewardViews', reason]),
         requestActiveAiSessionTerminalHighlight: () => calls.push(['requestHighlight']),
@@ -204,7 +205,9 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and stat
     await handlers['open-bridge-extension']({});
     // WEBVIEW-SPONSOR-ENTRY-001 the toolbar sponsor button delegates to the sponsor picker.
     await handlers['sponsor']({});
-    await handlers['acknowledge-ai-session-attention']({ eventIds: ['a', 1, 'b'] });
+    await handlers['acknowledge-ai-session-attention']({
+        type: 'acknowledge-ai-session-attention', eventIds: ['a', 1, 'b'],
+    });
 
     assert.deepEqual(calls, [
         ['requestHighlight'],
@@ -218,6 +221,121 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and stat
         ['showSponsorOptions'],
         ['acknowledgeAttention', ['a', 'b']],
     ], 'non-string attention event ids are filtered before acknowledgement');
+});
+
+test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 validates requests and posts one correlated outcome', async () => {
+    const request = {
+        type: 'acknowledge-ai-session-attention',
+        version: 1,
+        requestId: 7,
+        provider: 'codex',
+        sessionId: 'session-a',
+        workspaceScopeIdentity: 'scope-project-a',
+        projectionRevision: 5,
+        eventIds: ['event-a', 'event-b'],
+    };
+    const expected = outcome => ({
+        type: 'ai-session-attention-acknowledgement-result',
+        version: 1,
+        requestId: request.requestId,
+        provider: request.provider,
+        sessionId: request.sessionId,
+        workspaceScopeIdentity: request.workspaceScopeIdentity,
+        projectionRevision: request.projectionRevision,
+        outcome,
+    });
+
+    const malformed = createFixture();
+    await malformed.handlers['acknowledge-ai-session-attention']({
+        ...request, unexpected: true,
+    });
+    assert.deepEqual(malformed.calls, [], 'strict validation rejects unknown request fields');
+    assert.deepEqual(malformed.posted, [expected('rejected')],
+        'a recognized invalid request receives exactly one correlated rejection');
+
+    const invalidCorrelation = createFixture();
+    await invalidCorrelation.handlers['acknowledge-ai-session-attention']({
+        ...request, requestId: 0,
+    });
+    assert.deepEqual(invalidCorrelation.calls, []);
+    assert.deepEqual(invalidCorrelation.posted, [],
+        'an unsafe correlation is ignored without falling through to legacy mutation');
+
+    for (const outcome of ['committed', 'degraded-local']) {
+        const fixture = createFixture({
+            acknowledgeAttention: async eventIds => {
+                fixture.calls.push(['acknowledgeAttention', eventIds]);
+                return outcome;
+            },
+        });
+        await fixture.handlers['acknowledge-ai-session-attention'](request);
+        assert.deepEqual(fixture.calls, [['acknowledgeAttention', request.eventIds]]);
+        assert.deepEqual(fixture.posted, [expected(outcome)],
+            `${outcome} is posted exactly once with the complete correlation identity`);
+    }
+
+    let executions = 0;
+    const duplicate = createFixture({
+        acknowledgeAttention: async () => {
+            executions += 1;
+            return 'committed';
+        },
+    });
+    await Promise.all([
+        duplicate.handlers['acknowledge-ai-session-attention'](request),
+        duplicate.handlers['acknowledge-ai-session-attention'](request),
+    ]);
+    assert.equal(executions, 1, 'a replayed request shares one Host mutation flight');
+    assert.deepEqual(duplicate.posted, [expected('committed'), expected('committed')],
+        'each delivery receives the same idempotent correlated outcome');
+
+    const conflicting = createFixture({
+        acknowledgeAttention: async () => {
+            executions += 1;
+            return 'committed';
+        },
+    });
+    executions = 0;
+    await Promise.all([
+        conflicting.handlers['acknowledge-ai-session-attention'](request),
+        conflicting.handlers['acknowledge-ai-session-attention']({
+            ...request, eventIds: [...request.eventIds].reverse(),
+        }),
+    ]);
+    assert.equal(executions, 1, 'one correlation cannot start a second payload flight');
+    assert.deepEqual(conflicting.posted.map(message => message.outcome).sort(), [
+        'committed', 'rejected',
+    ]);
+
+    executions = 0;
+    const degraded = createFixture({
+        acknowledgeAttention: async () => {
+            executions += 1;
+            return 'degraded-local';
+        },
+    });
+    await degraded.handlers['acknowledge-ai-session-attention'](request);
+    await degraded.handlers['acknowledge-ai-session-attention'](request);
+    assert.equal(executions, 1, 'a degraded correlation remains an idempotent terminal result');
+
+    const releases = [];
+    let pendingExecutions = 0;
+    const crowded = createFixture({
+        acknowledgeAttention: () => new Promise(resolve => {
+            pendingExecutions += 1;
+            releases.push(resolve);
+        }),
+    });
+    const crowdedRequests = Array.from({ length: 257 }, (_, index) => ({
+        ...request, requestId: index + 1,
+    }));
+    const crowdedFlights = crowdedRequests.map(item =>
+        crowded.handlers['acknowledge-ai-session-attention'](item)
+    );
+    const firstReplay = crowded.handlers['acknowledge-ai-session-attention'](crowdedRequests[0]);
+    assert.equal(pendingExecutions, 257, 'capacity pruning cannot evict an unresolved flight');
+    releases.forEach(resolve => resolve('committed'));
+    await Promise.all([...crowdedFlights, firstReplay]);
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 rejects malformed open-workspaces renderer readiness', async () => {

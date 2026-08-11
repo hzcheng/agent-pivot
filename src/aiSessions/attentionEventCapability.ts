@@ -10,6 +10,7 @@ import type { AttentionAggregate } from './attentionAggregate';
 import type { AiSessionAttentionController, AiSessionAttentionEvaluation } from './attentionController';
 import type AttentionBridgeClient from './attentionBridgeClient';
 import type { AttentionPayloadItem } from './attentionPayload';
+import { getAttentionProjectKeys, getAttentionSummaryForProjectKeys } from './attentionProject';
 import type { AiSessionRuntimeCoordinator } from './runtimeCoordinator';
 import { cloneAiSessionRuntimeIdentity } from './runtimeTypes';
 import type {
@@ -35,6 +36,17 @@ export interface AiSessionAttentionRuntimeOverride {
     attentionKey: string;
     runtime: AiSessionRuntimeSnapshot<vscode.Terminal>;
 }
+
+export interface AiSessionAttentionAcknowledgementTarget {
+    provider: AiSessionProviderId;
+    sessionId: string;
+    workspaceScopeIdentity: string;
+}
+
+export type AiSessionAttentionAcknowledgementOutcome =
+    | 'committed'
+    | 'degraded-local'
+    | 'rejected';
 
 export interface AiSessionAttentionEventCapabilityOptions {
     tmuxRuntimeDiscovery: TmuxRuntimeDiscovery;
@@ -100,7 +112,10 @@ export interface AiSessionAttentionEventCapability {
     refreshViewsIncrementally(): void;
     scheduleViewsRefresh(): void;
     postAttentionState(): void;
-    acknowledgeEventIds(eventIds: string[]): Promise<void>;
+    acknowledgeEventIds(
+        eventIds: string[],
+        target?: AiSessionAttentionAcknowledgementTarget
+    ): Promise<void | AiSessionAttentionAcknowledgementOutcome>;
     acknowledgeAttention(identity: ActiveAiSessionTerminalIdentity): Promise<void>;
     publish(items: AttentionPayloadItem[], forceHeartbeat?: boolean): Promise<boolean>;
     readonly bridgeClient: AttentionBridgeClient;
@@ -332,14 +347,40 @@ export function createAiSessionAttentionEventCapability(
         return getAttentionController().getRecoverySessionEvents()
             .find(session => session.sessionKey === sessionKey)?.eventIds || [];
     };
-    const acknowledgeAiSessionAttentionEventIds = async (eventIds: string[]): Promise<void> => {
+    const acknowledgeAiSessionAttentionEventIds = async (
+        eventIds: string[],
+        target?: AiSessionAttentionAcknowledgementTarget
+    ): Promise<void | AiSessionAttentionAcknowledgementOutcome> => {
         const uniqueEventIds = Array.from(new Set(eventIds.filter(eventId => Boolean(eventId))));
         if (!uniqueEventIds.length) {
             return;
         }
-        getAttentionController().acknowledge(uniqueEventIds);
+        let authoritativeEventIds = uniqueEventIds;
+        if (target) {
+            const workspace = getCurrentOpenWorkspace();
+            const sessionKey = getAiSessionKey(target.provider, target.sessionId);
+            const projectKeys = getAttentionProjectKeys(
+                workspace?.roots.map(root => root.uri) || []
+            );
+            authoritativeEventIds = getAttentionSummaryForProjectKeys(
+                projectKeys,
+                getAttentionController().getEffectiveAggregate()
+            ).sessions
+                .find(session => session.sessionKey === sessionKey)?.eventIds || [];
+            const observed = [...uniqueEventIds].sort();
+            const authoritative = Array.from(new Set(authoritativeEventIds)).sort();
+            if (!workspace
+                || workspace.scopeIdentity !== target.workspaceScopeIdentity
+                || authoritative.length === 0
+                || observed.length !== authoritative.length
+                || observed.some((eventId, index) => eventId !== authoritative[index])) {
+                return 'rejected';
+            }
+            authoritativeEventIds = authoritative;
+        }
+        getAttentionController().acknowledge(authoritativeEventIds);
         refreshAiSessionViewsIncrementally();
-        await aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);
+        return aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);
     };
     const acknowledgeAiSessionAttention = async (
         identity: ActiveAiSessionTerminalIdentity

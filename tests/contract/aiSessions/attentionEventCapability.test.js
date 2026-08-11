@@ -6,6 +6,7 @@ const test = require('node:test');
 const {
     createAiSessionAttentionEventCapability,
 } = require('../../../out/aiSessions/attentionEventCapability');
+const { getAttentionProjectKey } = require('../../../out/aiSessions/attentionProject');
 
 function flushAsync() {
     return new Promise(resolve => setImmediate(resolve));
@@ -54,6 +55,7 @@ function createFixture(overrides = {}) {
         },
         acknowledge: async eventIds => {
             calls.push(['bridge-acknowledge', eventIds]);
+            return overrides.bridgeAcknowledgementOutcome;
         },
         dispose: () => {
             calls.push(['bridge-dispose']);
@@ -83,6 +85,12 @@ function createFixture(overrides = {}) {
         },
         getRecoverySessionEvents: () => overrides.recoverySessionEvents
             || [{ sessionKey: 'codex:session-a', eventIds: ['evt-1', 'evt-1', 'evt-2'] }],
+        getEffectiveAggregate: () => overrides.effectiveAggregate || {
+            protocolVersion: 1,
+            aggregateRevision: 'fixture-attention-aggregate',
+            generatedAtMs: 1,
+            sessions: [],
+        },
         getAttentionEventIds: () => ['evt-1', 'evt-2'],
         setRemoteAggregate: aggregate => {
             calls.push(['set-remote-aggregate', aggregate]);
@@ -416,6 +424,47 @@ test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, refre
     });
     assert.equal(empty.calls.some(call => call[0] === 'local-acknowledge'), false,
         'an empty event id list skips the acknowledgement entirely');
+});
+
+test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 resolves a complete authoritative owner before acknowledgement', async () => {
+    const target = {
+        provider: 'codex', sessionId: 'session-a', workspaceScopeIdentity: 'scope-1',
+    };
+    const fixture = createFixture({
+        bridgeAcknowledgementOutcome: 'committed',
+        workspace: { scopeIdentity: 'scope-1', roots: [{ uri: '/work' }] },
+        effectiveAggregate: {
+            protocolVersion: 1,
+            aggregateRevision: 'fixture-authoritative-attention',
+            generatedAtMs: 1,
+            sessions: [{
+                projectId: getAttentionProjectKey('/work'),
+                sessionKey: 'codex:session-a',
+                reasons: ['completed'],
+                eventIds: ['evt-1', 'evt-2'],
+                observedAtMs: 1,
+            }],
+        },
+    });
+    fixture.capability.startBridgeClient();
+
+    assert.equal(await fixture.capability.acknowledgeEventIds(['evt-1'], target), 'rejected');
+    assert.equal(await fixture.capability.acknowledgeEventIds(
+        ['evt-1', 'evt-2'], { ...target, workspaceScopeIdentity: 'stale-scope' }
+    ), 'rejected');
+    assert.equal(fixture.calls.some(call => call[0] === 'local-acknowledge'), false,
+        'partial or stale observations cannot mutate the authoritative owner');
+
+    assert.equal(
+        await fixture.capability.acknowledgeEventIds(['evt-2', 'evt-1'], target),
+        'committed'
+    );
+    assert.deepEqual(fixture.calls.filter(call => call[0] === 'local-acknowledge'), [
+        ['local-acknowledge', ['evt-1', 'evt-2']],
+    ]);
+    assert.deepEqual(fixture.calls.filter(call => call[0] === 'bridge-acknowledge'), [
+        ['bridge-acknowledge', ['evt-1', 'evt-2']],
+    ]);
 });
 
 test('ATTENTION-EXECUTION-STATE-SYNC-001 the open terminal handler restores attach candidates and reports failures', async () => {

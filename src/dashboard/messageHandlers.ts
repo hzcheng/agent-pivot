@@ -6,6 +6,7 @@ import type { AiSessionCommandController } from '../aiSessions/commandController
 import type { ConversationCapability } from '../aiSessions/conversation/composition';
 import type { AiSessionRuntimeSnapshot } from '../aiSessions/runtimeTypes';
 import type { AiSessionTerminalCommandController } from '../aiSessions/terminalCommandController';
+import { isAiSessionProviderId } from '../models';
 import type { AiSessionProviderId, StewardInfos } from '../models';
 import type { PromptDashboardController } from '../prompts/dashboardController';
 import type { PromptTerminalCommandController } from '../prompts/terminalCommandController';
@@ -25,7 +26,14 @@ export interface DashboardMessageHandlersOptions {
     aiSessionTerminalCommandController: AiSessionTerminalCommandController<vscode.Terminal>;
     conversationCapability: ConversationCapability;
     aiSessionArchiveController: AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>;
-    acknowledgeAiSessionAttentionEventIds: (eventIds: string[]) => Promise<void>;
+    acknowledgeAiSessionAttentionEventIds: (
+        eventIds: string[],
+        target?: {
+            provider: AiSessionProviderId;
+            sessionId: string;
+            workspaceScopeIdentity: string;
+        }
+    ) => Promise<void | 'committed' | 'degraded-local' | 'rejected'>;
     logOpenWorkspaceDiagnostic: (component: string, event: unknown) => void;
     refreshStewardViews: (reason?: string) => void;
     onOpenWorkspacesRendererReady: () => void;
@@ -71,6 +79,21 @@ export function createDashboardMessageHandlers(
     const showBridgeExtension = options.showBridgeExtension;
     const showSponsorOptions = options.showSponsorOptions;
     const showWarningMessage = options.showWarningMessage;
+    const attentionAcknowledgementFlights = new Map<string, {
+        eventIdsFingerprint: string;
+        flight: Promise<'committed' | 'degraded-local' | 'rejected'>;
+        settled: boolean;
+    }>();
+    const pruneAttentionAcknowledgementFlights = () => {
+        while (attentionAcknowledgementFlights.size > 256) {
+            const settledKey = Array.from(attentionAcknowledgementFlights.entries())
+                .find(([, entry]) => entry.settled)?.[0];
+            if (!settledKey) {
+                return;
+            }
+            attentionAcknowledgementFlights.delete(settledKey);
+        }
+    };
 
     return {
         'request-projects-panel': async e => {
@@ -180,7 +203,96 @@ export function createDashboardMessageHandlers(
             await aiSessionCommandController.togglePin(e.provider as string, e.sessionId as string);
         },
         'acknowledge-ai-session-attention': async e => {
-            const attentionEventIds = Array.isArray(e.eventIds) ? e.eventIds.filter((id: unknown): id is string => typeof id === 'string') : [];
+            const transactionCandidate = [
+                'version', 'requestId', 'provider', 'sessionId',
+                'workspaceScopeIdentity', 'projectionRevision',
+            ].some(key => Object.prototype.hasOwnProperty.call(e, key));
+            if (transactionCandidate) {
+                if (e.version !== 1
+                    || !Number.isSafeInteger(e.requestId)
+                    || (e.requestId as number) < 1) {
+                    return;
+                }
+                const correlated = {
+                    type: 'ai-session-attention-acknowledgement-result',
+                    version: 1,
+                    requestId: e.requestId as number,
+                    provider: typeof e.provider === 'string' ? e.provider : '',
+                    sessionId: typeof e.sessionId === 'string' ? e.sessionId : '',
+                    workspaceScopeIdentity: typeof e.workspaceScopeIdentity === 'string'
+                        ? e.workspaceScopeIdentity : '',
+                    projectionRevision: Number.isSafeInteger(e.projectionRevision)
+                        ? e.projectionRevision as number : 0,
+                };
+                const exactKeys = [
+                    'eventIds', 'projectionRevision', 'provider', 'requestId', 'sessionId',
+                    'type', 'version', 'workspaceScopeIdentity',
+                ];
+                const eventIds = Array.isArray(e.eventIds) ? e.eventIds : [];
+                const valid = Object.keys(e).sort().join('\n') === exactKeys.sort().join('\n')
+                    && typeof e.provider === 'string' && isAiSessionProviderId(e.provider)
+                    && typeof e.sessionId === 'string' && e.sessionId.length > 0 && e.sessionId.length <= 512
+                    && typeof e.workspaceScopeIdentity === 'string'
+                    && e.workspaceScopeIdentity.length > 0 && e.workspaceScopeIdentity.length <= 1024
+                    && Number.isSafeInteger(e.projectionRevision) && (e.projectionRevision as number) > 0
+                    && eventIds.length > 0 && eventIds.length <= 1000
+                    && eventIds.every((id: unknown) => typeof id === 'string'
+                        && id.length > 0 && id.length <= 1024)
+                    && new Set(eventIds).size === eventIds.length;
+                if (!valid) {
+                    await postMessage({ ...correlated, outcome: 'rejected' });
+                    return;
+                }
+                const flightKey = JSON.stringify([
+                    correlated.workspaceScopeIdentity, correlated.provider,
+                    correlated.sessionId, correlated.requestId,
+                    correlated.projectionRevision,
+                ]);
+                const eventIdsFingerprint = JSON.stringify(eventIds);
+                let entry = attentionAcknowledgementFlights.get(flightKey);
+                if (entry && entry.eventIdsFingerprint !== eventIdsFingerprint) {
+                    await postMessage({ ...correlated, outcome: 'rejected' });
+                    return;
+                }
+                if (!entry) {
+                    entry = {
+                        eventIdsFingerprint,
+                        settled: false,
+                        flight: (async () => {
+                        try {
+                            const outcome = await acknowledgeAiSessionAttentionEventIds(
+                                eventIds as string[],
+                                {
+                                    provider: e.provider as AiSessionProviderId,
+                                    sessionId: e.sessionId as string,
+                                    workspaceScopeIdentity: e.workspaceScopeIdentity as string,
+                                }
+                            );
+                            return outcome === 'committed'
+                                || outcome === 'degraded-local'
+                                || outcome === 'rejected'
+                                ? outcome : 'rejected';
+                        } catch (_error) {
+                            return 'rejected';
+                        }
+                        })(),
+                    };
+                    attentionAcknowledgementFlights.set(flightKey, entry);
+                    pruneAttentionAcknowledgementFlights();
+                }
+                const outcome = await entry.flight;
+                if (attentionAcknowledgementFlights.get(flightKey) === entry) {
+                    entry.settled = true;
+                    pruneAttentionAcknowledgementFlights();
+                }
+                await postMessage({ ...correlated, outcome });
+                return;
+            }
+            if (Object.keys(e).sort().join('\n') !== ['eventIds', 'type'].sort().join('\n')) {
+                return;
+            }
+            const attentionEventIds = Array.isArray(e.eventIds)
+                ? e.eventIds.filter((id: unknown): id is string => typeof id === 'string') : [];
             await acknowledgeAiSessionAttentionEventIds(attentionEventIds);
         },
         'rename-ai-session': async e => {

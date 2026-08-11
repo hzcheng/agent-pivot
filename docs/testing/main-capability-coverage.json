@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "25387e0263a57236e6706446f8ed8d92f1a3827e",
+        "head": "47cb385c19b44554d7598f081caf38ffb873cf36",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -268,7 +268,8 @@
             "23b03b8d4e540b534452dfa03ebc5608a667a260",
             "a514850f0b36137007a6e25aca0e093114aaa5cd",
             "aed096b76c6458b956a0749528d68c634381fb55",
-            "2798f545688f46f633d18a95d20f16400f13db27"
+            "2798f545688f46f633d18a95d20f16400f13db27",
+            "639b4b720bb2987becc200334d21944b71d61598"
         ]
     },
     "capabilities": [
@@ -921,7 +922,8 @@
                 "9387594a7a8a9310621f5da0fa675e0fe90564fa",
                 "c39b9f1d5a38563194b6d4423e91f89c4897212d",
                 "fe852b6268c76ca437c49b628189ae1439bce0f3",
-                "464afaaa5924f5834da6ec428c5f805e05514093"
+                "464afaaa5924f5834da6ec428c5f805e05514093",
+                "47cb385c19b44554d7598f081caf38ffb873cf36"
             ],
             "behaviors": [
                 "ATTENTION-ACTIVE-UNREGISTER-ON-DEACTIVATE-001",

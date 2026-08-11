@@ -134,11 +134,11 @@ const mutations = {
         scenario: 'user-close',
         transform: source => replaceOnce(
             source,
-            'getAttentionController().acknowledge(uniqueEventIds);\n'
+            'getAttentionController().acknowledge(authoritativeEventIds);\n'
                 + '        refreshAiSessionViewsIncrementally();\n'
-                + '        yield aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);',
-            'getAttentionController().acknowledge(uniqueEventIds);\n'
-                + '        yield aiSessionAttentionBridgeClient.acknowledge(uniqueEventIds);\n'
+                + '        return aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);',
+            'getAttentionController().acknowledge(authoritativeEventIds);\n'
+                + '        yield aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);\n'
                 + '        refreshAiSessionViewsIncrementally();',
             'acknowledgement ordering',
         ),

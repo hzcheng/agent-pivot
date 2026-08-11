@@ -162,6 +162,10 @@ export interface ConversationViewerSwitchSessionMessage {
 export interface ConversationViewerRequestSyncMessage {
     type: 'conversation-viewer-request-sync';
     version: 1;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
 }
 
 export interface ConversationViewerAppliedFrame {
@@ -294,9 +298,14 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerSwitchSessionMessage;
     }
     if (value.type === 'conversation-viewer-request-sync') {
-        if (keys.length !== 2
-            || !hasOwn(value, 'type')
-            || !hasOwn(value, 'version')) {
+        if (!hasExactKeys(value, [
+                'type', 'version', 'subscriptionGeneration',
+                'projectId', 'provider', 'sessionId',
+            ])
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)) {
             return undefined;
         }
         return value as unknown as ConversationViewerRequestSyncMessage;

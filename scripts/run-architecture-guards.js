@@ -844,6 +844,172 @@ const guards = {
         const projectWebviewSource = projectWebview.getFullText();
         const workspaceWebviewSource = workspaceWebview.getFullText();
         const updateMessageSource = updateMessages.getFullText();
+        const presentationDomOwner = uniqueAstNode(
+            webview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'initAiSessionPresentationDom',
+            this.id,
+            risk,
+            'AI session Presentation DOM owner'
+        );
+        const presentationDomHelperNames = [
+            'syncActiveAiSessionProjectionDom',
+            'setAiSessionAttentionDom',
+            'setAiSessionExecutionDom',
+            'setActiveSessionTabAttentionDom',
+            'setCurrentWorkspaceSummaryAttentionDom',
+            'setCurrentWorkspaceRunningDom',
+            'setCurrentOpenWorkspaceSummaryDom',
+            'applyAiSessionPresentationDom',
+        ];
+        const presentationDomHelpers = presentationDomHelperNames.map(name =>
+            uniqueAstNode(
+                webview,
+                node => ts.isFunctionDeclaration(node) && node.name?.text === name,
+                this.id,
+                risk,
+                `AI session Presentation DOM helper ${name}`
+            )
+        );
+        const presentationApplyOwner = presentationDomHelpers.at(-1);
+        const presentationApplySource = presentationApplyOwner.getText(webview);
+        const presentationDomPublicReturn = uniqueAstNode(
+            presentationDomOwner,
+            node => ts.isReturnStatement(node)
+                && node.expression
+                && ts.isObjectLiteralExpression(node.expression)
+                && node.expression.properties.some(property =>
+                    property.name?.getText(webview) === 'apply'),
+            this.id,
+            risk,
+            'AI session Presentation DOM public API'
+        );
+        const presentationDomPublicApply = presentationDomPublicReturn.expression.properties
+            .find(property => property.name?.getText(webview) === 'apply');
+        const presentationDomCalls = callArguments(
+            projectWebview,
+            'initAiSessionPresentationDom'
+        );
+        const presentationDomOptions = presentationDomCalls.length === 1
+            ? presentationDomCalls[0][0]
+            : null;
+        const aiSessionControlsOption = presentationDomOptions
+            && ts.isObjectLiteralExpression(presentationDomOptions)
+            ? presentationDomOptions.properties.find(property =>
+                ts.isPropertyAssignment(property)
+                    && property.name.getText(projectWebview) === 'aiSessionControls')
+            : null;
+        const applyValidatedPresentation = uniqueAstNode(
+            projectWebview,
+            node => ts.isFunctionDeclaration(node)
+                && node.name?.text === 'applyValidatedAiSessionPresentationState',
+            this.id,
+            risk,
+            'validated AI session Presentation applicator'
+        );
+        const applyValidatedPresentationSource = applyValidatedPresentation.getText(projectWebview);
+        const cachePresentationIndex = applyValidatedPresentationSource.indexOf(
+            'window.__agentPivotAiSessionPresentationState = message;'
+        );
+        const projectPresentationIndex = applyValidatedPresentationSource.indexOf(
+            'aiSessionPresentationDom.apply(message);'
+        );
+        const reconcileAcknowledgementsIndex = applyValidatedPresentationSource.indexOf(
+            'aiSessionControls.reconcileAiSessionAttentionAcknowledgements(message);'
+        );
+        const protectedPresentationAttributes = new Set([
+            'data-session-focused',
+            'data-session-needs-attention',
+            'data-ai-session-attention',
+            'data-session-event-id',
+            'data-execution-state',
+            'data-session-icon-fx',
+            'data-session-conflict',
+            'data-ai-session-attention-count',
+            'data-ai-session-active-count',
+            'data-session-fx',
+            'data-has-ai-session-badge',
+        ]);
+        const protectedPresentationClasses = new Set([
+            'ai-session-open-conversation-hint',
+            'ai-session-attention-indicator',
+            'ai-session-attention-count',
+            'ai-session-tab-attention',
+            'project-codex-badge',
+            'project-session-fx',
+            'ai-session-active-count',
+            'project-ai-attention-badge',
+        ]);
+        const presentationMutationNodes = [];
+        const webviewScriptsDirectory = path.join(root, 'src', 'webview');
+        for (const fileName of fs.readdirSync(webviewScriptsDirectory)
+            .filter(name => name.endsWith('Scripts.js'))) {
+            const relativePath = path.join('src', 'webview', fileName);
+            const sourceFile = relativePath === webview.fileName
+                ? webview
+                : relativePath === projectWebview.fileName
+                    ? projectWebview
+                    : parseJavascript(root, relativePath, this.id, risk);
+            walk(sourceFile, node => {
+                if (ts.isCallExpression(node)
+                    && ts.isPropertyAccessExpression(node.expression)) {
+                    const method = node.expression.name.text;
+                    const marker = stringArgument(node.arguments[0]);
+                    if ((method === 'setAttribute'
+                            || method === 'toggleAttribute'
+                            || method === 'removeAttribute')
+                        && protectedPresentationAttributes.has(marker)) {
+                        presentationMutationNodes.push({ node, sourceFile });
+                    }
+                    if (method === 'toggle' && marker === 'session-running') {
+                        presentationMutationNodes.push({ node, sourceFile });
+                    }
+                }
+                if (ts.isBinaryExpression(node)
+                    && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                    && ts.isPropertyAccessExpression(node.left)
+                    && node.left.name.text === 'className'
+                    && protectedPresentationClasses.has(stringArgument(node.right))) {
+                    presentationMutationNodes.push({ node, sourceFile });
+                }
+            });
+        }
+        if (presentationDomHelpers.some(helper =>
+            helper.pos < presentationDomOwner.pos || helper.end > presentationDomOwner.end)
+            || presentationDomHelperNames.some(name =>
+                projectWebviewSource.includes(`function ${name}(`))
+            || !presentationDomPublicApply
+            || !ts.isPropertyAssignment(presentationDomPublicApply)
+            || presentationDomPublicApply.initializer.getText(webview)
+                !== 'applyAiSessionPresentationDom'
+            || !presentationDomOptions
+            || !ts.isObjectLiteralExpression(presentationDomOptions)
+            || !aiSessionControlsOption
+            || !ts.isPropertyAssignment(aiSessionControlsOption)
+            || aiSessionControlsOption.initializer.getText(projectWebview)
+                !== 'aiSessionControls'
+            || callArguments(
+                applyValidatedPresentation,
+                'aiSessionPresentationDom.apply'
+            ).length !== 1
+            || cachePresentationIndex < 0
+            || projectPresentationIndex <= cachePresentationIndex
+            || reconcileAcknowledgementsIndex <= projectPresentationIndex
+            || presentationDomHelperNames.slice(0, -1).some(name =>
+                callArguments(presentationApplyOwner, name).length < 1)
+            || !presentationApplySource.includes(
+                'window.__agentPivotAttentionSessionEvents = attentionEvents;'
+            )
+            || !presentationApplySource.includes('[data-current-workspace]')
+            || !presentationApplySource.includes('[data-open-workspace-current]')
+            || presentationMutationNodes.length !== 27
+            || presentationMutationNodes.some(({ node, sourceFile }) =>
+                sourceFile.fileName !== webview.fileName
+                    || node.pos < presentationDomOwner.pos
+                    || node.end > presentationDomOwner.end)) {
+            fail(this.id, risk,
+                'every Session Presentation DOM surface must belong to the single AI update projector');
+        }
         if (updateMessageSource.includes('WorkspaceUpdatedMessage')
             || updateMessageSource.includes('buildWorkspaceUpdatedMessage')
             || projectWebviewSource.includes(

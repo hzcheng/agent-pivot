@@ -2,6 +2,8 @@
   "adapterColdOutlineMs": 1500,
   "adapterCachedOutlineMs": 100,
   "adapterAppendMs": 250,
+  "codexStatValidatedReloadMs": 50,
+  "codexAppendReloadMs": 500,
   "hostInitialPublicationMs": 250,
   "hostIncrementalRefreshMs": 150,
   "hostSessionSwitchMs": 250,

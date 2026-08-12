@@ -55,6 +55,9 @@ import {
 } from './viewerRestoreState';
 import { ConversationWorktreeResolver } from './worktreeResolver';
 import { readCodexRolloutTelemetry } from '../codexRolloutWorkdir';
+import {
+    readCodexRolloutContentSignature,
+} from '../codexRolloutContentSignature';
 import { encodeSubagentSessionId } from './subagentSessions';
 
 export interface ConversationSessionOpenTarget {
@@ -224,6 +227,13 @@ function createAvailableConversationCapability(
                 .resolveSessionFilePath?.(sessionId);
             return rolloutPath
                 ? readCodexRolloutTelemetry(rolloutPath)
+                : undefined;
+        },
+        readContentSignature: sessionId => {
+            const rolloutPath = options.services.codex
+                .resolveSessionFilePath?.(sessionId);
+            return rolloutPath
+                ? readCodexRolloutContentSignature(rolloutPath)
                 : undefined;
         },
         readLifecycleSignal: sessionId =>

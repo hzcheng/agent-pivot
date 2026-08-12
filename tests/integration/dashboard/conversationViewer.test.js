@@ -4089,8 +4089,6 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 renders Codex app-server duration in the
             return 1;
         },
         clearTimeout() {},
-        setCacheTimeout: () => 2,
-        clearCacheTimeout() {},
     });
     t.after(() => adapter.dispose());
     const { viewer, panel } = createViewer({
@@ -4155,8 +4153,6 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 renders the sum of Codex subagent turn d
                 return 1;
             },
             clearTimeout() {},
-            setCacheTimeout: () => 2,
-            clearCacheTimeout() {},
         });
         t.after(() => adapter.dispose());
         const { viewer, panel } = createViewer({

@@ -4254,12 +4254,14 @@
     "owners": [
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
-      "tests/contract/aiSessions/claudeConversationAdapter.test.js"
+      "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/unit/aiSessions/codexRolloutContentSignature.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/codexAdapter.ts",
       "src/aiSessions/conversation/kimiAdapter.ts",
-      "src/aiSessions/conversation/claudeAdapter.ts"
+      "src/aiSessions/conversation/claudeAdapter.ts",
+      "src/aiSessions/codexRolloutContentSignature.ts"
     ]
   },
   {

@@ -34,6 +34,13 @@ test('CONVERSATION-TELEMETRY-001 resolveSessionFilePath locates rollout files by
     assert.equal(service.resolveSessionFilePath(sessionId), rolloutPath);
     assert.equal(service.resolveSessionFilePath('missing-session'), null);
     assert.equal(service.resolveSessionFilePath(''), null);
+
+    // The cached path is revalidated by existence: a disappeared rollout
+    // falls out of the cache, and a recreated one is discovered again.
+    await fs.promises.rm(rolloutPath);
+    assert.equal(service.resolveSessionFilePath(sessionId), null);
+    await fs.promises.writeFile(rolloutPath, '{}\n');
+    assert.equal(service.resolveSessionFilePath(sessionId), rolloutPath);
 });
 
 test('CONVERSATION-WORKING-INDICATOR-001 reads the current Codex rollout lifecycle independently', async t => {

@@ -184,7 +184,19 @@ export default class CodexSessionService {
         if (!codexHome) {
             return null;
         }
-        return this.getSessionFiles(codexHome).get(sessionId) || null;
+        // Repeat resolutions hit the lifecycle reader's path cache: one
+        // existence revalidation instead of a full sessions-tree scan per
+        // call. A stale or missing entry falls back to discovery.
+        let sessionFile = this.lifecycleSessionFiles.get(sessionId) || null;
+        if (sessionFile && !fs.existsSync(sessionFile)) {
+            this.lifecycleSessionFiles.delete(sessionId);
+            sessionFile = null;
+        }
+        if (!sessionFile) {
+            sessionFile = this.getSessionFiles(codexHome).get(sessionId)
+                || null;
+        }
+        return sessionFile;
     }
 
     getConversationLifecycleSignal(

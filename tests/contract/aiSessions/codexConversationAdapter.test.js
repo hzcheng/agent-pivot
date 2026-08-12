@@ -53,7 +53,6 @@ function createAdapter(result = fixture, overrides = {}) {
         readLifecycleSignal: overrides.readLifecycleSignal,
         readContentSignature: overrides.readContentSignature,
         listSubagentThreads: overrides.listSubagentThreads,
-        now: overrides.now,
     });
     return {
         adapter,
@@ -286,11 +285,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Codex returns one correlated ou
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 serves a large Codex thread from cache while its rollout stat is unchanged', async t => {
     const large = createLargeThread();
-    let now = 1_000;
     let signature = 'stat-1';
     const probedIds = [];
     const harness = createAdapter(large, {
-        now: () => now,
         readContentSignature: id => {
             probedIds.push(id);
             return signature;
@@ -305,9 +302,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 serves a large Codex thread fro
     assert.ok(probedIds.length > 0
         && probedIds.every(id => id === sessionId));
 
-    // No expiry: an unchanged rollout stat keeps the normalized
-    // conversation authoritative indefinitely.
-    now += 60_001;
+    // There is no expiry: an unchanged rollout stat keeps the normalized
+    // conversation authoritative indefinitely. The harness timer fires
+    // synchronously, so any scheduled expiry would have run by now.
     await harness.adapter.readOutline(sessionId);
     assert.equal(harness.requests.length, 1);
 

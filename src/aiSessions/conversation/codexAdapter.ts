@@ -91,7 +91,6 @@ export interface CodexConversationAdapterOptions {
     listSubagentThreads?(
         sessionId: string
     ): AiSessionCodexSubagentThread[] | Promise<AiSessionCodexSubagentThread[]>;
-    now?(): number;
 }
 
 const MAX_LISTED_SUBAGENTS = 64;
@@ -957,6 +956,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.telemetryCache.clear();
         this.telemetryReads.clear();
         this.invalidateLoadedConversationCache();
+        this.loadedConversationCache.clear();
         this.subscriptions.clear();
         this.options.client.dispose();
     }
@@ -1178,10 +1178,6 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             }
         }
         return false;
-    }
-
-    private now(): number {
-        return this.options.now ? this.options.now() : Date.now();
     }
 
     private ensureProviderWatch(): void {

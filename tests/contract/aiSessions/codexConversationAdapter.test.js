@@ -53,6 +53,7 @@ function createAdapter(result = fixture, overrides = {}) {
         readLifecycleSignal: overrides.readLifecycleSignal,
         readContentSignature: overrides.readContentSignature,
         listSubagentThreads: overrides.listSubagentThreads,
+        now: overrides.now,
     });
     return {
         adapter,
@@ -476,6 +477,148 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds the stat-validated large
     await harness.adapter.readOutline(ids[0]);
     assert.equal(requests.length, 4,
         'the evicted oldest entry reads from the provider again');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 releases a large Codex cache entry as soon as its rollout stat moves on', async t => {
+    const large = createLargeThread();
+    let signature = 'stat-1';
+    const harness = createAdapter(() => large, {
+        readContentSignature: () => signature,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1);
+
+    // A changed stat releases the stale entry immediately rather than
+    // letting it linger next to its fresh replacement.
+    signature = 'stat-2';
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 2);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1);
+
+    // An unreadable stat releases it too: the entry can no longer prove
+    // its content is current, and the bypassed read leaves nothing behind.
+    signature = undefined;
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 3);
+    assert.equal(harness.adapter.loadedConversationCache.size, 0);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 caches a Codex conversation whose read was expensive even when its visible text is small', async t => {
+    // Many tool records with little visible text stay below the 512KiB
+    // character gate, yet each thread/read still costs real transfer and
+    // normalize time: a slow read is eligibility enough.
+    const smallButSlow = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'turn-1',
+                status: 'completed',
+                items: [{
+                    id: 'user-1',
+                    type: 'userMessage',
+                    content: [{ type: 'text', text: 'request' }],
+                }, {
+                    id: 'agent-1',
+                    type: 'agentMessage',
+                    text: 'short answer',
+                }],
+            }],
+        },
+    };
+    let now = 1_000;
+    const requests = [];
+    const harness = createAdapter(smallButSlow, {
+        client: {
+            async request(method, params) {
+                requests.push({ method, params });
+                now += 400;
+                return clone(smallButSlow);
+            },
+            dispose() {},
+        },
+        readContentSignature: () => 'stat-1',
+        now: () => now,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1,
+        'a >=100ms read is cached even below the character gate');
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(requests.length, 1);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts a large Codex cache entry after ten idle minutes', async t => {
+    const large = createLargeThread();
+    let now = 1_000_000;
+    const harness = createAdapter(() => large, {
+        readContentSignature: () => 'stat-1',
+        now: () => now,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1);
+
+    // Repeated use keeps the entry alive.
+    now += 9 * 60 * 1000;
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 1);
+
+    // Ten idle minutes release it; the next read pays a fresh thread/read.
+    now += 10 * 60 * 1000 + 1;
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 2);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds the total cached Codex conversation characters', async t => {
+    // Two ~4.3M-character conversations fit the entry count but not the
+    // total byte budget: caching the second evicts the first.
+    const bigThread = threadId => ({
+        thread: {
+            id: threadId,
+            turns: Array.from({ length: 72 }, (_unused, index) => ({
+                id: `turn-${index}`,
+                status: 'completed',
+                items: [{
+                    id: `user-${index}`,
+                    type: 'userMessage',
+                    content: [{ type: 'text', text: `request ${index}` }],
+                }, {
+                    id: `agent-${index}`,
+                    type: 'agentMessage',
+                    text: 'x'.repeat(60 * 1024),
+                }],
+            })),
+        },
+    });
+    const ids = [
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    ];
+    const requests = [];
+    const harness = createAdapter(undefined, {
+        client: {
+            async request(method, params) {
+                requests.push({ method, params });
+                return bigThread(params.threadId);
+            },
+            dispose() {},
+        },
+        readContentSignature: id => `stat-${id}`,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(ids[0]);
+    await harness.adapter.readOutline(ids[1]);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1,
+        'the byte budget evicts the older entry even below the count cap');
+    assert.deepEqual(
+        [...harness.adapter.loadedConversationCache.keys()],
+        [ids[1]]
+    );
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 does not cache a large Codex read invalidated while pending', async t => {

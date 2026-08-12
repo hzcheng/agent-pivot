@@ -91,12 +91,22 @@ export interface CodexConversationAdapterOptions {
     listSubagentThreads?(
         sessionId: string
     ): AiSessionCodexSubagentThread[] | Promise<AiSessionCodexSubagentThread[]>;
+    now?(): number;
 }
 
 const MAX_LISTED_SUBAGENTS = 64;
 const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 const LARGE_CONVERSATION_CACHE_CHARS = 512 * 1024;
+// A read this expensive is worth caching even when its visible text stays
+// below the character gate (tool-record-heavy threads normalize little
+// visible text but still pay the full transfer and normalize cost).
+const LARGE_CONVERSATION_CACHE_MIN_READ_MS = 100;
 const LARGE_CONVERSATION_CACHE_ENTRIES = 2;
+// Total cached visible-text characters across entries: the hard memory
+// bound for the cache (roughly 16MiB of string payload).
+const LARGE_CONVERSATION_CACHE_BUDGET_CHARS = 8 * 1024 * 1024;
+// Entries unused for this long are released on the next read.
+const LARGE_CONVERSATION_CACHE_IDLE_MS = 10 * 60 * 1000;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
@@ -106,6 +116,8 @@ interface LoadedConversation {
 interface CachedLoadedConversation {
     value: LoadedConversation;
     contentSignature: string;
+    characters: number;
+    lastTouchedAt: number;
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -622,6 +634,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         string,
         CachedLoadedConversation
     >();
+    private loadedConversationCacheChars = 0;
     private conversationCacheGeneration = 0;
     private disposed = false;
 
@@ -957,6 +970,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.telemetryReads.clear();
         this.invalidateLoadedConversationCache();
         this.loadedConversationCache.clear();
+        this.loadedConversationCacheChars = 0;
         this.subscriptions.clear();
         this.options.client.dispose();
     }
@@ -1016,39 +1030,91 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         if (signal?.aborted) {
             return Promise.reject(new ConversationAbortError());
         }
+        this.evictIdleLoadedConversations();
         // The rollout stat signature is captured before the (potentially
         // multi-second) provider read: an append landing mid-read makes the
         // next probe mismatch and forces a fresh read, so the entry can
         // never serve content newer than what it claims.
         const signature = this.contentSignature(sessionId);
         const cached = this.loadedConversationCache.get(sessionId);
-        if (cached && signature !== undefined
-            && signature === cached.contentSignature) {
-            return Promise.resolve(cached.value);
+        if (cached) {
+            if (signature !== undefined
+                && signature === cached.contentSignature) {
+                cached.lastTouchedAt = this.now();
+                this.loadedConversationCache.delete(sessionId);
+                this.loadedConversationCache.set(sessionId, cached);
+                return Promise.resolve(cached.value);
+            }
+            // A stale or unverifiable entry is released immediately rather
+            // than lingering beside — or instead of — its replacement.
+            this.deleteLoadedConversationCacheEntry(sessionId, cached);
         }
         const generation = this.conversationCacheGeneration;
+        const startedAt = this.now();
         return this.loadFresh(sessionId, signal).then(value => {
             if (!this.disposed
                 && generation === this.conversationCacheGeneration
-                && signature !== undefined
-                && this.isLargeConversation(value)) {
-                this.loadedConversationCache.delete(sessionId);
-                this.loadedConversationCache.set(sessionId, {
-                    value,
-                    contentSignature: signature,
-                });
-                while (this.loadedConversationCache.size
-                    > LARGE_CONVERSATION_CACHE_ENTRIES) {
-                    const oldest = this.loadedConversationCache.keys()
-                        .next().value;
-                    if (typeof oldest !== 'string') {
-                        break;
-                    }
-                    this.loadedConversationCache.delete(oldest);
+                && signature !== undefined) {
+                const characters = this.conversationCharacters(value);
+                if (characters >= LARGE_CONVERSATION_CACHE_CHARS
+                    || this.now() - startedAt
+                        >= LARGE_CONVERSATION_CACHE_MIN_READ_MS) {
+                    this.storeLoadedConversationCacheEntry(sessionId, {
+                        value,
+                        contentSignature: signature,
+                        characters,
+                        lastTouchedAt: this.now(),
+                    });
                 }
             }
             return value;
         });
+    }
+
+    private storeLoadedConversationCacheEntry(
+        sessionId: string,
+        entry: CachedLoadedConversation
+    ): void {
+        const previous = this.loadedConversationCache.get(sessionId);
+        if (previous) {
+            this.deleteLoadedConversationCacheEntry(sessionId, previous);
+        }
+        this.loadedConversationCache.set(sessionId, entry);
+        this.loadedConversationCacheChars += entry.characters;
+        while ((this.loadedConversationCache.size
+                > LARGE_CONVERSATION_CACHE_ENTRIES
+            || this.loadedConversationCacheChars
+                > LARGE_CONVERSATION_CACHE_BUDGET_CHARS)
+            && this.loadedConversationCache.size > 1) {
+            const oldest = this.loadedConversationCache.keys().next().value;
+            if (typeof oldest !== 'string') {
+                break;
+            }
+            const evicted = this.loadedConversationCache.get(oldest);
+            if (evicted) {
+                this.deleteLoadedConversationCacheEntry(oldest, evicted);
+            }
+        }
+    }
+
+    private deleteLoadedConversationCacheEntry(
+        sessionId: string,
+        entry: CachedLoadedConversation
+    ): void {
+        if (this.loadedConversationCache.get(sessionId) === entry) {
+            this.loadedConversationCache.delete(sessionId);
+            this.loadedConversationCacheChars -= entry.characters;
+        }
+    }
+
+    private evictIdleLoadedConversations(): void {
+        const now = this.now();
+        for (const [sessionId, entry] of this.loadedConversationCache) {
+            if (now - entry.lastTouchedAt
+                > LARGE_CONVERSATION_CACHE_IDLE_MS) {
+                this.deleteLoadedConversationCacheEntry(sessionId, entry);
+            }
+        }
     }
 
     private contentSignature(sessionId: string): string | undefined {
@@ -1151,33 +1217,26 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         return { interactions, sourceRevision };
     }
 
-    private isLargeConversation(value: LoadedConversation): boolean {
+    private conversationCharacters(value: LoadedConversation): number {
         let characters = 0;
-        const add = (text: string | undefined): boolean => {
-            characters += text?.length || 0;
-            return characters >= LARGE_CONVERSATION_CACHE_CHARS;
-        };
         for (const interaction of value.interactions) {
-            if (add(interaction.userMarkdown)) {
-                return true;
-            }
+            characters += interaction.userMarkdown?.length || 0;
             for (const markdown of interaction.assistantMarkdown) {
-                if (add(markdown)) {
-                    return true;
-                }
+                characters += markdown.length;
             }
             for (const tool of interaction.toolCalls || []) {
-                if (add(tool.summary) || add(tool.detail)) {
-                    return true;
-                }
+                characters += (tool.summary?.length || 0)
+                    + (tool.detail?.length || 0);
             }
             for (const thinking of interaction.thinking || []) {
-                if (add(thinking.text)) {
-                    return true;
-                }
+                characters += thinking.text?.length || 0;
             }
         }
-        return false;
+        return characters;
+    }
+
+    private now(): number {
+        return this.options.now ? this.options.now() : Date.now();
     }
 
     private ensureProviderWatch(): void {

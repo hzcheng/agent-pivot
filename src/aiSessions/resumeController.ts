@@ -9,7 +9,7 @@ import type {
     AiSessionRuntimeActionResult,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
-import type { AiSessionDirectoryScope, WorkspaceAiSessionActionTarget } from './types';
+import type { AiSessionDirectoryScope, SessionProfileDecision, WorkspaceAiSessionActionTarget } from './types';
 
 interface AiSessionResumeTarget {
     id: string;
@@ -41,6 +41,16 @@ export interface AiSessionResumeRuntimeCoordinator<TTerminal> {
 export interface AiSessionResumeControllerCommonOptions {
     getWorkspaceTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     getLaunchOptions: () => AiSessionLaunchOptions;
+    /**
+     * Codex-only: resolves the profile decision recorded for this session
+     * before resume. Returns the decision to launch with ('base' launches
+     * without `-p`), 'cancel' to abort the resume, or undefined for legacy
+     * sessions without a record (also launched without `-p`).
+     */
+    resolveResumeProfileDecision?: (
+        providerId: AiSessionProviderId,
+        sessionId: string
+    ) => Thenable<SessionProfileDecision | 'cancel' | undefined>;
     getProvider: (providerId: AiSessionProviderId) => AiSessionResumeProvider | null;
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
@@ -154,6 +164,15 @@ export class AiSessionResumeController<
         if (!sessionProvider.buildResumeLaunchSpec) {
             throw new Error('AI session runtime resume is not configured.');
         }
+        const profileDecision = providerId === 'codex' && options.resolveResumeProfileDecision
+            ? await options.resolveResumeProfileDecision(providerId, session.id)
+            : undefined;
+        if (profileDecision === 'cancel') {
+            return;
+        }
+        const codexProfile = profileDecision?.kind === 'profile'
+            ? profileDecision.name
+            : undefined;
         const cwd = directoryScope.primaryCwd;
         const markerPath = options.getMarkerPath(providerId, session.id);
         const launchScope = cloneDirectoryScope(directoryScope);
@@ -175,7 +194,9 @@ export class AiSessionResumeController<
                     session.id,
                     launchScope,
                     markerPath,
-                    options.getLaunchOptions(),
+                    codexProfile
+                        ? { ...options.getLaunchOptions(), codexProfile }
+                        : options.getLaunchOptions(),
                     prompt
                 )),
             directoryScope,

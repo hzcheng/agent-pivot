@@ -404,6 +404,110 @@
     ]
   },
   {
+    "id": "SESSION-CODEX-PROFILE-DISCOVERY-001",
+    "domain": "session",
+    "title": "Codex config profile discovery validates basename-safe <name>.config.toml overlays",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/codexProfiles.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/codexProfiles.ts"
+    ]
+  },
+  {
+    "id": "SESSION-CODEX-PROFILE-PICK-001",
+    "domain": "session",
+    "title": "New Codex sessions pick a profile when overlays exist and persist the effective decision only after start",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/codexProfiles.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/aiSessions/sessionControllerComposition.profile.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/codexProfiles.ts",
+      "src/aiSessions/creationController.ts",
+      "src/aiSessions/sessionControllerComposition.ts"
+    ]
+  },
+  {
+    "id": "SESSION-CODEX-PROFILE-CLI-PROBE-001",
+    "domain": "session",
+    "title": "Codex profile support probing disables the feature with a one-time hint on unsupported CLIs",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/codexProfiles.test.js",
+      "tests/contract/aiSessions/sessionControllerComposition.profile.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/codexProfiles.ts",
+      "src/aiSessions/sessionControllerComposition.ts"
+    ]
+  },
+  {
+    "id": "SESSION-CODEX-PROFILE-LAUNCH-001",
+    "domain": "session",
+    "title": "Codex launch argv injects a validated -p profile for new and resumed sessions only",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/commandBuilders.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/commandBuilders.ts",
+      "src/aiSessions/launchOptions.ts"
+    ]
+  },
+  {
+    "id": "SESSION-CODEX-PROFILE-PERSIST-001",
+    "domain": "persistence",
+    "title": "Codex session profile decisions persist as a three-state record across pending, promotion, and rebind",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/persistence/sessionProfileStore.test.js",
+      "tests/contract/aiSessions/sessionProfileController.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/sessionProfileStore.ts",
+      "src/aiSessions/sessionProfileController.ts"
+    ]
+  },
+  {
+    "id": "SESSION-CODEX-PROFILE-RESUME-001",
+    "domain": "session",
+    "title": "Resumed Codex sessions reuse the recorded profile decision and never fall back to the default setting",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/aiSessions/sessionControllerComposition.profile.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/resumeController.ts",
+      "src/aiSessions/sessionControllerComposition.ts"
+    ]
+  },
+  {
+    "id": "SESSION-CODEX-PROFILE-BADGE-001",
+    "domain": "session",
+    "title": "Codex sessions render the recorded profile as an accessible badge in history and active rows",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionProfileHydration.test.js"
+    ],
+    "evidence": [
+      "src/workspaces/sessionHydration.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "media/styles.scss"
+    ]
+  },
+  {
     "id": "SESSION-AI-SESSION-PROVIDER-AVAILABILITY-001",
     "domain": "session",
     "title": "New AI sessions keep every registered provider selectable until runtime launch",

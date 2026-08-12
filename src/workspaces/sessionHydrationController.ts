@@ -13,6 +13,7 @@ import type {
 import type {
     AiSessionProviderDefinition,
     AiSessionReadResult,
+    SessionProfileDecision,
     WorkspaceAiSessionViewModel,
 } from '../aiSessions/types';
 import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
@@ -109,6 +110,9 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;
     getPinnedSessions: () => ReadonlySet<string>;
     getAliases: () => Readonly<Record<string, string>>;
+    getProfiles?: () => Readonly<Record<string, SessionProfileDecision>>;
+    getPendingProfiles?: () => Readonly<Record<string, SessionProfileDecision>>;
+    getProfileAvailability?: () => Readonly<Record<string, boolean>>;
     getProviderSelection: (
         workspaceScopeIdentity: string
     ) => AiSessionProviderSelection | undefined;
@@ -171,6 +175,9 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             getSessionComparableCwd: this.options.getSessionComparableCwd,
             pinnedSessions: this.options.getPinnedSessions(),
             aliases: this.options.getAliases(),
+            profiles: this.options.getProfiles?.() || {},
+            pendingProfiles: this.options.getPendingProfiles?.() || {},
+            profileAvailability: this.options.getProfileAvailability?.() || {},
             activeRuntimes: projection.activeRuntimes,
             pendingRuntimes: projection.pendingRuntimes,
             executionSnapshot: projection.executionSnapshot,

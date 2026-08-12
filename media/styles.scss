@@ -3364,6 +3364,29 @@ body.steward-sidebar {
             line-height: 1;
         }
 
+        .ai-session-profile-badge {
+            display: inline-flex;
+            align-items: center;
+            flex: 0 1 auto;
+            min-height: 14px;
+            max-width: 45%;
+            padding: 0 4px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 999px;
+            color: var(--vscode-textLink-foreground);
+            font-size: 8px;
+            font-weight: 700;
+            line-height: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ai-session-profile-badge.ai-session-profile-unavailable {
+            border-style: dashed;
+            color: var(--vscode-editorWarning-foreground);
+        }
+
         .ai-session-manage-button {
             padding: 0;
 
@@ -5377,7 +5400,8 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     body.steward-sidebar .project {
         .ai-session-provider-menu,
         .ai-session-provider-option,
-        .ai-session-provider-badge {
+        .ai-session-provider-badge,
+        .ai-session-profile-badge {
             border-color: CanvasText;
         }
 

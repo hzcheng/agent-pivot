@@ -102,6 +102,279 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
     assert.match(effects.at(-1)[1], /not found/i);
 });
 
+test('SESSION-CODEX-PROFILE-PICK-001 creation picks a profile, launches with it and records it after start', async () => {
+    const remembered = [];
+    const receivedLaunchOptions = [];
+    let titlePrompts = 0;
+    const controller = new AiSessionCreationController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget() : null,
+        pickWorkspaceRoot: async () => undefined,
+        pickProvider: async () => 'codex',
+        pickCodexProfile: async () => 'deepseek',
+        getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
+        getProvider: () => ({
+            label: 'Codex',
+            terminalNamePrefix: 'Codex',
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, launchOptions) => {
+                receivedLaunchOptions.push(launchOptions);
+                return { executable: 'codex', args: ['--new'] };
+            },
+        }),
+        resolveWorkspaceDirectoryScope: () => directoryScope,
+        rememberSessionProfile: (pendingId, decision) => remembered.push([pendingId, decision]),
+        showInputBox: async () => {
+            titlePrompts += 1;
+            return '';
+        },
+        showActiveTab: async () => undefined,
+        showWarningMessage: async () => undefined,
+        refresh: () => undefined,
+        getExistingSessionIdsForCwd: () => [],
+        getPendingMarkerPath: () => '/tmp/pending',
+        scheduleNewSessionRefresh: () => undefined,
+        nowMs: () => 1000,
+        createPendingId: () => 'pending-profile',
+        announceStatus: async () => undefined,
+        runtimeCoordinator: {
+            create: async request => {
+                request.createLaunchSpec();
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+    await controller.createSession('p');
+    assert.equal(titlePrompts, 1, 'the profile pick happens before the title input');
+    assert.deepEqual(receivedLaunchOptions, [{ yolo: false, codexProfile: 'deepseek' }]);
+    assert.deepEqual(remembered, [[
+        'pending-profile',
+        { kind: 'profile', name: 'deepseek' },
+    ]], 'the effective decision is recorded once the runtime started');
+});
+
+test('SESSION-CODEX-PROFILE-PICK-001 creation cancellation and base decisions never leak profiles', async () => {
+    const remembered = [];
+    let requests = 0;
+    let titlePrompts = 0;
+    const makeController = pickCodexProfile => new AiSessionCreationController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget() : null,
+        pickWorkspaceRoot: async () => undefined,
+        pickProvider: async () => 'codex',
+        pickCodexProfile,
+        getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
+        getProvider: () => ({
+            label: 'Codex',
+            terminalNamePrefix: 'Codex',
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, launchOptions) => {
+                assert.deepEqual(launchOptions, { yolo: false }, 'base launches carry no profile');
+                return { executable: 'codex', args: ['--new'] };
+            },
+        }),
+        resolveWorkspaceDirectoryScope: () => directoryScope,
+        rememberSessionProfile: (pendingId, decision) => remembered.push([pendingId, decision]),
+        showInputBox: async () => {
+            titlePrompts += 1;
+            return '';
+        },
+        showActiveTab: async () => undefined,
+        showWarningMessage: async () => undefined,
+        refresh: () => undefined,
+        getExistingSessionIdsForCwd: () => [],
+        getPendingMarkerPath: () => '/tmp/pending',
+        scheduleNewSessionRefresh: () => undefined,
+        nowMs: () => 1000,
+        createPendingId: () => 'pending-base',
+        announceStatus: async () => undefined,
+        runtimeCoordinator: {
+            create: async request => {
+                requests += 1;
+                request.createLaunchSpec();
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    // Cancelling the picker aborts before the title prompt and creates nothing.
+    await makeController(async () => undefined).createSession('p');
+    assert.equal(titlePrompts, 0);
+    assert.equal(requests, 0);
+    assert.deepEqual(remembered, []);
+
+    // An explicit base decision is recorded as base, without any profile.
+    await makeController(async () => 'base').createSession('p');
+    assert.equal(requests, 1);
+    assert.deepEqual(remembered, [['pending-base', { kind: 'base' }]]);
+});
+
+test('SESSION-CODEX-PROFILE-PICK-001 failed creations do not record decisions or last used', async () => {
+    const remembered = [];
+    for (const status of ['blocked', 'conflict', 'cancelled', 'settings']) {
+        const controller = new AiSessionCreationController({
+            isProviderId: value => value === 'codex',
+            getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget() : null,
+            pickWorkspaceRoot: async () => undefined,
+            pickProvider: async () => 'codex',
+            pickCodexProfile: async () => 'deepseek',
+            getProviderLabel: () => 'Codex',
+            getLaunchOptions: () => ({ yolo: false }),
+            getProvider: () => ({
+                label: 'Codex',
+                terminalNamePrefix: 'Codex',
+                buildNewSessionLaunchSpec: () => ({ executable: 'codex', args: [] }),
+            }),
+            resolveWorkspaceDirectoryScope: () => directoryScope,
+            rememberSessionProfile: (pendingId, decision) => remembered.push([pendingId, decision]),
+            showInputBox: async () => '',
+            showActiveTab: async () => undefined,
+            showWarningMessage: async () => undefined,
+            refresh: () => undefined,
+            getExistingSessionIdsForCwd: () => [],
+            getPendingMarkerPath: () => '/tmp/pending',
+            scheduleNewSessionRefresh: () => undefined,
+            nowMs: () => 1000,
+            createPendingId: () => `pending-${status}`,
+            announceStatus: async () => undefined,
+            runtimeCoordinator: {
+                create: async () => ({ status }),
+                getActive: () => [],
+                getPending: () => [],
+            },
+        });
+        await controller.createSession('p');
+    }
+    assert.deepEqual(remembered, [], 'non-started results never persist a profile decision');
+});
+
+test('SESSION-CODEX-PROFILE-RESUME-001 resume reuses the recorded profile decision', async () => {
+    const receivedLaunchOptions = [];
+    const controller = new AiSessionResumeController({
+        getWorkspaceTarget: id => id === 'p'
+            ? makeWorkspaceTarget([{ id: 's', name: 'Session', cwd: '/work' }])
+            : null,
+        getLaunchOptions: () => ({ yolo: true }),
+        resolveResumeProfileDecision: async (providerId, sessionId) => {
+            assert.equal(providerId, 'codex');
+            assert.equal(sessionId, 's');
+            return { kind: 'profile', name: 'deepseek' };
+        },
+        getProvider: () => ({
+            label: 'Codex',
+            terminalEnvKey: 'CODEX',
+            buildResumeLaunchSpec: (_id, _scope, _markerPath, launchOptions) => {
+                receivedLaunchOptions.push(launchOptions);
+                return { executable: 'codex', args: ['resume', 's'] };
+            },
+        }),
+        resolveWorkspaceDirectoryScope: () => directoryScope,
+        getTerminalName: () => 'Codex: Session',
+        getMarkerPath: () => '/tmp/resume',
+        showWarningMessage: () => undefined,
+        refresh: () => undefined,
+        showActiveTab: () => undefined,
+        announceStatus: async () => undefined,
+        runtimeCoordinator: {
+            resume: async request => {
+                request.createLaunchSpec();
+                return { status: 'started', backend: 'vscode' };
+            },
+        },
+    });
+    await controller.resumeProjectSession('p', 'codex', 's');
+    assert.deepEqual(receivedLaunchOptions, [{ yolo: true, codexProfile: 'deepseek' }]);
+});
+
+test('SESSION-CODEX-PROFILE-RESUME-001 recorded base and legacy sessions resume without a profile', async () => {
+    const receivedLaunchOptions = [];
+    const decisions = [{ kind: 'base' }, undefined];
+    for (const decision of decisions) {
+        const controller = new AiSessionResumeController({
+            getWorkspaceTarget: id => id === 'p'
+                ? makeWorkspaceTarget([{ id: 's', name: 'Session', cwd: '/work' }])
+                : null,
+            getLaunchOptions: () => ({ yolo: false }),
+            resolveResumeProfileDecision: async () => decision,
+            getProvider: () => ({
+                label: 'Codex',
+                terminalEnvKey: 'CODEX',
+                buildResumeLaunchSpec: (_id, _scope, _markerPath, launchOptions) => {
+                    receivedLaunchOptions.push(launchOptions);
+                    return { executable: 'codex', args: ['resume', 's'] };
+                },
+            }),
+            resolveWorkspaceDirectoryScope: () => directoryScope,
+            getTerminalName: () => 'Codex: Session',
+            getMarkerPath: () => '/tmp/resume',
+            showWarningMessage: () => undefined,
+            refresh: () => undefined,
+            showActiveTab: () => undefined,
+            announceStatus: async () => undefined,
+            runtimeCoordinator: {
+                resume: async request => {
+                    request.createLaunchSpec();
+                    return { status: 'started', backend: 'vscode' };
+                },
+            },
+        });
+        await controller.resumeProjectSession('p', 'codex', 's');
+    }
+    assert.deepEqual(
+        receivedLaunchOptions,
+        [{ yolo: false }, { yolo: false }],
+        'recorded base and legacy records resume without -p and never fall back to the setting'
+    );
+    for (const options of receivedLaunchOptions) {
+        assert.equal('codexProfile' in options, false);
+    }
+});
+
+test('SESSION-CODEX-PROFILE-RESUME-001 an unavailable profile can cancel or downgrade the resume', async () => {
+    const outcomes = [];
+    for (const resolution of ['cancel', { kind: 'base' }]) {
+        const controller = new AiSessionResumeController({
+            getWorkspaceTarget: id => id === 'p'
+                ? makeWorkspaceTarget([{ id: 's', name: 'Session', cwd: '/work' }])
+                : null,
+            getLaunchOptions: () => ({ yolo: false }),
+            resolveResumeProfileDecision: async () => resolution,
+            getProvider: () => ({
+                label: 'Codex',
+                terminalEnvKey: 'CODEX',
+                buildResumeLaunchSpec: (_id, _scope, _markerPath, launchOptions) => {
+                    outcomes.push(launchOptions);
+                    return { executable: 'codex', args: ['resume', 's'] };
+                },
+            }),
+            resolveWorkspaceDirectoryScope: () => directoryScope,
+            getTerminalName: () => 'Codex: Session',
+            getMarkerPath: () => '/tmp/resume',
+            showWarningMessage: () => undefined,
+            refresh: () => undefined,
+            showActiveTab: () => undefined,
+            announceStatus: async () => undefined,
+            runtimeCoordinator: {
+                resume: async request => {
+                    outcomes.push('resume-request');
+                    request.createLaunchSpec();
+                    return { status: 'started', backend: 'vscode' };
+                },
+            },
+        });
+        await controller.resumeProjectSession('p', 'codex', 's');
+    }
+    assert.deepEqual(
+        outcomes,
+        ['resume-request', { yolo: false }],
+        'cancel aborts before dispatch; base downgrades to a profile-less launch'
+    );
+});
+
 test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and reveals successful runtime results', async () => {
     const effects = [];
     const requests = [];

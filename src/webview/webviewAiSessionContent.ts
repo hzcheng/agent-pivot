@@ -31,6 +31,20 @@ export interface AiSessionRenderOptions {
 export interface RootLabeledAiSession extends CodexSession {
     primaryRootId?: string;
     primaryRootLabel?: string;
+    profile?: string;
+    profileUnavailable?: boolean;
+}
+
+function getAiSessionProfileBadge(
+    profile: string | undefined,
+    profileUnavailable: boolean | undefined
+): string {
+    if (!profile) {
+        return '';
+    }
+    var escapedProfile = escapeAttribute(profile);
+    var tooltip = `Codex config profile: ${escapedProfile}${profileUnavailable ? ' (unavailable)' : ''}`;
+    return `<span class="ai-session-profile-badge${profileUnavailable ? ' ai-session-profile-unavailable' : ''}" title="${tooltip}" aria-label="${tooltip}">${escapedProfile}${profileUnavailable ? ' · unavailable' : ''}</span>`;
 }
 
 export interface AiSessionSurfaceViewModel {
@@ -374,15 +388,19 @@ function getCodexSessionRow(
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(primaryRootLabel))}</span>`
         : '';
     var providerBadge = `<span class="ai-session-provider-badge">${providerLabel}</span>`;
+    var profileBadge = getAiSessionProfileBadge(session.profile, session.profileUnavailable);
+    var profileAriaLabel = session.profile
+        ? `, Codex config profile ${escapeAttribute(session.profile)}${session.profileUnavailable ? ' (unavailable)' : ''}`
+        : '';
 
     return `
-<div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(attentionEventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}">
+<div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(attentionEventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}">
     ${batchCheckbox}
     <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session">
         ${attentionIndicator}
         <span class="codex-session-icon">${getAiProviderIcon(provider)}</span>
         <span class="codex-session-text">
-            <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${providerBadge}${rootChip}</span>
+            <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${providerBadge}${profileBadge}${rootChip}</span>
             <span class="codex-session-meta">${activeStatus}${active && metadata ? ' · ' : ''}${metadata}</span>
         </span>
     </button>
@@ -469,15 +487,19 @@ function getActiveAiSessionRow(
     var rootChip = showRootChip && model.primaryRootLabel
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(model.primaryRootLabel))}</span>`
         : '';
+    var profileBadge = getAiSessionProfileBadge(model.profile, model.profileUnavailable);
+    var profileAriaLabel = model.profile
+        ? `, Codex config profile ${escapeAttribute(model.profile)}${model.profileUnavailable ? ' (unavailable)' : ''}`
+        : '';
     var openConversationHint = hasOpenConversationHint
         ? '<span class="ai-session-open-conversation-hint" aria-hidden="true">›</span>'
         : '';
-    return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
+    return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
         <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryTitle}" data-focus-aria-label="${focusAriaLabel}" data-focus-title="${focusTitle}" data-conversation-aria-label="${conversationAriaLabel}" data-conversation-title="${conversationTitle}">
             ${attentionIndicator}
             <span class="codex-session-icon">${getAiProviderIcon(model.provider)}</span>
             <span class="codex-session-text">
-                <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${rootChip}</span>
+                <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${profileBadge}${rootChip}</span>
                 <span class="codex-session-meta">${metadata}</span>
             </span>
             ${openConversationHint}

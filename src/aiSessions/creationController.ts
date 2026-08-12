@@ -14,7 +14,7 @@ import type {
     AiSessionRuntimeActionResult,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
-import type { AiSessionDirectoryScope, WorkspaceAiSessionActionTarget } from './types';
+import type { AiSessionDirectoryScope, SessionProfileDecision, WorkspaceAiSessionActionTarget } from './types';
 
 interface AiSessionCreationTarget {
     id: string;
@@ -24,6 +24,7 @@ interface AiSessionCreationTarget {
 
 export interface NewAiSessionFields {
     title: string;
+    codexProfileDecision?: SessionProfileDecision;
 }
 
 export interface AiSessionCreationProvider {
@@ -50,6 +51,18 @@ export interface AiSessionCreationControllerCommonOptions {
         workspace: WorkspaceAiSessionActionTarget['workspace']
     ) => Thenable<string | undefined> | Promise<string | undefined>;
     pickProvider: () => Thenable<AiSessionProviderId | undefined>;
+    /**
+     * Codex-only profile picker. Returns 'base' for an explicit base-config
+     * decision (including the picker-hidden fallback), a profile name for a
+     * named profile, or undefined when the user cancels session creation.
+     */
+    pickCodexProfile?: () => Thenable<'base' | string | undefined>;
+    /**
+     * Called after a Codex runtime successfully started so the effective
+     * profile decision (including 'base') can be persisted and remembered as
+     * the next picker default. Never called for cancelled/failed creations.
+     */
+    rememberSessionProfile?: (pendingId: string, decision: SessionProfileDecision) => void;
     getProviderLabel: (providerId: AiSessionProviderId) => string;
     getLaunchOptions: () => AiSessionLaunchOptions;
     getProvider: (providerId: AiSessionProviderId) => AiSessionCreationProvider;
@@ -119,14 +132,36 @@ export class AiSessionCreationController {
             if (!providerId || !this.options.isProviderId(providerId)) {
                 return;
             }
+            const codexProfileDecision = await this.queryCodexProfileDecision(providerId);
+            if (providerId === 'codex' && this.options.pickCodexProfile && !codexProfileDecision) {
+                return;
+            }
             const fields = await this.queryNewSessionFields(providerId);
             if (!fields) {
                 return;
+            }
+            if (codexProfileDecision) {
+                fields.codexProfileDecision = codexProfileDecision;
             }
             await this.createProviderSession(providerId, target, fields, explicitRootId);
         } finally {
             this.creating = false;
         }
+    }
+
+    private async queryCodexProfileDecision(
+        providerId: AiSessionProviderId
+    ): Promise<SessionProfileDecision | undefined> {
+        if (providerId !== 'codex' || !this.options.pickCodexProfile) {
+            return undefined;
+        }
+        const picked = await this.options.pickCodexProfile();
+        if (picked === undefined) {
+            return undefined;
+        }
+        return picked === 'base'
+            ? { kind: 'base' }
+            : { kind: 'profile', name: picked };
     }
 
     private async queryNewSessionFields(providerId: AiSessionProviderId): Promise<NewAiSessionFields | null> {
@@ -209,7 +244,10 @@ export class AiSessionCreationController {
                     launchScope,
                     fields.title,
                     markerPath,
-                    options.getLaunchOptions()
+                    mergeCodexProfileLaunchOptions(
+                        options.getLaunchOptions(),
+                        fields.codexProfileDecision
+                    )
                 )),
             directoryScope,
         };
@@ -244,6 +282,9 @@ export class AiSessionCreationController {
         }
         if (result.status === 'started') {
             await options.rememberDirectoryScope?.(directoryScope);
+            if (providerId === 'codex' && fields.codexProfileDecision) {
+                options.rememberSessionProfile?.(pendingId, fields.codexProfileDecision);
+            }
         }
         await options.showActiveTab(target.id);
         options.refresh();
@@ -257,6 +298,16 @@ function cloneDirectoryScope(scope: AiSessionDirectoryScope): AiSessionDirectory
         workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
         additionalDirectories: [...scope.additionalDirectories],
     };
+}
+
+function mergeCodexProfileLaunchOptions(
+    launchOptions: AiSessionLaunchOptions,
+    decision: SessionProfileDecision | undefined
+): AiSessionLaunchOptions {
+    if (!decision || decision.kind !== 'profile') {
+        return launchOptions;
+    }
+    return { ...launchOptions, codexProfile: decision.name };
 }
 
 function validateControllerOptions(options: AiSessionCreationControllerOptions): void {

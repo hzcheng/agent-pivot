@@ -14,6 +14,7 @@ import type {
     AiSessionProviderDefinition,
     AiSessionReadResult,
     AiSessionViewModel,
+    SessionProfileDecision,
     WorkspaceAiSessionViewModel,
 } from '../aiSessions/types';
 import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
@@ -45,6 +46,12 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;
     pinnedSessions: ReadonlySet<string>;
     aliases: Readonly<Record<string, string>>;
+    /** Recorded Codex profile decisions keyed by `provider:sessionId`. */
+    profiles?: Readonly<Record<string, SessionProfileDecision>>;
+    /** Recorded Codex profile decisions for pending runtimes, keyed by pendingId. */
+    pendingProfiles?: Readonly<Record<string, SessionProfileDecision>>;
+    /** Availability of each referenced profile's config file. */
+    profileAvailability?: Readonly<Record<string, boolean>>;
     activeRuntimes?: readonly AiSessionRuntimeSnapshot<TTerminal>[];
     pendingRuntimes?: readonly AiSessionPendingRuntimeSnapshot<TTerminal>[];
     executionSnapshot?: Readonly<Record<string, AiSessionExecutionSnapshot>>;
@@ -150,6 +157,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
             return {
                 ...session,
                 provider: provider.id,
+                ...profileMetadata(input.profiles?.[key], input.profileAvailability),
                 active: activeSessionKeys.has(key),
                 focused: focusedSessionKey === key,
                 ...(attention ? { attention } : {}),
@@ -229,6 +237,7 @@ function buildActiveSessions<TTerminal>(input: {
                 key,
                 provider: providerId,
                 sessionId,
+                ...profileMetadata(input.input.profiles?.[key], input.input.profileAvailability),
                 name: session?.name || `${providerLabel(input.input.providers, providerId)} ${shortId(sessionId)}`,
                 executionState,
                 focused,
@@ -260,6 +269,10 @@ function buildActiveSessions<TTerminal>(input: {
             key,
             provider: providerId,
             pendingId,
+            ...profileMetadata(
+                input.input.pendingProfiles?.[runtime.identity.pendingId || ''],
+                input.input.profileAvailability
+            ),
             name: runtime.title || `New ${providerLabel(input.input.providers, providerId)} session`,
             executionState: 'starting',
             focused,
@@ -291,6 +304,19 @@ ActiveAiSessionViewModel,
     } : {
         primaryRootLabel: 'Outside workspace',
         outsideWorkspace: true,
+    };
+}
+
+function profileMetadata(
+    decision: SessionProfileDecision | undefined,
+    availability: Readonly<Record<string, boolean>> | undefined
+): { profile?: string; profileUnavailable?: boolean } {
+    if (!decision || decision.kind !== 'profile') {
+        return {};
+    }
+    return {
+        profile: decision.name,
+        ...(availability?.[decision.name] === false ? { profileUnavailable: true } : {}),
     };
 }
 

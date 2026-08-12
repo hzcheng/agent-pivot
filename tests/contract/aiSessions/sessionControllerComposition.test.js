@@ -111,6 +111,7 @@ function createFixture(overrides = {}) {
         showErrorMessage: record('showErrorMessage'),
         writeClipboard: record('writeClipboard'),
         focusTerminalView: record('focusTerminalView'),
+        ...(overrides.compositionOptions || {}),
     }, factories);
     return { composition, controllerOptions, calls, providers };
 }
@@ -281,8 +282,7 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 builds exact runtime co
     ]);
 });
 
-test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 wires names, conflicts, and markers', async () => {
-    const { controllerOptions, calls, providers } = createFixture();
+test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 wires names, conflicts, and markers', async () => {    const { controllerOptions, calls, providers } = createFixture();
     const resume = controllerOptions.resume;
 
     resume.getRuntimeConflict('codex', 's1', 'scope-1');

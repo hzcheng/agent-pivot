@@ -15,9 +15,11 @@ import { AiSessionCommandController } from './commandController';
 import type { AiSessionCommandControllerOptions } from './commandController';
 import { AiSessionCreationController } from './creationController';
 import type { AiSessionCreationControllerOptions } from './creationController';
+import { buildCodexProfilePicks } from './codexProfiles';
 import { readAiSessionLaunchOptions } from './launchOptions';
 import { getAiSessionIdsForCwd } from './pendingTerminals';
 import type AiSessionPinController from './pinController';
+import type AiSessionProfileController from './sessionProfileController';
 import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
 import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
 import type { AiSessionReadCoordinator } from './readCoordinator';
@@ -32,6 +34,7 @@ import type AiSessionTerminalService from './terminalService';
 import type {
     AiSessionBatchArchiveCompletedMessage,
     AiSessionProvider,
+    SessionProfileDecision,
     WorkspaceAiSessionActionTarget,
 } from './types';
 import type AiSessionWorkspaceStateStore from './workspaceStateStore';
@@ -72,6 +75,17 @@ export interface SessionControllerCompositionOptions {
     /** Late-bound: the highlighter is constructed after the controllers. */
     syncActiveRuntime: () => void;
     getLaunchOptions: () => ReturnType<typeof readAiSessionLaunchOptions>;
+    /** Codex profile support hooks; optional so tests can omit them. */
+    aiSessionProfileController?: AiSessionProfileController;
+    /** Reads agentPivot.codexDefaultProfile (new sessions only). */
+    getCodexDefaultProfile?: () => string | undefined;
+    /** Probes whether the installed Codex CLI supports `-p/--profile`. */
+    getCodexProfileSupport?: () => Promise<boolean>;
+    /** Lists discovered `<name>.config.toml` profile names. */
+    listCodexProfiles?: () => string[];
+    /** Reports whether `<name>.config.toml` still exists. */
+    isCodexProfileFileAvailable?: (name: string) => boolean;
+    openSettings?: (query: string) => Thenable<unknown>;
     postMessage: (message: unknown) => Thenable<unknown>;
     appendOutput: (message: string) => void;
     postBatchArchiveCompletion: (message: AiSessionBatchArchiveCompletedMessage) => void;
@@ -206,6 +220,83 @@ export function createSessionControllerComposition(
         );
         return selected?.providerId;
     };
+    let warnedUnsupportedCodexProfileCli = false;
+    let warnedMissingDefaultProfileFile = false;
+    const pickCodexProfile = async (): Promise<'base' | string | undefined> => {
+        const defaultFromSetting = options.getCodexDefaultProfile?.() || undefined;
+        const supported = await (options.getCodexProfileSupport?.() ?? Promise.resolve(false));
+        const profiles = supported ? (options.listCodexProfiles?.() || []) : [];
+        if (!supported) {
+            if ((defaultFromSetting || (options.listCodexProfiles?.() || []).length > 0)
+                && !warnedUnsupportedCodexProfileCli) {
+                warnedUnsupportedCodexProfileCli = true;
+                void showInformationMessage(
+                    'The installed Codex CLI does not support configuration profiles '
+                    + '(-p/--profile). Upgrade the Codex CLI to select a profile; new '
+                    + 'sessions will use the base configuration.'
+                );
+            }
+            return 'base';
+        }
+        if (defaultFromSetting
+            && !profiles.includes(defaultFromSetting)
+            && !warnedMissingDefaultProfileFile) {
+            warnedMissingDefaultProfileFile = true;
+            void showWarningMessage(
+                `agentPivot.codexDefaultProfile points to '${defaultFromSetting}', but `
+                + `${defaultFromSetting}.config.toml was not found in the Codex home. New `
+                + 'sessions will use the base configuration until the file exists.'
+            );
+        }
+        if (!profiles.length) {
+            return 'base';
+        }
+        const quickPickOptions: vscode.QuickPickOptions = {
+            placeHolder: 'Select a Codex profile',
+            ignoreFocusOut: true,
+        };
+        (quickPickOptions as vscode.QuickPickOptions & { title?: string }).title = 'Select a Codex profile';
+        const selected = await showQuickPick(
+            buildCodexProfilePicks({
+                profiles,
+                lastUsed: options.aiSessionProfileController?.getLastUsed() || null,
+                defaultFromSetting,
+            }),
+            quickPickOptions
+        );
+        if (!selected) {
+            return undefined;
+        }
+        return selected.decision.kind === 'profile' ? selected.decision.name : 'base';
+    };
+    const resolveResumeProfileDecision = async (
+        providerId: AiSessionProviderId,
+        sessionId: string
+    ): Promise<SessionProfileDecision | 'cancel' | undefined> => {
+        const decision = options.aiSessionProfileController?.getDecision(providerId, sessionId);
+        if (!decision || decision.kind !== 'profile') {
+            return decision;
+        }
+        if (options.isCodexProfileFileAvailable?.(decision.name)) {
+            return decision;
+        }
+        const useBaseAction = 'Use Base Configuration';
+        const openSettingsAction = 'Open Settings';
+        const choice = await showWarningWithItems(
+            `Codex profile '${decision.name}' is unavailable: ${decision.name}.config.toml `
+            + 'no longer exists in the Codex home. Agent Pivot stores the profile name, '
+            + 'not a configuration snapshot.',
+            useBaseAction,
+            openSettingsAction
+        );
+        if (choice === useBaseAction) {
+            return { kind: 'base' };
+        }
+        if (choice === openSettingsAction) {
+            await options.openSettings?.('agentPivot.codexDefaultProfile');
+        }
+        return 'cancel';
+    };
     const aiSessionCommandController = factories.createCommandController({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getOpenWorkspace: getCurrentOpenWorkspace,
@@ -251,6 +342,11 @@ export function createSessionControllerComposition(
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         pickWorkspaceRoot: workspace => pickAiSessionWorkspaceRoot(workspace, 'create'),
         pickProvider: pickAiSessionProvider,
+        pickCodexProfile,
+        rememberSessionProfile: (pendingId, decision) => {
+            options.aiSessionProfileController?.recordPending(pendingId, decision);
+            options.aiSessionProfileController?.rememberLastUsed(decision);
+        },
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,
@@ -378,6 +474,7 @@ export function createSessionControllerComposition(
     const aiSessionResumeController = factories.createResumeController({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getLaunchOptions,
+        resolveResumeProfileDecision,
         getProvider: getRegisteredAiSessionProvider,
         resolveWorkspaceDirectoryScope: (target, session, providerId, explicitRootId) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(

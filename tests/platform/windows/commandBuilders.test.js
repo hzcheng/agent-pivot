@@ -127,6 +127,33 @@ test('SESSION-AI-SESSION-YOLO-LAUNCH-001 serializes provider flags as Windows CL
     assert.match(payloads[2], /claude --dangerously-skip-permissions/);
 });
 
+test('SESSION-CODEX-PROFILE-LAUNCH-001 serializes Codex profiles as Windows CLI syntax', () => {
+    const spaced = { yolo: false, codexProfile: 'kimi 2.5' };
+    const currentShellResume = serializeDirectLaunchCommand(
+        commands.buildCodexResumeLaunchSpec(sessionId, directoryScope(cwd), null, spaced),
+        'win32'
+    );
+    assert.ok(currentShellResume.startsWith('codex resume "-p" "kimi 2.5" --cd '));
+
+    const newPayload = decodePowerShellPayload(serializeDirectLaunchCommand(
+        commands.buildCodexNewSessionLaunchSpec(directoryScope(cwd), null, null, spaced),
+        'win32'
+    ));
+    assert.ok(newPayload.includes("codex '-p' 'kimi 2.5'"));
+
+    const posixResume = serializeDirectLaunchCommand(
+        commands.buildCodexResumeLaunchSpec(sessionId, directoryScope(cwd), null, {
+            yolo: false,
+            codexProfile: 'deepseek',
+        }),
+        'linux'
+    );
+    assert.equal(
+        posixResume,
+        `codex resume '-p' 'deepseek' --cd '${cwd}' '${sessionId}'`
+    );
+});
+
 test('SESSION-COMMAND-BUILDER-001 doubles PowerShell single quotes alongside ampersands and percents', () => {
     assert.equal(commands.quotePowerShellArg(value), "'Owner''s \"quoted\" & 100%'");
 });

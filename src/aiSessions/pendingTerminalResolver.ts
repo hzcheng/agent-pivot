@@ -72,6 +72,8 @@ export interface ResolvePendingAiSessionTerminalsOptions<TTerminal = unknown> {
     getSessionKey: (providerId: AiSessionProviderId, sessionId: string) => string;
     runtimeCoordinator: PendingAiSessionRuntimeCoordinator<TTerminal>;
     setAlias: (providerId: AiSessionProviderId, sessionId: string, alias: string) => void;
+    /** Persists the profile decision recorded at creation for the settled session. */
+    setSessionProfile?: (providerId: AiSessionProviderId, pendingId: string, sessionId: string) => void;
     syncActiveRuntime: () => void;
     claimedSessionKeys?: ReadonlySet<string>;
     settlePending?: PendingAiSessionPromotionSettler<TTerminal>;
@@ -241,6 +243,13 @@ function settlePendingAiSessionPromotion<TTerminal>(
         );
         if (!failureReason) {
             options.setAlias(pendingRuntime.identity.provider, sessionId, pendingRuntime.title);
+            if (pendingRuntime.identity.pendingId) {
+                options.setSessionProfile?.(
+                    pendingRuntime.identity.provider,
+                    pendingRuntime.identity.pendingId,
+                    sessionId
+                );
+            }
         }
         return { failureReason };
     };

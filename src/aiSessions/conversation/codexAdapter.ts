@@ -59,6 +59,10 @@ export interface CodexConversationClient extends AiSessionDisposable {
     watchNotifications?(
         listener: (method: string, params: unknown) => void
     ): AiSessionDisposable;
+    // Sanitized `major.minor` server version captured at initialize time,
+    // when the client exposes it. Gates version-sensitive protocol
+    // accelerators such as thread/turns/list.
+    getServerVersion?(): string | undefined;
 }
 
 interface CodexRolloutTelemetrySnapshot {
@@ -107,10 +111,33 @@ const LARGE_CONVERSATION_CACHE_ENTRIES = 2;
 const LARGE_CONVERSATION_CACHE_BUDGET_CHARS = 8 * 1024 * 1024;
 // Entries unused for this long are released on the next read.
 const LARGE_CONVERSATION_CACHE_IDLE_MS = 10 * 60 * 1000;
+// Server versions whose thread/turns/list behavior was verified against a
+// real app-server (spikes/codex-paginated-read). The method is gated behind
+// the experimentalApi capability and may drift at any release, so paginated
+// reloads only run on verified versions and fall back to a full thread/read
+// on any anomaly.
+const PAGINATED_READ_SERVER_VERSIONS = new Set(['0.147']);
+const PAGINATED_READ_PAGE_SIZE = 4;
+// How many turns an incremental reload walks back looking for the cached
+// anchor turn before treating the tail as rewritten (compaction/rollback)
+// and falling back to a full read.
+const PAGINATED_READ_WALK_LIMIT = 64;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
     sourceRevision: string;
+}
+
+// Per-turn normalized chunks of a cached root-thread conversation. Chunk
+// interactions share objects with `value.interactions` (no string payload
+// is duplicated); they let an incremental reload re-normalize only the
+// turns that actually changed.
+interface LoadedConversationTurn {
+    turnId: string;
+    itemIds: string[];
+    interactions: ConversationInteraction[];
+    fingerprint: string;
+    characters: number;
 }
 
 interface CachedLoadedConversation {
@@ -118,6 +145,7 @@ interface CachedLoadedConversation {
     contentSignature: string;
     characters: number;
     lastTouchedAt: number;
+    turns?: LoadedConversationTurn[];
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -232,11 +260,195 @@ function appendTurnTiming(
     return true;
 }
 
+// Mutable state shared across the per-turn normalization passes of one
+// thread. `itemIds` rejects duplicate item ids thread-wide; `newItemIds`
+// collects the ids contributed by the current turn so a cached turn chunk
+// can be re-normalized without tripping its own ids.
+interface NormalizeTurnContext {
+    interactions: ConversationInteraction[];
+    itemIds: Set<string>;
+    newItemIds: string[];
+    seededDispatchIndex?: number;
+    seededDispatchTimingComplete: boolean;
+}
+
+function normalizeTurnItems(
+    turn: Record<string, any>,
+    context: NormalizeTurnContext
+): void {
+    const interactions = context.interactions;
+    const itemIds = context.itemIds;
+    const seededDispatchIndex = context.seededDispatchIndex;
+    const responseState = turnResponseState(turn.status);
+    if (seededDispatchIndex !== undefined) {
+        interactions[seededDispatchIndex].responseState = responseState;
+    }
+    const timing = turnTiming(turn);
+    let timingAssigned = false;
+    let currentInteractionIndex: number | undefined = seededDispatchIndex;
+    for (const rawItem of turn.items) {
+        const item = asRecord(rawItem);
+        if (!item
+            || typeof item.id !== 'string'
+            || !item.id
+            || itemIds.has(item.id)
+            || typeof item.type !== 'string') {
+            throw protocolError();
+        }
+        itemIds.add(item.id);
+        context.newItemIds.push(item.id);
+        if (item.type === 'userMessage') {
+            currentInteractionIndex = undefined;
+            if (!Array.isArray(item.content)) {
+                throw protocolError();
+            }
+            const parts: VisibleUserInputPart[] = [];
+            for (const rawPart of item.content) {
+                const part = asRecord(rawPart);
+                if (!part || typeof part.type !== 'string') {
+                    throw protocolError();
+                }
+                if (part.type === 'text') {
+                    if (typeof part.text !== 'string') {
+                        throw protocolError();
+                    }
+                    parts.push({ kind: 'text', text: part.text });
+                } else if (
+                    part.type === 'image'
+                    || part.type === 'audio'
+                ) {
+                    if (typeof part.url !== 'string') {
+                        throw protocolError();
+                    }
+                    parts.push({ kind: 'attachment' });
+                } else if (
+                    part.type === 'localImage'
+                    || part.type === 'localAudio'
+                ) {
+                    if (typeof part.path !== 'string') {
+                        throw protocolError();
+                    }
+                    parts.push({ kind: 'attachment' });
+                }
+            }
+            const userMarkdown = visibleMessage(
+                buildVisibleUserInput(parts)
+            );
+            if (!userMarkdown) {
+                continue;
+            }
+            interactions.push({
+                id: item.id,
+                providerTurnId: turn.id,
+                ...(!timingAssigned ? timing : {}),
+                userMarkdown,
+                userPreview: buildUserPreview(userMarkdown),
+                userGraphemeCount: countGraphemes(userMarkdown),
+                assistantMarkdown: [],
+                responseState,
+            });
+            currentInteractionIndex = interactions.length - 1;
+            timingAssigned = true;
+        } else if (item.type === 'reasoning') {
+            if (currentInteractionIndex === undefined) {
+                continue;
+            }
+            // App-server exposes readable summaries separately from raw
+            // reasoning content. Only the summary is safe viewer output;
+            // never fall back to `content` or legacy `text` fields.
+            const text = normalizeReasoningSummary(item.summary);
+            if (text) {
+                const interaction = interactions[currentInteractionIndex];
+                (interaction.thinking ||= []).push({
+                    position: interaction.assistantMarkdown.length,
+                    text,
+                });
+            }
+        } else if (item.type === 'commandExecution'
+            || item.type === 'fileChange') {
+            if (currentInteractionIndex === undefined) {
+                continue;
+            }
+            const tool = normalizeToolItem(item);
+            if (!tool) {
+                continue;
+            }
+            const interaction = interactions[currentInteractionIndex];
+            (interaction.toolCalls ||= []).push({
+                position: interaction.assistantMarkdown.length,
+                ...tool,
+            });
+        } else if (item.type === 'plan') {
+            if (currentInteractionIndex === undefined) {
+                continue;
+            }
+            const planText = typeof item.text === 'string'
+                ? visibleMessage(item.text)
+                : '';
+            if (!planText) {
+                continue;
+            }
+            const interaction = interactions[currentInteractionIndex];
+            (interaction.plans ||= []).push({
+                position: interaction.assistantMarkdown.length,
+                markdown: planText,
+            });
+        } else if (item.type === 'agentMessage') {
+            if (typeof item.text !== 'string') {
+                throw protocolError();
+            }
+            if (currentInteractionIndex === undefined) {
+                continue;
+            }
+            const text = visibleMessage(item.text);
+            if (!text) {
+                continue;
+            }
+            const interaction = interactions[currentInteractionIndex];
+            if (item.phase === 'commentary') {
+                appendConversationAssistantText(
+                    interaction,
+                    text,
+                    'progress'
+                );
+            } else {
+                appendConversationAssistantText(interaction, text);
+            }
+        }
+    }
+    if (seededDispatchIndex !== undefined && !timingAssigned) {
+        // A Codex subagent transcript can span several provider turns
+        // while still representing one synthetic dispatch interaction.
+        // Sum active turn durations so the UI reports actual work time,
+        // excluding idle gaps between those turns.
+        if (context.seededDispatchTimingComplete
+            && !appendTurnTiming(
+                interactions[seededDispatchIndex],
+                timing
+            )) {
+            context.seededDispatchTimingComplete = false;
+            delete interactions[seededDispatchIndex].completedAt;
+        }
+    }
+}
+
+// One provider turn's contribution to a conversation: the interactions it
+// created (a subagent turn can instead mutate the seeded dispatch
+// interaction, captured separately) plus the item ids it consumed.
+interface NormalizedConversationTurn {
+    turnId: string;
+    interactions: ConversationInteraction[];
+    itemIds: string[];
+}
+
 function normalizeThreadRead(
     value: unknown,
     sessionId: string,
     dispatch?: { label: string; timestamp?: number }
-): ConversationInteraction[] {
+): {
+    interactions: ConversationInteraction[];
+    turns: NormalizedConversationTurn[];
+} {
     const result = asRecord(value);
     const thread = asRecord(result?.thread);
     if (!thread
@@ -246,15 +458,18 @@ function normalizeThreadRead(
         throw protocolError();
     }
     const turnIds = new Set<string>();
-    const itemIds = new Set<string>();
-    const interactions: ConversationInteraction[] = [];
+    const context: NormalizeTurnContext = {
+        interactions: [],
+        itemIds: new Set<string>(),
+        newItemIds: [],
+        seededDispatchTimingComplete: true,
+    };
+    const turns: NormalizedConversationTurn[] = [];
     // A subagent thread exposes no userMessage for its dispatch prompt
     // (the app-server strips it), so seed one from the thread metadata to
     // give the subagent's agentMessages an interaction to attach to.
-    let seededDispatchIndex: number | undefined;
-    let seededDispatchTimingComplete = true;
     if (dispatch) {
-        interactions.push({
+        context.interactions.push({
             id: `${sessionId}-dispatch`,
             ...(dispatch.timestamp !== undefined
                 ? { timestamp: dispatch.timestamp }
@@ -265,7 +480,7 @@ function normalizeThreadRead(
             assistantMarkdown: [],
             responseState: 'unknown',
         });
-        seededDispatchIndex = 0;
+        context.seededDispatchIndex = 0;
     }
     for (const rawTurn of thread.turns) {
         const turn = asRecord(rawTurn);
@@ -278,158 +493,26 @@ function normalizeThreadRead(
             throw protocolError();
         }
         turnIds.add(turn.id);
-        const responseState = turnResponseState(turn.status);
-        if (seededDispatchIndex !== undefined) {
-            interactions[seededDispatchIndex].responseState = responseState;
-        }
-        const timing = turnTiming(turn);
-        let timingAssigned = false;
-        let currentInteractionIndex: number | undefined = seededDispatchIndex;
-        for (const rawItem of turn.items) {
-            const item = asRecord(rawItem);
-            if (!item
-                || typeof item.id !== 'string'
-                || !item.id
-                || itemIds.has(item.id)
-                || typeof item.type !== 'string') {
-                throw protocolError();
-            }
-            itemIds.add(item.id);
-            if (item.type === 'userMessage') {
-                currentInteractionIndex = undefined;
-                if (!Array.isArray(item.content)) {
-                    throw protocolError();
-                }
-                const parts: VisibleUserInputPart[] = [];
-                for (const rawPart of item.content) {
-                    const part = asRecord(rawPart);
-                    if (!part || typeof part.type !== 'string') {
-                        throw protocolError();
-                    }
-                    if (part.type === 'text') {
-                        if (typeof part.text !== 'string') {
-                            throw protocolError();
-                        }
-                        parts.push({ kind: 'text', text: part.text });
-                    } else if (
-                        part.type === 'image'
-                        || part.type === 'audio'
-                    ) {
-                        if (typeof part.url !== 'string') {
-                            throw protocolError();
-                        }
-                        parts.push({ kind: 'attachment' });
-                    } else if (
-                        part.type === 'localImage'
-                        || part.type === 'localAudio'
-                    ) {
-                        if (typeof part.path !== 'string') {
-                            throw protocolError();
-                        }
-                        parts.push({ kind: 'attachment' });
-                    }
-                }
-                const userMarkdown = visibleMessage(
-                    buildVisibleUserInput(parts)
-                );
-                if (!userMarkdown) {
-                    continue;
-                }
-                interactions.push({
-                    id: item.id,
-                    providerTurnId: turn.id,
-                    ...(!timingAssigned ? timing : {}),
-                    userMarkdown,
-                    userPreview: buildUserPreview(userMarkdown),
-                    userGraphemeCount: countGraphemes(userMarkdown),
-                    assistantMarkdown: [],
-                    responseState,
-                });
-                currentInteractionIndex = interactions.length - 1;
-                timingAssigned = true;
-            } else if (item.type === 'reasoning') {
-                if (currentInteractionIndex === undefined) {
-                    continue;
-                }
-                // App-server exposes readable summaries separately from raw
-                // reasoning content. Only the summary is safe viewer output;
-                // never fall back to `content` or legacy `text` fields.
-                const text = normalizeReasoningSummary(item.summary);
-                if (text) {
-                    const interaction = interactions[currentInteractionIndex];
-                    (interaction.thinking ||= []).push({
-                        position: interaction.assistantMarkdown.length,
-                        text,
-                    });
-                }
-            } else if (item.type === 'commandExecution'
-                || item.type === 'fileChange') {
-                if (currentInteractionIndex === undefined) {
-                    continue;
-                }
-                const tool = normalizeToolItem(item);
-                if (!tool) {
-                    continue;
-                }
-                const interaction = interactions[currentInteractionIndex];
-                (interaction.toolCalls ||= []).push({
-                    position: interaction.assistantMarkdown.length,
-                    ...tool,
-                });
-            } else if (item.type === 'plan') {
-                if (currentInteractionIndex === undefined) {
-                    continue;
-                }
-                const planText = typeof item.text === 'string'
-                    ? visibleMessage(item.text)
-                    : '';
-                if (!planText) {
-                    continue;
-                }
-                const interaction = interactions[currentInteractionIndex];
-                (interaction.plans ||= []).push({
-                    position: interaction.assistantMarkdown.length,
-                    markdown: planText,
-                });
-            } else if (item.type === 'agentMessage') {
-                if (typeof item.text !== 'string') {
-                    throw protocolError();
-                }
-                if (currentInteractionIndex === undefined) {
-                    continue;
-                }
-                const text = visibleMessage(item.text);
-                if (!text) {
-                    continue;
-                }
-                const interaction = interactions[currentInteractionIndex];
-                if (item.phase === 'commentary') {
-                    appendConversationAssistantText(
-                        interaction,
-                        text,
-                        'progress'
-                    );
-                } else {
-                    appendConversationAssistantText(interaction, text);
-                }
-            }
-        }
-        if (seededDispatchIndex !== undefined && !timingAssigned) {
-            // A Codex subagent transcript can span several provider turns
-            // while still representing one synthetic dispatch interaction.
-            // Sum active turn durations so the UI reports actual work time,
-            // excluding idle gaps between those turns.
-            if (seededDispatchTimingComplete
-                && !appendTurnTiming(
-                    interactions[seededDispatchIndex],
-                    timing
-                )) {
-                seededDispatchTimingComplete = false;
-                delete interactions[seededDispatchIndex].completedAt;
-            }
-        }
+        context.newItemIds = [];
+        const startIndex = context.interactions.length;
+        normalizeTurnItems(turn, context);
+        turns.push({
+            turnId: turn.id,
+            interactions: context.interactions.slice(startIndex),
+            itemIds: context.newItemIds,
+        });
     }
-    return interactions;
+    if (dispatch) {
+        // The seed interaction is mutated by later turns, so its chunk is
+        // captured after the loop with its final state. Keeping it as chunk
+        // zero makes the chunk list partition the flat interaction array.
+        turns.unshift({
+            turnId: '',
+            interactions: [context.interactions[0]],
+            itemIds: [],
+        });
+    }
+    return { interactions: context.interactions, turns };
 }
 
 function fingerprintInteractions(
@@ -438,6 +521,73 @@ function fingerprintInteractions(
     return createHash('sha256')
         .update(JSON.stringify(interactions), 'utf8')
         .digest('hex');
+}
+
+// The conversation revision is composed from per-turn fingerprints so an
+// incremental reload only hashes the turns it re-read. The composition is
+// opaque downstream and identical across the full and incremental paths for
+// identical content.
+function composeConversationRevision(
+    turns: readonly LoadedConversationTurn[]
+): string {
+    return createHash('sha256')
+        .update(turns.map(turn => turn.fingerprint).join(':'), 'utf8')
+        .digest('hex');
+}
+
+function conversationCharacters(
+    interactions: readonly ConversationInteraction[]
+): number {
+    let characters = 0;
+    for (const interaction of interactions) {
+        characters += interaction.userMarkdown?.length || 0;
+        for (const markdown of interaction.assistantMarkdown) {
+            characters += markdown.length;
+        }
+        for (const tool of interaction.toolCalls || []) {
+            characters += (tool.summary?.length || 0)
+                + (tool.detail?.length || 0);
+        }
+        for (const thinking of interaction.thinking || []) {
+            characters += thinking.text?.length || 0;
+        }
+    }
+    return characters;
+}
+
+// Validates one thread/turns/list page. Turn-level checks mirror
+// normalizeThreadRead so a turn that passes here is safe to feed into
+// normalizeTurnItems.
+function parseTurnsListPage(
+    value: unknown
+): { turns: Record<string, any>[]; nextCursor?: string } {
+    const page = asRecord(value);
+    if (!page || !Array.isArray(page.data)) {
+        throw protocolError();
+    }
+    if (page.nextCursor !== undefined
+        && page.nextCursor !== null
+        && typeof page.nextCursor !== 'string') {
+        throw protocolError();
+    }
+    const turns: Record<string, any>[] = [];
+    for (const rawTurn of page.data) {
+        const turn = asRecord(rawTurn);
+        if (!turn
+            || typeof turn.id !== 'string'
+            || !turn.id
+            || typeof turn.status !== 'string'
+            || !Array.isArray(turn.items)) {
+            throw protocolError();
+        }
+        turns.push(turn);
+    }
+    return {
+        turns,
+        nextCursor: typeof page.nextCursor === 'string'
+            ? page.nextCursor
+            : undefined,
+    };
 }
 
 function normalizeToolItem(
@@ -637,6 +787,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     private loadedConversationCacheChars = 0;
     private conversationCacheGeneration = 0;
     private disposed = false;
+    // Circuit breaker for the experimental thread/turns/list accelerator:
+    // once the server rejects the method or answers with a malformed page,
+    // the paginated path is disabled for the lifetime of this adapter and
+    // every reload uses the stable full thread/read instead.
+    private paginatedReadsDisabled = false;
 
     constructor(private readonly options: CodexConversationAdapterOptions) {
         this.notificationWatch = options.client.watchNotifications?.(
@@ -1051,24 +1206,192 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }
         const generation = this.conversationCacheGeneration;
         const startedAt = this.now();
-        return this.loadFresh(sessionId, signal).then(value => {
+        return this.loadConversation(sessionId, cached, signal).then(outcome => {
             if (!this.disposed
                 && generation === this.conversationCacheGeneration
-                && signature !== undefined) {
-                const characters = this.conversationCharacters(value);
-                if (characters >= LARGE_CONVERSATION_CACHE_CHARS
+                && signature !== undefined
+                && (outcome.kind === 'incremental'
+                    || outcome.characters >= LARGE_CONVERSATION_CACHE_CHARS
                     || this.now() - startedAt
-                        >= LARGE_CONVERSATION_CACHE_MIN_READ_MS) {
-                    this.storeLoadedConversationCacheEntry(sessionId, {
-                        value,
-                        contentSignature: signature,
-                        characters,
-                        lastTouchedAt: this.now(),
-                    });
-                }
+                        >= LARGE_CONVERSATION_CACHE_MIN_READ_MS)) {
+                this.storeLoadedConversationCacheEntry(sessionId, {
+                    value: outcome.value,
+                    contentSignature: signature,
+                    characters: outcome.characters,
+                    lastTouchedAt: this.now(),
+                    turns: outcome.turns,
+                });
             }
-            return value;
+            return outcome.value;
         });
+    }
+
+    private async loadConversation(
+        sessionId: string,
+        stale: CachedLoadedConversation | undefined,
+        signal?: ConversationAbortSignal
+    ): Promise<{
+        value: LoadedConversation;
+        turns?: LoadedConversationTurn[];
+        characters: number;
+        kind: 'fresh' | 'incremental';
+    }> {
+        const split = splitSubagentSessionId(sessionId);
+        if (stale?.turns?.length
+            && !split.subagentId
+            && this.paginatedReadsUsable()) {
+            const incremental = await this.loadIncremental(
+                sessionId,
+                stale as CachedLoadedConversation
+                    & { turns: LoadedConversationTurn[] },
+                signal
+            );
+            if (incremental) {
+                return { ...incremental, kind: 'incremental' };
+            }
+        }
+        if (stale) {
+            // A stale or unverifiable entry is released rather than
+            // lingering beside — or instead of — its replacement.
+            this.deleteLoadedConversationCacheEntry(sessionId, stale);
+        }
+        const fresh = await this.loadFresh(sessionId, signal);
+        return { ...fresh, kind: 'fresh' };
+    }
+
+    private paginatedReadsUsable(): boolean {
+        if (this.paginatedReadsDisabled) {
+            return false;
+        }
+        const version = this.options.client.getServerVersion?.();
+        return version !== undefined
+            && PAGINATED_READ_SERVER_VERSIONS.has(version);
+    }
+
+    /**
+     * Reloads a cached root-thread conversation by fetching only the tail of
+     * the thread through thread/turns/list. Returns null when the tail was
+     * rewritten (compaction/rollback) or the content would equally fail the
+     * stable path — the caller then falls back to a full thread/read. Any
+     * transport- or page-level anomaly additionally disables the paginated
+     * path for the lifetime of this adapter.
+     */
+    private async loadIncremental(
+        sessionId: string,
+        cached: CachedLoadedConversation
+            & { turns: LoadedConversationTurn[] },
+        signal?: ConversationAbortSignal
+    ): Promise<{
+        value: LoadedConversation;
+        turns: LoadedConversationTurn[];
+        characters: number;
+    } | null> {
+        const anchorTurnId = cached.turns[cached.turns.length - 1].turnId;
+        const fetched: Record<string, any>[] = [];
+        let cursor: string | undefined;
+        let anchorIndex = -1;
+        while (anchorIndex < 0 && fetched.length < PAGINATED_READ_WALK_LIMIT) {
+            let page: unknown;
+            try {
+                page = await this.options.client.request('thread/turns/list', {
+                    threadId: sessionId,
+                    cursor,
+                    limit: PAGINATED_READ_PAGE_SIZE,
+                    sortDirection: 'desc',
+                    itemsView: 'full',
+                }, signal);
+            } catch (error) {
+                if (error instanceof ConversationAbortError
+                    || error?.name === 'AbortError') {
+                    throw error;
+                }
+                if (this.disposed) {
+                    throw new ConversationError(
+                        'unavailable',
+                        'reconnectingCodex'
+                    );
+                }
+                this.paginatedReadsDisabled = true;
+                return null;
+            }
+            let pageTurns: Record<string, any>[];
+            let nextCursor: string | undefined;
+            try {
+                ({ turns: pageTurns, nextCursor } = parseTurnsListPage(page));
+            } catch (_error) {
+                this.paginatedReadsDisabled = true;
+                return null;
+            }
+            fetched.push(...pageTurns);
+            anchorIndex = fetched.findIndex(turn => turn.id === anchorTurnId);
+            if (!nextCursor || pageTurns.length === 0) {
+                break;
+            }
+            cursor = nextCursor;
+        }
+        if (anchorIndex < 0) {
+            return null;
+        }
+        // `fetched` is newest-first: re-read the anchor turn (it may have
+        // grown since it was cached) plus every turn appended after it,
+        // in chronological order.
+        const replaced = fetched.slice(0, anchorIndex + 1).reverse();
+        const kept = cached.turns.slice(0, -1);
+        const itemIds = new Set<string>();
+        for (const chunk of kept) {
+            for (const itemId of chunk.itemIds) {
+                itemIds.add(itemId);
+            }
+        }
+        const keptTurnIds = new Set(kept.map(chunk => chunk.turnId));
+        const newTurns: LoadedConversationTurn[] = [];
+        try {
+            for (const turn of replaced) {
+                if (keptTurnIds.has(turn.id)) {
+                    // A supposedly immutable earlier turn reappeared: the
+                    // history was rewritten, which only a full read settles.
+                    return null;
+                }
+                const context: NormalizeTurnContext = {
+                    interactions: [],
+                    itemIds,
+                    newItemIds: [],
+                    seededDispatchTimingComplete: true,
+                };
+                normalizeTurnItems(turn, context);
+                newTurns.push({
+                    turnId: turn.id,
+                    interactions: context.interactions,
+                    itemIds: context.newItemIds,
+                    fingerprint: fingerprintInteractions(context.interactions),
+                    characters: conversationCharacters(context.interactions),
+                });
+            }
+        } catch (_error) {
+            // Content the stable path would reject as well: fall back so the
+            // full read surfaces the canonical error.
+            return null;
+        }
+        const turns = [...kept, ...newTurns];
+        const sourceRevision = composeConversationRevision(turns);
+        const characters = turns.reduce(
+            (sum, turn) => sum + turn.characters,
+            0
+        );
+        if (sourceRevision === cached.value.sourceRevision) {
+            // The stat moved but the visible content did not: keep the
+            // cached value (its identity is pinned to the revision) and let
+            // the caller re-anchor the entry to the new signature.
+            return { value: cached.value, turns, characters };
+        }
+        const interactions = this.promoteRunningLifecycle(
+            sessionId,
+            turns.reduce<ConversationInteraction[]>(
+                (all, turn) => all.concat(turn.interactions),
+                []
+            )
+        );
+        return { value: { interactions, sourceRevision }, turns, characters };
     }
 
     private storeLoadedConversationCacheEntry(
@@ -1140,7 +1463,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     private async loadFresh(
         sessionId: string,
         signal?: ConversationAbortSignal
-    ): Promise<LoadedConversation> {
+    ): Promise<{
+        value: LoadedConversation;
+        turns?: LoadedConversationTurn[];
+        characters: number;
+    }> {
         if (this.disposed) {
             throw new ConversationError(
                 'unavailable',
@@ -1169,7 +1496,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 ? new ConversationError('unavailable', 'missingSource')
                 : protocolError();
         }
-        let interactions: ConversationInteraction[];
+        let normalized: ReturnType<typeof normalizeThreadRead>;
         try {
             if (split.subagentId) {
                 const thread = asRecord(asRecord(result)?.thread);
@@ -1183,56 +1510,61 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     threadId
                 )
                 : undefined;
-            interactions = normalizeThreadRead(result, threadId, dispatch);
+            normalized = normalizeThreadRead(result, threadId, dispatch);
         } catch (error) {
             if (error instanceof ConversationError) {
                 throw error;
             }
             throw protocolError();
         }
+        const turns: LoadedConversationTurn[] = normalized.turns.map(chunk => ({
+            ...chunk,
+            fingerprint: fingerprintInteractions(chunk.interactions),
+            characters: conversationCharacters(chunk.interactions),
+        }));
         // App Server instances do not share live turn state. When another
         // extension owns the running turn, thread/read can persist it as
         // interrupted even while its rollout is still receiving events.
         // Keep the protocol fingerprint content-only, then let the rollout's
         // authoritative lifecycle promote the latest visible interaction.
-        const sourceRevision = fingerprintInteractions(interactions);
-        if (!split.subagentId && interactions.length) {
-            let lifecycleSignal: AiSessionLifecycleSignal | undefined;
-            try {
-                lifecycleSignal = this.options.readLifecycleSignal?.(
-                    split.sessionId
-                );
-            } catch (_error) {
-                // Lifecycle enrichment is best effort. Protocol content must
-                // remain readable if the rollout disappears during a refresh.
-            }
-            if (lifecycleSignal?.executionState === 'running') {
-                const latest = interactions[interactions.length - 1];
-                interactions = [
-                    ...interactions.slice(0, -1),
-                    { ...latest, responseState: 'inProgress' },
-                ];
-            }
-        }
-        return { interactions, sourceRevision };
+        const sourceRevision = composeConversationRevision(turns);
+        const interactions = split.subagentId || !normalized.interactions.length
+            ? normalized.interactions
+            : this.promoteRunningLifecycle(
+                split.sessionId,
+                normalized.interactions
+            );
+        return {
+            value: { interactions, sourceRevision },
+            // Turn chunks only serve the incremental paginated reload path,
+            // which is limited to root threads: a subagent's seeded dispatch
+            // interaction accumulates items across turns, so its chunks are
+            // not independently re-normalizable.
+            turns: split.subagentId ? undefined : turns,
+            characters: turns.reduce((sum, turn) => sum + turn.characters, 0),
+        };
     }
 
-    private conversationCharacters(value: LoadedConversation): number {
-        let characters = 0;
-        for (const interaction of value.interactions) {
-            characters += interaction.userMarkdown?.length || 0;
-            for (const markdown of interaction.assistantMarkdown) {
-                characters += markdown.length;
-            }
-            for (const tool of interaction.toolCalls || []) {
-                characters += (tool.summary?.length || 0)
-                    + (tool.detail?.length || 0);
-            }
-            for (const thinking of interaction.thinking || []) {
-                characters += thinking.text?.length || 0;
-            }
+    private promoteRunningLifecycle(
+        sessionId: string,
+        interactions: ConversationInteraction[]
+    ): ConversationInteraction[] {
+        let lifecycleSignal: AiSessionLifecycleSignal | undefined;
+        try {
+            lifecycleSignal = this.options.readLifecycleSignal?.(sessionId);
+        } catch (_error) {
+            // Lifecycle enrichment is best effort. Protocol content must
+            // remain readable if the rollout disappears during a refresh.
         }
-        return characters;
+        if (lifecycleSignal?.executionState !== 'running'
+            || !interactions.length) {
+            return interactions;
+        }
+        const latest = interactions[interactions.length - 1];
+        return [
+            ...interactions.slice(0, -1),
+            { ...latest, responseState: 'inProgress' },
+        ];
     }
 
     private now(): number {

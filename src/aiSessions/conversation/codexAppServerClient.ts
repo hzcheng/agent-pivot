@@ -46,6 +46,11 @@ export interface CodexAppServerChild {
 }
 
 export interface CodexAppServerClientOptions {
+    // Opts the handshake into experimental app-server methods (for example
+    // thread/turns/list). Callers must treat those methods as accelerators
+    // with a stable fallback: the server may reject or change them at any
+    // version boundary.
+    experimentalApi?: boolean;
     spawn(
         executable: string,
         args: string[],
@@ -77,12 +82,10 @@ interface RestartDelay {
 
 const RESTART_WINDOW_MS = 60_000;
 const RESTART_DELAYS_MS = [1_000, 4_000] as const;
-const INITIALIZE_PARAMS = Object.freeze({
-    clientInfo: Object.freeze({
-        name: 'project_steward',
-        title: 'Agent Pivot',
-        version: '2.1.6',
-    }),
+const INITIALIZE_CLIENT_INFO = Object.freeze({
+    name: 'project_steward',
+    title: 'Agent Pivot',
+    version: '2.1.6',
 });
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -103,6 +106,21 @@ function sanitizedMajorMinor(value: unknown): string | undefined {
         return undefined;
     }
     const match = /^(\d{1,6})\.(\d{1,6})(?:\.|$)/.exec(value.trim());
+    return match ? `${match[1]}.${match[2]}` : undefined;
+}
+
+// Newer app-servers (0.147+) answer initialize without `serverInfo`; the
+// server version then rides in the userAgent product token, built as
+// `<originator>/<major.minor.patch> (<os> ...) <terminal> (<client>; …)`.
+// The parse is deliberately tolerant: the version only gates optional
+// accelerators, so an unrecognizable userAgent simply leaves them off.
+function sanitizedUserAgentVersion(value: unknown): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const match = /^[^/\s]+\/(\d{1,6})\.(\d{1,6})(?:\.|\s|$)/.exec(
+        value.trim()
+    );
     return match ? `${match[1]}.${match[2]}` : undefined;
 }
 
@@ -178,6 +196,25 @@ export class CodexAppServerClient implements AiSessionDisposable {
     }
 
     constructor(private readonly options: CodexAppServerClientOptions) {}
+
+    /**
+     * Sanitized `major.minor` reported by the server at initialize time,
+     * or undefined until the handshake completes. Lets callers gate
+     * version-sensitive protocol features.
+     */
+    getServerVersion(): string | undefined {
+        return this.serverVersion;
+    }
+
+    private initializeParams(): Record<string, unknown> {
+        if (!this.options.experimentalApi) {
+            return { clientInfo: INITIALIZE_CLIENT_INFO };
+        }
+        return {
+            clientInfo: INITIALIZE_CLIENT_INFO,
+            capabilities: { experimentalApi: true },
+        };
+    }
 
     async request<T = unknown>(
         method: string,
@@ -352,7 +389,10 @@ export class CodexAppServerClient implements AiSessionDisposable {
 
         let result: unknown;
         try {
-            result = await this.sendRequest('initialize', INITIALIZE_PARAMS);
+            result = await this.sendRequest(
+                'initialize',
+                this.initializeParams()
+            );
         } catch (error) {
             if (this.child === child) {
                 this.releaseChild(
@@ -386,7 +426,8 @@ export class CodexAppServerClient implements AiSessionDisposable {
             this.releaseChild(child, error, true);
             throw error;
         }
-        this.serverVersion = sanitizedMajorMinor(serverInfo?.version);
+        this.serverVersion = sanitizedMajorMinor(serverInfo?.version)
+            ?? sanitizedUserAgentVersion(initializeResult.userAgent);
         try {
             await this.enqueueWrite({ method: 'initialized', params: {} }, child);
         } catch (_error) {

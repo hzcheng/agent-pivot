@@ -73,23 +73,50 @@ function createCodexPerfThread(threadId, turns, textBytes) {
     };
 }
 
+// Mirrors the verified 0.147 app-server pagination: descending by
+// default, an opaque inclusive cursor, nextCursor while older turns remain.
+function serveCodexTurnsListPage(turns, params) {
+    const ordered = [...turns].reverse();
+    let start = 0;
+    if (typeof params.cursor === 'string') {
+        const at = ordered.findIndex(turn => turn.id === params.cursor);
+        assert.notEqual(at, -1, `unknown cursor ${params.cursor}`);
+        start = at + 1;
+    }
+    const limit = params.limit || ordered.length;
+    const data = ordered.slice(start, start + limit);
+    const more = start + data.length < ordered.length;
+    return JSON.parse(JSON.stringify({
+        data,
+        nextCursor: more && data.length ? data[data.length - 1].id : null,
+        backwardsCursor: data.length ? data[0].id : null,
+    }));
+}
+
 async function measureCodexStatValidatedReload() {
     const threadId = '99999999-9999-4999-8999-999999999999';
     // ~12 MiB of normalized agent text across 205 turns mirrors the large
     // real thread/read payloads that dominate Codex switch latency.
     const payload = createCodexPerfThread(threadId, 205, 60 * 1024);
-    let requests = 0;
+    const methods = [];
     let signature = 'stat-1';
     const adapter = new CodexConversationAdapter({
         client: {
             async request(method, params) {
-                requests += 1;
-                assert.equal(method, 'thread/read');
+                methods.push(method);
                 assert.equal(params.threadId, threadId);
-                // Re-serialize per call so each full read pays a realistic
+                // Re-serialize per call so each read pays a realistic
                 // transport-shaped parse cost.
+                if (method === 'thread/turns/list') {
+                    return serveCodexTurnsListPage(
+                        payload.thread.turns,
+                        params
+                    );
+                }
+                assert.equal(method, 'thread/read');
                 return JSON.parse(JSON.stringify(payload));
             },
+            getServerVersion: () => '0.147',
             dispose() {},
         },
         watchSessionChanges: () => ({ dispose() {} }),
@@ -105,23 +132,39 @@ async function measureCodexStatValidatedReload() {
         const outline = await adapter.readOutline(threadId);
         const fullReadMs = elapsedMs(startedAt);
         assert.equal(outline.totalInteractions, 205);
-        assert.equal(requests, 1);
+        assert.deepEqual(methods, ['thread/read']);
 
         startedAt = process.hrtime.bigint();
         const cached = await adapter.readOutline(threadId);
         const statValidatedReloadMs = elapsedMs(startedAt);
         assert.equal(cached.sourceRevision, outline.sourceRevision);
-        assert.equal(requests, 1,
+        assert.equal(methods.length, 1,
             'an unchanged rollout stat must skip the provider read');
         assertBudget('codex stat-validated reload', statValidatedReloadMs,
             PERFORMANCE_BUDGETS.codexStatValidatedReloadMs);
 
+        // An appended turn with a moved stat reloads through the paginated
+        // tail page instead of a full thread/read.
+        payload.thread.turns.push({
+            id: 'perf-turn-205',
+            status: 'completed',
+            items: [{
+                id: 'perf-user-205',
+                type: 'userMessage',
+                content: [{ type: 'text', text: 'Performance request 205' }],
+            }, {
+                id: 'perf-agent-205',
+                type: 'agentMessage',
+                text: 'a'.repeat(60 * 1024),
+            }],
+        });
         signature = 'stat-2';
         startedAt = process.hrtime.bigint();
-        await adapter.readOutline(threadId);
+        const appended = await adapter.readOutline(threadId);
         const appendReloadMs = elapsedMs(startedAt);
-        assert.equal(requests, 2,
-            'a changed rollout stat forces a fresh thread/read');
+        assert.equal(appended.totalInteractions, 206);
+        assert.deepEqual(methods.slice(1), ['thread/turns/list'],
+            'an appended rollout reloads through the tail page only');
         assertBudget('codex append reload', appendReloadMs,
             PERFORMANCE_BUDGETS.codexAppendReloadMs);
         const cachedEntries = [...adapter.loadedConversationCache.values()];

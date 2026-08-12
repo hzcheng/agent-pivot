@@ -554,6 +554,7 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<boolean> {
         const hadPanel = Boolean(this.panel);
         const followedPanel = reveal ? undefined : this.panel;
+        const previousTarget = this.target;
         const generation = this.replaceTarget(target);
         const activeTarget = this.target;
         if (!activeTarget) {
@@ -582,6 +583,11 @@ export class ConversationViewer implements ConversationViewerApi {
                 undefined,
                 'Loading conversation…'
             );
+        } else if (!previousTarget
+            || previousTarget.projectId !== activeTarget.projectId
+            || previousTarget.provider !== activeTarget.provider
+            || previousTarget.sessionId !== activeTarget.sessionId) {
+            this.postLoadingNotice(panel, activeTarget, generation);
         }
         this.ensureWatch(generation);
         const loaded = await this.loadAuthoritative(
@@ -912,7 +918,20 @@ export class ConversationViewer implements ConversationViewerApi {
             // The Webview failed to apply a delivered publication; rebuild
             // the document with the full HTML so a dropped delta cannot
             // strand it on stale content. Bound to one rebuild per
-            // publication: a persistent apply failure must not loop.
+            // publication: a persistent apply failure must not loop. A
+            // request correlated to a superseded generation or session is
+            // stale — the current target's own delivery and ack closure
+            // recovers the Webview — so it must not rebuild the incoming
+            // session's document.
+            const target = this.target;
+            if (!target
+                || parsed.subscriptionGeneration
+                    !== this.subscriptionGeneration
+                || parsed.projectId !== target.projectId
+                || parsed.provider !== target.provider
+                || parsed.sessionId !== target.sessionId) {
+                return;
+            }
             const publication = this.latestPublication;
             if (publication
                 && publication.requestId !== this.syncRebuildRequestId) {
@@ -1904,6 +1923,31 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         panel.webview.html = this.renderDocument(publication);
+    }
+
+    private postLoadingNotice(
+        panel: vscode.WebviewPanel,
+        target: ConversationViewerTarget,
+        generation: number
+    ): void {
+        // A reused panel keeps the outgoing conversation visible while the
+        // incoming session loads; the Webview dims it and announces the
+        // load until the first publication of the new target lands. The
+        // notice is cosmetic, so a lost post never blocks the load.
+        try {
+            void Promise.resolve(panel.webview.postMessage({
+                type: 'conversation-viewer-loading',
+                version: 1,
+                subscriptionGeneration: generation,
+                target: {
+                    projectId: target.projectId,
+                    provider: target.provider,
+                    sessionId: target.sessionId,
+                },
+            })).catch(() => undefined);
+        } catch (_error) {
+            // See above: the indicator is best-effort only.
+        }
     }
 
     private isCurrentPublication(

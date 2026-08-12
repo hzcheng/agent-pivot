@@ -249,7 +249,10 @@
         && !!findPrevious && !!findNext && !!findClose;
     var copyRequestSequence = 0;
     var copyPending = new Map();
-    var resyncRequested = false;
+    // One resync request per subscription generation: a rapid A→B→C
+    // switch that misses twice must still escalate the latest miss.
+    var resyncRequestedGeneration = 0;
+    var conversationLoading = false;
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
@@ -926,6 +929,50 @@
         return true;
     }
 
+    // A reused panel keeps the outgoing conversation on screen while the
+    // incoming session loads. The Host's loading notice arms a lightweight
+    // indicator — status text plus a dimmed, aria-busy message list —
+    // which the first applied page of the incoming generation clears.
+    function applyLoadingNotice(message) {
+        if (!message || typeof message !== 'object'
+            || message.type !== 'conversation-viewer-loading') {
+            return false;
+        }
+        if (message.version !== 1
+            || !Number.isSafeInteger(message.subscriptionGeneration)
+            || message.subscriptionGeneration < 1
+            || !validCommentTarget({
+                projectId: message.target && message.target.projectId,
+                provider: message.target && message.target.provider,
+                sessionId: message.target && message.target.sessionId,
+            })) {
+            return true;
+        }
+        if (message.subscriptionGeneration <= state.subscriptionGeneration
+            || (commentTarget
+                && message.target.projectId === commentTarget.projectId
+                && message.target.provider === commentTarget.provider
+                && message.target.sessionId === commentTarget.sessionId)) {
+            // Stale or same-session notices never dim the live content.
+            return true;
+        }
+        conversationLoading = true;
+        document.body.setAttribute('data-conversation-loading', 'true');
+        messages.setAttribute('aria-busy', 'true');
+        status.textContent = 'Loading conversation…';
+        return true;
+    }
+
+    function clearConversationLoading() {
+        if (!conversationLoading) {
+            return;
+        }
+        conversationLoading = false;
+        document.body.removeAttribute('data-conversation-loading');
+        messages.removeAttribute('aria-busy');
+        // The applied page recomputes the status line right below.
+    }
+
     function applySessionGeneration(message) {
         if (message.subscriptionGeneration === state.subscriptionGeneration) {
             return true;
@@ -1449,6 +1496,7 @@
         }
         state.atLatest = message.atLatest;
         state.initialized = true;
+        clearConversationLoading();
         var nextRestoreTarget = Object.assign({}, restoreTarget || {}, {
             interactionId: message.selectedInteractionId,
         });
@@ -1778,16 +1826,40 @@
         );
         return true;
     }
-    function requestConversationResync() {
-        // One resync per document; the Host bounds rebuilds per
+    function requestConversationResync(page) {
+        // Correlate the request to the page that failed to apply: the
+        // Host rebuilds only while it still owns that generation and
+        // session, and ignores requests stranded by a newer switch. One
+        // request per generation; the Host bounds rebuilds per
         // publication, so a persistent apply failure cannot reload-loop.
-        if (resyncRequested) {
+        var generation = state.subscriptionGeneration;
+        var target = commentTarget;
+        if (page
+            && Number.isSafeInteger(page.subscriptionGeneration)
+            && page.subscriptionGeneration >= 1
+            && validCommentTarget({
+                projectId: page.target && page.target.projectId,
+                provider: page.target && page.target.provider,
+                sessionId: page.target && page.target.sessionId,
+            })) {
+            generation = page.subscriptionGeneration;
+            target = page.target;
+        }
+        if (!target || !generation
+            || resyncRequestedGeneration === generation) {
             return;
         }
-        resyncRequested = true;
+        resyncRequestedGeneration = generation;
         // Dropped deltas must not suppress the rebuilt full publication.
         state.appliedHtmlSignature = undefined;
-        post({ type: 'conversation-viewer-request-sync', version: 1 });
+        post({
+            type: 'conversation-viewer-request-sync',
+            version: 1,
+            subscriptionGeneration: generation,
+            projectId: target.projectId,
+            provider: target.provider,
+            sessionId: target.sessionId,
+        });
     }
 
     window.addEventListener('message', function (event) {
@@ -1801,10 +1873,11 @@
         if (telemetryController.apply(event.data)) return;
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
+        if (applyLoadingNotice(event.data)) return;
         try {
             applyPage(event.data);
         } catch (_applyError) {
-            requestConversationResync();
+            requestConversationResync(event.data);
         }
     });
     if (followNoticeClose) {
@@ -1826,11 +1899,13 @@
     var initialPage = document.body.getAttribute('data-initial-page');
     if (initialPage) {
         document.body.removeAttribute('data-initial-page');
+        var parsedInitialPage;
         try {
-            applyPage(JSON.parse(initialPage));
+            parsedInitialPage = JSON.parse(initialPage);
+            applyPage(parsedInitialPage);
         } catch (_error) {
             status.textContent = 'Conversation history unavailable.';
-            requestConversationResync();
+            requestConversationResync(parsedInitialPage);
         }
     }
     if (sidebarUiAvailable) {

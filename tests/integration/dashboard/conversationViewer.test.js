@@ -2233,6 +2233,68 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
     });
 
     await viewer.open(target('session-a', 'input-1'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    let htmlWrites = 0;
+    let stored = panel.webview.html;
+    Object.defineProperty(panel.webview, 'html', {
+        get: () => stored,
+        set: value => {
+            htmlWrites += 1;
+            stored = value;
+        },
+    });
+    const requestSync = () => panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+
+    await requestSync();
+    assert.equal(htmlWrites, 1, 'a resync request rebuilds the document');
+    assert.equal(
+        decodeInitialPublication(stored).html.includes('visible-resync'),
+        true
+    );
+
+    // The same publication is never rebuilt twice: a persistent apply
+    // failure in the Webview must not reload-loop the document.
+    await requestSync();
+    assert.equal(htmlWrites, 1);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores resync requests correlated to a superseded generation or session', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+    const lastPage = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    const requestSync = (subscriptionGeneration, sessionId) => panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId,
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const generationA = decodeInitialPublication(
+        panel.webview.html
+    ).subscriptionGeneration;
+    await viewer.follow(target('session-b', 'input-1'));
+    const generationB = lastPage().subscriptionGeneration;
     let htmlWrites = 0;
     let stored = panel.webview.html;
     Object.defineProperty(panel.webview, 'html', {
@@ -2243,23 +2305,160 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
         },
     });
 
-    await panel.receive({
-        type: 'conversation-viewer-request-sync',
-        version: 1,
-    });
-    assert.equal(htmlWrites, 1, 'a resync request rebuilds the document');
+    // A resync stranded by the switch to session-b belongs to the
+    // superseded generation: session-b's own delivery and ack closure
+    // recovers the Webview, so the Host must not rebuild.
+    await requestSync(generationA, 'session-a');
+    assert.equal(htmlWrites, 0,
+        'a resync from a superseded generation is stale');
+
+    // The current generation with a different session is stale too: the
+    // Webview can only fail to apply the session it is switching away
+    // from while the Host already owns the new target.
+    await requestSync(generationB, 'session-a');
+    assert.equal(htmlWrites, 0,
+        'a resync naming another session is stale');
+
+    // The current session with a superseded generation is stale as well.
+    await requestSync(generationA, 'session-b');
+    assert.equal(htmlWrites, 0,
+        'a resync from a superseded generation for the current session'
+            + ' is stale');
+
+    // The correctly correlated request still rebuilds exactly once.
+    await requestSync(generationB, 'session-b');
+    assert.equal(htmlWrites, 1);
     assert.equal(
-        decodeInitialPublication(stored).html.includes('visible-resync'),
+        decodeInitialPublication(stored).html.includes('visible-session-b'),
         true
     );
+    viewer.dispose();
+});
 
-    // The same publication is never rebuilt twice: a persistent apply
-    // failure in the Webview must not reload-loop the document.
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 safely ignores a correlated resync that arrives before the first publication', async () => {
+    let releaseOutline;
+    const outlineGate = new Promise(resolve => {
+        releaseOutline = resolve;
+    });
+    let outlineCalls = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineCalls += 1;
+            if (outlineCalls === 2) {
+                // Hold session-b's initial load in flight.
+                await outlineGate;
+            }
+            return outline(sessionId, ['input-1']);
+        },
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+    const lastPage = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+
+    await viewer.open(target('session-a', 'input-1'));
+    const generationA = decodeInitialPublication(
+        panel.webview.html
+    ).subscriptionGeneration;
+    let htmlWrites = 0;
+    let stored = panel.webview.html;
+    Object.defineProperty(panel.webview, 'html', {
+        get: () => stored,
+        set: value => {
+            htmlWrites += 1;
+            stored = value;
+        },
+    });
+    const followPromise = viewer.follow(target('session-b', 'input-1'));
+
+    // Wait until the switch has actually begun: the loading notice is
+    // posted right after the target replacement, while session-b's load
+    // is still gated in flight.
+    let notice;
+    for (let attempts = 0; attempts < 20 && !notice; attempts += 1) {
+        notice = panel.postedMessages.find(message =>
+            message.type === 'conversation-viewer-loading');
+        if (!notice) {
+            await new Promise(resolve => setImmediate(resolve));
+        }
+    }
+    assert.ok(notice, 'the switch began and announced its loading state');
+    assert.equal(notice.subscriptionGeneration, generationA + 1);
+
+    // The request matches the current generation and session, but the
+    // first publication is still in flight: there is nothing to rebuild,
+    // and the in-flight load's own delivery owns the recovery.
     await panel.receive({
         type: 'conversation-viewer-request-sync',
         version: 1,
+        subscriptionGeneration: notice.subscriptionGeneration,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
     });
-    assert.equal(htmlWrites, 1);
+    assert.equal(htmlWrites, 0,
+        'no rebuild while the correlated publication is still in flight');
+
+    releaseOutline();
+    await followPromise;
+    const incoming = lastPage();
+    assert.equal(incoming.subscriptionGeneration, generationA + 1);
+    assert.equal(incoming.html.includes('visible-session-b'), true,
+        'the in-flight load still delivers the full publication');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 announces a lightweight loading state when a reused panel switches sessions', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+    const loadingNotices = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-loading');
+
+    await viewer.open(target('session-a', 'input-1'));
+    assert.equal(loadingNotices().length, 0,
+        'a fresh panel renders its own loading document instead');
+
+    await viewer.follow(target('session-b', 'input-1'));
+    const notices = loadingNotices();
+    assert.equal(notices.length, 1,
+        'a reused panel switching sessions announces the lightweight load');
+    const incoming = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.deepEqual(notices[0], {
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: incoming.subscriptionGeneration,
+        target: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-b',
+        },
+    });
+    assert.ok(
+        panel.postedMessages.indexOf(notices[0])
+            < panel.postedMessages.lastIndexOf(incoming),
+        'the notice precedes the incoming session publication'
+    );
+
+    // Reloading the already-visible session is not a switch: the live
+    // content must not be dimmed behind a loading notice.
+    await viewer.refresh();
+    assert.equal(loadingNotices().length, 1);
+    await viewer.follow(target('session-b', 'input-1'));
+    assert.equal(loadingNotices().length, 1,
+        're-following the visible session is not a switch either');
     viewer.dispose();
 });
 

@@ -541,6 +541,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
     assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
         version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-telemetry',
     }]);
 });
 
@@ -749,12 +753,188 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when a restor
     assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
         version: 1,
+        subscriptionGeneration: 3,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-gamma',
     }]);
     // The previous session stays on screen until the full page arrives.
     assert.equal(
         await page.locator('[data-conversation-messages]').innerText(),
         'alpha'
     );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resynchronizes every generation across rapid session switches', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
+
+    // A restoreFrame miss for beta requests a resync correlated to beta's
+    // generation and session.
+    const betaRestore = sessionPage(3, 'session-beta', 'beta', 'sig-b1');
+    delete betaRestore.html;
+    betaRestore.restoreFrame = true;
+    await sendPage(page, betaRestore);
+
+    // A second rapid switch misses again: the resync gate is per
+    // generation, so gamma gets its own correlated request instead of
+    // staying stranded on alpha's content forever.
+    const gammaRestore = sessionPage(4, 'session-gamma', 'gamma', 'sig-g1');
+    delete gammaRestore.html;
+    gammaRestore.restoreFrame = true;
+    await sendPage(page, gammaRestore);
+
+    const syncs = (await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    );
+    assert.deepEqual(syncs, [{
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: 3,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-beta',
+    }, {
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: 4,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-gamma',
+    }]);
+    // The stranded outgoing session stays on screen throughout.
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'alpha'
+    );
+
+    // The Host answers the gamma resync with the full publication: the
+    // final DOM must be gamma, never the stranded alpha content.
+    await sendPage(page, {
+        ...sessionPage(4, 'session-gamma', 'gamma', 'sig-g1'),
+        requestId: 41,
+    });
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'gamma'
+    );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading state while a reused panel switches sessions', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    const loadingNotice = (generation, sessionId) => ({
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: generation,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+        },
+    });
+    const loadingState = () => page.evaluate(() => ({
+        status: document.querySelector('[data-conversation-status]')
+            .textContent,
+        loading: document.body.getAttribute('data-conversation-loading'),
+        busy: document.querySelector('[data-conversation-messages]')
+            .getAttribute('aria-busy'),
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+    }));
+
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
+
+    // The Host reuses the panel for a different session: the outgoing
+    // content stays visible under a lightweight loading state until the
+    // incoming session's first publication lands.
+    await sendPage(page, loadingNotice(3, 'session-beta'));
+    assert.deepEqual(await loadingState(), {
+        status: 'Loading conversation…',
+        loading: 'true',
+        busy: 'true',
+        content: 'alpha',
+    });
+
+    // Stale notices for an already-applied generation never clear or
+    // re-arm the state; malformed ones are consumed without throwing.
+    await sendPage(page, loadingNotice(2, 'session-alpha'));
+    await sendPage(page, {
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: 'next',
+    });
+    assert.deepEqual(await loadingState(), {
+        status: 'Loading conversation…',
+        loading: 'true',
+        busy: 'true',
+        content: 'alpha',
+    });
+
+    // The incoming session's first publication clears the loading state.
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-b1'));
+    assert.deepEqual(await loadingState(), {
+        status: '',
+        loading: null,
+        busy: null,
+        content: 'beta',
+    });
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applying a page fails', async t => {
@@ -789,10 +969,14 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applyi
         message.type === 'conversation-viewer-request-sync'
     );
     assert.equal(syncs.length, 1,
-        'a failing apply requests exactly one resync per document');
+        'a failing apply requests exactly one resync per generation');
     assert.deepEqual(syncs[0], {
         type: 'conversation-viewer-request-sync',
         version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-telemetry',
     });
 });
 
@@ -1021,6 +1205,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond 
     assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
         version: 1,
+        subscriptionGeneration: 20,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-alpha',
     }]);
     assert.equal(
         await page.locator('[data-conversation-messages]').innerText(),
@@ -3519,7 +3707,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .replace(
                 '    var copyRequestSequence = 0;\n' +
                 '    var copyPending = new Map();\n' +
-                '    var resyncRequested = false;\n' +
+                '    // One resync request per subscription generation: a rapid A→B→C\n' +
+                '    // switch that misses twice must still escalate the latest miss.\n' +
+                '    var resyncRequestedGeneration = 0;\n' +
+                '    var conversationLoading = false;\n' +
                 '    // Detached conversation frames keyed by session: switching back to a\n' +
                 '    // session whose content token is unchanged reattaches the already-built\n' +
                 '    // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded\n' +
@@ -4008,16 +4199,40 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    var copyPending = new Map();\n'
         )
         .replace(
-            '    function requestConversationResync() {\n'
-                + '        // One resync per document; the Host bounds rebuilds per\n'
+            '    function requestConversationResync(page) {\n'
+                + '        // Correlate the request to the page that failed to apply: the\n'
+                + '        // Host rebuilds only while it still owns that generation and\n'
+                + '        // session, and ignores requests stranded by a newer switch. One\n'
+                + '        // request per generation; the Host bounds rebuilds per\n'
                 + '        // publication, so a persistent apply failure cannot reload-loop.\n'
-                + '        if (resyncRequested) {\n'
+                + '        var generation = state.subscriptionGeneration;\n'
+                + '        var target = commentTarget;\n'
+                + '        if (page\n'
+                + '            && Number.isSafeInteger(page.subscriptionGeneration)\n'
+                + '            && page.subscriptionGeneration >= 1\n'
+                + '            && validCommentTarget({\n'
+                + '                projectId: page.target && page.target.projectId,\n'
+                + '                provider: page.target && page.target.provider,\n'
+                + '                sessionId: page.target && page.target.sessionId,\n'
+                + '            })) {\n'
+                + '            generation = page.subscriptionGeneration;\n'
+                + '            target = page.target;\n'
+                + '        }\n'
+                + '        if (!target || !generation\n'
+                + '            || resyncRequestedGeneration === generation) {\n'
                 + '            return;\n'
                 + '        }\n'
-                + '        resyncRequested = true;\n'
+                + '        resyncRequestedGeneration = generation;\n'
                 + '        // Dropped deltas must not suppress the rebuilt full publication.\n'
                 + '        state.appliedHtmlSignature = undefined;\n'
-                + "        post({ type: 'conversation-viewer-request-sync', version: 1 });\n"
+                + '        post({\n'
+                + "            type: 'conversation-viewer-request-sync',\n"
+                + '            version: 1,\n'
+                + '            subscriptionGeneration: generation,\n'
+                + '            projectId: target.projectId,\n'
+                + '            provider: target.provider,\n'
+                + '            sessionId: target.sessionId,\n'
+                + '        });\n'
                 + '    }\n'
                 + '\n'
                 + "    window.addEventListener('message', function (event) {\n",
@@ -4025,10 +4240,11 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         )
         .replace(
             '        if (applyFollowNotice(event.data)) return;\n'
+                + '        if (applyLoadingNotice(event.data)) return;\n'
                 + '        try {\n'
                 + '            applyPage(event.data);\n'
                 + '        } catch (_applyError) {\n'
-                + '            requestConversationResync();\n'
+                + '            requestConversationResync(event.data);\n'
                 + '        }\n'
                 + '    });\n',
             '        if (applyFollowNotice(event.data)) return;\n'
@@ -4036,11 +4252,17 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    });\n'
         )
         .replace(
-            "        } catch (_error) {\n"
+            '        var parsedInitialPage;\n'
+                + '        try {\n'
+                + '            parsedInitialPage = JSON.parse(initialPage);\n'
+                + '            applyPage(parsedInitialPage);\n'
+                + '        } catch (_error) {\n'
                 + "            status.textContent = 'Conversation history unavailable.';\n"
-                + '            requestConversationResync();\n'
+                + '            requestConversationResync(parsedInitialPage);\n'
                 + '        }\n',
-            "        } catch (_error) {\n"
+            '        try {\n'
+                + '            applyPage(JSON.parse(initialPage));\n'
+                + '        } catch (_error) {\n'
                 + "            status.textContent = 'Conversation history unavailable.';\n"
                 + '        }\n'
         )
@@ -4304,6 +4526,61 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        var nextSignatures = reconciled.signatures;\n'
                 + '        state.messageIds = nextIds;\n'
                 + '        state.messageSignatures = nextSignatures;\n'
+        )
+        .replace(
+            '    // A reused panel keeps the outgoing conversation on screen while the\n'
+                + "    // incoming session loads. The Host's loading notice arms a lightweight\n"
+                + '    // indicator — status text plus a dimmed, aria-busy message list —\n'
+                + '    // which the first applied page of the incoming generation clears.\n'
+                + '    function applyLoadingNotice(message) {\n'
+                + "        if (!message || typeof message !== 'object'\n"
+                + "            || message.type !== 'conversation-viewer-loading') {\n"
+                + '            return false;\n'
+                + '        }\n'
+                + '        if (message.version !== 1\n'
+                + '            || !Number.isSafeInteger(message.subscriptionGeneration)\n'
+                + '            || message.subscriptionGeneration < 1\n'
+                + '            || !validCommentTarget({\n'
+                + '                projectId: message.target && message.target.projectId,\n'
+                + '                provider: message.target && message.target.provider,\n'
+                + '                sessionId: message.target && message.target.sessionId,\n'
+                + '            })) {\n'
+                + '            return true;\n'
+                + '        }\n'
+                + '        if (message.subscriptionGeneration <= state.subscriptionGeneration\n'
+                + '            || (commentTarget\n'
+                + '                && message.target.projectId === commentTarget.projectId\n'
+                + '                && message.target.provider === commentTarget.provider\n'
+                + '                && message.target.sessionId === commentTarget.sessionId)) {\n'
+                + '            // Stale or same-session notices never dim the live content.\n'
+                + '            return true;\n'
+                + '        }\n'
+                + '        conversationLoading = true;\n'
+                + "        document.body.setAttribute('data-conversation-loading', 'true');\n"
+                + "        messages.setAttribute('aria-busy', 'true');\n"
+                + "        status.textContent = 'Loading conversation…';\n"
+                + '        return true;\n'
+                + '    }\n'
+                + '\n'
+                + '    function clearConversationLoading() {\n'
+                + '        if (!conversationLoading) {\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        conversationLoading = false;\n'
+                + "        document.body.removeAttribute('data-conversation-loading');\n"
+                + "        messages.removeAttribute('aria-busy');\n"
+                + '        // The applied page recomputes the status line right below.\n'
+                + '    }\n'
+                + '\n'
+                + '    function applySessionGeneration(message) {\n',
+            '    function applySessionGeneration(message) {\n'
+        )
+        .replace(
+            '        state.atLatest = message.atLatest;\n'
+                + '        state.initialized = true;\n'
+                + '        clearConversationLoading();\n',
+            '        state.atLatest = message.atLatest;\n'
+                + '        state.initialized = true;\n'
         );
     const previousOutlineScript = conversationOutlineScript
         .replace(

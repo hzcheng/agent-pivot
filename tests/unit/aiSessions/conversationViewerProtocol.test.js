@@ -45,6 +45,10 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
     }, {
         type: 'conversation-viewer-request-sync',
         version: 1,
+        subscriptionGeneration: 4,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
     }, {
         type: 'conversation-viewer-applied',
         version: 1,
@@ -273,6 +277,33 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
         {
             type: 'conversation-viewer-request-sync',
             version: 1,
+            subscriptionGeneration: 4,
+            projectId: 'project-a',
+            provider: 'codex',
+        },
+        {
+            type: 'conversation-viewer-request-sync',
+            version: 1,
+            subscriptionGeneration: 0,
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-a',
+        },
+        {
+            type: 'conversation-viewer-request-sync',
+            version: 1,
+            subscriptionGeneration: 4,
+            projectId: 'project-a',
+            provider: 'other',
+            sessionId: 'session-a',
+        },
+        {
+            type: 'conversation-viewer-request-sync',
+            version: 1,
+            subscriptionGeneration: 4,
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'session-a',
             extra: true,
         },
         {

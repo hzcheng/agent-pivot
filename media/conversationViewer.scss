@@ -253,6 +253,13 @@ button {
     margin: 0 auto;
 }
 
+// A reused panel switching sessions keeps the outgoing conversation
+// visible under a lightweight loading state until the incoming session's
+// first publication lands.
+body[data-conversation-loading='true'] .conversation-messages {
+    opacity: 0.55;
+}
+
 .conversation-working {
     display: flex;
     width: min(100%, 70rem);

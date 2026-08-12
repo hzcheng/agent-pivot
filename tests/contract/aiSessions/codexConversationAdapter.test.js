@@ -48,11 +48,10 @@ function createAdapter(result = fixture, overrides = {}) {
             return 1;
         }),
         clearTimeout: overrides.clearTimeout || (() => undefined),
-        setCacheTimeout: overrides.setCacheTimeout || (() => 2),
-        clearCacheTimeout: overrides.clearCacheTimeout || (() => undefined),
         resolveWorktree: overrides.resolveWorktree,
         readRolloutTelemetry: overrides.readRolloutTelemetry,
         readLifecycleSignal: overrides.readLifecycleSignal,
+        readContentSignature: overrides.readContentSignature,
         listSubagentThreads: overrides.listSubagentThreads,
         now: overrides.now,
     });
@@ -63,10 +62,10 @@ function createAdapter(result = fixture, overrides = {}) {
     };
 }
 
-function createLargeThread() {
+function createLargeThread(threadId = sessionId) {
     return {
         thread: {
-            id: sessionId,
+            id: threadId,
             turns: Array.from({ length: 12 }, (_, index) => ({
                 id: `turn-${index}`,
                 status: 'completed',
@@ -285,18 +284,35 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Codex returns one correlated ou
     );
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 throttles repeated full reads of a large Codex thread', async t => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 serves a large Codex thread from cache while its rollout stat is unchanged', async t => {
     const large = createLargeThread();
     let now = 1_000;
-    const harness = createAdapter(large, { now: () => now });
+    let signature = 'stat-1';
+    const probedIds = [];
+    const harness = createAdapter(large, {
+        now: () => now,
+        readContentSignature: id => {
+            probedIds.push(id);
+            return signature;
+        },
+    });
     t.after(() => harness.adapter.dispose());
 
     const first = await harness.adapter.readOutline(sessionId);
     const cached = await harness.adapter.readOutline(sessionId);
     assert.equal(cached.sourceRevision, first.sourceRevision);
     assert.equal(harness.requests.length, 1);
+    assert.ok(probedIds.length > 0
+        && probedIds.every(id => id === sessionId));
 
-    now += 15_001;
+    // No expiry: an unchanged rollout stat keeps the normalized
+    // conversation authoritative indefinitely.
+    now += 60_001;
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 1);
+
+    // A changed rollout stat forces the next read back to the provider.
+    signature = 'stat-2';
     await harness.adapter.readOutline(sessionId);
     assert.equal(harness.requests.length, 2);
 });
@@ -304,8 +320,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 throttles repeated full reads o
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a large Codex thread before publishing a provider change', async t => {
     const large = createLargeThread();
     let current = large;
+    let signature = 'stat-1';
     let providerCallback;
     const harness = createAdapter(() => current, {
+        readContentSignature: () => signature,
         watchSessionChanges(callback) {
             providerCallback = callback;
             return { dispose() {} };
@@ -319,6 +337,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a large Codex threa
     current = clone(large);
     current.thread.turns.at(-1).items.at(-1).text =
         `${'x'.repeat(60 * 1024)} changed`;
+    signature = 'stat-2';
     providerCallback();
     const updated = await harness.adapter.readOutline(sessionId);
 
@@ -326,11 +345,13 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a large Codex threa
     assert.equal(harness.requests.length, 2);
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 serves repeated reads from cache within a provider-change debounce window', async t => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps stat-validated large Codex cache entries across provider invalidations', async t => {
     const large = createLargeThread();
+    let signature = 'stat-1';
     let providerCallback;
     let debounceCallback;
     const harness = createAdapter(() => large, {
+        readContentSignature: () => signature,
         watchSessionChanges(callback) {
             providerCallback = callback;
             return { dispose() {} };
@@ -348,22 +369,28 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 serves repeated reads from cach
     assert.equal(harness.requests.length, 1);
     assert.equal(harness.adapter.loadedConversationCache.size, 1);
 
-    // A provider change inside the debounce window keeps the warm cache so
-    // back-to-back reads (switch, revalidation, warmup) share one thread/read.
+    // Provider invalidations no longer discard entries: while the rollout
+    // stat is unchanged, the cached normalized conversation stays
+    // authoritative, so back-to-back reads (switch, revalidation, warmup)
+    // share one thread/read across the whole invalidation cycle.
     providerCallback();
+    await harness.adapter.readOutline(sessionId);
+    debounceCallback();
     await harness.adapter.readOutline(sessionId);
     assert.equal(harness.requests.length, 1);
 
-    // The cache is invalidated right before subscribers are notified.
-    debounceCallback();
+    // A changed rollout stat is what actually forces a fresh thread/read.
+    signature = 'stat-2';
     await harness.adapter.readOutline(sessionId);
     assert.equal(harness.requests.length, 2);
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a canceled debounce when the watch is released', async t => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 retains stat-validated large Codex cache entries when the watch is released', async t => {
     const large = createLargeThread();
+    let signature = 'stat-1';
     let providerCallback;
     const harness = createAdapter(() => large, {
+        readContentSignature: () => signature,
         watchSessionChanges(callback) {
             providerCallback = callback;
             return { dispose() {} };
@@ -380,30 +407,78 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 invalidates a canceled debounce
 
     providerCallback();
     // Releasing the last subscription cancels the pending debounce; the
-    // change event must still invalidate the cache.
+    // invalidation still lands (guarding in-flight reads), but the
+    // stat-validated entry survives.
     subscription.dispose();
-    assert.equal(harness.adapter.loadedConversationCache.size, 0);
+    assert.equal(harness.adapter.loadedConversationCache.size, 1);
 
+    await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 1);
+
+    signature = 'stat-2';
     await harness.adapter.readOutline(sessionId);
     assert.equal(harness.requests.length, 2);
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 actively releases an unread expired Codex thread', async t => {
-    const large = createLargeThread();
-    let expiryCallback;
-    const harness = createAdapter(large, {
-        setCacheTimeout(callback, delayMs) {
-            assert.equal(delayMs, 15_000);
-            expiryCallback = callback;
-            return 42;
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bypasses the large Codex cache while the rollout stat is unreadable', async t => {
+    const unreadable = createAdapter(createLargeThread(), {
+        readContentSignature: () => undefined,
+    });
+    t.after(() => unreadable.adapter.dispose());
+
+    await unreadable.adapter.readOutline(sessionId);
+    await unreadable.adapter.readOutline(sessionId);
+    assert.equal(unreadable.requests.length, 2);
+    assert.equal(unreadable.adapter.loadedConversationCache.size, 0);
+
+    // A failing probe must never break or poison a read either.
+    const throwing = createAdapter(createLargeThread(), {
+        readContentSignature() {
+            throw new Error('stat gone');
         },
+    });
+    t.after(() => throwing.adapter.dispose());
+
+    await throwing.adapter.readOutline(sessionId);
+    await throwing.adapter.readOutline(sessionId);
+    assert.equal(throwing.requests.length, 2);
+    assert.equal(throwing.adapter.loadedConversationCache.size, 0);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds the stat-validated large Codex cache to two entries', async t => {
+    const ids = [
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    ];
+    const requests = [];
+    const harness = createAdapter(undefined, {
+        client: {
+            async request(method, params) {
+                requests.push({ method, params });
+                return createLargeThread(params.threadId);
+            },
+            dispose() {},
+        },
+        readContentSignature: id => `stat-${id}`,
     });
     t.after(() => harness.adapter.dispose());
 
-    await harness.adapter.readOutline(sessionId);
-    assert.equal(harness.adapter.loadedConversationCache.size, 1);
-    expiryCallback();
-    assert.equal(harness.adapter.loadedConversationCache.size, 0);
+    for (const id of ids) {
+        await harness.adapter.readOutline(id);
+    }
+    assert.equal(harness.adapter.loadedConversationCache.size, 2);
+    assert.deepEqual(
+        [...harness.adapter.loadedConversationCache.keys()],
+        ids.slice(1)
+    );
+
+    await harness.adapter.readOutline(ids[1]);
+    assert.equal(requests.length, 3,
+        'a stat-validated hit skips the provider entirely');
+    await harness.adapter.readOutline(ids[0]);
+    assert.equal(requests.length, 4,
+        'the evicted oldest entry reads from the provider again');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 does not cache a large Codex read invalidated while pending', async t => {
@@ -419,6 +494,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 does not cache a large Codex re
             },
             dispose() {},
         },
+        readContentSignature: () => 'stat-1',
         watchSessionChanges(callback) {
             providerCallback = callback;
             return { dispose() {} };
@@ -434,25 +510,6 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 does not cache a large Codex re
     await pending;
 
     assert.equal(harness.adapter.loadedConversationCache.size, 0);
-});
-
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 handles a synchronous Codex cache expiry timer without retaining its handle', async t => {
-    let clearCalls = 0;
-    const harness = createAdapter(createLargeThread(), {
-        setCacheTimeout(callback) {
-            callback();
-            return 42;
-        },
-        clearCacheTimeout() {
-            clearCalls += 1;
-        },
-    });
-    t.after(() => harness.adapter.dispose());
-
-    await harness.adapter.readOutline(sessionId);
-
-    assert.equal(harness.adapter.loadedConversationCache.size, 0);
-    assert.equal(clearCalls, 0);
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Codex normalizes only stable visible user and agent items', async t => {

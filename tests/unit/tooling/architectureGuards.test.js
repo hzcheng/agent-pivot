@@ -56,6 +56,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/conversation/composition.ts',
         'src/aiSessions/conversation/worktreeResolver.ts',
         'src/aiSessions/codexRolloutWorkdir.ts',
+        'src/aiSessions/codexRolloutContentSignature.ts',
         'src/aiSessions/conversation/kimiAdapter.ts',
         'src/aiSessions/conversation/claudeAdapter.ts',
         'src/aiSessions/conversation/coordinator.ts',

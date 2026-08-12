@@ -75,12 +75,16 @@ export interface CodexConversationAdapterOptions {
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
-    setCacheTimeout?(callback: () => void, delayMs: number): TimerHandle;
-    clearCacheTimeout?(handle: TimerHandle): void;
     resolveWorktree?: ResolveWorktree;
     readRolloutTelemetry?(
         sessionId: string
     ): CodexRolloutTelemetrySnapshot | undefined;
+    // Rollout stat signature used solely as the validity signal for the
+    // normalized-conversation cache: identical stat means the app-server
+    // content cannot have changed, so the cached conversation is reused
+    // without another full thread/read. An undefined/unreadable signature
+    // bypasses the cache entirely.
+    readContentSignature?(sessionId: string): string | undefined;
     readLifecycleSignal?(
         sessionId: string
     ): AiSessionLifecycleSignal | undefined;
@@ -93,7 +97,6 @@ export interface CodexConversationAdapterOptions {
 const MAX_LISTED_SUBAGENTS = 64;
 const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 const LARGE_CONVERSATION_CACHE_CHARS = 512 * 1024;
-const LARGE_CONVERSATION_CACHE_TTL_MS = 15_000;
 const LARGE_CONVERSATION_CACHE_ENTRIES = 2;
 
 interface LoadedConversation {
@@ -103,8 +106,7 @@ interface LoadedConversation {
 
 interface CachedLoadedConversation {
     value: LoadedConversation;
-    expiresAt: number;
-    expiryTimer?: TimerHandle;
+    contentSignature: string;
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -1014,87 +1016,59 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         if (signal?.aborted) {
             return Promise.reject(new ConversationAbortError());
         }
+        // The rollout stat signature is captured before the (potentially
+        // multi-second) provider read: an append landing mid-read makes the
+        // next probe mismatch and forces a fresh read, so the entry can
+        // never serve content newer than what it claims.
+        const signature = this.contentSignature(sessionId);
         const cached = this.loadedConversationCache.get(sessionId);
-        if (cached && cached.expiresAt > this.now()) {
+        if (cached && signature !== undefined
+            && signature === cached.contentSignature) {
             return Promise.resolve(cached.value);
-        }
-        if (cached) {
-            this.deleteLoadedConversationCacheEntry(sessionId, cached);
         }
         const generation = this.conversationCacheGeneration;
         return this.loadFresh(sessionId, signal).then(value => {
             if (!this.disposed
                 && generation === this.conversationCacheGeneration
+                && signature !== undefined
                 && this.isLargeConversation(value)) {
-                const previous = this.loadedConversationCache.get(sessionId);
-                if (previous) {
-                    this.deleteLoadedConversationCacheEntry(sessionId, previous);
-                }
-                const entry: CachedLoadedConversation = {
+                this.loadedConversationCache.delete(sessionId);
+                this.loadedConversationCache.set(sessionId, {
                     value,
-                    expiresAt: this.now() + LARGE_CONVERSATION_CACHE_TTL_MS,
-                };
-                this.loadedConversationCache.set(sessionId, entry);
-                this.scheduleLoadedConversationCacheExpiry(sessionId, entry);
+                    contentSignature: signature,
+                });
                 while (this.loadedConversationCache.size
                     > LARGE_CONVERSATION_CACHE_ENTRIES) {
-                    const oldest = this.loadedConversationCache.keys().next().value;
+                    const oldest = this.loadedConversationCache.keys()
+                        .next().value;
                     if (typeof oldest !== 'string') {
                         break;
                     }
-                    const evicted = this.loadedConversationCache.get(oldest);
-                    if (evicted) {
-                        this.deleteLoadedConversationCacheEntry(oldest, evicted);
-                    }
+                    this.loadedConversationCache.delete(oldest);
                 }
             }
             return value;
         });
     }
 
-    private scheduleLoadedConversationCacheExpiry(
-        sessionId: string,
-        entry: CachedLoadedConversation
-    ): void {
-        let firedSynchronously = false;
-        const setTimer = this.options.setCacheTimeout
-            && this.options.clearCacheTimeout
-            ? this.options.setCacheTimeout
-            : this.options.setTimeout;
-        const handle = setTimer(() => {
-            firedSynchronously = true;
-            entry.expiryTimer = undefined;
-            if (this.loadedConversationCache.get(sessionId) === entry) {
-                this.loadedConversationCache.delete(sessionId);
-            }
-        }, LARGE_CONVERSATION_CACHE_TTL_MS);
-        if (!firedSynchronously) {
-            entry.expiryTimer = handle;
-        }
-    }
-
-    private deleteLoadedConversationCacheEntry(
-        sessionId: string,
-        entry: CachedLoadedConversation
-    ): void {
-        if (entry.expiryTimer !== undefined) {
-            const clearTimer = this.options.setCacheTimeout
-                && this.options.clearCacheTimeout
-                ? this.options.clearCacheTimeout
-                : this.options.clearTimeout;
-            clearTimer(entry.expiryTimer);
-            entry.expiryTimer = undefined;
-        }
-        if (this.loadedConversationCache.get(sessionId) === entry) {
-            this.loadedConversationCache.delete(sessionId);
+    private contentSignature(sessionId: string): string | undefined {
+        try {
+            const split = splitSubagentSessionId(sessionId);
+            return this.options.readContentSignature?.(
+                split.subagentId || split.sessionId
+            );
+        } catch (_error) {
+            // A failing probe must never break a read: degrade to an
+            // always-fresh full provider read instead.
+            return undefined;
         }
     }
 
     private invalidateLoadedConversationCache(): void {
+        // Entries self-validate against the rollout stat on every read, so
+        // an invalidation only needs to guard reads currently in flight
+        // from caching a change they raced.
         this.conversationCacheGeneration += 1;
-        for (const [sessionId, entry] of this.loadedConversationCache) {
-            this.deleteLoadedConversationCacheEntry(sessionId, entry);
-        }
     }
 
     private async loadFresh(

@@ -10,6 +10,9 @@ const {
     KimiConversationAdapter,
 } = require('../out/aiSessions/conversation/kimiAdapter');
 const {
+    CodexConversationAdapter,
+} = require('../out/aiSessions/conversation/codexAdapter');
+const {
     getConversationReadStart,
     readConversationJsonl,
 } = require('../out/aiSessions/conversation/jsonlReader');
@@ -44,6 +47,83 @@ const canonicalKimiFixturePath = path.join(
 
 function elapsedMs(startedAt) {
     return Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+}
+
+function createCodexPerfThread(threadId, turns, textBytes) {
+    return {
+        thread: {
+            id: threadId,
+            turns: Array.from({ length: turns }, (_unused, index) => ({
+                id: `perf-turn-${index}`,
+                status: 'completed',
+                items: [{
+                    id: `perf-user-${index}`,
+                    type: 'userMessage',
+                    content: [{
+                        type: 'text',
+                        text: `Performance request ${index}`,
+                    }],
+                }, {
+                    id: `perf-agent-${index}`,
+                    type: 'agentMessage',
+                    text: 'a'.repeat(textBytes),
+                }],
+            })),
+        },
+    };
+}
+
+async function measureCodexStatValidatedReload() {
+    const threadId = '99999999-9999-4999-8999-999999999999';
+    // ~12 MiB of normalized agent text across 205 turns mirrors the large
+    // real thread/read payloads that dominate Codex switch latency.
+    const payload = createCodexPerfThread(threadId, 205, 60 * 1024);
+    let requests = 0;
+    let signature = 'stat-1';
+    const adapter = new CodexConversationAdapter({
+        client: {
+            async request(method, params) {
+                requests += 1;
+                assert.equal(method, 'thread/read');
+                assert.equal(params.threadId, threadId);
+                // Re-serialize per call so each full read pays a realistic
+                // transport-shaped parse cost.
+                return JSON.parse(JSON.stringify(payload));
+            },
+            dispose() {},
+        },
+        watchSessionChanges: () => ({ dispose() {} }),
+        setTimeout: callback => {
+            callback();
+            return 1;
+        },
+        clearTimeout: () => undefined,
+        readContentSignature: () => signature,
+    });
+    try {
+        let startedAt = process.hrtime.bigint();
+        const outline = await adapter.readOutline(threadId);
+        const fullReadMs = elapsedMs(startedAt);
+        assert.equal(outline.totalInteractions, 205);
+        assert.equal(requests, 1);
+
+        startedAt = process.hrtime.bigint();
+        const cached = await adapter.readOutline(threadId);
+        const statValidatedReloadMs = elapsedMs(startedAt);
+        assert.equal(cached.sourceRevision, outline.sourceRevision);
+        assert.equal(requests, 1,
+            'an unchanged rollout stat must skip the provider read');
+        assertBudget('codex stat-validated reload', statValidatedReloadMs,
+            PERFORMANCE_BUDGETS.codexStatValidatedReloadMs);
+
+        signature = 'stat-2';
+        await adapter.readOutline(threadId);
+        assert.equal(requests, 2,
+            'a changed rollout stat forces a fresh thread/read');
+        return { fullReadMs, statValidatedReloadMs };
+    } finally {
+        adapter.dispose();
+    }
 }
 
 function eventLine(value) {
@@ -496,6 +576,7 @@ async function run() {
             assert.ok(retention.retainedBytes <= 4 * 1024 * 1024);
             assert.equal(retention.retainedAnchor, true);
             const viewerBudgets = await measureViewerPublicationBudgets();
+            const codexBudgets = await measureCodexStatValidatedReload();
 
             console.log(JSON.stringify({
                 coldMs: Number(coldMs.toFixed(3)),
@@ -522,6 +603,10 @@ async function run() {
                 ),
                 hostSessionSwitchMs: Number(
                     viewerBudgets.hostSessionSwitchMs.toFixed(3)
+                ),
+                codexFullReadMs: Number(codexBudgets.fullReadMs.toFixed(3)),
+                codexStatValidatedReloadMs: Number(
+                    codexBudgets.statValidatedReloadMs.toFixed(3)
                 ),
                 ...retention,
             }));

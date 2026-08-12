@@ -1296,14 +1296,17 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     }
 
     /**
-     * Reloads a cached root-thread conversation by fetching only the tail of
-     * the thread through thread/turns/list. Returns null when the tail was
-     * rewritten (compaction/rollback), when a transient transport error
-     * ('unavailable'/'timeout') interrupts the page read, or when the
-     * content would equally fail the stable path — the caller then falls
-     * back to a full thread/read. Method-level rejections and malformed
-     * pages additionally disable the paginated path for the lifetime of
-     * this adapter; transient errors do not.
+     * Reloads a cached root-thread conversation by paging the thread tail
+     * through thread/turns/list. When the cached anchor turn survives, only
+     * the turns from the anchor forward are re-normalized; when the (fast,
+     * indexed) walk reaches the end of the thread without it, the whole
+     * conversation is rebuilt from the fetched pages. Returns null — so the
+     * caller falls back to a full thread/read — on slow (legacy replay)
+     * backends, over-budget walks, anomalous pages, transient transport
+     * errors ('unavailable'/'timeout'), or content the stable path would
+     * equally reject. Method-level rejections and malformed pages
+     * additionally disable the paginated path for the lifetime of this
+     * adapter; transient errors do not.
      */
     private async loadIncremental(
         sessionId: string,
@@ -1369,8 +1372,14 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             if (anchorIndex >= 0) {
                 break;
             }
-            if (!nextCursor || pageTurns.length === 0) {
+            if (!nextCursor) {
                 break;
+            }
+            if (pageTurns.length === 0) {
+                // An empty page with a live cursor is outside the verified
+                // pagination semantics: settle on the stable full read
+                // rather than rebuilding from a possibly truncated walk.
+                return null;
             }
             if (firstPageMs >= PAGINATED_READ_SLOW_PAGE_MS) {
                 return null;

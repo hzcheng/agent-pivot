@@ -2026,6 +2026,10 @@ function createPaginatedHarness(t, options = {}) {
                 if (state.turnsListFailure === 'malformed') {
                     return { data: [{ id: 'broken' }] };
                 }
+                if (state.turnsListFailure === 'empty-page-with-cursor'
+                    && typeof params.cursor === 'string') {
+                    return { data: [], nextCursor: 'ghost' };
+                }
                 return serveTurnsListPage(state.turns, params);
             }
             throw new Error(`unexpected method ${method}`);
@@ -2217,6 +2221,27 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read after
         ['thread/read', 'thread/turns/list', 'thread/read']
     );
     assert.equal(compacted.totalInteractions, 12);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read on an empty page with a live cursor', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    harness.state.turns = Array.from(
+        { length: 12 },
+        (_, index) => createPaginatedTurn(index, 'rewritten')
+    );
+    harness.state.signature = 'stat-2';
+    // Outside the verified semantics: an empty page that still claims more
+    // turns. The adapter must not rebuild from a truncated walk.
+    harness.state.turnsListFailure = 'empty-page-with-cursor';
+    const recovered = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(
+        harness.methods(),
+        ['thread/read', 'thread/turns/list', 'thread/turns/list', 'thread/read']
+    );
+    assert.equal(recovered.totalInteractions, 12);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 walks deep append bursts on the fast paginated backend', async t => {

@@ -1250,11 +1250,6 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 return { ...incremental, kind: 'incremental' };
             }
         }
-        if (stale) {
-            // A stale or unverifiable entry is released rather than
-            // lingering beside — or instead of — its replacement.
-            this.deleteLoadedConversationCacheEntry(sessionId, stale);
-        }
         const fresh = await this.loadFresh(sessionId, signal);
         return { ...fresh, kind: 'fresh' };
     }
@@ -1310,6 +1305,14 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                         'unavailable',
                         'reconnectingCodex'
                     );
+                }
+                if (error instanceof ConversationError
+                    && (error.code === 'unavailable'
+                        || error.code === 'timeout')) {
+                    // Transient transport failure (child restart, an
+                    // unrelated request timing out the shared child): fall
+                    // back for this load without retiring the accelerator.
+                    return null;
                 }
                 this.paginatedReadsDisabled = true;
                 return null;
@@ -1380,9 +1383,14 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         );
         if (sourceRevision === cached.value.sourceRevision) {
             // The stat moved but the visible content did not: keep the
-            // cached value (its identity is pinned to the revision) and let
-            // the caller re-anchor the entry to the new signature.
-            return { value: cached.value, turns, characters };
+            // cached value (its identity is pinned to the revision) and its
+            // chunks (their interactions share the value's objects), and
+            // let the caller re-anchor the entry to the new signature.
+            return {
+                value: cached.value,
+                turns: cached.turns,
+                characters: cached.characters,
+            };
         }
         const interactions = this.promoteRunningLifecycle(
             sessionId,

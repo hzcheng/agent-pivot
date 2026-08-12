@@ -10,6 +10,7 @@ const {
 } = require('../../../out/aiSessions/conversation/codexAdapter');
 const {
     CONVERSATION_LIMITS,
+    ConversationError,
 } = require('../../../out/aiSessions/conversation/types');
 
 const fixturePath = path.resolve(
@@ -2016,6 +2017,12 @@ function createPaginatedHarness(t, options = {}) {
                         'thread/turns/list requires experimentalApi capability'
                     );
                 }
+                if (state.turnsListFailure === 'transient') {
+                    throw new ConversationError(
+                        'unavailable',
+                        'reconnectingCodex'
+                    );
+                }
                 if (state.turnsListFailure === 'malformed') {
                     return { data: [{ id: 'broken' }] };
                 }
@@ -2179,6 +2186,31 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 disables paginated reloads afte
     assert.deepEqual(harness.methods().slice(3), ['thread/read']);
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back without disabling paginated reloads on transient transport errors', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    // A child restart rejects the in-flight tail page with a transient
+    // 'unavailable': the load falls back to a full read, but the
+    // accelerator stays enabled.
+    harness.state.turns.push(createPaginatedTurn(12));
+    harness.state.signature = 'stat-2';
+    harness.state.turnsListFailure = 'transient';
+    const recovered = await harness.adapter.readOutline(sessionId);
+    assert.equal(recovered.totalInteractions, 13);
+    assert.deepEqual(
+        harness.methods(),
+        ['thread/read', 'thread/turns/list', 'thread/read']
+    );
+
+    harness.state.turnsListFailure = undefined;
+    harness.state.turns.push(createPaginatedTurn(13));
+    harness.state.signature = 'stat-3';
+    const reloaded = await harness.adapter.readOutline(sessionId);
+    assert.equal(reloaded.totalInteractions, 14);
+    assert.deepEqual(harness.methods().slice(3), ['thread/turns/list']);
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 disables paginated reloads after a malformed thread/turns/list page', async t => {
     const harness = createPaginatedHarness(t);
     await harness.adapter.readOutline(sessionId);
@@ -2244,7 +2276,13 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 walks older pages when many tur
         harness.methods().slice(1),
         ['thread/turns/list', 'thread/turns/list']
     );
-    assert.equal(harness.requests[1].params.cursor, undefined);
+    assert.deepEqual(harness.requests[1].params, {
+        threadId: sessionId,
+        cursor: undefined,
+        limit: 4,
+        sortDirection: 'desc',
+        itemsView: 'full',
+    });
     assert.equal(harness.requests[2].params.cursor, 'turn-14');
     assert.equal(updated.totalInteractions, 18);
     const expected = await createFullReadProof(t, harness.state)

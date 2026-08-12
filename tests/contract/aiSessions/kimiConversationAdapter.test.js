@@ -2201,3 +2201,179 @@ test('CONVERSATION-FOLLOW-DIAGNOSTICS-001 Kimi exposes sanitized cache diagnosti
     assert.equal(incremental.cachedInteractions, 3);
     assert.equal(incremental.cachedNextOffset, fs.statSync(source.sourcePath).size);
 });
+
+test('CONVERSATION-OVERSIZED-TURN-001 Kimi bounds one oversized tool-heavy turn without hiding its conversation', async t => {
+    const source = await createFixture(t);
+    const toolCalls = Array.from({ length: 160 }, (_item, index) => ({
+        timestamp: 1_001 + index,
+        message: {
+            type: 'ToolCall',
+            payload: {
+                id: `call-${index}`,
+                function: {
+                    name: 'Shell',
+                    arguments: JSON.stringify({
+                        command: `printf ${'x'.repeat(3_900)}`,
+                    }),
+                },
+            },
+        },
+    }));
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1_000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: [{ type: 'text', text: 'Inspect the large run' }] },
+            },
+        },
+        ...toolCalls,
+        {
+            timestamp: 2_000,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'Final bounded answer.' },
+            },
+        },
+        {
+            timestamp: 2_001,
+            message: { type: 'TurnEnd', payload: {} },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const snapshot = await adapter.readSnapshot(sessionId);
+
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(snapshot.page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+    assert.equal(snapshot.outline.interactions.length, 1);
+    assert.equal(snapshot.page.messages[0].markdown, 'Inspect the large run');
+    assert.equal(snapshot.page.messages.at(-1).markdown, 'Final bounded answer.');
+    assert.equal(
+        snapshot.page.messages.some(message =>
+            message.markdown === 'Work was omitted to keep this turn within the conversation size limit.'
+        ),
+        true
+    );
+    assert.ok(
+        snapshot.page.messages.filter(message => message.role === 'tool').length
+            < toolCalls.length
+    );
+});
+
+// Shape measured from a real incident session (70ce2ce2-…, turn #2):
+// one turn with 100+ tool calls, ~255KB of streamed thinking, ~278KB of
+// tool output (including very large ReadFile results), and ~100KB of
+// arguments — individually capped fields still sum past 512KB.
+test('CONVERSATION-OVERSIZED-TURN-001 Kimi bounds a real-shaped oversized turn and keeps the outline intact', async t => {
+    const source = await createFixture(t);
+    const records = [{
+        timestamp: 1_000,
+        message: {
+            type: 'TurnBegin',
+            payload: { user_input: 'Review the oversized turn' },
+        },
+    }];
+    for (let index = 0; index < 20; index += 1) {
+        records.push({
+            timestamp: 1_001 + index,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'think', think: `thought ${index} ${'t'.repeat(12 * 1024)}` },
+            },
+        });
+    }
+    for (let index = 0; index < 160; index += 1) {
+        const big = index < 2;
+        records.push({
+            timestamp: 1_100 + index * 2,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: `read-${index}`,
+                    function: {
+                        name: 'ReadFile',
+                        arguments: JSON.stringify({
+                            path: `/repo/src/module-${index}.ts`,
+                        }),
+                    },
+                },
+            },
+        }, {
+            timestamp: 1_101 + index * 2,
+            message: {
+                type: 'ToolResult',
+                payload: {
+                    tool_call_id: `read-${index}`,
+                    return_value: {
+                        output: `file ${index}\n${'r'.repeat(big ? 80 * 1024 : 3 * 1024)}`,
+                    },
+                },
+            },
+        });
+    }
+    records.push({
+        timestamp: 2_000,
+        message: {
+            type: 'ContentPart',
+            payload: { type: 'text', text: 'Final review verdict.' },
+        },
+    }, {
+        timestamp: 2_001,
+        message: { type: 'TurnEnd', payload: {} },
+    }, {
+        timestamp: 3_000,
+        message: {
+            type: 'TurnBegin',
+            payload: { user_input: 'A normal follow-up turn' },
+        },
+    }, {
+        timestamp: 3_001,
+        message: { type: 'TurnEnd', payload: {} },
+    });
+    await fs.promises.writeFile(
+        source.sourcePath,
+        records.map(record => JSON.stringify(record)).join('\n') + '\n'
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const snapshot = await adapter.readSnapshot(sessionId);
+    assert.deepEqual(
+        snapshot.outline.interactions.map(item => item.userPreview),
+        ['Review the oversized turn', 'A normal follow-up turn']
+    );
+
+    const oversizedId = snapshot.outline.interactions[0].id;
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: oversizedId,
+        direction: 'around',
+    });
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+    const oversizedMessages = page.messages.filter(
+        message => message.interactionId === oversizedId
+    );
+    assert.equal(oversizedMessages[0].markdown, 'Review the oversized turn');
+    assert.equal(
+        oversizedMessages.some(message =>
+            message.markdown === 'Final review verdict.'),
+        true
+    );
+    assert.equal(
+        oversizedMessages.some(message =>
+            message.markdown === 'Work was omitted to keep this turn within the conversation size limit.'
+        ),
+        true
+    );
+
+    const outline = await adapter.readOutline(sessionId);
+    assert.equal(outline.interactions.length, 2);
+});

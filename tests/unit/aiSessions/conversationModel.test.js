@@ -400,3 +400,166 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 page interaction states carry turn timin
         responseState: 'complete',
     }]);
 });
+
+test('CONVERSATION-OVERSIZED-TURN-001 preserves a multibyte user input and final answer when one turn must shrink', () => {
+    const [interaction] = makeInteractions(1);
+    interaction.userMarkdown = '👨‍👩‍👧‍👦'.repeat(12_500);
+    interaction.userGraphemeCount = 12_500;
+    interaction.assistantMarkdown = ['👩‍👩‍👧‍👦'.repeat(12_500)];
+    const page = model.buildConversationPage([interaction], {
+        provider: 'kimi',
+        sessionId: 'session',
+        anchorInteractionId: interaction.id,
+        direction: 'around',
+    }, 'r1');
+
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+    assert.deepEqual(page.messages.map(message => message.role), [
+        'user', 'progress', 'assistant',
+    ]);
+    assert.equal(new Set(page.messages.map(message => message.id)).size, 3);
+});
+
+test('CONVERSATION-OVERSIZED-TURN-001 truncates one individually oversized message before fitting the semantic endpoint', () => {
+    const [interaction] = makeInteractions(1);
+    interaction.userMarkdown = '👨‍👩‍👧‍👦'.repeat(25_000);
+    interaction.userGraphemeCount = 25_000;
+    interaction.assistantMarkdown = ['Final answer survives.'];
+    const page = model.buildConversationPage([interaction], {
+        provider: 'kimi',
+        sessionId: 'session',
+        anchorInteractionId: interaction.id,
+        direction: 'around',
+    }, 'r1');
+
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+    assert.equal(page.messages[0].role, 'user');
+    assert.match(page.messages[0].markdown, /…$/);
+    assert.equal(page.messages.at(-1).markdown, 'Final answer survives.');
+});
+
+test('CONVERSATION-OVERSIZED-TURN-001 keeps a bounded provider question when its nested text exceeds one page', () => {
+    const [interaction] = makeInteractions(1);
+    interaction.assistantMarkdown = ['Final answer after the question.'];
+    interaction.questions = [{
+        position: 0,
+        source: 'AskUserQuestion',
+        questions: Array.from({ length: 8 }, (_item, questionIndex) => ({
+            question: `Question ${questionIndex} ${'😀'.repeat(2_000)}`,
+            options: Array.from({ length: 8 }, (_option, optionIndex) => ({
+                label: `Option ${optionIndex} ${'🧭'.repeat(500)}`,
+                description: '🔎'.repeat(2_000),
+            })),
+            multiSelect: false,
+            answers: ['✅'.repeat(2_000)],
+        })),
+        outcome: 'answered',
+    }];
+    const page = model.buildConversationPage([interaction], {
+        provider: 'kimi',
+        sessionId: 'session',
+        anchorInteractionId: interaction.id,
+        direction: 'around',
+    }, 'r1');
+
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+    const question = page.messages.find(message => message.role === 'question');
+    assert.ok(question, 'the semantic question endpoint must remain visible');
+    assert.equal(question.question.source, 'AskUserQuestion');
+    assert.equal(question.question.questions.length, 8);
+    assert.deepEqual(
+        page.messages.filter(message =>
+            message.role === 'question' || message.role === 'assistant'
+        ).map(message => message.role),
+        ['question', 'assistant']
+    );
+    assert.equal(
+        page.messages.find(message => message.role === 'assistant').markdown,
+        'Final answer after the question.'
+    );
+    assert.equal(
+        new Set(page.messages.map(message => message.id)).size,
+        page.messages.length
+    );
+});
+
+test('CONVERSATION-OVERSIZED-TURN-001 bounding truncates plan content but keeps the plan file path', () => {
+    const [interaction] = makeInteractions(1);
+    interaction.userMarkdown = 'U'.repeat(200 * 1024);
+    interaction.userGraphemeCount = 200 * 1024;
+    interaction.assistantMarkdown = [];
+    interaction.plans = [{
+        position: 0,
+        markdown: 'P'.repeat(450 * 1024),
+        filePath: '/home/user/.kimi/plans/keep-me.md',
+    }];
+    const page = model.buildConversationPage([interaction], {
+        provider: 'kimi',
+        sessionId: 'session',
+        anchorInteractionId: interaction.id,
+        direction: 'around',
+    }, 'r1');
+
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+    const plan = page.messages.find(message => message.role === 'plan');
+    assert.ok(plan, 'the plan endpoint must remain visible');
+    assert.match(plan.plan.markdown, /…$/);
+    assert.equal(plan.plan.filePath, '/home/user/.kimi/plans/keep-me.md');
+    assert.equal(page.messages[0].role, 'user');
+    assert.equal(
+        page.messages.some(message =>
+            message.markdown === 'Work was omitted to keep this turn within the conversation size limit.'),
+        true
+    );
+});
+
+test('CONVERSATION-OVERSIZED-TURN-001 a worklog-only oversized turn keeps its user input and latest work entry', () => {
+    // Real sessions contain complete turns with no assistant, plan, or
+    // question message at all (e.g. orchestrator turns whose content lives
+    // in provider events the adapter skips). The fallback endpoint is the
+    // turn's last message.
+    const [interaction] = makeInteractions(1);
+    interaction.userMarkdown = 'U'.repeat(200 * 1024);
+    interaction.userGraphemeCount = 200 * 1024;
+    interaction.assistantMarkdown = [];
+    interaction.toolCalls = [{
+        position: 0,
+        name: 'Shell',
+        summary: 'the final work entry',
+        detail: 'D'.repeat(400 * 1024),
+    }];
+    const page = model.buildConversationPage([interaction], {
+        provider: 'kimi',
+        sessionId: 'session',
+        anchorInteractionId: interaction.id,
+        direction: 'around',
+    }, 'r1');
+
+    assert.ok(
+        Buffer.byteLength(JSON.stringify(page), 'utf8')
+            <= CONVERSATION_LIMITS.maxPageBytes
+    );
+    assert.equal(page.messages[0].role, 'user');
+    assert.equal(
+        page.messages.some(message =>
+            message.markdown === 'Work was omitted to keep this turn within the conversation size limit.'),
+        true
+    );
+    const tool = page.messages.find(message => message.role === 'tool');
+    assert.ok(tool, 'the fallback endpoint must remain visible');
+    assert.equal(tool.tool.name, 'Shell');
+    assert.equal(tool.tool.summary, 'the final work entry');
+    assert.match(tool.tool.detail, /…$/);
+});

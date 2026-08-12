@@ -130,3 +130,24 @@ within the first waves while the serialized fix is deterministically
 green. Record `lastReadContinuation` on the entry and expose
 `getCacheDiagnostics` so an empty follow is diagnosable from the local
 log without raw identifiers.
+
+## Page-Budget Convergence and Endpoint-Less Turns
+
+Per-field caps (64k-grapheme messages, 4k tool details) do NOT bound an
+interaction's aggregate size: 100+ tool calls or merged thinking runs sum
+past `maxPageBytes`, and `buildConversationPage` used to have no
+in-interaction lever — it threw `tooLarge` and the whole conversation
+reported unavailable. Converge inside the interaction instead: keep the
+user message and the latest assistant/plan/question endpoints, truncate
+only allowlisted content fields (`markdown`/`text`/`detail`/`question`/
+`label`/`description`/`otherLabel` — never tool names, diff paths, plan
+file paths, or outcomes), insert an explicit omission notice, and
+backfill the tail greedily. Two calibration lessons from real incident
+data: (1) size synthetic oversized fixtures empirically — per-field caps
+shrink naive fixtures below the page budget (130 capped 4KB tool details
+≈ 504KB < 510KB; 160 needed), so measure the built block before trusting
+a RED; (2) real sessions contain complete turns with NO
+assistant/plan/question message at all (orchestrator turns whose content
+lives in provider events the adapter skips) — endpoint preservation must
+fall back to the turn's last message or those turns render as a bare
+omission.

@@ -1,10 +1,15 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
+
+function hashSessionId(value) {
+    return createHash('sha256').update(value).digest('hex').slice(0, 12);
+}
 
 function fakeUri(value) {
     return {
@@ -186,6 +191,9 @@ function createHarness(options = {}) {
         async readPage() {
             throw new Error('readPage is not used by openLatestConversation');
         },
+        ...(options.cacheDiagnostics ? {
+            getCacheDiagnostics: () => options.cacheDiagnostics,
+        } : {}),
         watch() {
             return { dispose() {} };
         },
@@ -1000,7 +1008,85 @@ test('CONVERSATION-FOLLOW-FEEDBACK-001 surfaces an in-panel notice and sanitized
         event: 'conversation-follow',
         category: 'empty',
         provider: 'codex',
+        sessionIdHash: hashSessionId('session-a'),
+        snapshotSource: 'fresh',
+        discardedEmptyWarmSnapshot: false,
+        outlineInteractions: 0,
+        sourceRevision: 'r1',
     }]);
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-FOLLOW-DIAGNOSTICS-001 an empty follow reports warm provenance and sanitized cache state', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:session-${index}`,
+        provider,
+        sessionId: `session-${index}`,
+        name: `${provider} Session`,
+    }));
+    const diagnostics = [];
+    const harness = createHarness({
+        enableSnapshots: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        readSnapshot: async (provider, sessionId) => {
+            if (provider === 'kimi') {
+                return { outline: makeOutline(provider, sessionId, []) };
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+        cacheDiagnostics: {
+            cachedInteractions: 0,
+            cachedNextOffset: 4096,
+            continuation: true,
+            partial: false,
+            sourceSize: 4096,
+        },
+        onDiagnostic: event => diagnostics.push(event),
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-0',
+    }), 'opened');
+    while (!harness.snapshotReadTargets.includes('kimi:session-1')) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'session-1',
+    }), 'empty');
+    assert.deepEqual(harness.viewerNotices, [
+        'This AI session has no conversation yet.',
+    ]);
+    assert.deepEqual(
+        diagnostics.find(event => event.event === 'conversation-follow'),
+        {
+            event: 'conversation-follow',
+            category: 'empty',
+            provider: 'kimi',
+            sessionIdHash: hashSessionId('session-1'),
+            snapshotSource: 'fresh',
+            discardedEmptyWarmSnapshot: true,
+            outlineInteractions: 0,
+            sourceRevision: 'r1',
+            cachedInteractions: 0,
+            cachedNextOffset: 4096,
+            continuation: true,
+            partial: false,
+            sourceSize: 4096,
+        }
+    );
     harness.capability.dispose();
 });
 
@@ -1024,11 +1110,26 @@ test('CONVERSATION-FOLLOW-FEEDBACK-001 surfaces a retry hint notice when a follo
         event: 'conversation-follow',
         category: 'unavailable',
         provider: 'codex',
+        sessionIdHash: hashSessionId('session-a'),
     });
+    const allowedKeys = new Set([
+        'event', 'category', 'provider', 'count', 'durationMs', 'version',
+        'sessionIdHash', 'effectiveSessionIdHash', 'snapshotSource',
+        'discardedEmptyWarmSnapshot', 'outlineInteractions', 'sourceRevision',
+        'sourceSize', 'cachedNextOffset', 'cachedInteractions',
+        'continuation', 'partial',
+    ]);
     for (const event of diagnostics) {
-        assert.deepEqual(Object.keys(event).sort(), [
-            'category', 'event', 'provider',
-        ], 'follow diagnostics must stay sanitized');
+        for (const key of Object.keys(event)) {
+            assert.ok(
+                allowedKeys.has(key),
+                `follow diagnostics must stay sanitized, found ${key}`
+            );
+        }
+        assert.ok(
+            !JSON.stringify(event).includes('session-a'),
+            'raw session identifiers must stay out of follow diagnostics'
+        );
     }
     harness.capability.dispose();
 });
@@ -1053,6 +1154,7 @@ test('CONVERSATION-FOLLOW-FEEDBACK-001 surfaces a notice when the followed sessi
         event: 'conversation-follow',
         category: 'unknownSession',
         provider: 'claude',
+        sessionIdHash: hashSessionId('session-a'),
     }]);
     harness.capability.dispose();
 });

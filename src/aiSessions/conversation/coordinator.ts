@@ -19,6 +19,7 @@ import {
     ConversationFileDiff,
     ConversationMessage,
     ConversationOutline,
+    ConversationCacheDiagnostics,
     ConversationPage,
     ConversationPageRequest,
     ConversationProviderAdapter,
@@ -182,6 +183,17 @@ export class ConversationCoordinator implements AiSessionDisposable {
             };
         } catch (error) {
             throw this.toSafeError(provider, error);
+        }
+    }
+
+    readCacheDiagnostics(
+        provider: AiSessionProviderId,
+        sessionId: string
+    ): ConversationCacheDiagnostics | undefined {
+        try {
+            return this.getAdapter(provider).getCacheDiagnostics?.(sessionId);
+        } catch (_error) {
+            return undefined;
         }
     }
 

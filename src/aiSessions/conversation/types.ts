@@ -289,6 +289,30 @@ export interface SanitizedConversationDiagnostic {
     count?: number;
     durationMs?: number;
     version?: string;
+    /** First 12 hex chars of the sha256 of the clicked session id. */
+    sessionIdHash?: string;
+    /** Present only when a subagent effective id differs from sessionId. */
+    effectiveSessionIdHash?: string;
+    /** Whether the authoritative snapshot came from warmup or a fresh read. */
+    snapshotSource?: 'warm' | 'fresh';
+    /** An empty warm snapshot was discarded and confirmed by a fresh read. */
+    discardedEmptyWarmSnapshot?: boolean;
+    outlineInteractions?: number;
+    sourceRevision?: string;
+    sourceSize?: number;
+    cachedNextOffset?: number;
+    cachedInteractions?: number;
+    continuation?: boolean;
+    partial?: boolean;
+}
+
+/** Read-only cache introspection for diagnosing empty/stale follows. */
+export interface ConversationCacheDiagnostics {
+    sourceSize?: number;
+    cachedNextOffset?: number;
+    cachedInteractions?: number;
+    continuation?: boolean;
+    partial?: boolean;
 }
 
 export interface ConversationAbortSignal {
@@ -368,5 +392,8 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
         sessionId: string,
         signal?: ConversationAbortSignal
     ): Promise<ConversationTelemetry | undefined>;
+    getCacheDiagnostics?(
+        sessionId: string
+    ): ConversationCacheDiagnostics | undefined;
     watch(sessionId: string, onChange: () => void): AiSessionDisposable;
 }

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "7471ec6d918175b048f962cddc2c8e374dae7390",
+        "head": "aecacbe0c6edaf93832ead08b5b279a9731d1355",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -289,7 +289,8 @@
             "0f1b5cdb56fcceac286e26b273e52ec31fee1003",
             "f83afd43b4cf0781339818992498d673a1b83411",
             "8d354e7c2d1e7a7ff528e6ed2dfd495a37a19415",
-            "bf5af003d36a5f5e813df7802762e75a3ab2215e"
+            "bf5af003d36a5f5e813df7802762e75a3ab2215e",
+            "8a289bd48012003108121fb5d491fbb730807dca"
         ]
     },
     "capabilities": [
@@ -1635,7 +1636,8 @@
                 "887b8877965c074b915f85986dfbdc60cdcaa530",
                 "ed74fee09373347dad2da1bb17493d5fbf960d4c",
                 "2accfd46a0909f5e810ef6484d42677868c952e1",
-                "7471ec6d918175b048f962cddc2c8e374dae7390"
+                "7471ec6d918175b048f962cddc2c8e374dae7390",
+                "aecacbe0c6edaf93832ead08b5b279a9731d1355"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -1683,7 +1685,9 @@
                 "CONVERSATION-PLAN-QUESTION-VISIBILITY-001",
                 "CONVERSATION-DIFF-VISIBILITY-001",
                 "CONVERSATION-FOLLOW-FEEDBACK-001",
-                "CONVERSATION-SESSION-STATUS-001"
+                "CONVERSATION-SESSION-STATUS-001",
+                "CONVERSATION-CACHE-CONVERGENCE-001",
+                "CONVERSATION-FOLLOW-DIAGNOSTICS-001"
             ],
             "prGates": [
                 "test:ci:linux"

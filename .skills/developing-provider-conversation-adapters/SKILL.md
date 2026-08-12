@@ -109,3 +109,24 @@ From `spikes/codex-paginated-read` and `spikes/codex-cold-start`:
   ids, and responseStates are all unchanged. Adapter revisions must
   therefore move on **any** provider content change — including
   summary-invisible tool output — or the webview never re-reads the page.
+
+## Incremental Cache Concurrency
+
+Kimi and Claude adapters keep a per-session incremental index
+(`nextOffset` + parsed interactions) and commit it **in place**. Warmup,
+telemetry polls, watch refreshes, and authoritative clicks all call
+`load()` concurrently, so an unguarded check-then-act across the
+continuation hash await lets a racing load flip `continuing`, re-read a
+file suffix as if it were the whole file, and write the truncated index
+back with an end-of-file offset — the session then reports empty
+forever while every later click refreshes the poisoned entry's TTL.
+Serialize `load()` per session id (a trailing promise chain that
+survives rejections) so every read observes a fully committed entry.
+Regression-test with staggered concurrent waves (0..N `setImmediate`
+ticks apart) of mixed `readOutline`/`readSnapshot`/`readTelemetry` after
+each append, then compare against a cold-read truth adapter — the flip
+window is only a few event-loop ticks wide, so unserialized code fails
+within the first waves while the serialized fix is deterministically
+green. Record `lastReadContinuation` on the entry and expose
+`getCacheDiagnostics` so an empty follow is diagnosable from the local
+log without raw identifiers.

@@ -2046,3 +2046,158 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 Kimi stamps completedAt from the last tu
     assert.equal(page.interactionStates[0].timestamp, 1_784_505_600_000);
     assert.equal(page.interactionStates[0].completedAt, 1_784_505_625_000);
 });
+
+function wireTurn(index, input) {
+    const base = 20_000 + index * 10;
+    return [
+        JSON.stringify({ timestamp: base, message: { type: 'TurnBegin',
+            payload: { user_input: input || `turn ${index}` } } }),
+        JSON.stringify({ timestamp: base + 1, message: { type: 'ContentPart',
+            payload: { type: 'text', text: `answer ${index}` } } }),
+        JSON.stringify({ timestamp: base + 2, message: { type: 'TurnEnd',
+            payload: {} } }),
+        '',
+    ].join('\n');
+}
+
+test('CONVERSATION-CACHE-CONVERGENCE-001 racing incremental reads never truncate the cached outline', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(
+        source.sourcePath,
+        [0, 1, 2].map(index => wireTurn(index)).join('')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const initial = await adapter.readOutline(sessionId);
+    assert.equal(initial.interactions.length, 3);
+
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    let expected = 3;
+    for (let round = 0; round < 12; round += 1) {
+        expected += 1;
+        await fs.promises.appendFile(
+            source.sourcePath,
+            wireTurn(100 + round)
+        );
+        // Warmup, telemetry polls, watch refreshes, and authoritative clicks
+        // all share the per-session cache. Stagger a wave of reads so some
+        // of them commit while others are mid-read.
+        const wave = [];
+        for (let stagger = 0; stagger < 5; stagger += 1) {
+            wave.push((async () => {
+                for (let pause = 0; pause < stagger; pause += 1) {
+                    await tick();
+                }
+                return stagger % 2 === 0
+                    ? adapter.readOutline(sessionId)
+                    : adapter.readSnapshot(sessionId);
+            })());
+        }
+        const results = await Promise.all(wave);
+        for (const result of results) {
+            const outline = result.outline || result;
+            assert.equal(
+                outline.interactions.length,
+                expected,
+                `round ${round} returned a truncated outline`
+            );
+        }
+    }
+
+    const truth = createAdapter(source);
+    t.after(() => truth.dispose());
+    const expectedOutline = await truth.readOutline(sessionId);
+    const converged = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        converged.interactions.map(item => item.id),
+        expectedOutline.interactions.map(item => item.id)
+    );
+});
+
+test('CONVERSATION-CACHE-CONVERGENCE-001 an empty source picks up appended turns on the next read', async t => {
+    const source = await createFixture(t);
+    // A brand-new Kimi session starts with only the metadata record.
+    await fs.promises.writeFile(
+        source.sourcePath,
+        `${JSON.stringify({ type: 'metadata', protocol_version: '1.10' })}\n`
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const empty = await adapter.readOutline(sessionId);
+    assert.equal(empty.interactions.length, 0);
+
+    await fs.promises.appendFile(source.sourcePath, wireTurn(1, 'first turn'));
+    const grown = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        grown.interactions.map(item => item.userPreview),
+        ['first turn']
+    );
+});
+
+test('CONVERSATION-CACHE-CONVERGENCE-001 replaced or truncated sources are cold re-read', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(
+        source.sourcePath,
+        [0, 1, 2].map(index => wireTurn(index)).join('')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    assert.equal((await adapter.readOutline(sessionId)).interactions.length, 3);
+
+    // Atomic replacement swaps the inode: the cache must cold re-read.
+    const replacementPath = path.join(source.providerHome, 'wire.jsonl.next');
+    await fs.promises.writeFile(
+        replacementPath,
+        wireTurn(7, 'replacement turn')
+    );
+    await fs.promises.rename(replacementPath, source.sourcePath);
+    const replaced = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        replaced.interactions.map(item => item.userPreview),
+        ['replacement turn']
+    );
+
+    // Truncation shrinks the file in place: the cache must cold re-read too.
+    await fs.promises.writeFile(source.sourcePath, wireTurn(9, 'truncated turn'));
+    const truncated = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        truncated.interactions.map(item => item.userPreview),
+        ['truncated turn']
+    );
+});
+
+test('CONVERSATION-FOLLOW-DIAGNOSTICS-001 Kimi exposes sanitized cache diagnostics for empty follows', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(
+        source.sourcePath,
+        [0, 1].map(index => wireTurn(index)).join('')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    assert.equal(adapter.getCacheDiagnostics(sessionId), undefined);
+
+    await adapter.readOutline(sessionId);
+    const cold = adapter.getCacheDiagnostics(sessionId);
+    assert.deepEqual(Object.keys(cold).sort(), [
+        'cachedInteractions',
+        'cachedNextOffset',
+        'continuation',
+        'partial',
+        'sourceSize',
+    ]);
+    assert.equal(cold.cachedInteractions, 2);
+    assert.equal(cold.cachedNextOffset, fs.statSync(source.sourcePath).size);
+    assert.equal(cold.sourceSize, fs.statSync(source.sourcePath).size);
+    assert.equal(cold.continuation, false);
+    assert.equal(cold.partial, false);
+
+    await fs.promises.appendFile(source.sourcePath, wireTurn(2));
+    await adapter.readOutline(sessionId);
+    const incremental = adapter.getCacheDiagnostics(sessionId);
+    assert.equal(incremental.continuation, true);
+    assert.equal(incremental.cachedInteractions, 3);
+    assert.equal(incremental.cachedNextOffset, fs.statSync(source.sourcePath).size);
+});

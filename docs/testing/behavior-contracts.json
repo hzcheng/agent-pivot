@@ -4950,6 +4950,36 @@
     ]
   },
   {
+    "id": "CONVERSATION-CACHE-CONVERGENCE-001",
+    "domain": "session",
+    "title": "Incremental conversation index caches converge to on-disk truth: same-session reads are serialized so racing warmup, telemetry, watch, and authoritative reads never truncate or roll back the cached interaction index, an empty source picks up appended turns on the next read, and replaced or truncated sources are cold re-read",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/kimiAdapter.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-FOLLOW-DIAGNOSTICS-001",
+    "domain": "session",
+    "title": "Follow failures emit sanitized but diagnosable conversation-follow events: session id hashes, warm/fresh provenance, discarded-empty-warm flag, outline size, source revision, and adapter cache state (source size, cached offset, cached interaction count, continuation, partial), without raw identifiers, paths, or conversation content",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/coordinator.ts",
+      "src/aiSessions/conversation/kimiAdapter.ts",
+      "src/aiSessions/conversation/types.ts"
+    ]
+  },
+  {
     "id": "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
     "domain": "webview",
     "title": "A live response preserves telemetry, follows from the end, preserves historical reading position, and transitions Working to complete without a manual new-content control",

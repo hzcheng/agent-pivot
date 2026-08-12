@@ -449,7 +449,8 @@ function createAvailableConversationCapability(
                 reportFollowFailure(
                     options.onDiagnostic,
                     target.provider,
-                    resolution.result
+                    resolution.result,
+                    resolution.diagnostic
                 );
                 viewer.showNotice(
                     conversationFollowNoticeText(resolution.result)
@@ -739,6 +740,7 @@ type LatestConversationTargetResolution =
         viewerTarget?: undefined;
         snapshot?: undefined;
         prefetchedSnapshot?: undefined;
+        diagnostic?: Partial<SanitizedConversationDiagnostic>;
     };
 
 async function followAdjacentConversation(
@@ -1207,7 +1209,10 @@ async function resolveLatestConversationTarget(
 ): Promise<LatestConversationTargetResolution> {
     const authoritativeTarget = resolveExactTarget(options, target);
     if (!authoritativeTarget) {
-        return { result: 'unknownSession' };
+        return {
+            result: 'unknownSession',
+            diagnostic: conversationFollowDiagnosticBase(target),
+        };
     }
     coordinator.setSessionStopped(
         target.provider,
@@ -1224,13 +1229,19 @@ async function resolveLatestConversationTarget(
                 target.sessionId
             );
         } catch (_error) {
-            return { result: 'unavailable' };
+            return {
+                result: 'unavailable',
+                diagnostic: conversationFollowDiagnosticBase(target),
+            };
         }
         const authoritativeSubagent = subagents.find(entry =>
             entry.id === subagentId
         );
         if (!authoritativeSubagent) {
-            return { result: 'unavailable' };
+            return {
+                result: 'unavailable',
+                diagnostic: conversationFollowDiagnosticBase(target),
+            };
         }
         subagent = {
             id: authoritativeSubagent.id,
@@ -1243,6 +1254,7 @@ async function resolveLatestConversationTarget(
     }
     let snapshot: ConversationSnapshot;
     let prefetchedSnapshot = false;
+    let discardedEmptyWarmSnapshot = false;
     try {
         const warmSnapshot = preferredInteractionId === undefined
             && subagentId === undefined
@@ -1253,7 +1265,13 @@ async function resolveLatestConversationTarget(
             : undefined;
         if (warmSnapshot && !resolvedWarmSnapshot
             && snapshotWarmup?.isDisposed()) {
-            return { result: 'unavailable' };
+            return {
+                result: 'unavailable',
+                diagnostic: conversationFollowDiagnosticBase(
+                    target,
+                    effectiveSessionId
+                ),
+            };
         }
         // A speculative read can finish before a newly started provider has
         // persisted its first user turn. Never let that empty warm snapshot
@@ -1263,6 +1281,9 @@ async function resolveLatestConversationTarget(
             && resolvedWarmSnapshot.outline.interactions.length
             ? resolvedWarmSnapshot
             : undefined;
+        discardedEmptyWarmSnapshot = Boolean(
+            resolvedWarmSnapshot && !usableWarmSnapshot
+        );
         prefetchedSnapshot = Boolean(usableWarmSnapshot);
         snapshot = usableWarmSnapshot || (
             typeof coordinator.readSnapshot === 'function'
@@ -1278,7 +1299,17 @@ async function resolveLatestConversationTarget(
                 ),
             });
     } catch (_error) {
-        return { result: 'unavailable' };
+        return {
+            result: 'unavailable',
+            diagnostic: {
+                ...conversationFollowDiagnosticBase(target, effectiveSessionId),
+                ...conversationCacheDiagnostics(
+                    coordinator,
+                    target.provider,
+                    effectiveSessionId
+                ),
+            },
+        };
     }
     const selected = snapshot.outline.interactions.find(interaction =>
         interaction.id === preferredInteractionId
@@ -1286,7 +1317,21 @@ async function resolveLatestConversationTarget(
         snapshot.outline.interactions.length - 1
     ];
     if (!selected) {
-        return { result: 'empty' };
+        return {
+            result: 'empty',
+            diagnostic: {
+                ...conversationFollowDiagnosticBase(target, effectiveSessionId),
+                snapshotSource: 'fresh',
+                discardedEmptyWarmSnapshot,
+                outlineInteractions: snapshot.outline.interactions.length,
+                sourceRevision: snapshot.outline.sourceRevision,
+                ...conversationCacheDiagnostics(
+                    coordinator,
+                    target.provider,
+                    effectiveSessionId
+                ),
+            },
+        };
     }
     const displayMetadata = authoritativeTarget as ActiveAiSessionViewModel & {
         conversationDisplayName?: string;
@@ -1418,6 +1463,40 @@ function reportUnavailable(
     }
 }
 
+function hashConversationSessionId(value: string): string {
+    return createHash('sha256').update(value).digest('hex').slice(0, 12);
+}
+
+function conversationFollowDiagnosticBase(
+    target: ConversationSessionOpenTarget,
+    effectiveSessionId?: string
+): Partial<SanitizedConversationDiagnostic> {
+    return {
+        sessionIdHash: hashConversationSessionId(target.sessionId),
+        ...(effectiveSessionId !== undefined
+            && effectiveSessionId !== target.sessionId
+            ? {
+                effectiveSessionIdHash:
+                    hashConversationSessionId(effectiveSessionId),
+            }
+            : {}),
+    };
+}
+
+function conversationCacheDiagnostics(
+    coordinator: ConversationCoordinator,
+    provider: AiSessionProviderId,
+    sessionId: string
+): Partial<SanitizedConversationDiagnostic> {
+    try {
+        return {
+            ...(coordinator.readCacheDiagnostics(provider, sessionId) || {}),
+        };
+    } catch (_error) {
+        return {};
+    }
+}
+
 function conversationFollowNoticeText(
     result: 'empty' | 'unavailable' | 'unknownSession'
 ): string {
@@ -1434,13 +1513,15 @@ function conversationFollowNoticeText(
 function reportFollowFailure(
     onDiagnostic: ConversationCapabilityOptions['onDiagnostic'],
     provider: AiSessionProviderId,
-    result: 'empty' | 'unavailable' | 'unknownSession'
+    result: 'empty' | 'unavailable' | 'unknownSession',
+    detail?: Partial<SanitizedConversationDiagnostic>
 ): void {
     try {
         onDiagnostic({
             event: 'conversation-follow',
             category: result,
             provider,
+            ...detail,
         });
     } catch (_error) {
         // Optional diagnostics never block Dashboard activation.

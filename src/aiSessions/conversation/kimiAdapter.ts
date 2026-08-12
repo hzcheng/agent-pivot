@@ -40,6 +40,7 @@ import { synthesizeFragmentDiff, synthesizeFragmentDiffs } from './diffs';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
+    ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
     ConversationInteraction,
@@ -137,6 +138,8 @@ interface KimiConversationIndex extends AiSessionDisposable {
     /** approval request id → gated tool_call_id, for ApprovalResponse. */
     approvalTracker?: Map<string, string>;
     pendingThinking?: { position: number; text: string } | null;
+    /** Whether the most recent load read incrementally from the cache. */
+    lastReadContinuation: boolean;
     revision: number;
     partial: boolean;
 }
@@ -377,6 +380,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
     private readonly cache: ConversationIndexCache<KimiConversationIndex>;
     private readonly subscriptions = new Map<string, Set<() => void>>();
     private readonly revisionCounters = new Map<string, number>();
+    private readonly loadQueues = new Map<string, Promise<void>>();
     private providerWatch?: AiSessionDisposable;
     private invalidationTimer?: TimerHandle;
     private disposed = false;
@@ -586,9 +590,48 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         this.subscriptions.clear();
         this.cache.clear();
         this.revisionCounters.clear();
+        this.loadQueues.clear();
     }
 
-    private async load(
+    getCacheDiagnostics(
+        sessionId: string
+    ): ConversationCacheDiagnostics | undefined {
+        const entry = this.cache.get(sessionId);
+        if (!entry) {
+            return undefined;
+        }
+        return {
+            sourceSize: entry.source.size,
+            cachedNextOffset: entry.nextOffset,
+            cachedInteractions: entry.interactions.length,
+            continuation: entry.lastReadContinuation,
+            partial: entry.partial,
+        };
+    }
+
+    private load(
+        sessionId: string,
+        signal?: ConversationAbortSignal
+    ): Promise<LoadedConversation> {
+        // Warmup, telemetry polls, watch refreshes, and authoritative clicks
+        // share one cache entry per session and each load commits it in
+        // place. Serialize loads so a read can never capture a stale
+        // nextOffset, flip a continuation into a suffix-only cold read, or
+        // overwrite a newer commit with an older one.
+        const queued = this.loadQueues.get(sessionId) || Promise.resolve();
+        const run = queued.then(() => this.loadExclusive(sessionId, signal));
+        // A rejected load must not jam the queue for the next caller.
+        const settled = run.then(() => undefined, () => undefined);
+        this.loadQueues.set(sessionId, settled);
+        void settled.then(() => {
+            if (this.loadQueues.get(sessionId) === settled) {
+                this.loadQueues.delete(sessionId);
+            }
+        });
+        return run;
+    }
+
+    private async loadExclusive(
         sessionId: string,
         signal?: ConversationAbortSignal
     ): Promise<LoadedConversation> {
@@ -1134,6 +1177,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.questionTracker = questionTracker;
                 previous.approvalTracker = approvalTracker;
                 previous.pendingThinking = pendingThinking;
+                previous.lastReadContinuation = continuing;
                 previous.revision = revision;
                 previous.partial = partial;
             } else {
@@ -1148,6 +1192,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     questionTracker,
                     approvalTracker,
                     pendingThinking,
+                    lastReadContinuation: continuing,
                     revision,
                     partial,
                     dispose() {},

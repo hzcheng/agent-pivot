@@ -10,6 +10,7 @@ const {
 } = require('../../../out/aiSessions/conversation/codexAdapter');
 const {
     CONVERSATION_LIMITS,
+    ConversationError,
 } = require('../../../out/aiSessions/conversation/types');
 
 const fixturePath = path.resolve(
@@ -1948,5 +1949,587 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 Codex renders command executions and
             ['user-item-1', 'commandExecution', 'commandExecution print-secret', 'command-output'],
             ['user-item-1', 'fileChange', 'fileChange update /private/changed-file.txt', undefined],
         ]
+    );
+});
+
+function createPaginatedTurn(index, prefix = 'turn') {
+    return {
+        id: `${prefix}-${index}`,
+        status: 'completed',
+        items: [{
+            id: `${prefix}-user-${index}`,
+            type: 'userMessage',
+            content: [{ type: 'text', text: `request ${index}` }],
+        }, {
+            id: `${prefix}-agent-${index}`,
+            type: 'agentMessage',
+            text: 'x'.repeat(60 * 1024),
+        }],
+    };
+}
+
+// Emulates the verified 0.147 app-server pagination semantics: descending
+// by default, an opaque inclusive cursor that continues strictly after it,
+// and nextCursor present only while older turns remain.
+function serveTurnsListPage(turns, params) {
+    const ordered = params.sortDirection === 'asc'
+        ? [...turns]
+        : [...turns].reverse();
+    let start = 0;
+    if (typeof params.cursor === 'string') {
+        const at = ordered.findIndex(turn => turn.id === params.cursor);
+        if (at < 0) {
+            throw new Error(`unknown cursor ${params.cursor}`);
+        }
+        start = at + 1;
+    }
+    const limit = params.limit || ordered.length;
+    const data = ordered.slice(start, start + limit);
+    const more = start + data.length < ordered.length;
+    return clone({
+        data,
+        nextCursor: more && data.length ? data[data.length - 1].id : null,
+        backwardsCursor: data.length ? data[0].id : null,
+    });
+}
+
+function createPaginatedHarness(t, options = {}) {
+    const state = {
+        turns: Array.from(
+            { length: options.initialTurns || 12 },
+            (_, index) => createPaginatedTurn(index)
+        ),
+        signature: 'stat-1',
+        turnsListFailure: undefined,
+    };
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (method === 'thread/read') {
+                return clone({
+                    thread: { id: params.threadId, turns: state.turns },
+                });
+            }
+            if (method === 'thread/turns/list') {
+                if (state.turnsListFailure === 'error') {
+                    throw new Error(
+                        'thread/turns/list requires experimentalApi capability'
+                    );
+                }
+                if (state.turnsListFailure === 'transient') {
+                    throw new ConversationError(
+                        'unavailable',
+                        'reconnectingCodex'
+                    );
+                }
+                if (state.turnsListFailure === 'malformed') {
+                    return { data: [{ id: 'broken' }] };
+                }
+                if (state.turnsListFailure === 'empty-page-with-cursor'
+                    && typeof params.cursor === 'string') {
+                    return { data: [], nextCursor: 'ghost' };
+                }
+                return serveTurnsListPage(state.turns, params);
+            }
+            throw new Error(`unexpected method ${method}`);
+        },
+        getServerVersion: () => options.serverVersion === undefined
+            ? '0.147'
+            : options.serverVersion,
+        dispose() {},
+    };
+    const harness = createAdapter(undefined, {
+        client,
+        readContentSignature: () => state.signature,
+    });
+    t.after(() => harness.adapter.dispose());
+    return {
+        adapter: harness.adapter,
+        requests,
+        state,
+        methods: () => requests.map(entry => entry.method),
+    };
+}
+
+// Ground truth: the same content loaded through the stable full-read path
+// (no server version → the paginated accelerator never engages).
+function createFullReadProof(t, state) {
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (method === 'thread/read') {
+                return clone({
+                    thread: { id: params.threadId, turns: state.turns },
+                });
+            }
+            throw new Error(`unexpected method ${method}`);
+        },
+        dispose() {},
+    };
+    const harness = createAdapter(undefined, {
+        client,
+        readContentSignature: () => state.signature,
+    });
+    t.after(() => harness.adapter.dispose());
+    return harness.adapter;
+}
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reloads an appended large Codex thread through thread/turns/list only', async t => {
+    const harness = createPaginatedHarness(t);
+    const first = await harness.adapter.readOutline(sessionId);
+    assert.deepEqual(harness.methods(), ['thread/read']);
+
+    harness.state.turns.push(createPaginatedTurn(12));
+    harness.state.signature = 'stat-2';
+    const updated = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(harness.methods().slice(1), ['thread/turns/list']);
+    assert.notEqual(updated.sourceRevision, first.sourceRevision);
+    assert.equal(updated.totalInteractions, 13);
+    const expected = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(updated, expected);
+
+    // The re-anchored entry serves the next read without any RPC.
+    const again = await harness.adapter.readOutline(sessionId);
+    assert.equal(again.sourceRevision, updated.sourceRevision);
+    assert.equal(harness.requests.length, 2);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-reads a grown in-flight anchor turn of a large Codex thread incrementally', async t => {
+    const harness = createPaginatedHarness(t);
+    const first = await harness.adapter.readOutline(sessionId);
+
+    harness.state.turns.at(-1).items.push({
+        id: 'turn-11-agent-late',
+        type: 'agentMessage',
+        text: 'late tail output',
+    });
+    harness.state.signature = 'stat-2';
+    const updated = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(harness.methods().slice(1), ['thread/turns/list']);
+    assert.notEqual(updated.sourceRevision, first.sourceRevision);
+    const expected = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(updated, expected);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-anchors the cache when the stat moves but the content does not', async t => {
+    const harness = createPaginatedHarness(t);
+    const first = await harness.adapter.readOutline(sessionId);
+
+    harness.state.signature = 'stat-2';
+    const updated = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(harness.methods().slice(1), ['thread/turns/list']);
+    assert.equal(updated.sourceRevision, first.sourceRevision);
+
+    // The false alarm is healed: the entry now validates against stat-2, so
+    // the next read needs no RPC at all.
+    const again = await harness.adapter.readOutline(sessionId);
+    assert.equal(again.sourceRevision, first.sourceRevision);
+    assert.equal(harness.requests.length, 2);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds a compacted large Codex thread from fast paginated pages', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    harness.state.turns = Array.from(
+        { length: 12 },
+        (_, index) => createPaginatedTurn(index, 'rewritten')
+    );
+    harness.state.signature = 'stat-2';
+    const compacted = await harness.adapter.readOutline(sessionId);
+
+    // The anchor is gone, but the indexed backend serves pages cheaply, so
+    // the walk runs to the end of the thread and rebuilds from the pages
+    // — a full read of a huge paginated session could never finish within
+    // the request timeout.
+    assert.deepEqual(harness.methods(), [
+        'thread/read',
+        'thread/turns/list',
+        'thread/turns/list',
+        'thread/turns/list',
+    ]);
+    assert.equal(compacted.totalInteractions, 12);
+    const expected = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(compacted, expected);
+
+    // Incremental reloads resume from the rebuilt anchor.
+    harness.state.turns.push(createPaginatedTurn(12, 'rewritten'));
+    harness.state.signature = 'stat-3';
+    const requestCount = harness.requests.length;
+    const appended = await harness.adapter.readOutline(sessionId);
+    assert.deepEqual(
+        harness.methods().slice(requestCount),
+        ['thread/turns/list']
+    );
+    const expectedAppended = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(appended, expectedAppended);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read after one slow legacy page', async t => {
+    // The legacy rollout-replay backend needs hundreds of ms per page, so
+    // the walk exits after the first page: further paging costs as much as
+    // the full read that settles the load anyway.
+    let now = 1_000_000;
+    const state = {
+        turns: Array.from(
+            { length: 12 },
+            (_, index) => createPaginatedTurn(index)
+        ),
+        signature: 'stat-1',
+    };
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (method === 'thread/read') {
+                return clone({
+                    thread: { id: params.threadId, turns: state.turns },
+                });
+            }
+            now += 600;
+            return serveTurnsListPage(state.turns, params);
+        },
+        getServerVersion: () => '0.147',
+        dispose() {},
+    };
+    const harness = createAdapter(undefined, {
+        client,
+        readContentSignature: () => state.signature,
+        now: () => now,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+    state.turns = Array.from(
+        { length: 12 },
+        (_, index) => createPaginatedTurn(index, 'rewritten')
+    );
+    state.signature = 'stat-2';
+    const compacted = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(
+        requests.map(entry => entry.method),
+        ['thread/read', 'thread/turns/list', 'thread/read']
+    );
+    assert.equal(compacted.totalInteractions, 12);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read on an empty page with a live cursor', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    harness.state.turns = Array.from(
+        { length: 12 },
+        (_, index) => createPaginatedTurn(index, 'rewritten')
+    );
+    harness.state.signature = 'stat-2';
+    // Outside the verified semantics: an empty page that still claims more
+    // turns. The adapter must not rebuild from a truncated walk.
+    harness.state.turnsListFailure = 'empty-page-with-cursor';
+    const recovered = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(
+        harness.methods(),
+        ['thread/read', 'thread/turns/list', 'thread/turns/list', 'thread/read']
+    );
+    assert.equal(recovered.totalInteractions, 12);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 walks deep append bursts on the fast paginated backend', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    for (let index = 12; index < 112; index += 1) {
+        harness.state.turns.push(createPaginatedTurn(index));
+    }
+    harness.state.signature = 'stat-2';
+    const updated = await harness.adapter.readOutline(sessionId);
+
+    const methods = harness.methods();
+    assert.equal(methods[0], 'thread/read');
+    assert.equal(
+        methods.filter(method => method === 'thread/turns/list').length,
+        26
+    );
+    assert.ok(!methods.slice(1).includes('thread/read'));
+    assert.equal(updated.totalInteractions, 112);
+    const expected = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(updated, expected);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 disables paginated reloads after the server rejects thread/turns/list', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    harness.state.turns.push(createPaginatedTurn(12));
+    harness.state.signature = 'stat-2';
+    harness.state.turnsListFailure = 'error';
+    const recovered = await harness.adapter.readOutline(sessionId);
+    assert.equal(recovered.totalInteractions, 13);
+    assert.deepEqual(
+        harness.methods(),
+        ['thread/read', 'thread/turns/list', 'thread/read']
+    );
+
+    // The circuit breaker sticks: later reloads use the stable path
+    // directly without probing the rejected method again.
+    harness.state.turnsListFailure = undefined;
+    harness.state.turns.push(createPaginatedTurn(13));
+    harness.state.signature = 'stat-3';
+    const reloaded = await harness.adapter.readOutline(sessionId);
+    assert.equal(reloaded.totalInteractions, 14);
+    assert.deepEqual(harness.methods().slice(3), ['thread/read']);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back without disabling paginated reloads on transient transport errors', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    // A child restart rejects the in-flight tail page with a transient
+    // 'unavailable': the load falls back to a full read, but the
+    // accelerator stays enabled.
+    harness.state.turns.push(createPaginatedTurn(12));
+    harness.state.signature = 'stat-2';
+    harness.state.turnsListFailure = 'transient';
+    const recovered = await harness.adapter.readOutline(sessionId);
+    assert.equal(recovered.totalInteractions, 13);
+    assert.deepEqual(
+        harness.methods(),
+        ['thread/read', 'thread/turns/list', 'thread/read']
+    );
+
+    harness.state.turnsListFailure = undefined;
+    harness.state.turns.push(createPaginatedTurn(13));
+    harness.state.signature = 'stat-3';
+    const reloaded = await harness.adapter.readOutline(sessionId);
+    assert.equal(reloaded.totalInteractions, 14);
+    assert.deepEqual(harness.methods().slice(3), ['thread/turns/list']);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 disables paginated reloads after a malformed thread/turns/list page', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    harness.state.turns.push(createPaginatedTurn(12));
+    harness.state.signature = 'stat-2';
+    harness.state.turnsListFailure = 'malformed';
+    const recovered = await harness.adapter.readOutline(sessionId);
+    assert.equal(recovered.totalInteractions, 13);
+    assert.deepEqual(
+        harness.methods(),
+        ['thread/read', 'thread/turns/list', 'thread/read']
+    );
+
+    harness.state.turnsListFailure = undefined;
+    harness.state.turns.push(createPaginatedTurn(13));
+    harness.state.signature = 'stat-3';
+    await harness.adapter.readOutline(sessionId);
+    assert.deepEqual(harness.methods().slice(3), ['thread/read']);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 never calls thread/turns/list on an unverified server version', async t => {
+    for (const serverVersion of ['0.148', undefined, null]) {
+        const requests = [];
+        const client = {
+            async request(method, params) {
+                requests.push({ method, params });
+                return clone(createLargeThread(params.threadId));
+            },
+            getServerVersion: () => serverVersion,
+            dispose() {},
+        };
+        let signature = 'stat-1';
+        const harness = createAdapter(undefined, {
+            client,
+            readContentSignature: () => signature,
+        });
+        const adapter = harness.adapter;
+        await adapter.readOutline(sessionId);
+        signature = 'stat-2';
+        await adapter.readOutline(sessionId);
+        assert.deepEqual(
+            requests.map(entry => entry.method),
+            ['thread/read', 'thread/read'],
+            `server version ${serverVersion}`
+        );
+        adapter.dispose();
+    }
+    t.after(() => undefined);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 walks older pages when many turns appended at once', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    for (let index = 12; index < 18; index += 1) {
+        harness.state.turns.push(createPaginatedTurn(index));
+    }
+    harness.state.signature = 'stat-2';
+    const updated = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(
+        harness.methods().slice(1),
+        ['thread/turns/list', 'thread/turns/list']
+    );
+    assert.deepEqual(harness.requests[1].params, {
+        threadId: sessionId,
+        cursor: undefined,
+        limit: 4,
+        sortDirection: 'desc',
+        itemsView: 'full',
+    });
+    assert.equal(harness.requests[2].params.cursor, 'turn-14');
+    assert.equal(updated.totalInteractions, 18);
+    const expected = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(updated, expected);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-applies the rollout lifecycle when an unchanged tail re-anchors the cache', async t => {
+    let executionState = 'running';
+    const state = {
+        turns: Array.from({ length: 12 }, (_, index) => {
+            const turn = createPaginatedTurn(index);
+            turn.status = 'interrupted';
+            return turn;
+        }),
+        signature: 'stat-1',
+        turnsListFailure: undefined,
+    };
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (method === 'thread/read') {
+                return clone({
+                    thread: { id: params.threadId, turns: state.turns },
+                });
+            }
+            return serveTurnsListPage(state.turns, params);
+        },
+        getServerVersion: () => '0.147',
+        dispose() {},
+    };
+    const harness = createAdapter(undefined, {
+        client,
+        readContentSignature: () => state.signature,
+        readLifecycleSignal: () => ({
+            token: `codex:lifecycle:1:${executionState}`,
+            phase: executionState === 'running' ? 'running' : 'idle',
+            executionState,
+            occurredAtMs: 1,
+        }),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    // A running rollout promotes the externally interrupted tail turn.
+    const running = await harness.adapter.readOutline(sessionId);
+    assert.equal(running.interactions.at(-1).responseState, 'inProgress');
+
+    // The rollout stops: the stat moves but the visible content does not,
+    // so the tail page re-anchors the cache. The lifecycle must still be
+    // re-evaluated — the cached 'inProgress' must not stick.
+    executionState = 'stopped';
+    state.signature = 'stat-2';
+    const stopped = await harness.adapter.readOutline(sessionId);
+    assert.equal(requests.filter(entry => entry.method === 'thread/turns/list').length, 1);
+    assert.equal(stopped.sourceRevision, running.sourceRevision);
+    assert.equal(stopped.interactions.at(-1).responseState, 'interrupted');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-applies the rollout lifecycle on stat-validated cache hits', async t => {
+    let executionState = 'running';
+    const large = createLargeThread();
+    large.thread.turns.forEach(turn => {
+        turn.status = 'interrupted';
+    });
+    const harness = createAdapter(large, {
+        readContentSignature: () => 'stat-1',
+        readLifecycleSignal: () => ({
+            token: `codex:lifecycle:1:${executionState}`,
+            phase: executionState === 'running' ? 'running' : 'idle',
+            executionState,
+            occurredAtMs: 1,
+        }),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const running = await harness.adapter.readOutline(sessionId);
+    assert.equal(running.interactions.at(-1).responseState, 'inProgress');
+
+    // Same stat, pure cache hit — the lifecycle is still re-read, so a
+    // stopped session settles even while its bytes are untouched.
+    executionState = 'stopped';
+    const stopped = await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 1);
+    assert.equal(stopped.sourceRevision, running.sourceRevision);
+    assert.equal(stopped.interactions.at(-1).responseState, 'interrupted');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps subagent thread reloads on the stable full-read path', async t => {
+    const childTurns = Array.from(
+        { length: 12 },
+        (_, index) => ({
+            id: `child-turn-${index}`,
+            status: 'completed',
+            items: [{
+                id: `child-agent-${index}`,
+                type: 'agentMessage',
+                text: 'y'.repeat(60 * 1024),
+            }],
+        })
+    );
+    const signatures = { [childThreadId]: 'child-stat-1' };
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (method !== 'thread/read' || params.threadId !== childThreadId) {
+                throw new Error(`unexpected ${method} for ${params.threadId}`);
+            }
+            return clone(createThreadReadResult(childThreadId, sessionId, {
+                turns: childTurns,
+            }));
+        },
+        getServerVersion: () => '0.147',
+        dispose() {},
+    };
+    const harness = createAdapter(undefined, {
+        client,
+        readContentSignature: id => signatures[id],
+        listSubagentThreads: () => [],
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const encodedId = `${sessionId}#agent:${childThreadId}`;
+    const first = await harness.adapter.readOutline(encodedId);
+    assert.equal(first.totalInteractions, 1);
+
+    childTurns.push({
+        id: 'child-turn-12',
+        status: 'completed',
+        items: [{
+            id: 'child-agent-12',
+            type: 'agentMessage',
+            text: 'z'.repeat(60 * 1024),
+        }],
+    });
+    signatures[childThreadId] = 'child-stat-2';
+    const updated = await harness.adapter.readOutline(encodedId);
+
+    assert.notEqual(updated.sourceRevision, first.sourceRevision);
+    assert.deepEqual(
+        requests.map(entry => entry.method),
+        ['thread/read', 'thread/read']
     );
 });

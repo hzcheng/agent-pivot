@@ -47,7 +47,14 @@ Green self-authored fixtures alone are not evidence.
 |---|---|---|
 | Kimi | `<kimiHome>/sessions/<workdirHash>/<sessionUuid>/wire.jsonl` | `<sessionDir>/subagents/<id>/{meta.json,wire.jsonl}`; meta carries explicit `status` + `created_at`. The Shell tool is **stateless per command** — every invocation runs with `cwd = session.work_dir` (kimi_cli/tools/shell source), so relative `cd` targets resolve against the session workdir, not the previous command |
 | Claude | `<claudeHome>/projects/<slug>/<sessionId>.jsonl` | `<slug>/<sessionId>/subagents/agent-<id>.{jsonl,meta.json}`, flat across spawnDepths; meta has `agentType`/`description`/`spawnDepth`/`toolUseId` but **no status** — infer from the transcript tail plus mtime; SendMessage resumes arrive as `origin.kind === 'coordinator'` user records |
-| Codex | rollout JSONL under `<codexHome>/sessions/YYYY/MM/DD/`; conversation content is app-server-only (`thread/read`) | Independent rollout files per thread; `session_meta.payload.source.subagent.thread_spawn` carries `parent_thread_id`/`depth`/`agent_nickname`/`agent_path`; discovery scans first lines by parent id; `thread/read` accepts subagent thread ids (verified 0.146); no userMessage in subagent threads — seed the dispatch interaction from metadata; status = last `event_msg` is `task_complete` → finished, else mtime freshness |
+| Codex | rollout JSONL under `<codexHome>/sessions/YYYY/MM/DD/`; conversation content is app-server-only (`thread/read`); incremental reloads of large cached root threads page the tail via `thread/turns/list` (experimentalApi-gated, version-allowlisted, full-read fallback — surface probed in `spikes/codex-paginated-read/`) | Independent rollout files per thread; `session_meta.payload.source.subagent.thread_spawn` carries `parent_thread_id`/`depth`/`agent_nickname`/`agent_path`; discovery scans first lines by parent id; `thread/read` accepts subagent thread ids (verified 0.146); no userMessage in subagent threads — seed the dispatch interaction from metadata; status = last `event_msg` is `task_complete` → finished, else mtime freshness |
+
+Codex app-server 0.147+ answers `initialize` without `serverInfo`: the
+server version rides in the `userAgent` product token
+(`<originator>/<major.minor.patch> …`). Version-gated protocol features
+must parse it from there — stub handshakes that keep the old `serverInfo`
+shape pass every test while the real server leaves the gate permanently
+off.
 
 Subagent transcripts reuse the provider's main record envelope; Claude
 subagent files consist entirely of `isSidechain: true` records, so any

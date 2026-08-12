@@ -204,6 +204,10 @@ function createAvailableConversationCapability(
     ownership: ConstructionOwnership
 ): ConversationCapability {
     const codexClient = ownership.own(factories.createCodexClient({
+        // Unlocks thread/turns/list for incremental large-session reloads.
+        // The adapter treats it strictly as an accelerator: version-gated
+        // and backed by the stable thread/read fallback on any anomaly.
+        experimentalApi: true,
         spawn: options.spawnCodex as unknown as CodexAppServerClientOptions['spawn'],
         resolveExecutable: () => 'codex',
         now: options.now,

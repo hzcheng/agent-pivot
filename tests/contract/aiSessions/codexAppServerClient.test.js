@@ -113,6 +113,7 @@ function createHarness(overrides = {}) {
         onDiagnostic(diagnostic) {
             diagnostics.push(diagnostic);
         },
+        ...(overrides.experimentalApi ? { experimentalApi: true } : {}),
     });
     return {
         child,
@@ -240,6 +241,88 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-001 performs one stable handshake and 
             stdio: ['pipe', 'pipe', 'pipe'],
         },
     });
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-001 declares the experimentalApi capability only when opted in', async t => {
+    const plain = createHarness();
+    t.after(() => plain.client.dispose());
+    assert.equal(plain.client.getServerVersion(), undefined);
+    const plainRequest = plain.client.request('thread/read', {
+        threadId: SESSION_ID,
+        includeTurns: true,
+    });
+    await finishHandshake(plain.child);
+    assert.equal(plain.client.getServerVersion(), '1.42');
+    emitResponse(plain.child, { id: 2, result: { ok: true } });
+    assert.deepEqual(await plainRequest, { ok: true });
+
+    const optedIn = createHarness({ experimentalApi: true });
+    t.after(() => optedIn.client.dispose());
+    const optedInRequest = optedIn.client.request('thread/turns/list', {
+        threadId: SESSION_ID,
+        limit: 1,
+    });
+    await settle();
+    assert.deepEqual(parsedWrites(optedIn.child)[0], {
+        method: 'initialize',
+        id: 1,
+        params: {
+            clientInfo: {
+                name: 'project_steward',
+                title: 'Agent Pivot',
+                version: '2.1.6',
+            },
+            capabilities: { experimentalApi: true },
+        },
+    });
+    emitResponse(optedIn.child, {
+        id: 1,
+        result: { serverInfo: { name: 'codex-app-server', version: '0.147.0' } },
+    });
+    await settle();
+    assert.equal(optedIn.client.getServerVersion(), '0.147');
+    emitResponse(optedIn.child, { id: 2, result: { data: [] } });
+    assert.deepEqual(await optedInRequest, { data: [] });
+
+    // 0.147+ servers omit serverInfo entirely; the version is parsed from
+    // the userAgent product token instead.
+    const userAgentOnly = createHarness({ experimentalApi: true });
+    t.after(() => userAgentOnly.client.dispose());
+    const userAgentRequest = userAgentOnly.client.request('thread/turns/list', {
+        threadId: SESSION_ID,
+        limit: 1,
+    });
+    await settle();
+    emitResponse(userAgentOnly.child, {
+        id: 1,
+        result: {
+            userAgent: 'project_steward/0.147.0 (Ubuntu 22.4.0; x86_64) '
+                + 'xterm.js_6.1.0-beta.291_ (project_steward; 2.1.6)',
+            codexHome: '/home/user/.codex',
+            platformFamily: 'unix',
+            platformOs: 'linux',
+        },
+    });
+    await settle();
+    assert.equal(userAgentOnly.client.getServerVersion(), '0.147');
+    emitResponse(userAgentOnly.child, { id: 2, result: { data: [] } });
+    assert.deepEqual(await userAgentRequest, { data: [] });
+
+    const unversioned = createHarness();
+    t.after(() => unversioned.client.dispose());
+    const unversionedRequest = unversioned.client.request('thread/read', {
+        threadId: SESSION_ID,
+        includeTurns: true,
+    });
+    await settle();
+    emitResponse(unversioned.child, {
+        id: 1,
+        result: { userAgent: 'no-version-here' },
+    });
+    await settle();
+    assert.equal(unversioned.client.getServerVersion(), undefined);
+    emitResponse(unversioned.child, { id: 2, result: { ok: true } });
+    assert.deepEqual(await unversionedRequest, { ok: true });
 });
 
 test('CONVERSATION-TELEMETRY-001 publishes structured App Server notifications without affecting requests', async t => {

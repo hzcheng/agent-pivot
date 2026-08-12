@@ -1198,7 +1198,9 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 cached.lastTouchedAt = this.now();
                 this.loadedConversationCache.delete(sessionId);
                 this.loadedConversationCache.set(sessionId, cached);
-                return Promise.resolve(cached.value);
+                return Promise.resolve(
+                    this.withRunningLifecycle(sessionId, cached.value)
+                );
             }
             // A stale or unverifiable entry is released immediately rather
             // than lingering beside — or instead of — its replacement.
@@ -1222,8 +1224,29 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     turns: outcome.turns,
                 });
             }
-            return outcome.value;
+            return this.withRunningLifecycle(sessionId, outcome.value);
         });
+    }
+
+    // The rollout lifecycle is external, time-varying state — never part of
+    // the cached content. It is re-applied to the cached base interactions
+    // on every read, so a stopped/started session reflects the current
+    // signal even when the conversation bytes (and revision) are unchanged.
+    private withRunningLifecycle(
+        sessionId: string,
+        value: LoadedConversation
+    ): LoadedConversation {
+        const split = splitSubagentSessionId(sessionId);
+        if (split.subagentId || !value.interactions.length) {
+            return value;
+        }
+        const interactions = this.promoteRunningLifecycle(
+            split.sessionId,
+            value.interactions
+        );
+        return interactions === value.interactions
+            ? value
+            : { interactions, sourceRevision: value.sourceRevision };
     }
 
     private async loadConversation(
@@ -1394,12 +1417,9 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 characters: cached.characters,
             };
         }
-        const interactions = this.promoteRunningLifecycle(
-            sessionId,
-            turns.reduce<ConversationInteraction[]>(
-                (all, turn) => all.concat(turn.interactions),
-                []
-            )
+        const interactions = turns.reduce<ConversationInteraction[]>(
+            (all, turn) => all.concat(turn.interactions),
+            []
         );
         return { value: { interactions, sourceRevision }, turns, characters };
     }
@@ -1538,14 +1558,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         // Keep the protocol fingerprint content-only, then let the rollout's
         // authoritative lifecycle promote the latest visible interaction.
         const sourceRevision = composeConversationRevision(turns);
-        const interactions = split.subagentId || !normalized.interactions.length
-            ? normalized.interactions
-            : this.promoteRunningLifecycle(
-                split.sessionId,
-                normalized.interactions
-            );
         return {
-            value: { interactions, sourceRevision },
+            value: { interactions: normalized.interactions, sourceRevision },
             // Turn chunks only serve the incremental paginated reload path,
             // which is limited to root threads: a subagent's seeded dispatch
             // interaction accumulates items across turns, so its chunks are

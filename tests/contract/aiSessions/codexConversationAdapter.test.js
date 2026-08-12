@@ -2290,6 +2290,87 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 walks older pages when many tur
     assert.deepEqual(updated, expected);
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-applies the rollout lifecycle when an unchanged tail re-anchors the cache', async t => {
+    let executionState = 'running';
+    const state = {
+        turns: Array.from({ length: 12 }, (_, index) => {
+            const turn = createPaginatedTurn(index);
+            turn.status = 'interrupted';
+            return turn;
+        }),
+        signature: 'stat-1',
+        turnsListFailure: undefined,
+    };
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (method === 'thread/read') {
+                return clone({
+                    thread: { id: params.threadId, turns: state.turns },
+                });
+            }
+            return serveTurnsListPage(state.turns, params);
+        },
+        getServerVersion: () => '0.147',
+        dispose() {},
+    };
+    const harness = createAdapter(undefined, {
+        client,
+        readContentSignature: () => state.signature,
+        readLifecycleSignal: () => ({
+            token: `codex:lifecycle:1:${executionState}`,
+            phase: executionState === 'running' ? 'running' : 'idle',
+            executionState,
+            occurredAtMs: 1,
+        }),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    // A running rollout promotes the externally interrupted tail turn.
+    const running = await harness.adapter.readOutline(sessionId);
+    assert.equal(running.interactions.at(-1).responseState, 'inProgress');
+
+    // The rollout stops: the stat moves but the visible content does not,
+    // so the tail page re-anchors the cache. The lifecycle must still be
+    // re-evaluated — the cached 'inProgress' must not stick.
+    executionState = 'stopped';
+    state.signature = 'stat-2';
+    const stopped = await harness.adapter.readOutline(sessionId);
+    assert.equal(requests.filter(entry => entry.method === 'thread/turns/list').length, 1);
+    assert.equal(stopped.sourceRevision, running.sourceRevision);
+    assert.equal(stopped.interactions.at(-1).responseState, 'interrupted');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-applies the rollout lifecycle on stat-validated cache hits', async t => {
+    let executionState = 'running';
+    const large = createLargeThread();
+    large.thread.turns.forEach(turn => {
+        turn.status = 'interrupted';
+    });
+    const harness = createAdapter(large, {
+        readContentSignature: () => 'stat-1',
+        readLifecycleSignal: () => ({
+            token: `codex:lifecycle:1:${executionState}`,
+            phase: executionState === 'running' ? 'running' : 'idle',
+            executionState,
+            occurredAtMs: 1,
+        }),
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const running = await harness.adapter.readOutline(sessionId);
+    assert.equal(running.interactions.at(-1).responseState, 'inProgress');
+
+    // Same stat, pure cache hit — the lifecycle is still re-read, so a
+    // stopped session settles even while its bytes are untouched.
+    executionState = 'stopped';
+    const stopped = await harness.adapter.readOutline(sessionId);
+    assert.equal(harness.requests.length, 1);
+    assert.equal(stopped.sourceRevision, running.sourceRevision);
+    assert.equal(stopped.interactions.at(-1).responseState, 'interrupted');
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps subagent thread reloads on the stable full-read path', async t => {
     const childTurns = Array.from(
         { length: 12 },

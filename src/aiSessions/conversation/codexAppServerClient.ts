@@ -206,6 +206,29 @@ export class CodexAppServerClient implements AiSessionDisposable {
         return this.serverVersion;
     }
 
+    /**
+     * Resolves once the initialize handshake has completed and returns the
+     * sanitized server version (undefined when the server reports none).
+     * Shares the same in-flight handshake as request(): concurrent callers
+     * attach to one connection attempt, and a caller's abort cancels only
+     * its own wait, never the shared handshake.
+     */
+    async ensureReady(
+        signal?: ConversationAbortSignal
+    ): Promise<string | undefined> {
+        if (this.disposed) {
+            throw new ConversationError('unavailable', 'reconnectingCodex');
+        }
+        if (signal?.aborted) {
+            throw new ConversationAbortError();
+        }
+        await this.waitForConnection(this.ensureConnection(), signal);
+        if (signal?.aborted) {
+            throw new ConversationAbortError();
+        }
+        return this.serverVersion;
+    }
+
     private initializeParams(): Record<string, unknown> {
         if (!this.options.experimentalApi) {
             return { clientInfo: INITIALIZE_CLIENT_INFO };

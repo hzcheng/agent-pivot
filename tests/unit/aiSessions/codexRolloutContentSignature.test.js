@@ -8,6 +8,7 @@ const test = require('node:test');
 
 const {
     readCodexRolloutContentSignature,
+    readCodexRolloutSourceBytes,
 } = require('../../../out/aiSessions/codexRolloutContentSignature');
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 rollout content signature tracks file size and mtime', async t => {
@@ -36,4 +37,13 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 rollout content signature trac
     await fs.promises.appendFile(rolloutPath, '{"type":"event_msg"}\n');
     const updated = readCodexRolloutContentSignature(rolloutPath);
     assert.notEqual(updated, first);
+
+    // The byte-size probe mirrors the same degradation rules and reports
+    // the plain file size for the windowing heuristic.
+    assert.equal(readCodexRolloutSourceBytes(''), undefined);
+    assert.equal(readCodexRolloutSourceBytes(dir), undefined);
+    assert.equal(
+        readCodexRolloutSourceBytes(rolloutPath),
+        fs.statSync(rolloutPath).size
+    );
 });

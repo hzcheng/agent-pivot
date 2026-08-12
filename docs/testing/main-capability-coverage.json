@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "484a18e4318a67ea65b9d3fbfc16d6ef70f9c0db",
+        "head": "09f38654cc902fb363a1f389697036488cac6f47",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -292,7 +292,8 @@
             "bf5af003d36a5f5e813df7802762e75a3ab2215e",
             "8a289bd48012003108121fb5d491fbb730807dca",
             "1af3c8bb4e04601e75d8eb163c5e8834b8790abc",
-            "215eb2dd8e0e9c58dbe9f3a331a4915817321e23"
+            "215eb2dd8e0e9c58dbe9f3a331a4915817321e23",
+            "7c1625ef9db3c3e2adfe66ee6d2970ef845f44b6"
         ]
     },
     "capabilities": [
@@ -324,12 +325,20 @@
                 "b150698874e8d16272975191d0411bd12642e122",
                 "c3ef7798505c31137311971ddfcb8f2fd0a3cee7",
                 "f895d42378fa3b2ab422bbf750558e045f57b533",
-                "a2c5c2d986c5fe2539a2f27369e5d9775dd4398b"
+                "a2c5c2d986c5fe2539a2f27369e5d9775dd4398b",
+                "09f38654cc902fb363a1f389697036488cac6f47"
             ],
             "behaviors": [
                 "PROJECT-ASSIGNMENT-001",
                 "SESSION-WORKSPACE-SCOPE-001",
-                "ARCH-EXTENSION-HOST-PLACEMENT-001"
+                "ARCH-EXTENSION-HOST-PLACEMENT-001",
+                "SESSION-CODEX-PROFILE-DISCOVERY-001",
+                "SESSION-CODEX-PROFILE-PICK-001",
+                "SESSION-CODEX-PROFILE-CLI-PROBE-001",
+                "SESSION-CODEX-PROFILE-LAUNCH-001",
+                "SESSION-CODEX-PROFILE-PERSIST-001",
+                "SESSION-CODEX-PROFILE-RESUME-001",
+                "SESSION-CODEX-PROFILE-BADGE-001"
             ],
             "prGates": [
                 "test:deterministic:run"

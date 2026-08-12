@@ -653,6 +653,13 @@ function initProjectAiSessionControls(options) {
         var currentWorkspaceGroup = projectDiv.closest(".open-current-workspace-group");
         if (currentWorkspaceGroup) {
             currentWorkspaceGroup.classList.toggle("current-card-expanded", expanded);
+            // The expanded pane floor is higher than the collapsed one: grow
+            // out of a too-small dragged share so the AI session controls
+            // stay reachable. Collapsing keeps the user's share untouched.
+            if (window.__agentPivotOpenTabSplit
+                && typeof window.__agentPivotOpenTabSplit.syncCurrentPaneMinimum === "function") {
+                window.__agentPivotOpenTabSplit.syncCurrentPaneMinimum();
+            }
         }
         updateStickyGroupHeaderOffset();
 

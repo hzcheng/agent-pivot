@@ -2052,12 +2052,20 @@ body .project {
     // content-sized pane. In auto layout the pane pins to the same half share
     // the 50% cap implies; a dragged share keeps priority because this auto
     // rule excludes the manual layout via :not(.open-tab-split-manual).
+    // The 250px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
+    // webviewOpenTabSplitScripts.js: below it the fixed AI-session chrome
+    // (module header, tabs, provider controls) would clip away and the
+    // session list would starve to zero height.
     body.steward-sidebar & {
         .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded {
             flex: 0 0 auto;
             height: 50%;
             max-height: none;
-            min-height: 72px;
+            min-height: 250px;
+        }
+
+        .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded {
+            min-height: 250px;
         }
 
         // In both layouts the expanded card fills the group list (keeping the

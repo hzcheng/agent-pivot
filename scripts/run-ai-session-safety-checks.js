@@ -6324,6 +6324,12 @@ function runBatchAiSessionWebviewChecks() {
     );
     const openTabSplitSource = fs.readFileSync(openTabSplitSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedOpenTabSplitPath, 'utf8'), openTabSplitSource);
+    assert.ok(openTabSplitSource.includes('OPEN_TAB_PANE_MIN_EXPANDED_PX = 250'),
+        'the expanded CURRENT WINDOW pane needs a raised floor that keeps the AI session chrome reachable');
+    assert.ok(openTabSplitSource.includes("classList.contains('current-card-expanded')"),
+        'the pane floor must follow the rendered expanded class');
+    assert.ok(openTabSplitSource.includes('syncCurrentPaneMinimum'),
+        'init and expand toggles reconcile below-floor shares without rewriting the persisted share');
     const todoControlSourcePath = path.join(
         __dirname, '..', 'src', 'webview', 'webviewTodoControlScripts.js'
     );
@@ -6356,6 +6362,8 @@ function runBatchAiSessionWebviewChecks() {
     );
     const aiSessionControlsSource = fs.readFileSync(aiSessionControlsSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedAiSessionControlsPath, 'utf8'), aiSessionControlsSource);
+    assert.ok(aiSessionControlsSource.includes('__agentPivotOpenTabSplit.syncCurrentPaneMinimum'),
+        'expanding the CURRENT WINDOW card must raise a below-floor dragged share through the split module');
     const projectSource = fs.readFileSync(sourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
     const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;

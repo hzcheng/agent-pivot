@@ -19,7 +19,9 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   its window region (half the pane by default, or the dragged separator
   share): the visible AI session panel fills the remaining card height and
   the session list becomes the only inner scroll surface, instead of the
-  list being capped at a fixed row count.
+  list being capped at a fixed row count. While the card is expanded, the
+  separator's minimum size rises so the AI session controls and at least one
+  session row always stay reachable.
 - The OPEN tab splits CURRENT WINDOW and OPEN WINDOWS into two independent
   regions that scroll on their own below their pinned headers, with a
   separator between them that resizes the CURRENT WINDOW share by mouse drag

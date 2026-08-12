@@ -63,6 +63,14 @@ export interface CodexConversationClient extends AiSessionDisposable {
     // when the client exposes it. Gates version-sensitive protocol
     // accelerators such as thread/turns/list.
     getServerVersion?(): string | undefined;
+    // Resolves the shared initialize handshake and returns the server
+    // version. Concurrent callers attach to the same handshake; a caller's
+    // abort cancels only its own wait, never the handshake. Cold-start
+    // paths must await this before version-gating: getServerVersion() is
+    // undefined until the first request triggers the handshake.
+    ensureReady?(
+        signal?: ConversationAbortSignal
+    ): Promise<string | undefined>;
 }
 
 interface CodexRolloutTelemetrySnapshot {
@@ -89,6 +97,12 @@ export interface CodexConversationAdapterOptions {
     // without another full thread/read. An undefined/unreadable signature
     // bypasses the cache entirely.
     readContentSignature?(sessionId: string): string | undefined;
+    // Rollout byte size. Pure optimization-choosing heuristic for the
+    // windowed cold start (is paging worth it for this session) — the
+    // framed app-server response size/duration cannot be inferred from
+    // the source size, so this never feeds correctness or
+    // fallback-feasibility decisions.
+    readSourceBytes?(sessionId: string): number | undefined;
     readLifecycleSignal?(
         sessionId: string
     ): AiSessionLifecycleSignal | undefined;
@@ -131,22 +145,107 @@ const PAGINATED_READ_SLOW_PAGE_MS = 250;
 // request timeout outright, so the walk must be allowed to be generous.
 const PAGINATED_READ_WALK_TURN_LIMIT = 1024;
 const PAGINATED_READ_WALK_BUDGET_MS = 3000;
+// Windowed cold start (spikes/codex-cold-start): on a verified paginated
+// backend, the first load of a large session lists every turn as a
+// summary skeleton and materializes full items only for the tail window;
+// older windows are fetched on demand through readPage/readSnapshot.
+// Below this rollout size the plain thread/read cold start stays as is.
+const COLD_START_WINDOW_MIN_SOURCE_BYTES = 4 * 1024 * 1024;
+// Summary walk page size; one boundary cursor is recorded per page, so
+// this is also the seek granularity of on-demand materialization.
+const COLD_START_SUMMARY_PAGE_TURNS = 50;
+// Legacy-verdict latency: the legacy replay backend costs a full replay
+// PER PAGE (hundreds of ms), the indexed paginated backend answers in
+// tens of ms. The verdict requires BOTH of the first two pages to be
+// slow — a single jittery page must not decide. The handshake is already
+// excluded (ensureReady settles before the walk starts).
+const COLD_START_SLOW_PAGE_MS = 250;
+// Runaway safety valves (resource bounds, not heuristics): a paginated
+// backend serves flat ~tens-of-ms pages, so these trip only on
+// server-side pathology.
+const COLD_START_MAX_WALK_PAGES = 4000;
+const COLD_START_MAX_WALK_MS = 120_000;
+// Tail window materialized eagerly at cold start (~one retained viewer
+// page set) and the full-turn page size of on-demand materialization
+// (keeps single responses ~2MB even for the heaviest turns).
+const COLD_START_TAIL_TURNS = 40;
+const COLD_START_TAIL_BYTES = 1536 * 1024;
+const COLD_START_MATERIALIZE_PAGE_TURNS = 8;
+// Per-entry budget for materialized (full-chunk) characters, on the
+// order of the viewer's retained window: scrolling history materializes
+// chunks, and least-recently-used full chunks fall back to skeletons
+// beyond this budget so a long browsing session cannot re-inflate the
+// entry toward the whole conversation.
+const WINDOWED_ENTRY_MATERIALIZED_CHARS = 4 * 1024 * 1024;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
     sourceRevision: string;
 }
 
+// One cold-start/reload's result plus the state a windowed entry must
+// persist (see CachedLoadedConversation).
+interface LoadConversationOutcome {
+    value: LoadedConversation;
+    turns?: LoadedConversationTurn[];
+    characters: number;
+    // Windowed entries must keep their basis across incremental reloads —
+    // losing it would strand skeleton chunks without a materialization
+    // path.
+    revisionBasis?: 'full' | 'windowed';
+    structureGen?: number;
+    walkPages?: { startCursor?: string; turnCount: number }[];
+    walkNewerTurns?: number;
+    contentEpochSignature?: string;
+}
+
+// loadWindowed either loads, verdicts the backend as legacy replay (both
+// first pages slow), or returns null when gated/failing transiently.
+type WindowedLoadResult =
+    | (LoadConversationOutcome & {
+        turns: LoadedConversationTurn[];
+        legacy?: false;
+    })
+    | { legacy: true }
+    | null;
+
+// loadIncremental either produces an outcome or asks the caller to
+// rebuild a windowed entry through a fresh summary walk.
+type IncrementalLoadResult =
+    | (LoadConversationOutcome & {
+        turns: LoadedConversationTurn[];
+        rebuild?: false;
+    })
+    | { rebuild: true }
+    | null;
+
 // Per-turn normalized chunks of a cached root-thread conversation. Chunk
 // interactions share objects with `value.interactions` (no string payload
 // is duplicated); they let an incremental reload re-normalize only the
-// turns that actually changed.
+// turns that actually changed. `kind: 'skeleton'` chunks come from the
+// windowed cold start's summary walk: they carry only the
+// outline-level projection (first user message + turn fields) and are
+// materialized into full chunks on demand.
 interface LoadedConversationTurn {
     turnId: string;
     itemIds: string[];
     interactions: ConversationInteraction[];
+    // Full chunks: hash of the normalized interactions. Skeleton chunks
+    // leave this empty — they join reuse decisions via summaryFingerprint.
     fingerprint: string;
+    // Hash of the turn's summary-level projection (turn fields + first
+    // user message), derived identically from a summary page or a full
+    // turn. Stable across materialization.
+    summaryFingerprint: string;
+    // The skeleton's summary item ids, kept on full chunks so a chunk
+    // can be demoted back to a skeleton (freshness invalidation or the
+    // materialized-window LRU) without another fetch.
+    skeletonItemIds: string[];
     characters: number;
+    kind: 'full' | 'skeleton';
+    // Full chunks only: last time the chunk was materialized or covered
+    // by a served page; drives the materialized-window LRU.
+    lastTouchedAt?: number;
 }
 
 interface CachedLoadedConversation {
@@ -155,6 +254,25 @@ interface CachedLoadedConversation {
     characters: number;
     lastTouchedAt: number;
     turns?: LoadedConversationTurn[];
+    // Windowed-entry state (undefined for full-read entries). The
+    // windowed revision is a PROJECTION revision: it covers the
+    // outline-level turn structure plus materialized content — never the
+    // bytes of unmaterized turns, whose freshness is guaranteed by
+    // fetching them live at materialization time.
+    revisionBasis?: 'full' | 'windowed';
+    // Bumped when materialization changes the interaction-id set of a
+    // turn (a multi-user-message turn expanding). Keeps cursors truthful:
+    // a changed id set must invalidate cursors anchored at new ids.
+    structureGen?: number;
+    // One entry per summary walk page (walk order = newest first),
+    // giving each skeleton page the request cursor that reproduces it.
+    walkPages?: { startCursor?: string; turnCount: number }[];
+    // Turns appended after the walk: they shift every walked chunk's
+    // newest-first index, so page mapping rebases by this count.
+    walkNewerTurns?: number;
+    // Stat signature as of the last observed projection change — the
+    // content-epoch component of the windowed revision.
+    contentEpochSignature?: string;
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -544,6 +662,206 @@ function composeConversationRevision(
         .digest('hex');
 }
 
+// Stable JSON with sorted object keys: the fingerprint input for
+// summary-level turn projections (whose `error` field is a nested object).
+function canonicalJson(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(canonicalJson).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        const keys = Object.keys(record).sort();
+        return `{${keys.map(key =>
+            `${JSON.stringify(key)}:${canonicalJson(record[key])}`
+        ).join(',')}}`;
+    }
+    return JSON.stringify(value) ?? 'null';
+}
+
+// Raw text of a userMessage item (no visible-message capping): the
+// summary and full views carry the item verbatim (spike-verified), so
+// raw text keeps the fingerprint identical across both derivations.
+function rawUserMessageText(item: Record<string, any>): string {
+    if (!Array.isArray(item.content)) {
+        return '';
+    }
+    let text = '';
+    for (const rawPart of item.content) {
+        const part = asRecord(rawPart);
+        if (part?.type === 'text' && typeof part.text === 'string') {
+            text += part.text;
+        }
+    }
+    return text;
+}
+
+// Hash of a turn's summary-level projection: turn fields plus the FIRST
+// userMessage. Mirrors the server projection's summary rule
+// (first_user_item_id, schema-verified in spikes/codex-cold-start).
+// The final agentMessage is deliberately EXCLUDED: the summary view
+// omits it for interrupted turns and can otherwise diverge from the full
+// view (real-data probe: 9/218 turns), while the user side is verbatim
+// everywhere. Content changes still move the revision through the
+// content-epoch (stat) component; this fingerprint only pins the
+// outline-level turn structure.
+function turnSummaryFingerprint(turn: Record<string, any>): string {
+    let firstUser: { id: string; text: string } | null = null;
+    for (const rawItem of turn.items as unknown[]) {
+        const item = asRecord(rawItem);
+        if (!item || typeof item.id !== 'string') {
+            continue;
+        }
+        if (item.type === 'userMessage') {
+            firstUser = { id: item.id, text: rawUserMessageText(item) };
+            break;
+        }
+    }
+    return createHash('sha256')
+        .update(canonicalJson({
+            id: turn.id,
+            status: turn.status,
+            startedAt: turn.startedAt ?? null,
+            completedAt: turn.completedAt ?? null,
+            error: turn.error ?? null,
+            firstUser,
+        }), 'utf8')
+        .digest('hex');
+}
+
+// The windowed revision: a PROJECTION revision covering the outline-level
+// turn structure (summary fingerprints) and the materialized content
+// epoch (stat signature as of the last observed change), plus the
+// structure generation (interaction-id set changes). Materializing a
+// skeleton without an id-set change alters none of the inputs, so
+// retained-page cursors survive scrolling-driven materialization.
+// Rebuilds a full chunk's interactions into skeleton form (the
+// outline-level projection of its FIRST interaction) and demotes it.
+// Demotion is how materialized content re-enters the
+// "fetched live before it is shown" state: the summary fingerprint and
+// skeleton item ids are inherited, so the projection revision only moves
+// when the demotion shrinks the interaction-id set (an expanded
+// multi-user-message turn), which the caller reports through the
+// structure generation.
+function demoteToSkeleton(
+    chunk: LoadedConversationTurn
+): LoadedConversationTurn {
+    const first = chunk.interactions[0];
+    const interactions: ConversationInteraction[] = first
+        ? [{
+            id: first.id,
+            ...(first.providerTurnId !== undefined
+                ? { providerTurnId: first.providerTurnId } : {}),
+            ...(first.timestamp !== undefined
+                ? { timestamp: first.timestamp } : {}),
+            ...(first.completedAt !== undefined
+                ? { completedAt: first.completedAt } : {}),
+            userMarkdown: first.userMarkdown,
+            userPreview: first.userPreview,
+            userGraphemeCount: first.userGraphemeCount,
+            assistantMarkdown: [],
+            responseState: first.responseState,
+        }]
+        : [];
+    return {
+        turnId: chunk.turnId,
+        kind: 'skeleton',
+        interactions,
+        itemIds: [...chunk.skeletonItemIds],
+        fingerprint: '',
+        summaryFingerprint: chunk.summaryFingerprint,
+        skeletonItemIds: [...chunk.skeletonItemIds],
+        characters: conversationCharacters(interactions),
+    };
+}
+
+function composeWindowedRevision(
+    contentEpochSignature: string,
+    turns: readonly LoadedConversationTurn[],
+    structureGen: number
+): string {
+    return createHash('sha256')
+        .update(`${contentEpochSignature}|${structureGen}|`, 'utf8')
+        .update(turns.map(turn => turn.summaryFingerprint).join(':'), 'utf8')
+        .digest('hex');
+}
+
+// Builds the skeleton chunk content for one turn from its summary view:
+// zero or one interaction mirroring normalizeTurnItems' userMessage
+// branch exactly (same id, same visible-text filtering, same timing and
+// response state), minus all assistant content. The skeleton interaction
+// id equals the id the full path assigns, so anchors survive
+// materialization.
+function skeletonTurnInteractions(
+    turn: Record<string, any>
+): { interactions: ConversationInteraction[]; itemIds: string[] } {
+    let userItem: Record<string, any> | undefined;
+    let agentItemId: string | undefined;
+    for (const rawItem of turn.items as unknown[]) {
+        const item = asRecord(rawItem);
+        if (!item
+            || typeof item.id !== 'string'
+            || !item.id
+            || typeof item.type !== 'string') {
+            throw protocolError();
+        }
+        if (item.type === 'userMessage' && !userItem) {
+            userItem = item;
+        } else if (item.type === 'agentMessage') {
+            agentItemId = item.id;
+        }
+    }
+    const itemIds = userItem
+        ? (agentItemId ? [userItem.id as string, agentItemId]
+            : [userItem.id as string])
+        : (agentItemId ? [agentItemId] : []);
+    if (!userItem) {
+        return { interactions: [], itemIds };
+    }
+    if (!Array.isArray(userItem.content)) {
+        throw protocolError();
+    }
+    const parts: VisibleUserInputPart[] = [];
+    for (const rawPart of userItem.content) {
+        const part = asRecord(rawPart);
+        if (!part || typeof part.type !== 'string') {
+            throw protocolError();
+        }
+        if (part.type === 'text') {
+            if (typeof part.text !== 'string') {
+                throw protocolError();
+            }
+            parts.push({ kind: 'text', text: part.text });
+        } else if (part.type === 'image' || part.type === 'audio') {
+            if (typeof part.url !== 'string') {
+                throw protocolError();
+            }
+            parts.push({ kind: 'attachment' });
+        } else if (part.type === 'localImage' || part.type === 'localAudio') {
+            if (typeof part.path !== 'string') {
+                throw protocolError();
+            }
+            parts.push({ kind: 'attachment' });
+        }
+    }
+    const userMarkdown = visibleMessage(buildVisibleUserInput(parts));
+    if (!userMarkdown) {
+        return { interactions: [], itemIds };
+    }
+    return {
+        interactions: [{
+            id: userItem.id as string,
+            providerTurnId: turn.id,
+            ...turnTiming(turn),
+            userMarkdown,
+            userPreview: buildUserPreview(userMarkdown),
+            userGraphemeCount: countGraphemes(userMarkdown),
+            assistantMarkdown: [],
+            responseState: turnResponseState(turn.status),
+        }],
+        itemIds,
+    };
+}
+
 function conversationCharacters(
     interactions: readonly ConversationInteraction[]
 ): number {
@@ -795,6 +1113,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     >();
     private loadedConversationCacheChars = 0;
     private conversationCacheGeneration = 0;
+    private readonly materializationQueues = new Map<
+        string,
+        Promise<void>
+    >();
     private disposed = false;
     // Circuit breaker for the experimental thread/turns/list accelerator:
     // once the server rejects the method or answers with a malformed page,
@@ -814,28 +1136,67 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         signal?: ConversationAbortSignal
     ): Promise<ConversationSnapshot> {
         const loaded = await this.load(sessionId, signal);
+        let working = loaded;
+        const entry = this.loadedConversationCache.get(sessionId);
+        if (entry?.revisionBasis === 'windowed' && entry.turns?.length) {
+            const interactions = entry.value.interactions;
+            const selectedId = preferredInteractionId
+                && interactions.some(
+                    interaction => interaction.id === preferredInteractionId
+                )
+                ? preferredInteractionId
+                : interactions[interactions.length - 1]?.id;
+            if (selectedId) {
+                // The snapshot's page must never contain skeletons:
+                // materialize around the selected interaction first.
+                working = await this.materializeAround(
+                    sessionId,
+                    entry as CachedLoadedConversation
+                        & { turns: LoadedConversationTurn[] },
+                    selectedId,
+                    'around',
+                    signal
+                ) ?? working;
+            }
+        }
         const outline = buildConversationOutline(
             'codex',
             sessionId,
-            loaded.sourceRevision,
-            loaded.interactions,
+            working.sourceRevision,
+            working.interactions,
             false
         );
         const selected = outline.interactions.find(interaction =>
             interaction.id === preferredInteractionId
         ) || outline.interactions[outline.interactions.length - 1];
+        if (!selected) {
+            return { outline };
+        }
+        const pageRequest: ConversationPageRequest = {
+            provider: 'codex',
+            sessionId,
+            anchorInteractionId: selected.id,
+            direction: 'around',
+            expectedRevision: working.sourceRevision,
+            limit: CONVERSATION_LIMITS.maxPageInteractions,
+        };
+        const page = buildConversationPage(
+            working.interactions,
+            pageRequest,
+            working.sourceRevision
+        );
         return {
             outline,
-            ...(selected ? {
-                page: buildConversationPage(loaded.interactions, {
-                    provider: 'codex',
+            page: entry?.revisionBasis === 'windowed' && entry.turns?.length
+                ? await this.ensurePageFreeOfSkeletons(
                     sessionId,
-                    anchorInteractionId: selected.id,
-                    direction: 'around',
-                    expectedRevision: loaded.sourceRevision,
-                    limit: CONVERSATION_LIMITS.maxPageInteractions,
-                }, loaded.sourceRevision),
-            } : {}),
+                    entry as CachedLoadedConversation
+                        & { turns: LoadedConversationTurn[] },
+                    page,
+                    pageRequest,
+                    signal
+                )
+                : page,
         };
     }
 
@@ -858,10 +1219,167 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         signal?: ConversationAbortSignal
     ): Promise<ConversationPage> {
         const loaded = await this.load(request.sessionId, signal);
+        let working = loaded;
+        let expectedRevision = request.expectedRevision;
+        const entry = this.loadedConversationCache.get(request.sessionId);
+        if (entry?.revisionBasis === 'windowed' && entry.turns?.length) {
+            const revisionBefore = entry.value.sourceRevision;
+            working = await this.materializeAround(
+                request.sessionId,
+                entry as CachedLoadedConversation
+                    & { turns: LoadedConversationTurn[] },
+                request.anchorInteractionId,
+                request.direction,
+                signal,
+                request.limit
+            ) ?? working;
+            if (entry.value.sourceRevision !== revisionBefore) {
+                // Materialization changed the revision under the client's
+                // expectation (a turn expanded its interaction-id set):
+                // do not pin the expected revision — the coordinator
+                // observes the new revision and settles its cursors.
+                expectedRevision = undefined;
+            }
+        }
+        const page = buildConversationPage(
+            working.interactions,
+            { ...request, provider: 'codex', expectedRevision },
+            working.sourceRevision
+        );
+        if (entry?.revisionBasis === 'windowed' && entry.turns?.length) {
+            return this.ensurePageFreeOfSkeletons(
+                request.sessionId,
+                entry as CachedLoadedConversation
+                    & { turns: LoadedConversationTurn[] },
+                page,
+                { ...request, provider: 'codex' },
+                signal
+            );
+        }
+        return page;
+    }
+
+    // Materializes every skeleton chunk overlapping the page range around
+    // an anchor interaction. Returns the up-to-date (lifecycle-applied)
+    // conversation, or undefined when the anchor cannot be resolved — in
+    // which case buildConversationPage produces the canonical
+    // staleRevision.
+    private async materializeAround(
+        sessionId: string,
+        entry: CachedLoadedConversation
+            & { turns: LoadedConversationTurn[] },
+        anchorInteractionId: string,
+        direction: ConversationPageRequest['direction'],
+        signal: ConversationAbortSignal | undefined,
+        limit?: number
+    ): Promise<LoadedConversation | undefined> {
+        if (!entry.turns.some(chunk => chunk.kind === 'skeleton')) {
+            return this.withRunningLifecycle(sessionId, entry.value);
+        }
+        const interactions = entry.value.interactions;
+        const anchorIndex = interactions.findIndex(
+            interaction => interaction.id === anchorInteractionId
+        );
+        if (anchorIndex < 0) {
+            return undefined;
+        }
+        // Interaction index → chunk index (zero-interaction chunks never
+        // contain the anchor and are skipped by the walk).
+        let chunkIndex = 0;
+        let remaining = anchorIndex;
+        while (chunkIndex < entry.turns.length - 1
+            && remaining >= entry.turns[chunkIndex].interactions.length) {
+            remaining -= entry.turns[chunkIndex].interactions.length;
+            chunkIndex += 1;
+        }
+        const pageLimit = Math.max(1, Math.min(
+            CONVERSATION_LIMITS.maxPageInteractions,
+            Math.floor(limit || CONVERSATION_LIMITS.maxPageInteractions)
+        ));
+        // Skeleton chunks hold at most one interaction, so an interaction
+        // radius maps directly onto chunks; the margin absorbs full
+        // chunks with several interactions.
+        const margin = 5;
+        let fromChunk: number;
+        let toChunk: number;
+        if (direction === 'before') {
+            fromChunk = chunkIndex - 2 * pageLimit - margin;
+            toChunk = chunkIndex - 1;
+        } else if (direction === 'after') {
+            fromChunk = chunkIndex + 1;
+            toChunk = chunkIndex + 2 * pageLimit + margin;
+        } else {
+            fromChunk = chunkIndex - pageLimit - margin;
+            toChunk = chunkIndex + pageLimit + margin;
+        }
+        await this.enqueueMaterialization(
+            sessionId,
+            entry,
+            { fromChunk, toChunk },
+            signal
+        );
+        // Serving a window keeps its full chunks alive for the LRU.
+        const touchedAt = this.now();
+        for (let index = Math.max(0, fromChunk);
+            index <= Math.min(entry.turns.length - 1, toChunk);
+            index += 1) {
+            const chunk = entry.turns[index];
+            if (chunk.kind === 'full') {
+                chunk.lastTouchedAt = touchedAt;
+            }
+        }
+        return this.withRunningLifecycle(sessionId, entry.value);
+    }
+
+    // Interaction ids still backed by skeleton chunks. Anything in this
+    // set must never reach the webview (a skeleton renders as an empty
+    // assistant response).
+    private skeletonInteractionIds(
+        turns: readonly LoadedConversationTurn[]
+    ): Set<string> {
+        const ids = new Set<string>();
+        for (const chunk of turns) {
+            if (chunk.kind === 'skeleton') {
+                for (const interaction of chunk.interactions) {
+                    ids.add(interaction.id);
+                }
+            }
+        }
+        return ids;
+    }
+
+    // Absolute backstop for the radius heuristic: if a built page still
+    // references a skeleton-owned interaction (pathological expansion
+    // shifts), materialize the whole skeleton set and rebuild the page
+    // once. Correctness over laziness; expected to never run.
+    private async ensurePageFreeOfSkeletons(
+        sessionId: string,
+        entry: CachedLoadedConversation
+            & { turns: LoadedConversationTurn[] },
+        page: ConversationPage,
+        request: ConversationPageRequest,
+        signal: ConversationAbortSignal | undefined
+    ): Promise<ConversationPage> {
+        const skeletonIds = this.skeletonInteractionIds(entry.turns);
+        if (!skeletonIds.size
+            || !page.interactionStates.some(
+                state => skeletonIds.has(state.interactionId)
+            )) {
+            return page;
+        }
+        await this.enqueueMaterialization(
+            sessionId,
+            entry,
+            { fromChunk: 0, toChunk: entry.turns.length - 1 },
+            signal
+        );
+        const working = this.withRunningLifecycle(sessionId, entry.value);
+        // The revision may have moved (expansions); do not pin the
+        // request's expectation on the rebuild.
         return buildConversationPage(
-            loaded.interactions,
-            { ...request, provider: 'codex' },
-            loaded.sourceRevision
+            working.interactions,
+            { ...request, provider: 'codex', expectedRevision: undefined },
+            working.sourceRevision
         );
     }
 
@@ -1135,6 +1653,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.invalidateLoadedConversationCache();
         this.loadedConversationCache.clear();
         this.loadedConversationCacheChars = 0;
+        this.materializationQueues.clear();
         this.subscriptions.clear();
         this.options.client.dispose();
     }
@@ -1217,11 +1736,12 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }
         const generation = this.conversationCacheGeneration;
         const startedAt = this.now();
-        return this.loadConversation(sessionId, cached, signal).then(outcome => {
+        return this.loadConversation(sessionId, cached, signal, signature).then(outcome => {
             if (!this.disposed
                 && generation === this.conversationCacheGeneration
                 && signature !== undefined
                 && (outcome.kind === 'incremental'
+                    || outcome.kind === 'windowed'
                     || outcome.characters >= LARGE_CONVERSATION_CACHE_CHARS
                     || this.now() - startedAt
                         >= LARGE_CONVERSATION_CACHE_MIN_READ_MS)) {
@@ -1231,6 +1751,14 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     characters: outcome.characters,
                     lastTouchedAt: this.now(),
                     turns: outcome.turns,
+                    revisionBasis: outcome.revisionBasis
+                        ?? (outcome.kind === 'windowed'
+                            ? 'windowed'
+                            : (outcome.turns ? 'full' : undefined)),
+                    structureGen: outcome.structureGen,
+                    walkPages: outcome.walkPages,
+                    walkNewerTurns: outcome.walkNewerTurns,
+                    contentEpochSignature: outcome.contentEpochSignature,
                 });
             }
             return this.withRunningLifecycle(sessionId, outcome.value);
@@ -1261,14 +1789,14 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     private async loadConversation(
         sessionId: string,
         stale: CachedLoadedConversation | undefined,
-        signal?: ConversationAbortSignal
-    ): Promise<{
-        value: LoadedConversation;
-        turns?: LoadedConversationTurn[];
-        characters: number;
-        kind: 'fresh' | 'incremental';
+        signal: ConversationAbortSignal | undefined,
+        signature: string | undefined
+    ): Promise<LoadConversationOutcome & {
+        kind: 'fresh' | 'incremental' | 'windowed';
     }> {
         const split = splitSubagentSessionId(sessionId);
+        const windowedEntry = stale?.revisionBasis === 'windowed'
+            && !!stale.turns?.length;
         if (stale?.turns?.length
             && !split.subagentId
             && this.paginatedReadsUsable()) {
@@ -1276,10 +1804,56 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 sessionId,
                 stale as CachedLoadedConversation
                     & { turns: LoadedConversationTurn[] },
-                signal
+                signal,
+                signature
             );
-            if (incremental) {
+            if (incremental && incremental.rebuild !== true) {
                 return { ...incremental, kind: 'incremental' };
+            }
+            // A windowed entry never falls back to the full read: the
+            // session's size may exceed the request timeout outright.
+            // Anchor loss (compaction) or any incremental failure re-walks
+            // the summary pages instead.
+            if ((incremental?.rebuild === true) || windowedEntry) {
+                const rebuilt = await this.loadWindowed(
+                    sessionId,
+                    signal,
+                    true
+                );
+                if (rebuilt && rebuilt.legacy !== true) {
+                    return { ...rebuilt, kind: 'windowed' };
+                }
+            }
+        }
+        if (!split.subagentId) {
+            const windowed = await this.loadWindowed(sessionId, signal, false);
+            if (windowed && windowed.legacy !== true) {
+                return { ...windowed, kind: 'windowed' };
+            }
+            if (windowed?.legacy === true) {
+                // Legacy replay backend: one full read beats per-page
+                // replays. When the read cannot complete (timeout /
+                // tooLarge), the slow walk is the only remaining path —
+                // huge legacy sessions become openable (slowly) instead
+                // of failing outright.
+                try {
+                    const fresh = await this.loadFresh(sessionId, signal);
+                    return { ...fresh, kind: 'fresh' };
+                } catch (error) {
+                    if (error instanceof ConversationError
+                        && (error.code === 'timeout'
+                            || error.code === 'tooLarge')) {
+                        const forced = await this.loadWindowed(
+                            sessionId,
+                            signal,
+                            true
+                        );
+                        if (forced && forced.legacy !== true) {
+                            return { ...forced, kind: 'windowed' };
+                        }
+                    }
+                    throw error;
+                }
             }
         }
         const fresh = await this.loadFresh(sessionId, signal);
@@ -1312,12 +1886,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         sessionId: string,
         cached: CachedLoadedConversation
             & { turns: LoadedConversationTurn[] },
-        signal?: ConversationAbortSignal
-    ): Promise<{
-        value: LoadedConversation;
-        turns: LoadedConversationTurn[];
-        characters: number;
-    } | null> {
+        signal: ConversationAbortSignal | undefined,
+        signature: string | undefined
+    ): Promise<IncrementalLoadResult> {
+        const isWindowed = cached.revisionBasis === 'windowed';
         const anchorTurnId = cached.turns[cached.turns.length - 1].turnId;
         const fetched: Record<string, any>[] = [];
         let cursor: string | undefined;
@@ -1384,22 +1956,58 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             if (firstPageMs >= PAGINATED_READ_SLOW_PAGE_MS) {
                 return null;
             }
+            if (isWindowed
+                && anchorIndex < 0
+                && fetched.length >= 3 * PAGINATED_READ_PAGE_SIZE) {
+                // The anchor is the tail turn: absent from the first pages,
+                // the tail was rewritten (compaction). Rebuild through a
+                // fresh summary walk — rebuilding a huge windowed entry
+                // from full pages would defeat the whole design.
+                return { rebuild: true };
+            }
             if (fetched.length >= PAGINATED_READ_WALK_TURN_LIMIT
                 || this.now() - walkStartedAt
                     >= PAGINATED_READ_WALK_BUDGET_MS) {
-                return null;
+                return isWindowed ? { rebuild: true } : null;
             }
             cursor = nextCursor;
         }
         // `fetched` is newest-first. When the anchor survived, only the
         // turns from the anchor forward are re-normalized (the anchor may
         // have grown since it was cached). When the walk ran to the end of
-        // the thread without finding it, the tail was rewritten
-        // (compaction/rollback) and every chunk is rebuilt from the fetched
-        // pages — the paginated backend serves them cheaply, while a full
-        // thread/read of a huge paginated session would exceed the request
-        // timeout outright.
-        const kept = anchorIndex >= 0 ? cached.turns.slice(0, -1) : [];
+        // the thread without it, the tail was rewritten
+        // (compaction/rollback): windowed entries rebuild through a fresh
+        // summary walk, while full entries rebuild every chunk from the
+        // fetched pages — the paginated backend serves them cheaply, and
+        // a full thread/read of a huge paginated session would exceed the
+        // request timeout outright.
+        if (anchorIndex < 0 && isWindowed) {
+            return { rebuild: true };
+        }
+        // Windowed freshness closure: a moved stat means any materialized
+        // chunk the anchor walk does not re-verify can hold stale content
+        // (in-place history edits exist: updated_at_ordinal). Demote kept
+        // full chunks back to skeletons — they re-materialize live before
+        // they are shown again. The anchor chunk itself is re-fetched
+        // below, so it is never demoted here. Full-basis entries keep
+        // their exact previous behavior.
+        let demotedMaterialized = false;
+        let demotionShrunkIdSets = false;
+        let kept = anchorIndex >= 0 ? cached.turns.slice(0, -1) : [];
+        if (isWindowed && anchorIndex >= 0) {
+            kept = kept.map(chunk => {
+                if (chunk.kind !== 'full') {
+                    return chunk;
+                }
+                demotedMaterialized = true;
+                const demotedChunk = demoteToSkeleton(chunk);
+                if (demotedChunk.interactions.length
+                    !== chunk.interactions.length) {
+                    demotionShrunkIdSets = true;
+                }
+                return demotedChunk;
+            });
+        }
         const reloaded = (anchorIndex >= 0
             ? fetched.slice(0, anchorIndex + 1)
             : fetched
@@ -1407,6 +2015,66 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         const turns = this.normalizeReloadedTurns(kept, reloaded);
         if (!turns) {
             return null;
+        }
+        if (isWindowed) {
+            // Projection revision: unchanged when neither the outline-level
+            // turn structure nor any materialized chunk's content moved.
+            // Any demotion counts as a change: demoted content was not
+            // re-verified, so the revision must move and let the viewer
+            // re-read visible pages (they re-materialize fresh).
+            let unchanged = !demotedMaterialized
+                && turns.length === cached.turns.length;
+            for (let index = 0; unchanged && index < turns.length; index += 1) {
+                const next = turns[index];
+                const prev = cached.turns[index];
+                unchanged = next.summaryFingerprint === prev.summaryFingerprint
+                    && (next.kind === 'skeleton'
+                        ? prev.kind === 'skeleton'
+                        : next.fingerprint === prev.fingerprint);
+            }
+            if (unchanged) {
+                return {
+                    value: cached.value,
+                    turns: cached.turns,
+                    characters: cached.characters,
+                    revisionBasis: 'windowed',
+                    structureGen: cached.structureGen,
+                    walkPages: cached.walkPages,
+                    walkNewerTurns: cached.walkNewerTurns,
+                    contentEpochSignature: cached.contentEpochSignature,
+                };
+            }
+            const structureGen = (cached.structureGen ?? 0)
+                + (demotionShrunkIdSets ? 1 : 0);
+            const epochSignature = signature
+                ?? cached.contentEpochSignature
+                ?? '';
+            const sourceRevision = composeWindowedRevision(
+                epochSignature,
+                turns,
+                structureGen
+            );
+            const characters = turns.reduce(
+                (sum, turn) => sum + turn.characters,
+                0
+            );
+            const interactions = turns.reduce<ConversationInteraction[]>(
+                (all, turn) => all.concat(turn.interactions),
+                []
+            );
+            return {
+                value: { interactions, sourceRevision },
+                turns,
+                characters,
+                revisionBasis: 'windowed',
+                structureGen,
+                walkPages: cached.walkPages,
+                // Anchor reloads replace the tail in place; every turn
+                // beyond the cached length is new since the walk.
+                walkNewerTurns: (cached.walkNewerTurns ?? 0)
+                    + Math.max(0, turns.length - cached.turns.length),
+                contentEpochSignature: epochSignature,
+            };
         }
         const sourceRevision = composeConversationRevision(turns);
         const characters = turns.reduce(
@@ -1466,13 +2134,704 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     interactions: context.interactions,
                     itemIds: context.newItemIds,
                     fingerprint: fingerprintInteractions(context.interactions),
+                    summaryFingerprint: turnSummaryFingerprint(turn),
+                    skeletonItemIds: skeletonTurnInteractions(turn).itemIds,
                     characters: conversationCharacters(context.interactions),
+                    kind: 'full' as const,
+                    lastTouchedAt: this.now(),
                 });
             }
         } catch (_error) {
             return null;
         }
         return [...kept, ...rebuilt];
+    }
+
+    /**
+     * Windowed cold start (spikes/codex-cold-start): lists every turn as a
+     * summary skeleton (flat ~tens-of-ms pages on the indexed paginated
+     * backend), then materializes full items only for the tail window.
+     * Older turns materialize on demand through readPage/readSnapshot.
+     *
+     * Returns null when the path is gated (unverified server version, no
+     * content signature, small rollout, transient transport failure) — the
+     * caller then uses the stable full thread/read. A `{legacy: true}`
+     * verdict means both first summary pages cost a full replay each, so a
+     * single full read is cheaper; `force` skips that verdict (used when
+     * the full read already failed, or when re-walking a windowed entry).
+     * Method-level rejections and malformed pages disable the paginated
+     * path for the lifetime of this adapter.
+     */
+    private async loadWindowed(
+        sessionId: string,
+        signal: ConversationAbortSignal | undefined,
+        force: boolean
+    ): Promise<WindowedLoadResult> {
+        // One retry against a source that moved mid-load: the closure
+        // checks in the attempt reject mixed-epoch entries, and the
+        // retry simply re-walks under a fresh signature.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const result = await this.loadWindowedAttempt(
+                sessionId,
+                signal,
+                force
+            );
+            if (result !== 'stale') {
+                return result;
+            }
+        }
+        return null;
+    }
+
+    private async loadWindowedAttempt(
+        sessionId: string,
+        signal: ConversationAbortSignal | undefined,
+        force: boolean
+    ): Promise<WindowedLoadResult | 'stale'> {
+        if (this.disposed) {
+            throw new ConversationError('unavailable', 'reconnectingCodex');
+        }
+        if (this.paginatedReadsDisabled) {
+            return null;
+        }
+        const client = this.options.client;
+        if (typeof client.ensureReady !== 'function'
+            || typeof this.options.readSourceBytes !== 'function') {
+            return null;
+        }
+        // The handshake MUST complete before version gating: the version
+        // is unknown until initialize returns, and its cost must not
+        // contaminate the per-page latency the legacy verdict relies on.
+        let version: string | undefined;
+        try {
+            version = await client.ensureReady(signal);
+        } catch (error) {
+            if (error instanceof ConversationAbortError
+                || error?.name === 'AbortError') {
+                throw error;
+            }
+            if (this.disposed) {
+                throw new ConversationError('unavailable', 'reconnectingCodex');
+            }
+            return null;
+        }
+        if (version === undefined
+            || !PAGINATED_READ_SERVER_VERSIONS.has(version)) {
+            return null;
+        }
+        const sourceBytes = this.options.readSourceBytes(sessionId);
+        if (sourceBytes === undefined
+            || sourceBytes < COLD_START_WINDOW_MIN_SOURCE_BYTES) {
+            return null;
+        }
+        // No content signature, no windowing: the revision's content epoch
+        // and every commit rule below depend on it.
+        const signature = this.contentSignature(sessionId);
+        if (signature === undefined) {
+            return null;
+        }
+
+        // Summary walk, newest first. Every page boundary cursor is
+        // recorded so any walk page can later be re-fetched in full view.
+        const pages: {
+            turns: Record<string, any>[];
+            nextCursor?: string;
+            startCursor?: string;
+        }[] = [];
+        let cursor: string | undefined;
+        const walkStartedAt = this.now();
+        const recentPageMs: number[] = [];
+        for (;;) {
+            if (pages.length >= COLD_START_MAX_WALK_PAGES
+                || this.now() - walkStartedAt >= COLD_START_MAX_WALK_MS) {
+                // Runaway safety valve (resource bound, not a heuristic):
+                // a paginated backend serves flat fast pages, so this can
+                // only trip on server-side pathology.
+                throw new ConversationError('tooLarge');
+            }
+            const pageStartedAt = this.now();
+            let page: unknown;
+            try {
+                page = await client.request('thread/turns/list', {
+                    threadId: sessionId,
+                    cursor,
+                    limit: COLD_START_SUMMARY_PAGE_TURNS,
+                    sortDirection: 'desc',
+                    itemsView: 'summary',
+                }, signal);
+            } catch (error) {
+                if (error instanceof ConversationAbortError
+                    || error?.name === 'AbortError') {
+                    throw error;
+                }
+                if (this.disposed) {
+                    throw new ConversationError(
+                        'unavailable',
+                        'reconnectingCodex'
+                    );
+                }
+                if (error instanceof ConversationError
+                    && (error.code === 'unavailable'
+                        || error.code === 'timeout')) {
+                    return null;
+                }
+                this.paginatedReadsDisabled = true;
+                return null;
+            }
+            const pageMs = this.now() - pageStartedAt;
+            let parsed: ReturnType<typeof parseTurnsListPage>;
+            try {
+                parsed = parseTurnsListPage(page);
+            } catch (_error) {
+                this.paginatedReadsDisabled = true;
+                return null;
+            }
+            pages.push({
+                turns: parsed.turns,
+                nextCursor: parsed.nextCursor,
+                startCursor: cursor,
+            });
+            recentPageMs.push(pageMs);
+            // Legacy verdict: the median of the recent pages (up to 3,
+            // at least 2 — a two-page window takes the SMALLER, i.e.
+            // both pages must be slow) costs a full replay each. A fast
+            // first page followed by sustained replay pricing verdicts
+            // on page three; a single jittery page never does.
+            if (!force && recentPageMs.length >= 2) {
+                const windowMs = recentPageMs.slice(-3).sort((a, b) => a - b);
+                if (windowMs[Math.floor((windowMs.length - 1) / 2)]
+                    >= COLD_START_SLOW_PAGE_MS) {
+                    return { legacy: true };
+                }
+            }
+            if (!parsed.nextCursor) {
+                break;
+            }
+            if (parsed.turns.length === 0) {
+                // Empty page with a live cursor: outside the verified
+                // pagination semantics — settle on the stable full read.
+                this.paginatedReadsDisabled = true;
+                return null;
+            }
+            cursor = parsed.nextCursor;
+        }
+        // Walk closure: the stat signature must still be the one the walk
+        // started under, or the skeleton set mixes epochs.
+        if (this.contentSignature(sessionId) !== signature) {
+            return 'stale';
+        }
+
+        // Skeleton chunks in chronological order. Summary item ids join
+        // the thread-wide duplicate-item invariant from the start.
+        const chunks: LoadedConversationTurn[] = [];
+        const itemIds = new Set<string>();
+        const turnIds = new Set<string>();
+        try {
+            for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
+                const pageTurns = pages[pageIndex].turns;
+                for (let index = pageTurns.length - 1; index >= 0; index -= 1) {
+                    const turn = pageTurns[index];
+                    if (turnIds.has(turn.id)) {
+                        throw protocolError();
+                    }
+                    turnIds.add(turn.id);
+                    const skeleton = skeletonTurnInteractions(turn);
+                    for (const itemId of skeleton.itemIds) {
+                        if (itemIds.has(itemId)) {
+                            throw protocolError();
+                        }
+                        itemIds.add(itemId);
+                    }
+                    chunks.push({
+                        turnId: turn.id,
+                        kind: 'skeleton',
+                        interactions: skeleton.interactions,
+                        itemIds: skeleton.itemIds,
+                        fingerprint: '',
+                        summaryFingerprint: turnSummaryFingerprint(turn),
+                        skeletonItemIds: [...skeleton.itemIds],
+                        characters: conversationCharacters(
+                            skeleton.interactions
+                        ),
+                    });
+                }
+            }
+        } catch (_error) {
+            this.paginatedReadsDisabled = true;
+            return null;
+        }
+
+        // Eagerly materialize the tail window (~one retained viewer page
+        // set) so the initial snapshot needs no second round trip. Every
+        // landed page is checked against the walk's signature.
+        const tail = await this.materializeTailWindow(
+            sessionId,
+            chunks,
+            itemIds,
+            signal,
+            signature
+        );
+        if (tail === 'stale') {
+            return 'stale';
+        }
+        if (!tail) {
+            return null;
+        }
+        if (this.contentSignature(sessionId) !== signature) {
+            return 'stale';
+        }
+        const structureGen = 0;
+        const sourceRevision = composeWindowedRevision(
+            signature,
+            chunks,
+            structureGen
+        );
+        const interactions = chunks.reduce<ConversationInteraction[]>(
+            (all, chunk) => all.concat(chunk.interactions),
+            []
+        );
+        return {
+            value: { interactions, sourceRevision },
+            turns: chunks,
+            characters: chunks.reduce((sum, chunk) => sum + chunk.characters, 0),
+            structureGen,
+            walkPages: pages.map(page => ({
+                startCursor: page.startCursor,
+                turnCount: page.turns.length,
+            })),
+            walkNewerTurns: 0,
+            contentEpochSignature: signature,
+        };
+    }
+
+    // One thread/turns/list page with the failure taxonomy shared by every
+    // paginated call: abort/disposal propagate, transient transport
+    // failures return null for a one-off fallback, and method-level
+    // rejections or malformed pages retire the accelerator.
+    private async requestTurnsPage(
+        params: Record<string, unknown>,
+        signal: ConversationAbortSignal | undefined
+    ): Promise<{ turns: Record<string, any>[]; nextCursor?: string } | null> {
+        let page: unknown;
+        try {
+            page = await this.options.client.request(
+                'thread/turns/list',
+                params,
+                signal
+            );
+        } catch (error) {
+            if (error instanceof ConversationAbortError
+                || error?.name === 'AbortError') {
+                throw error;
+            }
+            if (this.disposed) {
+                throw new ConversationError('unavailable', 'reconnectingCodex');
+            }
+            if (error instanceof ConversationError
+                && (error.code === 'unavailable'
+                    || error.code === 'timeout')) {
+                return null;
+            }
+            this.paginatedReadsDisabled = true;
+            return null;
+        }
+        try {
+            return parseTurnsListPage(page);
+        } catch (_error) {
+            this.paginatedReadsDisabled = true;
+            return null;
+        }
+    }
+
+    // Normalizes one full-view turn over the skeleton chunk of the same
+    // turn id and commits it as a full chunk. The thread-wide item-id
+    // invariant is preserved: the turn's items are checked against every
+    // other chunk's ids (the replaced skeleton's own two summary ids are
+    // an expected subset of the full turn and are exempted). Returns
+    // 'skipped' for turns the walk never saw or already-full chunks, and
+    // 'expanded' when the full turn's interaction-id set differs from the
+    // skeleton's prediction (a multi-user-message turn).
+    private commitFullTurn(
+        chunks: LoadedConversationTurn[],
+        chunkIndexByTurnId: Map<string, number>,
+        itemIds: Set<string>,
+        turn: Record<string, any>
+    ): 'committed' | 'skipped' | 'expanded' {
+        const index = chunkIndexByTurnId.get(turn.id);
+        if (index === undefined) {
+            return 'skipped';
+        }
+        const existing = chunks[index];
+        if (existing.kind === 'full') {
+            return 'skipped';
+        }
+        const ownIds = new Set(existing.itemIds);
+        // A response-spanning item can be projected into different turns
+        // by fetches taken at different times (observed on a live 183MB
+        // session: a reasoning item shared between turns 90 and 218).
+        // Colliding with another chunk's ids means the fetched page and
+        // the cached skeleton set come from different projection epochs —
+        // NOT a protocol violation. Report it as staleness so the caller
+        // re-reads a consistent snapshot, never circuit-breaking the
+        // accelerator on a transient.
+        for (const rawItem of turn.items as unknown[]) {
+            const item = asRecord(rawItem);
+            if (item
+                && typeof item.id === 'string'
+                && item.id
+                && itemIds.has(item.id)
+                && !ownIds.has(item.id)) {
+                throw new ConversationError('staleRevision');
+            }
+        }
+        const context: NormalizeTurnContext = {
+            interactions: [],
+            itemIds: new Set(
+                [...itemIds].filter(itemId => !ownIds.has(itemId))
+            ),
+            newItemIds: [],
+            seededDispatchTimingComplete: true,
+        };
+        normalizeTurnItems(turn, context);
+        for (const itemId of context.newItemIds) {
+            itemIds.add(itemId);
+        }
+        chunks[index] = {
+            turnId: turn.id,
+            kind: 'full',
+            interactions: context.interactions,
+            itemIds: context.newItemIds,
+            fingerprint: fingerprintInteractions(context.interactions),
+            // A mismatch with the skeleton's fingerprint means the source
+            // moved mid-load; taking the fresh one is safe because the
+            // stat signature check reconciles the entry on the next load.
+            summaryFingerprint: turnSummaryFingerprint(turn),
+            skeletonItemIds: [...existing.skeletonItemIds],
+            characters: conversationCharacters(context.interactions),
+            lastTouchedAt: this.now(),
+        };
+        const predicted = existing.interactions.map(interaction => interaction.id);
+        const actual = context.interactions.map(interaction => interaction.id);
+        const expanded = predicted.length !== actual.length
+            || actual.some((id, position) => predicted[position] !== id);
+        return expanded ? 'expanded' : 'committed';
+    }
+
+    // Fetches full turns descending from the tail and commits them until
+    // the turn/byte budget is exhausted. Returns false on transient
+    // failure (caller falls back) and 'stale' when the source moved
+    // under the walk's signature mid-flight.
+    private async materializeTailWindow(
+        sessionId: string,
+        chunks: LoadedConversationTurn[],
+        itemIds: Set<string>,
+        signal: ConversationAbortSignal | undefined,
+        signature: string
+    ): Promise<boolean | 'stale'> {
+        const chunkIndexByTurnId = new Map(
+            chunks.map((chunk, index) => [chunk.turnId, index] as const)
+        );
+        let cursor: string | undefined;
+        let fetchedTurns = 0;
+        let fetchedBytes = 0;
+        for (;;) {
+            const parsed = await this.requestTurnsPage({
+                threadId: sessionId,
+                cursor,
+                limit: COLD_START_MATERIALIZE_PAGE_TURNS,
+                sortDirection: 'desc',
+                itemsView: 'full',
+            }, signal);
+            if (!parsed) {
+                return false;
+            }
+            if (this.contentSignature(sessionId) !== signature) {
+                return 'stale';
+            }
+            if (parsed.turns.length === 0) {
+                return true;
+            }
+            try {
+                for (const turn of parsed.turns) {
+                    fetchedBytes += JSON.stringify(turn).length;
+                    fetchedTurns += 1;
+                    this.commitFullTurn(
+                        chunks,
+                        chunkIndexByTurnId,
+                        itemIds,
+                        turn
+                    );
+                }
+            } catch (error) {
+                if (error instanceof ConversationError
+                    && error.code === 'staleRevision') {
+                    // Mixed projection epochs; the wrapper re-walks once.
+                    return 'stale';
+                }
+                this.paginatedReadsDisabled = true;
+                return false;
+            }
+            if (!parsed.nextCursor
+                || fetchedTurns >= COLD_START_TAIL_TURNS
+                || fetchedBytes >= COLD_START_TAIL_BYTES) {
+                return true;
+            }
+            cursor = parsed.nextCursor;
+        }
+    }
+
+    // Serialized on-demand materialization for readPage/readSnapshot.
+    // Requests for one session queue up; a request re-checks coverage
+    // when it acquires the queue (earlier requests may have covered its
+    // range), and each fetched page commits only while the entry still
+    // matches its load-time stat signature and cache slot — a session-
+    // scoped validity rule that needs no global generation.
+    private enqueueMaterialization(
+        sessionId: string,
+        entry: CachedLoadedConversation
+            & { turns: LoadedConversationTurn[] },
+        range: { fromChunk: number; toChunk: number },
+        signal: ConversationAbortSignal | undefined
+    ): Promise<void> {
+        const previous = this.materializationQueues.get(sessionId)
+            ?? Promise.resolve();
+        const next = previous.catch(() => undefined).then(() =>
+            this.runMaterialization(sessionId, entry, range, signal));
+        this.materializationQueues.set(sessionId, next);
+        const cleanup = () => {
+            if (this.materializationQueues.get(sessionId) === next) {
+                this.materializationQueues.delete(sessionId);
+            }
+        };
+        next.then(cleanup, cleanup);
+        return next;
+    }
+
+    private async runMaterialization(
+        sessionId: string,
+        entry: CachedLoadedConversation
+            & { turns: LoadedConversationTurn[] },
+        range: { fromChunk: number; toChunk: number },
+        signal: ConversationAbortSignal | undefined
+    ): Promise<void> {
+        if (this.disposed) {
+            throw new ConversationError('unavailable', 'reconnectingCodex');
+        }
+        if (signal?.aborted) {
+            throw new ConversationAbortError();
+        }
+        const chunks = entry.turns;
+        const walkPages = entry.walkPages ?? [];
+        if (!walkPages.length) {
+            return;
+        }
+        const from = Math.max(0, range.fromChunk);
+        const to = Math.min(chunks.length - 1, range.toChunk);
+        const targets: number[] = [];
+        for (let index = from; index <= to; index += 1) {
+            if (chunks[index].kind === 'skeleton') {
+                targets.push(index);
+            }
+        }
+        if (!targets.length) {
+            return;
+        }
+        const chunkIndexByTurnId = new Map(
+            chunks.map((chunk, index) => [chunk.turnId, index] as const)
+        );
+        // Maps a chunk index to its summary walk page (page 0 = newest).
+        // Turns appended after the walk shift the newest-first index, so
+        // rebase by their count; they are full chunks themselves and can
+        // never be skeleton targets.
+        const walkNewerTurns = entry.walkNewerTurns ?? 0;
+        const pageOfChunk = (chunkIndex: number): number => {
+            let descIndex = chunks.length - 1 - chunkIndex - walkNewerTurns;
+            let page = 0;
+            while (page < walkPages.length - 1
+                && descIndex >= walkPages[page].turnCount) {
+                descIndex -= walkPages[page].turnCount;
+                page += 1;
+            }
+            return page;
+        };
+        // Group target chunks by their walk page.
+        const targetsByPage = new Map<number, number[]>();
+        for (const chunkIndex of targets) {
+            const page = pageOfChunk(chunkIndex);
+            const list = targetsByPage.get(page) ?? [];
+            list.push(chunkIndex);
+            targetsByPage.set(page, list);
+        }
+        const itemIds = new Set<string>();
+        for (const chunk of chunks) {
+            for (const itemId of chunk.itemIds) {
+                itemIds.add(itemId);
+            }
+        }
+        for (const [page, pageTargets] of targetsByPage) {
+            let covered = new Set(
+                pageTargets.filter(index => chunks[index].kind === 'full')
+            );
+            let cursor = walkPages[page].startCursor;
+            while (covered.size < pageTargets.length) {
+                if (signal?.aborted) {
+                    throw new ConversationAbortError();
+                }
+                // Commit rule, checked per page BEFORE the fetch and
+                // again AFTER the page lands: the adapter must be alive,
+                // and the entry must still sit in its cache slot under
+                // its load-time signature. The source moving mid-flight
+                // must never see its content committed under the old
+                // epoch.
+                if (this.disposed) {
+                    throw new ConversationError(
+                        'unavailable',
+                        'reconnectingCodex'
+                    );
+                }
+                if (this.loadedConversationCache.get(sessionId) !== entry
+                    || this.contentSignature(sessionId)
+                        !== entry.contentSignature) {
+                    throw new ConversationError('staleRevision');
+                }
+                const parsed = await this.requestTurnsPage({
+                    threadId: sessionId,
+                    cursor,
+                    limit: COLD_START_MATERIALIZE_PAGE_TURNS,
+                    sortDirection: 'desc',
+                    itemsView: 'full',
+                }, signal);
+                if (!parsed) {
+                    throw new ConversationError('unavailable', 'missingSource');
+                }
+                if (this.disposed) {
+                    throw new ConversationError(
+                        'unavailable',
+                        'reconnectingCodex'
+                    );
+                }
+                if (this.loadedConversationCache.get(sessionId) !== entry
+                    || this.contentSignature(sessionId)
+                        !== entry.contentSignature) {
+                    throw new ConversationError('staleRevision');
+                }
+                if (parsed.turns.length === 0) {
+                    throw new ConversationError('staleRevision');
+                }
+                let expanded = false;
+                try {
+                    for (const turn of parsed.turns) {
+                        if (this.commitFullTurn(
+                            chunks,
+                            chunkIndexByTurnId,
+                            itemIds,
+                            turn
+                        ) === 'expanded') {
+                            expanded = true;
+                        }
+                    }
+                } catch (error) {
+                    if (error instanceof ConversationError
+                        && error.code === 'staleRevision') {
+                        // Mixed projection epochs: drop the entry so the
+                        // next read re-walks a consistent snapshot. The
+                        // accelerator survives.
+                        this.deleteLoadedConversationCacheEntry(
+                            sessionId,
+                            entry
+                        );
+                        throw error;
+                    }
+                    this.paginatedReadsDisabled = true;
+                    throw error instanceof ConversationError
+                        ? error
+                        : protocolError();
+                }
+                covered = new Set(
+                    pageTargets.filter(index => chunks[index].kind === 'full')
+                );
+                this.commitMaterializedEntry(entry, expanded, from, to);
+                if (!parsed.nextCursor) {
+                    break;
+                }
+                cursor = parsed.nextCursor;
+            }
+        }
+    }
+
+    // Rebuilds a windowed entry's flat interaction array and revision
+    // after one materialization page, keeps the character accounting in
+    // sync, and enforces the per-entry materialized-window budget: the
+    // least-recently-touched full chunks outside the protected ranges
+    // (the served range and the tail window zone) demote back to
+    // skeletons, so long browsing cannot re-inflate the entry toward the
+    // whole conversation.
+    private commitMaterializedEntry(
+        entry: CachedLoadedConversation
+            & { turns: LoadedConversationTurn[] },
+        expanded: boolean,
+        protectFrom: number,
+        protectTo: number
+    ): void {
+        let characters = entry.turns.reduce(
+            (sum, chunk) => sum + chunk.characters,
+            0
+        );
+        this.loadedConversationCacheChars += characters - entry.characters;
+        entry.characters = characters;
+        if (expanded) {
+            entry.structureGen = (entry.structureGen ?? 0) + 1;
+        }
+        if (characters > WINDOWED_ENTRY_MATERIALIZED_CHARS) {
+            const tailFrom = Math.max(
+                0,
+                entry.turns.length - COLD_START_TAIL_TURNS
+            );
+            const candidates: number[] = [];
+            for (let index = 0; index < entry.turns.length; index += 1) {
+                if (index >= tailFrom
+                    || (index >= protectFrom && index <= protectTo)) {
+                    continue;
+                }
+                if (entry.turns[index].kind === 'full') {
+                    candidates.push(index);
+                }
+            }
+            candidates.sort((left, right) =>
+                (entry.turns[left].lastTouchedAt ?? 0)
+                - (entry.turns[right].lastTouchedAt ?? 0));
+            let shrunkIdSets = false;
+            for (const index of candidates) {
+                if (entry.characters <= WINDOWED_ENTRY_MATERIALIZED_CHARS) {
+                    break;
+                }
+                const before = entry.turns[index];
+                const demoted = demoteToSkeleton(before);
+                if (demoted.interactions.length
+                    !== before.interactions.length) {
+                    shrunkIdSets = true;
+                }
+                entry.turns[index] = demoted;
+                entry.characters -= before.characters - demoted.characters;
+                this.loadedConversationCacheChars -= before.characters
+                    - demoted.characters;
+            }
+            if (shrunkIdSets) {
+                entry.structureGen = (entry.structureGen ?? 0) + 1;
+            }
+        }
+        const sourceRevision = composeWindowedRevision(
+            entry.contentEpochSignature ?? entry.contentSignature,
+            entry.turns,
+            entry.structureGen ?? 0
+        );
+        entry.value = {
+            interactions: entry.turns.reduce<ConversationInteraction[]>(
+                (all, chunk) => all.concat(chunk.interactions),
+                []
+            ),
+            sourceRevision,
+        };
     }
 
     private storeLoadedConversationCacheEntry(
@@ -1601,7 +2960,13 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         const turns: LoadedConversationTurn[] = normalized.turns.map(chunk => ({
             ...chunk,
             fingerprint: fingerprintInteractions(chunk.interactions),
+            // Full-read entries compose the revision from full
+            // fingerprints only; the summary projection is not tracked
+            // and full-basis chunks are never demoted.
+            summaryFingerprint: '',
+            skeletonItemIds: [],
             characters: conversationCharacters(chunk.interactions),
+            kind: 'full' as const,
         }));
         // App Server instances do not share live turn state. When another
         // extension owns the running turn, thread/read can persist it as

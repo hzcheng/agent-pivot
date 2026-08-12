@@ -596,6 +596,64 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 restores a retained panel witho
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 republishes on revision-moving content growth even when the outline projection is unchanged', async () => {
+    const panel = fakePanel();
+    let onChange;
+    let revision = 1;
+    let toolMarker = '';
+    let readPageCalls = 0;
+    const { viewer } = createViewer({
+        panel,
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1'],
+            { sourceRevision: `r${revision}` }
+        ),
+        readPage: async request => {
+            readPageCalls += 1;
+            return page(
+                request.sessionId,
+                request.anchorInteractionId,
+                `visible${toolMarker}`,
+                { sourceRevision: `r${revision}` }
+            );
+        },
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+    });
+    await viewer.open(target('session-a', 'input-1'));
+    const publications = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page');
+    const baselinePublications = publications().length;
+    const baselineReadPages = readPageCalls;
+
+    // Same revision, same interaction ids, same responseState: the
+    // refresh must early-return without a page read or publication.
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(readPageCalls, baselineReadPages,
+        'a projection-identical refresh must not re-read the page');
+    assert.equal(publications().length, baselinePublications);
+
+    // Tool-only growth: the outline projection (ids + states) is
+    // identical, but the revision moved with the content epoch — the
+    // viewer must re-read the page and publish the new HTML.
+    revision = 2;
+    toolMarker = '-with-tool';
+    onChange();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(readPageCalls > baselineReadPages,
+        'a revision move must re-read the page even without outline changes');
+    const publication = publications().at(-1);
+    assert.ok(publication, 'the grown content must be published');
+    assert.match(publication.html, /visible-with-tool/);
+    viewer.dispose();
+});
+
 test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows another Session only when the viewer is open and does not reveal it again', async () => {
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(

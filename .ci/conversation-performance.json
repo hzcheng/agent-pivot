@@ -9,5 +9,7 @@
   "hostSessionSwitchMs": 250,
   "webviewInitialPublicationMs": 500,
   "webviewIncrementalRefreshMs": 250,
-  "webviewWarmFrameRestoreMs": 100
+  "webviewWarmFrameRestoreMs": 100,
+  "codexWindowedColdStartMs": 300,
+  "codexLegacyColdStartMs": 2500
 }

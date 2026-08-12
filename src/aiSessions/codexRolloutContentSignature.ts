@@ -24,3 +24,22 @@ export function readCodexRolloutContentSignature(
         return undefined;
     }
 }
+
+// Byte size of the rollout backing a session. This is purely an
+// optimization-choosing heuristic (is a windowed cold start worth it for
+// this session): the framed app-server response size and duration cannot
+// be inferred from the source size, so it must never feed correctness or
+// fallback-feasibility decisions.
+export function readCodexRolloutSourceBytes(
+    rolloutPath: string
+): number | undefined {
+    if (!rolloutPath) {
+        return undefined;
+    }
+    try {
+        const stat = statSync(rolloutPath);
+        return stat.isFile() ? stat.size : undefined;
+    } catch (_error) {
+        return undefined;
+    }
+}

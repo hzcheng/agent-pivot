@@ -325,6 +325,89 @@ test('SESSION-AI-SESSION-CODEX-APP-SERVER-001 declares the experimentalApi capab
     assert.deepEqual(await unversionedRequest, { ok: true });
 });
 
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-001 ensureReady shares one handshake and reports the version', async t => {
+    const harness = createHarness({ experimentalApi: true });
+    t.after(() => harness.client.dispose());
+
+    // Concurrent waiters attach to the same handshake; no application
+    // request is sent before it completes.
+    const first = harness.client.ensureReady();
+    const second = harness.client.ensureReady();
+    await settle();
+    assert.deepEqual(
+        parsedWrites(harness.child).map(message => message.method),
+        ['initialize']
+    );
+    emitResponse(harness.child, {
+        id: 1,
+        result: {
+            userAgent: 'project_steward/0.147.0 (Ubuntu 22.4.0; x86_64) '
+                + 'xterm.js_6.1.0-beta.291_ (project_steward; 2.1.6)',
+        },
+    });
+    await settle();
+    assert.equal(await first, '0.147');
+    assert.equal(await second, '0.147');
+    assert.deepEqual(
+        parsedWrites(harness.child).map(message => message.method),
+        ['initialize', 'initialized']
+    );
+    // A later ensureReady resolves from the completed handshake.
+    assert.equal(await harness.client.ensureReady(), '0.147');
+    assert.equal(
+        parsedWrites(harness.child)
+            .filter(message => message.method === 'initialize').length,
+        1
+    );
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-006 aborting one ensureReady waiter keeps the shared handshake for others', async t => {
+    const harness = createHarness();
+    t.after(() => harness.client.dispose());
+    const controller = new ConversationAbortController();
+    const aborted = harness.client.ensureReady(controller.signal);
+    const surviving = harness.client.ensureReady();
+    await settle();
+    controller.abort();
+    await assert.rejects(aborted, error => error.name === 'AbortError');
+    // The abort cancels only that wait: the shared handshake completes and
+    // the surviving waiter still receives the version.
+    emitResponse(harness.child, {
+        id: 1,
+        result: {
+            serverInfo: { name: 'codex-app-server', version: '0.147.0' },
+        },
+    });
+    await settle();
+    assert.equal(await surviving, '0.147');
+    const request = harness.client.request('thread/read', {
+        threadId: SESSION_ID,
+    });
+    await settle();
+    emitResponse(harness.child, { id: 2, result: { ok: true } });
+    assert.deepEqual(await request, { ok: true });
+});
+
+test('SESSION-AI-SESSION-CODEX-APP-SERVER-006 ensureReady rejects abort and disposal before the handshake', async t => {
+    const aborted = createHarness();
+    t.after(() => aborted.client.dispose());
+    const controller = new ConversationAbortController();
+    controller.abort();
+    await assert.rejects(
+        aborted.client.ensureReady(controller.signal),
+        error => error.name === 'AbortError'
+    );
+    assert.equal(aborted.child.stdin.writes.length, 0);
+
+    const disposed = createHarness();
+    disposed.client.dispose();
+    await assert.rejects(
+        disposed.client.ensureReady(),
+        error => error.name === 'ConversationError'
+            && error.code === 'unavailable'
+    );
+});
+
 test('CONVERSATION-TELEMETRY-001 publishes structured App Server notifications without affecting requests', async t => {
     const harness = createHarness();
     t.after(() => harness.client.dispose());

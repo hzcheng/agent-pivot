@@ -120,6 +120,11 @@ Summarize:
   selectors before trusting tests: a replacement anchor like `.foo {` also
   matches inside a longer selector such as `.bar .foo {`, and Sass happily
   compiles the mangled nesting.
+- A multi-edit replace call reports applied replacements, not matched
+  edits: an edit whose anchor does not match is silently skipped and only
+  shows up as a lower replacement count than the edit count. Compare the
+  two numbers and grep the anchors before running tests, or an unapplied
+  hunk rides into the commit unnoticed.
 - Adding a Dashboard command or an activation-time `vscode` API (e.g.
   `createStatusBarItem`) fails activation-harness and integration tests with
   opaque `waitFor` timeouts far from the cause: bootstrap errors are swallowed

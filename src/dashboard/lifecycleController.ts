@@ -10,7 +10,6 @@ const NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS = [
     'customCss',
     'recentColors',
     'storeProjectsInSettings',
-    'maxVisibleAiSessions',
     'aiSessionTerminalMode',
     'aiSessionTmuxLayout',
     'aiSessionTmuxPath',

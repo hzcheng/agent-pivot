@@ -511,3 +511,150 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 keeps the OPEN WINDOWS scroll anchor across aut
     );
     assert.ok(after.scrollTop > 0, 'the region must not snap back to the top');
 });
+
+// Covers WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001: the expanded CURRENT WINDOW
+// card fits its window region (half pane in auto layout, dragged share in
+// manual layout) and the session list becomes the only inner scroll surface.
+function makeExpandedCurrentWorkspaceCard(sessionCount) {
+    const card = makeWorkspaceCard();
+    card.aiSessions = {
+        workspaceScopeIdentity: card.scopeIdentity,
+        workspaceNavigationIdentity: card.navigationIdentity,
+        activeProvider: 'codex',
+        selectedProviders: ['codex'],
+        expanded: true,
+        providers: [{ id: 'codex', label: 'Codex', count: sessionCount }],
+        sessionsByProvider: {
+            codex: Array.from({ length: sessionCount }, (_, index) => ({
+                id: `session-${index}`,
+                name: `Session ${index}`,
+                provider: 'codex',
+                primaryRootId: 'root:current:0',
+                primaryRootLabel: 'work',
+            })),
+            kimi: [],
+            claude: [],
+        },
+        unavailableProviders: [],
+        activeSessions: [],
+        aiSessionCount: sessionCount,
+        activeSessionCount: 0,
+        attentionCount: 0,
+        activeAttentionCount: 0,
+        defaultTab: 'sessions',
+    };
+    return card;
+}
+
+function expandedFitGeometry(page) {
+    return page.evaluate(() => {
+        const group = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
+        const groupList = group.querySelector('.group-list');
+        const card = group.querySelector('.workspace-card');
+        const visiblePanel = group.querySelector('.ai-session-tab-panel:not([hidden])');
+        const sessionList = visiblePanel && visiblePanel.querySelector('.codex-sessions-list');
+        const rectOf = element => {
+            const box = element.getBoundingClientRect();
+            return { top: box.top, bottom: box.bottom, height: box.height };
+        };
+        return {
+            groupHasFitClass: group.classList.contains('current-card-expanded'),
+            group: rectOf(group),
+            panel: rectOf(document.querySelector('#dashboard-tab-open')),
+            card: rectOf(card),
+            cardPaddingBottom: parseFloat(getComputedStyle(card).paddingBottom) || 0,
+            groupListBottom: groupList.getBoundingClientRect().bottom,
+            groupListOverflowY: getComputedStyle(groupList).overflowY,
+            groupListOverhang: groupList.scrollHeight - groupList.clientHeight,
+            visiblePanelBottom: visiblePanel ? rectOf(visiblePanel).bottom : null,
+            sessionList: sessionList ? {
+                clientHeight: sessionList.clientHeight,
+                scrollHeight: sessionList.scrollHeight,
+                overflowY: getComputedStyle(sessionList).overflowY,
+            } : null,
+        };
+    });
+}
+
+test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 fits the expanded CURRENT WINDOW card to its region', async t => {
+    // The AI session surface only ships in the sidebar, so the fit layout is
+    // scoped there: cover the default and minimum supported sidebar widths.
+    for (const config of [
+        { width: 360, height: 900, isSidebar: true },
+        { width: 240, height: 720, isSidebar: true },
+    ]) {
+        const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
+        const page = await openDashboardPage(t, { ...config, cards });
+        const label = `width ${config.width}`;
+        const fit = await expandedFitGeometry(page);
+
+        assert.ok(fit.groupHasFitClass, `${label}: the expanded card must mark its group`);
+        assert.ok(
+            Math.abs(fit.group.height - fit.panel.height / 2) <= 2,
+            `${label}: auto layout pins the expanded group to half the pane `
+                + `(group ${fit.group.height}, panel ${fit.panel.height})`
+        );
+        assert.ok(
+            Math.abs(fit.card.bottom - fit.groupListBottom) <= 1,
+            `${label}: the card fills the group list down to its bottom edge `
+                + `(card bottom ${fit.card.bottom}, list bottom ${fit.groupListBottom})`
+        );
+        assert.ok(
+            fit.visiblePanelBottom !== null
+                && Math.abs(fit.visiblePanelBottom - (fit.card.bottom - fit.cardPaddingBottom)) <= 1.5,
+            `${label}: the visible session panel fills the rest of the card `
+                + `(panel bottom ${fit.visiblePanelBottom}, card bottom ${fit.card.bottom}, `
+                + `padding ${fit.cardPaddingBottom})`
+        );
+        assert.equal(fit.groupListOverflowY, 'hidden',
+            `${label}: the expanded group list must not be a second scroll surface`);
+        assert.ok(fit.groupListOverhang <= 1,
+            `${label}: the group list content must fit exactly (overhang ${fit.groupListOverhang})`);
+        assert.ok(
+            fit.sessionList.scrollHeight > fit.sessionList.clientHeight,
+            `${label}: twelve sessions must overflow the fitted list `
+                + `(scrollHeight ${fit.sessionList.scrollHeight}, clientHeight ${fit.sessionList.clientHeight})`
+        );
+        assert.equal(fit.sessionList.overflowY, 'auto',
+            `${label}: the session list stays the inner scroll surface`);
+
+        // Collapsing restores the content-sized pane.
+        const collapsedGroupHeight = await page.evaluate(() => {
+            const groupEl = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
+            groupEl.classList.remove('current-card-expanded');
+            groupEl.querySelector('.workspace-card').removeAttribute('data-codex-expanded');
+            return groupEl.getBoundingClientRect().height;
+        });
+        assert.ok(
+            collapsedGroupHeight < fit.group.height - 50,
+            `${label}: collapsing returns the pane to its content height `
+                + `(expanded ${fit.group.height}, collapsed ${collapsedGroupHeight})`
+        );
+    }
+});
+
+test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 lets a dragged share size the fitted card', async t => {
+    const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
+    const page = await openDashboardPage(t, {
+        width: 360,
+        height: 900,
+        isSidebar: true,
+        cards,
+        initialState: { openTab: { currentWindowShare: 0.7 } },
+    });
+    const fit = await expandedFitGeometry(page);
+    assert.ok(
+        Math.abs(fit.group.height - fit.panel.height * 0.7) <= 2,
+        `manual layout sizes the expanded group by the dragged share `
+            + `(group ${fit.group.height}, expected ~${fit.panel.height * 0.7})`
+    );
+    assert.ok(
+        Math.abs(fit.card.bottom - fit.groupListBottom) <= 1,
+        `the card still fills the manually sized region `
+            + `(card bottom ${fit.card.bottom}, list bottom ${fit.groupListBottom})`
+    );
+    assert.ok(
+        fit.sessionList.scrollHeight > fit.sessionList.clientHeight,
+        'the session list scrolls inside the manually sized card'
+    );
+});

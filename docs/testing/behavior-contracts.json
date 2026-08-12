@@ -2462,6 +2462,22 @@
     ]
   },
   {
+    "id": "WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001",
+    "domain": "webview",
+    "title": "Expanded CURRENT WINDOW card fits its OPEN tab window region (auto half pane or dragged share) with the visible AI session panel filling the card and the session list as the only inner scroll surface",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/dashboardOpenTabSplit.test.js",
+      "tests/browser/activeSessionCardInteraction.test.js"
+    ],
+    "evidence": [
+      "media/styles.scss",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js"
+    ]
+  },
+  {
     "id": "WEBVIEW-NONBLOCKING-FIRST-PAINT-001",
     "domain": "webview",
     "title": "Visible Agent Pivot views paint cached HTML before background runtime enrichment settles",

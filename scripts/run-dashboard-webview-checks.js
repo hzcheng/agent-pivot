@@ -567,6 +567,12 @@ function runWorkspaceCardRenderingChecks() {
         'current workspace cards must declare when their AI session summary badge is present');
     assert.strictEqual(singleHtml.includes('data-codex-expanded'), false,
         'the collapsed-card fixture must keep its AI session module hidden');
+    assert.strictEqual(singleHtml.includes('current-card-expanded'), false,
+        'the collapsed-card fixture must not mark the CURRENT WINDOW group for the fit layout');
+    const expandedSingleHtml = webviewContent.getCurrentWorkspaceGroupContent(makeWorkspaceCardFixture(1), false);
+    assert.ok(expandedSingleHtml.includes('data-codex-expanded'));
+    assert.ok(expandedSingleHtml.includes('current-card-expanded'),
+        'an expanded CURRENT WINDOW card must mark its group for the open-tab fit layout');
     const collapsedCardStart = singleHtml.indexOf('<div class="workspace-card');
     const collapsedCardOpeningEnd = singleHtml.indexOf('>', collapsedCardStart);
     const collapsedCardOpeningTag = singleHtml.slice(collapsedCardStart, collapsedCardOpeningEnd + 1);
@@ -5057,6 +5063,28 @@ function runSourceContractChecks(source) {
         && rule.body.includes('max-height: 1000px')
         && rule.body.includes('opacity: 1')
     ), 'compiled expanded session surface must preserve the motion contract');
+    const compiledFitGroupSelector =
+        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded';
+    const compiledFitGroupRules = extractCompiledCssRulesContainingSelector(
+        compiledStyles,
+        compiledFitGroupSelector,
+    );
+    assert.ok(compiledFitGroupRules.some(rule =>
+        rule.selectors.includes(compiledFitGroupSelector)
+        && rule.body.includes('height: 50%')
+        && rule.body.includes('max-height: none')
+    ), 'auto layout must pin the expanded CURRENT WINDOW group to half the pane');
+    const compiledFitListSelector =
+        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list';
+    const compiledFitListRules = extractCompiledCssRulesContainingSelector(
+        compiledStyles,
+        compiledFitListSelector,
+    );
+    assert.ok(compiledFitListRules.some(rule =>
+        rule.selectors.includes(compiledFitListSelector)
+        && rule.body.includes('flex: 1 1 0')
+        && rule.body.includes('height: auto')
+    ), 'the expanded CURRENT WINDOW session list must flex to fill the card');
 
     for (const forbidden of ['height: 58px', 'border-radius: 18px', 'background: var(', 'box-shadow:']) {
         assert.strictEqual(sidebarProjectRules.some(rule => cssRuleIncludesTopLevelDeclaration(rule, forbidden)), false,

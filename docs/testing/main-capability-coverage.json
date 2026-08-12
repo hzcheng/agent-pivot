@@ -550,7 +550,8 @@
                 "CUSTOM-RUNNING-IMAGE-RESOLVER-001",
                 "WEBVIEW-AI-SESSION-LIST-SCROLL-001",
                 "ACTIVE-SESSION-FOCUS-REVEAL-001",
-                "OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001"
+                "OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001",
+                "WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001"
             ],
             "prGates": [
                 "test:deterministic:run",

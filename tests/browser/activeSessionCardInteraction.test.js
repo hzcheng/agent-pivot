@@ -215,8 +215,7 @@ function projectMarkup(activeAiSessions) {
     return `<div class="project workspace-card" data-id="project-a" data-current-workspace
         data-codex-expanded
         data-workspace-scope-identity="scope-project-a"
-        data-workspace-navigation-identity="navigation-project-a"
-        style="--steward-ai-session-list-max-height: 130px">
+        data-workspace-navigation-identity="navigation-project-a">
         ${sessionSurfaceMarkup(activeAiSessions)}
     </div>`;
 }
@@ -264,8 +263,7 @@ function listProjectMarkup(activeAiSessions, historySessions, selectedTab = 'act
     return `<div class="project workspace-card" data-id="project-a" data-current-workspace
         data-codex-expanded
         data-workspace-scope-identity="scope-project-a"
-        data-workspace-navigation-identity="navigation-project-a"
-        style="--steward-ai-session-list-max-height: 130px">
+        data-workspace-navigation-identity="navigation-project-a">
         ${listSessionSurfaceMarkup(activeAiSessions, historySessions, selectedTab)}
     </div>`;
 }
@@ -752,6 +750,44 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
     assert.ok(Math.abs((await relativeTop(historyRestored)) - historyBefore) <= 1);
     assert.equal(await page.locator('[data-ai-session-tab="sessions"]').getAttribute('aria-selected'), 'true');
     assert.equal(await historyRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
+});
+
+test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 syncs the group fit class when the card toggles', async t => {
+    const active = [session('codex', 'active-1', true)];
+    const page = await openCardPage(t, active, { width: 360, height: 900 },
+        currentWorkspaceGroupMarkup(active));
+    const group = page.locator('.open-current-workspace-group');
+    const cardDescription = page.locator('.open-current-workspace-group .workspace-card .project-description');
+    assert.equal(
+        await group.evaluate(node => node.classList.contains('current-card-expanded')),
+        true,
+        'the expanded fixture must render the fit class on the group'
+    );
+
+    await cardDescription.click();
+    await waitForPageCondition(page, () => !document.querySelector(
+        '.open-current-workspace-group .workspace-card'
+    ).hasAttribute('data-codex-expanded'));
+    assert.equal(
+        await group.evaluate(node => node.classList.contains('current-card-expanded')),
+        false,
+        'collapsing the card must drop the fit class from the group'
+    );
+    assert.ok(
+        (await page.evaluate(() => window.__postedMessages))
+            .some(message => message.type === 'toggle-codex-sessions' && message.expanded === false),
+        'the collapse must still post the toggle message'
+    );
+
+    await cardDescription.click();
+    await waitForPageCondition(page, () => document.querySelector(
+        '.open-current-workspace-group .workspace-card'
+    ).hasAttribute('data-codex-expanded'));
+    assert.equal(
+        await group.evaluate(node => node.classList.contains('current-card-expanded')),
+        true,
+        're-expanding the card must restore the fit class on the group'
+    );
 });
 
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI or open-workspaces refresh moves focus', async t => {

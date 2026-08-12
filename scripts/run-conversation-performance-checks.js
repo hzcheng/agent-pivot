@@ -131,6 +131,8 @@ async function measureCodexStatValidatedReload() {
             'over-budget pressure keeps only the newest entry');
         assert.ok(cachedCharacters > 8 * 1024 * 1024,
             'the single kept entry may itself exceed the budget');
+        assert.equal(adapter.loadedConversationCacheChars, cachedCharacters,
+            'the shared character counter tracks the entries exactly');
         return {
             fullReadMs,
             statValidatedReloadMs,

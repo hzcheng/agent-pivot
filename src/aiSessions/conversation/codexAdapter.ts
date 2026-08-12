@@ -1266,10 +1266,12 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     /**
      * Reloads a cached root-thread conversation by fetching only the tail of
      * the thread through thread/turns/list. Returns null when the tail was
-     * rewritten (compaction/rollback) or the content would equally fail the
-     * stable path — the caller then falls back to a full thread/read. Any
-     * transport- or page-level anomaly additionally disables the paginated
-     * path for the lifetime of this adapter.
+     * rewritten (compaction/rollback), when a transient transport error
+     * ('unavailable'/'timeout') interrupts the page read, or when the
+     * content would equally fail the stable path — the caller then falls
+     * back to a full thread/read. Method-level rejections and malformed
+     * pages additionally disable the paginated path for the lifetime of
+     * this adapter; transient errors do not.
      */
     private async loadIncremental(
         sessionId: string,

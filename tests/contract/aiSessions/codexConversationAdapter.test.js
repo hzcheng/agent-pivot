@@ -2130,7 +2130,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-anchors the cache when the s
     assert.equal(harness.requests.length, 2);
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read when compaction rewrites the thread tail', async t => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds a compacted large Codex thread from fast paginated pages', async t => {
     const harness = createPaginatedHarness(t);
     await harness.adapter.readOutline(sessionId);
 
@@ -2141,14 +2141,22 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read when 
     harness.state.signature = 'stat-2';
     const compacted = await harness.adapter.readOutline(sessionId);
 
-    const methods = harness.methods();
-    assert.deepEqual(methods[0], 'thread/read');
-    assert.ok(methods.slice(1, -1).every(method => method === 'thread/turns/list'));
-    assert.deepEqual(methods.at(-1), 'thread/read');
+    // The anchor is gone, but the indexed backend serves pages cheaply, so
+    // the walk runs to the end of the thread and rebuilds from the pages
+    // — a full read of a huge paginated session could never finish within
+    // the request timeout.
+    assert.deepEqual(harness.methods(), [
+        'thread/read',
+        'thread/turns/list',
+        'thread/turns/list',
+        'thread/turns/list',
+    ]);
     assert.equal(compacted.totalInteractions, 12);
+    const expected = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(compacted, expected);
 
-    // A per-load fallback must not disable the paginated path: the next
-    // append is incremental again.
+    // Incremental reloads resume from the rebuilt anchor.
     harness.state.turns.push(createPaginatedTurn(12, 'rewritten'));
     harness.state.signature = 'stat-3';
     const requestCount = harness.requests.length;
@@ -2157,9 +2165,81 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read when 
         harness.methods().slice(requestCount),
         ['thread/turns/list']
     );
+    const expectedAppended = await createFullReadProof(t, harness.state)
+        .readOutline(sessionId);
+    assert.deepEqual(appended, expectedAppended);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to a full read after one slow legacy page', async t => {
+    // The legacy rollout-replay backend needs hundreds of ms per page, so
+    // the walk exits after the first page: further paging costs as much as
+    // the full read that settles the load anyway.
+    let now = 1_000_000;
+    const state = {
+        turns: Array.from(
+            { length: 12 },
+            (_, index) => createPaginatedTurn(index)
+        ),
+        signature: 'stat-1',
+    };
+    const requests = [];
+    const client = {
+        async request(method, params) {
+            requests.push({ method, params });
+            if (method === 'thread/read') {
+                return clone({
+                    thread: { id: params.threadId, turns: state.turns },
+                });
+            }
+            now += 600;
+            return serveTurnsListPage(state.turns, params);
+        },
+        getServerVersion: () => '0.147',
+        dispose() {},
+    };
+    const harness = createAdapter(undefined, {
+        client,
+        readContentSignature: () => state.signature,
+        now: () => now,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readOutline(sessionId);
+    state.turns = Array.from(
+        { length: 12 },
+        (_, index) => createPaginatedTurn(index, 'rewritten')
+    );
+    state.signature = 'stat-2';
+    const compacted = await harness.adapter.readOutline(sessionId);
+
+    assert.deepEqual(
+        requests.map(entry => entry.method),
+        ['thread/read', 'thread/turns/list', 'thread/read']
+    );
+    assert.equal(compacted.totalInteractions, 12);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 walks deep append bursts on the fast paginated backend', async t => {
+    const harness = createPaginatedHarness(t);
+    await harness.adapter.readOutline(sessionId);
+
+    for (let index = 12; index < 112; index += 1) {
+        harness.state.turns.push(createPaginatedTurn(index));
+    }
+    harness.state.signature = 'stat-2';
+    const updated = await harness.adapter.readOutline(sessionId);
+
+    const methods = harness.methods();
+    assert.equal(methods[0], 'thread/read');
+    assert.equal(
+        methods.filter(method => method === 'thread/turns/list').length,
+        26
+    );
+    assert.ok(!methods.slice(1).includes('thread/read'));
+    assert.equal(updated.totalInteractions, 112);
     const expected = await createFullReadProof(t, harness.state)
         .readOutline(sessionId);
-    assert.deepEqual(appended, expected);
+    assert.deepEqual(updated, expected);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 disables paginated reloads after the server rejects thread/turns/list', async t => {

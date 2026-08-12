@@ -118,10 +118,19 @@ const LARGE_CONVERSATION_CACHE_IDLE_MS = 10 * 60 * 1000;
 // on any anomaly.
 const PAGINATED_READ_SERVER_VERSIONS = new Set(['0.147']);
 const PAGINATED_READ_PAGE_SIZE = 4;
-// How many turns an incremental reload walks back looking for the cached
-// anchor turn before treating the tail as rewritten (compaction/rollback)
-// and falling back to a full read.
-const PAGINATED_READ_WALK_LIMIT = 64;
+// First-page latency separates the two server backends (spike
+// measurements): the indexed paginated backend answers in tens of ms,
+// while the legacy rollout-replay backend needs hundreds of ms PER PAGE —
+// each page costs a full replay, as much as one full thread/read. A slow
+// first page therefore ends the anchor walk immediately: further paging
+// can only lose against the full-read fallback.
+const PAGINATED_READ_SLOW_PAGE_MS = 250;
+// Bounds for anchor walks on the fast paginated backend. Compaction makes
+// the walk run to the end of the thread and rebuilds from the fetched
+// pages — for huge paginated sessions a full thread/read would exceed the
+// request timeout outright, so the walk must be allowed to be generous.
+const PAGINATED_READ_WALK_TURN_LIMIT = 1024;
+const PAGINATED_READ_WALK_BUDGET_MS = 3000;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
@@ -1310,7 +1319,9 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         const fetched: Record<string, any>[] = [];
         let cursor: string | undefined;
         let anchorIndex = -1;
-        while (anchorIndex < 0 && fetched.length < PAGINATED_READ_WALK_LIMIT) {
+        const walkStartedAt = this.now();
+        let firstPageMs: number | undefined;
+        for (;;) {
             let page: unknown;
             try {
                 page = await this.options.client.request('thread/turns/list', {
@@ -1350,57 +1361,44 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 this.paginatedReadsDisabled = true;
                 return null;
             }
+            if (firstPageMs === undefined) {
+                firstPageMs = this.now() - walkStartedAt;
+            }
             fetched.push(...pageTurns);
             anchorIndex = fetched.findIndex(turn => turn.id === anchorTurnId);
+            if (anchorIndex >= 0) {
+                break;
+            }
             if (!nextCursor || pageTurns.length === 0) {
                 break;
             }
+            if (firstPageMs >= PAGINATED_READ_SLOW_PAGE_MS) {
+                return null;
+            }
+            if (fetched.length >= PAGINATED_READ_WALK_TURN_LIMIT
+                || this.now() - walkStartedAt
+                    >= PAGINATED_READ_WALK_BUDGET_MS) {
+                return null;
+            }
             cursor = nextCursor;
         }
-        if (anchorIndex < 0) {
+        // `fetched` is newest-first. When the anchor survived, only the
+        // turns from the anchor forward are re-normalized (the anchor may
+        // have grown since it was cached). When the walk ran to the end of
+        // the thread without finding it, the tail was rewritten
+        // (compaction/rollback) and every chunk is rebuilt from the fetched
+        // pages — the paginated backend serves them cheaply, while a full
+        // thread/read of a huge paginated session would exceed the request
+        // timeout outright.
+        const kept = anchorIndex >= 0 ? cached.turns.slice(0, -1) : [];
+        const reloaded = (anchorIndex >= 0
+            ? fetched.slice(0, anchorIndex + 1)
+            : fetched
+        ).reverse();
+        const turns = this.normalizeReloadedTurns(kept, reloaded);
+        if (!turns) {
             return null;
         }
-        // `fetched` is newest-first: re-read the anchor turn (it may have
-        // grown since it was cached) plus every turn appended after it,
-        // in chronological order.
-        const replaced = fetched.slice(0, anchorIndex + 1).reverse();
-        const kept = cached.turns.slice(0, -1);
-        const itemIds = new Set<string>();
-        for (const chunk of kept) {
-            for (const itemId of chunk.itemIds) {
-                itemIds.add(itemId);
-            }
-        }
-        const keptTurnIds = new Set(kept.map(chunk => chunk.turnId));
-        const newTurns: LoadedConversationTurn[] = [];
-        try {
-            for (const turn of replaced) {
-                if (keptTurnIds.has(turn.id)) {
-                    // A supposedly immutable earlier turn reappeared: the
-                    // history was rewritten, which only a full read settles.
-                    return null;
-                }
-                const context: NormalizeTurnContext = {
-                    interactions: [],
-                    itemIds,
-                    newItemIds: [],
-                    seededDispatchTimingComplete: true,
-                };
-                normalizeTurnItems(turn, context);
-                newTurns.push({
-                    turnId: turn.id,
-                    interactions: context.interactions,
-                    itemIds: context.newItemIds,
-                    fingerprint: fingerprintInteractions(context.interactions),
-                    characters: conversationCharacters(context.interactions),
-                });
-            }
-        } catch (_error) {
-            // Content the stable path would reject as well: fall back so the
-            // full read surfaces the canonical error.
-            return null;
-        }
-        const turns = [...kept, ...newTurns];
         const sourceRevision = composeConversationRevision(turns);
         const characters = turns.reduce(
             (sum, turn) => sum + turn.characters,
@@ -1422,6 +1420,50 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             []
         );
         return { value: { interactions, sourceRevision }, turns, characters };
+    }
+
+    // Normalizes re-fetched turns (chronological) on top of the kept cached
+    // chunks, preserving the full read's thread-wide turn-id and item-id
+    // invariants. Returns null when the content conflicts with the kept
+    // history or would equally fail the stable path, so the caller falls
+    // back to a full read that settles (or canonically rejects) it.
+    private normalizeReloadedTurns(
+        kept: LoadedConversationTurn[],
+        reloaded: Record<string, any>[]
+    ): LoadedConversationTurn[] | null {
+        const itemIds = new Set<string>();
+        for (const chunk of kept) {
+            for (const itemId of chunk.itemIds) {
+                itemIds.add(itemId);
+            }
+        }
+        const knownTurnIds = new Set(kept.map(chunk => chunk.turnId));
+        const rebuilt: LoadedConversationTurn[] = [];
+        try {
+            for (const turn of reloaded) {
+                if (knownTurnIds.has(turn.id)) {
+                    return null;
+                }
+                knownTurnIds.add(turn.id);
+                const context: NormalizeTurnContext = {
+                    interactions: [],
+                    itemIds,
+                    newItemIds: [],
+                    seededDispatchTimingComplete: true,
+                };
+                normalizeTurnItems(turn, context);
+                rebuilt.push({
+                    turnId: turn.id,
+                    interactions: context.interactions,
+                    itemIds: context.newItemIds,
+                    fingerprint: fingerprintInteractions(context.interactions),
+                    characters: conversationCharacters(context.interactions),
+                });
+            }
+        } catch (_error) {
+            return null;
+        }
+        return [...kept, ...rebuilt];
     }
 
     private storeLoadedConversationCacheEntry(

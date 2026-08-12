@@ -5322,7 +5322,7 @@ function runWebviewContentChecks() {
     assert.ok(dashboard.includes('createSessionControllerComposition({'),
         'the dashboard constructs the extracted session controller composition');
     assert.ok(dashboard.includes(
-        "import { readAiSessionLaunchOptions } from './aiSessions/launchOptions';"
+        "import { readAiSessionLaunchOptions, readCodexDefaultProfile } from './aiSessions/launchOptions';"
     ));
     assert.strictEqual(
         (compositionSource.match(/getLaunchOptions,/g) || []).length,

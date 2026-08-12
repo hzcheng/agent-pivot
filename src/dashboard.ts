@@ -41,6 +41,13 @@ import ClaudeSessionService from './services/claudeSessionService';
 import { showWorktreeInSourceControl } from './services/sourceControl';
 import ProjectWindowColorService from './services/projectWindowColorService';
 import AiSessionAliasStore from './aiSessions/aliasStore';
+import AiSessionProfileStore from './aiSessions/sessionProfileStore';
+import AiSessionProfileController from './aiSessions/sessionProfileController';
+import {
+    CodexProfileSupportProbe,
+    codexProfileFileExists,
+    listCodexConfigProfiles,
+} from './aiSessions/codexProfiles';
 import AiSessionAliasController from './aiSessions/aliasController';
 import AiSessionPinStore from './aiSessions/pinStore';
 import AiSessionPinController from './aiSessions/pinController';
@@ -106,7 +113,7 @@ import { getAiSessionTerminalCandidates } from './aiSessions/terminalCandidates'
 import { AiSessionReadCoordinator } from './aiSessions/readCoordinator';
 import AiSessionTerminalService from './aiSessions/terminalService';
 import AiSessionTerminalBindingStore from './aiSessions/terminalBindingStore';
-import { readAiSessionLaunchOptions } from './aiSessions/launchOptions';
+import { readAiSessionLaunchOptions, readCodexDefaultProfile } from './aiSessions/launchOptions';
 import { readAiSessionRuntimeConfiguration } from './aiSessions/runtimeConfiguration';
 import { DirectTerminalRuntimeBackend } from './aiSessions/directTerminalRuntimeBackend';
 import { AiSessionRuntimeCoordinator } from './aiSessions/runtimeCoordinator';
@@ -809,6 +816,20 @@ async function initializeDashboard(
         logError,
         showSaveError: () => vscode.window.showErrorMessage("Could not save the chat name."),
     });
+    const aiSessionProfileStore = new AiSessionProfileStore(context.globalStoragePath);
+    const aiSessionProfileController = new AiSessionProfileController({
+        store: aiSessionProfileStore,
+        isProviderId: isAiSessionProviderId,
+        getSessionKey: getAiSessionPinKey,
+        logError,
+        showSaveError: () => vscode.window.showErrorMessage('Could not save the Codex session profile.'),
+        lastUsedMemento: context.globalState,
+        isProfileAvailable: name => codexProfileFileExists(name),
+    });
+    const codexProfileSupportProbe = new CodexProfileSupportProbe({
+        executable: resolveAiProviderExecutable('codex') || 'codex',
+        memento: context.globalState,
+    });
     const conversationCommentStore = new ConversationCommentFileStore(
         context.globalStoragePath
     );
@@ -960,6 +981,11 @@ async function initializeDashboard(
         },
         onSessionRebound: async (previous, next) => {
             aiSessionAliasController.copyForRebind(
+                previous.provider,
+                previous.sessionId || '',
+                next.sessionId || ''
+            );
+            aiSessionProfileController.copyForRebind(
                 previous.provider,
                 previous.sessionId || '',
                 next.sessionId || ''
@@ -1187,6 +1213,8 @@ async function initializeDashboard(
             runtimeCoordinator: aiSessionRuntimeCoordinator,
             setAlias: (providerId, sessionId, alias) =>
                 aiSessionAliasController.set(providerId, sessionId, alias),
+            setSessionProfile: (providerId, pendingId, sessionId) =>
+                aiSessionProfileController.settlePending(providerId, pendingId, sessionId),
             syncActiveRuntime: () => activeAiSessionTerminalHighlighter.sync(),
             evaluateExecution: () => evaluateAiSessionLifecycleTick(),
             scheduleRefresh: () => refreshAiSessionViewsIncrementally(),
@@ -1201,6 +1229,9 @@ async function initializeDashboard(
             getProviderAiSessionComparableCwd(providerId, session, aiSessionProviders),
         getPinnedSessions: () => aiSessionPinController.getAll(),
         getAliases: () => aiSessionAliasController.getAll(),
+        getProfiles: () => aiSessionProfileController.getAll(),
+        getPendingProfiles: () => aiSessionProfileController.getPendingAll(),
+        getProfileAvailability: () => aiSessionProfileController.getAvailability(),
         getProviderSelection: scopeIdentity => {
             const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
             if (stored) {
@@ -1240,6 +1271,12 @@ async function initializeDashboard(
         getAiSessionRuntimeById,
         getAiSessionRuntimeCollision,
         getLaunchOptions: () => readAiSessionLaunchOptions(vscode.workspace),
+        aiSessionProfileController,
+        getCodexDefaultProfile: () => readCodexDefaultProfile(vscode.workspace),
+        getCodexProfileSupport: () => codexProfileSupportProbe.isSupported(),
+        listCodexProfiles: () => listCodexConfigProfiles(process.env, os.homedir(), logError),
+        isCodexProfileFileAvailable: name => codexProfileFileExists(name),
+        openSettings: query => vscode.commands.executeCommand('workbench.action.openSettings', query),
         refreshAiSessionViewsIncrementally,
         scheduleNewAiSessionRefresh,
         logAiSessionRuntimeFailure,

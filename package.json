@@ -310,6 +310,12 @@
                     "scope": "machine",
                     "description": "Bypass provider approval and sandbox protections for newly created and resumed AI session processes. This is dangerous and does not change already running sessions."
                 },
+                "agentPivot.codexDefaultProfile": {
+                    "type": "string",
+                    "default": "",
+                    "scope": "machine",
+                    "description": "Codex configuration profile (-p <name>, layered from <name>.config.toml in the Codex home) used for newly created Codex sessions. Does not affect resuming existing sessions: a resumed session always reuses the profile decision recorded when it was created."
+                },
                 "agentPivot.aiSessionTmuxLayout": {
                     "type": "string",
                     "enum": [

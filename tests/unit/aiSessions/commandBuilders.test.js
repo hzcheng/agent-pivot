@@ -154,6 +154,60 @@ test('SESSION-CONVERSATION-COMMENTS-RESUME-001 passes one prompt through each pr
     );
 });
 
+test('SESSION-CODEX-PROFILE-LAUNCH-001 injects -p into Codex New and Resume argv only', () => {
+    const withProfile = { yolo: false, codexProfile: 'deepseek' };
+    assert.deepEqual(
+        commands.buildCodexNewSessionLaunchSpec(directoryScope, title, markerPath, withProfile).args,
+        ['-p', 'deepseek', '--cd', cwd, title]
+    );
+    assert.deepEqual(
+        commands.buildCodexResumeLaunchSpec(sessionId, directoryScope, markerPath, withProfile).args,
+        ['resume', '-p', 'deepseek', '--cd', cwd, sessionId]
+    );
+
+    const withYolo = { yolo: true, codexProfile: 'deepseek' };
+    assert.deepEqual(
+        commands.buildCodexResumeLaunchSpec(sessionId, directoryScope, markerPath, withYolo).args,
+        ['resume', '-p', 'deepseek', '--dangerously-bypass-approvals-and-sandbox', '--cd', cwd, sessionId]
+    );
+
+    // Other providers never receive the Codex-only flag.
+    assert.deepEqual(
+        commands.buildKimiNewSessionLaunchSpec(directoryScope, title, markerPath, withProfile).args,
+        ['--work-dir', cwd, '--prompt', title]
+    );
+    assert.deepEqual(
+        commands.buildClaudeResumeLaunchSpec(sessionId, directoryScope, markerPath, withProfile).args,
+        ['--resume', sessionId]
+    );
+});
+
+test('SESSION-CODEX-PROFILE-LAUNCH-001 drops invalid profile names at the flag boundary', () => {
+    for (const badProfile of ['../escape', '-p', 'a/b', 'a\\b', '', '  ', 'a\0b', 'x'.repeat(65)]) {
+        const options = { yolo: false, codexProfile: badProfile };
+        assert.deepEqual(
+            commands.buildCodexResumeLaunchSpec(sessionId, directoryScope, markerPath, options).args,
+            ['resume', '--cd', cwd, sessionId],
+            `invalid profile must be dropped: ${JSON.stringify(badProfile)}`
+        );
+        assert.deepEqual(
+            commands.buildCodexNewSessionLaunchSpec(directoryScope, title, markerPath, options).args,
+            ['--cd', cwd, title],
+            `invalid profile must be dropped: ${JSON.stringify(badProfile)}`
+        );
+    }
+
+    // Unicode and inner spaces stay valid and are passed as one argv element.
+    for (const goodProfile of ['kimi 2.5', '模型']) {
+        assert.deepEqual(
+            commands.buildCodexResumeLaunchSpec(
+                sessionId, directoryScope, markerPath, { yolo: false, codexProfile: goodProfile }
+            ).args,
+            ['resume', '-p', goodProfile, '--cd', cwd, sessionId]
+        );
+    }
+});
+
 test('SESSION-COMMAND-BUILDER-001 quotes PowerShell single quotes without interpolation', () => {
     assert.equal(commands.quotePowerShellArg("O'Brien & 100%"), "'O''Brien & 100%'");
 });

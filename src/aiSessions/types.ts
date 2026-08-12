@@ -33,6 +33,16 @@ export interface AiSessionDirectoryScope {
 }
 
 export type AiSessionTabId = 'active' | 'sessions';
+
+/**
+ * The Codex configuration profile decision recorded for a session at creation
+ * time. `{ kind: 'base' }` means the session deliberately runs without
+ * `-p`; `{ kind: 'profile' }` pins the named `<name>.config.toml` overlay.
+ * A missing record means legacy/unknown and must resume without `-p`.
+ */
+export type SessionProfileDecision =
+    | { kind: 'base' }
+    | { kind: 'profile'; name: string };
 export type ActiveAiSessionExecutionState = 'starting' | AiSessionExecutionState;
 
 export interface AiSessionActiveTerminalRuntime {
@@ -49,6 +59,10 @@ export interface ActiveAiSessionViewModel {
     sessionId?: string;
     pendingId?: string;
     name: string;
+    /** Codex config profile name recorded for this runtime, when any. */
+    profile?: string;
+    /** True when the recorded profile's config file no longer exists. */
+    profileUnavailable?: boolean;
     executionState: ActiveAiSessionExecutionState;
     focused: boolean;
     needsAttention: boolean;
@@ -168,6 +182,10 @@ export interface AiSessionViewModel {
     id: string;
     name: string;
     provider: AiSessionProviderId;
+    /** Codex config profile name recorded for this session, when any. */
+    profile?: string;
+    /** True when the recorded profile's config file no longer exists. */
+    profileUnavailable?: boolean;
     updatedAt?: string;
     cwd?: string;
     workDir?: string;

@@ -5,6 +5,7 @@ import {
     quotePosixShellArg,
     serializeDirectLaunchCommand,
 } from './launchSpec';
+import { isValidCodexProfileName } from './codexProfileNames';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionDirectoryScope } from './types';
 
@@ -14,6 +15,11 @@ const SAFE_LAUNCH_OPTIONS: AiSessionLaunchOptions = Object.freeze({ yolo: false 
 
 function yoloArg(options: AiSessionLaunchOptions, argument: string): string[] {
     return options?.yolo === true ? [argument] : [];
+}
+
+function codexProfileArgs(options: AiSessionLaunchOptions): string[] {
+    const profile = options?.codexProfile;
+    return isValidCodexProfileName(profile) ? ['-p', profile] : [];
 }
 
 function buildRepeatedAdditionalDirectoryArgs(scope: AiSessionDirectoryScope): string[] {
@@ -34,6 +40,7 @@ export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDi
         executable: 'codex',
         args: [
             'resume',
+            ...codexProfileArgs(launchOptions),
             ...yoloArg(launchOptions, '--dangerously-bypass-approvals-and-sandbox'),
             ...(scope?.primaryCwd ? ['--cd', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
@@ -49,6 +56,7 @@ export function buildCodexNewSessionLaunchSpec(scope: AiSessionDirectoryScope, p
     return {
         executable: 'codex',
         args: [
+            ...codexProfileArgs(launchOptions),
             ...yoloArg(launchOptions, '--dangerously-bypass-approvals-and-sandbox'),
             ...(scope?.primaryCwd ? ['--cd', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),

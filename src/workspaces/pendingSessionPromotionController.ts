@@ -41,6 +41,7 @@ export interface WorkspacePendingSessionPromotionControllerOptions<TTerminal = u
     getSessionKey: (providerId: AiSessionProviderId, sessionId: string) => string;
     runtimeCoordinator: WorkspacePromotionRuntimeCoordinator<TTerminal>;
     setAlias: (providerId: AiSessionProviderId, sessionId: string, alias: string) => void;
+    setSessionProfile?: (providerId: AiSessionProviderId, pendingId: string, sessionId: string) => void;
     syncActiveRuntime: () => void;
     evaluateExecution: () => void;
     scheduleRefresh: (reason: string) => void;
@@ -127,6 +128,7 @@ export class WorkspacePendingSessionPromotionController<TTerminal = unknown> {
             getSessionKey: this.options.getSessionKey,
             runtimeCoordinator: this.options.runtimeCoordinator,
             setAlias: this.options.setAlias,
+            setSessionProfile: this.options.setSessionProfile,
             syncActiveRuntime: this.options.syncActiveRuntime,
         });
         if (result.promoted.length) {

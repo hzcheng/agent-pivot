@@ -281,6 +281,16 @@ Configure Agent Pivot in VS Code settings. Common settings include:
 - `agentPivot.aiSessionYoloMode`: opt in to provider approval and sandbox
   bypass for newly created and resumed provider processes. It is off by
   default and does not change an already-running process.
+- `agentPivot.codexDefaultProfile`: default Codex configuration profile
+  (`-p <name>`, layered from `<name>.config.toml` in the Codex home) for
+  newly created Codex sessions. When at least one profile file exists, the
+  new-session flow also asks which profile to use. Resuming always reuses the
+  profile recorded at creation; Agent Pivot stores the profile name, not a
+  configuration snapshot, so editing or deleting the profile file changes
+  later resume behavior. Known limitations: a shell rc that overrides
+  `CODEX_HOME` inside terminals is not supported (the extension discovers
+  profiles in the extension host's `CODEX_HOME`), and the profile store is
+  last-writer-wins across concurrent VS Code windows.
 - `agentPivot.aiSessionAttention.enabled`: show attention indicators when a
   managed provider session finishes or may need input.
 - `agentPivot.maxVisibleProjectsPerGroup` and `agentPivot.maxVisibleTodosPerGroup`:

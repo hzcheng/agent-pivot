@@ -73,3 +73,32 @@ the transcript tail:
 
 Read bounded head/tail windows (a single record can exceed 200KB); never
 scan whole transcripts in the listing path.
+
+## Codex App-Server Pagination Facts (0.147, probe-verified)
+
+From `spikes/codex-paginated-read` and `spikes/codex-cold-start`:
+
+- `thread/turns/list` summary view carries the **first** userMessage
+  per turn (projection schema: `thread_turns.first_user_item_id`),
+  **verbatim** — plus a final agentMessage that is UNRELIABLE: omitted
+  for interrupted turns and divergent in ~1/218 real turns. Never derive
+  fingerprints from the summary agent text. Multi-userMessage turns exist
+  in real data (mid-turn steering messages) and collapse to their first
+  message in summary view — never assume one user message per turn.
+- Page cursors are **portable across `limit` and `itemsView`**: a cursor
+  recorded on a `limit:100` summary walk seeks the same turn boundary
+  with `limit:4, itemsView:"full"` and returns items byte-identical to
+  the full walk.
+- Version gates need the **completed handshake**: `serverInfo.version` /
+  `userAgent` parsing only has a value after `initialize` returns, which
+  the first `request()` triggers. Any feature gate evaluated before the
+  first request is circular — expose an async `ensureReady()` that
+  attaches to the shared in-flight handshake.
+- Handshake cost contaminates first-page latency (~300ms vs ~20ms steady
+  state). Backend verdicts (paginated vs legacy replay) must exclude it
+  and tolerate single-page jitter (e.g. verdict only after two
+  consecutive slow pages).
+- The extension-host viewer skips refreshes whose revision, interaction
+  ids, and responseStates are all unchanged. Adapter revisions must
+  therefore move on **any** provider content change — including
+  summary-invisible tool output — or the webview never re-reads the page.

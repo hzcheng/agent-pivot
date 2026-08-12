@@ -87,10 +87,140 @@ function serveCodexTurnsListPage(turns, params) {
     const data = ordered.slice(start, start + limit);
     const more = start + data.length < ordered.length;
     return JSON.parse(JSON.stringify({
-        data,
+        data: params.itemsView === 'summary'
+            ? data.map(toCodexSummaryTurn)
+            : data,
         nextCursor: more && data.length ? data[data.length - 1].id : null,
         backwardsCursor: data.length ? data[0].id : null,
     }));
+}
+
+// The summary view keeps the first userMessage and the final agentMessage
+// per turn (schema-verified server projection rule).
+function toCodexSummaryTurn(turn) {
+    const items = [];
+    const user = turn.items.find(item => item.type === 'userMessage');
+    const agents = turn.items.filter(item => item.type === 'agentMessage');
+    if (user) {
+        items.push(user);
+    }
+    if (agents.length) {
+        items.push(agents[agents.length - 1]);
+    }
+    return { id: turn.id, status: turn.status, items };
+}
+
+async function measureCodexWindowedColdStart() {
+    const threadId = '88888888-8888-4888-8888-888888888888';
+    // Same ~12 MiB / 205-turn payload as the full-read scenario.
+    const payload = createCodexPerfThread(threadId, 205, 60 * 1024);
+    const methods = [];
+    const adapter = new CodexConversationAdapter({
+        client: {
+            async ensureReady() {
+                methods.push('ensureReady');
+                return '0.147';
+            },
+            async request(method, params) {
+                methods.push(method);
+                assert.equal(params.threadId, threadId);
+                // Re-serialize per call so each read pays a realistic
+                // transport-shaped parse cost.
+                if (method === 'thread/turns/list') {
+                    return serveCodexTurnsListPage(
+                        payload.thread.turns,
+                        params
+                    );
+                }
+                assert.equal(method, 'thread/read');
+                return JSON.parse(JSON.stringify(payload));
+            },
+            getServerVersion: () => '0.147',
+            dispose() {},
+        },
+        watchSessionChanges: () => ({ dispose() {} }),
+        setTimeout: callback => {
+            callback();
+            return 1;
+        },
+        clearTimeout: () => undefined,
+        readContentSignature: () => 'stat-1',
+        readSourceBytes: () => 12 * 1024 * 1024,
+    });
+    try {
+        const startedAt = process.hrtime.bigint();
+        const outline = await adapter.readOutline(threadId);
+        const windowedColdStartMs = elapsedMs(startedAt);
+        assert.equal(outline.totalInteractions, 205);
+        assert.equal(methods.includes('thread/read'), false,
+            'a paginated cold start must not pay the full frame');
+        assertBudget('codex windowed cold start', windowedColdStartMs,
+            PERFORMANCE_BUDGETS.codexWindowedColdStartMs);
+        return { windowedColdStartMs };
+    } finally {
+        adapter.dispose();
+    }
+}
+
+async function measureCodexLegacyColdStart() {
+    const threadId = '77777777-7777-4777-8777-777777777777';
+    const payload = createCodexPerfThread(threadId, 205, 60 * 1024);
+    const methods = [];
+    // Simulated wall clock: every thread/turns/list page costs a full
+    // replay (600ms on a 60MB-class legacy rollout, per the spike).
+    let simulatedMs = 1_000;
+    const adapter = new CodexConversationAdapter({
+        client: {
+            async ensureReady() {
+                methods.push('ensureReady');
+                return '0.147';
+            },
+            async request(method, params) {
+                methods.push(method);
+                assert.equal(params.threadId, threadId);
+                if (method === 'thread/turns/list') {
+                    simulatedMs += 600;
+                    return serveCodexTurnsListPage(
+                        payload.thread.turns,
+                        params
+                    );
+                }
+                assert.equal(method, 'thread/read');
+                return JSON.parse(JSON.stringify(payload));
+            },
+            getServerVersion: () => '0.147',
+            dispose() {},
+        },
+        watchSessionChanges: () => ({ dispose() {} }),
+        setTimeout: callback => {
+            callback();
+            return 1;
+        },
+        clearTimeout: () => undefined,
+        readContentSignature: () => 'stat-1',
+        readSourceBytes: () => 60 * 1024 * 1024,
+        now: () => simulatedMs,
+    });
+    try {
+        const startedAt = process.hrtime.bigint();
+        const outline = await adapter.readOutline(threadId);
+        const realMs = elapsedMs(startedAt);
+        assert.equal(outline.totalInteractions, 205);
+        // The legacy verdict must fall back to one full read after exactly
+        // two replay-priced pages — not walk the whole history.
+        assert.deepEqual(methods, [
+            'ensureReady',
+            'thread/turns/list',
+            'thread/turns/list',
+            'thread/read',
+        ]);
+        const legacyColdStartMs = (simulatedMs - 1_000) + realMs;
+        assertBudget('codex legacy cold start', legacyColdStartMs,
+            PERFORMANCE_BUDGETS.codexLegacyColdStartMs);
+        return { legacyColdStartMs };
+    } finally {
+        adapter.dispose();
+    }
 }
 
 async function measureCodexStatValidatedReload() {
@@ -706,6 +836,8 @@ async function run() {
             const viewerBudgets = await measureViewerPublicationBudgets();
             const codexBudgets = await measureCodexStatValidatedReload();
             const codexToolHeavy = await measureCodexToolHeavyReload();
+            const codexWindowed = await measureCodexWindowedColdStart();
+            const codexLegacy = await measureCodexLegacyColdStart();
 
             console.log(JSON.stringify({
                 coldMs: Number(coldMs.toFixed(3)),
@@ -741,6 +873,12 @@ async function run() {
                     codexBudgets.appendReloadMs.toFixed(3)
                 ),
                 codexCachedCharacters: codexBudgets.cachedCharacters,
+                codexWindowedColdStartMs: Number(
+                    codexWindowed.windowedColdStartMs.toFixed(3)
+                ),
+                codexLegacyColdStartMs: Number(
+                    codexLegacy.legacyColdStartMs.toFixed(3)
+                ),
                 codexToolHeavyFullReadMs: Number(
                     codexToolHeavy.fullReadMs.toFixed(3)
                 ),

@@ -63,6 +63,12 @@ export interface AiSessionCreationControllerCommonOptions {
      * the next picker default. Never called for cancelled/failed creations.
      */
     rememberSessionProfile?: (pendingId: string, decision: SessionProfileDecision) => void;
+    /**
+     * Called after any runtime successfully started so the provider choice
+     * can be remembered for the next quick-create. Never called for
+     * cancelled/failed creations.
+     */
+    rememberSessionProvider?: (workspaceScopeIdentity: string, providerId: AiSessionProviderId) => void;
     getProviderLabel: (providerId: AiSessionProviderId) => string;
     getLaunchOptions: () => AiSessionLaunchOptions;
     getProvider: (providerId: AiSessionProviderId) => AiSessionCreationProvider;
@@ -107,6 +113,9 @@ export class AiSessionCreationController {
         this.options = options;
     }
 
+    /**
+     * Full interactive flow: pick provider, (codex) pick profile, input title.
+     */
     async createSession(projectId: string): Promise<void> {
         if (this.creating) {
             return;
@@ -144,6 +153,42 @@ export class AiSessionCreationController {
                 fields.codexProfileDecision = codexProfileDecision;
             }
             await this.createProviderSession(providerId, target, fields, explicitRootId);
+        } finally {
+            this.creating = false;
+        }
+    }
+
+    /**
+     * Quick-create: skip all pickers and use the given provider/profile directly.
+     * Returns false when the session could not be created (e.g. workspace not
+     * found, directory scope resolution failed, runtime creation failed).
+     */
+    async createSessionQuick(
+        projectId: string,
+        providerId: AiSessionProviderId,
+        codexProfileDecision?: SessionProfileDecision
+    ): Promise<boolean> {
+        if (this.creating) {
+            return false;
+        }
+        const workspace = this.options.getWorkspaceTarget(projectId);
+        const target: AiSessionCreationTarget | null = workspace
+            ? { id: workspace.cardId, name: workspace.workspace.displayName, workspace }
+            : null;
+        if (!target) {
+            return false;
+        }
+        if (!this.options.isProviderId(providerId)) {
+            return false;
+        }
+        this.creating = true;
+        try {
+            const fields: NewAiSessionFields = {
+                title: '',
+                codexProfileDecision,
+            };
+            await this.createProviderSession(providerId, target, fields);
+            return true;
         } finally {
             this.creating = false;
         }
@@ -282,6 +327,7 @@ export class AiSessionCreationController {
         }
         if (result.status === 'started') {
             await options.rememberDirectoryScope?.(directoryScope);
+            options.rememberSessionProvider?.(directoryScope.workspaceScopeIdentity, providerId);
             if (providerId === 'codex' && fields.codexProfileDecision) {
                 options.rememberSessionProfile?.(pendingId, fields.codexProfileDecision);
             }

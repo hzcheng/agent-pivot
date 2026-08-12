@@ -347,6 +347,13 @@ export function createSessionControllerComposition(
             options.aiSessionProfileController?.recordPending(pendingId, decision);
             options.aiSessionProfileController?.rememberLastUsed(decision);
         },
+        rememberSessionProvider: async (workspaceScopeIdentity, providerId) => {
+            try {
+                await aiSessionWorkspaceStateStore.setActiveProvider(workspaceScopeIdentity, providerId);
+            } catch (error) {
+                logError("Failed to remember the AI session provider.", error);
+            }
+        },
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,

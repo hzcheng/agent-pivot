@@ -2975,6 +2975,30 @@ function initProjectAiSessionControls(options) {
             return true;
         }
 
+        var quickCreateAction = target.closest('[data-action="create-ai-session-quick"]');
+        if (quickCreateAction) {
+            var provider = quickCreateAction.getAttribute('data-provider');
+            if (provider) {
+                window.vscode.postMessage({
+                    type: 'create-ai-session-quick',
+                    projectId,
+                    provider: provider,
+                });
+            }
+
+            return true;
+        }
+
+        var dropdownAction = target.closest('[data-action="create-ai-session-dropdown"]');
+        if (dropdownAction) {
+            window.vscode.postMessage({
+                type: 'create-ai-session',
+                projectId,
+            });
+
+            return true;
+        }
+
         var manageAction = target.closest('[data-action="manage-ai-sessions"][data-provider]');
         if (manageAction) {
             if (batchAiSessionState.pending

@@ -657,7 +657,7 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual(multiHtml.includes('class="workspace-root-tag"'), false);
     assert.ok(multiHtml.includes('data-primary-root-id="root-api"'));
     assert.ok(multiHtml.includes('class="ai-session-root-chip"'));
-    assert.ok(multiHtml.includes('data-action="create-ai-session"'));
+    assert.ok(multiHtml.includes('data-action="create-ai-session-quick"'));
     assert.strictEqual(multiHtml.includes('data-action="open-new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="selected-project"'), false);
@@ -837,8 +837,8 @@ function runWorkspaceCardRenderingChecks() {
     );
     assert.ok(updateRequiredOtherHtml.includes('data-open-workspace-current'));
     assert.strictEqual(updateRequiredOtherHtml.includes('data-current-workspace'), false);
-    assert.ok(updateRequiredHtml.includes('data-action="create-ai-session"'),
-        'the local current workspace NEW action must remain enabled during bridge degradation');
+    assert.ok(updateRequiredHtml.includes('data-action="create-ai-session-quick"'),
+        'the local current workspace quick-create action must remain enabled during bridge degradation');
     assert.strictEqual(updateRequiredOtherHtml.includes('data-action="new-session-in"'), false);
 
     const projectSource = readProjectWebviewSource();

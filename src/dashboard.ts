@@ -1713,6 +1713,15 @@ async function initializeDashboard(
         createAiSession: async e => {
             await aiSessionCreationController.createSession(e.projectId as string);
         },
+        createAiSessionQuick: async e => {
+            const providerId = e.provider as AiSessionProviderId;
+            if (providerId && isAiSessionProviderId(providerId)) {
+                await aiSessionCreationController.createSessionQuick(
+                    e.projectId as string,
+                    providerId
+                );
+            }
+        },
         resumeAiSession: async (e, providerId, rootId) => {
             await aiSessionResumeController.resumeProjectSession(
                 e.projectId as string,

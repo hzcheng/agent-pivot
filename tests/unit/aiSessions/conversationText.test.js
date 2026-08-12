@@ -121,3 +121,20 @@ test('CONVERSATION-COPY-ACTIONS-001 formats the action row clock time', () => {
         'finite values beyond the Date range still render no clock'
     );
 });
+
+test('CONVERSATION-OVERSIZED-TURN-001 truncateUtf8Bytes bounds bytes without splitting graphemes', () => {
+    const family = '👨‍👩‍👧‍👦';
+    const byteLimit = Buffer.byteLength(`A${family}…`, 'utf8');
+    assert.equal(
+        text.truncateUtf8Bytes(`A${family}BCDE`, byteLimit),
+        `A${family}…`
+    );
+    assert.ok(
+        Buffer.byteLength(
+            text.truncateUtf8Bytes(`A${family}BCDE`, byteLimit),
+            'utf8'
+        ) <= byteLimit
+    );
+    assert.equal(text.truncateUtf8Bytes('short', 100), 'short');
+    assert.equal(text.truncateUtf8Bytes('abc', 2), '');
+});

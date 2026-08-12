@@ -13,11 +13,16 @@ import {
     ConversationPageRequest,
     ConversationResponseState,
 } from './types';
+import { truncateUtf8Bytes } from './text';
 
 export type EncodeConversationCursor = (
     anchorInteractionId: string,
     direction: 'before' | 'after'
 ) => string;
+
+const PAGE_ENVELOPE_RESERVE_BYTES = 2 * 1024;
+const OVERSIZED_TURN_OMISSION =
+    'Work was omitted to keep this turn within the conversation size limit.';
 
 export function buildConversationOutline(
     provider: AiSessionProviderId,
@@ -189,6 +194,244 @@ function assistantPhase(
     return interaction.toolCalls?.some(toolCall => toolCall.position > index)
         ? 'progress'
         : 'answer';
+}
+
+function serializedMessageBytes(message: ConversationMessage): number {
+    return Buffer.byteLength(JSON.stringify(message), 'utf8');
+}
+
+/** Free-form display content eligible for byte-budget truncation. */
+const CONTENT_STRING_FIELDS = new Set([
+    'markdown',
+    'text',
+    'detail',
+    'question',
+    'label',
+    'description',
+    'otherLabel',
+]);
+
+function contentStringFields(
+    value: unknown,
+    fields: Array<{
+        get(): string;
+        set(value: string): void;
+    }> = []
+): Array<{ get(): string; set(value: string): void }> {
+    if (!value || typeof value !== 'object') {
+        return fields;
+    }
+    const record = value as Record<string, any>;
+    for (const property of Object.keys(record)) {
+        const child = record[property];
+        if (typeof child === 'string') {
+            // Only content fields shrink. Identifiers and structural
+            // strings (tool names, diff paths, plan file paths, question
+            // sources, outcomes) must survive bounding verbatim.
+            if (CONTENT_STRING_FIELDS.has(property)) {
+                fields.push({
+                    get: () => record[property],
+                    set: next => {
+                        record[property] = next;
+                    },
+                });
+            }
+        } else if (child && typeof child === 'object') {
+            contentStringFields(child, fields);
+        }
+    }
+    return fields;
+}
+
+function boundMessageToBytes(
+    message: ConversationMessage,
+    maxBytes: number
+): ConversationMessage | undefined {
+    const bounded = copyConversationMessage(message);
+    if (serializedMessageBytes(bounded) <= maxBytes) {
+        return bounded;
+    }
+    const fields = contentStringFields(bounded);
+    let minimumFieldBytes = 32;
+    while (serializedMessageBytes(bounded) > maxBytes) {
+        const currentBytes = serializedMessageBytes(bounded);
+        const ratio = Math.max(0.1, Math.min(0.9, maxBytes / currentBytes * 0.9));
+        let changed = false;
+        for (const field of fields) {
+            const value = field.get();
+            const valueBytes = Buffer.byteLength(value, 'utf8');
+            if (valueBytes <= minimumFieldBytes) {
+                continue;
+            }
+            const nextLimit = Math.max(
+                minimumFieldBytes,
+                Math.floor(valueBytes * ratio)
+            );
+            const next = truncateUtf8Bytes(value, nextLimit);
+            if (next !== value) {
+                field.set(next);
+                changed = true;
+            }
+        }
+        if (changed) {
+            continue;
+        }
+        if (minimumFieldBytes > Buffer.byteLength('…', 'utf8')) {
+            minimumFieldBytes = Buffer.byteLength('…', 'utf8');
+            continue;
+        }
+        return undefined;
+    }
+    return bounded;
+}
+
+function semanticEndpointIndices(
+    messages: readonly ConversationMessage[]
+): number[] {
+    const latestByRole = new Map<ConversationMessage['role'], number>();
+    for (let index = 1; index < messages.length; index += 1) {
+        const role = messages[index].role;
+        if (role === 'assistant' || role === 'question' || role === 'plan') {
+            latestByRole.set(role, index);
+        }
+    }
+    if (latestByRole.size > 0) {
+        return Array.from(latestByRole.values()).sort((left, right) => left - right);
+    }
+    return messages.length > 1 ? [messages.length - 1] : [];
+}
+
+function allocateMessageBudgets(
+    rawBytes: readonly number[],
+    totalBudget: number
+): number[] {
+    const budgets = Array(rawBytes.length).fill(0) as number[];
+    const unassigned = new Set(rawBytes.map((_bytes, index) => index));
+    let remaining = totalBudget;
+    while (unassigned.size > 0) {
+        const share = Math.floor(remaining / unassigned.size);
+        const fitting = Array.from(unassigned).filter(
+            index => rawBytes[index] <= share
+        );
+        if (fitting.length === 0) {
+            for (const index of unassigned) {
+                budgets[index] = share;
+            }
+            let remainder = remaining - share * unassigned.size;
+            for (const index of unassigned) {
+                if (remainder <= 0) {
+                    break;
+                }
+                budgets[index] += 1;
+                remainder -= 1;
+            }
+            break;
+        }
+        for (const index of fitting) {
+            budgets[index] = rawBytes[index];
+            remaining -= rawBytes[index];
+            unassigned.delete(index);
+        }
+    }
+    return budgets;
+}
+
+/**
+ * Deterministically converges one interaction's messages into the page byte
+ * budget: the user input and the latest assistant, plan, and question
+ * endpoints stay visible, everything else is byte-truncated or replaced by
+ * an explicit omission notice. Never throws; the page builder's shrink loop
+ * only decides how many interactions fit, never whether one can.
+ */
+function boundInteractionMessages(
+    messages: readonly ConversationMessage[],
+    state: {
+        interactionId: string;
+        responseState: ConversationResponseState;
+        timestamp?: number;
+        completedAt?: number;
+    },
+    maxBytes: number
+): { messages: ConversationMessage[]; serializedBytes: number } {
+    const serializedMessages = messages.map(message => JSON.stringify(message));
+    const emptyEnvelopeBytes = Buffer.byteLength(JSON.stringify({
+        messages: [],
+        state,
+    }), 'utf8');
+    const fullBytes = emptyEnvelopeBytes + serializedMessages.reduce(
+        (total, message, index) => total
+            + Buffer.byteLength(message, 'utf8')
+            + (index > 0 ? 1 : 0),
+        0
+    );
+    if (fullBytes <= maxBytes) {
+        return { messages: messages.slice(), serializedBytes: fullBytes };
+    }
+
+    const user = messages[0];
+    const endpointIndices = semanticEndpointIndices(messages);
+    const preservedEntries = [
+        ...(user ? [{ index: 0, message: user }] : []),
+        ...endpointIndices.map(index => ({ index, message: messages[index] })),
+    ];
+    const omission: ConversationMessage = {
+        id: `${state.interactionId}:progress:omitted`,
+        interactionId: state.interactionId,
+        role: 'progress',
+        timestamp: user?.timestamp,
+        markdown: OVERSIZED_TURN_OMISSION,
+    };
+    const omissionBytes = serializedMessageBytes(omission);
+    const preservedCount = preservedEntries.length;
+    const contentBudget = Math.max(0,
+        maxBytes - emptyEnvelopeBytes - omissionBytes - preservedCount
+    );
+    const preservedBudgets = allocateMessageBudgets(
+        preservedEntries.map(entry => serializedMessageBytes(entry.message)),
+        contentBudget
+    );
+    const retained = new Map<number, ConversationMessage>();
+    preservedEntries.forEach((entry, entryIndex) => {
+        const bounded = boundMessageToBytes(
+            entry.message,
+            preservedBudgets[entryIndex]
+        );
+        if (bounded) {
+            retained.set(entry.index, bounded);
+        }
+    });
+    const boundedUser = retained.get(0);
+    if (boundedUser) {
+        retained.delete(0);
+    }
+    let serializedBytes = emptyEnvelopeBytes + omissionBytes;
+    if (boundedUser) {
+        serializedBytes += serializedMessageBytes(boundedUser);
+    }
+    for (const message of retained.values()) {
+        serializedBytes += serializedMessageBytes(message);
+    }
+    serializedBytes += retained.size + (boundedUser ? 1 : 0);
+    for (let index = messages.length - 1; index >= (user ? 1 : 0); index -= 1) {
+        if (retained.has(index)) {
+            continue;
+        }
+        const messageBytes = Buffer.byteLength(serializedMessages[index], 'utf8')
+            + 1;
+        if (serializedBytes + messageBytes > maxBytes) {
+            continue;
+        }
+        retained.set(index, messages[index]);
+        serializedBytes += messageBytes;
+    }
+    const bounded = [
+        ...(boundedUser ? [boundedUser] : []),
+        omission,
+        ...Array.from(retained.entries())
+            .sort((left, right) => left[0] - right[0])
+            .map(([, message]) => message),
+    ];
+    return { messages: bounded, serializedBytes };
 }
 
 export function buildConversationPage(
@@ -364,24 +607,26 @@ export function buildConversationPage(
     let estimatedBytes = 0;
     for (let index = start; index < end; index += 1) {
         const interaction = interactions[index];
-        const block = {
-            messages: messagesForInteraction(interaction),
-            state: {
-                interactionId: interaction.id,
-                responseState: interaction.responseState,
-                ...(interaction.timestamp !== undefined
-                    ? { timestamp: interaction.timestamp }
-                    : {}),
-                ...(interaction.completedAt !== undefined
-                    ? { completedAt: interaction.completedAt }
-                    : {}),
-            },
-            serializedBytes: 0,
+        const state = {
+            interactionId: interaction.id,
+            responseState: interaction.responseState,
+            ...(interaction.timestamp !== undefined
+                ? { timestamp: interaction.timestamp }
+                : {}),
+            ...(interaction.completedAt !== undefined
+                ? { completedAt: interaction.completedAt }
+                : {}),
         };
-        block.serializedBytes = Buffer.byteLength(JSON.stringify({
-            messages: block.messages,
-            state: block.state,
-        }), 'utf8');
+        const bounded = boundInteractionMessages(
+            messagesForInteraction(interaction),
+            state,
+            CONVERSATION_LIMITS.maxPageBytes - PAGE_ENVELOPE_RESERVE_BYTES
+        );
+        const block = {
+            messages: bounded.messages,
+            state,
+            serializedBytes: bounded.serializedBytes,
+        };
         blocks.set(index, block);
         estimatedBytes += block.serializedBytes;
     }
@@ -402,7 +647,6 @@ export function buildConversationPage(
         }
         estimatedBytes -= blocks.get(removedIndex)?.serializedBytes || 0;
     };
-    const PAGE_ENVELOPE_RESERVE_BYTES = 2 * 1024;
     while (estimatedBytes
         > CONVERSATION_LIMITS.maxPageBytes - PAGE_ENVELOPE_RESERVE_BYTES
         && end - start > 1) {

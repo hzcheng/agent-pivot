@@ -4984,6 +4984,23 @@
     ]
   },
   {
+    "id": "CONVERSATION-OVERSIZED-TURN-001",
+    "domain": "session",
+    "title": "A single turn whose serialized content exceeds the page budget is deterministically converged instead of failing the whole read: the user input and the final assistant, plan, and question endpoints stay visible with tool, diff, and plan identities intact, oversized tool output, diff, thinking, and progress content is byte-truncated or replaced by an explicit omission notice, the page always fits the protocol budget, and the outline keeps every interaction",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationModel.test.js",
+      "tests/unit/aiSessions/conversationText.test.js",
+      "tests/contract/aiSessions/kimiConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/model.ts",
+      "src/aiSessions/conversation/text.ts"
+    ]
+  },
+  {
     "id": "CONVERSATION-LIVE-UPDATE-JOURNEY-001",
     "domain": "webview",
     "title": "A live response preserves telemetry, follows from the end, preserves historical reading position, and transitions Working to complete without a manual new-content control",

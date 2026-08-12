@@ -47,6 +47,9 @@ const {
 const {
     CodexConversationAdapter,
 } = require('../../../out/aiSessions/conversation/codexAdapter');
+const {
+    buildConversationPage,
+} = require('../../../out/aiSessions/conversation/model');
 
 const timedCodexFixture = JSON.parse(fs.readFileSync(path.resolve(
     __dirname,
@@ -4934,4 +4937,68 @@ test('CONVERSATION-COPY-ACTIONS-001 settles copies through the Host clipboard', 
         error: 'invalid',
     }, 'wrong-target copies settle as invalid without touching the clipboard');
     assert.equal(clips.length, 2);
+});
+
+test('CONVERSATION-OVERSIZED-TURN-001 renders a bounded oversized turn with its input, omission notice, and final answer', async () => {
+    const sessionId = 'oversized-kimi-turn';
+    const interactionId = 'input-oversized';
+    const interaction = {
+        id: interactionId,
+        timestamp: 1_000,
+        completedAt: 2_000,
+        userMarkdown: 'Inspect the large run',
+        userPreview: 'Inspect the large run',
+        userGraphemeCount: 21,
+        assistantMarkdown: ['Final bounded answer.'],
+        toolCalls: Array.from({ length: 160 }, (_item, index) => ({
+            position: 0,
+            name: 'Shell',
+            summary: `Shell command ${index}`,
+            detail: 'x'.repeat(4_000),
+        })),
+        responseState: 'complete',
+    };
+    const boundedPage = buildConversationPage([interaction], {
+        provider: 'kimi',
+        sessionId,
+        anchorInteractionId: interactionId,
+        direction: 'around',
+    }, 'r1');
+    const { viewer, panel } = createViewer({
+        readOutline: async () => ({
+            provider: 'kimi',
+            sessionId,
+            sourceRevision: 'r1',
+            interactions: [{
+                id: interactionId,
+                timestamp: interaction.timestamp,
+                completedAt: interaction.completedAt,
+                userPreview: interaction.userPreview,
+                userGraphemeCount: interaction.userGraphemeCount,
+                responseState: interaction.responseState,
+            }],
+            totalInteractions: 1,
+            partial: false,
+        }),
+        readPage: async () => boundedPage,
+    });
+
+    await viewer.open(target(sessionId, interactionId, { provider: 'kimi' }));
+
+    assert.match(panel.webview.html, /Inspect the large run/);
+    assert.match(
+        panel.webview.html,
+        /Work was omitted to keep this turn within the conversation size limit\./
+    );
+    assert.match(panel.webview.html, /Final bounded answer\./);
+    assert.match(panel.webview.html, /conversation-message-worklog/);
+    const inputIndex = panel.webview.html.indexOf('Inspect the large run');
+    const omissionIndex = panel.webview.html.indexOf(
+        'Work was omitted to keep this turn within the conversation size limit.'
+    );
+    const answerIndex = panel.webview.html.indexOf('Final bounded answer.');
+    assert.ok(
+        inputIndex >= 0 && omissionIndex > inputIndex && answerIndex > omissionIndex,
+        `bounded turn order was ${inputIndex}/${omissionIndex}/${answerIndex}`
+    );
 });

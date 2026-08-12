@@ -112,6 +112,31 @@ export function truncateGraphemes(value: string, limit: number): string {
     return source;
 }
 
+export function truncateUtf8Bytes(value: string, limit: number): string {
+    const source = String(value || '');
+    const safeLimit = Math.max(0, Math.floor(limit));
+    if (Buffer.byteLength(source, 'utf8') <= safeLimit) {
+        return source;
+    }
+    const ellipsis = '…';
+    const ellipsisBytes = Buffer.byteLength(ellipsis, 'utf8');
+    if (safeLimit < ellipsisBytes) {
+        return '';
+    }
+    const contentLimit = safeLimit - ellipsisBytes;
+    const parts: string[] = [];
+    let bytes = 0;
+    for (const part of graphemes(source)) {
+        const partBytes = Buffer.byteLength(part, 'utf8');
+        if (bytes + partBytes > contentLimit) {
+            break;
+        }
+        parts.push(part);
+        bytes += partBytes;
+    }
+    return `${parts.join('')}${ellipsis}`;
+}
+
 export function normalizeVisibleText(value: string): string {
     return String(value || '')
         .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffe\uffff]/g, '')

@@ -30,6 +30,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps Host-owned Webview mutations corr
         ['composite identity', /composite (?:identity|key)/i],
         ['partial results', /partial results?/i],
         ['VM sandbox global guards', /vm\.runInNewContext[\s\S]*typeof/i],
+        ['oldest supported Webview Chromium', /engines\.vscode[\s\S]*Chrome \d+/i],
     ]);
 });
 

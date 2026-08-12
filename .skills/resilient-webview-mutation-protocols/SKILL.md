@@ -55,6 +55,16 @@ hand-built `document`/`window`): no timers (`setTimeout` is undefined), no
 convention used by sibling scripts; an unguarded timer or observer throws
 `ReferenceError` in the VM checks while real browsers stay silent.
 
+Webview CSS selectors and DOM APIs must also run on the oldest supported
+Workbench, not on the test harness: check `package.json` `engines.vscode`
+(for example `^1.51.0` ≈ Chrome 83) before using modern features such as
+`:has()`, container queries, or `structuredClone`. The browser tests always
+launch a current Playwright Chromium, so an unsupported feature passes every
+check and reaches users as silently broken layout or script errors. When
+support is uncertain, drive state-dependent styling from Host-rendered
+classes (kept in sync by the toggle handler) instead of modern CSS
+selectors.
+
 ## Core Invariants
 
 - Keep persistent state Host-authoritative. Never make optimistic Webview state

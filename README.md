@@ -283,8 +283,8 @@ Configure Agent Pivot in VS Code settings. Common settings include:
   default and does not change an already-running process.
 - `agentPivot.aiSessionAttention.enabled`: show attention indicators when a
   managed provider session finishes or may need input.
-- `agentPivot.maxVisibleAiSessions`, `agentPivot.maxVisibleProjectsPerGroup`,
-  and `agentPivot.maxVisibleTodosPerGroup`: bound scrollable lists.
+- `agentPivot.maxVisibleProjectsPerGroup` and `agentPivot.maxVisibleTodosPerGroup`:
+  bound scrollable lists.
 - `agentPivot.applyProjectColorToWindow`: opt in to writing workspace
   `workbench.colorCustomizations` values from a saved project color.
 - `agentPivot.customCss`: inject user-supplied CSS into the Agent Pivot

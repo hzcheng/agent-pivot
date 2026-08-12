@@ -299,8 +299,13 @@ export function getCurrentWorkspaceGroupContent(
     runningIconAnimation?: string,
 ): string {
     const currentCard = card && card.kind === 'current' && card.roots.length > 0 ? card : null;
+    // The expanded class lets the OPEN tab fit the card to the CURRENT WINDOW
+    // pane without :has(), which webviews older than Chrome 105 cannot match;
+    // authoritative re-renders replay it from the view model and the webview
+    // toggle handler keeps it in sync between replacements.
+    const cardExpanded = currentCard?.aiSessions?.expanded === true;
     return `
-<div class="group steward-section open-current-workspace-group ${currentCard ? '' : 'no-projects'}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
+<div class="group steward-section open-current-workspace-group ${currentCard ? '' : 'no-projects'}${cardExpanded ? ' current-card-expanded' : ''}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
     <div class="group-title steward-section-header steward-group-header">
         <span class="group-title-text">${OPEN_CURRENT_WORKSPACE_GROUP_NAME}</span>
         <span class="group-title-badge">Live</span>
@@ -943,7 +948,6 @@ function getCustomStyle(config: vscode.WorkspaceConfiguration, runningImages: Ru
             ? `--column-width: ${projectTileWidth}px;`
             : ''
         }
-        --steward-ai-session-list-max-height: ${getAiSessionListMaxHeight(config)}px;
         ${runningImages.card
             ? `--agent-pivot-running-card-image: url("${runningImages.card}");`
             : ''
@@ -954,17 +958,6 @@ function getCustomStyle(config: vscode.WorkspaceConfiguration, runningImages: Ru
         }
     }
 </style>`;
-}
-
-function getAiSessionListMaxHeight(config: vscode.WorkspaceConfiguration): number {
-    var visibleRows = getMaxVisibleAiSessions(config);
-    return visibleRows * 42 + Math.max(visibleRows - 1, 0) * 2;
-}
-
-function getMaxVisibleAiSessions(config: vscode.WorkspaceConfiguration): number {
-    var configuredRows = config.get('maxVisibleAiSessions', 3);
-    var visibleRows = Math.floor(Number(configuredRows));
-    return Number.isFinite(visibleRows) && visibleRows > 0 ? visibleRows : 3;
 }
 
 function getMediaResource(

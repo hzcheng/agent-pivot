@@ -5593,7 +5593,6 @@ function runWebviewContentChecks() {
     assert.ok(!styles.includes('color-mix('));
     assert.ok(!extractScssBlock(styles, '.codex-session-row').includes('linear-gradient(90deg'));
     assert.ok(!extractScssBlock(styles, '.codex-session-row').includes('translateY(-1px)'));
-    assert.ok(webviewContent.includes('visibleRows * 42'));
     assert.ok(styles.includes('calc(3 * 42px + 2 * 2px)'));
     assert.deepStrictEqual(
         packageJson.contributes.configuration.properties['agentPivot.aiSessionTerminalMode'].enum,
@@ -5691,8 +5690,8 @@ function runWebviewContentChecks() {
     assert.ok(!dashboard.includes('context.globalState.update(OPEN_PROJECTS_ACTIVE_AI_SESSION_PROVIDER_KEY'));
     assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.storeProjectsInSettings'].default, true);
     assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.applyProjectColorToWindow'].default, false);
-    assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.maxVisibleAiSessions'].default, 3);
-    assert.strictEqual(packageJson.contributes.configuration.properties['agentPivot.maxVisibleAiSessions'].minimum, 1);
+    assert.ok(packageJson.contributes.configuration.properties['agentPivot.maxVisibleAiSessions'].deprecationMessage,
+        'maxVisibleAiSessions stays contributed for one release with a deprecation message');
     assert.ok(dashboard.includes("ProjectWindowColorService"));
     assert.ok(!dashboard.includes('resolveCurrentWorkspaceProjectIds('));
     assert.ok(!dashboard.includes('get currentWorkspaceProjectIds() { return getCurrentWorkspaceProjectIds() }'));
@@ -5763,14 +5762,39 @@ function runWebviewContentChecks() {
     assert.ok(!/\bheight\s*:/.test(compiledSharedItemAccentHoverBlock));
     assert.ok(compiledExpandedProjectAccentBlock.includes('opacity:.9'));
     assert.ok(!/\bheight\s*:/.test(compiledExpandedProjectAccentBlock));
-    assert.ok(webviewContent.includes('--steward-ai-session-list-max-height: ${getAiSessionListMaxHeight(config)}px;'));
-    assert.ok(webviewContent.includes('Number.isFinite(visibleRows)'));
+    assert.ok(!webviewContent.includes('--steward-ai-session-list-max-height'),
+        'the deprecated maxVisibleAiSessions setting must no longer feed the webview');
+    assert.ok(!webviewContent.includes('getMaxVisibleAiSessions'),
+        'the deprecated maxVisibleAiSessions reader must be removed');
     assert.ok(aiSessionListStyleBlock.includes(
-        'height: var(--steward-ai-session-list-max-height, calc(3 * 42px + 2 * 2px));'
+        'height: calc(3 * 42px + 2 * 2px);'
     ));
-    assert.ok(compiledAiSessionListStyleBlock.includes(
-        'height:var(--steward-ai-session-list-max-height,130px)'
-    ));
+    assert.ok(compiledAiSessionListStyleBlock.includes('height:130px'));
+    const openTabAutoExpandedGroupBlock = extractExactScssBlock(
+        styles,
+        '.sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded'
+    );
+    assert.ok(openTabAutoExpandedGroupBlock.includes('height: 50%'));
+    assert.ok(openTabAutoExpandedGroupBlock.includes('max-height: none'));
+    const openTabExpandedGroupBlock = extractExactScssBlock(
+        styles,
+        '.open-current-workspace-group.current-card-expanded'
+    );
+    const openTabExpandedCardBlock = extractExactScssBlock(
+        openTabExpandedGroupBlock,
+        '.workspace-card[data-codex-expanded]'
+    );
+    assert.ok(openTabExpandedCardBlock.includes('height: 100%'));
+    const openTabExpandedListBlock = extractExactScssBlock(
+        openTabExpandedCardBlock,
+        '.codex-sessions-list'
+    );
+    assert.ok(openTabExpandedListBlock.includes('height: auto'));
+    const compiledOpenTabExpandedListBlock = extractExactCssBlock(
+        compiledStyles,
+        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list'
+    );
+    assert.ok(compiledOpenTabExpandedListBlock.includes('height:auto'));
 }
 
 function runTmuxSmokeHarnessSafetyChecks() {
@@ -6300,6 +6324,12 @@ function runBatchAiSessionWebviewChecks() {
     );
     const openTabSplitSource = fs.readFileSync(openTabSplitSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedOpenTabSplitPath, 'utf8'), openTabSplitSource);
+    assert.ok(openTabSplitSource.includes('OPEN_TAB_PANE_MIN_EXPANDED_PX = 250'),
+        'the expanded CURRENT WINDOW pane needs a raised floor that keeps the AI session chrome reachable');
+    assert.ok(openTabSplitSource.includes("classList.contains('current-card-expanded')"),
+        'the pane floor must follow the rendered expanded class');
+    assert.ok(openTabSplitSource.includes('syncCurrentPaneMinimum'),
+        'init and expand toggles reconcile below-floor shares without rewriting the persisted share');
     const todoControlSourcePath = path.join(
         __dirname, '..', 'src', 'webview', 'webviewTodoControlScripts.js'
     );
@@ -6332,6 +6362,8 @@ function runBatchAiSessionWebviewChecks() {
     );
     const aiSessionControlsSource = fs.readFileSync(aiSessionControlsSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedAiSessionControlsPath, 'utf8'), aiSessionControlsSource);
+    assert.ok(aiSessionControlsSource.includes('__agentPivotOpenTabSplit.syncCurrentPaneMinimum'),
+        'expanding the CURRENT WINDOW card must raise a below-floor dragged share through the split module');
     const projectSource = fs.readFileSync(sourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
     const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
@@ -6479,6 +6511,9 @@ function runBatchAiSessionWebviewChecks() {
                     attributes.delete(attribute);
                 }
             },
+            // The toggle handler looks up the CURRENT WINDOW group to sync the
+            // fit-layout class; harness projects are not mounted in one.
+            closest: () => null,
             querySelector: selector => {
                 if (selector === '[data-ai-session-region]') return sessionRegion;
                 if (selector === '[data-action="archive-selected-ai-sessions"]') {

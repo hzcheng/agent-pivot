@@ -1118,6 +1118,12 @@ function initOpenTabSplit() {
     // property on .sticky-groups-wrapper, whose node survives authoritative
     // innerHTML replacements, so replacements never have to replay it.
     var OPEN_TAB_PANE_MIN_PX = 72;
+    // Expanded CURRENT WINDOW cards carry fixed AI-session chrome (module
+    // header, tabs, provider controls); the pane minimum rises so the chrome
+    // and one session row stay reachable. Measured against the sidebar fit
+    // layout (360px/240px widths) and mirrored as the min-height of the
+    // expanded rules in media/styles.scss.
+    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 250;
     var OPEN_TAB_KEY_STEP_PX = 24;
     var OPEN_TAB_STATE_KEY = 'openTab';
 
@@ -1242,16 +1248,29 @@ function initOpenTabSplit() {
         syncResizer();
     }
 
+    // The live CURRENT WINDOW pane floor: it rises while the card is
+    // expanded so the AI session controls can never be dragged out of reach.
+    function currentPaneMinPx() {
+        var group = findCurrentGroup();
+        return group && group.classList && group.classList.contains('current-card-expanded')
+            ? OPEN_TAB_PANE_MIN_EXPANDED_PX
+            : OPEN_TAB_PANE_MIN_PX;
+    }
+
+    function clampPanePx(nextPx, split) {
+        var minPx = currentPaneMinPx();
+        return Math.min(
+            Math.max(nextPx, minPx),
+            Math.max(split.inner - OPEN_TAB_PANE_MIN_PX, minPx)
+        );
+    }
+
     function applySharePx(nextPx) {
         var split = measureSplit();
         if (!split || split.wrapperHeight <= 0) {
             return;
         }
-        var clamped = Math.min(
-            Math.max(nextPx, OPEN_TAB_PANE_MIN_PX),
-            Math.max(split.inner - OPEN_TAB_PANE_MIN_PX, OPEN_TAB_PANE_MIN_PX)
-        );
-        currentShare = clamped / split.wrapperHeight;
+        currentShare = clampPanePx(nextPx, split) / split.wrapperHeight;
         applyShare();
         syncResizer();
     }
@@ -1346,6 +1365,25 @@ function initOpenTabSplit() {
         }
     }
 
+    // Re-clamp the live share against the current pane minimum without
+    // rewriting the persisted share: the minimum rises when the CURRENT
+    // WINDOW card expands (and the persisted value may predate that state),
+    // so init and expand/collapse toggles reconcile the applied pane here.
+    function syncCurrentPaneMinimum() {
+        if (currentShare !== null) {
+            var split = measureSplit();
+            if (split && split.wrapperHeight > 0) {
+                var px = currentShare * split.wrapperHeight;
+                var clamped = clampPanePx(px, split);
+                if (Math.abs(clamped - px) > 0.5) {
+                    currentShare = clamped / split.wrapperHeight;
+                    applyShare();
+                }
+            }
+        }
+        syncResizer();
+    }
+
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('pointermove', onPointerMove);
     document.addEventListener('pointerup', onPointerUp);
@@ -1354,15 +1392,17 @@ function initOpenTabSplit() {
     window.addEventListener('resize', scheduleSyncResizer);
 
     applyShare();
-    syncResizer();
+    syncCurrentPaneMinimum();
 
     window.__agentPivotOpenTabSplit = {
         sync: syncResizer,
+        syncCurrentPaneMinimum: syncCurrentPaneMinimum,
     };
 
     return {
         applyShare: applyShare,
         syncResizer: syncResizer,
+        syncCurrentPaneMinimum: syncCurrentPaneMinimum,
         getCurrentShare: () => currentShare,
     };
 }
@@ -3392,6 +3432,20 @@ function initProjectAiSessionControls(options) {
             exitAiSessionBatchManagement();
         }
         projectDiv.toggleAttribute("data-codex-expanded", expanded);
+        // Keep the CURRENT WINDOW group class in sync so the open-tab fit
+        // layout (no :has(), for older webview Chromium) reacts immediately;
+        // authoritative group re-renders replay the same class afterwards.
+        var currentWorkspaceGroup = projectDiv.closest(".open-current-workspace-group");
+        if (currentWorkspaceGroup) {
+            currentWorkspaceGroup.classList.toggle("current-card-expanded", expanded);
+            // The expanded pane floor is higher than the collapsed one: grow
+            // out of a too-small dragged share so the AI session controls
+            // stay reachable. Collapsing keeps the user's share untouched.
+            if (window.__agentPivotOpenTabSplit
+                && typeof window.__agentPivotOpenTabSplit.syncCurrentPaneMinimum === "function") {
+                window.__agentPivotOpenTabSplit.syncCurrentPaneMinimum();
+            }
+        }
         updateStickyGroupHeaderOffset();
 
         window.vscode.postMessage({

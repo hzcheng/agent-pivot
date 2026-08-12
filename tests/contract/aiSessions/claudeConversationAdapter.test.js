@@ -1644,3 +1644,160 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 Claude stamps completedAt from the last 
         Date.parse('2026-08-01T10:05:03.000Z')
     );
 });
+
+function claudeWireTurn(index, input) {
+    const base = new Date(1_800_000_000_000 + index * 10_000).toISOString();
+    return [
+        JSON.stringify({ type: 'user', uuid: `race-user-${index}`,
+            timestamp: base,
+            message: { role: 'user', content: input || `turn ${index}` } }),
+        JSON.stringify({ type: 'assistant', uuid: `race-assistant-${index}`,
+            timestamp: base,
+            message: { role: 'assistant', content: `answer ${index}` } }),
+        '',
+    ].join('\n');
+}
+
+test('CONVERSATION-CACHE-CONVERGENCE-001 Claude racing incremental reads never truncate the cached outline', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(
+        source.sourcePath,
+        [0, 1, 2].map(index => claudeWireTurn(index)).join('')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const initial = await adapter.readOutline(sessionId);
+    assert.equal(initial.interactions.length, 3);
+
+    const tick = () => new Promise(resolve => setImmediate(resolve));
+    let expected = 3;
+    for (let round = 0; round < 12; round += 1) {
+        expected += 1;
+        await fs.promises.appendFile(
+            source.sourcePath,
+            claudeWireTurn(100 + round)
+        );
+        // Warmup, telemetry polls, watch refreshes, and authoritative clicks
+        // all share the per-session cache. Stagger a wave of reads so some
+        // of them commit while others are mid-read.
+        const wave = [];
+        for (let stagger = 0; stagger < 5; stagger += 1) {
+            wave.push((async () => {
+                for (let pause = 0; pause < stagger; pause += 1) {
+                    await tick();
+                }
+                return stagger % 2 === 0
+                    ? adapter.readOutline(sessionId)
+                    : adapter.readSnapshot(sessionId);
+            })());
+        }
+        const results = await Promise.all(wave);
+        for (const result of results) {
+            const outline = result.outline || result;
+            assert.equal(
+                outline.interactions.length,
+                expected,
+                `round ${round} returned a truncated outline`
+            );
+        }
+    }
+
+    const truth = createAdapter(source);
+    t.after(() => truth.dispose());
+    const expectedOutline = await truth.readOutline(sessionId);
+    const converged = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        converged.interactions.map(item => item.id),
+        expectedOutline.interactions.map(item => item.id)
+    );
+});
+
+test('CONVERSATION-CACHE-CONVERGENCE-001 Claude an empty source picks up appended turns on the next read', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, '');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const empty = await adapter.readOutline(sessionId);
+    assert.equal(empty.interactions.length, 0);
+
+    await fs.promises.appendFile(
+        source.sourcePath,
+        claudeWireTurn(1, 'first turn')
+    );
+    const grown = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        grown.interactions.map(item => item.userPreview),
+        ['first turn']
+    );
+});
+
+test('CONVERSATION-CACHE-CONVERGENCE-001 Claude replaced or truncated sources are cold re-read', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(
+        source.sourcePath,
+        [0, 1, 2].map(index => claudeWireTurn(index)).join('')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    assert.equal((await adapter.readOutline(sessionId)).interactions.length, 3);
+
+    // Atomic replacement swaps the inode: the cache must cold re-read.
+    const replacementPath = path.join(source.providerHome, 'session.jsonl.next');
+    await fs.promises.writeFile(
+        replacementPath,
+        claudeWireTurn(7, 'replacement turn')
+    );
+    await fs.promises.rename(replacementPath, source.sourcePath);
+    const replaced = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        replaced.interactions.map(item => item.userPreview),
+        ['replacement turn']
+    );
+
+    // Truncation shrinks the file in place: the cache must cold re-read too.
+    await fs.promises.writeFile(
+        source.sourcePath,
+        claudeWireTurn(9, 'truncated turn')
+    );
+    const truncated = await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        truncated.interactions.map(item => item.userPreview),
+        ['truncated turn']
+    );
+});
+
+test('CONVERSATION-FOLLOW-DIAGNOSTICS-001 Claude exposes sanitized cache diagnostics for empty follows', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(
+        source.sourcePath,
+        [0, 1].map(index => claudeWireTurn(index)).join('')
+    );
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    assert.equal(adapter.getCacheDiagnostics(sessionId), undefined);
+
+    await adapter.readOutline(sessionId);
+    const cold = adapter.getCacheDiagnostics(sessionId);
+    assert.deepEqual(Object.keys(cold).sort(), [
+        'cachedInteractions',
+        'cachedNextOffset',
+        'continuation',
+        'partial',
+        'sourceSize',
+    ]);
+    assert.equal(cold.cachedInteractions, 2);
+    assert.equal(cold.cachedNextOffset, fs.statSync(source.sourcePath).size);
+    assert.equal(cold.sourceSize, fs.statSync(source.sourcePath).size);
+    assert.equal(cold.continuation, false);
+    assert.equal(cold.partial, false);
+
+    await fs.promises.appendFile(source.sourcePath, claudeWireTurn(2));
+    await adapter.readOutline(sessionId);
+    const incremental = adapter.getCacheDiagnostics(sessionId);
+    assert.equal(incremental.continuation, true);
+    assert.equal(incremental.cachedInteractions, 3);
+    assert.equal(incremental.cachedNextOffset, fs.statSync(source.sourcePath).size);
+});

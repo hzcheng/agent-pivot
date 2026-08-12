@@ -171,6 +171,12 @@ const COLD_START_MAX_WALK_MS = 120_000;
 const COLD_START_TAIL_TURNS = 40;
 const COLD_START_TAIL_BYTES = 1536 * 1024;
 const COLD_START_MATERIALIZE_PAGE_TURNS = 8;
+// Per-entry budget for materialized (full-chunk) characters, on the
+// order of the viewer's retained window: scrolling history materializes
+// chunks, and least-recently-used full chunks fall back to skeletons
+// beyond this budget so a long browsing session cannot re-inflate the
+// entry toward the whole conversation.
+const WINDOWED_ENTRY_MATERIALIZED_CHARS = 4 * 1024 * 1024;
 
 interface LoadedConversation {
     interactions: ConversationInteraction[];
@@ -228,11 +234,18 @@ interface LoadedConversationTurn {
     // leave this empty — they join reuse decisions via summaryFingerprint.
     fingerprint: string;
     // Hash of the turn's summary-level projection (turn fields + first
-    // user message + final agent message), derived identically from a
-    // summary page or a full turn. Stable across materialization.
+    // user message), derived identically from a summary page or a full
+    // turn. Stable across materialization.
     summaryFingerprint: string;
+    // The skeleton's summary item ids, kept on full chunks so a chunk
+    // can be demoted back to a skeleton (freshness invalidation or the
+    // materialized-window LRU) without another fetch.
+    skeletonItemIds: string[];
     characters: number;
     kind: 'full' | 'skeleton';
+    // Full chunks only: last time the chunk was materialized or covered
+    // by a served page; drives the materialized-window LRU.
+    lastTouchedAt?: number;
 }
 
 interface CachedLoadedConversation {
@@ -721,6 +734,46 @@ function turnSummaryFingerprint(turn: Record<string, any>): string {
 // structure generation (interaction-id set changes). Materializing a
 // skeleton without an id-set change alters none of the inputs, so
 // retained-page cursors survive scrolling-driven materialization.
+// Rebuilds a full chunk's interactions into skeleton form (the
+// outline-level projection of its FIRST interaction) and demotes it.
+// Demotion is how materialized content re-enters the
+// "fetched live before it is shown" state: the summary fingerprint and
+// skeleton item ids are inherited, so the projection revision only moves
+// when the demotion shrinks the interaction-id set (an expanded
+// multi-user-message turn), which the caller reports through the
+// structure generation.
+function demoteToSkeleton(
+    chunk: LoadedConversationTurn
+): LoadedConversationTurn {
+    const first = chunk.interactions[0];
+    const interactions: ConversationInteraction[] = first
+        ? [{
+            id: first.id,
+            ...(first.providerTurnId !== undefined
+                ? { providerTurnId: first.providerTurnId } : {}),
+            ...(first.timestamp !== undefined
+                ? { timestamp: first.timestamp } : {}),
+            ...(first.completedAt !== undefined
+                ? { completedAt: first.completedAt } : {}),
+            userMarkdown: first.userMarkdown,
+            userPreview: first.userPreview,
+            userGraphemeCount: first.userGraphemeCount,
+            assistantMarkdown: [],
+            responseState: first.responseState,
+        }]
+        : [];
+    return {
+        turnId: chunk.turnId,
+        kind: 'skeleton',
+        interactions,
+        itemIds: [...chunk.skeletonItemIds],
+        fingerprint: '',
+        summaryFingerprint: chunk.summaryFingerprint,
+        skeletonItemIds: [...chunk.skeletonItemIds],
+        characters: conversationCharacters(interactions),
+    };
+}
+
 function composeWindowedRevision(
     contentEpochSignature: string,
     turns: readonly LoadedConversationTurn[],
@@ -1265,6 +1318,16 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             { fromChunk, toChunk },
             signal
         );
+        // Serving a window keeps its full chunks alive for the LRU.
+        const touchedAt = this.now();
+        for (let index = Math.max(0, fromChunk);
+            index <= Math.min(entry.turns.length - 1, toChunk);
+            index += 1) {
+            const chunk = entry.turns[index];
+            if (chunk.kind === 'full') {
+                chunk.lastTouchedAt = touchedAt;
+            }
+        }
         return this.withRunningLifecycle(sessionId, entry.value);
     }
 
@@ -1921,7 +1984,30 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         if (anchorIndex < 0 && isWindowed) {
             return { rebuild: true };
         }
-        const kept = anchorIndex >= 0 ? cached.turns.slice(0, -1) : [];
+        // Windowed freshness closure: a moved stat means any materialized
+        // chunk the anchor walk does not re-verify can hold stale content
+        // (in-place history edits exist: updated_at_ordinal). Demote kept
+        // full chunks back to skeletons — they re-materialize live before
+        // they are shown again. The anchor chunk itself is re-fetched
+        // below, so it is never demoted here. Full-basis entries keep
+        // their exact previous behavior.
+        let demotedMaterialized = false;
+        let demotionShrunkIdSets = false;
+        let kept = anchorIndex >= 0 ? cached.turns.slice(0, -1) : [];
+        if (isWindowed && anchorIndex >= 0) {
+            kept = kept.map(chunk => {
+                if (chunk.kind !== 'full') {
+                    return chunk;
+                }
+                demotedMaterialized = true;
+                const demotedChunk = demoteToSkeleton(chunk);
+                if (demotedChunk.interactions.length
+                    !== chunk.interactions.length) {
+                    demotionShrunkIdSets = true;
+                }
+                return demotedChunk;
+            });
+        }
         const reloaded = (anchorIndex >= 0
             ? fetched.slice(0, anchorIndex + 1)
             : fetched
@@ -1933,7 +2019,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         if (isWindowed) {
             // Projection revision: unchanged when neither the outline-level
             // turn structure nor any materialized chunk's content moved.
-            let unchanged = turns.length === cached.turns.length;
+            // Any demotion counts as a change: demoted content was not
+            // re-verified, so the revision must move and let the viewer
+            // re-read visible pages (they re-materialize fresh).
+            let unchanged = !demotedMaterialized
+                && turns.length === cached.turns.length;
             for (let index = 0; unchanged && index < turns.length; index += 1) {
                 const next = turns[index];
                 const prev = cached.turns[index];
@@ -1954,7 +2044,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     contentEpochSignature: cached.contentEpochSignature,
                 };
             }
-            const structureGen = cached.structureGen ?? 0;
+            const structureGen = (cached.structureGen ?? 0)
+                + (demotionShrunkIdSets ? 1 : 0);
             const epochSignature = signature
                 ?? cached.contentEpochSignature
                 ?? '';
@@ -2044,8 +2135,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     itemIds: context.newItemIds,
                     fingerprint: fingerprintInteractions(context.interactions),
                     summaryFingerprint: turnSummaryFingerprint(turn),
+                    skeletonItemIds: skeletonTurnInteractions(turn).itemIds,
                     characters: conversationCharacters(context.interactions),
                     kind: 'full' as const,
+                    lastTouchedAt: this.now(),
                 });
             }
         } catch (_error) {
@@ -2074,6 +2167,27 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         signal: ConversationAbortSignal | undefined,
         force: boolean
     ): Promise<WindowedLoadResult> {
+        // One retry against a source that moved mid-load: the closure
+        // checks in the attempt reject mixed-epoch entries, and the
+        // retry simply re-walks under a fresh signature.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const result = await this.loadWindowedAttempt(
+                sessionId,
+                signal,
+                force
+            );
+            if (result !== 'stale') {
+                return result;
+            }
+        }
+        return null;
+    }
+
+    private async loadWindowedAttempt(
+        sessionId: string,
+        signal: ConversationAbortSignal | undefined,
+        force: boolean
+    ): Promise<WindowedLoadResult | 'stale'> {
         if (this.disposed) {
             throw new ConversationError('unavailable', 'reconnectingCodex');
         }
@@ -2126,7 +2240,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }[] = [];
         let cursor: string | undefined;
         const walkStartedAt = this.now();
-        let slowPages = 0;
+        const recentPageMs: number[] = [];
         for (;;) {
             if (pages.length >= COLD_START_MAX_WALK_PAGES
                 || this.now() - walkStartedAt >= COLD_START_MAX_WALK_MS) {
@@ -2177,11 +2291,18 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 nextCursor: parsed.nextCursor,
                 startCursor: cursor,
             });
-            if (pageMs >= COLD_START_SLOW_PAGE_MS) {
-                slowPages += 1;
-            }
-            if (!force && pages.length === 2 && slowPages === 2) {
-                return { legacy: true };
+            recentPageMs.push(pageMs);
+            // Legacy verdict: the median of the recent pages (up to 3,
+            // at least 2 — a two-page window takes the SMALLER, i.e.
+            // both pages must be slow) costs a full replay each. A fast
+            // first page followed by sustained replay pricing verdicts
+            // on page three; a single jittery page never does.
+            if (!force && recentPageMs.length >= 2) {
+                const windowMs = recentPageMs.slice(-3).sort((a, b) => a - b);
+                if (windowMs[Math.floor((windowMs.length - 1) / 2)]
+                    >= COLD_START_SLOW_PAGE_MS) {
+                    return { legacy: true };
+                }
             }
             if (!parsed.nextCursor) {
                 break;
@@ -2193,6 +2314,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 return null;
             }
             cursor = parsed.nextCursor;
+        }
+        // Walk closure: the stat signature must still be the one the walk
+        // started under, or the skeleton set mixes epochs.
+        if (this.contentSignature(sessionId) !== signature) {
+            return 'stale';
         }
 
         // Skeleton chunks in chronological order. Summary item ids join
@@ -2223,6 +2349,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                         itemIds: skeleton.itemIds,
                         fingerprint: '',
                         summaryFingerprint: turnSummaryFingerprint(turn),
+                        skeletonItemIds: [...skeleton.itemIds],
                         characters: conversationCharacters(
                             skeleton.interactions
                         ),
@@ -2235,9 +2362,23 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }
 
         // Eagerly materialize the tail window (~one retained viewer page
-        // set) so the initial snapshot needs no second round trip.
-        if (!await this.materializeTailWindow(sessionId, chunks, itemIds, signal)) {
+        // set) so the initial snapshot needs no second round trip. Every
+        // landed page is checked against the walk's signature.
+        const tail = await this.materializeTailWindow(
+            sessionId,
+            chunks,
+            itemIds,
+            signal,
+            signature
+        );
+        if (tail === 'stale') {
+            return 'stale';
+        }
+        if (!tail) {
             return null;
+        }
+        if (this.contentSignature(sessionId) !== signature) {
+            return 'stale';
         }
         const structureGen = 0;
         const sourceRevision = composeWindowedRevision(
@@ -2325,6 +2466,24 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             return 'skipped';
         }
         const ownIds = new Set(existing.itemIds);
+        // A response-spanning item can be projected into different turns
+        // by fetches taken at different times (observed on a live 183MB
+        // session: a reasoning item shared between turns 90 and 218).
+        // Colliding with another chunk's ids means the fetched page and
+        // the cached skeleton set come from different projection epochs —
+        // NOT a protocol violation. Report it as staleness so the caller
+        // re-reads a consistent snapshot, never circuit-breaking the
+        // accelerator on a transient.
+        for (const rawItem of turn.items as unknown[]) {
+            const item = asRecord(rawItem);
+            if (item
+                && typeof item.id === 'string'
+                && item.id
+                && itemIds.has(item.id)
+                && !ownIds.has(item.id)) {
+                throw new ConversationError('staleRevision');
+            }
+        }
         const context: NormalizeTurnContext = {
             interactions: [],
             itemIds: new Set(
@@ -2347,7 +2506,9 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             // moved mid-load; taking the fresh one is safe because the
             // stat signature check reconciles the entry on the next load.
             summaryFingerprint: turnSummaryFingerprint(turn),
+            skeletonItemIds: [...existing.skeletonItemIds],
             characters: conversationCharacters(context.interactions),
+            lastTouchedAt: this.now(),
         };
         const predicted = existing.interactions.map(interaction => interaction.id);
         const actual = context.interactions.map(interaction => interaction.id);
@@ -2358,13 +2519,15 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
 
     // Fetches full turns descending from the tail and commits them until
     // the turn/byte budget is exhausted. Returns false on transient
-    // failure so the caller falls back to the stable full read.
+    // failure (caller falls back) and 'stale' when the source moved
+    // under the walk's signature mid-flight.
     private async materializeTailWindow(
         sessionId: string,
         chunks: LoadedConversationTurn[],
         itemIds: Set<string>,
-        signal: ConversationAbortSignal | undefined
-    ): Promise<boolean> {
+        signal: ConversationAbortSignal | undefined,
+        signature: string
+    ): Promise<boolean | 'stale'> {
         const chunkIndexByTurnId = new Map(
             chunks.map((chunk, index) => [chunk.turnId, index] as const)
         );
@@ -2382,6 +2545,9 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             if (!parsed) {
                 return false;
             }
+            if (this.contentSignature(sessionId) !== signature) {
+                return 'stale';
+            }
             if (parsed.turns.length === 0) {
                 return true;
             }
@@ -2396,7 +2562,12 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                         turn
                     );
                 }
-            } catch (_error) {
+            } catch (error) {
+                if (error instanceof ConversationError
+                    && error.code === 'staleRevision') {
+                    // Mixed projection epochs; the wrapper re-walks once.
+                    return 'stale';
+                }
                 this.paginatedReadsDisabled = true;
                 return false;
             }
@@ -2506,9 +2677,12 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 if (signal?.aborted) {
                     throw new ConversationAbortError();
                 }
-                // Commit rule, checked per page: the adapter must be
-                // alive, and the entry must still sit in its cache slot
-                // under its load-time signature.
+                // Commit rule, checked per page BEFORE the fetch and
+                // again AFTER the page lands: the adapter must be alive,
+                // and the entry must still sit in its cache slot under
+                // its load-time signature. The source moving mid-flight
+                // must never see its content committed under the old
+                // epoch.
                 if (this.disposed) {
                     throw new ConversationError(
                         'unavailable',
@@ -2530,6 +2704,17 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 if (!parsed) {
                     throw new ConversationError('unavailable', 'missingSource');
                 }
+                if (this.disposed) {
+                    throw new ConversationError(
+                        'unavailable',
+                        'reconnectingCodex'
+                    );
+                }
+                if (this.loadedConversationCache.get(sessionId) !== entry
+                    || this.contentSignature(sessionId)
+                        !== entry.contentSignature) {
+                    throw new ConversationError('staleRevision');
+                }
                 if (parsed.turns.length === 0) {
                     throw new ConversationError('staleRevision');
                 }
@@ -2545,14 +2730,27 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                             expanded = true;
                         }
                     }
-                } catch (_error) {
+                } catch (error) {
+                    if (error instanceof ConversationError
+                        && error.code === 'staleRevision') {
+                        // Mixed projection epochs: drop the entry so the
+                        // next read re-walks a consistent snapshot. The
+                        // accelerator survives.
+                        this.deleteLoadedConversationCacheEntry(
+                            sessionId,
+                            entry
+                        );
+                        throw error;
+                    }
                     this.paginatedReadsDisabled = true;
-                    throw protocolError();
+                    throw error instanceof ConversationError
+                        ? error
+                        : protocolError();
                 }
                 covered = new Set(
                     pageTargets.filter(index => chunks[index].kind === 'full')
                 );
-                this.commitMaterializedEntry(entry, expanded);
+                this.commitMaterializedEntry(entry, expanded, from, to);
                 if (!parsed.nextCursor) {
                     break;
                 }
@@ -2562,14 +2760,20 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     }
 
     // Rebuilds a windowed entry's flat interaction array and revision
-    // after one materialization page, and keeps the character accounting
-    // in sync with the chunk replacements.
+    // after one materialization page, keeps the character accounting in
+    // sync, and enforces the per-entry materialized-window budget: the
+    // least-recently-touched full chunks outside the protected ranges
+    // (the served range and the tail window zone) demote back to
+    // skeletons, so long browsing cannot re-inflate the entry toward the
+    // whole conversation.
     private commitMaterializedEntry(
         entry: CachedLoadedConversation
             & { turns: LoadedConversationTurn[] },
-        expanded: boolean
+        expanded: boolean,
+        protectFrom: number,
+        protectTo: number
     ): void {
-        const characters = entry.turns.reduce(
+        let characters = entry.turns.reduce(
             (sum, chunk) => sum + chunk.characters,
             0
         );
@@ -2577,6 +2781,44 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         entry.characters = characters;
         if (expanded) {
             entry.structureGen = (entry.structureGen ?? 0) + 1;
+        }
+        if (characters > WINDOWED_ENTRY_MATERIALIZED_CHARS) {
+            const tailFrom = Math.max(
+                0,
+                entry.turns.length - COLD_START_TAIL_TURNS
+            );
+            const candidates: number[] = [];
+            for (let index = 0; index < entry.turns.length; index += 1) {
+                if (index >= tailFrom
+                    || (index >= protectFrom && index <= protectTo)) {
+                    continue;
+                }
+                if (entry.turns[index].kind === 'full') {
+                    candidates.push(index);
+                }
+            }
+            candidates.sort((left, right) =>
+                (entry.turns[left].lastTouchedAt ?? 0)
+                - (entry.turns[right].lastTouchedAt ?? 0));
+            let shrunkIdSets = false;
+            for (const index of candidates) {
+                if (entry.characters <= WINDOWED_ENTRY_MATERIALIZED_CHARS) {
+                    break;
+                }
+                const before = entry.turns[index];
+                const demoted = demoteToSkeleton(before);
+                if (demoted.interactions.length
+                    !== before.interactions.length) {
+                    shrunkIdSets = true;
+                }
+                entry.turns[index] = demoted;
+                entry.characters -= before.characters - demoted.characters;
+                this.loadedConversationCacheChars -= before.characters
+                    - demoted.characters;
+            }
+            if (shrunkIdSets) {
+                entry.structureGen = (entry.structureGen ?? 0) + 1;
+            }
         }
         const sourceRevision = composeWindowedRevision(
             entry.contentEpochSignature ?? entry.contentSignature,
@@ -2719,8 +2961,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             ...chunk,
             fingerprint: fingerprintInteractions(chunk.interactions),
             // Full-read entries compose the revision from full
-            // fingerprints only; the summary projection is not tracked.
+            // fingerprints only; the summary projection is not tracked
+            // and full-basis chunks are never demoted.
             summaryFingerprint: '',
+            skeletonItemIds: [],
             characters: conversationCharacters(chunk.interactions),
             kind: 'full' as const,
         }));

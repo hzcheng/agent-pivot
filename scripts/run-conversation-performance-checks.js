@@ -166,9 +166,12 @@ async function measureCodexLegacyColdStart() {
     const threadId = '77777777-7777-4777-8777-777777777777';
     const payload = createCodexPerfThread(threadId, 205, 60 * 1024);
     const methods = [];
-    // Simulated wall clock: every thread/turns/list page costs a full
-    // replay (600ms on a 60MB-class legacy rollout, per the spike).
+    // Simulated wall clock: the first page is cache-warm fast, every
+    // later page costs a full replay (600ms on a 60MB-class legacy
+    // rollout, per the spike) — the rolling median must verdict on the
+    // third page, never walk the whole history slowly.
     let simulatedMs = 1_000;
+    let pageCount = 0;
     const adapter = new CodexConversationAdapter({
         client: {
             async ensureReady() {
@@ -179,7 +182,8 @@ async function measureCodexLegacyColdStart() {
                 methods.push(method);
                 assert.equal(params.threadId, threadId);
                 if (method === 'thread/turns/list') {
-                    simulatedMs += 600;
+                    pageCount += 1;
+                    simulatedMs += pageCount === 1 ? 20 : 600;
                     return serveCodexTurnsListPage(
                         payload.thread.turns,
                         params
@@ -206,10 +210,12 @@ async function measureCodexLegacyColdStart() {
         const outline = await adapter.readOutline(threadId);
         const realMs = elapsedMs(startedAt);
         assert.equal(outline.totalInteractions, 205);
-        // The legacy verdict must fall back to one full read after exactly
-        // two replay-priced pages — not walk the whole history.
+        // The legacy verdict must fall back to one full read after the
+        // fast first page plus two replay-priced pages — never walk the
+        // whole history at replay prices.
         assert.deepEqual(methods, [
             'ensureReady',
+            'thread/turns/list',
             'thread/turns/list',
             'thread/turns/list',
             'thread/read',

@@ -80,6 +80,17 @@ and legacy sessions are a shrinking, pre-0.147 population).
 - Not needed for the adapter: driving `thread/turns/list` directly gives the
   same bootstrap with fewer experimental params and identical page semantics.
 
+## Live-session hazard (found during adapter validation)
+
+Item ids are not reliably turn-scoped while a session is being written:
+a response-spanning reasoning item was projected into turn 218 by one
+fetch and turn 90 by another (real 183MB session, 2026-08-12). Pages
+fetched at different times can disagree about item→turn assignment, so
+cross-page item-id collisions must be treated as a mixed-epoch signal
+(invalidate the assembled state and re-read), not as a protocol
+violation. Quiescent sessions are fully consistent (zero collisions in
+repeated censuses).
+
 ## Feasibility verdict for Phase 3
 
 1. **Windowed cold start is viable and transformative for paginated

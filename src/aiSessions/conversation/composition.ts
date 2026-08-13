@@ -142,6 +142,13 @@ export interface ConversationCapabilityOptions {
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
     readSessionStatus?: ConversationViewerOptions['readSessionStatus'];
+    /**
+     * The context window declared by the Codex profile overlay a session runs
+     * with, if any. Injected for the codex adapter's telemetry display: the
+     * app-server under-reports custom provider model windows. The model lets
+     * the implementation match sessions started outside the extension.
+     */
+    getCodexSessionProfileContextWindow?: (sessionId: string, model?: string) => number | undefined;
     setConversationFocusContext?: (
         focused: boolean
     ) => PromiseLike<void> | Promise<void> | void;
@@ -254,6 +261,7 @@ function createAvailableConversationCapability(
             ),
         listSubagentThreads: sessionId =>
             options.services.codex.listSubagentThreads?.(sessionId) || [],
+        getSessionProfileContextWindow: options.getCodexSessionProfileContextWindow,
     }));
     ownership.transfer(codexClient);
     const kimiAdapter = ownership.own(factories.createKimiAdapter({

@@ -239,3 +239,93 @@ test('SESSION-CODEX-PROFILE-DISCOVERY-001 reads and validates the default profil
     assert.equal(readCodexDefaultProfile(makeWorkspaceConfiguration({ codexDefaultProfile: '' })), undefined);
     assert.equal(readCodexDefaultProfile(makeWorkspaceConfiguration({})), undefined);
 });
+
+test('CONVERSATION-TELEMETRY-001 reads a profile top-level model_context_window', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-profile-window-'));
+    try {
+        fs.writeFileSync(path.join(home, 'deepseek.config.toml'), [
+            'model_provider = "codewiz"',
+            'model = "codewiz:deepseek-pro"',
+            'model_context_window = 1000000',
+            'model_auto_compact_token_limit = 900000',
+            '',
+            '[model_providers.codewiz]',
+            'name = "codewiz"',
+            'base_url = "http://localhost:18089"',
+        ].join('\n'));
+        fs.writeFileSync(path.join(home, 'sectioned.config.toml'), [
+            '[model_providers.codewiz]',
+            'model_context_window = 512000',
+        ].join('\n'));
+        fs.writeFileSync(path.join(home, 'huge.config.toml'), 'model_context_window = 999999999999');
+        fs.writeFileSync(path.join(home, 'commented.config.toml'), '# model_context_window = 128000\nmodel_context_window = 64000 # cap');
+
+        assert.equal(profiles.readCodexProfileContextWindow('deepseek', { CODEX_HOME: home }, '/x'), 1000000);
+        assert.equal(profiles.readCodexProfileContextWindow('sectioned', { CODEX_HOME: home }, '/x'), undefined,
+            'a window inside a [model_providers.*] table is not the top-level override');
+        assert.equal(profiles.readCodexProfileContextWindow('huge', { CODEX_HOME: home }, '/x'), undefined,
+            'implausible values are rejected');
+        assert.equal(profiles.readCodexProfileContextWindow('commented', { CODEX_HOME: home }, '/x'), 64000);
+        assert.equal(profiles.readCodexProfileContextWindow('missing', { CODEX_HOME: home }, '/x'), undefined);
+        assert.equal(profiles.readCodexProfileContextWindow('../etc', { CODEX_HOME: home }, '/x'), undefined);
+    } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+    }
+});
+
+test('CONVERSATION-TELEMETRY-001 caches the profile context window briefly per resolved path', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-profile-window-cache-'));
+    try {
+        const filePath = path.join(home, 'deepseek.config.toml');
+        fs.writeFileSync(filePath, 'model_context_window = 1000000\n');
+        assert.equal(profiles.readCodexProfileContextWindow('deepseek', { CODEX_HOME: home }, '/x', 1000), 1000000);
+
+        fs.writeFileSync(filePath, 'model_context_window = 2000000\n');
+        assert.equal(profiles.readCodexProfileContextWindow('deepseek', { CODEX_HOME: home }, '/x', 1000 + 5000), 1000000,
+            'a fresh write inside the TTL still serves the cached value');
+        assert.equal(profiles.readCodexProfileContextWindow('deepseek', { CODEX_HOME: home }, '/x', 1000 + 11000), 2000000,
+            'the value re-reads after the TTL expires');
+    } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+    }
+});
+
+test('CONVERSATION-TELEMETRY-001 resolves the context window for a model declared by exactly one profile window', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-profile-model-window-'));
+    try {
+        const write = (name, lines) => fs.writeFileSync(path.join(home, `${name}.config.toml`), lines.join('\n'));
+        write('deepseek', [
+            'model_provider = "codewiz"',
+            'model = "codewiz:deepseek-pro"',
+            'model_context_window = 1000000',
+        ]);
+        write('deepseek-fast', [
+            'model = "codewiz:deepseek-flash"',
+            'model_context_window = 1000000',
+        ]);
+        write('dots', [
+            'model = "codewiz:dots"',
+            'model_context_window = 256000',
+        ]);
+        write('dots-mirror', [
+            'model = "codewiz:dots"',
+            'model_context_window = 256000',
+        ]);
+        write('conflicted-a', ['model = "same:model"', 'model_context_window = 100000']);
+        write('conflicted-b', ['model = "same:model"', 'model_context_window = 200000']);
+        write('windowless', ['model = "codewiz:windowless"']);
+
+        const env = { CODEX_HOME: home };
+        assert.equal(profiles.readCodexProfileContextWindowForModel('codewiz:deepseek-pro', env, '/x'), 1000000);
+        assert.equal(profiles.readCodexProfileContextWindowForModel('codewiz:dots', env, '/x'), 256000,
+            'profiles agreeing on the window are unambiguous');
+        assert.equal(profiles.readCodexProfileContextWindowForModel('same:model', env, '/x'), undefined,
+            'conflicting windows leave the server-reported value in place');
+        assert.equal(profiles.readCodexProfileContextWindowForModel('codewiz:windowless', env, '/x'), undefined,
+            'a model without a declared window cannot override');
+        assert.equal(profiles.readCodexProfileContextWindowForModel('codewiz:unknown', env, '/x'), undefined);
+        assert.equal(profiles.readCodexProfileContextWindowForModel('', env, '/x'), undefined);
+    } finally {
+        fs.rmSync(home, { recursive: true, force: true });
+    }
+});

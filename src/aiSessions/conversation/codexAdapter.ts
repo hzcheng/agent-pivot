@@ -109,6 +109,12 @@ export interface CodexConversationAdapterOptions {
     listSubagentThreads?(
         sessionId: string
     ): AiSessionCodexSubagentThread[] | Promise<AiSessionCodexSubagentThread[]>;
+    // The context window declared by the session's Codex profile overlay, if
+    // any. The app-server reports its built-in default for custom provider
+    // models, so a declared profile value takes precedence for display. The
+    // model (when known) lets the host match sessions started outside the
+    // extension, which have no recorded profile decision.
+    getSessionProfileContextWindow?(sessionId: string, model?: string): number | undefined;
     now?(): number;
 }
 
@@ -1510,7 +1516,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         const context = rollout?.context
             || this.tokenUsageBySession.get(sessionId);
         if (context) {
-            telemetry.context = { ...context };
+            telemetry.context = this.applyProfileContextWindow(
+                sessionId,
+                rollout?.model,
+                context
+            );
         }
         return telemetry.model || telemetry.context || telemetry.worktree
             || telemetry.rateLimits.length
@@ -1570,7 +1580,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 telemetry.model = rollout.model;
             }
             if (rollout.context) {
-                telemetry.context = { ...rollout.context };
+                telemetry.context = this.applyProfileContextWindow(
+                    sessionId,
+                    rollout.model || telemetry.model,
+                    rollout.context
+                );
             }
         }
         if (!rollout?.currentWorkdir || !this.options.resolveWorktree) {
@@ -1658,6 +1672,19 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.options.client.dispose();
     }
 
+    private applyProfileContextWindow(
+        sessionId: string,
+        model: string | undefined,
+        context: { usedTokens: number; maxTokens: number }
+    ): { usedTokens: number; maxTokens: number } {
+        const override = this.options.getSessionProfileContextWindow?.(sessionId, model);
+        return typeof override === 'number'
+            && Number.isSafeInteger(override)
+            && override > 0
+            ? { ...context, maxTokens: override }
+            : { ...context };
+    }
+
     private acceptNotification(method: string, value: unknown): void {
         if (method !== 'thread/tokenUsage/updated') {
             return;
@@ -1674,10 +1701,14 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             || usage.modelContextWindow <= 0) {
             return;
         }
-        const context = {
-            usedTokens: Math.floor(last.totalTokens),
-            maxTokens: Math.floor(usage.modelContextWindow),
-        };
+        const context = this.applyProfileContextWindow(
+            params.threadId,
+            this.telemetryCache.get(params.threadId)?.value?.model,
+            {
+                usedTokens: Math.floor(last.totalTokens),
+                maxTokens: Math.floor(usage.modelContextWindow),
+            }
+        );
         this.makeRoomForTelemetrySession(params.threadId);
         this.tokenUsageBySession.set(params.threadId, context);
         const cached = this.telemetryCache.get(params.threadId);

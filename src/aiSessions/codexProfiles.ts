@@ -248,3 +248,103 @@ export class CodexProfileSupportProbe {
         }
     }
 }
+
+// A profile-declared model_context_window is authoritative for the telemetry
+// display: the app-server reports its built-in default (258400) for custom
+// provider models, ignoring the profile overlay. Files change rarely, so
+// reads are cached briefly per resolved path.
+const PROFILE_CONTEXT_WINDOW_CACHE_TTL_MS = 10 * 1000;
+const MAX_MODEL_CONTEXT_WINDOW = 100_000_000;
+const TOP_LEVEL_CONTEXT_WINDOW_PATTERN = /^\s*model_context_window\s*=\s*([0-9]+)\s*(?:#.*)?$/m;
+const TOP_LEVEL_MODEL_PATTERN = /^\s*model\s*=\s*"([^"]+)"\s*(?:#.*)?$/m;
+
+export interface CodexProfileModelConfig {
+    model?: string;
+    contextWindow?: number;
+}
+
+const profileModelConfigCache = new Map<string, { at: number; value: CodexProfileModelConfig }>();
+
+/**
+ * Reads the top-level `model` and `model_context_window` from a profile's
+ * `<name>.config.toml` overlay. Section-scoped keys (e.g. inside
+ * `[model_providers.*]`) never count. Invalid names and missing files yield
+ * an empty record.
+ */
+export function readCodexProfileModelConfig(
+    name: string,
+    env: NodeJS.ProcessEnv = process.env,
+    homedir: string = os.homedir(),
+    nowMs: number = Date.now()
+): CodexProfileModelConfig {
+    if (!isValidCodexProfileName(name)) {
+        return {};
+    }
+    const filePath = path.join(
+        resolveCodexHome(env, homedir),
+        `${name}${CODEX_PROFILE_CONFIG_SUFFIX}`
+    );
+    const cached = profileModelConfigCache.get(filePath);
+    if (cached && nowMs - cached.at < PROFILE_CONTEXT_WINDOW_CACHE_TTL_MS) {
+        return cached.value;
+    }
+    const value: CodexProfileModelConfig = {};
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        const topLevel = content.split(/^\s*\[/m, 1)[0] ?? '';
+        const modelMatch = TOP_LEVEL_MODEL_PATTERN.exec(topLevel);
+        if (modelMatch?.[1]?.trim()) {
+            value.model = modelMatch[1].trim().slice(0, 128);
+        }
+        const windowMatch = TOP_LEVEL_CONTEXT_WINDOW_PATTERN.exec(topLevel);
+        const parsed = windowMatch ? Number(windowMatch[1]) : Number.NaN;
+        if (Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_MODEL_CONTEXT_WINDOW) {
+            value.contextWindow = parsed;
+        }
+    } catch {
+        // Missing or unreadable files leave the record empty.
+    }
+    profileModelConfigCache.set(filePath, { at: nowMs, value });
+    return value;
+}
+
+/**
+ * Reads the top-level `model_context_window` from a profile's
+ * `<name>.config.toml` overlay. Returns undefined for unknown names, missing
+ * files, and absent or implausible values.
+ */
+export function readCodexProfileContextWindow(
+    name: string,
+    env: NodeJS.ProcessEnv = process.env,
+    homedir: string = os.homedir(),
+    nowMs: number = Date.now()
+): number | undefined {
+    return readCodexProfileModelConfig(name, env, homedir, nowMs).contextWindow;
+}
+
+/**
+ * Resolves the context window for a session whose model string is known but
+ * whose profile is not recorded (e.g. started via the Codex CLI directly):
+ * the window declared by the profiles whose top-level `model` matches.
+ * Returns undefined when no profile declares the model or when matching
+ * profiles disagree on the window.
+ */
+export function readCodexProfileContextWindowForModel(
+    model: string,
+    env: NodeJS.ProcessEnv = process.env,
+    homedir: string = os.homedir(),
+    nowMs: number = Date.now()
+): number | undefined {
+    if (typeof model !== 'string' || !model.trim()) {
+        return undefined;
+    }
+    const normalized = model.trim();
+    const windows = new Set<number>();
+    for (const name of listCodexConfigProfiles(env, homedir)) {
+        const config = readCodexProfileModelConfig(name, env, homedir, nowMs);
+        if (config.model === normalized && config.contextWindow) {
+            windows.add(config.contextWindow);
+        }
+    }
+    return windows.size === 1 ? [...windows][0] : undefined;
+}

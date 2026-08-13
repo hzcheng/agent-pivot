@@ -48,6 +48,8 @@ import {
     CodexProfileSupportProbe,
     codexProfileFileExists,
     listCodexConfigProfiles,
+    readCodexProfileContextWindow,
+    readCodexProfileContextWindowForModel,
 } from './aiSessions/codexProfiles';
 import AiSessionAliasController from './aiSessions/aliasController';
 import AiSessionPinStore from './aiSessions/pinStore';
@@ -1599,6 +1601,21 @@ async function initializeDashboard(
             conversationSessionRebindCoordinator.resolve(target),
         getShowThinking: () => getAgentPivotConfiguration()
             .get<unknown>('aiConversation.showThinking', false) === true,
+        getCodexSessionProfileContextWindow: (sessionId, model) => {
+            const decision = aiSessionProfileController.getDecision('codex', sessionId);
+            if (decision?.kind === 'profile') {
+                const declared = readCodexProfileContextWindow(decision.name);
+                if (declared) {
+                    return declared;
+                }
+            }
+            // Sessions started outside the extension (e.g. codex CLI -p) have
+            // no recorded decision: match their rollout model against the
+            // profiles' declared models instead.
+            return model
+                ? readCodexProfileContextWindowForModel(model)
+                : undefined;
+        },
         readSessionStatus: () => ({
             runningSessions: sumOpenWorkspaceRunningAiSessionCounts(
                 latestOpenWorkspaceAggregate

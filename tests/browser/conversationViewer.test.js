@@ -2203,6 +2203,52 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     assert.equal(await counter.isVisible(), true);
     assert.equal(await counter.innerText(), '0/0');
 });
+test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sidebar panel open and closed', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const subagents = [{
+        id: 'a11111111',
+        label: 'Explore the parser',
+        agentType: 'explore',
+        status: 'running',
+        updatedAt: 1_780_000_000_000,
+    }];
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 50,
+        updateKind: 'initial',
+        html: messageHtml('main-session-message', 2),
+        subagents,
+        activeSubagent: null,
+    });
+
+    const sidebar = page.locator('[data-conversation-sidebar]');
+    const telemetrySubagents = page.locator('[data-telemetry-subagents]');
+    const subagentsTab = page.locator('[data-sidebar-tab="subagents"]');
+
+    // Sidebar starts closed
+    assert.equal(await sidebar.isHidden(), true);
+
+    // Click telemetry subagents pill → sidebar opens with subagents tab
+    await telemetrySubagents.click();
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(await subagentsTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await telemetrySubagents.getAttribute('aria-pressed'), 'true');
+
+    // Click same pill again → sidebar closes (toggle)
+    await telemetrySubagents.click();
+    assert.equal(await sidebar.isHidden(), true);
+    assert.equal(await telemetrySubagents.getAttribute('aria-pressed'), 'false');
+
+    // Click again → reopens, verifying the toggle is reversible
+    await telemetrySubagents.click();
+    assert.equal(await sidebar.isVisible(), true);
+    assert.equal(await subagentsTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await telemetrySubagents.getAttribute('aria-pressed'), 'true');
+});
+
 
 test('CONVERSATION-FOLLOW-FEEDBACK-001 shows a dismissible follow notice and clears it on the next page', async t => {
     const { page } = await openHostViewerDocument(t, {
@@ -4621,7 +4667,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '9033d91105cd0f01abbf26831b5d459f279f3b8be8d68bf68577835f9bb92117',
+        '0565696a49b5650821460bb0f9551d0d80418bf280844a21f94682aa8574477f',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(

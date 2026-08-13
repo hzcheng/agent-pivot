@@ -340,6 +340,9 @@
         subagentsRunningOnlyQuery: function () {
             return !!subagentsRunningOnly && subagentsRunningOnly.checked;
         },
+        telemetryPosition: position,
+        telemetryComments: telemetryComments,
+        telemetrySubagents: telemetrySubagents,
     });
     var outlineController = window.__agentPivotConversationOutline.create({
         available: sidebarUiAvailable,
@@ -390,17 +393,29 @@
             });
         });
         telemetrySubagents.addEventListener('click', function () {
-            sidebarController.setView('subagents', true, true);
+            if (sidebarController.isPanelOpen() && sidebarController.getView() === 'subagents') {
+                sidebarController.setView('subagents', false, true);
+            } else {
+                sidebarController.setView('subagents', true, true);
+            }
         });
     }
     if (commentUiAvailable) {
         telemetryComments.addEventListener('click', function () {
-            sidebarController.setView('comments', true, true);
+            if (sidebarController.isPanelOpen() && sidebarController.getView() === 'comments') {
+                sidebarController.setView('comments', false, true);
+            } else {
+                sidebarController.setView('comments', true, true);
+            }
         });
     }
     if (sidebarUiAvailable && position) {
         position.addEventListener('click', function () {
-            sidebarController.setView('outline', true, true);
+            if (sidebarController.isPanelOpen() && sidebarController.getView() === 'outline') {
+                sidebarController.setView('outline', false, true);
+            } else {
+                sidebarController.setView('outline', true, true);
+            }
         });
     }
     var telemetryController = window.__agentPivotConversationTelemetry.create({

@@ -462,6 +462,13 @@
         color: ButtonText;
     }
 
+    .conversation-telemetry-position[aria-pressed="true"],
+    .conversation-telemetry-subagents[aria-pressed="true"],
+    .conversation-telemetry-comments[aria-pressed="true"] {
+        border-color: Highlight;
+        color: Highlight;
+    }
+
     .conversation-telemetry-ring-track {
         stroke: GrayText;
         opacity: 1;

@@ -445,6 +445,7 @@ export function renderConversationTelemetry(
         <button type="button"
             class="conversation-telemetry-position conversation-telemetry-tooltip"
             data-conversation-position
+            aria-pressed="false"
             aria-label="Input 0 of 0 — click to open the outline"
             title="Input 0 of 0 — click to open the outline"
             data-tooltip="Input 0 of 0 — click to open the outline">
@@ -453,6 +454,7 @@ export function renderConversationTelemetry(
         <button type="button"
             class="conversation-telemetry-comments conversation-telemetry-tooltip"
             data-telemetry-comments
+            aria-pressed="false"
             aria-label="0 comments — click to review"
             title="0 comments — click to review"
             data-tooltip="0 comments — click to review">
@@ -461,6 +463,7 @@ export function renderConversationTelemetry(
         <button type="button"
             class="conversation-telemetry-subagents conversation-telemetry-tooltip"
             data-telemetry-subagents
+            aria-pressed="false"
             aria-label="0 running of 0 subagents — click to view"
             title="0 running of 0 subagents — click to view"
             data-tooltip="0 running of 0 subagents — click to view">

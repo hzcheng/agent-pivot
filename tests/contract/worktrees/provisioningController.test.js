@@ -231,3 +231,96 @@ test('WORKTREE-PROVISIONING-STATE-001 preserves an explicitly non-retryable fail
     assert.equal((await current.controller.retry('operation-invalid')).errorCode,
         'retry-unavailable');
 });
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 restores interrupted durable state for explicit retry', async () => {
+    const current = fixture();
+    current.controller.restore([{
+        operationId: 'operation-restored',
+        plan,
+        completedSteps: ['worktree'],
+        worktreeKey: key,
+        row: {
+            kind: 'provisioning', operationId: 'operation-restored',
+            repositoryKey: plan.repositoryKey, taskName: plan.taskName,
+            proposedPath: plan.worktreePath, stage: 'setting-up',
+            completedSteps: ['worktree'], retryable: false, cancellable: true,
+        },
+    }]);
+
+    assert.deepEqual(current.controller.getRows()[0], {
+        kind: 'provisioning', operationId: 'operation-restored',
+        repositoryKey: plan.repositoryKey, taskName: plan.taskName,
+        proposedPath: plan.worktreePath, stage: 'failed',
+        completedSteps: ['worktree'], retryable: true, cancellable: false,
+        errorCode: 'interrupted',
+    });
+    assert.equal((await current.controller.retry('operation-restored')).kind, 'succeeded');
+    assert.deepEqual(current.calls, ['setup', 'agent']);
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 exports defensive operation recovery state', async () => {
+    let releaseSetup;
+    const setup = new Promise(resolve => { releaseSetup = resolve; });
+    const current = fixture({ runSetup: async () => setup });
+    const pending = current.controller.start('operation-export', plan);
+    for (let index = 0; index < 20
+        && current.controller.getRows()[0]?.stage !== 'setting-up'; index += 1) await Promise.resolve();
+
+    const exported = current.controller.getRecoveryOperations();
+    assert.deepEqual(exported[0].completedSteps, ['worktree']);
+    assert.deepEqual(exported[0].worktreeKey, key);
+    exported[0].completedSteps.push('setup');
+    assert.deepEqual(current.controller.getRecoveryOperations()[0].completedSteps, ['worktree']);
+    releaseSetup();
+    await pending;
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 checkpoints each durable step before advancing', async () => {
+    const checkpoints = [];
+    const releases = [];
+    const current = fixture({
+        checkpoint: () => new Promise(resolve => {
+            const recovery = current.controller.getRecoveryOperations()[0];
+            checkpoints.push({
+                steps: recovery?.completedSteps || [],
+                rowSteps: recovery?.row.completedSteps || [],
+            });
+            releases.push(resolve);
+        }),
+    });
+    const pending = current.controller.start('operation-checkpoint', plan);
+    for (let index = 0; index < 20 && checkpoints.length < 1; index += 1) await Promise.resolve();
+    assert.deepEqual(checkpoints, [{ steps: ['worktree'], rowSteps: ['worktree'] }]);
+    assert.deepEqual(current.calls, ['worktree'], 'setup waits for persisted worktree state');
+    releases.shift()();
+    for (let index = 0; index < 20 && checkpoints.length < 2; index += 1) await Promise.resolve();
+    assert.deepEqual(checkpoints, [
+        { steps: ['worktree'], rowSteps: ['worktree'] },
+        { steps: ['worktree', 'setup'], rowSteps: ['worktree', 'setup'] },
+    ]);
+    assert.deepEqual(current.calls, ['worktree', 'setup'], 'agent waits for persisted setup state');
+    releases.shift()();
+    assert.equal((await pending).kind, 'succeeded');
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 revalidates a durable worktree before side effects', async () => {
+    const current = fixture({
+        validateWorktree: async () => {
+            throw Object.assign(new Error('changed'), { code: 'worktree-create-failed' });
+        },
+    });
+    current.controller.restore([{
+        operationId: 'operation-changed', plan, completedSteps: ['worktree'],
+        worktreeKey: key,
+        row: {
+            kind: 'provisioning', operationId: 'operation-changed',
+            repositoryKey: plan.repositoryKey, taskName: plan.taskName,
+            proposedPath: plan.worktreePath, stage: 'failed', completedSteps: ['worktree'],
+            retryable: true, cancellable: false, errorCode: 'interrupted',
+        },
+    }]);
+
+    const outcome = await current.controller.retry('operation-changed');
+    assert.equal(outcome.errorCode, 'worktree-create-failed');
+    assert.deepEqual(current.calls, [], 'setup and agent must not run in a changed checkout');
+});

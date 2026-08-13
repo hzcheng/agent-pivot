@@ -125,3 +125,18 @@ function getManagedRepositoryRoot(
     }
     return pathApi.dirname(repositoryKey);
 }
+
+export function isManagedWorktreePath(repositoryKey: string, worktreePath: string): boolean {
+    if (!repositoryKey || !worktreePath) {
+        return false;
+    }
+    const pathApi = getPathApi(repositoryKey);
+    const managedRoot = pathApi.join(
+        getManagedRepositoryRoot(repositoryKey, pathApi),
+        '.agent-pivot',
+        'worktrees'
+    );
+    const relative = pathApi.relative(managedRoot, worktreePath);
+    return !!relative && relative !== '..' && !relative.startsWith(`..${pathApi.sep}`)
+        && !pathApi.isAbsolute(relative) && !relative.includes(pathApi.sep);
+}

@@ -30,10 +30,38 @@ function repository(repositoryKey = '/repo/.git', rootId = 'root', worktreePath 
     };
 }
 
+function recoveryOperation() {
+    return {
+        version: 1,
+        operationId: 'request-restored',
+        projectId: 'project',
+        providerId: 'codex',
+        profile: { kind: 'base' },
+        setupCommand: ['npm', 'ci'],
+        plan: {
+            repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+            taskName: 'Restored task', slug: 'restored-task',
+            branchName: 'agent-pivot/restored-task',
+            worktreePath: '/repo/.agent-pivot/worktrees/restored-task',
+        },
+        completedSteps: ['worktree'],
+        worktreeKey: {
+            repositoryKey: '/repo/.git',
+            canonicalWorktreePath: '/repo/.agent-pivot/worktrees/restored-task',
+        },
+        row: {
+            kind: 'provisioning', operationId: 'request-restored', repositoryKey: '/repo/.git',
+            taskName: 'Restored task', proposedPath: '/repo/.agent-pivot/worktrees/restored-task',
+            stage: 'setting-up', completedSteps: ['worktree'], retryable: false, cancellable: true,
+        },
+    };
+}
+
 function fixture(overrides = {}) {
     const effects = [];
     const publications = [];
     const settlements = [];
+    const persisted = [];
     const firstRepository = repository();
     const snapshot = {
         revision: 1,
@@ -65,6 +93,7 @@ function fixture(overrides = {}) {
                 canonicalWorktreePath: plan.worktreePath,
             };
         },
+        validateCreatedWorktree: async () => undefined,
     };
     const controller = new IsolatedSessionController({
         getWorkspaceTarget: projectId => projectId === 'project' ? target : null,
@@ -75,17 +104,22 @@ function fixture(overrides = {}) {
         showInputBox: async () => ' Fix login race ',
         showQuickPick: async items => items[0],
         refreshWorktreeSnapshot: async () => { effects.push(['refresh-snapshot']); },
+        getSetupCommand: () => ['npm', 'ci'],
+        runSetup: async (plan, worktreeKey, isCancelled, command) => {
+            effects.push(['setup-command', plan.taskName, worktreeKey, isCancelled(), command]);
+        },
         createSessionInWorktree: async (...args) => {
             effects.push(['start-session', ...args]);
             return true;
         },
         publishRows: (revision, rows) => publications.push({ revision, rows }),
         onSettled: outcome => settlements.push(outcome),
+        persistOperations: operations => { persisted.push(operations); return Promise.resolve(); },
         provisioner,
         ...overrides,
     });
     return {
-        controller, effects, publications, settlements, snapshot, target, provisioner,
+        controller, effects, publications, settlements, persisted, snapshot, target, provisioner,
     };
 }
 
@@ -99,6 +133,8 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launche
     assert.deepEqual(current.publications.slice(0, -1).map(item => item.rows[0].stage), [
         'queued', 'creating', 'setting-up', 'starting-agent',
     ]);
+    assert.deepEqual(current.effects.find(effect => effect[0] === 'setup-command')[4],
+        ['npm', 'ci']);
     const create = current.effects.find(effect => effect[0] === 'create');
     assert.equal(create[1].taskName, 'Fix login race');
     assert.equal(create[1].branchName, 'agent-pivot/fix-login-race');
@@ -117,6 +153,33 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launche
         { kind: 'profile', name: 'glm' },
     ]);
     assert.deepEqual(current.settlements, [outcome]);
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 restores an interrupted operation and freezes setup argv', async () => {
+    const current = fixture({
+        recoveredOperations: [recoveryOperation()],
+        getSetupCommand: () => ['pnpm', 'install'],
+    });
+
+    assert.equal(current.controller.getRows()[0].errorCode, 'interrupted');
+    const outcome = await current.controller.retry('request-restored', 'project');
+    assert.equal(outcome.kind, 'succeeded');
+    assert.deepEqual(current.effects.filter(effect => effect[0] === 'create'), []);
+    assert.deepEqual(current.effects.find(effect => effect[0] === 'setup-command')[4],
+        ['npm', 'ci']);
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 blocks restored side effects in an untrusted workspace', async () => {
+    const current = fixture({
+        recoveredOperations: [recoveryOperation()],
+        isWorkspaceTrusted: () => false,
+    });
+
+    const outcome = await current.controller.retry('request-restored', 'project');
+    assert.equal(outcome.errorCode, 'workspace-untrusted');
+    assert.deepEqual(current.effects.filter(effect =>
+        effect[0] === 'setup-command' || effect[0] === 'start-session'), []);
+    assert.equal(current.controller.getRows()[0].errorCode, 'interrupted');
 });
 
 test('WORKTREE-ISOLATED-SESSION-001 active editor chooses one repository before the fallback picker', async () => {
@@ -235,6 +298,7 @@ test('WORKTREE-ISOLATED-SESSION-001 reallocates after a pre-create branch collis
                     canonicalWorktreePath: plan.worktreePath,
                 };
             },
+            validateCreatedWorktree: async () => undefined,
         },
     });
 

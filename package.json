@@ -320,6 +320,17 @@
                     "scope": "machine",
                     "description": "Codex configuration profile (-p <name>, layered from <name>.config.toml in the Codex home) used for newly created Codex sessions. Does not affect resuming existing sessions: a resumed session always reuses the profile decision recorded when it was created."
                 },
+                "agentPivot.worktreeSetupCommand": {
+                    "type": "array",
+                    "scope": "machine",
+                    "default": [],
+                    "maxItems": 128,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "markdownDescription": "Optional executable and argument array run once after Agent Pivot creates an isolated worktree and before it starts the AI session, for example `[\"npm\", \"ci\"]`. No shell is used, so pipes, redirects, variable expansion, and chained commands are not interpreted. Leave empty to skip setup."
+                },
                 "agentPivot.aiSessionTmuxLayout": {
                     "type": "string",
                     "enum": [

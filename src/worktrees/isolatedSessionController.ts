@@ -20,6 +20,7 @@ import type {
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
 } from './types';
+import type { PersistedWorktreeProvisioningOperation } from './provisioningStore';
 
 export type IsolatedSessionStartOutcome =
   | WorktreeProvisioningOutcome
@@ -27,7 +28,7 @@ export type IsolatedSessionStartOutcome =
   | { kind: 'rejected'; operationId: string; errorCode: string };
 
 interface RepositoryPick extends vscode.QuickPickItem {
-    repository: WorktreeRepositorySnapshot;
+    repository?: WorktreeRepositorySnapshot;
 }
 
 interface IsolatedSessionOperationContext {
@@ -36,6 +37,7 @@ interface IsolatedSessionOperationContext {
     taskName: string;
     providerId: AiSessionProviderId;
     profile?: SessionProfileDecision;
+    setupCommand: string[];
 }
 
 type SessionProfileDecision =
@@ -63,6 +65,7 @@ export interface IsolatedSessionControllerOptions {
         options: vscode.QuickPickOptions
     ) => Thenable<RepositoryPick | undefined>;
     refreshWorktreeSnapshot: () => Promise<void>;
+    getSetupCommand?: () => readonly string[];
     createSessionInWorktree: (
         projectId: string,
         providerId: AiSessionProviderId,
@@ -74,8 +77,14 @@ export interface IsolatedSessionControllerOptions {
     runSetup?: (
         plan: WorktreeProvisioningPlan,
         worktreeKey: WorktreeKey,
-        isCancelled: () => boolean
+        isCancelled: () => boolean,
+        command: readonly string[]
     ) => Promise<void>;
+    recoveredOperations?: readonly PersistedWorktreeProvisioningOperation[];
+    persistOperations?: (
+        operations: readonly PersistedWorktreeProvisioningOperation[]
+    ) => Promise<void>;
+    onPersistenceError?: (error: unknown) => void;
     onSettled?: (outcome: WorktreeProvisioningOutcome) => void;
     provisioner?: GitWorktreeProvisioner;
 }
@@ -88,14 +97,39 @@ export class IsolatedSessionController {
     private readonly contextsByOperation = new Map<string, IsolatedSessionOperationContext>();
 
     constructor(private readonly options: IsolatedSessionControllerOptions) {
+        for (const record of options.recoveredOperations || []) {
+            const repository = options.getWorktreeSnapshot()?.repositories.find(candidate =>
+                candidate.repositoryKey === record.plan.repositoryKey);
+            this.contextsByOperation.set(record.operationId, {
+                projectId: record.projectId,
+                repository,
+                taskName: record.plan.taskName,
+                providerId: record.providerId,
+                ...(record.profile ? { profile: { ...record.profile } } : {}),
+                setupCommand: record.setupCommand.slice(),
+            });
+        }
         this.provisioner = options.provisioner || new GitWorktreeProvisioner();
         this.provisioning = new WorktreeProvisioningController({
             createWorktree: (plan, isCancelled) =>
                 this.provisioner.createWorktree(plan, isCancelled),
-            runSetup: options.runSetup || (async () => undefined),
+            validateWorktree: (plan, worktreeKey) =>
+                this.provisioner.validateCreatedWorktree(plan, worktreeKey),
+            runSetup: (plan, worktreeKey, isCancelled, operationId) => {
+                if (!options.isWorkspaceTrusted()) {
+                    throw provisioningError('workspace-untrusted');
+                }
+                const command = this.contextsByOperation.get(operationId)?.setupCommand || [];
+                return options.runSetup
+                    ? options.runSetup(plan, worktreeKey, isCancelled, command)
+                    : Promise.resolve();
+            },
             startAgent: async (plan, worktreeKey, isCancelled, operationId) => {
                 if (isCancelled()) {
                     throw provisioningError('cancelled');
+                }
+                if (!options.isWorkspaceTrusted()) {
+                    throw provisioningError('workspace-untrusted');
                 }
                 await options.refreshWorktreeSnapshot();
                 if (isCancelled()) {
@@ -116,14 +150,34 @@ export class IsolatedSessionController {
                     throw provisioningError('agent-start-failed');
                 }
             },
-            publish: options.publishRows,
+            publish: (revision, rows) => {
+                options.publishRows(revision, rows);
+                void this.persistOperations().catch(error =>
+                    this.options.onPersistenceError?.(error));
+            },
+            checkpoint: async () => {
+                try {
+                    await this.persistOperations();
+                } catch (error) {
+                    this.options.onPersistenceError?.(error);
+                    throw provisioningError('recovery-persist-failed');
+                }
+            },
             onSettled: outcome => {
-                if (outcome.kind === 'succeeded') {
+                if (outcome.kind === 'succeeded'
+                    || (outcome.kind === 'failed' && outcome.errorCode === 'cancelled')) {
                     this.contextsByOperation.delete(outcome.operationId);
                 }
                 options.onSettled?.(outcome);
             },
         });
+        this.provisioning.restore((options.recoveredOperations || []).map(record => ({
+            operationId: record.operationId,
+            plan: record.plan,
+            completedSteps: record.completedSteps,
+            ...(record.worktreeKey ? { worktreeKey: record.worktreeKey } : {}),
+            row: record.row,
+        })));
     }
 
     async start(operationId: string, projectId: string): Promise<IsolatedSessionStartOutcome> {
@@ -165,6 +219,7 @@ export class IsolatedSessionController {
                 taskName: plan.taskName,
                 providerId,
                 ...(profile ? { profile: { ...profile } } : {}),
+                setupCommand: (this.options.getSetupCommand?.() || []).slice(),
             });
             return await this.provisioning.start(operationId, plan);
         } catch (error) {
@@ -186,11 +241,24 @@ export class IsolatedSessionController {
         if (!row || !context || (projectId && context.projectId !== projectId)) {
             return { kind: 'failed', operationId, errorCode: 'retry-unavailable' };
         }
+        if (!this.options.isWorkspaceTrusted()) {
+            return { kind: 'failed', operationId, errorCode: 'workspace-untrusted' };
+        }
+        const target = this.options.getWorkspaceTarget(context.projectId);
+        const snapshot = this.options.getWorktreeSnapshot();
+        const rootIds = new Set(target?.workspace.roots.map(root => root.id) || []);
+        const repository = snapshot?.repositories.find(candidate =>
+            candidate.repositoryKey === row.repositoryKey
+            && candidate.rootBindings.some(binding => rootIds.has(binding.workspaceRootId)));
+        if (!target || !snapshot || !repository) {
+            return { kind: 'failed', operationId, errorCode: 'workspace-unavailable' };
+        }
+        context.repository = repository;
         let replacementPlan: WorktreeProvisioningPlan | undefined;
         if (!row.completedSteps.includes('worktree')) {
             try {
                 replacementPlan = await this.createPlan(
-                    context.repository, context.taskName, operationId);
+                    repository, context.taskName, operationId);
             } catch (error) {
                 return {
                     kind: 'failed', operationId,
@@ -275,6 +343,33 @@ export class IsolatedSessionController {
                 .map(row => row.proposedPath)
                 .filter((value): value is string => !!value)),
         });
+    }
+
+    private persistOperations(): Promise<void> {
+        if (!this.options.persistOperations) {
+            return Promise.resolve();
+        }
+        const records = this.provisioning.getRecoveryOperations()
+            .map(operation => {
+                const context = this.contextsByOperation.get(operation.operationId);
+                if (!context) {
+                    return null;
+                }
+                return {
+                    version: 1 as const,
+                    operationId: operation.operationId,
+                    projectId: context.projectId,
+                    providerId: context.providerId,
+                    ...(context.profile ? { profile: { ...context.profile } } : {}),
+                    setupCommand: context.setupCommand.slice(),
+                    plan: operation.plan,
+                    completedSteps: operation.completedSteps,
+                    ...(operation.worktreeKey ? { worktreeKey: operation.worktreeKey } : {}),
+                    row: operation.row,
+                };
+            })
+            .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
+        return this.options.persistOperations(records);
     }
 }
 

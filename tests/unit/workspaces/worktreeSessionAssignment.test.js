@@ -182,3 +182,28 @@ test('WORKTREE-PROVISIONING-STATE-001 WORKTREE-PROVISIONING-UI-001 projects only
     assert.equal(viewModel.worktrees.some(row => row.kind === 'provisioning'
         && row.operationId === 'operation-foreign'), false);
 });
+
+test('WORKTREE-MANAGED-CLEANUP-001 exposes removal only for idle managed worktrees not open as workspace roots', () => {
+    const managedPath = '/repo/.agent-pivot/worktrees/fix-login-race';
+    const worktreeSnapshot = JSON.parse(JSON.stringify(SNAPSHOT));
+    worktreeSnapshot.repositories[0].worktrees.push({
+        key: { repositoryKey: '/repo/.git', canonicalWorktreePath: managedPath },
+        head: '6'.repeat(40), branchRef: 'refs/heads/agent-pivot/fix-login-race',
+        isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+    });
+    const build = workspace => buildWorkspaceAiSessionViewModel({
+        workspace,
+        providers: [{ id: 'codex', label: 'Codex' }],
+        sessionsByProvider: { codex: [] }, unavailableProviders: [],
+        activeSessions: [], attentionCount: 0, worktreeSnapshot,
+    });
+    const removable = build(WORKSPACE).worktrees.find(row =>
+        row.kind === 'ready' && row.git.key.canonicalWorktreePath === managedPath);
+    assert.equal(removable.authority.canRemove, true);
+
+    const openWorkspace = JSON.parse(JSON.stringify(WORKSPACE));
+    openWorkspace.roots[0].hostPath = `${managedPath}/packages/api`;
+    const open = build(openWorkspace).worktrees.find(row =>
+        row.kind === 'ready' && row.git.key.canonicalWorktreePath === managedPath);
+    assert.equal(open.authority.canRemove, false);
+});

@@ -17,6 +17,8 @@ function initProjectAiSessionControls(options) {
     var nextAiSessionAttentionAcknowledgementRequestId = 0;
     var nextIsolatedSessionRequestId = 0;
     var pendingIsolatedSessionRequests = new Map();
+    var nextManagedWorktreeRemovalRequestId = 0;
+    var pendingManagedWorktreeRemovalRequests = new Map();
     var pendingAiSessionAttentionAcknowledgements = new Map();
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
@@ -162,6 +164,19 @@ function initProjectAiSessionControls(options) {
 
     function onTriggerAiSessionAction(target, projectId) {
         var projectDiv = target.closest('.project[data-id]');
+        var managedWorktreeRemoveAction = target.closest(
+            '[data-action="remove-managed-worktree"]'
+        );
+        if (managedWorktreeRemoveAction) {
+            submitManagedWorktreeRemoval(
+                projectId,
+                managedWorktreeRemoveAction.closest(
+                    '.ai-session-worktree-group[data-worktree-repository-key][data-worktree-path]'
+                ),
+                managedWorktreeRemoveAction
+            );
+            return true;
+        }
         var isolatedCreateAction = target.closest('[data-action="create-isolated-session"]');
         if (isolatedCreateAction) {
             submitIsolatedSessionRequest(
@@ -508,6 +523,60 @@ function initProjectAiSessionControls(options) {
                 : message.status === 'cancelled'
                     ? 'Isolated session creation cancelled.'
                     : `Isolated session ${message.status}: ${message.errorCode || 'try again'}.`;
+        }
+        return true;
+    }
+
+    function submitManagedWorktreeRemoval(projectId, group, button) {
+        if (!projectId || !group || !button || button.disabled) return;
+        var repositoryKey = group.getAttribute('data-worktree-repository-key');
+        var worktreePath = group.getAttribute('data-worktree-path');
+        if (!repositoryKey || !worktreePath) return;
+        nextManagedWorktreeRemovalRequestId = nextManagedWorktreeRemovalRequestId
+            >= Number.MAX_SAFE_INTEGER ? 1 : nextManagedWorktreeRemovalRequestId + 1;
+        var requestId = 'worktree-remove-' + nextManagedWorktreeRemovalRequestId.toString(36);
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        pendingManagedWorktreeRemovalRequests.set(requestId, {
+            button: button,
+            projectId: projectId,
+        });
+        window.vscode.postMessage({
+            type: 'remove-managed-worktree', version: 1,
+            requestId: requestId, projectId: projectId,
+            repositoryKey: repositoryKey, worktreePath: worktreePath,
+        });
+    }
+
+    function applyManagedWorktreeRemovalSettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'requestId', 'status', 'type', 'version']
+            : ['requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'managed-worktree-removal-settlement'
+            || message.version !== 1
+            || Object.keys(message).length !== expectedKeys.length
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || typeof message.requestId !== 'string' || !message.requestId
+            || !['accepted', 'cancelled', 'rejected', 'succeeded', 'partial', 'failed']
+                .includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingManagedWorktreeRemovalRequests.get(message.requestId);
+        if (!pending) return true;
+        if (message.status === 'accepted') return true;
+        pendingManagedWorktreeRemovalRequests.delete(message.requestId);
+        if (pending.button && pending.button.isConnected) {
+            pending.button.disabled = false;
+            pending.button.removeAttribute('aria-disabled');
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = message.status === 'succeeded'
+                ? 'Managed worktree removed; local branch kept.'
+                : message.status === 'cancelled'
+                    ? 'Worktree removal cancelled.'
+                    : `Worktree removal ${message.status}: ${message.errorCode || 'try again'}.`;
         }
         return true;
     }
@@ -1024,6 +1093,7 @@ function initProjectAiSessionControls(options) {
         batchAiSessionState: batchAiSessionState,
         applyAiSessionAttentionAcknowledgementResult: applyAiSessionAttentionAcknowledgementResult,
         applyIsolatedSessionSettlement: applyIsolatedSessionSettlement,
+        applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
         applyAiSessionProviderSelectionResult: applyAiSessionProviderSelectionResult,

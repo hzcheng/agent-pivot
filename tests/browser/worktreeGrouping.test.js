@@ -20,7 +20,7 @@ const frontendKey = {
 };
 const backendKey = {
     repositoryKey: '/repo/.git',
-    canonicalWorktreePath: '/repo/backend',
+    canonicalWorktreePath: '/repo/.agent-pivot/worktrees/backend',
 };
 
 function worktree(key, branchRef, activity) {
@@ -37,7 +37,7 @@ function worktree(key, branchRef, activity) {
         },
         activity,
         sessions: [],
-        authority: { canResume: true },
+        authority: { canResume: true, canRemove: activity === 'idle' },
     };
 }
 
@@ -106,7 +106,7 @@ async function openSurfacePage(width) {
     return page;
 }
 
-test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 stays usable at the 170px minimum sidebar width', async t => {
+test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLEANUP-001 stays usable at the 170px minimum sidebar width', async t => {
     const page = await openSurfacePage(170);
     t.after(() => page.close());
 
@@ -114,6 +114,7 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 stays usable at the 
     assert.equal(await page.locator('.codex-session-row[data-session-id="frontend-session"]').count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
     assert.equal(await page.locator('.ai-session-worktree-quick-create').count(), 2);
+    assert.equal(await page.locator('[data-action="remove-managed-worktree"]').count(), 1);
     assert.equal(await page.locator('.ai-session-provisioning-row').count(), 1);
     assert.equal(await page.locator('[data-action="cancel-isolated-session"]').isVisible(), true);
     assert.equal(

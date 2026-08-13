@@ -2236,6 +2236,76 @@
     ]
   },
   {
+    "id": "WORKTREE-PROVISIONING-SETUP-001",
+    "domain": "runtime",
+    "title": "Isolated worktree setup runs one optional bounded shell-free executable argv in the created checkout and remains safely cancellable",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/worktreeSetupRunner.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/worktrees/worktreeSetupRunner.ts",
+      "src/worktrees/isolatedSessionController.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-RECOVERY-001",
+    "domain": "persistence",
+    "title": "Interrupted isolated-session operations restore from validated machine-local state as explicit retry rows and resume after their last durable step",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/provisioningStore.test.js",
+      "tests/contract/worktrees/provisioningController.test.js",
+      "tests/contract/worktrees/isolatedSessionController.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/provisioningStore.ts",
+      "src/worktrees/provisioningController.ts",
+      "src/worktrees/isolatedSessionController.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-MANAGED-CLEANUP-001",
+    "domain": "runtime",
+    "title": "Worktree cleanup removes only an explicitly confirmed clean idle unopened Agent Pivot checkout without force and retains its local branch",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeSessionAssignment.test.js",
+      "tests/unit/worktrees/provisioningPlan.test.js",
+      "tests/contract/worktrees/managedWorktreeRemovalController.test.js",
+      "tests/browser/worktreeGrouping.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/managedWorktreeRemovalController.ts",
+      "src/worktrees/provisioningPlan.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-MANAGED-CLEANUP-PROTOCOL-001",
+    "domain": "webview",
+    "title": "Managed worktree removal uses an exact correlated request and keeps pending UI until a matching Host terminal settlement",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/removalProtocol.test.js",
+      "tests/browser/quickSessionCreate.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/removalProtocol.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
     "domain": "runtime",
     "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",

@@ -31,7 +31,13 @@ export interface WorktreeProvisioningControllerOptions {
         isCancelled: () => boolean,
         operationId: string
     ) => Promise<void>;
+    validateWorktree?: (
+        plan: WorktreeProvisioningPlan,
+        worktreeKey: WorktreeKey,
+        operationId: string
+    ) => Promise<void>;
     publish: (revision: number, rows: readonly ProvisioningWorktreeRow[]) => void;
+    checkpoint?: () => Promise<void>;
     onSettled?: (outcome: WorktreeProvisioningOutcome) => void;
 }
 
@@ -44,6 +50,14 @@ interface ProvisioningOperation {
     cancelled: boolean;
     running: boolean;
     settledAttempt: number;
+}
+
+export interface WorktreeProvisioningRecoveryOperation {
+    operationId: string;
+    plan: WorktreeProvisioningPlan;
+    completedSteps: WorktreeProvisioningCompletedStep[];
+    worktreeKey?: WorktreeKey;
+    row: ProvisioningWorktreeRow;
 }
 
 export class WorktreeProvisioningController {
@@ -109,6 +123,49 @@ export class WorktreeProvisioningController {
         return this.revision;
     }
 
+    restore(records: readonly WorktreeProvisioningRecoveryOperation[]): void {
+        for (const record of records) {
+            if (!isSafeOperationId(record.operationId) || this.operations.has(record.operationId)) {
+                continue;
+            }
+            const completedSteps = record.completedSteps.slice();
+            const operation: ProvisioningOperation = {
+                operationId: record.operationId,
+                plan: clonePlan(record.plan),
+                completedSteps,
+                ...(record.worktreeKey ? { worktreeKey: { ...record.worktreeKey } } : {}),
+                row: {
+                    ...cloneRow(record.row),
+                    stage: 'failed',
+                    completedSteps: completedSteps.slice(),
+                    retryable: true,
+                    cancellable: false,
+                    errorCode: 'interrupted',
+                },
+                cancelled: false,
+                running: false,
+                settledAttempt: 0,
+            };
+            if (completedSteps.includes('worktree') && !operation.worktreeKey) {
+                continue;
+            }
+            this.operations.set(operation.operationId, operation);
+        }
+        if (this.operations.size) {
+            this.publish();
+        }
+    }
+
+    getRecoveryOperations(): WorktreeProvisioningRecoveryOperation[] {
+        return Array.from(this.operations.values()).map(operation => ({
+            operationId: operation.operationId,
+            plan: clonePlan(operation.plan),
+            completedSteps: operation.completedSteps.slice(),
+            ...(operation.worktreeKey ? { worktreeKey: { ...operation.worktreeKey } } : {}),
+            row: cloneRow(operation.row),
+        }));
+    }
+
     private async run(operation: ProvisioningOperation): Promise<WorktreeProvisioningOutcome> {
         if (operation.running) {
             return { kind: 'failed', operationId: operation.operationId, errorCode: 'operation-running' };
@@ -129,9 +186,18 @@ export class WorktreeProvisioningController {
                     operation.operationId
                 );
                 operation.completedSteps.push('worktree');
+                this.synchronizeCompletedSteps(operation);
+                await this.options.checkpoint?.();
                 if (operation.cancelled) {
                     return this.partial(operation, 'cancelled', attempt);
                 }
+            }
+            if (!operation.completedSteps.includes('agent')) {
+                await this.options.validateWorktree?.(
+                    operation.plan,
+                    operation.worktreeKey!,
+                    operation.operationId
+                );
             }
             if (!operation.completedSteps.includes('setup')) {
                 this.setStage(operation, 'setting-up', true);
@@ -142,6 +208,8 @@ export class WorktreeProvisioningController {
                     operation.operationId
                 );
                 operation.completedSteps.push('setup');
+                this.synchronizeCompletedSteps(operation);
+                await this.options.checkpoint?.();
                 if (operation.cancelled) {
                     return this.partial(operation, 'cancelled', attempt);
                 }
@@ -246,6 +314,13 @@ export class WorktreeProvisioningController {
             cancellable,
         };
         this.publish();
+    }
+
+    private synchronizeCompletedSteps(operation: ProvisioningOperation): void {
+        operation.row = {
+            ...operation.row,
+            completedSteps: operation.completedSteps.slice(),
+        };
     }
 
     private publish(): void {

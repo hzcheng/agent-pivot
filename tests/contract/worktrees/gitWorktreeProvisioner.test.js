@@ -160,3 +160,17 @@ test('WORKTREE-PROVISIONING-GIT-001 reconciles success when the runner reports a
     const key = await provisioner.createWorktree(plan, () => mutationCompleted);
     assert.equal(key.canonicalWorktreePath, await fs.promises.realpath(plan.worktreePath));
 });
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 rejects a durable path whose branch changed', async t => {
+    const fixture = await repositoryFixture(t);
+    const plan = planFor(fixture, 'changed-after-reload');
+    const provisioner = new GitWorktreeProvisioner();
+    const key = await provisioner.createWorktree(plan, () => false);
+    git(plan.worktreePath, ['checkout', '-b', 'agent-pivot/replaced']);
+
+    await assert.rejects(
+        provisioner.validateCreatedWorktree(plan, key),
+        error => error instanceof GitWorktreeProvisioningError
+            && error.code === 'worktree-create-failed'
+    );
+});

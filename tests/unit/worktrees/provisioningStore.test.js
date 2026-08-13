@@ -1,0 +1,108 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+
+const {
+    WorktreeProvisioningStore,
+} = require('../../../out/worktrees/provisioningStore');
+
+function record(operationId = 'operation-1') {
+    return {
+        version: 1,
+        operationId,
+        projectId: 'project-1',
+        providerId: 'codex',
+        profile: { kind: 'profile', name: 'glm' },
+        setupCommand: ['npm', 'ci'],
+        plan: {
+            repositoryKey: '/repo/.git',
+            commandCwd: '/repo',
+            baseRef: 'refs/heads/main',
+            taskName: 'Fix login race',
+            slug: 'fix-login-race',
+            branchName: 'agent-pivot/fix-login-race',
+            worktreePath: '/repo/.agent-pivot/worktrees/fix-login-race',
+        },
+        completedSteps: ['worktree'],
+        worktreeKey: {
+            repositoryKey: '/repo/.git',
+            canonicalWorktreePath: '/repo/.agent-pivot/worktrees/fix-login-race',
+        },
+        row: {
+            kind: 'provisioning', operationId, repositoryKey: '/repo/.git',
+            taskName: 'Fix login race', proposedPath: '/repo/.agent-pivot/worktrees/fix-login-race',
+            stage: 'failed', completedSteps: ['worktree'], retryable: true,
+            cancellable: false, errorCode: 'interrupted',
+        },
+    };
+}
+
+function memento(initial = undefined) {
+    const state = new Map();
+    if (initial !== undefined) state.set('agentPivot.worktreeProvisioning.v1', initial);
+    return {
+        state,
+        get(key, fallback) { return state.has(key) ? state.get(key) : fallback; },
+        async update(key, value) { state.set(key, value); },
+    };
+}
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 round-trips defensive bounded operation records', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const input = record();
+
+    await store.replace([input]);
+    input.completedSteps.push('setup');
+    input.setupCommand.push('--mutated');
+    const restored = store.read();
+
+    assert.deepEqual(restored, [record()]);
+    restored[0].row.completedSteps.push('mutated');
+    assert.deepEqual(store.read(), [record()]);
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
+    const valid = record('valid');
+    const state = memento([
+        valid,
+        record('valid'),
+        { ...record('bad-provider'), providerId: 'unknown' },
+        { ...record('bad-path'), plan: { ...valid.plan, worktreePath: 'relative' } },
+        { ...record('unmanaged'), plan: {
+            ...valid.plan, worktreePath: '/tmp/unmanaged',
+        }, row: { ...valid.row, operationId: 'unmanaged', proposedPath: '/tmp/unmanaged' },
+        worktreeKey: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/tmp/unmanaged' } },
+        { ...record('bad-steps'), completedSteps: ['setup'],
+            row: { ...valid.row, operationId: 'bad-steps', completedSteps: ['setup'] },
+            worktreeKey: undefined },
+        { ...record('wrong-key'), worktreeKey: {
+            repositoryKey: '/repo/.git',
+            canonicalWorktreePath: '/repo/.agent-pivot/worktrees/other',
+        } },
+        null,
+    ]);
+
+    assert.deepEqual(new WorktreeProvisioningStore(state).read(), [record('valid')]);
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 serializes replacements', async () => {
+    const state = memento();
+    const writes = [];
+    let releaseFirst;
+    state.update = async (_key, value) => {
+        writes.push(value);
+        if (writes.length === 1) await new Promise(resolve => { releaseFirst = resolve; });
+        state.state.set('agentPivot.worktreeProvisioning.v1', value);
+    };
+    const store = new WorktreeProvisioningStore(state);
+    const first = store.replace([record('first')]);
+    const second = store.replace([record('second')]);
+    for (let index = 0; index < 10 && !releaseFirst; index += 1) await Promise.resolve();
+    assert.equal(writes.length, 1);
+    releaseFirst();
+    await Promise.all([first, second]);
+    assert.equal(writes.length, 2);
+    assert.equal(store.read()[0].operationId, 'second');
+});

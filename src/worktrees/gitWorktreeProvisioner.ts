@@ -125,6 +125,19 @@ export class GitWorktreeProvisioner {
         throw gitFailure('worktree-create-failed', result);
     }
 
+    async validateCreatedWorktree(
+        plan: WorktreeProvisioningPlan,
+        key: WorktreeKey
+    ): Promise<void> {
+        await this.validatePlan(plan);
+        const reconciled = await this.reconcileCreatedWorktree(plan);
+        if (!reconciled
+            || reconciled.repositoryKey !== key.repositoryKey
+            || reconciled.canonicalWorktreePath !== key.canonicalWorktreePath) {
+            throw new GitWorktreeProvisioningError('worktree-create-failed');
+        }
+    }
+
     private async validatePlan(plan: WorktreeProvisioningPlan): Promise<void> {
         if (!plan || !isSafeAbsolutePath(plan.commandCwd)
             || !isSafeAbsolutePath(plan.worktreePath)

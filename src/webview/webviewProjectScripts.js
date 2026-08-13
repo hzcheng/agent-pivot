@@ -586,6 +586,11 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'managed-worktree-removal-settlement') {
+            aiSessionControls.applyManagedWorktreeRemovalSettlement(message);
+            return;
+        }
+
         if (!message || message.type !== 'ai-sessions-updated') {
             return;
         }

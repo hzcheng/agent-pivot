@@ -47,6 +47,7 @@ export interface WorktreeAuthority {
     canStop: boolean;
     canResume: boolean;
     canArchive: boolean;
+    canRemove: boolean;
     canTakeControl: boolean;
     liveOwnerAvailable: boolean;
 }

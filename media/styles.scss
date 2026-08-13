@@ -3446,7 +3446,8 @@ body.steward-sidebar {
             flex: 1 1 auto;
         }
 
-        .ai-session-worktree-quick-create {
+        .ai-session-worktree-quick-create,
+        .ai-session-worktree-remove {
             display: inline-flex;
             flex: 0 0 28px;
             align-items: center;
@@ -3463,6 +3464,13 @@ body.steward-sidebar {
             &:focus-visible {
                 background: var(--vscode-list-hoverBackground);
             }
+        }
+
+        .ai-session-worktree-remove {
+            flex-basis: 24px;
+            min-width: 24px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 15px;
         }
 
         .ai-session-worktree-indicator {

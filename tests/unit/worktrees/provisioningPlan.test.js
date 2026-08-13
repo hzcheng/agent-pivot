@@ -6,6 +6,7 @@ const test = require('node:test');
 const {
     WorktreeProvisioningPlanError,
     createWorktreeProvisioningPlan,
+    isManagedWorktreePath,
     slugifyTaskName,
 } = require('../../../out/worktrees/provisioningPlan');
 
@@ -110,4 +111,12 @@ test('WORKTREE-PROVISIONING-PLAN-001 keeps bare repositories in a repository-spe
         isPathAvailable: async () => true,
     });
     assert.equal(plan.worktreePath, '/repos/platform/.agent-pivot/worktrees/task');
+});
+
+test('WORKTREE-MANAGED-CLEANUP-001 recognizes only direct managed worktree children', () => {
+    assert.equal(isManagedWorktreePath('/repo/.git', '/repo/.agent-pivot/worktrees/task'), true);
+    assert.equal(isManagedWorktreePath('/repo/.git', '/repo/.agent-pivot/worktrees/task/nested'), false);
+    assert.equal(isManagedWorktreePath('/repo/.git', '/repo/other'), false);
+    assert.equal(isManagedWorktreePath(
+        'C:\\repo\\.git', 'C:\\repo\\.agent-pivot\\worktrees\\task'), true);
 });

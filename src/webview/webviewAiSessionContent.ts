@@ -14,6 +14,7 @@ import type {
     WorktreeRowViewModel,
 } from '../aiSessions/types';
 import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees/types';
+import { isManagedWorktreePath } from '../worktrees/provisioningPlan';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { escapeAttribute } from './webviewHtmlEscape';
 import {
@@ -579,6 +580,17 @@ function getWorktreeGroupHtml(
     const quickCreate = worktree.authority.canResume
         ? `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(createLabel)}" title="${escapeAttribute(createLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>`
         : '';
+    const canRemove = worktree.authority.canRemove
+        && !worktree.git.isMain
+        && worktree.git.health === 'normal'
+        && worktree.activity === 'idle'
+        && isManagedWorktreePath(
+            worktree.git.key.repositoryKey,
+            worktree.git.key.canonicalWorktreePath
+        );
+    const remove = canRemove
+        ? `<button type="button" class="ai-session-worktree-remove" data-action="remove-managed-worktree" aria-label="Remove worktree ${escapeAttribute(name)}" title="Remove this clean Agent Pivot worktree (local branch is kept)">×</button>`
+        : '';
     return `<section class="ai-session-worktree-group" data-worktree-repository-key="${escapeAttribute(worktree.git.key.repositoryKey)}" data-worktree-path="${escapeAttribute(worktree.git.key.canonicalWorktreePath)}" data-worktree-activity="${worktree.activity}" style="order: ${groupOrder}">
         <div class="ai-session-worktree-toolbar">
             <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
@@ -589,6 +601,7 @@ function getWorktreeGroupHtml(
                 <span class="ai-session-worktree-chevron" aria-hidden="true">⌄</span>
             </button>
             ${quickCreate}
+            ${remove}
         </div>
         <div class="ai-session-worktree-session-list">${entries.length
             ? entries.map(entry => entry.html).join('\n')

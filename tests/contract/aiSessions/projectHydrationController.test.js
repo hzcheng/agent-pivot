@@ -193,14 +193,16 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-00
         kind: 'ready', path: '/work', activity: 'attention', sessions: ['session-a'],
         authority: {
             canInput: true, canFocus: true, canStop: true, canResume: true,
-            canArchive: true, canTakeControl: false, liveOwnerAvailable: true,
+            canArchive: true, canRemove: false,
+            canTakeControl: false, liveOwnerAvailable: true,
         },
     }, {
         kind: 'ready', path: '/work-topic', activity: 'idle',
         sessions: ['session-topic-tools', 'session-topic'],
         authority: {
             canInput: false, canFocus: false, canStop: false, canResume: true,
-            canArchive: true, canTakeControl: false, liveOwnerAvailable: false,
+            canArchive: true, canRemove: false,
+            canTakeControl: false, liveOwnerAvailable: false,
         },
     }]);
     assert.deepEqual(hydrated.unmanagedSessions, []);

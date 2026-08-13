@@ -13,6 +13,8 @@ import type {
 import type { OpenWorkspace } from './types';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import { worktreeKeysEqual } from '../worktrees/types';
+import { isManagedWorktreePath } from '../worktrees/provisioningPlan';
+import { isWorkspaceHostPathContained } from './sessionAssignment';
 
 export interface BuildWorkspaceAiSessionViewModelInput {
     workspace: OpenWorkspace;
@@ -145,6 +147,10 @@ function buildWorktreeRows(
             const usable = !worktree.isBare
                 && worktree.health !== 'missing'
                 && worktree.health !== 'prunable';
+            const openAsWorkspace = inputWorkspaceUsesWorktree(
+                workspace,
+                worktree.key.canonicalWorktreePath
+            );
             rows.push({
                 kind: 'ready' as const,
                 git: {
@@ -161,6 +167,11 @@ function buildWorktreeRows(
                     canStop: liveOwnerAvailable,
                     canResume: usable,
                     canArchive: worktreeSessions.length > 0,
+                    canRemove: usable && !worktree.isMain && !liveOwnerAvailable
+                        && !openAsWorkspace
+                        && isManagedWorktreePath(
+                            worktree.key.repositoryKey,
+                            worktree.key.canonicalWorktreePath),
                     canTakeControl: false,
                     liveOwnerAvailable,
                 },
@@ -177,4 +188,9 @@ function buildWorktreeRows(
             completedSteps: row.completedSteps.slice(),
         }));
     return rows;
+}
+
+function inputWorkspaceUsesWorktree(workspace: OpenWorkspace, worktreePath: string): boolean {
+    return workspace.roots.some(root =>
+        isWorkspaceHostPathContained(worktreePath, root.hostPath));
 }

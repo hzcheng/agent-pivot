@@ -238,6 +238,7 @@ import {
     AiSessionPresentationTransaction,
     WorkspaceSessionHydrationController,
 } from './workspaces/sessionHydrationController';
+import { isWorkspaceHostPathContained } from './workspaces/sessionAssignment';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
 import { GitWorktreeDiscovery } from './worktrees/gitWorktreeDiscovery';
@@ -249,6 +250,17 @@ import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
 import { worktreeKeysEqual } from './worktrees/types';
 import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
 import { IsolatedSessionController } from './worktrees/isolatedSessionController';
+import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
+import {
+    normalizeWorktreeSetupCommand,
+    WorktreeSetupRunner,
+} from './worktrees/worktreeSetupRunner';
+import { ManagedWorktreeRemovalController } from './worktrees/managedWorktreeRemovalController';
+import {
+    acceptedManagedWorktreeRemovalSettlement,
+    parseManagedWorktreeRemovalRequest,
+    settledManagedWorktreeRemovalSettlement,
+} from './worktrees/removalProtocol';
 import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
@@ -1234,6 +1246,8 @@ async function initializeDashboard(
         ? openWorkspaceController.getCurrentWorkspace()
         : resolveCurrentOpenWorkspace();
     const worktreeBaseRefStore = new WorktreeBaseRefStore(context.globalState);
+    const worktreeProvisioningStore = new WorktreeProvisioningStore(context.globalState);
+    const worktreeSetupRunner = new WorktreeSetupRunner();
     const gitWorktreeDiscovery = new GitWorktreeDiscovery({
         getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
     });
@@ -1429,11 +1443,20 @@ async function initializeDashboard(
         showQuickPick: (items, quickPickOptions) =>
             vscode.window.showQuickPick(items, quickPickOptions),
         refreshWorktreeSnapshot: () => worktreeSnapshotCoordinator.refresh('provisioning'),
+        getSetupCommand: () => normalizeWorktreeSetupCommand(
+            getAgentPivotConfiguration().get<unknown>('worktreeSetupCommand', [])),
+        runSetup: (_plan, worktreeKey, isCancelled, command) =>
+            worktreeSetupRunner.run(command, worktreeKey.canonicalWorktreePath, isCancelled),
         createSessionInWorktree: (projectId, providerId, title, worktreeKey, profile) =>
             aiSessionCreationController.createSessionInWorktree(
                 projectId, providerId, title, worktreeKey, profile),
         publishRows: () => refreshAiSessionViewsIncrementally(),
+        recoveredOperations: worktreeProvisioningStore.read(),
+        persistOperations: operations => worktreeProvisioningStore.replace(operations),
+        onPersistenceError: error => logError(
+            'Could not persist isolated worktree provisioning recovery state.', error),
     });
+    let managedWorktreeRemovalController: ManagedWorktreeRemovalController;
     let currentAiSessionRefreshReason = 'refresh';
     const notifyConfiguration = ownResource(() => createNotifyConfiguration({
         context,
@@ -1635,6 +1658,27 @@ async function initializeDashboard(
         setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
         clearTimeout: handle => clearTimeout(handle),
     }));
+    managedWorktreeRemovalController = new ManagedWorktreeRemovalController({
+        getSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        isProjectTarget: projectId => !!getCurrentWorkspaceActionTarget(projectId),
+        isActive: key => getPriorityWorktreeKeys().some(candidate =>
+            worktreeKeysEqual(candidate, key)),
+        isOpenWorkspace: key => (getCurrentOpenWorkspace()?.roots || []).some(root =>
+            isWorkspaceHostPathContained(key.canonicalWorktreePath, root.hostPath)),
+        isProvisioning: key => isolatedSessionController!.getRows().some(row =>
+            row.repositoryKey === key.repositoryKey
+            && row.proposedPath === key.canonicalWorktreePath),
+        confirm: (message, action) => vscode.window.showWarningMessage(
+            message, { modal: true }, action),
+        refresh: async () => {
+            await worktreeSnapshotCoordinator.refresh('managed-worktree-removed');
+            const delivered = await provider.postMessage(
+                aiSessionDashboardController.getUpdatedMessage('managed-worktree-removed'));
+            if (!delivered) {
+                throw new Error('Managed worktree refresh was not delivered.');
+            }
+        },
+    });
     void directTerminalRestoreOutcomeTask.then(result => {
         if (result.outcome === 'restored') {
             try {
@@ -1876,6 +1920,22 @@ async function initializeDashboard(
             const accepted = isolatedSessionController!.cancel(
                 request.operationId, request.projectId);
             await provider.postMessage(cancelledMutationSettlement(request, accepted));
+        },
+        'remove-managed-worktree': async (message: unknown) => {
+            const request = parseManagedWorktreeRemovalRequest(message);
+            if (!request) {
+                return;
+            }
+            await provider.postMessage(acceptedManagedWorktreeRemovalSettlement(request));
+            const outcome = await managedWorktreeRemovalController.remove(
+                request.projectId,
+                {
+                    repositoryKey: request.repositoryKey,
+                    canonicalWorktreePath: request.worktreePath,
+                }
+            );
+            await provider.postMessage(
+                settledManagedWorktreeRemovalSettlement(request, outcome));
         },
     };
 

@@ -1088,12 +1088,16 @@ test('CONVERSATION-TELEMETRY-001 keeps an observed token notification when the r
 });
 
 test('CONVERSATION-TELEMETRY-001 a declared profile context window overrides the under-reported server window', async t => {
+    const seen = [];
     const harness = createAdapter(fixture, {
         readRolloutTelemetry: () => ({
             model: 'codewiz:deepseek-pro',
             context: { usedTokens: 48_000, maxTokens: 258_400 },
         }),
-        getSessionProfileContextWindow: id => id === sessionId ? 1_000_000 : undefined,
+        getSessionProfileContextWindow: (id, model) => {
+            seen.push([id, model]);
+            return id === sessionId ? 1_000_000 : undefined;
+        },
     });
     t.after(() => harness.adapter.dispose());
 
@@ -1103,6 +1107,66 @@ test('CONVERSATION-TELEMETRY-001 a declared profile context window overrides the
         maxTokens: 1_000_000,
     }, 'the profile-declared window replaces the server default for custom models');
     assert.equal(telemetry.model, 'codewiz:deepseek-pro');
+    assert.deepEqual(seen, [[sessionId, 'codewiz:deepseek-pro']],
+        'the host hook receives the rollout model for sessions without a recorded profile');
+});
+
+test('CONVERSATION-TELEMETRY-001 cached refreshes keep the profile window override', async t => {
+    const harness = createAdapter(fixture, {
+        readRolloutTelemetry: () => ({
+            model: 'codewiz:deepseek-pro',
+            context: { usedTokens: 48_000, maxTokens: 258_400 },
+        }),
+        getSessionProfileContextWindow: () => 1_000_000,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    const initial = await harness.adapter.readTelemetry(sessionId);
+    assert.equal(initial.context.maxTokens, 1_000_000);
+    const refreshed = await harness.adapter.readTelemetry(sessionId);
+    assert.deepEqual(refreshed.context, {
+        usedTokens: 48_000,
+        maxTokens: 1_000_000,
+    }, 'a cached refresh must not revert the display to the server default');
+});
+
+test('CONVERSATION-TELEMETRY-001 live notifications apply the override with the cached model', async t => {
+    let notificationListener;
+    const harness = createAdapter(fixture, {
+        client: {
+            watchNotifications(listener) {
+                notificationListener = listener;
+                return { dispose() {} };
+            },
+            async request(method) {
+                if (method === 'thread/read') {
+                    return { thread: { cwd: '/repo' } };
+                }
+                assert.equal(method, 'account/rateLimits/read');
+                return { rateLimits: null, rateLimitsByLimitId: null };
+            },
+            dispose() {},
+        },
+        readRolloutTelemetry: () => ({ model: 'codewiz:deepseek-pro' }),
+        getSessionProfileContextWindow: (id, model) =>
+            model === 'codewiz:deepseek-pro' ? 1_000_000 : undefined,
+    });
+    t.after(() => harness.adapter.dispose());
+
+    await harness.adapter.readTelemetry(sessionId);
+    notificationListener('thread/tokenUsage/updated', {
+        threadId: sessionId,
+        tokenUsage: {
+            last: { totalTokens: 33_000 },
+            modelContextWindow: 258_400,
+        },
+    });
+
+    const telemetry = await harness.adapter.readTelemetry(sessionId);
+    assert.deepEqual(telemetry.context, {
+        usedTokens: 33_000,
+        maxTokens: 1_000_000,
+    }, 'a notification after a model-known read must keep the profile window');
 });
 
 test('CONVERSATION-TELEMETRY-001 the profile window also overrides live token notifications', async t => {

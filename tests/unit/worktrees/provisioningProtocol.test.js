@@ -21,8 +21,23 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 accepts only exact versioned request sh
     };
     assert.deepEqual(parseIsolatedSessionRequest(start), start);
     assert.deepEqual(parseIsolatedSessionRequest(retry), retry);
+    const sourceWorktree = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/.agent-pivot/worktrees/est',
+    };
+    assert.deepEqual(
+        parseIsolatedSessionRequest({ ...start, sourceWorktree }),
+        { ...start, sourceWorktree },
+        'a start request may name the worktree branch to base on'
+    );
     assert.equal(parseIsolatedSessionRequest({ ...start, version: 2 }), null);
     assert.equal(parseIsolatedSessionRequest({ ...start, forged: true }), null);
+    assert.equal(parseIsolatedSessionRequest({
+        ...start, sourceWorktree: { ...sourceWorktree, extra: true },
+    }), null, 'a forged source worktree key must reject the whole request');
+    assert.equal(parseIsolatedSessionRequest({
+        ...start, sourceWorktree: { repositoryKey: 7, canonicalWorktreePath: '/x' },
+    }), null);
     assert.equal(parseIsolatedSessionRequest({ ...retry, operationId: '../bad' }), null);
     assert.equal(parseIsolatedSessionRequest({ ...retry, requestId: '' }), null);
 });

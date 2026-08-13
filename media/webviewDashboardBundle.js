@@ -1398,7 +1398,7 @@ function initOpenTabSplit() {
     // rises so the chrome and one session row stay reachable. Measured
     // against the sidebar fit layout (360px/240px widths) and mirrored as
     // the min-height of the expanded rules in media/styles.scss.
-    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 322;
+    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
     var OPEN_TAB_KEY_STEP_PX = 24;
     var OPEN_TAB_STATE_KEY = 'openTab';
 
@@ -3281,7 +3281,14 @@ function initProjectAiSessionControls(options) {
         var isolatedCreateAction = target.closest('[data-action="create-isolated-session"]');
         if (isolatedCreateAction) {
             submitIsolatedSessionRequest(
-                'start-isolated-session', projectId, null, isolatedCreateAction
+                'start-isolated-session', projectId, null, isolatedCreateAction,
+                isolatedCreateAction.getAttribute('data-repository-key')
+                    && isolatedCreateAction.getAttribute('data-worktree-path')
+                    ? {
+                        repositoryKey: isolatedCreateAction.getAttribute('data-repository-key'),
+                        canonicalWorktreePath: isolatedCreateAction.getAttribute('data-worktree-path'),
+                    }
+                    : null
             );
             return true;
         }
@@ -3584,7 +3591,7 @@ function initProjectAiSessionControls(options) {
         return true;
     }
 
-    function submitIsolatedSessionRequest(type, projectId, operationId, button) {
+    function submitIsolatedSessionRequest(type, projectId, operationId, button, sourceWorktree) {
         if (!projectId || !button || button.disabled)
             return;
         nextIsolatedSessionRequestId = nextIsolatedSessionRequestId >= Number.MAX_SAFE_INTEGER
@@ -3597,6 +3604,7 @@ function initProjectAiSessionControls(options) {
             projectId: projectId,
         };
         if (operationId) message.operationId = operationId;
+        if (sourceWorktree) message.sourceWorktree = sourceWorktree;
         button.disabled = true;
         button.setAttribute('aria-disabled', 'true');
         pendingIsolatedSessionRequests.set(requestId, {

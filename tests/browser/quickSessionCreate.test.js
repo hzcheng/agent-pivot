@@ -109,6 +109,7 @@ async function openQuickCreatePage(t, options = {}) {
     const firstPanel = getAiSessionsDiv(getSessionSurface('project-a', 'codex', {
         ...(options.profile ? { quickCreateProfile: options.profile } : {}),
         ...(options.provider ? { quickCreateProvider: options.provider } : {}),
+        ...(options.codexSessions ? { codexSessions: options.codexSessions } : {}),
         ...(options.worktrees ? {
             worktrees: options.worktrees,
             worktreeSnapshotRevision: 1,
@@ -364,6 +365,92 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact
         projectId: 'project-a',
         provider: 'kimi',
         worktreeKey: key,
+    }]);
+});
+
+test('WORKTREE-GROUPING-UI-001 collapsing a worktree really hides every session it contains', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const page = await openQuickCreatePage(t, {
+        codexSessions: [
+            { id: 'feature-session', name: 'Feature session', provider: 'codex', worktreeKey: key },
+            { id: 'other-session', name: 'Other session', provider: 'codex', worktreeKey: key },
+        ],
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key,
+                branchRef: 'refs/heads/feature/auth',
+                head: 'a'.repeat(40),
+                isMain: false,
+                isBare: false,
+                health: 'normal',
+                headKind: 'branch',
+            },
+            activity: 'attention',
+            sessions: [],
+            authority: { canResume: true },
+        }],
+    });
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
+    const group = page.locator('.project[data-id="project-a"] .ai-session-worktree-group');
+    const rows = group.locator('.codex-session-row');
+    assert.equal(await rows.count(), 2);
+    assert.equal(await rows.first().isVisible(), true);
+
+    await group.locator('.ai-session-worktree-header').click();
+    assert.equal(await rows.count(), 2, 'collapsing keeps the rows in the DOM');
+    assert.equal(await rows.first().isVisible(), false,
+        'a collapsed worktree must visually hide every session row');
+    assert.equal(await rows.nth(1).isVisible(), false);
+
+    await group.locator('.ai-session-worktree-header').click();
+    assert.equal(await rows.first().isVisible(), true,
+        'expanding restores every session row');
+});
+
+test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon starts provisioning from that branch', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const page = await openQuickCreatePage(t, {
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key,
+                branchRef: 'refs/heads/feature/auth',
+                head: 'a'.repeat(40),
+                isMain: false,
+                isBare: false,
+                health: 'normal',
+                headKind: 'branch',
+            },
+            activity: 'idle',
+            sessions: [],
+            authority: { canResume: true },
+        }],
+    });
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
+    const button = page.locator(
+        '.project[data-id="project-a"] .ai-session-worktree-branch-create'
+    );
+    assert.equal(await button.getAttribute('aria-label'), 'New worktree from feature/auth');
+    assert.equal(await button.locator('svg').count(), 1,
+        'the branch-create affordance is an icon, not an English label');
+    await button.click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'start-isolated-session',
+        version: 1,
+        requestId: 'isolated-1',
+        projectId: 'project-a',
+        sourceWorktree: key,
     }]);
 });
 

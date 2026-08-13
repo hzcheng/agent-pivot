@@ -58,7 +58,7 @@ const openTabSplitScript = fs.readFileSync(
 const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
 const OPEN_TAB_PANE_MIN_PX = 72;
 // Mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in webviewOpenTabSplitScripts.js.
-const OPEN_TAB_PANE_MIN_EXPANDED_PX = 322;
+const OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
 
 let browser;
 
@@ -724,7 +724,6 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
         };
         const list = group.querySelector('.ai-session-tab-panel:not([hidden]) .codex-sessions-list');
         return {
-            moduleHeader: within('.ai-session-module-header'),
             surfaceTabs: within('.ai-session-surface-tabs'),
             chatsActions: within('.ai-session-chats-actions'),
             tabs: within('.ai-session-tabs'),
@@ -732,7 +731,6 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
             listClientHeight: list.clientHeight,
         };
     });
-    assert.ok(chrome.moduleHeader, 'the AI SESSIONS header must stay inside the pane');
     assert.ok(chrome.surfaceTabs, 'the WORKTREE/CHATS tabs must stay inside the pane');
     assert.ok(chrome.chatsActions, 'the session create actions must stay inside the pane');
     assert.ok(chrome.tabs, 'the ACTIVE/SESSIONS tabs must stay inside the pane');

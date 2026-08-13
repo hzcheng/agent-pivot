@@ -180,7 +180,11 @@ export class IsolatedSessionController {
         })));
     }
 
-    async start(operationId: string, projectId: string): Promise<IsolatedSessionStartOutcome> {
+    async start(
+        operationId: string,
+        projectId: string,
+        sourceWorktree?: WorktreeKey
+    ): Promise<IsolatedSessionStartOutcome> {
         if (!isSafeOperationId(operationId) || this.preparing.has(operationId)
             || this.contextsByOperation.has(operationId)) {
             return { kind: 'rejected', operationId, errorCode: 'duplicate-operation' };
@@ -195,9 +199,21 @@ export class IsolatedSessionController {
         }
         this.preparing.add(operationId);
         try {
-            const repository = await this.selectRepository(target.workspace, snapshot);
-            if (!repository) {
-                return { kind: 'cancelled', operationId };
+            let baseRefOverride: string | undefined;
+            let repository: WorktreeRepositorySnapshot | undefined;
+            if (sourceWorktree) {
+                const resolved = this.resolveSourceWorktree(
+                    target.workspace, snapshot, sourceWorktree);
+                if (!resolved) {
+                    return { kind: 'rejected', operationId, errorCode: 'base-ref-unavailable' };
+                }
+                repository = resolved.repository;
+                baseRefOverride = resolved.baseRef;
+            } else {
+                repository = await this.selectRepository(target.workspace, snapshot);
+                if (!repository) {
+                    return { kind: 'cancelled', operationId };
+                }
             }
             const inputOptions: vscode.InputBoxOptions = {
                 title: 'New Isolated Session',
@@ -210,7 +226,7 @@ export class IsolatedSessionController {
             if (taskName === undefined) {
                 return { kind: 'cancelled', operationId };
             }
-            const plan = await this.createPlan(repository, taskName);
+            const plan = await this.createPlan(repository, taskName, undefined, baseRefOverride);
             const providerId = preferredProvider(target, this.options.isProviderId);
             const profile = preferredProfile(target, providerId);
             this.contextsByOperation.set(operationId, {
@@ -326,14 +342,33 @@ export class IsolatedSessionController {
         return selected?.repository;
     }
 
+    private resolveSourceWorktree(
+        workspace: OpenWorkspace,
+        snapshot: WorktreeSnapshot,
+        sourceWorktree: WorktreeKey
+    ): { repository: WorktreeRepositorySnapshot; baseRef: string } | null {
+        const rootIds = new Set(workspace.roots.map(root => root.id));
+        const repository = snapshot.repositories.find(candidate =>
+            candidate.repositoryKey === sourceWorktree.repositoryKey
+            && candidate.rootBindings.some(binding => rootIds.has(binding.workspaceRootId)));
+        const worktree = repository?.worktrees.find(candidate =>
+            candidate.key.canonicalWorktreePath === sourceWorktree.canonicalWorktreePath);
+        if (!repository || !worktree || worktree.isBare || !worktree.branchRef) {
+            return null;
+        }
+        return { repository, baseRef: worktree.branchRef };
+    }
+
     private createPlan(
         repository: WorktreeRepositorySnapshot,
         taskName: string,
-        ignoredOperationId?: string
+        ignoredOperationId?: string,
+        baseRefOverride?: string
     ): Promise<WorktreeProvisioningPlan> {
         return createWorktreeProvisioningPlan({
             repository,
             taskName,
+            baseRefOverride,
             isBranchAvailable: branchName =>
                 this.provisioner.isBranchAvailable(
                     repositoryCommandCwd(repository), branchName),

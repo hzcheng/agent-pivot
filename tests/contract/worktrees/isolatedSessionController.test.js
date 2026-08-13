@@ -155,6 +155,47 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launche
     assert.deepEqual(current.settlements, [outcome]);
 });
 
+test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
+    const current = fixture();
+    current.snapshot.repositories[0].worktrees.push({
+        key: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-feature' },
+        branchRef: 'refs/heads/feature/auth', head: 'b'.repeat(40), isMain: false,
+        isBare: false, health: 'normal', headKind: 'branch',
+    });
+
+    const outcome = await current.controller.start('request-branch', 'project', {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    });
+
+    assert.equal(outcome.kind, 'succeeded');
+    const create = current.effects.find(effect => effect[0] === 'create');
+    assert.equal(create[1].baseRef, 'refs/heads/feature/auth',
+        'the plan must branch from the selected worktree, not the default base ref');
+});
+
+test('WORKTREE-ISOLATED-SESSION-001 rejects source worktrees outside the snapshot or workspace', async () => {
+    const current = fixture();
+
+    const unknown = await current.controller.start('request-unknown', 'project', {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/not-in-snapshot',
+    });
+    assert.deepEqual(unknown, {
+        kind: 'rejected', operationId: 'request-unknown', errorCode: 'base-ref-unavailable',
+    });
+
+    const foreign = await current.controller.start('request-foreign', 'project', {
+        repositoryKey: '/foreign/.git',
+        canonicalWorktreePath: '/foreign',
+    });
+    assert.deepEqual(foreign, {
+        kind: 'rejected', operationId: 'request-foreign', errorCode: 'base-ref-unavailable',
+    });
+    assert.equal(current.effects.filter(effect => effect[0] === 'create').length, 0,
+        'rejected source worktrees must never reach Git');
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 restores an interrupted operation and freezes setup argv', async () => {
     const current = fixture({
         recoveredOperations: [recoveryOperation()],

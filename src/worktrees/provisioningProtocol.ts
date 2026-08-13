@@ -8,6 +8,8 @@ import type { WorktreeProvisioningOutcome } from './provisioningController';
 export type IsolatedSessionRequest =
   | {
       type: 'start-isolated-session'; version: 1; requestId: string; projectId: string;
+      /** When present, the new worktree branches from this worktree's branch. */
+      sourceWorktree?: { repositoryKey: string; canonicalWorktreePath: string };
   }
   | {
       type: 'retry-isolated-session'; version: 1;
@@ -47,14 +49,20 @@ export function parseIsolatedSessionRequest(value: unknown): IsolatedSessionRequ
     if (type !== 'start-isolated-session' && !hasOperation) {
         return null;
     }
+    const sourceWorktree = parseSourceWorktree(record.sourceWorktree);
     const expectedKeys = hasOperation
         ? ['operationId', 'projectId', 'requestId', 'type', 'version']
-        : ['projectId', 'requestId', 'type', 'version'];
+        : sourceWorktree
+            ? ['projectId', 'requestId', 'sourceWorktree', 'type', 'version']
+            : ['projectId', 'requestId', 'type', 'version'];
     if (!sameKeys(record, expectedKeys)
         || record.version !== 1
         || !isSafeId(record.requestId)
         || !isSafeProjectId(record.projectId)
         || (hasOperation && !isSafeId(record.operationId))) {
+        return null;
+    }
+    if (!hasOperation && record.sourceWorktree !== undefined && !sourceWorktree) {
         return null;
     }
     return hasOperation
@@ -68,7 +76,29 @@ export function parseIsolatedSessionRequest(value: unknown): IsolatedSessionRequ
             type: 'start-isolated-session', version: 1,
             requestId: record.requestId as string,
             projectId: record.projectId as string,
+            ...(sourceWorktree ? { sourceWorktree } : {}),
         };
+}
+
+function parseSourceWorktree(
+    value: unknown
+): { repositoryKey: string; canonicalWorktreePath: string } | null {
+    if (value === undefined) {
+        return null;
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    if (!sameKeys(record, ['canonicalWorktreePath', 'repositoryKey'])
+        || !isSafeProjectId(record.repositoryKey)
+        || !isSafeProjectId(record.canonicalWorktreePath)) {
+        return null;
+    }
+    return {
+        repositoryKey: record.repositoryKey as string,
+        canonicalWorktreePath: record.canonicalWorktreePath as string,
+    };
 }
 
 export function acceptedIsolatedSessionSettlement(

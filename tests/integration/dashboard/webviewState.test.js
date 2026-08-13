@@ -803,9 +803,12 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
         'session creation belongs to the Chats surface');
     assert.doesNotMatch(worktreePanel, /ai-session-create-split-button/,
         'the global session create cluster must stay out of the Worktree surface');
-    const header = html.match(/ai-session-module-header[\s\S]*?ai-session-surface-tabs/)[0];
-    assert.doesNotMatch(header, /data-action="create-/,
-        'the module header no longer carries global create actions');
+    assert.doesNotMatch(html, /ai-session-module-header/,
+        'the retired module header must not render');
+    const chatsToolbar = chatsPanel.match(/ai-session-chats-toolbar[\s\S]*?ai-session-tab-panel/)[0];
+    assert.ok(chatsToolbar.indexOf('data-ai-session-tab') >= 0
+        && chatsToolbar.indexOf('data-action="create-ai-session-quick"') >= 0,
+        'the Active/All tabs and the create actions share one chats toolbar row');
 });
 
 test('WORKTREE-GROUPING-UI-001 renders the host-remembered surface without a restore flip', () => {
@@ -858,7 +861,7 @@ test('WORKTREE-PROVISIONING-UI-001 renders authoritative progress, retry, and ca
         worktreeRepositoryCount: 1,
     });
 
-    assert.match(html, /data-action="create-isolated-session" disabled/);
+    assert.match(html, /data-action="create-isolated-session"[^>]*disabled/);
     assert.match(html, /data-provisioning-operation-id="operation-active"/);
     assert.match(html, /Creating worktree/);
     assert.match(html, /Fix &lt;login&gt;/);

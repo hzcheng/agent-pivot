@@ -20,6 +20,8 @@ export interface WorktreeProvisioningPlan {
 export interface WorktreeProvisioningPlanOptions {
     repository: WorktreeRepositorySnapshot;
     taskName: string;
+    /** Branch from this ref instead of the repository default base ref. */
+    baseRefOverride?: string;
     isBranchAvailable: (branchName: string) => boolean | Promise<boolean>;
     isPathAvailable: (worktreePath: string) => boolean | Promise<boolean>;
     reservedBranches?: ReadonlySet<string>;
@@ -43,7 +45,7 @@ export async function createWorktreeProvisioningPlan(
     if (!taskName || !slug) {
         throw new WorktreeProvisioningPlanError('invalid-task');
     }
-    const baseRef = options.repository.baseRef;
+    const baseRef = options.baseRefOverride ?? options.repository.baseRef;
     if (!baseRef || baseRef.startsWith('-') || /[\0\r\n]/u.test(baseRef)) {
         throw new WorktreeProvisioningPlanError('base-ref-unavailable');
     }

@@ -2052,7 +2052,7 @@ body .project {
     // content-sized pane. In auto layout the pane pins to the same half share
     // the 50% cap implies; a dragged share keeps priority because this auto
     // rule excludes the manual layout via :not(.open-tab-split-manual).
-    // The 322px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
+    // The 283px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
     // webviewOpenTabSplitScripts.js: below it the fixed AI-session chrome
     // (module header with the quick-create caption, surface tabs, chat tabs,
     // provider controls) would clip away and the session list would starve
@@ -2062,11 +2062,11 @@ body .project {
             flex: 0 0 auto;
             height: 50%;
             max-height: none;
-            min-height: 322px;
+            min-height: 283px;
         }
 
         .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded {
-            min-height: 322px;
+            min-height: 283px;
         }
 
         // In both layouts the expanded card fills the group list (keeping the
@@ -3094,14 +3094,6 @@ body.steward-sidebar {
                 visibility 0s linear 220ms;
         }
 
-        .ai-session-module-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            min-height: 24px;
-        }
-
         // Create actions live inside their owning surface: session creation
         // sits in the Chats panel, worktree creation in the Worktree panel.
         .ai-session-surface-actions {
@@ -3114,14 +3106,22 @@ body.steward-sidebar {
         }
 
         .ai-session-create-isolated-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
             min-height: 24px;
-            padding: 3px 9px;
+            padding: 3px;
             border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
             border-radius: 5px;
             color: var(--vscode-button-foreground);
             background: var(--vscode-button-background);
-            font: 600 9px/1.2 var(--vscode-font-family);
             cursor: pointer;
+
+            svg {
+                width: 14px;
+                height: 14px;
+            }
 
             &:hover:not(:disabled) {
                 background: var(--vscode-button-hoverBackground);
@@ -3136,17 +3136,6 @@ body.steward-sidebar {
                 opacity: .55;
                 cursor: progress;
             }
-        }
-
-        .ai-session-module-title {
-            min-width: 0;
-            overflow: hidden;
-            color: var(--vscode-descriptionForeground);
-            font-size: 9px;
-            font-weight: 700;
-            letter-spacing: .08em;
-            text-overflow: ellipsis;
-            white-space: nowrap;
         }
 
         .ai-session-create-button {
@@ -3291,7 +3280,6 @@ body.steward-sidebar {
             white-space: nowrap;
         }
 
-        .ai-session-tabs,
         .ai-session-surface-tabs {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3343,6 +3331,70 @@ body.steward-sidebar {
             }
         }
 
+        // The Chats toolbar keeps the Active/All filter and the create
+        // actions on one row; the inner tabs are deliberately lighter than
+        // the boxed WORKTREE/CHATS surface switcher so the two levels read
+        // as different hierarchy at a glance.
+        .ai-session-chats-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 7px;
+            min-width: 0;
+
+            .ai-session-surface-actions {
+                margin-top: 0;
+                margin-left: auto;
+            }
+        }
+
+        .ai-session-tabs {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            min-width: 0;
+            flex: 1 1 auto;
+            border-bottom: 1px solid var(--vscode-panel-border);
+
+            [role="tab"] {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 4px;
+                min-width: 0;
+                min-height: 24px;
+                padding: 2px 6px;
+                border: none;
+                border-bottom: 2px solid transparent;
+                margin-bottom: -1px;
+                color: var(--vscode-descriptionForeground);
+                background: transparent;
+                font-family: var(--vscode-font-family);
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: .04em;
+                cursor: pointer;
+                transition:
+                    color $defaultTransition,
+                    border-color $defaultTransition;
+
+                &:hover {
+                    color: var(--steward-foreground);
+                }
+
+                &:focus-visible {
+                    outline: 1px solid var(--vscode-focusBorder);
+                    outline-offset: 1px;
+                }
+
+                &[aria-selected="true"] {
+                    color: var(--steward-foreground);
+                    border-bottom-color: var(--vscode-focusBorder);
+                }
+            }
+        }
+
         .ai-session-surface-tabs {
             margin-top: 7px;
             border-radius: 6px;
@@ -3351,10 +3403,6 @@ body.steward-sidebar {
                 min-height: 28px;
                 font-size: 10px;
             }
-        }
-
-        .ai-session-chats-surface .ai-session-tabs {
-            margin-top: 6px;
         }
 
         .ai-session-surface-panel[hidden] {
@@ -3497,6 +3545,7 @@ body.steward-sidebar {
         }
 
         .ai-session-worktree-quick-create,
+        .ai-session-worktree-branch-create,
         .ai-session-worktree-remove {
             display: inline-flex;
             flex: 0 0 28px;
@@ -3513,6 +3562,25 @@ body.steward-sidebar {
             &:hover,
             &:focus-visible {
                 background: var(--vscode-list-hoverBackground);
+            }
+
+            &:disabled {
+                opacity: .55;
+                cursor: progress;
+            }
+        }
+
+        .ai-session-worktree-branch-create {
+            color: var(--vscode-descriptionForeground);
+
+            svg {
+                width: 13px;
+                height: 13px;
+            }
+
+            &:hover,
+            &:focus-visible {
+                color: var(--steward-foreground);
             }
         }
 
@@ -3575,6 +3643,12 @@ body.steward-sidebar {
             flex-direction: column;
             gap: 2px;
             padding: 0 3px 3px;
+
+            // The display rule above outranks the UA [hidden] style, so the
+            // collapse toggle must win explicitly.
+            &[hidden] {
+                display: none;
+            }
         }
 
         .ai-session-worktree-empty,
@@ -5757,8 +5831,7 @@ body.steward-sidebar .project .ai-session-attention-indicator {
 
             .project-title-row,
             .project-description,
-            .ai-session-module-header,
-            .ai-session-module-title,
+            .ai-session-chats-toolbar,
             .ai-session-surface-actions,
             .ai-session-batch-actions,
             .ai-session-batch-selection-actions,
@@ -5771,7 +5844,6 @@ body.steward-sidebar .project .ai-session-attention-indicator {
             }
 
             .project-description,
-            .ai-session-module-title,
             .codex-session-name,
             .codex-session-meta {
                 overflow: hidden;

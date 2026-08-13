@@ -5097,11 +5097,11 @@ function runWebviewContentChecks() {
             },
         ],
     }, { runningIconAnimation: 'custom' });
-    assert.ok(sessionTabsHtml.includes('class="ai-session-module-header"'));
+    assert.ok(sessionTabsHtml.includes('class="ai-session-chats-toolbar"'));
     assert.ok(sessionTabsHtml.includes('data-action="create-ai-session-quick" data-provider="codex"'),
-        'the header quick-create button carries the active provider');
+        'the chats toolbar quick-create button carries the active provider');
     assert.ok(sessionTabsHtml.includes('data-action="create-ai-session-dropdown"'),
-        'the header split button keeps the create dropdown entry');
+        'the chats toolbar split button keeps the create dropdown entry');
     assert.ok(!sessionTabsHtml.includes('data-action="create-ai-session" data-provider='));
     assert.ok(sessionTabsHtml.includes('data-selected-ai-session-providers="codex"'));
     assert.ok(sessionTabsHtml.includes('data-active-ai-session-provider="codex"'));

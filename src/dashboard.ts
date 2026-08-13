@@ -1900,7 +1900,7 @@ async function initializeDashboard(
             }
             await provider.postMessage(acceptedIsolatedSessionSettlement(request));
             const outcome = await isolatedSessionController!.start(
-                request.requestId, request.projectId);
+                request.requestId, request.projectId, request.sourceWorktree);
             await provider.postMessage(settledIsolatedSessionSettlement(request, outcome));
         },
         'retry-isolated-session': async (message: unknown) => {

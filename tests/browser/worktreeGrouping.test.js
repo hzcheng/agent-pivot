@@ -115,8 +115,38 @@ test('WORKTREE-GROUPING-UI-001 keeps the original Active and All chat lists inta
     );
 });
 
-let browser;
+test('WORKTREE-GROUPING-UI-001 collapse hides the session rows with the real stylesheet', async t => {
+    const page = await openSurfacePage(320);
+    t.after(() => page.close());
 
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
+    });
+    const rows = page.locator(
+        '[data-ai-session-surface-panel="worktree"] .codex-session-row[data-session-id="frontend-session"]'
+    );
+    assert.equal(await rows.count(), 1);
+    assert.equal(await rows.first().isVisible(), true);
+
+    await page.evaluate(() => {
+        const header = document.querySelector(
+            '[data-ai-session-surface-panel="worktree"] .ai-session-worktree-header'
+        );
+        setAiSessionWorktreeExpanded(header, false);
+    });
+    assert.equal(await rows.first().isVisible(), false,
+        'a collapsed worktree must hide its session rows, not just mark them hidden');
+
+    await page.evaluate(() => {
+        const header = document.querySelector(
+            '[data-ai-session-surface-panel="worktree"] .ai-session-worktree-header'
+        );
+        setAiSessionWorktreeExpanded(header, true);
+    });
+    assert.equal(await rows.first().isVisible(), true);
+});
+
+let browser;
 test.before(async () => {
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
 });
@@ -161,6 +191,7 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     ).count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
     assert.equal(await page.locator('.ai-session-worktree-quick-create').count(), 2);
+    assert.equal(await page.locator('.ai-session-worktree-branch-create').count(), 2);
     assert.equal(await page.locator('[data-action="remove-managed-worktree"]').count(), 1);
     assert.equal(await page.locator('.ai-session-provisioning-row').count(), 1);
     assert.equal(await page.locator('[data-action="cancel-isolated-session"]').isVisible(), true);

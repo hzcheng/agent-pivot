@@ -4668,7 +4668,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '2188b3989a31d5f5f3b7ca828fd8a5a842487b706b85b972b234cdf0374c33c5',
+        'b5faadde6b74ba1c6974a4eabc63c019975357eb8bf43854fbe15c2fd8b4e7c6',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -8939,6 +8939,40 @@ service DtsService {
         );
         assert.notEqual(indent.guide, 'none');
     });
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001 keeps syntax highlighting when indentation guides wrap leading whitespace', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({ content: viewerCss });
+    const source = 'def foo():\n    if x:\n        print(x)';
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="highlighted-code"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <section class="conversation-code-block">
+                    <pre><code class="hljs language-python"><span class="hljs-keyword">def</span> foo():
+    <span class="hljs-keyword">if</span> x:
+        print(x)</code></pre>
+                </section>
+            </section>
+        </article>`,
+    });
+
+    const code = page.locator('pre > code.language-python');
+    assert.equal(await code.textContent(), source);
+    const guides = code.locator('.conversation-code-indent');
+    assert.equal(await guides.count(), 2);
+    assert.deepEqual(
+        await guides.evaluateAll(elements =>
+            elements.map(element => element.textContent)
+        ),
+        ['    ', '        ']
+    );
+    assert.ok(
+        await code.locator('.hljs-keyword').count() >= 2,
+        'hljs keyword spans survive the indentation guide pass'
+    );
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only Host document', async t => {

@@ -138,14 +138,44 @@ export function truncateUtf8Bytes(value: string, limit: number): string {
 }
 
 export function normalizeVisibleText(value: string): string {
-    return String(value || '')
+    const lines = String(value || '')
         .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffe\uffff]/g, '')
         .replace(/\r\n?/g, '\n')
-        .split('\n')
-        .map(line => line.replace(/[\t ]+/g, ' ').trim())
-        .join('\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
+        .split('\n');
+    // Fenced code blocks carry meaning in their whitespace: keep every line
+    // between the opening and closing fence verbatim instead of collapsing
+    // it like prose. Fence markers follow the CommonMark shape (up to three
+    // leading spaces, then a run of 3+ backticks or tildes), and an
+    // unterminated fence runs to the end of the input, matching how the
+    // Markdown renderer downstream treats it.
+    const normalized: string[] = [];
+    let fenceMarker = '';
+    let fenceLength = 0;
+    let previousProseBlank = false;
+    for (const line of lines) {
+        if (fenceMarker) {
+            normalized.push(line);
+            const closing = line.match(/^ {0,3}(`{3,}|~{3,})[\t ]*$/);
+            if (closing
+                && closing[1][0] === fenceMarker
+                && closing[1].length >= fenceLength) {
+                fenceMarker = '';
+            }
+            continue;
+        }
+        const prose = line.replace(/[\t ]+/g, ' ').trim();
+        if (prose === '' && previousProseBlank) {
+            continue;
+        }
+        previousProseBlank = prose === '';
+        normalized.push(prose);
+        const opening = prose.match(/^(`{3,}|~{3,})/);
+        if (opening) {
+            fenceMarker = opening[1][0];
+            fenceLength = opening[1].length;
+        }
+    }
+    return normalized.join('\n').trim();
 }
 
 export function buildUserPreview(value: string): string {

@@ -561,6 +561,68 @@
         return columns;
     }
 
+    function wrapCodeLineIndentation(code, indentStep) {
+        // The host renders syntax highlighting as inline spans, so rebuild
+        // nothing from textContent here: walk the live text nodes and wrap
+        // only each line's leading whitespace, leaving every other node —
+        // including the highlight spans — untouched.
+        var walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+        var textNodes = [];
+        while (walker.nextNode()) {
+            textNodes.push(walker.currentNode);
+        }
+        var atLineStart = true;
+        textNodes.forEach(function (node) {
+            var value = node.nodeValue;
+            if (!value) {
+                return;
+            }
+            var firstSegmentIsLineStart = atLineStart;
+            atLineStart = value.charAt(value.length - 1) === '\n';
+            var segments = value.split('\n');
+            var needsWrap = false;
+            for (var index = 0; index < segments.length; index += 1) {
+                if ((index > 0 || firstSegmentIsLineStart)
+                    && /^[\t ]+/.test(segments[index])) {
+                    needsWrap = true;
+                    break;
+                }
+            }
+            if (!needsWrap) {
+                return;
+            }
+            var fragment = document.createDocumentFragment();
+            segments.forEach(function (segment, index) {
+                if (index > 0) {
+                    fragment.appendChild(document.createTextNode('\n'));
+                }
+                var match = (index > 0 || firstSegmentIsLineStart)
+                    ? segment.match(/^[\t ]+/)
+                    : null;
+                if (!match) {
+                    fragment.appendChild(document.createTextNode(segment));
+                    return;
+                }
+                var indent = document.createElement('span');
+                indent.className = 'conversation-code-indent';
+                indent.style.setProperty(
+                    '--conversation-code-indent-step',
+                    (indentStep * 2) + 'ch'
+                );
+                indent.style.setProperty(
+                    '--conversation-code-indent-offset',
+                    codeIndentColumns(match[0]) + 'ch'
+                );
+                indent.textContent = match[0];
+                fragment.appendChild(indent);
+                fragment.appendChild(document.createTextNode(
+                    segment.slice(match[0].length)
+                ));
+            });
+            node.parentNode.replaceChild(fragment, node);
+        });
+    }
+
     function enhanceCodeBlockIndentation() {
         Array.prototype.forEach.call(
             messages.querySelectorAll(
@@ -586,33 +648,7 @@
                     },
                     indentation[0]
                 );
-                var fragment = document.createDocumentFragment();
-                lines.forEach(function (line, index) {
-                    if (index > 0) {
-                        fragment.appendChild(document.createTextNode('\n'));
-                    }
-                    var match = line.match(/^[\t ]+/);
-                    if (!match) {
-                        fragment.appendChild(document.createTextNode(line));
-                        return;
-                    }
-                    var indent = document.createElement('span');
-                    indent.className = 'conversation-code-indent';
-                    indent.style.setProperty(
-                        '--conversation-code-indent-step',
-                        (indentStep * 2) + 'ch'
-                    );
-                    indent.style.setProperty(
-                        '--conversation-code-indent-offset',
-                        codeIndentColumns(match[0]) + 'ch'
-                    );
-                    indent.textContent = match[0];
-                    fragment.appendChild(indent);
-                    fragment.appendChild(document.createTextNode(
-                        line.slice(match[0].length)
-                    ));
-                });
-                code.replaceChildren(fragment);
+                wrapCodeLineIndentation(code, indentStep);
             }
         );
     }

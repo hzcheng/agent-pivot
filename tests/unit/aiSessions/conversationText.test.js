@@ -68,6 +68,52 @@ test('SESSION-AI-SESSION-CONVERSATION-TEXT-002 does not materialize every graphe
     assert.equal(segmentCalls, 0);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-FENCED-CODE-001 keeps fenced code content verbatim while collapsing prose whitespace', () => {
+    const source = [
+        '  Here   is  the   loop:  ',
+        '',
+        '',
+        '```python',
+        'def run_agent(task: str) -> list[dict]:',
+        '    messages = [',
+        '        {"role": "user", "content": task},',
+        '    ]',
+        '',
+        '',
+        '    while True:',
+        '\t    turn += 1',
+        '```',
+        '',
+        '  outside   prose   stays  collapsed  ',
+    ].join('\n');
+    assert.equal(text.normalizeVisibleText(source), [
+        'Here is the loop:',
+        '',
+        '```python',
+        'def run_agent(task: str) -> list[dict]:',
+        '    messages = [',
+        '        {"role": "user", "content": task},',
+        '    ]',
+        '',
+        '',
+        '    while True:',
+        '\t    turn += 1',
+        '```',
+        '',
+        'outside prose stays collapsed',
+    ].join('\n'));
+    assert.equal(
+        text.normalizeVisibleText('~~~text\n  indented  \n~~~'),
+        '~~~text\n  indented  \n~~~',
+        'tilde fences keep their content too'
+    );
+    assert.equal(
+        text.normalizeVisibleText('```js\n    unterminated();'),
+        '```js\n    unterminated();',
+        'an unterminated fence still renders as code downstream'
+    );
+});
+
 test('CONVERSATION-WORKLOG-COLLAPSE-001 formats worked durations in compact English', () => {
     assert.equal(text.formatWorkedDuration(1_000), '1s');
     assert.equal(text.formatWorkedDuration(45_000), '45s');

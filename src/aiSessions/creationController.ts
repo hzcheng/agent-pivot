@@ -69,6 +69,12 @@ export interface AiSessionCreationControllerCommonOptions {
      * cancelled/failed creations.
      */
     rememberSessionProvider?: (workspaceScopeIdentity: string, providerId: AiSessionProviderId) => void;
+    /**
+     * Returns the default Codex profile decision for quick-create when no
+     * explicit profile is provided. Returns undefined when there is no
+     * remembered profile or the provider is not Codex.
+     */
+    getDefaultCodexProfileDecision?: () => SessionProfileDecision | undefined;
     getProviderLabel: (providerId: AiSessionProviderId) => string;
     getLaunchOptions: () => AiSessionLaunchOptions;
     getProvider: (providerId: AiSessionProviderId) => AiSessionCreationProvider;
@@ -160,8 +166,10 @@ export class AiSessionCreationController {
 
     /**
      * Quick-create: skip all pickers and use the given provider/profile directly.
-     * Returns false when the session could not be created (e.g. workspace not
-     * found, directory scope resolution failed, runtime creation failed).
+     * Returns false only when the creation was never attempted: another
+     * creation is in flight, the workspace is unknown, or the provider id is
+     * invalid. Directory-scope and runtime failures surface their own UI
+     * feedback inside createProviderSession and still resolve to true.
      */
     async createSessionQuick(
         projectId: string,
@@ -183,10 +191,18 @@ export class AiSessionCreationController {
         }
         this.creating = true;
         try {
+            // Resolve default profile when none is explicitly provided
+            const effectiveProfile = codexProfileDecision
+                ?? (providerId === 'codex'
+                    ? this.options.getDefaultCodexProfileDecision?.()
+                    : undefined);
             const fields: NewAiSessionFields = {
                 title: '',
-                codexProfileDecision,
+                codexProfileDecision: effectiveProfile,
             };
+            // No explicit root: the directory-scope preflight resolves the
+            // multi-root choice from the active editor or the remembered
+            // primary root (see rememberDirectoryScope) without prompting.
             await this.createProviderSession(providerId, target, fields);
             return true;
         } finally {

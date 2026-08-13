@@ -526,6 +526,7 @@ function runWorkspaceCardRenderingChecks() {
     } finally {
         Module._load = previousModuleLoad;
     }
+    const webviewAiSessionContent = require('../out/webview/webviewAiSessionContent');
     const icons = require('../out/webview/webviewIcons');
 
     const emptyHtml = webviewContent.getCurrentWorkspaceGroupContent(null, false);
@@ -657,7 +658,29 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual(multiHtml.includes('class="workspace-root-tag"'), false);
     assert.ok(multiHtml.includes('data-primary-root-id="root-api"'));
     assert.ok(multiHtml.includes('class="ai-session-root-chip"'));
+    assert.ok(multiHtml.includes('class="ai-session-create-split-button"'),
+        'the AI sessions header renders the split create button');
     assert.ok(multiHtml.includes('data-action="create-ai-session-quick"'));
+    assert.ok(multiHtml.includes('data-provider="codex"'),
+        'the quick-create button carries the active provider');
+    assert.ok(multiHtml.includes('aria-label="New Codex session"'),
+        'the quick-create button announces the provider it will launch');
+    assert.ok(multiHtml.includes('data-action="create-ai-session-dropdown"'),
+        'the split button keeps a dropdown entry for other providers');
+    assert.strictEqual(multiHtml.includes('data-action="create-ai-session"'), false,
+        'the header split button replaces the bare create action');
+
+    const createDropdownHtml = webviewAiSessionContent.getAiSessionCreateDropdown();
+    assert.ok(createDropdownHtml.includes('id="aiSessionCreateDropdown"'),
+        'the create dropdown menu exists for the split button arrow');
+    for (const provider of ['codex', 'kimi', 'claude']) {
+        assert.ok(
+            createDropdownHtml.includes(`data-action="create-ai-session-quick" data-provider="${provider}"`),
+            `the create dropdown offers a quick ${provider} entry`
+        );
+    }
+    assert.ok(createDropdownHtml.includes('data-action="create-ai-session"'),
+        'the create dropdown keeps the full interactive entry');
     assert.strictEqual(multiHtml.includes('data-action="open-new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="selected-project"'), false);
@@ -5337,6 +5360,9 @@ async function runDashboardMessageRouterChecks() {
         createAiSession: message => {
             calls.push(['create-ai-session', message.projectId]);
         },
+        createAiSessionQuick: message => {
+            calls.push(['create-ai-session-quick', message.projectId, message.provider]);
+        },
         resumeAiSession: (message, providerId, rootId) => {
             calls.push(['resume-ai-session', providerId, message.sessionId, rootId]);
         },
@@ -5357,6 +5383,7 @@ async function runDashboardMessageRouterChecks() {
     await router({ type: 'request-todo-panel', requestId: 8 });
     await router({ type: 'selected-project', projectId: 'project-a' });
     await router({ type: 'create-ai-session', projectId: 'workspace-a', rootId: 'root-api' });
+    await router({ type: 'create-ai-session-quick', projectId: 'workspace-a', provider: 'kimi' });
     await router({ type: 'new-session-in', projectId: 'workspace-a' });
     await router({ type: 'new-session-in', projectId: 'workspace-a', rootId: 'root-api' });
     await router({ type: 'resume-ai-session', provider: 'codex', sessionId: 'c1' });
@@ -5373,6 +5400,7 @@ async function runDashboardMessageRouterChecks() {
         ['request-todo-panel', 8],
         ['selected-project', 'project-a'],
         ['create-ai-session', 'workspace-a'],
+        ['create-ai-session-quick', 'workspace-a', 'kimi'],
         ['resume-ai-session', 'codex', 'c1', null],
         ['resume-ai-session', 'codex', 'c2', 'root-web'],
         ['resume-ai-session', null, 'invalid', null],

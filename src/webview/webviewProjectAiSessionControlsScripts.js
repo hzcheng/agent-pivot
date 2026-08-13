@@ -206,11 +206,35 @@ function initProjectAiSessionControls(options) {
 
         var dropdownAction = target.closest('[data-action="create-ai-session-dropdown"]');
         if (dropdownAction) {
-            window.vscode.postMessage({
-                type: 'create-ai-session',
-                projectId,
-            });
-
+            var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
+            if (dropdownMenu) {
+                // Close other menus first
+                var contextMenus = window.__agentPivotContextMenus;
+                if (contextMenus && typeof contextMenus.closeContextMenus === 'function') {
+                    contextMenus.closeContextMenus();
+                }
+                // Store the projectId on the menu element for menu item handlers
+                dropdownMenu.setAttribute('data-dropdown-project-id', projectId);
+                // Position and show the dropdown below the button
+                var buttonRect = dropdownAction.getBoundingClientRect();
+                dropdownMenu.style.visibility = 'hidden';
+                dropdownMenu.style.left = '0px';
+                dropdownMenu.style.top = '0px';
+                dropdownMenu.classList.add('visible');
+                var menuRect = dropdownMenu.getBoundingClientRect();
+                var viewportPadding = 4;
+                var left = Math.max(viewportPadding, Math.min(
+                    buttonRect.left,
+                    window.innerWidth - menuRect.width - viewportPadding
+                ));
+                var top = buttonRect.bottom + 2;
+                if (top + menuRect.height > window.innerHeight - viewportPadding) {
+                    top = buttonRect.top - menuRect.height - 2;
+                }
+                dropdownMenu.style.left = left + 'px';
+                dropdownMenu.style.top = top + 'px';
+                dropdownMenu.style.visibility = 'visible';
+            }
             return true;
         }
 

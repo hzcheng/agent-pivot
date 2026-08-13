@@ -354,6 +354,26 @@ export function createSessionControllerComposition(
                 logError("Failed to remember the AI session provider.", error);
             }
         },
+        getDefaultCodexProfileDecision: () => {
+            const lastUsed = options.aiSessionProfileController?.getLastUsed();
+            if (lastUsed && lastUsed.kind === 'profile') {
+                const profileAvailable = options.isCodexProfileFileAvailable?.(lastUsed.name);
+                if (profileAvailable !== false) {
+                    return lastUsed;
+                }
+            }
+            if (lastUsed?.kind === 'base') {
+                return lastUsed;
+            }
+            const defaultFromSetting = options.getCodexDefaultProfile?.();
+            if (defaultFromSetting) {
+                const profileAvailable = options.isCodexProfileFileAvailable?.(defaultFromSetting);
+                if (profileAvailable !== false) {
+                    return { kind: 'profile', name: defaultFromSetting };
+                }
+            }
+            return undefined;
+        },
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,

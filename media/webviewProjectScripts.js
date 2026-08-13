@@ -254,6 +254,7 @@ function initProjects() {
         getAiSessionPresentationStateStore: () => aiSessionPresentationStateStore,
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
     });
+    window.__agentPivotContextMenus = null;
     var contextMenus = initProjectContextMenus({
         openProject: openProject,
         ProjectOpenType: ProjectOpenType,
@@ -261,6 +262,7 @@ function initProjects() {
         getArchiveAiSessionMessageType: aiSessionControls.getArchiveAiSessionMessageType,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
+    window.__agentPivotContextMenus = contextMenus;
     aiSessionPresentationStateStore = initAiSessionPresentationStateStore({
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
@@ -325,6 +327,32 @@ function initProjects() {
         contextMenuElement = e.target.closest("#aiSessionContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onAiSessionContextMenuActionClicked(contextMenuElement);
+            return;
+        }
+
+        contextMenuElement = e.target.closest("#aiSessionCreateDropdown [data-action]");
+        if (contextMenuElement) {
+            var action = contextMenuElement.getAttribute("data-action");
+            var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
+            var projectId = dropdownMenu
+                ? dropdownMenu.getAttribute('data-dropdown-project-id') || ''
+                : '';
+            if (action === "create-ai-session-quick") {
+                var provider = contextMenuElement.getAttribute("data-provider");
+                if (provider) {
+                    window.vscode.postMessage({
+                        type: "create-ai-session-quick",
+                        projectId: projectId,
+                        provider: provider,
+                    });
+                }
+            } else if (action === "create-ai-session") {
+                window.vscode.postMessage({
+                    type: "create-ai-session",
+                    projectId: projectId,
+                });
+            }
+            contextMenus.closeContextMenus();
             return;
         }
 

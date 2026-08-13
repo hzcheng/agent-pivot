@@ -524,6 +524,27 @@ function formatCodexSessionUpdatedAt(updatedAt: string): string {
     return date.toISOString().substring(0, 10);
 }
 
+export function getAiSessionCreateDropdown() {
+    return `
+<div id="aiSessionCreateDropdown" class="custom-context-menu ai-session-create-dropdown-menu" role="menu" aria-label="Create AI session">
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-quick" data-provider="codex">
+        New Codex session
+    </div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-quick" data-provider="kimi">
+        New Kimi session
+    </div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-quick" data-provider="claude">
+        New Claude session
+    </div>
+
+    <div class="custom-context-menu-separator" role="separator"></div>
+
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session">
+        New session with options…
+    </div>
+</div>`;
+}
+
 export function getAiSessionContextMenu() {
     return `
 <div id="aiSessionContextMenu" class="custom-context-menu" role="menu" aria-label="AI Session actions">

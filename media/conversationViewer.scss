@@ -1046,27 +1046,18 @@ body[data-conversation-loading='true'] .conversation-messages {
     }
 
     .conversation-code-indent {
-        position: relative;
         display: inline-block;
-        padding-inline-start: var(--conversation-code-indent-offset);
         white-space: pre;
-
-        &::before {
-            position: absolute;
-            inset: 0;
-            background-image: linear-gradient(
-                to right,
-                transparent calc(100% - 1px),
-                var(
-                    --vscode-editorIndentGuide-background1,
-                    var(--vscode-panel-border, rgba(127, 127, 127, 0.45))
-                ) calc(100% - 1px)
-            );
-            background-repeat: repeat-x;
-            background-size: var(--conversation-code-indent-step) 100%;
-            content: "";
-            pointer-events: none;
-        }
+        background-image: linear-gradient(
+            to right,
+            transparent calc(100% - 1px),
+            var(
+                --vscode-editorIndentGuide-background1,
+                rgba(127, 127, 127, 0.28)
+            ) calc(100% - 1px)
+        );
+        background-repeat: repeat-x;
+        background-size: var(--conversation-code-indent-step) 100%;
     }
 
     a {
@@ -2816,4 +2807,44 @@ body[data-viewing-subagent="true"] .conversation-outline-bookmarks-only {
 .hljs-operator,
 .hljs-punctuation {
     color: var(--vscode-foreground);
+}
+
+body.vscode-light,
+body.vscode-high-contrast-light {
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-literal,
+    .hljs-built_in {
+        color: var(--vscode-symbolIcon-keywordForeground, #0000ff);
+    }
+
+    .hljs-string,
+    .hljs-regexp,
+    .hljs-attr {
+        color: var(--vscode-symbolIcon-stringForeground, #a31515);
+    }
+
+    .hljs-number,
+    .hljs-symbol,
+    .hljs-literal {
+        color: var(--vscode-symbolIcon-numberForeground, #098658);
+    }
+
+    .hljs-comment,
+    .hljs-quote {
+        color: var(--vscode-symbolIcon-textForeground, #008000);
+    }
+
+    .hljs-title,
+    .hljs-name,
+    .hljs-section {
+        color: var(--vscode-symbolIcon-functionForeground, #795e26);
+    }
+
+    .hljs-type,
+    .hljs-class,
+    .hljs-variable,
+    .hljs-template-variable {
+        color: var(--vscode-symbolIcon-classForeground, #267f99);
+    }
 }

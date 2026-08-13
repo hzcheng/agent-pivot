@@ -4668,7 +4668,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'b5faadde6b74ba1c6974a4eabc63c019975357eb8bf43854fbe15c2fd8b4e7c6',
+        '64fe43bb1406335a0d4fe64b638bd0961452bdff754231938c121a7d41511196',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -8928,14 +8928,15 @@ service DtsService {
                 range.setEnd(element.nextSibling, 1);
                 return range.getBoundingClientRect().width;
             })(),
-            guide: getComputedStyle(element, '::before').backgroundImage,
+            guide: getComputedStyle(element).backgroundImage,
         }))
     );
     presentation.forEach(indent => {
         assert.equal(indent.text, '  ');
         assert.ok(
-            indent.width >= indent.characterWidth * 3.75,
-            'one source indentation level must have a clear four-column offset'
+            indent.width >= indent.characterWidth * 1.75
+                && indent.width <= indent.characterWidth * 2.25,
+            'two source spaces render as two columns, not amplified'
         );
         assert.notEqual(indent.guide, 'none');
     });

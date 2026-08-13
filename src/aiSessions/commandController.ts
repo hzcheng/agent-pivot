@@ -166,6 +166,10 @@ export interface AiSessionCommandControllerOptions {
     showWarningMessage?: (message: string) => unknown;
     isProviderId: (value: string) => value is AiSessionProviderId;
     setExpanded: (workspaceScopeIdentity: string, expanded: boolean) => Thenable<unknown>;
+    setSelectedSurface: (
+        workspaceScopeIdentity: string,
+        surface: 'worktree' | 'chats'
+    ) => Thenable<unknown>;
     setProviderSelection: (
         workspaceScopeIdentity: string,
         selection: AiSessionProviderSelection
@@ -259,6 +263,18 @@ export class AiSessionCommandController {
             return;
         }
         await this.options.setExpanded(workspaceTarget.workspace.scopeIdentity, expanded);
+    }
+
+    async selectSurface(projectId: unknown, surface: unknown): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId
+            || (surface !== 'worktree' && surface !== 'chats')) {
+            return;
+        }
+        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
+        if (!workspaceTarget) {
+            return;
+        }
+        await this.options.setSelectedSurface(workspaceTarget.workspace.scopeIdentity, surface);
     }
 
     async selectProviders(

@@ -2797,6 +2797,12 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card 
 
     await postHostMessage(page, focusOrigin());
     assert.equal(await activeTab.getAttribute('aria-selected'), 'true');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'select-ai-session-surface',
+        version: 1,
+        projectId: 'project-a',
+        surface: 'chats',
+    }, 'focusing a conversation origin must report the Chats surface for future renders');
     assert.equal(
         await focused.locator('.ai-session-primary-action')
             .evaluate(header => document.activeElement === header),

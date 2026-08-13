@@ -250,6 +250,8 @@ export interface WorkspaceAiSessionViewModel {
     aiSessionCount: number;
     attentionCount: number;
     defaultTab: AiSessionTabId;
+    /** The surface the user last selected; absent renders the Chats default. */
+    selectedSurface?: 'worktree' | 'chats';
     activeSessions: ActiveAiSessionViewModel[];
     activeSessionCount: number;
     activeAttentionCount: number;

@@ -252,6 +252,14 @@ function focusAiSessionConversationOrigin(message) {
     }
     selectAiSessionSurfaceDom(projectDiv, 'chats');
     writeAiSessionSurfaceState(window.vscode, origin.projectId, 'chats');
+    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+        window.vscode.postMessage({
+            type: 'select-ai-session-surface',
+            version: 1,
+            projectId: origin.projectId,
+            surface: 'chats',
+        });
+    }
     selectAiSessionTabDom(projectDiv, 'active');
     writeAiSessionTabState(window.vscode, origin.projectId, 'active');
     var row = Array.from(projectDiv.querySelectorAll(

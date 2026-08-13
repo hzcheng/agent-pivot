@@ -226,6 +226,9 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the 
 test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a terminal settlement', async t => {
     const page = await openQuickCreatePage(t);
     const project = page.locator('.project[data-id="project-a"]');
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
     const button = project.locator('[data-action="create-isolated-session"]');
 
     await button.click();
@@ -362,6 +365,32 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact
         provider: 'kimi',
         worktreeKey: key,
     }]);
+});
+
+test('WORKTREE-GROUPING-UI-001 selecting a surface reports it for authoritative re-renders', async t => {
+    const page = await openQuickCreatePage(t);
+    const project = page.locator('.project[data-id="project-a"]');
+
+    await project.locator('[data-ai-session-surface-tab="worktree"]').click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'select-ai-session-surface',
+        version: 1,
+        projectId: 'project-a',
+        surface: 'worktree',
+    }]);
+    assert.equal(
+        await project.locator('[data-ai-session-surface-tab="worktree"]')
+            .getAttribute('aria-selected'),
+        'true'
+    );
+
+    await project.locator('[data-ai-session-surface-tab="chats"]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'select-ai-session-surface',
+        version: 1,
+        projectId: 'project-a',
+        surface: 'chats',
+    });
 });
 
 test('AI-SESSION-QUICK-CREATE-001 the split button arrow opens the create dropdown without posting', async t => {

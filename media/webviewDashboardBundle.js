@@ -334,6 +334,14 @@ function focusAiSessionConversationOrigin(message) {
     }
     selectAiSessionSurfaceDom(projectDiv, 'chats');
     writeAiSessionSurfaceState(window.vscode, origin.projectId, 'chats');
+    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+        window.vscode.postMessage({
+            type: 'select-ai-session-surface',
+            version: 1,
+            projectId: origin.projectId,
+            surface: 'chats',
+        });
+    }
     selectAiSessionTabDom(projectDiv, 'active');
     writeAiSessionTabState(window.vscode, origin.projectId, 'active');
     var row = Array.from(projectDiv.querySelectorAll(
@@ -3316,6 +3324,14 @@ function initProjectAiSessionControls(options) {
             );
             selectAiSessionSurfaceDom(projectDiv, selectedSurface);
             writeAiSessionSurfaceState(window.vscode, projectId, selectedSurface);
+            // The host renders future authoritative HTML with this selection,
+            // so replacements never flip the visible surface.
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: projectId,
+                surface: selectedSurface,
+            });
             return true;
         }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');

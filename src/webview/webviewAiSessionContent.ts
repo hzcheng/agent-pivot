@@ -58,6 +58,8 @@ export interface AiSessionSurfaceViewModel {
     selectedAiSessionProviders?: AiSessionProviderId[];
     providers?: AiSessionProviderSummary[];
     activeAiSessionTab?: AiSessionTabId;
+    /** The surface the user last selected; absent renders the Chats default. */
+    selectedSurface?: 'worktree' | 'chats';
     codexSessions?: RootLabeledAiSession[];
     kimiSessions?: RootLabeledAiSession[];
     claudeSessions?: RootLabeledAiSession[];
@@ -98,6 +100,9 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         selectedAiSessionProviders: aiSessions.selectedProviders,
         providers: aiSessions.providers,
         activeAiSessionTab: aiSessions.defaultTab,
+        ...(aiSessions.selectedSurface
+            ? { selectedSurface: aiSessions.selectedSurface }
+            : {}),
         codexSessions: aiSessions.sessionsByProvider.codex || [],
         kimiSessions: aiSessions.sessionsByProvider.kimi || [],
         claudeSessions: aiSessions.sessionsByProvider.claude || [],
@@ -143,27 +148,26 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         ? `${quickCreateProviderLabel} · ${quickCreateProfile}`
         : quickCreateProviderLabel;
     var provisioningWorktrees = getProvisioningWorktrees(project.worktrees);
-    var selectedSurface = 'chats';
+    var selectedSurface = project.selectedSurface === 'worktree' ? 'worktree' : 'chats';
 
     return `
 <div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-surface="${selectedSurface}" data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
     <div class="ai-session-module-header">
         <span class="ai-session-module-title">AI SESSIONS</span>
-        <span class="ai-session-create-actions">
-            <button type="button" class="ai-session-create-isolated-button" data-action="create-isolated-session"${provisioningWorktrees.some(row => row.stage !== 'failed') ? ' disabled' : ''}>New Worktree</button>
-            <span class="ai-session-create-split-button">
-                <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>
-                <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
-            </span>
-            <span class="ai-session-create-caption" aria-hidden="true">${escapeAttribute(quickCreateCaption)}</span>
-        </span>
     </div>
     <div class="ai-session-surface-tabs" role="tablist" aria-label="AI workspace views">
         ${getAiSessionSurfaceTabButton(project.id, 'worktree', 'WORKTREE', selectedSurface)}
         ${getAiSessionSurfaceTabButton(project.id, 'chats', 'CHATS', selectedSurface)}
     </div>
-    ${getWorktreeSurfacePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, selectedSurface)}
+    ${getWorktreeSurfacePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, selectedSurface, provisioningWorktrees)}
     <div id="ai-session-chats-${escapeAttribute(project.id || 'project')}" class="ai-session-surface-panel ai-session-chats-surface" role="tabpanel" data-ai-session-surface-panel="chats" aria-labelledby="ai-session-surface-chats-tab-${escapeAttribute(project.id || 'project')}"${selectedSurface === 'chats' ? '' : ' hidden'}>
+        <div class="ai-session-surface-actions ai-session-chats-actions">
+            <span class="ai-session-create-caption" aria-hidden="true">${escapeAttribute(quickCreateCaption)}</span>
+            <span class="ai-session-create-split-button">
+                <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>
+                <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
+            </span>
+        </div>
         <div class="ai-session-tabs" role="tablist" aria-label="Chat views">
             ${getAiSessionTabButton(project, 'active', activeSessions.length)}
             ${getAiSessionTabButton(project, 'sessions', totalSessionCount)}
@@ -193,11 +197,13 @@ function getWorktreeSurfacePanel(
     quickCreateProvider: AiSessionProviderId,
     quickCreateProfile: string,
     selectedSurface: string,
+    provisioningWorktrees: ProvisioningWorktreeRow[],
 ): string {
     const projectId = escapeAttribute(project.id || 'project');
     const worktrees = getReadyWorktrees(project.worktrees);
-    const provisioningRows = getProvisioningWorktrees(project.worktrees)
+    const provisioningRows = provisioningWorktrees
         .map(getProvisioningWorktreeHtml).join('\n');
+    const createIsolatedDisabled = provisioningWorktrees.some(row => row.stage !== 'failed');
     const projection = projectAiSessionHistory(selectedProviders, {
         codex: (project.codexSessions || []).map(session => ({ ...session, provider: 'codex' })),
         kimi: (project.kimiSessions || []).map(session => ({ ...session, provider: 'kimi' })),
@@ -243,6 +249,9 @@ function getWorktreeSurfacePanel(
         ? `<div class="ai-session-worktree-truncated" role="status">${project.truncatedWorktreeCount} more worktrees not shown</div>`
         : '';
     return `<div id="ai-session-worktree-${projectId}" class="ai-session-surface-panel ai-session-worktree-surface" role="tabpanel" data-ai-session-surface-panel="worktree" aria-labelledby="ai-session-surface-worktree-tab-${projectId}"${selectedSurface === 'worktree' ? '' : ' hidden'}>
+        <div class="ai-session-surface-actions ai-session-worktree-actions">
+            <button type="button" class="ai-session-create-isolated-button" data-action="create-isolated-session"${createIsolatedDisabled ? ' disabled' : ''}>New Worktree</button>
+        </div>
         <div class="ai-session-worktree-list">${provisioningRows}${groups}${empty}${truncated}</div>
     </div>`;
 }

@@ -790,6 +790,37 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     assert.match(html, /2 more worktrees not shown/);
     assert.match(html, /data-action="toggle-ai-session-worktree"/);
     assert.match(html, /aria-label="feature\/auth, 1 session, needs attention"/);
+    const worktreePanel = html.match(
+        /data-ai-session-surface-panel="worktree"[\s\S]*?data-ai-session-surface-panel="chats"/
+    )[0];
+    const chatsPanel = html.match(
+        /data-ai-session-surface-panel="chats"[\s\S]*?ai-session-live-region/
+    )[0];
+    assert.match(worktreePanel, /data-action="create-isolated-session"/,
+        'New Worktree creation belongs to the Worktree surface');
+    assert.doesNotMatch(chatsPanel, /data-action="create-isolated-session"/);
+    assert.match(chatsPanel, /data-action="create-ai-session-quick"/,
+        'session creation belongs to the Chats surface');
+    assert.doesNotMatch(worktreePanel, /ai-session-create-split-button/,
+        'the global session create cluster must stay out of the Worktree surface');
+    const header = html.match(/ai-session-module-header[\s\S]*?ai-session-surface-tabs/)[0];
+    assert.doesNotMatch(header, /data-action="create-/,
+        'the module header no longer carries global create actions');
+});
+
+test('WORKTREE-GROUPING-UI-001 renders the host-remembered surface without a restore flip', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'surface-memory',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktrees: [],
+        selectedSurface: 'worktree',
+    });
+    assert.match(html, /data-selected-ai-session-surface="worktree"/,
+        'authoritative HTML must carry the selected surface so replacements never flip it');
+    assert.match(html, /data-ai-session-surface-tab="worktree" aria-selected="true"/);
+    assert.match(html, /data-ai-session-surface-panel="chats"[^>]*hidden/);
 });
 
 test('WORKTREE-GROUPING-UI-001 keeps Chats available when no worktrees exist', () => {

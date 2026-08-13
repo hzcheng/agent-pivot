@@ -373,6 +373,8 @@ export function createSessionControllerComposition(
         showWarningMessage: message => showWarningMessage(message),
         isProviderId: isAiSessionProviderId,
         setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
+        setSelectedSurface: (workspaceScopeIdentity, surface) =>
+            aiSessionWorkspaceStateStore.setSelectedSurface(workspaceScopeIdentity, surface),
         setProviderSelection: (workspaceScopeIdentity, selection) =>
             aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
         postProviderSelectionResult: result => postMessage(result),

@@ -156,6 +156,11 @@ test('PERSIST-PROJECT-STATE-STORE-001 AI-SESSION-QUICK-CREATE-001 quick-create p
 test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores invalid writes', async () => {
     const state = makeState({
         'workspaceExpandedAiSessions.v2': ['scope-a', '', 7, 'scope-a', 'scope-b'],
+        'workspaceAiSessionSurface.v1': {
+            'scope-a': 'worktree',
+            'scope-b': 'grid',
+            '': 'chats',
+        },
         'workspaceActiveAiSessionProvider.v2': {
             'scope-a': 'codex',
             'scope-b': 'unknown',
@@ -175,6 +180,8 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     );
 
     assert.deepEqual(Array.from(store.getExpandedWorkspaces()), ['scope-a', 'scope-b']);
+    assert.deepEqual(store.getSelectedSurfaces(), { 'scope-a': 'worktree' },
+        'invalid surfaces and empty scopes are dropped on read');
     assert.deepEqual(store.getActiveProviders(), { 'scope-a': 'codex', 'scope-c': 'kimi' });
     assert.deepEqual(store.getProviderSelections(), {
         'scope-a': {
@@ -184,6 +191,9 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     });
     await store.setExpanded('scope-c', true);
     await store.setExpanded('', true);
+    await store.setSelectedSurface('scope-c', 'chats');
+    await store.setSelectedSurface('', 'worktree');
+    await store.setSelectedSurface('scope-d', 'grid');
     await store.setActiveProvider('scope-d', 'claude');
     await store.setActiveProvider('scope-e', 'unknown');
     await store.setProviderSelection('scope-d', {
@@ -201,6 +211,9 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     assert.deepEqual(state.values['workspaceExpandedAiSessions.v2'], [
         'scope-a', 'scope-b', 'scope-c',
     ]);
+    assert.deepEqual(state.values['workspaceAiSessionSurface.v1'], {
+        'scope-a': 'worktree', 'scope-c': 'chats',
+    });
     assert.deepEqual(state.values['workspaceActiveAiSessionProvider.v2'], {
         'scope-a': 'codex', 'scope-c': 'kimi', 'scope-d': 'claude',
         'scope-e': 'codex', 'scope-f': 'codex',

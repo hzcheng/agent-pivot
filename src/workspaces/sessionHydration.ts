@@ -68,6 +68,7 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     activePresentation?: WorkspaceActiveSessionPresentation;
     activeProvider?: AiSessionProviderId;
     providerSelection?: AiSessionProviderSelection;
+    selectedSurface?: 'worktree' | 'chats';
     expanded?: boolean;
 }
 
@@ -193,6 +194,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         attentionCount: activePresentation.attentionCount,
         activeProvider: input.activeProvider,
         providerSelection: input.providerSelection,
+        selectedSurface: input.selectedSurface,
         expanded: input.expanded,
         quickCreateProfile: input.quickCreateProfile,
         quickCreateProvider: input.quickCreateProvider,

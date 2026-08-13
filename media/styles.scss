@@ -2106,6 +2106,19 @@ body .project {
                     flex-direction: column;
                 }
 
+                .ai-session-worktree-list {
+                    flex: 1 1 0;
+                    min-height: 0;
+                    overflow-y: auto;
+
+                    .ai-session-worktree-group,
+                    .ai-session-provisioning-row,
+                    .ai-session-worktree-empty-state,
+                    .ai-session-worktree-truncated {
+                        flex-shrink: 0;
+                    }
+                }
+
                 .ai-session-tab-panel:not([hidden]) {
                     flex: 1 1 0;
                     min-height: 0;
@@ -3089,12 +3102,14 @@ body.steward-sidebar {
             min-height: 24px;
         }
 
-        .ai-session-create-actions {
-            position: relative;
-            display: inline-flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 2px;
+        // Create actions live inside their owning surface: session creation
+        // sits in the Chats panel, worktree creation in the Worktree panel.
+        .ai-session-surface-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+            margin-top: 6px;
             flex: 0 0 auto;
         }
 
@@ -5744,7 +5759,7 @@ body.steward-sidebar .project .ai-session-attention-indicator {
             .project-description,
             .ai-session-module-header,
             .ai-session-module-title,
-            .ai-session-create-actions,
+            .ai-session-surface-actions,
             .ai-session-batch-actions,
             .ai-session-batch-selection-actions,
             .ai-session-batch-submit-actions,

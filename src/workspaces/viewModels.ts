@@ -30,6 +30,8 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     quickCreateProfile?: string;
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
+    /** The AI session surface the user last selected for this workspace. */
+    selectedSurface?: 'worktree' | 'chats';
     worktreeSnapshot?: WorktreeSnapshot | null;
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
 }
@@ -83,6 +85,9 @@ export function buildWorkspaceAiSessionViewModel(
         aiSessionCount: providers.reduce((count, provider) => count + provider.count, 0),
         attentionCount: input.attentionCount,
         defaultTab: activeSessions.length ? 'active' : 'sessions',
+        ...(input.selectedSurface === 'worktree' || input.selectedSurface === 'chats'
+            ? { selectedSurface: input.selectedSurface }
+            : {}),
         activeSessions,
         activeSessionCount: activeSessions.length,
         activeAttentionCount: activeSessions.filter(session => session.needsAttention).length,

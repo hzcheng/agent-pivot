@@ -1348,6 +1348,8 @@ async function initializeDashboard(
         },
         getQuickCreateProvider: scopeIdentity =>
             aiSessionWorkspaceStateStore.getQuickCreateProviders()[scopeIdentity],
+        getSelectedSurface: scopeIdentity =>
+            aiSessionWorkspaceStateStore.getSelectedSurfaces()[scopeIdentity],
         getProviderSelection: scopeIdentity => {
             const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
             if (stored) {

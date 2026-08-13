@@ -126,6 +126,9 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getProviderSelection: (
         workspaceScopeIdentity: string
     ) => AiSessionProviderSelection | undefined;
+    getSelectedSurface?: (
+        workspaceScopeIdentity: string
+    ) => 'worktree' | 'chats' | undefined;
     getExpanded: (workspaceScopeIdentity: string) => boolean;
     getProjectionSnapshot: () => AiSessionProjectionSnapshot<TTerminal>;
     getProvisioningWorktrees?: () => readonly ProvisioningWorktreeRow[];
@@ -203,6 +206,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             provisioningWorktrees: this.options.getProvisioningWorktrees?.() || [],
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
+            selectedSurface: this.options.getSelectedSurface?.(workspace.scopeIdentity),
             expanded: this.options.getExpanded(workspace.scopeIdentity),
         });
         this.logDiagnostic({

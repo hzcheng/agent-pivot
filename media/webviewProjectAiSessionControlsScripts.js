@@ -223,6 +223,14 @@ function initProjectAiSessionControls(options) {
             );
             selectAiSessionSurfaceDom(projectDiv, selectedSurface);
             writeAiSessionSurfaceState(window.vscode, projectId, selectedSurface);
+            // The host renders future authoritative HTML with this selection,
+            // so replacements never flip the visible surface.
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: projectId,
+                surface: selectedSurface,
+            });
             return true;
         }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');

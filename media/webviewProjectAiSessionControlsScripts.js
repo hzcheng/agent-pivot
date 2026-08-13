@@ -208,13 +208,23 @@ function initProjectAiSessionControls(options) {
         if (dropdownAction) {
             var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
             if (dropdownMenu) {
-                // Close other menus first
+                // Snapshot before closing: a second click on the arrow that
+                // opened the menu toggles it closed.
+                var wasOpenForProject = dropdownMenu.classList.contains('visible')
+                    && (dropdownMenu.getAttribute('data-dropdown-project-id') || '') === projectId;
+                // Close other menus first (this also resets every arrow's
+                // aria-expanded via closeContextMenus).
                 var contextMenus = window.__agentPivotContextMenus;
                 if (contextMenus && typeof contextMenus.closeContextMenus === 'function') {
                     contextMenus.closeContextMenus();
                 }
+                if (wasOpenForProject) {
+                    return true;
+                }
                 // Store the projectId on the menu element for menu item handlers
                 dropdownMenu.setAttribute('data-dropdown-project-id', projectId);
+                dropdownMenu.__originButton = dropdownAction;
+                dropdownAction.setAttribute('aria-expanded', 'true');
                 // Position and show the dropdown below the button
                 var buttonRect = dropdownAction.getBoundingClientRect();
                 dropdownMenu.style.visibility = 'hidden';
@@ -234,6 +244,10 @@ function initProjectAiSessionControls(options) {
                 dropdownMenu.style.left = left + 'px';
                 dropdownMenu.style.top = top + 'px';
                 dropdownMenu.style.visibility = 'visible';
+                var firstMenuItem = dropdownMenu.querySelector('[role="menuitem"]');
+                if (firstMenuItem) {
+                    firstMenuItem.focus();
+                }
             }
             return true;
         }

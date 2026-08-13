@@ -228,3 +228,68 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
     assert.deepEqual(await postedMessages(page), []);
 });
+
+test('AI-SESSION-QUICK-CREATE-001 the arrow toggles the dropdown and mirrors aria-expanded', async t => {
+    const page = await openQuickCreatePage(t);
+    const arrow = page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]');
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+
+    assert.equal(await arrow.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(await arrow.getAttribute('aria-expanded'), 'false');
+
+    await arrow.click();
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true);
+    assert.equal(await arrow.getAttribute('aria-expanded'), 'true');
+
+    await arrow.click();
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false,
+        'a second click on the opening arrow closes its menu');
+    assert.equal(await arrow.getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(await postedMessages(page), []);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 the dropdown is fully keyboard operable', async t => {
+    const page = await openQuickCreatePage(t);
+    const project = page.locator('.project[data-id="project-b"]');
+    const arrow = project.locator('[data-action="create-ai-session-dropdown"]');
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+    const items = dropdown.locator('[role="menuitem"]');
+
+    await arrow.focus();
+    await arrow.press('Enter');
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true,
+        'Enter on the arrow opens the menu');
+    assert.equal(await items.nth(0).evaluate(element => document.activeElement === element), true,
+        'focus lands on the first menu item when the menu opens');
+
+    await items.nth(0).press('ArrowDown');
+    assert.equal(await items.nth(1).evaluate(element => document.activeElement === element), true);
+    await items.nth(1).press('End');
+    assert.equal(await items.nth(3).evaluate(element => document.activeElement === element), true,
+        'End jumps to the interactive entry');
+    await items.nth(3).press('ArrowDown');
+    assert.equal(await items.nth(0).evaluate(element => document.activeElement === element), true,
+        'roving focus wraps around');
+
+    await items.nth(0).press('ArrowDown');
+    await items.nth(1).press('Enter');
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-b',
+        provider: 'kimi',
+    }], 'Enter activates the focused provider item for the originating project');
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
+
+    await arrow.press('Enter');
+    await items.nth(0).press('Escape');
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false,
+        'Escape closes the menu');
+    assert.equal(await arrow.evaluate(element => document.activeElement === element), true,
+        'Escape restores focus to the arrow that opened the menu');
+    assert.equal(await arrow.getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-b',
+        provider: 'kimi',
+    }], 'Escape posts nothing');
+});

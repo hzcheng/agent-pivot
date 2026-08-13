@@ -112,7 +112,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         <span class="ai-session-create-actions">
             <span class="ai-session-create-split-button">
                 <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(activeProvider)}" aria-label="New ${getAiProviderLabel(activeProvider)} session" title="New ${getAiProviderLabel(activeProvider)} session"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(activeProvider)}</span></button>
-                <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
+                <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
             </span>
         </span>
     </div>

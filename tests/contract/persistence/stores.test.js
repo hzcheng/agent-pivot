@@ -13,9 +13,15 @@ const AiSessionAliasStore = require('../../../out/aiSessions/aliasStore').defaul
 const AiSessionPinStore = require('../../../out/aiSessions/pinStore').default;
 const AiSessionWorkspaceStateStore = require('../../../out/aiSessions/workspaceStateStore').default;
 const {
+    AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX,
     AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX,
 } = require('../../../out/aiSessions/terminalBindingStore');
 const AiSessionTerminalBindingStore = require('../../../out/aiSessions/terminalBindingStore').default;
+const {
+    AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX,
+    AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX,
+    TmuxAttachBindingStore,
+} = require('../../../out/aiSessions/tmuxAttachBindingStore');
 const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntimeBindingStore');
 const { normalizeTodoData } = require('../../../out/todos/types');
 const {
@@ -361,7 +367,7 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
         cwd: '/work/project',
     };
     const state = makeState({
-        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${legacyProcessId}`]: {
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX}${legacyProcessId}`]: {
             version: 2,
             state: 'bound',
             providerId: 'kimi',
@@ -383,6 +389,7 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
     const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
 
     assert.equal(store.get(legacyProcessId).sessionId, 'legacy');
+    assert.equal(store.get(legacyProcessId).version, 2);
     assert.equal(store.get(missingProcessId), null);
     store.setPending(processId, {
         providerId: 'codex',
@@ -426,12 +433,116 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
     assert.equal(store.get(processId), null);
 });
 
+test('PERSIST-AI-SESSION-TERMINAL-V3-001 reloads worktree bindings without losing writable roots', async () => {
+    const processId = 42101;
+    const identity = {
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature', '/repos/backend'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+    };
+    const state = makeState();
+    const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
+
+    store.setBound(processId, {
+        providerId: 'codex',
+        sessionId: 'worktree-session',
+        markerPath: '/tmp/worktree.done',
+        runStartedAtMs: NOW,
+        ...identity,
+    });
+    await store.flush();
+
+    assert.equal(state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${processId}`].version, 3);
+    assert.deepEqual(new AiSessionTerminalBindingStore(state.memento).get(processId), {
+        version: 3,
+        state: 'bound',
+        providerId: 'codex',
+        sessionId: 'worktree-session',
+        markerPath: '/tmp/worktree.done',
+        runStartedAtMs: NOW,
+        updatedAtMs: NOW,
+        ...identity,
+    });
+});
+
+test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 dual-reads v2 and reloads v3 worktree bindings', async () => {
+    const legacyProcessId = 42201;
+    const processId = 42202;
+    const legacy = {
+        version: 2,
+        layout: 'session',
+        workspaceScopeIdentity: 'scope:legacy',
+        workspaceNavigationIdentity: 'navigation:legacy',
+        workspaceRootHostPaths: ['/work/legacy'],
+        cwd: '/work/legacy',
+        sessionName: 'legacy-session',
+        provider: 'codex',
+        sessionId: 'legacy',
+        terminalNamePrefix: 'Codex: legacy',
+    };
+    const state = makeState({
+        [`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${legacyProcessId}`]: legacy,
+    });
+    const store = new TmuxAttachBindingStore(state.memento);
+    assert.deepEqual(store.get(legacyProcessId), legacy);
+
+    const current = {
+        version: 3,
+        layout: 'session',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+        sessionName: 'worktree-session',
+        provider: 'codex',
+        sessionId: 'worktree',
+        terminalNamePrefix: 'Codex: worktree',
+    };
+    store.set(processId, current);
+    await store.flush();
+    assert.deepEqual(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${processId}`],
+        current
+    );
+    assert.deepEqual(new TmuxAttachBindingStore(state.memento).get(processId), current);
+});
+
 test('RUNTIME-TMUX-STORE-001 ignores corrupt, oversized, partially written, and stale binding files', async t => {
     const fixture = createRuntimeFilesystemFixture(t, 'agent-pivot-persistence-tmux-');
     const binding = makeTmuxKnownBinding('persistence', { lastSeenAtMs: NOW });
     const store = new TmuxRuntimeBindingStore(fixture.root, () => NOW);
     await store.setKnown(binding);
     assert.deepEqual(await store.listKnown(), [binding]);
+
+    const worktreeBinding = {
+        ...makeTmuxKnownBinding('persistence-worktree', { lastSeenAtMs: NOW }),
+        version: 3,
+        workspaceRootHostPaths: ['/repos/frontend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+    };
+    await store.setKnown(worktreeBinding);
+    assert.deepEqual(
+        (await new TmuxRuntimeBindingStore(fixture.root, () => NOW).listKnown())
+            .find(candidate => candidate.sessionId === 'persistence-worktree'),
+        worktreeBinding
+    );
+    await store.removeKnown('codex', 'persistence-worktree');
 
     const [recordName] = fs.readdirSync(fixture.root).filter(name => name.endsWith('.json'));
     const recordPath = fixture.resolve(recordName);

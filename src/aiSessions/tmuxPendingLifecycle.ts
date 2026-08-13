@@ -11,6 +11,7 @@ import type {
 import {
     aiSessionRuntimeIdentitiesEqual,
     cloneAiSessionRuntimeIdentity,
+    getAiSessionRuntimeIdentityV3Fields,
 } from './runtimeTypes';
 import { getTmuxRuntimeKey } from './tmuxLayout';
 import {
@@ -49,6 +50,7 @@ export function pendingLifecycleIdentityMatches(
             workspaceScopeIdentity: record.workspaceScopeIdentity,
             workspaceNavigationIdentity: record.workspaceNavigationIdentity,
             workspaceRootHostPaths: [...record.workspaceRootHostPaths],
+            ...getAiSessionRuntimeIdentityV3Fields(record as AiSessionRuntimeIdentity),
             cwd: record.cwd,
             pendingId: record.pendingId,
         });
@@ -61,6 +63,28 @@ function locatorsEqual(left: AiSessionTmuxLocator, right: AiSessionTmuxLocator):
 }
 
 export function pendingRequestFingerprint(request: AiSessionDeferredCreateRuntimeRequest): string {
+    const digest = createHash('sha256').update(JSON.stringify([
+        4,
+        request.identity.provider,
+        request.identity.workspaceScopeIdentity,
+        request.identity.workspaceNavigationIdentity,
+        request.identity.workspaceRootHostPaths.slice().sort(),
+        (request.identity.writableRootHostPaths
+            ?? request.identity.workspaceRootHostPaths).slice().sort(),
+        request.identity.worktreeKey ?? null,
+        request.identity.pendingId,
+        request.identity.cwd,
+        request.createdAt,
+        request.excludedSessionIds,
+        request.title ?? null,
+        request.launchMarkerPath,
+    ]), 'utf8').digest('hex');
+    return `v4:${digest}`;
+}
+
+function legacyV3PendingRequestFingerprint(
+    request: AiSessionDeferredCreateRuntimeRequest
+): string {
     const digest = createHash('sha256').update(JSON.stringify([
         3,
         request.identity.provider,
@@ -83,6 +107,7 @@ function identityFromPendingBinding(binding: TmuxPendingRuntimeBinding): AiSessi
         workspaceScopeIdentity: binding.workspaceScopeIdentity,
         workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+        ...getAiSessionRuntimeIdentityV3Fields(binding as AiSessionRuntimeIdentity),
         cwd: binding.cwd,
         pendingId: binding.pendingId,
     };
@@ -105,12 +130,10 @@ export function pendingSnapshotFromBinding(binding: TmuxPendingRuntimeBinding): 
 }
 
 export function pendingBindingsEqual(left: TmuxPendingRuntimeBinding, right: TmuxPendingRuntimeBinding): boolean {
-    return left.pendingId === right.pendingId && left.provider === right.provider
-        && left.workspaceScopeIdentity === right.workspaceScopeIdentity
-        && left.workspaceNavigationIdentity === right.workspaceNavigationIdentity
-        && JSON.stringify(left.workspaceRootHostPaths.slice().sort())
-            === JSON.stringify(right.workspaceRootHostPaths.slice().sort())
-        && left.cwd === right.cwd
+    return aiSessionRuntimeIdentitiesEqual(
+        left as AiSessionRuntimeIdentity,
+        right as AiSessionRuntimeIdentity
+    )
         && left.createdAt === right.createdAt && left.projectName === right.projectName
         && left.title === right.title
         && left.acceptedAtMs === right.acceptedAtMs && left.layout === right.layout
@@ -125,31 +148,32 @@ export function promotionIntent(
     finalIdentityValue: AiSessionRuntimeIdentity,
     finalSessionName: string,
     finalLocator: AiSessionTmuxLocator,
-    recordedAtMs: number
+    recordedAtMs: number,
+    version: 2 | 3 = 3
 ): TmuxPromotingRuntimeBinding {
     if (!finalIdentityValue.sessionId) {
         throw new Error('A promotion intent requires a final session ID.');
     }
     const requestFingerprint = promotionRequestFingerprint(
-        binding, pending.markerPath, finalSessionName, finalLocator
+        binding, pending.markerPath, finalSessionName, finalLocator, version
     );
     return {
-        version: 2,
+        version,
         state: 'promoting',
         pendingId: binding.pendingId,
         provider: binding.provider,
         workspaceScopeIdentity: binding.workspaceScopeIdentity,
         workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+        ...(version === 3
+            ? getAiSessionRuntimeIdentityV3Fields(
+                binding as TmuxPendingRuntimeBinding & AiSessionRuntimeIdentity
+            )
+            : {}),
         cwd: binding.cwd,
         createdAt: binding.createdAt,
         markerPath: pending.markerPath,
-        pendingBinding: {
-            ...binding,
-            workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
-            excludedSessionIds: [...binding.excludedSessionIds],
-            locator: { ...binding.locator },
-        },
+        pendingBinding: clonePendingBindingForVersion(binding, version),
         finalSessionId: finalIdentityValue.sessionId,
         finalSessionName,
         layout: binding.layout,
@@ -160,18 +184,44 @@ export function promotionIntent(
     };
 }
 
+function clonePendingBindingForVersion(
+    binding: TmuxPendingRuntimeBinding,
+    version: 2 | 3
+): TmuxPendingRuntimeBinding {
+    const clone: TmuxPendingRuntimeBinding = {
+        ...binding,
+        version,
+        workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+        ...(version === 3
+            ? getAiSessionRuntimeIdentityV3Fields(binding as AiSessionRuntimeIdentity)
+            : {}),
+        excludedSessionIds: [...binding.excludedSessionIds],
+        locator: { ...binding.locator },
+    };
+    if (version === 2) {
+        delete clone.writableRootHostPaths;
+        delete clone.worktreeKey;
+    }
+    return clone;
+}
+
 function promotionRequestFingerprint(
     binding: TmuxPendingRuntimeBinding,
     markerPath: string,
     finalSessionName: string,
-    finalLocator: AiSessionTmuxLocator
+    finalLocator: AiSessionTmuxLocator,
+    version: 2 | 3
 ): string {
     return createHash('sha256').update(JSON.stringify([
-        2,
+        version,
         binding.provider,
         binding.workspaceScopeIdentity,
         binding.workspaceNavigationIdentity,
         binding.workspaceRootHostPaths.slice().sort(),
+        ...(version === 3 ? [
+            (binding.writableRootHostPaths ?? binding.workspaceRootHostPaths).slice().sort(),
+            binding.worktreeKey ?? null,
+        ] : []),
         binding.pendingId,
         binding.cwd,
         binding.createdAt,
@@ -192,7 +242,8 @@ export function promotionIntentMatchesLiveBinding(
 ): boolean {
     return pendingBindingsEqual(intent.pendingBinding, binding)
         && intent.requestFingerprint === promotionRequestFingerprint(
-            binding, intent.markerPath, intent.finalSessionName, intent.finalLocator
+            binding, intent.markerPath, intent.finalSessionName, intent.finalLocator,
+            intent.version
         );
 }
 
@@ -200,12 +251,10 @@ export function promotionIntentsMatch(
     left: TmuxPromotingRuntimeBinding,
     right: TmuxPromotingRuntimeBinding
 ): boolean {
-    return left.pendingId === right.pendingId && left.provider === right.provider
-        && left.workspaceScopeIdentity === right.workspaceScopeIdentity
-        && left.workspaceNavigationIdentity === right.workspaceNavigationIdentity
-        && JSON.stringify(left.workspaceRootHostPaths.slice().sort())
-            === JSON.stringify(right.workspaceRootHostPaths.slice().sort())
-        && left.cwd === right.cwd
+    return aiSessionRuntimeIdentitiesEqual(
+        left as AiSessionRuntimeIdentity,
+        right as AiSessionRuntimeIdentity
+    )
         && left.createdAt === right.createdAt && left.markerPath === right.markerPath
         && pendingBindingsEqual(left.pendingBinding, right.pendingBinding)
         && left.finalSessionId === right.finalSessionId
@@ -245,13 +294,11 @@ export function pendingAmbiguityMatches(
     binding: TmuxPendingRuntimeBinding,
     locator: AiSessionTmuxLocator
 ): boolean {
-    return ambiguous.provider === binding.provider
-        && ambiguous.workspaceScopeIdentity === binding.workspaceScopeIdentity
-        && ambiguous.workspaceNavigationIdentity === binding.workspaceNavigationIdentity
-        && JSON.stringify(ambiguous.workspaceRootHostPaths.slice().sort())
-            === JSON.stringify(binding.workspaceRootHostPaths.slice().sort())
+    return aiSessionRuntimeIdentitiesEqual(
+        ambiguous as AiSessionRuntimeIdentity,
+        binding as AiSessionRuntimeIdentity
+    )
         && ambiguous.pendingId === binding.pendingId
-        && ambiguous.cwd === binding.cwd
         && ambiguous.createdAt === binding.createdAt
         && ambiguous.title === binding.title
         && (ambiguous.markerPath || '') === request.launchMarkerPath
@@ -260,6 +307,7 @@ export function pendingAmbiguityMatches(
         && ambiguous.excludedSessionIds.length === binding.excludedSessionIds.length
         && ambiguous.excludedSessionIds.every((value, index) => value === binding.excludedSessionIds[index])
         && (isLegacyPendingRequestFingerprint(ambiguous.requestFingerprint)
+            || ambiguous.requestFingerprint === legacyV3PendingRequestFingerprint(request)
             || ambiguous.requestFingerprint === pendingRequestFingerprint(request));
 }
 

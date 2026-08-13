@@ -8,7 +8,8 @@ import {
     getWorkspaceHostPathComparisonKey,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
-import type { OpenWorkspace, WorkspaceRoot } from './types';
+import type { OpenWorkspace, RepositoryRootBinding, WorkspaceRoot } from './types';
+import type { WorktreeKey } from '../worktrees/types';
 
 export interface ActiveEditorUri {
     fsPath: string;
@@ -23,6 +24,10 @@ export interface PrimaryWorkspaceRootSelectionOptions {
 export interface AiSessionDirectoryScopeOptions extends PrimaryWorkspaceRootSelectionOptions {
     isDirectory: (hostPath: string) => boolean;
     primaryCwd?: string;
+    worktree?: {
+        key: WorktreeKey;
+        rootBindings: readonly RepositoryRootBinding[];
+    };
 }
 
 export interface InvalidWorkspaceRoot {
@@ -131,7 +136,35 @@ export function buildAiSessionDirectoryScope(
 
     const primaryRootHostPath = normalizedRoots
         .find(candidate => candidate.root.id === primaryRoot.id)?.hostPath || '';
-    const primaryCwd = historicalRoot ? normalizedPrimaryCwd : primaryRootHostPath;
+    const worktreeRootBindings = buildWorktreeRootBindingMap(
+        options.worktree?.key.repositoryKey,
+        options.worktree?.key.canonicalWorktreePath,
+        options.worktree?.rootBindings,
+        roots
+    );
+    const invalidWorktreeRoots = normalizedRoots.filter(candidate => {
+        const mappedPath = worktreeRootBindings.get(candidate.root.id);
+        if (!mappedPath) {
+            return false;
+        }
+        try {
+            return !options.isDirectory(mappedPath);
+        } catch (_error) {
+            return true;
+        }
+    });
+    if (invalidWorktreeRoots.length) {
+        throw new WorkspaceDirectoryScopeError(invalidWorktreeRoots.map(candidate => ({
+            id: candidate.root.id,
+            name: candidate.root.name,
+        })));
+    }
+    const primaryWorktreePath = worktreeRootBindings.get(primaryRoot.id);
+    if (options.worktree && !primaryWorktreePath) {
+        throw new WorkspaceDirectoryScopeError([{ id: primaryRoot.id, name: primaryRoot.name }]);
+    }
+    const primaryCwd = primaryWorktreePath
+        || (historicalRoot ? normalizedPrimaryCwd : primaryRootHostPath);
     const seenPaths = new Set<string>();
     const workspaceRootHostPaths = normalizedRoots.reduce((result, candidate) => {
         const comparablePath = getWorkspaceHostPathComparisonKey(candidate.hostPath);
@@ -145,13 +178,92 @@ export function buildAiSessionDirectoryScope(
     const additionalDirectories = workspaceRootHostPaths.filter(
         hostPath => getWorkspaceHostPathComparisonKey(hostPath) !== primaryRootComparisonKey
     );
+    const writableRootHostPaths = options.worktree
+        ? dedupeHostPaths(normalizedRoots.map(candidate =>
+            worktreeRootBindings.get(candidate.root.id) || candidate.hostPath))
+        : workspaceRootHostPaths;
+    const writablePrimaryComparisonKey = getWorkspaceHostPathComparisonKey(primaryCwd);
+    const writableAdditionalDirectories = writableRootHostPaths.filter(
+        hostPath => getWorkspaceHostPathComparisonKey(hostPath) !== writablePrimaryComparisonKey
+    );
 
     return Object.freeze({
         workspaceNavigationIdentity: workspace.navigationIdentity,
         workspaceScopeIdentity: workspace.scopeIdentity,
         workspaceRootHostPaths: Object.freeze(workspaceRootHostPaths.slice()) as string[],
+        ...(options.worktree ? {
+            writableRootHostPaths: Object.freeze(writableRootHostPaths.slice()) as string[],
+            worktreeKey: Object.freeze({ ...options.worktree.key }),
+        } : {}),
         primaryRootId: primaryRoot.id,
         primaryCwd,
-        additionalDirectories: Object.freeze(additionalDirectories.slice()) as string[],
+        additionalDirectories: Object.freeze(
+            (options.worktree ? writableAdditionalDirectories : additionalDirectories).slice()
+        ) as string[],
     });
 }
+
+function buildWorktreeRootBindingMap(
+    repositoryKey: string | undefined,
+    worktreePath: string | undefined,
+    bindings: readonly RepositoryRootBinding[] | undefined,
+    roots: readonly WorkspaceRoot[]
+): Map<string, string> {
+    if (!repositoryKey && !worktreePath && !bindings) {
+        return new Map();
+    }
+    const normalizedRepositoryKey = normalizeWorkspaceHostPath(repositoryKey || '');
+    const normalizedWorktreePath = normalizeWorkspaceHostPath(worktreePath || '');
+    if (!normalizedRepositoryKey || !isAbsoluteHostPath(normalizedRepositoryKey)
+        || normalizedRepositoryKey !== repositoryKey
+        || !normalizedWorktreePath || !isAbsoluteHostPath(normalizedWorktreePath)
+        || normalizedWorktreePath !== worktreePath) {
+        throw new WorkspaceDirectoryScopeError([]);
+    }
+    const rootById = new Map(roots.map(root => [root.id, root]));
+    const result = new Map<string, string>();
+    for (const binding of bindings || []) {
+        const root = rootById.get(binding.workspaceRootId);
+        const relativePath = normalizeRepositoryRelativePath(binding.repositoryRelativePath);
+        if (!root || relativePath === null || result.has(binding.workspaceRootId)) {
+            throw new WorkspaceDirectoryScopeError(root ? [{ id: root.id, name: root.name }] : []);
+        }
+        const pathApi = /^[a-zA-Z]:[\\/]/.test(normalizedWorktreePath) || normalizedWorktreePath.startsWith('\\\\')
+            ? path.win32
+            : path.posix;
+        result.set(binding.workspaceRootId, normalizeWorkspaceHostPath(
+            relativePath ? pathApi.join(normalizedWorktreePath, relativePath) : normalizedWorktreePath
+        ));
+    }
+    return result;
+}
+
+function normalizeRepositoryRelativePath(value: string): string | null {
+    if (typeof value !== 'string' || CONTROL_CHARACTERS.test(value)) {
+        return null;
+    }
+    if (!value || value === '.') {
+        return '';
+    }
+    const pathApi = value.includes('\\') ? path.win32 : path.posix;
+    const normalized = pathApi.normalize(value);
+    return pathApi.isAbsolute(normalized)
+        || normalized === '..'
+        || normalized.startsWith(`..${pathApi.sep}`)
+        ? null
+        : normalized;
+}
+
+function dedupeHostPaths(values: readonly string[]): string[] {
+    const seen = new Set<string>();
+    return values.filter(value => {
+        const key = getWorkspaceHostPathComparisonKey(value);
+        if (!key || seen.has(key)) {
+            return false;
+        }
+        seen.add(key);
+        return true;
+    });
+}
+
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;

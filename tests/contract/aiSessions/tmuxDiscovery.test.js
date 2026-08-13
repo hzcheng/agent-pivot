@@ -72,6 +72,24 @@ test('RUNTIME-TMUX-DISCOVERY-001 enumerate prefers one final snapshot read over 
     assert.equal(discovery.getActive().length, 1);
 });
 
+test('RUNTIME-TMUX-WORKTREE-RELOAD-001 rejects mixed-version tmux ownership proofs', async () => {
+    const row = makeTmuxDiscoveryRow({ sessionId: 'mixed-version' });
+    row.windowMetadata = {
+        ...row.windowMetadata,
+        version: '3',
+        writableRootHostPaths: row.windowMetadata.workspaceRootHostPaths,
+    };
+    const discovery = new TmuxRuntimeDiscovery({
+        client: { listWindows: async () => [row] },
+        bindingStore: createSyntheticTmuxStore(),
+        markerIsCurrent: () => false,
+        cacheTtlMs: 0,
+    });
+
+    await discovery.refresh(true);
+    assert.deepEqual(discovery.getActive(), []);
+});
+
 test('RUNTIME-TMUX-DISCOVERY-001 enumerate falls back to separate binding lists without snapshot support', async () => {
     const row = makeTmuxDiscoveryRow({ sessionId: 'fallback-read' });
     const store = createSyntheticTmuxStore();

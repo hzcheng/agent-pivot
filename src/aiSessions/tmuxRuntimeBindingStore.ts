@@ -9,6 +9,7 @@ import type {
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
+import { getAiSessionRuntimeIdentityV3Fields } from './runtimeTypes';
 import {
     ambiguousIdentityParts,
     ambiguousRecordIdentityParts,
@@ -505,13 +506,14 @@ export class TmuxRuntimeBindingStore {
                     && isBoundedPath(runtime.markerPath)
                     && isFinitePositive(runtime.runStartedAtMs);
                 const record = validateKnownRecord({
-                    version: 2,
+                    version: 3,
                     state: 'known',
                     provider: runtime.identity.provider,
                     sessionId,
                     workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
                     workspaceNavigationIdentity: runtime.identity.workspaceNavigationIdentity,
                     workspaceRootHostPaths: [...runtime.identity.workspaceRootHostPaths],
+                    ...getAiSessionRuntimeIdentityV3Fields(runtime.identity),
                     cwd: runtime.identity.cwd,
                     layout: runtime.tmux.layout,
                     locator: runtime.tmux,
@@ -886,4 +888,3 @@ async function removeFileDurably(filePath: string): Promise<void> {
         }
     }
 }
-

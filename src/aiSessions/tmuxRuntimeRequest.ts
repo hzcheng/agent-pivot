@@ -173,6 +173,10 @@ function snapshotResumeIdentity(value: unknown): AiSessionResumeRuntimeRequest['
     );
     const workspaceRootHostPaths = snapshotDenseStringArray(value.workspaceRootHostPaths,
         MAX_EXCLUDED_SESSION_IDS, 'workspace root paths', 'The tmux runtime request');
+    const writableRootHostPaths = snapshotOptionalDenseStringArray(
+        value.writableRootHostPaths, 'writable root paths', 'The tmux runtime request'
+    );
+    const worktreeKey = snapshotWorktreeKey(value.worktreeKey, 'The tmux runtime request');
     const cwd = snapshotRequiredString(value.cwd, 'The tmux runtime request');
     const sessionId = snapshotRequiredString(value.sessionId, 'The tmux runtime request');
     return {
@@ -180,6 +184,8 @@ function snapshotResumeIdentity(value: unknown): AiSessionResumeRuntimeRequest['
         workspaceScopeIdentity,
         workspaceNavigationIdentity,
         workspaceRootHostPaths,
+        ...(writableRootHostPaths ? { writableRootHostPaths } : {}),
+        ...(worktreeKey ? { worktreeKey } : {}),
         cwd,
         sessionId,
     };
@@ -196,6 +202,10 @@ function snapshotPendingIdentity(value: unknown): AiSessionCreateRuntimeRequest[
     );
     const workspaceRootHostPaths = snapshotDenseStringArray(value.workspaceRootHostPaths,
         MAX_EXCLUDED_SESSION_IDS, 'workspace root paths', 'The pending runtime request');
+    const writableRootHostPaths = snapshotOptionalDenseStringArray(
+        value.writableRootHostPaths, 'writable root paths', 'The pending runtime request'
+    );
+    const worktreeKey = snapshotWorktreeKey(value.worktreeKey, 'The pending runtime request');
     const cwd = snapshotRequiredString(value.cwd, 'The pending runtime request');
     const pendingId = snapshotRequiredString(value.pendingId, 'The pending runtime request');
     return {
@@ -203,6 +213,8 @@ function snapshotPendingIdentity(value: unknown): AiSessionCreateRuntimeRequest[
         workspaceScopeIdentity,
         workspaceNavigationIdentity,
         workspaceRootHostPaths,
+        ...(writableRootHostPaths ? { writableRootHostPaths } : {}),
+        ...(worktreeKey ? { worktreeKey } : {}),
         cwd,
         pendingId,
     };
@@ -252,6 +264,35 @@ function snapshotDenseStringArray(
         snapshot.push(item);
     }
     return snapshot;
+}
+
+function snapshotOptionalDenseStringArray(
+    value: unknown,
+    label: string,
+    owner: string
+): string[] | undefined {
+    return value === undefined
+        ? undefined
+        : snapshotDenseStringArray(value, MAX_EXCLUDED_SESSION_IDS, label, owner);
+}
+
+function snapshotWorktreeKey(
+    value: unknown,
+    owner: string
+): AiSessionRuntimeIdentity['worktreeKey'] | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecordShape(value)
+        || Object.keys(value).length !== 2
+        || typeof value.repositoryKey !== 'string'
+        || typeof value.canonicalWorktreePath !== 'string') {
+        throw new Error(`${owner} worktree key is invalid.`);
+    }
+    return {
+        repositoryKey: value.repositoryKey,
+        canonicalWorktreePath: value.canonicalWorktreePath,
+    };
 }
 
 function isRecordShape(value: unknown): value is Record<string, unknown> {

@@ -11,7 +11,11 @@ import type {
 } from './activeTerminalHighlight';
 import AiSessionTerminalBindingStore from './terminalBindingStore';
 import type { AiSessionRuntimeIdentity } from './runtimeTypes';
-import { cloneAiSessionRuntimeIdentity, isValidAiSessionRuntimeIdentity } from './runtimeTypes';
+import {
+    cloneAiSessionRuntimeIdentity,
+    getAiSessionRuntimeIdentityExtensionFields,
+    isValidAiSessionRuntimeIdentity,
+} from './runtimeTypes';
 import { getAiSessionTerminalName } from './sessionPaths';
 import { AiSessionLaunchSpec, serializeDirectLaunchCommand } from './launchSpec';
 import type { AiSessionActiveTerminalRuntime, AiSessionDirectoryScope, AiSessionProviderDefinition, AiSessionTerminalEntry } from './types';
@@ -199,6 +203,7 @@ export default class AiSessionTerminalService {
                 workspaceScopeIdentity: identity.workspaceScopeIdentity,
                 workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+                ...getAiSessionRuntimeIdentityExtensionFields(identity),
                 cwd: identity.cwd,
                 markerPath: normalizedEntry.markerPath,
                 runStartedAtMs: normalizedEntry.runStartedAtMs,
@@ -238,6 +243,7 @@ export default class AiSessionTerminalService {
                 workspaceScopeIdentity: entry.runtimeIdentity.workspaceScopeIdentity,
                 workspaceNavigationIdentity: entry.runtimeIdentity.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...entry.runtimeIdentity.workspaceRootHostPaths],
+                ...getAiSessionRuntimeIdentityExtensionFields(entry.runtimeIdentity),
                 cwd: entry.runtimeIdentity.cwd,
                 markerPath: entry.markerPath,
             });
@@ -285,6 +291,7 @@ export default class AiSessionTerminalService {
             workspaceScopeIdentity: entry.runtimeIdentity.workspaceScopeIdentity,
             workspaceNavigationIdentity: entry.runtimeIdentity.workspaceNavigationIdentity,
             workspaceRootHostPaths: [...entry.runtimeIdentity.workspaceRootHostPaths],
+            ...getAiSessionRuntimeIdentityExtensionFields(entry.runtimeIdentity),
             markerPath: entry.markerPath,
             cwd: entry.runtimeIdentity.cwd,
             createdAt: entry.createdAt,
@@ -438,6 +445,10 @@ export default class AiSessionTerminalService {
                         workspaceScopeIdentity: binding.workspaceScopeIdentity,
                         workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
                         workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+                        ...(binding.writableRootHostPaths ? {
+                            writableRootHostPaths: [...binding.writableRootHostPaths],
+                        } : {}),
+                        ...(binding.worktreeKey ? { worktreeKey: { ...binding.worktreeKey } } : {}),
                         cwd: binding.cwd,
                     },
                 }, false);
@@ -450,6 +461,10 @@ export default class AiSessionTerminalService {
                     workspaceScopeIdentity: binding.workspaceScopeIdentity,
                     workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
                     workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+                    ...(binding.writableRootHostPaths ? {
+                        writableRootHostPaths: [...binding.writableRootHostPaths],
+                    } : {}),
+                    ...(binding.worktreeKey ? { worktreeKey: { ...binding.worktreeKey } } : {}),
                     cwd: binding.cwd,
                 });
                 return;
@@ -470,6 +485,10 @@ export default class AiSessionTerminalService {
                         workspaceScopeIdentity: binding.workspaceScopeIdentity,
                         workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
                         workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+                        ...(binding.writableRootHostPaths ? {
+                            writableRootHostPaths: [...binding.writableRootHostPaths],
+                        } : {}),
+                        ...(binding.worktreeKey ? { worktreeKey: { ...binding.worktreeKey } } : {}),
                         cwd: binding.cwd,
                     },
                     createdAt: binding.createdAt,

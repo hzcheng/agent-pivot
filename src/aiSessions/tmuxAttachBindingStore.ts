@@ -4,7 +4,8 @@ import type { AiSessionProviderId } from '../models';
 import type { AiSessionRuntimeIdentity, AiSessionTmuxLayout } from './runtimeTypes';
 import { cloneAiSessionRuntimeIdentity, isValidAiSessionRuntimeIdentity } from './runtimeTypes';
 
-export const AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX = 'aiSessionTmuxAttachProcessBinding.v2.';
+export const AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX = 'aiSessionTmuxAttachProcessBinding.v3.';
+export const AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX = 'aiSessionTmuxAttachProcessBinding.v2.';
 export const AI_SESSION_TMUX_ATTACH_RECOVERY_BINDING_KEY_PREFIX = 'aiSessionTmuxAttachRecoveryBinding.v1.';
 
 const MAX_ID_LENGTH = 512;
@@ -18,11 +19,13 @@ export interface TmuxAttachBindingState {
 }
 
 export interface TmuxAttachBinding {
-    version: 2;
+    version: 2 | 3;
     layout: AiSessionTmuxLayout;
     workspaceScopeIdentity: string;
     workspaceNavigationIdentity: string;
     workspaceRootHostPaths: string[];
+    writableRootHostPaths?: string[];
+    worktreeKey?: AiSessionRuntimeIdentity['worktreeKey'];
     cwd: string;
     sessionName: string;
     windowName?: string;
@@ -54,7 +57,12 @@ export class TmuxAttachBindingStore {
             return null;
         }
         try {
-            const record = validateRecord(this.state.get(getBindingKey(processId), null as unknown));
+            const current = validateRecord(this.state.get(
+                getBindingKey(processId), null as unknown
+            ));
+            const record = current || validateRecord(
+                this.state.get(getLegacyBindingKey(processId), null as unknown)
+            );
             return record ? cloneBinding(record) : null;
         } catch (error) {
             this.reportErrorOnce(error);
@@ -106,13 +114,14 @@ export class TmuxAttachBindingStore {
             }
             const previous = this.getRecovery(token);
             await this.state.update(getBindingKey(pid), cloneBinding(binding));
+            await this.state.update(getLegacyBindingKey(pid), undefined);
             await this.state.update(getRecoveryBindingKey(token), {
                 version: 1,
                 processId: pid,
                 binding: cloneBinding(binding),
             });
             if (previous && previous.processId !== pid) {
-                await this.state.update(getBindingKey(previous.processId), undefined);
+                await this.removeProcessBindings(previous.processId);
             }
         }).catch(error => this.reportErrorOnce(error));
     }
@@ -125,7 +134,7 @@ export class TmuxAttachBindingStore {
             const previous = this.getRecovery(token);
             await this.state.update(getRecoveryBindingKey(token), undefined);
             if (previous) {
-                await this.state.update(getBindingKey(previous.processId), undefined);
+                await this.removeProcessBindings(previous.processId);
             }
         }).catch(error => this.reportErrorOnce(error));
     }
@@ -142,6 +151,7 @@ export class TmuxAttachBindingStore {
                 return;
             }
             await this.state.update(getBindingKey(pid), record ? cloneBinding(record) : undefined);
+            await this.state.update(getLegacyBindingKey(pid), undefined);
         }).catch(error => this.reportErrorOnce(error));
     }
 
@@ -173,10 +183,19 @@ export class TmuxAttachBindingStore {
             this.onError(error);
         }
     }
+
+    private async removeProcessBindings(processId: number): Promise<void> {
+        await this.state.update(getBindingKey(processId), undefined);
+        await this.state.update(getLegacyBindingKey(processId), undefined);
+    }
 }
 
 function getBindingKey(processId: number): string {
     return `${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${processId}`;
+}
+
+function getLegacyBindingKey(processId: number): string {
+    return `${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${processId}`;
 }
 
 function getRecoveryBindingKey(token: string): string {
@@ -201,13 +220,17 @@ function validateRecord(value: unknown): TmuxAttachBinding | null {
         return null;
     }
     const record = value as Record<string, unknown>;
-    if (record.version !== 2 || !isLayout(record.layout)
+    const version = record.version;
+    const v3RequiredKeys = version === 3 ? ['writableRootHostPaths'] : [];
+    const v3OptionalKeys = version === 3 ? ['worktreeKey'] : [];
+    if ((version !== 2 && version !== 3) || !isLayout(record.layout)
         || !hasExactKeys(record, [
             'version', 'layout', 'workspaceScopeIdentity', 'workspaceNavigationIdentity',
             'workspaceRootHostPaths', 'cwd', 'sessionName', 'provider',
             record.sessionId === undefined ? 'pendingId' : 'sessionId', 'terminalNamePrefix',
             ...(record.layout === 'project' || record.windowName !== undefined ? ['windowName'] : []),
-        ])
+            ...v3RequiredKeys,
+        ], v3OptionalKeys)
         || !isBoundedString(record.sessionName, MAX_ID_LENGTH)
         || !isBoundedString(record.terminalNamePrefix, MAX_TITLE_LENGTH)
         || !isProviderId(record.provider)) {
@@ -218,6 +241,10 @@ function validateRecord(value: unknown): TmuxAttachBinding | null {
         workspaceScopeIdentity: record.workspaceScopeIdentity,
         workspaceNavigationIdentity: record.workspaceNavigationIdentity,
         workspaceRootHostPaths: record.workspaceRootHostPaths,
+        ...(record.writableRootHostPaths !== undefined
+            ? { writableRootHostPaths: record.writableRootHostPaths }
+            : {}),
+        ...(record.worktreeKey !== undefined ? { worktreeKey: record.worktreeKey } : {}),
         cwd: record.cwd,
         ...(record.sessionId === undefined ? {} : { sessionId: record.sessionId }),
         ...(record.pendingId === undefined ? {} : { pendingId: record.pendingId }),
@@ -230,11 +257,15 @@ function validateRecord(value: unknown): TmuxAttachBinding | null {
         return null;
     }
     return {
-        version: 2,
+        version,
         layout: record.layout,
         workspaceScopeIdentity: identity.workspaceScopeIdentity,
         workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+        ...(identity.writableRootHostPaths
+            ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
+            : {}),
+        ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
         cwd: identity.cwd,
         sessionName: record.sessionName,
         ...(record.windowName === undefined ? {} : { windowName: record.windowName as string }),
@@ -245,15 +276,26 @@ function validateRecord(value: unknown): TmuxAttachBinding | null {
     };
 }
 
-function hasExactKeys(record: Record<string, unknown>, required: readonly string[]): boolean {
-    const allowed = new Set(required);
+function hasExactKeys(
+    record: Record<string, unknown>,
+    required: readonly string[],
+    optional: readonly string[] = []
+): boolean {
+    const allowed = new Set([...required, ...optional]);
     return required.every(key => Object.prototype.hasOwnProperty.call(record, key))
         && Object.keys(record).every(key => allowed.has(key));
 }
 
 function cloneBinding(binding: TmuxAttachBinding): TmuxAttachBinding {
     const identity = cloneAiSessionRuntimeIdentity(binding as TmuxAttachBinding & AiSessionRuntimeIdentity);
-    return { ...binding, workspaceRootHostPaths: [...identity.workspaceRootHostPaths] };
+    return {
+        ...binding,
+        workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+        ...(identity.writableRootHostPaths
+            ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
+            : {}),
+        ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
+    };
 }
 
 function cloneRecoveryBinding(record: TmuxAttachRecoveryBinding): TmuxAttachRecoveryBinding {

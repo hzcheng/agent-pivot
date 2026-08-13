@@ -4,6 +4,7 @@ import type { AiSessionProviderId, CodexSession } from '../models';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
+import { cloneAiSessionDirectoryScope } from './runtimeTypes';
 import type {
     AiSessionResumeRuntimeRequest,
     AiSessionRuntimeActionResult,
@@ -175,7 +176,7 @@ export class AiSessionResumeController<
             : undefined;
         const cwd = directoryScope.primaryCwd;
         const markerPath = options.getMarkerPath(providerId, session.id);
-        const launchScope = cloneDirectoryScope(directoryScope);
+        const launchScope = cloneAiSessionDirectoryScope(directoryScope);
         const request: AiSessionResumeRuntimeRequest = {
             identity: {
                 provider: providerId,
@@ -183,6 +184,12 @@ export class AiSessionResumeController<
                 workspaceScopeIdentity: directoryScope.workspaceScopeIdentity,
                 workspaceNavigationIdentity: directoryScope.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...directoryScope.workspaceRootHostPaths],
+                ...(directoryScope.writableRootHostPaths ? {
+                    writableRootHostPaths: [...directoryScope.writableRootHostPaths],
+                } : {}),
+                ...(directoryScope.worktreeKey ? {
+                    worktreeKey: { ...directoryScope.worktreeKey },
+                } : {}),
                 cwd,
             },
             projectName: target.name || 'AI Session',
@@ -240,14 +247,6 @@ export class AiSessionResumeController<
         options.refresh();
         return result;
     }
-}
-
-function cloneDirectoryScope(scope: AiSessionDirectoryScope): AiSessionDirectoryScope {
-    return {
-        ...scope,
-        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
-        additionalDirectories: [...scope.additionalDirectories],
-    };
 }
 
 function validateControllerOptions<TTerminal extends AiSessionResumeTerminal>(

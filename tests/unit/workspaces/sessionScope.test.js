@@ -147,6 +147,89 @@ test('SESSION-WORKSPACE-SCOPE-001 builds provider-specific add-directory argumen
     });
 });
 
+test('SESSION-WORKTREE-SCOPE-001 replaces the selected repository roots with linked-worktree paths', () => {
+    const current = workspace({
+        roots: [
+            {
+                id: 'root-frontend', name: 'Frontend', uri: 'file:///repos/frontend',
+                hostPath: '/repos/frontend', ordinal: 0,
+            },
+            {
+                id: 'root-frontend-web', name: 'Frontend Web',
+                uri: 'file:///repos/frontend/packages/web',
+                hostPath: '/repos/frontend/packages/web', ordinal: 1,
+            },
+            {
+                id: 'root-backend', name: 'Backend', uri: 'file:///repos/backend',
+                hostPath: '/repos/backend', ordinal: 2,
+            },
+        ],
+    });
+    const worktreeKey = {
+        repositoryKey: '/repos/frontend/.git',
+        canonicalWorktreePath: '/managed/frontend-feature',
+    };
+
+    const scope = buildAiSessionDirectoryScope(current, {
+        explicitRootId: 'root-frontend-web',
+        isDirectory: () => true,
+        worktree: {
+            key: worktreeKey,
+            rootBindings: [
+                { workspaceRootId: 'root-frontend', repositoryRelativePath: '' },
+                { workspaceRootId: 'root-frontend-web', repositoryRelativePath: 'packages/web' },
+            ],
+        },
+    });
+
+    assert.equal(scope.primaryCwd, '/managed/frontend-feature/packages/web');
+    assert.deepEqual(scope.workspaceRootHostPaths, [
+        '/repos/frontend', '/repos/frontend/packages/web', '/repos/backend',
+    ]);
+    assert.deepEqual(scope.writableRootHostPaths, [
+        '/managed/frontend-feature',
+        '/managed/frontend-feature/packages/web',
+        '/repos/backend',
+    ]);
+    assert.deepEqual(scope.additionalDirectories, [
+        '/managed/frontend-feature', '/repos/backend',
+    ]);
+    assert.deepEqual(scope.worktreeKey, worktreeKey);
+    assert.equal(scope.additionalDirectories.includes('/repos/frontend'), false);
+});
+
+test('SESSION-WORKTREE-SCOPE-001 rejects escaping bindings and unavailable mapped roots', () => {
+    const current = workspace({
+        roots: [{
+            id: 'root-repo', name: 'Repo', uri: 'file:///repos/main',
+            hostPath: '/repos/main', ordinal: 0,
+        }],
+    });
+    const key = {
+        repositoryKey: '/repos/main/.git',
+        canonicalWorktreePath: '/managed/feature',
+    };
+    assert.throws(() => buildAiSessionDirectoryScope(current, {
+        isDirectory: () => true,
+        worktree: {
+            key,
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: '../main' }],
+        },
+    }), error => error instanceof WorkspaceDirectoryScopeError);
+
+    assert.throws(() => buildAiSessionDirectoryScope(current, {
+        isDirectory: hostPath => hostPath !== '/managed/feature',
+        worktree: {
+            key,
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: '' }],
+        },
+    }), error => {
+        assert.ok(error instanceof WorkspaceDirectoryScopeError);
+        assert.deepEqual(error.invalidRoots, [{ id: 'root-repo', name: 'Repo' }]);
+        return true;
+    });
+});
+
 test('SESSION-WORKSPACE-SCOPE-001 blocks unsupported multi-root providers before directory or terminal preparation', async () => {
     let directoryProbes = 0;
     let rootPicks = 0;

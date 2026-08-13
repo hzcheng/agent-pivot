@@ -101,3 +101,48 @@ test('SESSION-AI-SESSION-TERMINAL-RESOLUTION-001 resolves tracked, environment, 
         workspaceScopeIdentity: 'scope:fixture',
     }]);
 });
+
+test('PERSIST-AI-SESSION-TERMINAL-V3-001 restores a worktree identity after extension reload', async t => {
+    const { AiSessionTerminalService } = loadTerminalService();
+    const root = makeTempDirectory(t, 'terminal-worktree-reload-');
+    const terminal = {
+        name: 'Codex: Restored',
+        creationOptions: {},
+        processId: Promise.resolve(77),
+    };
+    const binding = {
+        version: 3,
+        state: 'bound',
+        providerId: 'codex',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+        markerPath: '/tmp/worktree.done',
+        sessionId: 'worktree-session',
+        runStartedAtMs: 10,
+        updatedAtMs: 11,
+    };
+    const bindingStore = {
+        get: processId => processId === 77 ? binding : null,
+        remove() {},
+    };
+    const service = new AiSessionTerminalService(
+        root,
+        providers.AI_SESSION_PROVIDER_IDS.map(id => providers.getAiSessionProviderDefinition(id)),
+        0,
+        undefined,
+        bindingStore
+    );
+
+    await service.restorePersistedTerminals([terminal]);
+    const [restored] = service.getTrackedTerminalEntries();
+    assert.deepEqual(restored.runtimeIdentity.writableRootHostPaths, binding.writableRootHostPaths);
+    assert.deepEqual(restored.runtimeIdentity.worktreeKey, binding.worktreeKey);
+    assert.equal(restored.runtimeIdentity.cwd, '/managed/frontend-feature');
+});

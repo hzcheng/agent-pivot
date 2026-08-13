@@ -435,3 +435,52 @@ for (const runtime of [{
         }
     });
 }
+
+test('RUNTIME-TMUX-WORKTREE-RELOAD-001 preserves v3 identity through metadata, store, and discovery', async () => {
+    const harness = createTmuxRuntimeHarness('session');
+    const identity = {
+        provider: 'codex',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature', '/repos/backend'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+        sessionId: 'worktree-runtime',
+    };
+    const request = fakeResumeRequest(identity.sessionId, {
+        identity,
+        directoryScope: {
+            workspaceScopeIdentity: identity.workspaceScopeIdentity,
+            workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
+            workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+            writableRootHostPaths: [...identity.writableRootHostPaths],
+            worktreeKey: { ...identity.worktreeKey },
+            primaryRootId: 'root:frontend',
+            primaryCwd: identity.cwd,
+            additionalDirectories: ['/repos/backend'],
+        },
+    });
+
+    const runtime = await harness.backend.ensureResume(request, 'session');
+    assert.deepEqual(runtime.identity, identity);
+    assert.equal(harness.windows[0].sessionMetadata.version, '3');
+    assert.deepEqual(
+        JSON.parse(harness.windows[0].sessionMetadata.writableRootHostPaths),
+        identity.writableRootHostPaths
+    );
+    assert.deepEqual(
+        JSON.parse(harness.windows[0].sessionMetadata.worktreeKey),
+        identity.worktreeKey
+    );
+    const [known] = await harness.store.listKnown();
+    assert.equal(known.version, 3);
+    assert.deepEqual(known.writableRootHostPaths, identity.writableRootHostPaths);
+    assert.deepEqual(known.worktreeKey, identity.worktreeKey);
+
+    await harness.discovery.refresh(true);
+    assert.deepEqual(harness.discovery.getActive()[0].identity, identity);
+});

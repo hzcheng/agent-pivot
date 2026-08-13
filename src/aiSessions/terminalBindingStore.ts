@@ -2,12 +2,14 @@
 
 import type { AiSessionProviderId } from '../models';
 import type { AiSessionRuntimeIdentity } from './runtimeTypes';
+import type { WorktreeKey } from '../worktrees/types';
 import {
     cloneAiSessionRuntimeIdentity,
     isValidAiSessionRuntimeIdentity,
 } from './runtimeTypes';
 
-export const AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX = 'aiSessionTerminalProcessBinding.v2.';
+export const AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX = 'aiSessionTerminalProcessBinding.v3.';
+export const AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX = 'aiSessionTerminalProcessBinding.v2.';
 
 const MAX_ID_LENGTH = 512;
 const MAX_PATH_LENGTH = 4096;
@@ -20,11 +22,13 @@ export interface AiSessionTerminalBindingState {
 }
 
 interface AiSessionTerminalBindingBase {
-    version: 2;
+    version: 2 | 3;
     providerId: AiSessionProviderId;
     workspaceScopeIdentity: string;
     workspaceNavigationIdentity: string;
     workspaceRootHostPaths: string[];
+    writableRootHostPaths?: string[];
+    worktreeKey?: WorktreeKey;
     cwd: string;
     markerPath: string;
     updatedAtMs: number;
@@ -87,7 +91,13 @@ export default class AiSessionTerminalBindingStore {
             return null;
         }
         try {
-            let record = validateRecord(this.state?.get(getBindingKey(processId), null as unknown));
+            const current = this.state?.get(getBindingKey(processId), null as unknown);
+            let record = validateRecord(current);
+            if (!record) {
+                record = validateRecord(this.state?.get(
+                    getLegacyBindingKey(processId), null as unknown
+                ));
+            }
             return record ? cloneRecord(record) : null;
         } catch (error) {
             this.reportErrorOnce(error);
@@ -98,7 +108,8 @@ export default class AiSessionTerminalBindingStore {
     setPending(processId: AiSessionTerminalProcessId, input: PendingAiSessionTerminalBindingInput): void {
         let record = validateRecord({
             ...input,
-            version: 2,
+            version: 3,
+            writableRootHostPaths: input.writableRootHostPaths ?? input.workspaceRootHostPaths,
             state: 'pending',
             updatedAtMs: this.now(),
         });
@@ -111,7 +122,8 @@ export default class AiSessionTerminalBindingStore {
     setBound(processId: AiSessionTerminalProcessId, input: BoundAiSessionTerminalBindingInput): void {
         let record = validateRecord({
             ...input,
-            version: 2,
+            version: 3,
+            writableRootHostPaths: input.writableRootHostPaths ?? input.workspaceRootHostPaths,
             state: 'bound',
             updatedAtMs: this.now(),
         });
@@ -124,7 +136,8 @@ export default class AiSessionTerminalBindingStore {
     setReleased(processId: AiSessionTerminalProcessId, input: ReleasedAiSessionTerminalBindingInput): void {
         let record = validateRecord({
             ...input,
-            version: 2,
+            version: 3,
+            writableRootHostPaths: input.writableRootHostPaths ?? input.workspaceRootHostPaths,
             state: 'released',
             updatedAtMs: this.now(),
         });
@@ -149,10 +162,8 @@ export default class AiSessionTerminalBindingStore {
             if (!isProcessId(pid)) {
                 return;
             }
-            await this.state.update(
-                getBindingKey(pid),
-                record ? cloneRecord(record) : undefined
-            );
+            await this.state.update(getBindingKey(pid), record ? cloneRecord(record) : undefined);
+            await this.state.update(getLegacyBindingKey(pid), undefined);
         }).catch(error => {
             this.reportErrorOnce(error);
         });
@@ -192,12 +203,23 @@ function getBindingKey(processId: number): string {
     return `${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${processId}`;
 }
 
+function getLegacyBindingKey(processId: number): string {
+    return `${AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX}${processId}`;
+}
+
 function validateRecord(value: unknown): AiSessionTerminalBinding | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return null;
     }
     let record = value as Record<string, unknown>;
-    if (record.version !== 2
+    const version = record.version;
+    const identityOptionalKeys = version === 3
+        ? ['worktreeKey']
+        : [];
+    const identityRequiredKeys = version === 3
+        ? ['writableRootHostPaths']
+        : [];
+    if ((version !== 2 && version !== 3)
         || (record.state !== 'pending' && record.state !== 'bound' && record.state !== 'released')
         || !isProviderId(record.providerId) || !isBoundedString(record.markerPath, MAX_PATH_LENGTH)
         || !isFiniteNonNegative(record.updatedAtMs)) {
@@ -207,8 +229,8 @@ function validateRecord(value: unknown): AiSessionTerminalBinding | null {
         if (!hasExactKeys(record, [
             'version', 'state', 'providerId', 'workspaceScopeIdentity',
             'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'markerPath',
-            'updatedAtMs', 'sessionId', 'runStartedAtMs',
-        ]) || !isBoundedString(record.sessionId, MAX_ID_LENGTH)
+            'updatedAtMs', 'sessionId', 'runStartedAtMs', ...identityRequiredKeys,
+        ], identityOptionalKeys) || !isBoundedString(record.sessionId, MAX_ID_LENGTH)
             || !isFiniteNonNegative(record.runStartedAtMs)) {
             return null;
         }
@@ -217,12 +239,13 @@ function validateRecord(value: unknown): AiSessionTerminalBinding | null {
             return null;
         }
         return {
-            version: 2,
+            version,
             state: 'bound',
             providerId: record.providerId,
             workspaceScopeIdentity: identity.workspaceScopeIdentity,
             workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
             workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+            ...identityExtensionFields(identity),
             cwd: identity.cwd,
             sessionId: identity.sessionId as string,
             markerPath: record.markerPath,
@@ -234,8 +257,8 @@ function validateRecord(value: unknown): AiSessionTerminalBinding | null {
         if (!hasExactKeys(record, [
             'version', 'state', 'providerId', 'workspaceScopeIdentity',
             'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'markerPath',
-            'updatedAtMs', 'sessionId',
-        ])) {
+            'updatedAtMs', 'sessionId', ...identityRequiredKeys,
+        ], identityOptionalKeys)) {
             return null;
         }
         const identity = validateIdentity(record, { sessionId: record.sessionId });
@@ -243,12 +266,13 @@ function validateRecord(value: unknown): AiSessionTerminalBinding | null {
             return null;
         }
         return {
-            version: 2,
+            version,
             state: 'released',
             providerId: record.providerId,
             workspaceScopeIdentity: identity.workspaceScopeIdentity,
             workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
             workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+            ...identityExtensionFields(identity),
             cwd: identity.cwd,
             sessionId: identity.sessionId as string,
             markerPath: record.markerPath,
@@ -260,7 +284,8 @@ function validateRecord(value: unknown): AiSessionTerminalBinding | null {
         'version', 'state', 'providerId', 'workspaceScopeIdentity',
         'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'markerPath',
         'updatedAtMs', 'pendingId', 'createdAt', 'excludedSessionIds',
-    ], ['projectName', 'title']) || !identity || typeof record.createdAt !== 'string'
+        ...identityRequiredKeys,
+    ], ['projectName', 'title', ...identityOptionalKeys]) || !identity || typeof record.createdAt !== 'string'
         || !Number.isFinite(Date.parse(record.createdAt)) || !Array.isArray(record.excludedSessionIds)
         || record.excludedSessionIds.length > MAX_EXCLUDED_SESSION_IDS
         || record.excludedSessionIds.some(id => !isBoundedString(id, MAX_ID_LENGTH))
@@ -270,12 +295,13 @@ function validateRecord(value: unknown): AiSessionTerminalBinding | null {
         return null;
     }
     return {
-        version: 2,
+        version,
         state: 'pending',
         providerId: record.providerId,
         workspaceScopeIdentity: identity.workspaceScopeIdentity,
         workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+        ...identityExtensionFields(identity),
         markerPath: record.markerPath,
         cwd: identity.cwd,
         pendingId: identity.pendingId as string,
@@ -298,9 +324,31 @@ function hasExactKeys(
 }
 
 function cloneRecord(record: AiSessionTerminalBinding): AiSessionTerminalBinding {
-    return record.state === 'pending'
-        ? { ...record, workspaceRootHostPaths: [...record.workspaceRootHostPaths], excludedSessionIds: [...record.excludedSessionIds] }
-        : { ...record, workspaceRootHostPaths: [...record.workspaceRootHostPaths] };
+    const roots = [...record.workspaceRootHostPaths];
+    if (record.state === 'pending') {
+        return {
+            ...record,
+            workspaceRootHostPaths: roots,
+            ...cloneIdentityExtensionFields(record),
+            excludedSessionIds: [...record.excludedSessionIds],
+        };
+    }
+    return { ...record, workspaceRootHostPaths: roots, ...cloneIdentityExtensionFields(record) };
+}
+
+function identityExtensionFields(identity: AiSessionRuntimeIdentity) {
+    return {
+        ...(identity.writableRootHostPaths
+            ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
+            : {}),
+        ...(identity.worktreeKey
+            ? { worktreeKey: { ...identity.worktreeKey } }
+            : {}),
+    };
+}
+
+function cloneIdentityExtensionFields(identity: AiSessionTerminalBindingBase) {
+    return identityExtensionFields(identity as AiSessionTerminalBindingBase & AiSessionRuntimeIdentity);
 }
 
 function validateIdentity(
@@ -312,6 +360,12 @@ function validateIdentity(
         workspaceScopeIdentity: record.workspaceScopeIdentity,
         workspaceNavigationIdentity: record.workspaceNavigationIdentity,
         workspaceRootHostPaths: record.workspaceRootHostPaths,
+        ...(record.writableRootHostPaths !== undefined
+            ? { writableRootHostPaths: record.writableRootHostPaths }
+            : {}),
+        ...(record.worktreeKey !== undefined
+            ? { worktreeKey: record.worktreeKey }
+            : {}),
         cwd: record.cwd,
         ...id,
     };

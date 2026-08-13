@@ -23,6 +23,11 @@ const directoryScope = {
     workspaceNavigationIdentity: workspace.navigationIdentity,
     workspaceScopeIdentity: workspace.scopeIdentity,
     workspaceRootHostPaths: ['/work'],
+    writableRootHostPaths: ['/work'],
+    worktreeKey: {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/work',
+    },
     primaryRootId: 'root:fixture',
     primaryCwd: '/work',
     additionalDirectories: [],
@@ -88,6 +93,8 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
     assert.equal(requests[0].title, 'Fixture title');
     assert.equal(requests[0].identity.provider, 'codex');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
+    assert.deepEqual(requests[0].identity.writableRootHostPaths, ['/work']);
+    assert.deepEqual(requests[0].identity.worktreeKey, directoryScope.worktreeKey);
     assert.deepEqual(requests[0].excludedSessionIds, ['existing']);
     assert.equal(requests[0].launch, undefined);
     assert.equal(typeof requests[0].createLaunchSpec, 'function');
@@ -652,6 +659,8 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
     assert.equal(requests.length, 1);
     assert.equal(requests[0].identity.sessionId, 's');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
+    assert.deepEqual(requests[0].identity.writableRootHostPaths, ['/work']);
+    assert.deepEqual(requests[0].identity.worktreeKey, directoryScope.worktreeKey);
     assert.equal(requests[0].launch, undefined);
     assert.equal(typeof requests[0].createLaunchSpec, 'function');
     assert.deepEqual(launchSpecs, [{

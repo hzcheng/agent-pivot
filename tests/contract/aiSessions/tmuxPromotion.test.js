@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const test = require('node:test');
 const {
     createTmuxRuntimeHarness,
@@ -33,6 +34,47 @@ function failNextRenameWindow(harness) {
         }
         return realRenameWindow(sessionName, windowName, nextName);
     };
+}
+
+function legacyPromotionFingerprint(binding, intent) {
+    return createHash('sha256').update(JSON.stringify([
+        2,
+        binding.provider,
+        binding.workspaceScopeIdentity,
+        binding.workspaceNavigationIdentity,
+        binding.workspaceRootHostPaths.slice().sort(),
+        binding.pendingId,
+        binding.cwd,
+        binding.createdAt,
+        binding.excludedSessionIds,
+        binding.title ?? null,
+        binding.acceptedAtMs,
+        binding.layout,
+        binding.locator,
+        intent.markerPath,
+        intent.finalSessionName,
+        intent.finalLocator,
+    ]), 'utf8').digest('hex');
+}
+
+function asLegacyV2Binding(record) {
+    const clone = structuredClone(record);
+    clone.version = 2;
+    delete clone.writableRootHostPaths;
+    delete clone.worktreeKey;
+    return clone;
+}
+
+function downgradeLiveMetadataToV2(harness) {
+    for (const row of harness.windows) {
+        row.sessionMetadata.version = '2';
+        row.windowMetadata.version = '2';
+        delete row.sessionMetadata.writableRootHostPaths;
+        delete row.sessionMetadata.worktreeKey;
+        delete row.windowMetadata.writableRootHostPaths;
+        delete row.windowMetadata.worktreeKey;
+        row.metadata = { ...row.sessionMetadata, ...row.windowMetadata };
+    }
 }
 
 test('RUNTIME-TMUX-BACKEND-001 [tmux session] promotion persists known/consumed, clears pending, and migrates attach', async () => {
@@ -100,6 +142,54 @@ test('RUNTIME-TMUX-BACKEND-001 [tmux session] persisted intent resumes through a
     assert.equal(harness.store.consumed.size, 1);
     assert.equal(harness.store.pending.size, 0);
     assert.equal(harness.store.promoting.size, 0);
+});
+
+test('RUNTIME-TMUX-BACKEND-001 [tmux session] v2 pending state promotes and rewrites v3 ownership', async () => {
+    const { harness, request } = await seedPending('session');
+    const legacyPending = asLegacyV2Binding(
+        harness.store.pending.get(request.identity.pendingId)
+    );
+    harness.store.pending.set(request.identity.pendingId, legacyPending);
+    downgradeLiveMetadataToV2(harness);
+
+    const promoted = await harness.createReloadedBackend().promotePending(
+        request.identity, 'final-v2-upgrade', 'Final V2 Upgrade'
+    );
+    assert.equal(promoted.length, 1);
+    assert.equal(promoted[0].identity.sessionId, 'final-v2-upgrade');
+    assert.equal(harness.store.known.get('codex:final-v2-upgrade').version, 3);
+    assert.equal([...harness.store.consumed.values()][0].version, 3);
+    assert.ok(harness.windows.every(row => row.sessionMetadata.version === '3'
+        && row.windowMetadata.version === '3'));
+});
+
+test('RUNTIME-TMUX-BACKEND-001 [tmux session] v2 live metadata and promotion intent resume after upgrade', async () => {
+    const { harness, request } = await seedPending('session');
+    failNextRenameWindow(harness);
+    await assert.rejects(
+        harness.backend.promotePending(request.identity, 'final-v2', 'Final Legacy'),
+        /injected rename failure/
+    );
+
+    const [intentKey, currentIntent] = [...harness.store.promoting.entries()][0];
+    const legacyPending = asLegacyV2Binding(currentIntent.pendingBinding);
+    const legacyIntent = asLegacyV2Binding({
+        ...currentIntent,
+        pendingBinding: legacyPending,
+    });
+    legacyIntent.requestFingerprint = legacyPromotionFingerprint(legacyPending, legacyIntent);
+    harness.store.pending.set(request.identity.pendingId, legacyPending);
+    harness.store.promoting.set(intentKey, legacyIntent);
+    downgradeLiveMetadataToV2(harness);
+
+    const promoted = await harness.createReloadedBackend().promotePending(
+        request.identity, 'final-v2', 'Final Legacy'
+    );
+    assert.equal(promoted.length, 1);
+    assert.equal(promoted[0].identity.sessionId, 'final-v2');
+    assert.equal(harness.providerCreateCount(), 1, 'legacy recovery must not dispatch again');
+    assert.equal(harness.store.promoting.size, 0);
+    assert.equal(harness.store.pending.size, 0);
 });
 
 test('RUNTIME-TMUX-BACKEND-001 [tmux session] consumed tombstone makes a repeated promote return the final runtime', async () => {

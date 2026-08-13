@@ -2000,6 +2000,92 @@
     ]
   },
   {
+    "id": "RUNTIME-WORKTREE-IDENTITY-001",
+    "domain": "runtime",
+    "title": "Runtime identity v3 validates, compares, and defensively clones worktree and writable-root identity",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimePrimitives.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/runtimeTypes.ts",
+      "src/worktrees/types.ts"
+    ]
+  },
+  {
+    "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
+    "domain": "runtime",
+    "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/tmuxRuntimeRequest.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxRuntimeRequest.ts",
+      "src/aiSessions/runtimeTypes.ts"
+    ]
+  },
+  {
+    "id": "RUNTIME-TMUX-WORKTREE-RECORDS-001",
+    "domain": "runtime",
+    "title": "Tmux binding records dual-read v2 and preserve v3 worktree identity across validation and cloning",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/tmuxBindingRecords.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxBindingRecords.ts"
+    ]
+  },
+  {
+    "id": "RUNTIME-TMUX-WORKTREE-RELOAD-001",
+    "domain": "runtime",
+    "title": "Live tmux runtimes preserve v3 worktree identity through metadata, persistence, and reload discovery",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimeBackends.test.js",
+      "tests/contract/aiSessions/tmuxDiscovery.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxLayout.ts",
+      "src/aiSessions/tmuxManagedMetadata.ts",
+      "src/aiSessions/tmuxRuntimeBindingStore.ts",
+      "src/aiSessions/tmuxRuntimeDiscovery.ts"
+    ]
+  },
+  {
+    "id": "PERSIST-AI-SESSION-TERMINAL-V3-001",
+    "domain": "persistence",
+    "title": "Direct terminal bindings reload v3 worktree identity while retaining v2 compatibility",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/persistence/stores.test.js",
+      "tests/contract/aiSessions/terminalService.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/terminalBindingStore.ts",
+      "src/aiSessions/terminalService.ts"
+    ]
+  },
+  {
+    "id": "PERSIST-AI-SESSION-TMUX-ATTACH-V3-001",
+    "domain": "persistence",
+    "title": "Tmux attach bindings dual-read v2 keys and reload v3 worktree identity",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/persistence/stores.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxAttachBindingStore.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001",
     "domain": "runtime",
     "title": "Tmux Webview Experience behavior",
@@ -3798,6 +3884,21 @@
       "src/workspaces/sessionScope.ts",
       "src/aiSessions/commandController.ts",
       "src/aiSessions/commandBuilders.ts"
+    ]
+  },
+  {
+    "id": "SESSION-WORKTREE-SCOPE-001",
+    "domain": "session",
+    "title": "Worktree session scope replaces only the selected repository roots while preserving workspace ownership roots",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/sessionScope.test.js"
+    ],
+    "evidence": [
+      "src/workspaces/sessionScope.ts",
+      "src/workspaces/types.ts",
+      "src/worktrees/types.ts"
     ]
   },
   {
@@ -5910,14 +6011,18 @@
   {
     "id": "ARCH-SESSION-WORKTREE-001",
     "domain": "session",
-    "title": "Session worktree resolution maps operating paths to git worktrees across main checkouts, linked worktrees, and detached HEAD",
+    "title": "Session worktree boundaries keep Git identity independent and map operating paths across main, linked, and detached checkouts",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/aiSessions/conversationWorktreeResolver.test.js"
+      "tests/unit/aiSessions/conversationWorktreeResolver.test.js",
+      "tests/unit/aiSessions/sessionBoundaries.test.js",
+      "tests/unit/services/sourceControl.test.js"
     ],
     "evidence": [
-      "src/aiSessions/conversation/worktreeResolver.ts"
+      "src/aiSessions/conversation/worktreeResolver.ts",
+      "src/worktrees/types.ts",
+      "src/services/sourceControl.ts"
     ]
   },
   {

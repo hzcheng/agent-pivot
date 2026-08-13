@@ -7,7 +7,10 @@ import { sanitizeAiSessionAlias } from './aliasStore';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
-import { isValidAiSessionRuntimeIdentityId } from './runtimeTypes';
+import {
+    cloneAiSessionDirectoryScope,
+    isValidAiSessionRuntimeIdentityId,
+} from './runtimeTypes';
 import type {
     AiSessionCreateRuntimeRequest,
     AiSessionPendingRuntimeSnapshot,
@@ -288,13 +291,19 @@ export class AiSessionCreationController {
         const createdAt = new Date(options.nowMs()).toISOString();
         const markerPath = options.getPendingMarkerPath(providerId);
         const terminalName = `${sessionProvider.terminalNamePrefix}: ${target.name || 'New Session'}`;
-        const launchScope = cloneDirectoryScope(directoryScope);
+        const launchScope = cloneAiSessionDirectoryScope(directoryScope);
         const request: AiSessionCreateRuntimeRequest = {
             identity: {
                 provider: providerId,
                 workspaceScopeIdentity: directoryScope.workspaceScopeIdentity,
                 workspaceNavigationIdentity: directoryScope.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...directoryScope.workspaceRootHostPaths],
+                ...(directoryScope.writableRootHostPaths ? {
+                    writableRootHostPaths: [...directoryScope.writableRootHostPaths],
+                } : {}),
+                ...(directoryScope.worktreeKey ? {
+                    worktreeKey: { ...directoryScope.worktreeKey },
+                } : {}),
                 cwd,
                 pendingId,
             },
@@ -356,14 +365,6 @@ export class AiSessionCreationController {
         options.refresh();
         options.scheduleNewSessionRefresh(providerId);
     }
-}
-
-function cloneDirectoryScope(scope: AiSessionDirectoryScope): AiSessionDirectoryScope {
-    return {
-        ...scope,
-        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
-        additionalDirectories: [...scope.additionalDirectories],
-    };
 }
 
 function mergeCodexProfileLaunchOptions(

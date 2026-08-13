@@ -13,6 +13,11 @@ import type { DashboardWorkspaceSearchCatalog } from '../webview/dashboardViewMo
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import type { AiSessionRuntimeBackendId, AiSessionRuntimeIdentity, AiSessionTmuxLayout } from './runtimeTypes';
+import type { WorktreeKey } from '../worktrees/types';
+import type {
+    ProvisioningWorktreeRow,
+    WorktreeGitSnapshot,
+} from '../worktrees/types';
 
 export interface AiSessionTerminalEntry<TTerminal = unknown> {
     terminal: TTerminal;
@@ -27,9 +32,41 @@ export interface AiSessionDirectoryScope {
     workspaceNavigationIdentity: string;
     workspaceScopeIdentity: string;
     workspaceRootHostPaths: string[];
+    writableRootHostPaths?: string[];
+    worktreeKey?: WorktreeKey;
     primaryRootId: string;
     primaryCwd: string;
     additionalDirectories: string[];
+}
+
+export type WorktreeActivity = 'active' | 'attention' | 'idle';
+
+export interface WorktreeAuthority {
+    canInput: boolean;
+    canFocus: boolean;
+    canStop: boolean;
+    canResume: boolean;
+    canArchive: boolean;
+    canTakeControl: boolean;
+    liveOwnerAvailable: boolean;
+}
+
+export interface WorktreeViewModel {
+    git: WorktreeGitSnapshot;
+    activity: WorktreeActivity;
+    sessions: AiSessionViewModel[];
+    authority: WorktreeAuthority;
+}
+
+export interface ReadyWorktreeRow extends WorktreeViewModel {
+    kind: 'ready';
+}
+
+export type WorktreeRowViewModel = ProvisioningWorktreeRow | ReadyWorktreeRow;
+
+export interface WorktreeQuickCreatePreferences {
+    provider: AiSessionProviderId;
+    profile?: string;
 }
 
 export type AiSessionTabId = 'active' | 'sessions';

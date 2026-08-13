@@ -23,6 +23,7 @@ import {
     AiSessionRuntimeConflictError,
     AiSessionRuntimeLifecycleBlockedError,
     AiSessionRuntimeTargetChangedError,
+    cloneAiSessionDirectoryScope,
     cloneAiSessionRuntimeIdentity,
     isValidAiSessionPromotionDisplayName,
     isValidAiSessionRuntimeIdentity,
@@ -624,7 +625,7 @@ function snapshotResumeRequest(
         projectName: request.projectName,
         sessionName: request.sessionName,
         terminalName: request.terminalName,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         launchMarkerPath: launch.launchMarkerPath,
         createLaunchSpec: launch.createLaunchSpec,
     };
@@ -639,7 +640,7 @@ function snapshotCreateRequest(
         projectName: request.projectName,
         terminalName: request.terminalName,
         createdAt: request.createdAt,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         excludedSessionIds: [...request.excludedSessionIds],
         ...(request.title === undefined ? {} : { title: request.title }),
         launchMarkerPath: launch.launchMarkerPath,
@@ -843,12 +844,4 @@ function selectedRuntimeMatches<TTerminal>(
 
 function sameFullIdentity(left: AiSessionRuntimeIdentity, right: AiSessionRuntimeIdentity): boolean {
     return aiSessionRuntimeIdentitiesEqual(left, right);
-}
-
-function cloneDirectoryScope(scope: AiSessionResumeRuntimeRequest['directoryScope']): AiSessionResumeRuntimeRequest['directoryScope'] {
-    return {
-        ...scope,
-        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
-        additionalDirectories: [...scope.additionalDirectories],
-    };
 }

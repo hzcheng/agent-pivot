@@ -22,6 +22,7 @@ import {
 } from './runtimeLaunch';
 import { AiSessionRuntimeLifecycleBlockedError } from './runtimeTypes';
 import {
+    cloneAiSessionDirectoryScope,
     cloneAiSessionRuntimeIdentity,
     isValidAiSessionPromotionDisplayName,
 } from './runtimeTypes';
@@ -402,7 +403,7 @@ function snapshotResumeRequest(
         projectName: request.projectName,
         sessionName: request.sessionName,
         terminalName: request.terminalName,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         launchMarkerPath: launch.launchMarkerPath,
         createLaunchSpec: launch.createLaunchSpec,
     };
@@ -417,7 +418,7 @@ function snapshotCreateRequest(
         projectName: request.projectName,
         terminalName: request.terminalName,
         createdAt: request.createdAt,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         excludedSessionIds: [...request.excludedSessionIds],
         ...(request.title === undefined ? {} : { title: request.title }),
         launchMarkerPath: launch.launchMarkerPath,
@@ -433,7 +434,7 @@ function materializeResumeRequest(
         projectName: request.projectName,
         sessionName: request.sessionName,
         terminalName: request.terminalName,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         launchMarkerPath: request.launchMarkerPath,
         launch: materializeAiSessionLaunchSpec(request),
     };
@@ -449,7 +450,7 @@ function materializeCreateRequest(
         createdAt: request.createdAt,
         excludedSessionIds: [...request.excludedSessionIds],
         ...(request.title === undefined ? {} : { title: request.title }),
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         launchMarkerPath: request.launchMarkerPath,
         launch: materializeAiSessionLaunchSpec(request),
     };
@@ -460,14 +461,6 @@ function cloneRuntime<TTerminal>(runtime: AiSessionRuntimeSnapshot<TTerminal>): 
         ...runtime,
         identity: cloneAiSessionRuntimeIdentity(runtime.identity),
         ...(runtime.tmux ? { tmux: { ...runtime.tmux } } : {}),
-    };
-}
-
-function cloneDirectoryScope(scope: AiSessionResumeRuntimeRequest['directoryScope']): AiSessionResumeRuntimeRequest['directoryScope'] {
-    return {
-        ...scope,
-        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
-        additionalDirectories: [...scope.additionalDirectories],
     };
 }
 

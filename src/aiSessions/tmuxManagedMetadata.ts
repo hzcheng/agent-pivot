@@ -9,32 +9,42 @@ import type {
 
 const SESSION_WINDOW = 'ai-session';
 
-export function projectSessionMetadata(identity: AiSessionRuntimeIdentity): Record<string, string> {
+export function projectSessionMetadata(
+    identity: AiSessionRuntimeIdentity,
+    version: 2 | 3 = 3
+): Record<string, string> {
     return {
         managed: '1',
-        version: '2',
+        version: String(version),
         layout: 'project',
         workspaceScopeIdentity: identity.workspaceScopeIdentity,
     };
 }
 
-export function sessionWindowMetadata(): Record<string, string> {
-    return { managed: '1', version: '2', layout: 'session' };
+export function sessionWindowMetadata(version: 2 | 3 = 3): Record<string, string> {
+    return { managed: '1', version: String(version), layout: 'session' };
 }
 
 export function fullMetadata(
     identity: AiSessionRuntimeIdentity,
     layout: AiSessionTmuxLayout,
     createdAt: string,
-    markerPath: string
+    markerPath: string,
+    version: 2 | 3 = 3
 ): Record<string, string> {
     return {
         managed: '1',
-        version: '2',
+        version: String(version),
         layout,
         workspaceScopeIdentity: identity.workspaceScopeIdentity,
         workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
         workspaceRootHostPaths: JSON.stringify(identity.workspaceRootHostPaths),
+        ...(version === 3 ? {
+            writableRootHostPaths: JSON.stringify(
+                identity.writableRootHostPaths ?? identity.workspaceRootHostPaths
+            ),
+            ...(identity.worktreeKey ? { worktreeKey: JSON.stringify(identity.worktreeKey) } : {}),
+        } : {}),
         cwd: identity.cwd,
         provider: identity.provider,
         ...(identity.sessionId ? { sessionId: identity.sessionId } : { pendingId: identity.pendingId as string }),
@@ -80,7 +90,8 @@ export async function verifyPendingMetadata(
     identity: AiSessionRuntimeIdentity,
     locator: AiSessionTmuxLocator,
     createdAt: string,
-    markerPath: string
+    markerPath: string,
+    version: 2 | 3 = 3
 ): Promise<void> {
     const sessionOptions = await client.getSessionOptions(locator.sessionName);
     const windowName = locator.layout === 'project'
@@ -91,11 +102,11 @@ export async function verifyPendingMetadata(
     }
     const windowOptions = await client.getWindowOptions(locator.sessionName, windowName);
     const expectedSession = locator.layout === 'project'
-        ? projectSessionMetadata(identity)
-        : fullMetadata(identity, locator.layout, createdAt, markerPath);
+        ? projectSessionMetadata(identity, version)
+        : fullMetadata(identity, locator.layout, createdAt, markerPath, version);
     const expectedWindow = locator.layout === 'project'
-        ? fullMetadata(identity, locator.layout, createdAt, markerPath)
-        : sessionWindowMetadata();
+        ? fullMetadata(identity, locator.layout, createdAt, markerPath, version)
+        : sessionWindowMetadata(version);
     if (!recordsEqual(sessionOptions, expectedSession) || !recordsEqual(windowOptions, expectedWindow)) {
         throw new Error('The pending tmux metadata could not be verified.');
     }
@@ -107,4 +118,3 @@ function recordsEqual(left: Record<string, string>, right: Record<string, string
     return leftKeys.length === rightKeys.length
         && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
 }
-

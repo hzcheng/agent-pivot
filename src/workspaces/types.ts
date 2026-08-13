@@ -9,6 +9,12 @@ export interface WorkspaceRoot {
     ordinal: number;
 }
 
+/** Maps an opened workspace root to its path relative to a repository root. */
+export interface RepositoryRootBinding {
+    workspaceRootId: string;
+    repositoryRelativePath: string;
+}
+
 export interface OpenWorkspace {
     navigationIdentity: string;
     scopeIdentity: string;

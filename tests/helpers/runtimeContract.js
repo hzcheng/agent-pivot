@@ -338,18 +338,28 @@ function createSyntheticTmuxStore(initial = {}) {
             for (const runtime of runtimes) {
                 if (!runtime.identity.sessionId || !runtime.tmux) continue;
                 const key = `${runtime.identity.provider}:${runtime.identity.sessionId}`;
-                known.set(key, makeTmuxKnownBinding(runtime.identity.sessionId, {
-                    provider: runtime.identity.provider,
-                    workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
-                    workspaceNavigationIdentity: runtime.identity.workspaceNavigationIdentity,
-                    workspaceRootHostPaths: runtime.identity.workspaceRootHostPaths,
-                    cwd: runtime.identity.cwd,
-                    layout: runtime.tmux.layout,
-                    locator: runtime.tmux,
-                    markerPath: runtime.markerPath,
-                    runStartedAtMs: runtime.runStartedAtMs,
-                    lastSeenAtMs: FIXED_NOW,
-                }));
+                known.set(key, {
+                    ...makeTmuxKnownBinding(runtime.identity.sessionId, {
+                        provider: runtime.identity.provider,
+                        workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
+                        workspaceNavigationIdentity: runtime.identity.workspaceNavigationIdentity,
+                        workspaceRootHostPaths: runtime.identity.workspaceRootHostPaths,
+                        cwd: runtime.identity.cwd,
+                        layout: runtime.tmux.layout,
+                        locator: runtime.tmux,
+                        markerPath: runtime.markerPath,
+                        runStartedAtMs: runtime.runStartedAtMs,
+                        lastSeenAtMs: FIXED_NOW,
+                    }),
+                    version: 3,
+                    writableRootHostPaths: [
+                        ...(runtime.identity.writableRootHostPaths
+                            || runtime.identity.workspaceRootHostPaths),
+                    ],
+                    ...(runtime.identity.worktreeKey
+                        ? { worktreeKey: { ...runtime.identity.worktreeKey } }
+                        : {}),
+                });
                 inactive.delete(key);
             }
         },

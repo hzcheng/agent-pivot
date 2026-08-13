@@ -300,11 +300,42 @@ test('RUNTIME-TMUX-LAYOUT-001 creates stable bounded locators and rejects ambigu
         workspaceScopeIdentity: '@agent-pivot-workspace-scope-identity',
         workspaceNavigationIdentity: '@agent-pivot-workspace-navigation-identity',
         workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
+        writableRootHostPaths: '@agent-pivot-writable-root-host-paths',
+        worktreeKey: '@agent-pivot-worktree-key',
         cwd: '@agent-pivot-cwd',
         provider: '@agent-pivot-provider', sessionId: '@agent-pivot-session-id',
         pendingId: '@agent-pivot-pending-id', createdAt: '@agent-pivot-created-at',
         marker: '@agent-pivot-marker',
     });
+
+    const worktreeMetadata = {
+        managed: '1', version: '3', layout: 'project',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: JSON.stringify(['/repos/frontend', '/repos/backend']),
+        writableRootHostPaths: JSON.stringify(['/managed/frontend-feature', '/repos/backend']),
+        worktreeKey: JSON.stringify({
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        }),
+        cwd: '/managed/frontend-feature', provider: 'codex', sessionId: 'worktree-session',
+    };
+    assert.deepEqual(tmuxLayout.parseManagedTmuxMetadata(worktreeMetadata), {
+        version: 3, layout: 'project',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature', '/repos/backend'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature', provider: 'codex', sessionId: 'worktree-session',
+    });
+    assert.equal(tmuxLayout.parseManagedTmuxMetadata({
+        ...worktreeMetadata,
+        writableRootHostPaths: undefined,
+    }), null);
 
     for (const invalidIdentity of [
         { ...identity, sessionId: '' },
@@ -350,4 +381,41 @@ test('RUNTIME-TMUX-LAYOUT-001 creates stable bounded locators and rejects ambigu
     ]) {
         assert.equal(tmuxLayout.parseManagedTmuxMetadata(invalidMetadata), null);
     }
+});
+
+test('RUNTIME-WORKTREE-IDENTITY-001 validates and clones linked-worktree runtime identities', () => {
+    const identity = {
+        provider: 'codex',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature', '/repos/backend'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature/packages/web',
+        sessionId: 'session-worktree',
+    };
+
+    assert.equal(runtimeTypes.isValidAiSessionRuntimeIdentity(identity), true);
+    const clone = runtimeTypes.cloneAiSessionRuntimeIdentity(identity);
+    assert.deepEqual(clone, identity);
+    assert.notEqual(clone.workspaceRootHostPaths, identity.workspaceRootHostPaths);
+    assert.notEqual(clone.writableRootHostPaths, identity.writableRootHostPaths);
+    assert.notEqual(clone.worktreeKey, identity.worktreeKey);
+    assert.equal(runtimeTypes.aiSessionRuntimeIdentitiesEqual(identity, clone), true);
+
+    assert.equal(runtimeTypes.isValidAiSessionRuntimeIdentity({
+        ...identity,
+        writableRootHostPaths: undefined,
+    }), false);
+    assert.equal(runtimeTypes.isValidAiSessionRuntimeIdentity({
+        ...identity,
+        cwd: '/outside/worktree',
+    }), false);
+    assert.equal(runtimeTypes.isValidAiSessionRuntimeIdentity({
+        ...identity,
+        worktreeKey: { ...identity.worktreeKey, canonicalWorktreePath: 'relative/path' },
+    }), false);
 });

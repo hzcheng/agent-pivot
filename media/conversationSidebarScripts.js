@@ -15,6 +15,9 @@
         var outlineQuery = options.outlineQuery;
         var subagentsRunningOnlyQuery = options.subagentsRunningOnlyQuery
             || function () { return false; };
+        var telemetryPosition = options.telemetryPosition;
+        var telemetryComments = options.telemetryComments;
+        var telemetrySubagents = options.telemetrySubagents;
         var commentsPanelMinWidth = 192;
         var commentsPanelMaxWidth = 420;
         var conversationMinWidth = 320;
@@ -101,6 +104,18 @@
                 tab.setAttribute('aria-selected', selected ? 'true' : 'false');
                 tab.tabIndex = selected ? 0 : -1;
             });
+            if (telemetryPosition) {
+                telemetryPosition.setAttribute('aria-pressed',
+                    state.commentsPanelOpen && state.sidebarView === 'outline' ? 'true' : 'false');
+            }
+            if (telemetryComments) {
+                telemetryComments.setAttribute('aria-pressed',
+                    state.commentsPanelOpen && state.sidebarView === 'comments' ? 'true' : 'false');
+            }
+            if (telemetrySubagents) {
+                telemetrySubagents.setAttribute('aria-pressed',
+                    state.commentsPanelOpen && state.sidebarView === 'subagents' ? 'true' : 'false');
+            }
         }
 
         function applyCommentsPanelLayout() {
@@ -273,6 +288,8 @@
             save: saveCommentsPanelState,
             setOpen: setCommentsPanelOpen,
             setView: setSidebarView,
+            isPanelOpen: function () { return state.commentsPanelOpen; },
+            getView: function () { return state.sidebarView; },
             updateToggle: updateCommentsToggle,
         });
     }

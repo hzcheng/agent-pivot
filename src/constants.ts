@@ -42,6 +42,8 @@ export const OPEN_CURRENT_WORKSPACE_GROUP_ID = '__openCurrentWorkspace';
 export const OPEN_WORKSPACES_GROUP_COLLAPSED_KEY = 'openWorkspacesGroupCollapsed.v2';
 export const WORKSPACE_EXPANDED_AI_SESSIONS_KEY = 'workspaceExpandedAiSessions.v2';
 export const WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY = 'workspaceActiveAiSessionProvider.v2';
+export const WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY =
+    'workspaceQuickCreateAiSessionProvider.v1';
 export const WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY =
     'workspaceAiSessionProviderSelection.v1';
 

@@ -434,6 +434,34 @@
     ]
   },
   {
+    "id": "AI-SESSION-QUICK-CREATE-001",
+    "domain": "session",
+    "title": "Quick AI session creation from the split button skips every picker, remembers the started provider per workspace, and applies the default Codex profile without prompting",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/aiSessions/sessionControllerComposition.test.js",
+      "tests/contract/aiSessions/sessionControllerComposition.profile.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js",
+      "tests/contract/persistence/stores.test.js",
+      "tests/integration/dashboard/messageRouter.test.js",
+      "tests/browser/quickSessionCreate.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/creationController.ts",
+      "src/aiSessions/sessionControllerComposition.ts",
+      "src/aiSessions/workspaceStateStore.ts",
+      "src/workspaces/sessionHydrationController.ts",
+      "src/workspaces/viewModels.ts",
+      "src/dashboard/messageRouter.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "scripts/run-dashboard-webview-checks.js"
+    ]
+  },
+  {
     "id": "SESSION-CODEX-PROFILE-CLI-PROBE-001",
     "domain": "session",
     "title": "Codex profile support probing disables the feature with a one-time hint on unsupported CLIs",

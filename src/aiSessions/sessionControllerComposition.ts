@@ -20,6 +20,7 @@ import { readAiSessionLaunchOptions } from './launchOptions';
 import { getAiSessionIdsForCwd } from './pendingTerminals';
 import type AiSessionPinController from './pinController';
 import type AiSessionProfileController from './sessionProfileController';
+import { resolveDefaultCodexProfileDecision } from './sessionProfileController';
 import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
 import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
 import type { AiSessionReadCoordinator } from './readCoordinator';
@@ -347,6 +348,18 @@ export function createSessionControllerComposition(
             options.aiSessionProfileController?.recordPending(pendingId, decision);
             options.aiSessionProfileController?.rememberLastUsed(decision);
         },
+        rememberSessionProvider: async (workspaceScopeIdentity, providerId) => {
+            try {
+                await aiSessionWorkspaceStateStore.setQuickCreateProvider(workspaceScopeIdentity, providerId);
+            } catch (error) {
+                logError("Failed to remember the AI session provider.", error);
+            }
+        },
+        getDefaultCodexProfileDecision: () => resolveDefaultCodexProfileDecision({
+            getLastUsed: () => options.aiSessionProfileController?.getLastUsed() ?? null,
+            getCodexDefaultProfile: options.getCodexDefaultProfile,
+            isCodexProfileFileAvailable: options.isCodexProfileFileAvailable,
+        }),
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,

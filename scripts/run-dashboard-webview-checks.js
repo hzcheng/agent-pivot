@@ -526,6 +526,7 @@ function runWorkspaceCardRenderingChecks() {
     } finally {
         Module._load = previousModuleLoad;
     }
+    const webviewAiSessionContent = require('../out/webview/webviewAiSessionContent');
     const icons = require('../out/webview/webviewIcons');
 
     const emptyHtml = webviewContent.getCurrentWorkspaceGroupContent(null, false);
@@ -657,7 +658,80 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual(multiHtml.includes('class="workspace-root-tag"'), false);
     assert.ok(multiHtml.includes('data-primary-root-id="root-api"'));
     assert.ok(multiHtml.includes('class="ai-session-root-chip"'));
-    assert.ok(multiHtml.includes('data-action="create-ai-session"'));
+    assert.ok(multiHtml.includes('class="ai-session-create-split-button"'),
+        'the AI sessions header renders the split create button');
+    assert.ok(multiHtml.includes('data-action="create-ai-session-quick"'));
+    assert.ok(multiHtml.includes('data-provider="codex"'),
+        'the quick-create button carries the active provider');
+    assert.ok(multiHtml.includes('aria-label="New Codex session"'),
+        'the quick-create button announces the provider it will launch');
+    assert.ok(multiHtml.includes('data-action="create-ai-session-dropdown"'),
+        'the split button keeps a dropdown entry for other providers');
+    assert.ok(multiHtml.includes('class="ai-session-create-caption"'),
+        'the split button carries a hover caption identifying the quick-create target');
+    assert.ok(multiHtml.includes('aria-hidden="true">Codex</span>'),
+        'the caption names the active provider when no profile applies');
+
+    const captionSurface = {
+        id: 'project-caption',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [],
+        quickCreateProfile: 'deepseek',
+    };
+    const captionHtml = webviewAiSessionContent.getAiSessionsDiv(captionSurface);
+    assert.ok(captionHtml.includes('aria-label="New Codex session with profile deepseek"'),
+        'the quick button announces the effective profile');
+    assert.ok(captionHtml.includes('aria-hidden="true">Codex · deepseek</span>'),
+        'the caption shows the provider and profile');
+
+    const kimiCaptionHtml = webviewAiSessionContent.getAiSessionsDiv({
+        ...captionSurface,
+        activeAiSessionProvider: 'kimi',
+        quickCreateProfile: 'deepseek',
+    });
+    assert.ok(kimiCaptionHtml.includes('aria-hidden="true">Kimi</span>'),
+        'a non-codex provider never carries the codex profile');
+    assert.ok(kimiCaptionHtml.includes('aria-label="New Kimi session"'));
+
+    const rememberedHtml = webviewAiSessionContent.getAiSessionsDiv({
+        ...captionSurface,
+        activeAiSessionProvider: 'codex',
+        quickCreateProvider: 'kimi',
+        quickCreateProfile: 'deepseek',
+    });
+    assert.ok(rememberedHtml.includes('data-action="create-ai-session-quick" data-provider="kimi"'),
+        'the quick button follows the remembered provider, not the list filter');
+    assert.ok(rememberedHtml.includes('aria-hidden="true">Kimi</span>'),
+        'the caption follows the remembered provider');
+    assert.ok(rememberedHtml.includes('data-active-ai-session-provider="codex"'),
+        'the session list filter keeps its own primary provider');
+
+    const escapingHtml = webviewAiSessionContent.getAiSessionsDiv({
+        ...captionSurface,
+        quickCreateProfile: 'x"<script>"',
+    });
+    assert.ok(!escapingHtml.includes('<script>'),
+        'the caption and labels escape profile text');
+    assert.ok(escapingHtml.includes('x&quot;&lt;script&gt;&quot;'));
+    assert.strictEqual(multiHtml.includes('data-action="create-ai-session"'), false,
+        'the header split button replaces the bare create action');
+
+    const createDropdownHtml = webviewAiSessionContent.getAiSessionCreateDropdown();
+    assert.ok(createDropdownHtml.includes('id="aiSessionCreateDropdown"'),
+        'the create dropdown menu exists for the split button arrow');
+    for (const provider of ['codex', 'kimi', 'claude']) {
+        assert.ok(
+            createDropdownHtml.includes(`data-action="create-ai-session-quick" data-provider="${provider}"`),
+            `the create dropdown offers a quick ${provider} entry`
+        );
+    }
+    assert.ok(createDropdownHtml.includes('data-action="create-ai-session"'),
+        'the create dropdown keeps the full interactive entry');
     assert.strictEqual(multiHtml.includes('data-action="open-new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="selected-project"'), false);
@@ -837,8 +911,8 @@ function runWorkspaceCardRenderingChecks() {
     );
     assert.ok(updateRequiredOtherHtml.includes('data-open-workspace-current'));
     assert.strictEqual(updateRequiredOtherHtml.includes('data-current-workspace'), false);
-    assert.ok(updateRequiredHtml.includes('data-action="create-ai-session"'),
-        'the local current workspace NEW action must remain enabled during bridge degradation');
+    assert.ok(updateRequiredHtml.includes('data-action="create-ai-session-quick"'),
+        'the local current workspace quick-create action must remain enabled during bridge degradation');
     assert.strictEqual(updateRequiredOtherHtml.includes('data-action="new-session-in"'), false);
 
     const projectSource = readProjectWebviewSource();
@@ -5073,7 +5147,7 @@ function runSourceContractChecks(source) {
         rule.selectors.includes(compiledFitGroupSelector)
         && rule.body.includes('height: 50%')
         && rule.body.includes('max-height: none')
-        && rule.body.includes('min-height: 250px')
+        && rule.body.includes('min-height: 263px')
     ), 'auto layout must pin the expanded CURRENT WINDOW group to half the pane');
     const compiledFitManualSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded';
@@ -5083,7 +5157,7 @@ function runSourceContractChecks(source) {
     );
     assert.ok(compiledFitManualRules.some(rule =>
         rule.selectors.includes(compiledFitManualSelector)
-        && rule.body.includes('min-height: 250px')
+        && rule.body.includes('min-height: 263px')
     ), 'a dragged share must respect the raised expanded pane floor');
     const compiledFitListSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list';
@@ -5337,6 +5411,9 @@ async function runDashboardMessageRouterChecks() {
         createAiSession: message => {
             calls.push(['create-ai-session', message.projectId]);
         },
+        createAiSessionQuick: message => {
+            calls.push(['create-ai-session-quick', message.projectId, message.provider]);
+        },
         resumeAiSession: (message, providerId, rootId) => {
             calls.push(['resume-ai-session', providerId, message.sessionId, rootId]);
         },
@@ -5357,6 +5434,7 @@ async function runDashboardMessageRouterChecks() {
     await router({ type: 'request-todo-panel', requestId: 8 });
     await router({ type: 'selected-project', projectId: 'project-a' });
     await router({ type: 'create-ai-session', projectId: 'workspace-a', rootId: 'root-api' });
+    await router({ type: 'create-ai-session-quick', projectId: 'workspace-a', provider: 'kimi' });
     await router({ type: 'new-session-in', projectId: 'workspace-a' });
     await router({ type: 'new-session-in', projectId: 'workspace-a', rootId: 'root-api' });
     await router({ type: 'resume-ai-session', provider: 'codex', sessionId: 'c1' });
@@ -5373,6 +5451,7 @@ async function runDashboardMessageRouterChecks() {
         ['request-todo-panel', 8],
         ['selected-project', 'project-a'],
         ['create-ai-session', 'workspace-a'],
+        ['create-ai-session-quick', 'workspace-a', 'kimi'],
         ['resume-ai-session', 'codex', 'c1', null],
         ['resume-ai-session', 'codex', 'c2', 'root-web'],
         ['resume-ai-session', null, 'invalid', null],

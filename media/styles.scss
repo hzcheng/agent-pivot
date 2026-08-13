@@ -2052,20 +2052,20 @@ body .project {
     // content-sized pane. In auto layout the pane pins to the same half share
     // the 50% cap implies; a dragged share keeps priority because this auto
     // rule excludes the manual layout via :not(.open-tab-split-manual).
-    // The 250px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
+    // The 263px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
     // webviewOpenTabSplitScripts.js: below it the fixed AI-session chrome
-    // (module header, tabs, provider controls) would clip away and the
-    // session list would starve to zero height.
+    // (module header with the quick-create caption, tabs, provider controls)
+    // would clip away and the session list would starve to zero height.
     body.steward-sidebar & {
         .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded {
             flex: 0 0 auto;
             height: 50%;
             max-height: none;
-            min-height: 250px;
+            min-height: 263px;
         }
 
         .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded {
-            min-height: 250px;
+            min-height: 263px;
         }
 
         // In both layouts the expanded card fills the group list (keeping the
@@ -3084,8 +3084,9 @@ body.steward-sidebar {
         .ai-session-create-actions {
             position: relative;
             display: inline-flex;
-            align-items: center;
-            gap: 4px;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
             flex: 0 0 auto;
         }
 
@@ -3136,6 +3137,110 @@ body.steward-sidebar {
                 font-size: 13px;
                 font-weight: 500;
             }
+        }
+
+        .ai-session-create-split-button {
+            display: inline-flex;
+            align-items: center;
+            flex: 0 0 auto;
+            gap: 1px;
+        }
+
+        .ai-session-create-quick-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            width: 28px;
+            height: 23px;
+            padding: 0;
+            border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+            border-radius: 999px 0 0 999px;
+            color: var(--vscode-button-foreground);
+            background: var(--vscode-button-background);
+            font-family: var(--vscode-font-family);
+            cursor: pointer;
+            transition:
+                background $defaultTransition,
+                border-color $defaultTransition,
+                color $defaultTransition;
+
+            &:hover {
+                background: var(--vscode-button-hoverBackground);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            .codex-session-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 16px;
+                height: 16px;
+
+                svg {
+                    display: block;
+                    width: 14px;
+                    height: 14px;
+                    fill: currentColor;
+                }
+            }
+        }
+
+        .ai-session-create-dropdown-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            width: 16px;
+            height: 23px;
+            padding: 0;
+            border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+            border-radius: 0 999px 999px 0;
+            border-left: none;
+            color: var(--vscode-button-foreground);
+            background: var(--vscode-button-background);
+            font-family: var(--vscode-font-family);
+            font-size: 8px;
+            line-height: 1;
+            cursor: pointer;
+            transition:
+                background $defaultTransition,
+                border-color $defaultTransition,
+                color $defaultTransition;
+
+            &:hover {
+                background: var(--vscode-button-hoverBackground);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+        }
+
+        .ai-session-dropdown-arrow {
+            display: block;
+            line-height: 1;
+            font-size: 10px;
+            opacity: 0.8;
+        }
+
+        .ai-session-create-caption {
+            max-width: 132px;
+            padding: 0 2px;
+            overflow: hidden;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            font-weight: 700;
+            letter-spacing: .04em;
+            line-height: 1.3;
+            text-align: right;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .ai-session-tabs {

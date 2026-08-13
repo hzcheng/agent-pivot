@@ -5093,7 +5093,10 @@ function runWebviewContentChecks() {
         ],
     }, { runningIconAnimation: 'custom' });
     assert.ok(sessionTabsHtml.includes('class="ai-session-module-header"'));
-    assert.ok(sessionTabsHtml.includes('data-action="create-ai-session"'));
+    assert.ok(sessionTabsHtml.includes('data-action="create-ai-session-quick" data-provider="codex"'),
+        'the header quick-create button carries the active provider');
+    assert.ok(sessionTabsHtml.includes('data-action="create-ai-session-dropdown"'),
+        'the header split button keeps the create dropdown entry');
     assert.ok(!sessionTabsHtml.includes('data-action="create-ai-session" data-provider='));
     assert.ok(sessionTabsHtml.includes('data-selected-ai-session-providers="codex"'));
     assert.ok(sessionTabsHtml.includes('data-active-ai-session-provider="codex"'));
@@ -5956,7 +5959,14 @@ function runCurrentWorkspaceRenderingChecks() {
     const navigationOpeningTag = html.match(
         /<div class="workspace-card[^>]*data-workspace-card-kind="navigation"[^>]*>/
     )[0];
-    const otherWindowsHtml = html.slice(html.indexOf(navigationOpeningTag));
+    // The privacy boundary ends where the page-level menu templates begin:
+    // those static menus (including the provider-named quick-create entries)
+    // are not part of the rendered navigation card.
+    const pageMenusStart = html.indexOf('<div id="projectContextMenu"');
+    const otherWindowsHtml = html.slice(
+        html.indexOf(navigationOpeningTag),
+        pageMenusStart < 0 ? undefined : pageMenusStart
+    );
     assert.ok(otherWindowsHtml.includes(
         '<span class="project-ai-attention-badge" title="2 items need attention" aria-label="2 items need attention">2</span>'
     ));
@@ -6324,7 +6334,7 @@ function runBatchAiSessionWebviewChecks() {
     );
     const openTabSplitSource = fs.readFileSync(openTabSplitSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedOpenTabSplitPath, 'utf8'), openTabSplitSource);
-    assert.ok(openTabSplitSource.includes('OPEN_TAB_PANE_MIN_EXPANDED_PX = 250'),
+    assert.ok(openTabSplitSource.includes('OPEN_TAB_PANE_MIN_EXPANDED_PX = 263'),
         'the expanded CURRENT WINDOW pane needs a raised floor that keeps the AI session chrome reachable');
     assert.ok(openTabSplitSource.includes("classList.contains('current-card-expanded')"),
         'the pane floor must follow the rendered expanded class');

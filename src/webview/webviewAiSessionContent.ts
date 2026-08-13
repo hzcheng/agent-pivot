@@ -60,6 +60,10 @@ export interface AiSessionSurfaceViewModel {
     kimiSessionsUnavailable?: boolean;
     claudeSessionsUnavailable?: boolean;
     activeAiSessions?: ActiveAiSessionViewModel[];
+    /** The Codex profile a picker-free quick-create would launch with, when any. */
+    quickCreateProfile?: string;
+    /** The provider quick-create remembers for this workspace, when any. */
+    quickCreateProvider?: AiSessionProviderId;
 }
 
 export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSessionSurfaceViewModel {
@@ -91,6 +95,12 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         kimiSessionsUnavailable: unavailable.has('kimi'),
         claudeSessionsUnavailable: unavailable.has('claude'),
         activeAiSessions: aiSessions.activeSessions.slice(),
+        ...(aiSessions.quickCreateProfile
+            ? { quickCreateProfile: aiSessions.quickCreateProfile }
+            : {}),
+        ...(aiSessions.quickCreateProvider
+            ? { quickCreateProvider: aiSessions.quickCreateProvider }
+            : {}),
     };
 }
 
@@ -104,13 +114,30 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var selectedTab: AiSessionTabId = project.activeAiSessionTab || (activeSessions.length ? 'active' : 'sessions');
     project = { ...project, activeAiSessionTab: selectedTab };
     var totalSessionCount = codexSessions.length + kimiSessions.length + claudeSessions.length;
+    var quickCreateProvider = isAiProvider(project.quickCreateProvider)
+        ? project.quickCreateProvider
+        : activeProvider;
+    var quickCreateProviderLabel = getAiProviderLabel(quickCreateProvider);
+    var quickCreateProfile = quickCreateProvider === 'codex' && project.quickCreateProfile
+        ? project.quickCreateProfile
+        : '';
+    var quickCreateActionLabel = quickCreateProfile
+        ? `New ${quickCreateProviderLabel} session with profile ${quickCreateProfile}`
+        : `New ${quickCreateProviderLabel} session`;
+    var quickCreateCaption = quickCreateProfile
+        ? `${quickCreateProviderLabel} · ${quickCreateProfile}`
+        : quickCreateProviderLabel;
 
     return `
 <div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
     <div class="ai-session-module-header">
         <span class="ai-session-module-title">AI SESSIONS</span>
         <span class="ai-session-create-actions">
-            <button type="button" class="ai-session-create-button" data-action="create-ai-session" aria-label="New AI Session" title="New AI Session"><span aria-hidden="true">+</span><span>NEW</span></button>
+            <span class="ai-session-create-split-button">
+                <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>
+                <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
+            </span>
+            <span class="ai-session-create-caption" aria-hidden="true">${escapeAttribute(quickCreateCaption)}</span>
         </span>
     </div>
     <div class="ai-session-tabs" role="tablist" aria-label="AI Session views">
@@ -519,6 +546,27 @@ function formatCodexSessionUpdatedAt(updatedAt: string): string {
     }
 
     return date.toISOString().substring(0, 10);
+}
+
+export function getAiSessionCreateDropdown() {
+    return `
+<div id="aiSessionCreateDropdown" class="custom-context-menu ai-session-create-dropdown-menu" role="menu" aria-label="Create AI session">
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-quick" data-provider="codex">
+        New Codex session
+    </div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-quick" data-provider="kimi">
+        New Kimi session
+    </div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-quick" data-provider="claude">
+        New Claude session
+    </div>
+
+    <div class="custom-context-menu-separator" role="separator"></div>
+
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session">
+        New session with options…
+    </div>
+</div>`;
 }
 
 export function getAiSessionContextMenu() {

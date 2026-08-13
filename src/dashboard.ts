@@ -43,6 +43,7 @@ import ProjectWindowColorService from './services/projectWindowColorService';
 import AiSessionAliasStore from './aiSessions/aliasStore';
 import AiSessionProfileStore from './aiSessions/sessionProfileStore';
 import AiSessionProfileController from './aiSessions/sessionProfileController';
+import { resolveDefaultCodexProfileDecision } from './aiSessions/sessionProfileController';
 import {
     CodexProfileSupportProbe,
     codexProfileFileExists,
@@ -1232,6 +1233,16 @@ async function initializeDashboard(
         getProfiles: () => aiSessionProfileController.getAll(),
         getPendingProfiles: () => aiSessionProfileController.getPendingAll(),
         getProfileAvailability: () => aiSessionProfileController.getAvailability(),
+        getQuickCreateProfile: () => {
+            const decision = resolveDefaultCodexProfileDecision({
+                getLastUsed: () => aiSessionProfileController.getLastUsed(),
+                getCodexDefaultProfile: () => readCodexDefaultProfile(vscode.workspace),
+                isCodexProfileFileAvailable: name => codexProfileFileExists(name),
+            });
+            return decision?.kind === 'profile' ? decision.name : undefined;
+        },
+        getQuickCreateProvider: scopeIdentity =>
+            aiSessionWorkspaceStateStore.getQuickCreateProviders()[scopeIdentity],
         getProviderSelection: scopeIdentity => {
             const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
             if (stored) {
@@ -1712,6 +1723,15 @@ async function initializeDashboard(
         },
         createAiSession: async e => {
             await aiSessionCreationController.createSession(e.projectId as string);
+        },
+        createAiSessionQuick: async e => {
+            const providerId = e.provider as AiSessionProviderId;
+            if (providerId && isAiSessionProviderId(providerId)) {
+                await aiSessionCreationController.createSessionQuick(
+                    e.projectId as string,
+                    providerId
+                );
+            }
         },
         resumeAiSession: async (e, providerId, rootId) => {
             await aiSessionResumeController.resumeProjectSession(

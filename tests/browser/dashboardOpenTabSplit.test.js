@@ -58,7 +58,7 @@ const openTabSplitScript = fs.readFileSync(
 const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
 const OPEN_TAB_PANE_MIN_PX = 72;
 // Mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in webviewOpenTabSplitScripts.js.
-const OPEN_TAB_PANE_MIN_EXPANDED_PX = 250;
+const OPEN_TAB_PANE_MIN_EXPANDED_PX = 263;
 
 let browser;
 

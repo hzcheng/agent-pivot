@@ -104,6 +104,48 @@ test('PERSIST-PIN-STORE-001 makes duplicate writes idempotent and never resurrec
     assert.deepEqual(Array.from(store.getAll()), ['codex:duplicate']);
 });
 
+test('PERSIST-PROJECT-STATE-STORE-001 AI-SESSION-QUICK-CREATE-001 quick-create provider memory stays independent of the list filter', async () => {
+    const state = makeState({
+        'workspaceActiveAiSessionProvider.v2': { 'scope-legacy': 'claude' },
+    });
+    const store = new AiSessionWorkspaceStateStore(
+        state.memento,
+        value => value === 'codex' || value === 'kimi' || value === 'claude'
+    );
+
+    // Migration: a scope without a quick-create memory falls back to the
+    // legacy active provider.
+    assert.deepEqual(store.getQuickCreateProviders(), { 'scope-legacy': 'claude' });
+
+    await store.setQuickCreateProvider('scope-a', 'kimi');
+    await store.setQuickCreateProvider('scope-bad', 'unknown');
+    assert.equal(store.getQuickCreateProviders()['scope-a'], 'kimi');
+    assert.equal(store.getQuickCreateProviders()['scope-bad'], undefined,
+        'invalid providers are ignored on write');
+    assert.deepEqual(state.values['workspaceQuickCreateAiSessionProvider.v1'], {
+        'scope-a': 'kimi',
+    });
+    assert.deepEqual(state.values['workspaceActiveAiSessionProvider.v2'], {
+        'scope-legacy': 'claude',
+    }, 'the quick-create write must not touch the legacy active-provider key');
+
+    // The reported repro: remember Kimi, then switch the list filter to
+    // Codex -- the quick-create memory must survive the filter change.
+    await store.setProviderSelection('scope-a', {
+        primaryProvider: 'codex',
+        selectedProviders: ['codex'],
+    });
+    assert.equal(store.getQuickCreateProviders()['scope-a'], 'kimi',
+        'list filter changes must not clobber the quick-create memory');
+    assert.equal(store.getActiveProviders()['scope-a'], 'codex',
+        'the legacy key keeps mirroring the selection primary');
+
+    // A later quick-create overrides only its own key.
+    await store.setQuickCreateProvider('scope-a', 'claude');
+    assert.equal(store.getQuickCreateProviders()['scope-a'], 'claude');
+    assert.equal(store.getActiveProviders()['scope-a'], 'codex');
+});
+
 test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores invalid writes', async () => {
     const state = makeState({
         'workspaceExpandedAiSessions.v2': ['scope-a', '', 7, 'scope-a', 'scope-b'],

@@ -5,6 +5,7 @@ import {
     WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY,
     WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY,
     WORKSPACE_EXPANDED_AI_SESSIONS_KEY,
+    WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY,
 } from '../constants';
 import { AI_SESSION_PROVIDER_IDS } from './providers';
 import { normalizeAiSessionProviderSelection } from './providerSelection';
@@ -46,19 +47,49 @@ export default class AiSessionWorkspaceStateStore {
         await this.state.update(WORKSPACE_EXPANDED_AI_SESSIONS_KEY, Array.from(expandedWorkspaces));
     }
 
-    getActiveProviders(): Record<string, AiSessionProviderId> {
-        const selectedProviders = this.state.get<unknown>(WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY);
-        if (!selectedProviders || typeof selectedProviders !== 'object' || Array.isArray(selectedProviders)) {
+    private readProviderMap(key: string): Record<string, AiSessionProviderId> {
+        const stored = this.state.get<unknown>(key);
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
             return {};
         }
 
-        return Object.keys(selectedProviders as Record<string, unknown>).reduce((result, workspaceScopeIdentity) => {
-            const providerId = (selectedProviders as Record<string, unknown>)[workspaceScopeIdentity];
+        return Object.keys(stored as Record<string, unknown>).reduce((result, workspaceScopeIdentity) => {
+            const providerId = (stored as Record<string, unknown>)[workspaceScopeIdentity];
             if (typeof providerId === 'string' && this.isProviderId(providerId)) {
                 result[workspaceScopeIdentity] = providerId;
             }
             return result;
         }, {} as Record<string, AiSessionProviderId>);
+    }
+
+    getActiveProviders(): Record<string, AiSessionProviderId> {
+        return this.readProviderMap(WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY);
+    }
+
+    /**
+     * The provider remembered for one-click quick-create, per workspace.
+     * Independent from the list-filter selection: scopes without a
+     * quick-create memory fall back to the legacy active provider so
+     * pre-migration installs keep their last choice.
+     */
+    getQuickCreateProviders(): Record<string, AiSessionProviderId> {
+        return {
+            ...this.getActiveProviders(),
+            ...this.readProviderMap(WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY),
+        };
+    }
+
+    async setQuickCreateProvider(
+        workspaceScopeIdentity: string,
+        providerId: AiSessionProviderId
+    ): Promise<void> {
+        if (!workspaceScopeIdentity || !this.isProviderId(providerId)) {
+            return;
+        }
+
+        const providers = this.readProviderMap(WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY);
+        providers[workspaceScopeIdentity] = providerId;
+        await this.state.update(WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY, providers);
     }
 
     getProviderSelections(): Record<string, AiSessionProviderSelection> {

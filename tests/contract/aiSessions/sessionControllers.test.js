@@ -252,6 +252,232 @@ test('SESSION-CODEX-PROFILE-PICK-001 failed creations do not record decisions or
     assert.deepEqual(remembered, [], 'non-started results never persist a profile decision');
 });
 
+function makeQuickCreateController(overrides = {}) {
+    const effects = [];
+    const requests = [];
+    const receivedLaunchOptions = [];
+    const pickers = [];
+    const rememberedProviders = [];
+    const rememberedProfiles = [];
+    const rememberedScopes = [];
+    const resolvedScopes = [];
+    const picker = name => () => {
+        pickers.push(name);
+        return Promise.resolve(undefined);
+    };
+    const controller = new AiSessionCreationController({
+        isProviderId: value => ['codex', 'kimi', 'claude'].includes(value),
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget() : null,
+        pickWorkspaceRoot: picker('pickWorkspaceRoot'),
+        pickProvider: picker('pickProvider'),
+        pickCodexProfile: picker('pickCodexProfile'),
+        getProviderLabel: () => 'Codex',
+        getLaunchOptions: () => ({ yolo: false }),
+        getProvider: () => ({
+            label: 'Codex',
+            terminalNamePrefix: 'Codex',
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, launchOptions) => {
+                receivedLaunchOptions.push(launchOptions);
+                return { executable: 'codex', args: ['--new'] };
+            },
+        }),
+        resolveWorkspaceDirectoryScope: (...args) => {
+            resolvedScopes.push(args);
+            return directoryScope;
+        },
+        rememberDirectoryScope: scope => { rememberedScopes.push(scope); },
+        rememberSessionProvider: (scope, providerId) => { rememberedProviders.push([scope, providerId]); },
+        rememberSessionProfile: (pendingId, decision) => { rememberedProfiles.push([pendingId, decision]); },
+        showInputBox: picker('showInputBox'),
+        showActiveTab: async () => undefined,
+        showWarningMessage: async message => effects.push(['warning', message]),
+        showErrorMessage: async message => effects.push(['error', message]),
+        refresh: () => effects.push(['refresh']),
+        getExistingSessionIdsForCwd: () => [],
+        getPendingMarkerPath: () => '/tmp/pending',
+        scheduleNewSessionRefresh: () => undefined,
+        nowMs: () => 1000,
+        createPendingId: () => 'pending-quick',
+        announceStatus: async () => undefined,
+        runtimeCoordinator: {
+            create: async request => {
+                requests.push(request);
+                request.createLaunchSpec();
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+        ...overrides,
+    });
+    return {
+        controller, effects, requests, receivedLaunchOptions, pickers,
+        rememberedProviders, rememberedProfiles, rememberedScopes, resolvedScopes,
+    };
+}
+
+test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the given provider, and persists the choice', async () => {
+    const fixture = makeQuickCreateController();
+
+    const created = await fixture.controller.createSessionQuick('p', 'kimi');
+
+    assert.equal(created, true);
+    assert.deepEqual(fixture.pickers, [], 'quick-create never prompts for root, provider, profile, or title');
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.requests[0].identity.provider, 'kimi');
+    assert.equal(fixture.requests[0].title, '', 'quick-create leaves the title to the session id');
+    assert.deepEqual(fixture.receivedLaunchOptions, [{ yolo: false }],
+        'no codex profile leaks into a non-codex launch');
+    assert.deepEqual(fixture.rememberedProviders, [['scope:fixture', 'kimi']],
+        'the started provider becomes the next quick-create default');
+    assert.deepEqual(fixture.rememberedScopes, [directoryScope]);
+    assert.deepEqual(fixture.rememberedProfiles, []);
+    assert.deepEqual(fixture.effects, [['refresh']]);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 rejects unknown workspaces and invalid providers without side effects', async () => {
+    const fixture = makeQuickCreateController();
+
+    assert.equal(await fixture.controller.createSessionQuick('missing', 'codex'), false);
+    assert.equal(await fixture.controller.createSessionQuick('p', 'vim'), false);
+    assert.deepEqual(fixture.pickers, []);
+    assert.equal(fixture.requests.length, 0);
+    assert.deepEqual(fixture.rememberedProviders, []);
+    assert.deepEqual(fixture.effects, []);
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true,
+        'rejections release the creating guard for later attempts');
+    assert.equal(fixture.requests.length, 1);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 a quick-create in flight rejects concurrent attempts and recovers afterwards', async () => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const fixture = makeQuickCreateController({
+        runtimeCoordinator: {
+            create: async () => {
+                await gate;
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    const first = fixture.controller.createSessionQuick('p', 'codex');
+    assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), false,
+        'a concurrent quick-create must not start a second runtime');
+    release();
+    assert.equal(await first, true);
+    assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true,
+        'the creating guard releases once the first attempt settles');
+});
+
+test('AI-SESSION-QUICK-CREATE-001 SESSION-CODEX-PROFILE-PICK-001 quick-create applies the default codex profile without prompting', async () => {
+    const defaultReads = [];
+    const fixture = makeQuickCreateController({
+        getDefaultCodexProfileDecision: () => {
+            defaultReads.push('read');
+            return { kind: 'profile', name: 'glm' };
+        },
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true);
+    assert.deepEqual(fixture.pickers, [], 'the codex profile picker stays closed for quick-create');
+    assert.deepEqual(defaultReads, ['read']);
+    assert.deepEqual(fixture.receivedLaunchOptions, [{ yolo: false, codexProfile: 'glm' }]);
+    assert.deepEqual(fixture.rememberedProfiles, [['pending-quick', { kind: 'profile', name: 'glm' }]],
+        'the effective default decision is persisted after start');
+
+    const explicit = makeQuickCreateController({
+        getDefaultCodexProfileDecision: () => { throw new Error('must not be consulted'); },
+    });
+    await explicit.controller.createSessionQuick('p', 'codex', { kind: 'base' });
+    assert.deepEqual(explicit.receivedLaunchOptions, [{ yolo: false }],
+        'an explicit decision wins over the remembered default');
+    assert.deepEqual(explicit.rememberedProfiles, [['pending-quick', { kind: 'base' }]]);
+
+    const kimi = makeQuickCreateController({
+        getDefaultCodexProfileDecision: () => { throw new Error('must not be consulted'); },
+    });
+    await kimi.controller.createSessionQuick('p', 'kimi');
+    assert.deepEqual(kimi.receivedLaunchOptions, [{ yolo: false }]);
+    assert.deepEqual(kimi.rememberedProfiles, []);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 awaits the provider memory write before revealing the session', async () => {
+    const order = [];
+    let releaseWrite;
+    const writeGate = new Promise(resolve => { releaseWrite = resolve; });
+    const fixture = makeQuickCreateController({
+        rememberSessionProvider: (scope, providerId) => {
+            order.push(['remember:start', scope, providerId]);
+            return writeGate.then(() => { order.push(['remember:write']); });
+        },
+        showActiveTab: async id => { order.push(['showActiveTab', id]); },
+        refresh: () => { order.push(['refresh']); },
+    });
+
+    const pending = fixture.controller.createSessionQuick('p', 'kimi');
+    for (let index = 0; index < 20 && order.length === 0; index += 1) {
+        await Promise.resolve();
+    }
+    assert.deepEqual(order, [['remember:start', 'scope:fixture', 'kimi']],
+        'the reveal and refresh must park behind a delayed memory write');
+
+    releaseWrite();
+    assert.equal(await pending, true);
+    assert.deepEqual(order, [
+        ['remember:start', 'scope:fixture', 'kimi'],
+        ['remember:write'],
+        ['showActiveTab', 'p'],
+        ['refresh'],
+    ], 'the refresh after a started quick-create reads the settled provider memory');
+});
+
+test('AI-SESSION-QUICK-CREATE-001 remembers the provider only after the runtime started', async () => {
+    for (const status of ['blocked', 'conflict', 'cancelled', 'settings']) {
+        const fixture = makeQuickCreateController({
+            runtimeCoordinator: {
+                create: async () => ({ status }),
+                getActive: () => [],
+                getPending: () => [],
+            },
+        });
+        assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true,
+            `${status} results still resolve true: the attempt surfaces its own UI feedback`);
+        assert.deepEqual(fixture.rememberedProviders, [],
+            `${status} must not persist the provider choice`);
+        assert.deepEqual(fixture.rememberedScopes, []);
+    }
+
+    const refused = makeQuickCreateController({ resolveWorkspaceDirectoryScope: () => null });
+    assert.equal(await refused.controller.createSessionQuick('p', 'codex'), true);
+    assert.deepEqual(refused.rememberedProviders, [],
+        'a refused directory scope must not persist the provider choice');
+});
+
+test('AI-SESSION-QUICK-CREATE-001 quick-create defers the multi-root choice to scope resolution without prompting', async () => {
+    const target = makeWorkspaceTarget();
+    target.workspace = {
+        ...workspace,
+        roots: [
+            { id: 'root-a', name: 'a', uri: 'file:///a', hostPath: '/a', ordinal: 0 },
+            { id: 'root-b', name: 'b', uri: 'file:///b', hostPath: '/b', ordinal: 1 },
+        ],
+    };
+    const fixture = makeQuickCreateController({
+        getWorkspaceTarget: id => id === 'p' ? target : null,
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true);
+    assert.deepEqual(fixture.pickers, [], 'the root picker stays closed for quick-create');
+    assert.equal(fixture.resolvedScopes.length, 1);
+    assert.equal(fixture.resolvedScopes[0][1], 'codex');
+    assert.equal(fixture.resolvedScopes[0][2], undefined,
+        'no explicit root: resolution falls back to the active editor or remembered primary root');
+});
+
 test('SESSION-CODEX-PROFILE-RESUME-001 resume reuses the recorded profile decision', async () => {
     const receivedLaunchOptions = [];
     const controller = new AiSessionResumeController({

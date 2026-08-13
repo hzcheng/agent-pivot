@@ -147,6 +147,53 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
     assert.equal(reads[1].maxFiles, 0);
 });
 
+test('AI-SESSION-QUICK-CREATE-001 hydration carries the quick-create profile into the view model', () => {
+    const makeController = (getQuickCreateProfile, getQuickCreateProvider) => new WorkspaceSessionHydrationController({
+        providers: [{ id: 'codex', label: 'Codex', terminalCwdFields: ['cwd'] }],
+        readCoordinator: {
+            getResults: () => ({
+                codex: { available: true, scannedFiles: 0, parsedFiles: 0, sessions: [] },
+            }),
+        },
+        incrementalScanMaxFiles: 10,
+        getRefreshReason: () => 'refresh',
+        getSessionComparableCwd: (_provider, value) => value.cwd,
+        getPinnedSessions: () => new Set(),
+        getAliases: () => ({}),
+        getQuickCreateProfile,
+        getQuickCreateProvider,
+        getProviderSelection: () => undefined,
+        getExpanded: () => true,
+        getProjectionSnapshot: () => ({
+            revision: 1,
+            activeRuntimes: [],
+            pendingRuntimes: [],
+            executionSnapshot: {},
+            focusedIdentity: null,
+            attentionAggregate: null,
+        }),
+    });
+
+    const withProfile = makeController(() => 'deepseek').hydrate(WORKSPACE);
+    assert.equal(withProfile.quickCreateProfile, 'deepseek',
+        'the webview snapshot must name the profile quick-create would launch with');
+
+    const withProvider = makeController(() => undefined, () => 'kimi').hydrate(WORKSPACE);
+    assert.equal(withProvider.quickCreateProvider, 'kimi',
+        'the webview snapshot must name the provider quick-create remembers');
+
+    const withoutEither = makeController(() => undefined, () => undefined).hydrate(WORKSPACE);
+    assert.equal('quickCreateProfile' in withoutEither, false,
+        'no quick-create profile keeps the field out of the view model');
+    assert.equal('quickCreateProvider' in withoutEither, false,
+        'no remembered provider keeps the field out of the view model');
+
+    const legacy = makeController(undefined).hydrate(WORKSPACE);
+    assert.equal('quickCreateProfile' in legacy, false,
+        'hosts without the wiring keep the field out of the view model');
+    assert.equal('quickCreateProvider' in legacy, false);
+});
+
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 hydration consumes the captured presentation without recomputing it', () => {
     const identity = {
         provider: 'codex',

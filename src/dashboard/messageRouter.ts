@@ -17,6 +17,7 @@ export interface DashboardMessageHandlers {
     handlers: Record<string, DashboardMessageHandler>;
     getAiSessionProviderIds?: () => readonly string[];
     createAiSession?: DashboardAiSessionCreateMessageHandler;
+    createAiSessionQuick?: DashboardAiSessionCreateMessageHandler;
     resumeAiSession?: DashboardAiSessionLaunchMessageHandler;
     archiveAiSession?: DashboardAiSessionMessageHandler;
     saveCurrentWorkspace?: DashboardMessageHandler;
@@ -35,6 +36,11 @@ export function createDashboardMessageRouter(handlers: DashboardMessageHandlers)
 
         if (messageType === 'create-ai-session' && handlers.createAiSession) {
             await handlers.createAiSession(message);
+            return;
+        }
+
+        if (messageType === 'create-ai-session-quick' && handlers.createAiSessionQuick) {
+            await handlers.createAiSessionQuick(message);
             return;
         }
 

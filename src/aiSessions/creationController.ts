@@ -63,6 +63,22 @@ export interface AiSessionCreationControllerCommonOptions {
      * the next picker default. Never called for cancelled/failed creations.
      */
     rememberSessionProfile?: (pendingId: string, decision: SessionProfileDecision) => void;
+    /**
+     * Called after any runtime successfully started so the provider choice
+     * can be remembered for the next quick-create. Never called for
+     * cancelled/failed creations. Awaited before the session reveal so the
+     * following refresh already sees the remembered provider.
+     */
+    rememberSessionProvider?: (
+        workspaceScopeIdentity: string,
+        providerId: AiSessionProviderId
+    ) => void | Thenable<void> | Promise<void>;
+    /**
+     * Returns the default Codex profile decision for quick-create when no
+     * explicit profile is provided. Returns undefined when there is no
+     * remembered profile or the provider is not Codex.
+     */
+    getDefaultCodexProfileDecision?: () => SessionProfileDecision | undefined;
     getProviderLabel: (providerId: AiSessionProviderId) => string;
     getLaunchOptions: () => AiSessionLaunchOptions;
     getProvider: (providerId: AiSessionProviderId) => AiSessionCreationProvider;
@@ -107,6 +123,9 @@ export class AiSessionCreationController {
         this.options = options;
     }
 
+    /**
+     * Full interactive flow: pick provider, (codex) pick profile, input title.
+     */
     async createSession(projectId: string): Promise<void> {
         if (this.creating) {
             return;
@@ -144,6 +163,52 @@ export class AiSessionCreationController {
                 fields.codexProfileDecision = codexProfileDecision;
             }
             await this.createProviderSession(providerId, target, fields, explicitRootId);
+        } finally {
+            this.creating = false;
+        }
+    }
+
+    /**
+     * Quick-create: skip all pickers and use the given provider/profile directly.
+     * Returns false only when the creation was never attempted: another
+     * creation is in flight, the workspace is unknown, or the provider id is
+     * invalid. Directory-scope and runtime failures surface their own UI
+     * feedback inside createProviderSession and still resolve to true.
+     */
+    async createSessionQuick(
+        projectId: string,
+        providerId: AiSessionProviderId,
+        codexProfileDecision?: SessionProfileDecision
+    ): Promise<boolean> {
+        if (this.creating) {
+            return false;
+        }
+        const workspace = this.options.getWorkspaceTarget(projectId);
+        const target: AiSessionCreationTarget | null = workspace
+            ? { id: workspace.cardId, name: workspace.workspace.displayName, workspace }
+            : null;
+        if (!target) {
+            return false;
+        }
+        if (!this.options.isProviderId(providerId)) {
+            return false;
+        }
+        this.creating = true;
+        try {
+            // Resolve default profile when none is explicitly provided
+            const effectiveProfile = codexProfileDecision
+                ?? (providerId === 'codex'
+                    ? this.options.getDefaultCodexProfileDecision?.()
+                    : undefined);
+            const fields: NewAiSessionFields = {
+                title: '',
+                codexProfileDecision: effectiveProfile,
+            };
+            // No explicit root: the directory-scope preflight resolves the
+            // multi-root choice from the active editor or the remembered
+            // primary root (see rememberDirectoryScope) without prompting.
+            await this.createProviderSession(providerId, target, fields);
+            return true;
         } finally {
             this.creating = false;
         }
@@ -282,6 +347,7 @@ export class AiSessionCreationController {
         }
         if (result.status === 'started') {
             await options.rememberDirectoryScope?.(directoryScope);
+            await options.rememberSessionProvider?.(directoryScope.workspaceScopeIdentity, providerId);
             if (providerId === 'codex' && fields.codexProfileDecision) {
                 options.rememberSessionProfile?.(pendingId, fields.codexProfileDecision);
             }

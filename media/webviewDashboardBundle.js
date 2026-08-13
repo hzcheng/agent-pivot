@@ -1123,7 +1123,7 @@ function initOpenTabSplit() {
     // and one session row stay reachable. Measured against the sidebar fit
     // layout (360px/240px widths) and mirrored as the min-height of the
     // expanded rules in media/styles.scss.
-    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 250;
+    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 263;
     var OPEN_TAB_KEY_STEP_PX = 24;
     var OPEN_TAB_STATE_KEY = 'openTab';
 
@@ -2047,6 +2047,9 @@ function initProjectContextMenus(options) {
         document.querySelectorAll(".custom-context-menu:not(.skill-folder-menu)").forEach(element =>
             element.classList.remove("visible")
         );
+        // The create-dropdown arrows mirror the shared menu's visibility.
+        document.querySelectorAll('[data-action="create-ai-session-dropdown"][aria-expanded="true"]')
+            .forEach(button => button.setAttribute("aria-expanded", "false"));
     }
 
     function getAiSessionContextMenuOrigin() {
@@ -2972,6 +2975,68 @@ function initProjectAiSessionControls(options) {
                 projectId,
             });
 
+            return true;
+        }
+
+        var quickCreateAction = target.closest('[data-action="create-ai-session-quick"]');
+        if (quickCreateAction) {
+            var provider = quickCreateAction.getAttribute('data-provider');
+            if (provider) {
+                window.vscode.postMessage({
+                    type: 'create-ai-session-quick',
+                    projectId,
+                    provider: provider,
+                });
+            }
+
+            return true;
+        }
+
+        var dropdownAction = target.closest('[data-action="create-ai-session-dropdown"]');
+        if (dropdownAction) {
+            var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
+            if (dropdownMenu) {
+                // Snapshot before closing: a second click on the arrow that
+                // opened the menu toggles it closed.
+                var wasOpenForProject = dropdownMenu.classList.contains('visible')
+                    && (dropdownMenu.getAttribute('data-dropdown-project-id') || '') === projectId;
+                // Close other menus first (this also resets every arrow's
+                // aria-expanded via closeContextMenus).
+                var contextMenus = window.__agentPivotContextMenus;
+                if (contextMenus && typeof contextMenus.closeContextMenus === 'function') {
+                    contextMenus.closeContextMenus();
+                }
+                if (wasOpenForProject) {
+                    return true;
+                }
+                // Store the projectId on the menu element for menu item handlers
+                dropdownMenu.setAttribute('data-dropdown-project-id', projectId);
+                dropdownMenu.__originButton = dropdownAction;
+                dropdownAction.setAttribute('aria-expanded', 'true');
+                // Position and show the dropdown below the button
+                var buttonRect = dropdownAction.getBoundingClientRect();
+                dropdownMenu.style.visibility = 'hidden';
+                dropdownMenu.style.left = '0px';
+                dropdownMenu.style.top = '0px';
+                dropdownMenu.classList.add('visible');
+                var menuRect = dropdownMenu.getBoundingClientRect();
+                var viewportPadding = 4;
+                var left = Math.max(viewportPadding, Math.min(
+                    buttonRect.left,
+                    window.innerWidth - menuRect.width - viewportPadding
+                ));
+                var top = buttonRect.bottom + 2;
+                if (top + menuRect.height > window.innerHeight - viewportPadding) {
+                    top = buttonRect.top - menuRect.height - 2;
+                }
+                dropdownMenu.style.left = left + 'px';
+                dropdownMenu.style.top = top + 'px';
+                dropdownMenu.style.visibility = 'visible';
+                var firstMenuItem = dropdownMenu.querySelector('[role="menuitem"]');
+                if (firstMenuItem) {
+                    firstMenuItem.focus();
+                }
+            }
             return true;
         }
 
@@ -3913,6 +3978,7 @@ function initProjects() {
         getAiSessionPresentationStateStore: () => aiSessionPresentationStateStore,
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
     });
+    window.__agentPivotContextMenus = null;
     var contextMenus = initProjectContextMenus({
         openProject: openProject,
         ProjectOpenType: ProjectOpenType,
@@ -3920,6 +3986,7 @@ function initProjects() {
         getArchiveAiSessionMessageType: aiSessionControls.getArchiveAiSessionMessageType,
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
+    window.__agentPivotContextMenus = contextMenus;
     aiSessionPresentationStateStore = initAiSessionPresentationStateStore({
         isAiSessionProvider: aiSessionControls.isAiSessionProvider,
     });
@@ -3969,6 +4036,30 @@ function initProjects() {
         );
     }
 
+    function activateAiSessionCreateDropdownItem(menuItem) {
+        var action = menuItem.getAttribute("data-action");
+        var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
+        var projectId = dropdownMenu
+            ? dropdownMenu.getAttribute('data-dropdown-project-id') || ''
+            : '';
+        if (action === "create-ai-session-quick") {
+            var provider = menuItem.getAttribute("data-provider");
+            if (provider) {
+                window.vscode.postMessage({
+                    type: "create-ai-session-quick",
+                    projectId: projectId,
+                    provider: provider,
+                });
+            }
+        } else if (action === "create-ai-session") {
+            window.vscode.postMessage({
+                type: "create-ai-session",
+                projectId: projectId,
+            });
+        }
+        contextMenus.closeContextMenus();
+    }
+
     function onMouseEvent(e) {
         if (!e.target || e.target.closest(".disabled"))
             return;
@@ -3987,13 +4078,23 @@ function initProjects() {
             return;
         }
 
+        contextMenuElement = e.target.closest("#aiSessionCreateDropdown [data-action]");
+        if (contextMenuElement) {
+            activateAiSessionCreateDropdownItem(contextMenuElement);
+            return;
+        }
+
         contextMenuElement = e.target.closest("#groupContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onGroupContextMenuActionClicked(contextMenuElement);
             return;
         }
 
-        contextMenus.closeContextMenus();
+        // The create-dropdown arrow owns its toggle: the generic close would
+        // hide the menu before the arrow handler can see it was open.
+        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')) {
+            contextMenus.closeContextMenus();
+        }
         if (!e.target.closest('.ai-session-provider-menu-wrapper')) {
             aiSessionControls.closeAiSessionProviderMenus();
         }
@@ -4321,6 +4422,40 @@ function initProjects() {
                 var menuOrigin = contextMenus.getAiSessionContextMenuOrigin();
                 contextMenus.closeContextMenus();
                 menuOrigin?.focus();
+                return;
+            }
+            if (e.key === 'Tab') {
+                contextMenus.closeContextMenus();
+            }
+        }
+
+        var aiSessionCreateItem = e.target && e.target.closest
+            ? e.target.closest('#aiSessionCreateDropdown [role="menuitem"]')
+            : null;
+        if (aiSessionCreateItem) {
+            var createMenu = aiSessionCreateItem.closest('#aiSessionCreateDropdown');
+            var createItems = Array.from(createMenu.querySelectorAll('[role="menuitem"]'));
+            var createIndex = createItems.indexOf(aiSessionCreateItem);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+                e.preventDefault();
+                var nextCreateIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? createItems.length - 1
+                        : (createIndex + (e.key === 'ArrowDown' ? 1 : -1) + createItems.length)
+                            % createItems.length;
+                createItems[nextCreateIndex]?.focus();
+                return;
+            }
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                activateAiSessionCreateDropdownItem(aiSessionCreateItem);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                var createOrigin = createMenu.__originButton || null;
+                createMenu.__originButton = null;
+                contextMenus.closeContextMenus();
+                createOrigin?.focus();
                 return;
             }
             if (e.key === 'Tab') {

@@ -290,6 +290,90 @@ test('SESSION-CODEX-PROFILE-RESUME-001 legacy and base records resolve without p
     }
 });
 
+test('AI-SESSION-QUICK-CREATE-001 SESSION-CODEX-PROFILE-PICK-001 quick-create default prefers an available last-used profile', () => {
+    const { controllerOptions } = createProfileFixture({
+        lastUsed: { kind: 'profile', name: 'glm' },
+        available: ['glm'],
+        defaultFromSetting: 'deepseek',
+    });
+
+    assert.deepEqual(
+        controllerOptions.creation.getDefaultCodexProfileDecision(),
+        { kind: 'profile', name: 'glm' },
+        'the last-used profile wins over the configured default'
+    );
+});
+
+test('AI-SESSION-QUICK-CREATE-001 SESSION-CODEX-PROFILE-PICK-001 quick-create default falls back when the last-used profile file is gone', () => {
+    const { controllerOptions } = createProfileFixture({
+        lastUsed: { kind: 'profile', name: 'deleted-profile' },
+        available: ['deepseek'],
+        defaultFromSetting: 'deepseek',
+    });
+    assert.deepEqual(
+        controllerOptions.creation.getDefaultCodexProfileDecision(),
+        { kind: 'profile', name: 'deepseek' },
+        'an unavailable last-used profile falls back to the configured default'
+    );
+
+    const missing = createProfileFixture({
+        lastUsed: { kind: 'profile', name: 'deleted-profile' },
+        available: [],
+    });
+    assert.equal(
+        missing.controllerOptions.creation.getDefaultCodexProfileDecision(),
+        undefined,
+        'no remembered or configured profile means a profile-less quick-create'
+    );
+});
+
+test('AI-SESSION-QUICK-CREATE-001 SESSION-CODEX-PROFILE-PICK-001 quick-create default keeps an explicit base decision', () => {
+    const { controllerOptions } = createProfileFixture({
+        lastUsed: { kind: 'base' },
+        available: ['deepseek'],
+        defaultFromSetting: 'deepseek',
+    });
+
+    assert.deepEqual(
+        controllerOptions.creation.getDefaultCodexProfileDecision(),
+        { kind: 'base' },
+        'an explicit base choice is never upgraded to a profile'
+    );
+});
+
+test('AI-SESSION-QUICK-CREATE-001 SESSION-CODEX-PROFILE-PICK-001 quick-create default resolves without a profile controller', () => {
+    const { controllerOptions } = createFixture({
+        compositionOptions: {
+            getCodexDefaultProfile: () => 'deepseek',
+            isCodexProfileFileAvailable: name => name === 'deepseek',
+        },
+    });
+    assert.deepEqual(
+        controllerOptions.creation.getDefaultCodexProfileDecision(),
+        { kind: 'profile', name: 'deepseek' },
+        'the configured default applies when no last-used decision exists'
+    );
+
+    const unavailable = createFixture({
+        compositionOptions: {
+            getCodexDefaultProfile: () => 'deleted-profile',
+            isCodexProfileFileAvailable: () => false,
+        },
+    });
+    assert.equal(
+        unavailable.controllerOptions.creation.getDefaultCodexProfileDecision(),
+        undefined,
+        'a configured default whose file is missing is not a candidate'
+    );
+
+    const bare = createFixture();
+    assert.equal(
+        bare.controllerOptions.creation.getDefaultCodexProfileDecision(),
+        undefined,
+        'without any profile state the quick-create default stays empty'
+    );
+});
+
 test('SESSION-CODEX-PROFILE-RESUME-001 unavailable profiles offer base, settings, or cancel', async () => {
     const scenarios = [
         { choice: 'Use Base Configuration', expected: { kind: 'base' }, opensSettings: false },

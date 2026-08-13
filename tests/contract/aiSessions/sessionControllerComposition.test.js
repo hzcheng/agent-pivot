@@ -64,6 +64,7 @@ function createFixture(overrides = {}) {
         aiSessionWorkspaceStateStore: {
             setExpanded: record('setExpanded'),
             setProviderSelection: record('setProviderSelection'),
+            setActiveProvider: record('setActiveProvider'),
         },
         aiSessionPinController: { toggle: record('pinToggle'), remove: record('pinRemove') },
         aiSessionAliasController: {
@@ -186,6 +187,30 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 delegates directory scopes to t
     assert.equal(logErrorCall[1], 'Could not save the AI session workspace root.');
     assert.ok(logErrorCall[2] instanceof Error && logErrorCall[2].message === 'disk full',
         'a failed scope memory logs instead of throwing');
+});
+
+test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 AI-SESSION-QUICK-CREATE-001 persists the started provider through the workspace state store', async () => {
+    const { controllerOptions, calls } = createFixture();
+
+    await controllerOptions.creation.rememberSessionProvider('scope-1', 'kimi');
+    assert.deepEqual(
+        calls.filter(call => call[0] === 'setActiveProvider'),
+        [['setActiveProvider', 'scope-1', 'kimi']],
+        'a started session remembers its provider as the next quick-create default'
+    );
+
+    const failing = createFixture({
+        compositionOptions: {
+            aiSessionWorkspaceStateStore: {
+                setActiveProvider: async () => { throw new Error('disk full'); },
+            },
+        },
+    });
+    await failing.controllerOptions.creation.rememberSessionProvider('scope-1', 'codex');
+    const logErrorCall = failing.calls.find(call => call[0] === 'logError');
+    assert.equal(logErrorCall[1], 'Failed to remember the AI session provider.');
+    assert.ok(logErrorCall[2] instanceof Error && logErrorCall[2].message === 'disk full',
+        'a failed provider memory logs instead of throwing');
 });
 
 test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 wires refresh cadence, markers, and status posts', async () => {

@@ -1,0 +1,230 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const Module = require('node:module');
+const path = require('node:path');
+const test = require('node:test');
+const { chromium } = require('playwright-chromium');
+const { createFakeVscode } = require('../helpers/fakeVscode');
+
+function loadWebviewModules() {
+    const vscode = createFakeVscode({});
+    vscode.Uri = {
+        file: value => ({ fsPath: value, path: value, toString: () => `file://${value}` }),
+    };
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return vscode;
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return {
+            ...require('../../out/webview/webviewContent'),
+            ...require('../../out/webview/webviewAiSessionContent'),
+        };
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
+const { getAiSessionsDiv, getAiSessionCreateDropdown } = loadWebviewModules();
+
+const viewStateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
+    'utf8'
+);
+const workspaceUpdateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewWorkspaceUpdateScripts.js'),
+    'utf8'
+);
+const todoGroupScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
+    'utf8'
+);
+const projectCollapseScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
+    'utf8'
+);
+const todoControlScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewTodoControlScripts.js'),
+    'utf8'
+);
+const projectContextMenuScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectContextMenuScripts.js'),
+    'utf8'
+);
+const projectAiUpdateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectAiUpdateScripts.js'),
+    'utf8'
+);
+const aiSessionControlsScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectAiSessionControlsScripts.js'),
+    'utf8'
+);
+const projectScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
+    'utf8'
+);
+const scrollStateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewScrollStateScripts.js'),
+    'utf8'
+);
+
+let browser;
+
+test.before(async () => {
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+});
+
+test.after(async () => {
+    await browser.close();
+});
+
+function getSessionSurface(id, activeProvider) {
+    return {
+        id,
+        activeAiSessionProvider: activeProvider,
+        selectedAiSessionProviders: [activeProvider],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [{ id: `${id}-codex`, name: 'Codex history', provider: 'codex' }],
+        kimiSessions: [{ id: `${id}-kimi`, name: 'Kimi history', provider: 'kimi' }],
+        claudeSessions: [{ id: `${id}-claude`, name: 'Claude history', provider: 'claude' }],
+        activeAiSessions: [],
+    };
+}
+
+async function openQuickCreatePage(t) {
+    const page = await browser.newPage({ viewport: { width: 360, height: 900 } });
+    t.after(() => page.close());
+    const firstPanel = getAiSessionsDiv(getSessionSurface('project-a', 'codex'));
+    const secondPanel = getAiSessionsDiv(getSessionSurface('project-b', 'kimi'));
+
+    await page.setContent(`<!doctype html>
+        <html>
+            <body class="steward-sidebar">
+                <div class="steward-sticky-header"></div>
+                <div class="sticky-groups-wrapper">
+                    <div class="open-current-workspace-group">
+                        <div class="project workspace-card" data-id="project-a" data-current-workspace
+                            data-workspace-scope-identity="scope-project-a"
+                            data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
+                    </div>
+                    <div class="project workspace-card" data-id="project-b"
+                        data-workspace-navigation-identity="navigation-project-b">${secondPanel}</div>
+                </div>
+                <button type="button" id="outside">Outside</button>
+                ${getAiSessionCreateDropdown()}
+            </body>
+        </html>`);
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+        window.vscode = {
+            getState: () => undefined,
+            setState: () => undefined,
+            postMessage: message => window.__postedMessages.push(message),
+        };
+    });
+    await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: viewStateScript });
+    await page.addScriptTag({ content: workspaceUpdateScript });
+    await page.addScriptTag({ content: todoGroupScript });
+    await page.addScriptTag({ content: projectCollapseScript });
+    await page.addScriptTag({ content: todoControlScript });
+    await page.addScriptTag({ content: projectContextMenuScript });
+    await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: aiSessionControlsScript });
+    await page.addScriptTag({ content: projectScript });
+    await page.evaluate(() => {
+        initProjects();
+        window.__postedMessages.length = 0;
+    });
+    return page;
+}
+
+function postedMessages(page) {
+    return page.evaluate(() => window.__postedMessages);
+}
+
+test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the card provider', async t => {
+    const page = await openQuickCreatePage(t);
+    const project = page.locator('.project[data-id="project-a"]');
+    const quickButton = project.locator('[data-action="create-ai-session-quick"]');
+
+    assert.equal(await quickButton.getAttribute('data-provider'), 'codex');
+    assert.equal(await quickButton.getAttribute('aria-label'), 'New Codex session');
+
+    await quickButton.click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-a',
+        provider: 'codex',
+    }]);
+
+    const kimiQuickButton = page.locator('.project[data-id="project-b"] [data-action="create-ai-session-quick"]');
+    assert.equal(await kimiQuickButton.getAttribute('aria-label'), 'New Kimi session');
+    await kimiQuickButton.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'create-ai-session-quick',
+        projectId: 'project-b',
+        provider: 'kimi',
+    });
+});
+
+test('AI-SESSION-QUICK-CREATE-001 the split button arrow opens the create dropdown without posting', async t => {
+    const page = await openQuickCreatePage(t);
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
+
+    await page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
+
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true);
+    assert.equal(await dropdown.getAttribute('data-dropdown-project-id'), 'project-a');
+    assert.deepEqual(await postedMessages(page), [], 'opening the menu must not create a session');
+    const box = await dropdown.boundingBox();
+    assert.ok(box && box.width > 0 && box.height > 0, 'the open dropdown is laid out');
+});
+
+test('AI-SESSION-QUICK-CREATE-001 dropdown provider items quick-create for the originating project', async t => {
+    const page = await openQuickCreatePage(t);
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+
+    await page.locator('.project[data-id="project-b"] [data-action="create-ai-session-dropdown"]').click();
+    await dropdown.locator('[data-action="create-ai-session-quick"][data-provider="claude"]').click();
+
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-b',
+        provider: 'claude',
+    }], 'the menu item targets the project whose arrow opened the menu, not its own provider');
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false,
+        'choosing an item closes the dropdown');
+});
+
+test('AI-SESSION-QUICK-CREATE-001 the dropdown keeps the full interactive creation entry', async t => {
+    const page = await openQuickCreatePage(t);
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+
+    await page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
+    await dropdown.locator('[data-action="create-ai-session"]').click();
+
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session',
+        projectId: 'project-a',
+    }]);
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without posting', async t => {
+    const page = await openQuickCreatePage(t);
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+
+    await page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true);
+
+    await page.locator('#outside').click();
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
+    assert.deepEqual(await postedMessages(page), []);
+});

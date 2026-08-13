@@ -667,6 +667,44 @@ function runWorkspaceCardRenderingChecks() {
         'the quick-create button announces the provider it will launch');
     assert.ok(multiHtml.includes('data-action="create-ai-session-dropdown"'),
         'the split button keeps a dropdown entry for other providers');
+    assert.ok(multiHtml.includes('class="ai-session-create-caption"'),
+        'the split button carries a hover caption identifying the quick-create target');
+    assert.ok(multiHtml.includes('aria-hidden="true">Codex</span>'),
+        'the caption names the active provider when no profile applies');
+
+    const captionSurface = {
+        id: 'project-caption',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [],
+        quickCreateProfile: 'deepseek',
+    };
+    const captionHtml = webviewAiSessionContent.getAiSessionsDiv(captionSurface);
+    assert.ok(captionHtml.includes('aria-label="New Codex session with profile deepseek"'),
+        'the quick button announces the effective profile');
+    assert.ok(captionHtml.includes('aria-hidden="true">Codex · deepseek</span>'),
+        'the caption shows the provider and profile');
+
+    const kimiCaptionHtml = webviewAiSessionContent.getAiSessionsDiv({
+        ...captionSurface,
+        activeAiSessionProvider: 'kimi',
+        quickCreateProfile: 'deepseek',
+    });
+    assert.ok(kimiCaptionHtml.includes('aria-hidden="true">Kimi</span>'),
+        'a non-codex provider never carries the codex profile');
+    assert.ok(kimiCaptionHtml.includes('aria-label="New Kimi session"'));
+
+    const escapingHtml = webviewAiSessionContent.getAiSessionsDiv({
+        ...captionSurface,
+        quickCreateProfile: 'x"<script>"',
+    });
+    assert.ok(!escapingHtml.includes('<script>'),
+        'the caption and labels escape profile text');
+    assert.ok(escapingHtml.includes('x&quot;&lt;script&gt;&quot;'));
     assert.strictEqual(multiHtml.includes('data-action="create-ai-session"'), false,
         'the header split button replaces the bare create action');
 

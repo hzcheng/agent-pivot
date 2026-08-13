@@ -113,6 +113,8 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getProfiles?: () => Readonly<Record<string, SessionProfileDecision>>;
     getPendingProfiles?: () => Readonly<Record<string, SessionProfileDecision>>;
     getProfileAvailability?: () => Readonly<Record<string, boolean>>;
+    /** The Codex profile a picker-free quick-create would launch with, when any. */
+    getQuickCreateProfile?: () => string | undefined;
     getProviderSelection: (
         workspaceScopeIdentity: string
     ) => AiSessionProviderSelection | undefined;
@@ -178,6 +180,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             profiles: this.options.getProfiles?.() || {},
             pendingProfiles: this.options.getPendingProfiles?.() || {},
             profileAvailability: this.options.getProfileAvailability?.() || {},
+            quickCreateProfile: this.options.getQuickCreateProfile?.(),
             activeRuntimes: projection.activeRuntimes,
             pendingRuntimes: projection.pendingRuntimes,
             executionSnapshot: projection.executionSnapshot,

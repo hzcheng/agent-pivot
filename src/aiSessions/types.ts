@@ -213,6 +213,8 @@ export interface WorkspaceAiSessionViewModel {
     activeSessions: ActiveAiSessionViewModel[];
     activeSessionCount: number;
     activeAttentionCount: number;
+    /** The Codex profile a picker-free quick-create would launch with, when any. */
+    quickCreateProfile?: string;
 }
 
 export interface WorkspaceAiSessionActionTarget {

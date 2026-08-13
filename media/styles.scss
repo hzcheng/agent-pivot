@@ -3228,6 +3228,38 @@ body.steward-sidebar {
             opacity: 0.8;
         }
 
+        .ai-session-create-caption {
+            position: absolute;
+            z-index: 30;
+            top: calc(100% + 4px);
+            right: 0;
+            max-width: 160px;
+            padding: 2px 6px;
+            overflow: hidden;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            color: var(--vscode-descriptionForeground);
+            background: var(--vscode-sideBar-background);
+            font-size: 8px;
+            font-weight: 700;
+            letter-spacing: .04em;
+            line-height: 1.4;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            opacity: 0;
+            transform: translateY(-2px);
+            pointer-events: none;
+            transition:
+                opacity $defaultTransition,
+                transform $defaultTransition;
+        }
+
+        .ai-session-create-actions:hover .ai-session-create-caption,
+        .ai-session-create-actions:focus-within .ai-session-create-caption {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
         .ai-session-tabs {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));

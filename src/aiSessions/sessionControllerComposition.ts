@@ -20,6 +20,7 @@ import { readAiSessionLaunchOptions } from './launchOptions';
 import { getAiSessionIdsForCwd } from './pendingTerminals';
 import type AiSessionPinController from './pinController';
 import type AiSessionProfileController from './sessionProfileController';
+import { resolveDefaultCodexProfileDecision } from './sessionProfileController';
 import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
 import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
 import type { AiSessionReadCoordinator } from './readCoordinator';
@@ -354,26 +355,11 @@ export function createSessionControllerComposition(
                 logError("Failed to remember the AI session provider.", error);
             }
         },
-        getDefaultCodexProfileDecision: () => {
-            const lastUsed = options.aiSessionProfileController?.getLastUsed();
-            if (lastUsed && lastUsed.kind === 'profile') {
-                const profileAvailable = options.isCodexProfileFileAvailable?.(lastUsed.name);
-                if (profileAvailable !== false) {
-                    return lastUsed;
-                }
-            }
-            if (lastUsed?.kind === 'base') {
-                return lastUsed;
-            }
-            const defaultFromSetting = options.getCodexDefaultProfile?.();
-            if (defaultFromSetting) {
-                const profileAvailable = options.isCodexProfileFileAvailable?.(defaultFromSetting);
-                if (profileAvailable !== false) {
-                    return { kind: 'profile', name: defaultFromSetting };
-                }
-            }
-            return undefined;
-        },
+        getDefaultCodexProfileDecision: () => resolveDefaultCodexProfileDecision({
+            getLastUsed: () => options.aiSessionProfileController?.getLastUsed() ?? null,
+            getCodexDefaultProfile: options.getCodexDefaultProfile,
+            isCodexProfileFileAvailable: options.isCodexProfileFileAvailable,
+        }),
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,

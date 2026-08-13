@@ -202,3 +202,34 @@ export default class AiSessionProfileController {
         return values;
     }
 }
+
+export interface DefaultCodexProfileDecisionSources {
+    getLastUsed?: () => SessionProfileDecision | null;
+    getCodexDefaultProfile?: () => string | undefined;
+    isCodexProfileFileAvailable?: (name: string) => boolean;
+}
+
+/**
+ * Resolves the Codex profile a picker-free creation should launch with:
+ * the last-used profile while its config file is available, an explicit
+ * base decision, then the configured default profile while available.
+ */
+export function resolveDefaultCodexProfileDecision(
+    sources: DefaultCodexProfileDecisionSources
+): SessionProfileDecision | undefined {
+    const lastUsed = sources.getLastUsed?.();
+    if (lastUsed && lastUsed.kind === 'profile') {
+        if (sources.isCodexProfileFileAvailable?.(lastUsed.name) !== false) {
+            return lastUsed;
+        }
+    }
+    if (lastUsed?.kind === 'base') {
+        return lastUsed;
+    }
+    const defaultFromSetting = sources.getCodexDefaultProfile?.();
+    if (defaultFromSetting
+        && sources.isCodexProfileFileAvailable?.(defaultFromSetting) !== false) {
+        return { kind: 'profile', name: defaultFromSetting };
+    }
+    return undefined;
+}

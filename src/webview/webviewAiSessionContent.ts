@@ -60,6 +60,8 @@ export interface AiSessionSurfaceViewModel {
     kimiSessionsUnavailable?: boolean;
     claudeSessionsUnavailable?: boolean;
     activeAiSessions?: ActiveAiSessionViewModel[];
+    /** The Codex profile a picker-free quick-create would launch with, when any. */
+    quickCreateProfile?: string;
 }
 
 export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSessionSurfaceViewModel {
@@ -91,6 +93,9 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         kimiSessionsUnavailable: unavailable.has('kimi'),
         claudeSessionsUnavailable: unavailable.has('claude'),
         activeAiSessions: aiSessions.activeSessions.slice(),
+        ...(aiSessions.quickCreateProfile
+            ? { quickCreateProfile: aiSessions.quickCreateProfile }
+            : {}),
     };
 }
 
@@ -104,6 +109,16 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var selectedTab: AiSessionTabId = project.activeAiSessionTab || (activeSessions.length ? 'active' : 'sessions');
     project = { ...project, activeAiSessionTab: selectedTab };
     var totalSessionCount = codexSessions.length + kimiSessions.length + claudeSessions.length;
+    var quickCreateProviderLabel = getAiProviderLabel(activeProvider);
+    var quickCreateProfile = activeProvider === 'codex' && project.quickCreateProfile
+        ? project.quickCreateProfile
+        : '';
+    var quickCreateActionLabel = quickCreateProfile
+        ? `New ${quickCreateProviderLabel} session with profile ${quickCreateProfile}`
+        : `New ${quickCreateProviderLabel} session`;
+    var quickCreateCaption = quickCreateProfile
+        ? `${quickCreateProviderLabel} · ${quickCreateProfile}`
+        : quickCreateProviderLabel;
 
     return `
 <div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
@@ -111,9 +126,10 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         <span class="ai-session-module-title">AI SESSIONS</span>
         <span class="ai-session-create-actions">
             <span class="ai-session-create-split-button">
-                <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(activeProvider)}" aria-label="New ${getAiProviderLabel(activeProvider)} session" title="New ${getAiProviderLabel(activeProvider)} session"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(activeProvider)}</span></button>
+                <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(activeProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(activeProvider)}</span></button>
                 <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
             </span>
+            <span class="ai-session-create-caption" aria-hidden="true">${escapeAttribute(quickCreateCaption)}</span>
         </span>
     </div>
     <div class="ai-session-tabs" role="tablist" aria-label="AI Session views">

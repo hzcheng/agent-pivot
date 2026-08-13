@@ -21,6 +21,8 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     activeProvider?: AiSessionProviderId;
     providerSelection?: AiSessionProviderSelection;
     expanded?: boolean;
+    /** The Codex profile a picker-free quick-create would launch with, when any. */
+    quickCreateProfile?: string;
 }
 
 export function buildWorkspaceAiSessionViewModel(
@@ -66,5 +68,6 @@ export function buildWorkspaceAiSessionViewModel(
         activeSessions,
         activeSessionCount: activeSessions.length,
         activeAttentionCount: activeSessions.filter(session => session.needsAttention).length,
+        ...(input.quickCreateProfile ? { quickCreateProfile: input.quickCreateProfile } : {}),
     };
 }

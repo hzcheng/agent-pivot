@@ -70,6 +70,14 @@ const scrollStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewScrollStateScripts.js'),
     'utf8'
 );
+const dashboardStyles = fs.readFileSync(
+    path.join(__dirname, '../../media/styles.css'),
+    'utf8'
+);
+// The full stylesheet gates card visibility behind the dashboard tab chrome;
+// the caption behavior is self-contained in its own compiled rules.
+const captionStyleRules = (dashboardStyles.match(/[^{}]*ai-session-create-caption[^{}]*\{[^}]*\}/g) || [])
+    .join('\n');
 
 let browser;
 
@@ -81,7 +89,7 @@ test.after(async () => {
     await browser.close();
 });
 
-function getSessionSurface(id, activeProvider) {
+function getSessionSurface(id, activeProvider, quickCreateProfile) {
     return {
         id,
         activeAiSessionProvider: activeProvider,
@@ -91,17 +99,19 @@ function getSessionSurface(id, activeProvider) {
         kimiSessions: [{ id: `${id}-kimi`, name: 'Kimi history', provider: 'kimi' }],
         claudeSessions: [{ id: `${id}-claude`, name: 'Claude history', provider: 'claude' }],
         activeAiSessions: [],
+        ...(quickCreateProfile ? { quickCreateProfile } : {}),
     };
 }
 
-async function openQuickCreatePage(t) {
+async function openQuickCreatePage(t, options = {}) {
     const page = await browser.newPage({ viewport: { width: 360, height: 900 } });
     t.after(() => page.close());
-    const firstPanel = getAiSessionsDiv(getSessionSurface('project-a', 'codex'));
+    const firstPanel = getAiSessionsDiv(getSessionSurface('project-a', 'codex', options.profile));
     const secondPanel = getAiSessionsDiv(getSessionSurface('project-b', 'kimi'));
 
     await page.setContent(`<!doctype html>
         <html>
+            <head>${options.withStyles ? `<style>${captionStyleRules}</style>` : ''}</head>
             <body class="steward-sidebar">
                 <div class="steward-sticky-header"></div>
                 <div class="sticky-groups-wrapper">
@@ -227,6 +237,44 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
     await page.locator('#outside').click();
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
     assert.deepEqual(await postedMessages(page), []);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 the hover caption identifies the quick-create provider and profile', async t => {
+    const page = await openQuickCreatePage(t, { profile: 'deepseek', withStyles: true });
+    const project = page.locator('.project[data-id="project-a"]');
+    const quickButton = project.locator('[data-action="create-ai-session-quick"]');
+    const caption = project.locator('.ai-session-create-caption');
+    const captionOpacity = () => caption.evaluate(
+        element => parseFloat(getComputedStyle(element).opacity)
+    );
+
+    assert.equal(await caption.textContent(), 'Codex · deepseek');
+    assert.equal(await caption.getAttribute('aria-hidden'), 'true');
+    assert.equal(await quickButton.getAttribute('aria-label'),
+        'New Codex session with profile deepseek');
+    assert.equal(await captionOpacity(), 0, 'the caption stays hidden until hover or focus');
+
+    await quickButton.hover();
+    await page.waitForFunction(
+        element => parseFloat(getComputedStyle(element).opacity) === 1,
+        await caption.elementHandle()
+    );
+
+    await page.mouse.move(10, 400);
+    await page.waitForFunction(
+        element => parseFloat(getComputedStyle(element).opacity) === 0,
+        await caption.elementHandle()
+    );
+
+    await quickButton.focus();
+    await page.waitForFunction(
+        element => parseFloat(getComputedStyle(element).opacity) === 1,
+        await caption.elementHandle()
+    );
+
+    const kimiCaption = page.locator('.project[data-id="project-b"] .ai-session-create-caption');
+    assert.equal(await kimiCaption.textContent(), 'Kimi',
+        'providers without a profile caption the provider name alone');
 });
 
 test('AI-SESSION-QUICK-CREATE-001 the arrow toggles the dropdown and mirrors aria-expanded', async t => {

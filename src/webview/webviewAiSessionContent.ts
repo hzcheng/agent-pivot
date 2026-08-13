@@ -62,6 +62,8 @@ export interface AiSessionSurfaceViewModel {
     activeAiSessions?: ActiveAiSessionViewModel[];
     /** The Codex profile a picker-free quick-create would launch with, when any. */
     quickCreateProfile?: string;
+    /** The provider quick-create remembers for this workspace, when any. */
+    quickCreateProvider?: AiSessionProviderId;
 }
 
 export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSessionSurfaceViewModel {
@@ -96,6 +98,9 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         ...(aiSessions.quickCreateProfile
             ? { quickCreateProfile: aiSessions.quickCreateProfile }
             : {}),
+        ...(aiSessions.quickCreateProvider
+            ? { quickCreateProvider: aiSessions.quickCreateProvider }
+            : {}),
     };
 }
 
@@ -109,8 +114,11 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var selectedTab: AiSessionTabId = project.activeAiSessionTab || (activeSessions.length ? 'active' : 'sessions');
     project = { ...project, activeAiSessionTab: selectedTab };
     var totalSessionCount = codexSessions.length + kimiSessions.length + claudeSessions.length;
-    var quickCreateProviderLabel = getAiProviderLabel(activeProvider);
-    var quickCreateProfile = activeProvider === 'codex' && project.quickCreateProfile
+    var quickCreateProvider = isAiProvider(project.quickCreateProvider)
+        ? project.quickCreateProvider
+        : activeProvider;
+    var quickCreateProviderLabel = getAiProviderLabel(quickCreateProvider);
+    var quickCreateProfile = quickCreateProvider === 'codex' && project.quickCreateProfile
         ? project.quickCreateProfile
         : '';
     var quickCreateActionLabel = quickCreateProfile
@@ -126,7 +134,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         <span class="ai-session-module-title">AI SESSIONS</span>
         <span class="ai-session-create-actions">
             <span class="ai-session-create-split-button">
-                <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(activeProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(activeProvider)}</span></button>
+                <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>
                 <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
             </span>
             <span class="ai-session-create-caption" aria-hidden="true">${escapeAttribute(quickCreateCaption)}</span>

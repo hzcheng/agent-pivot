@@ -6334,7 +6334,7 @@ function runBatchAiSessionWebviewChecks() {
     );
     const openTabSplitSource = fs.readFileSync(openTabSplitSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedOpenTabSplitPath, 'utf8'), openTabSplitSource);
-    assert.ok(openTabSplitSource.includes('OPEN_TAB_PANE_MIN_EXPANDED_PX = 250'),
+    assert.ok(openTabSplitSource.includes('OPEN_TAB_PANE_MIN_EXPANDED_PX = 263'),
         'the expanded CURRENT WINDOW pane needs a raised floor that keeps the AI session chrome reachable');
     assert.ok(openTabSplitSource.includes("classList.contains('current-card-expanded')"),
         'the pane floor must follow the rendered expanded class');

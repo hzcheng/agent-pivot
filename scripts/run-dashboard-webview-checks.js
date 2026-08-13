@@ -698,6 +698,19 @@ function runWorkspaceCardRenderingChecks() {
         'a non-codex provider never carries the codex profile');
     assert.ok(kimiCaptionHtml.includes('aria-label="New Kimi session"'));
 
+    const rememberedHtml = webviewAiSessionContent.getAiSessionsDiv({
+        ...captionSurface,
+        activeAiSessionProvider: 'codex',
+        quickCreateProvider: 'kimi',
+        quickCreateProfile: 'deepseek',
+    });
+    assert.ok(rememberedHtml.includes('data-action="create-ai-session-quick" data-provider="kimi"'),
+        'the quick button follows the remembered provider, not the list filter');
+    assert.ok(rememberedHtml.includes('aria-hidden="true">Kimi</span>'),
+        'the caption follows the remembered provider');
+    assert.ok(rememberedHtml.includes('data-active-ai-session-provider="codex"'),
+        'the session list filter keeps its own primary provider');
+
     const escapingHtml = webviewAiSessionContent.getAiSessionsDiv({
         ...captionSurface,
         quickCreateProfile: 'x"<script>"',
@@ -5134,7 +5147,7 @@ function runSourceContractChecks(source) {
         rule.selectors.includes(compiledFitGroupSelector)
         && rule.body.includes('height: 50%')
         && rule.body.includes('max-height: none')
-        && rule.body.includes('min-height: 250px')
+        && rule.body.includes('min-height: 263px')
     ), 'auto layout must pin the expanded CURRENT WINDOW group to half the pane');
     const compiledFitManualSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded';
@@ -5144,7 +5157,7 @@ function runSourceContractChecks(source) {
     );
     assert.ok(compiledFitManualRules.some(rule =>
         rule.selectors.includes(compiledFitManualSelector)
-        && rule.body.includes('min-height: 250px')
+        && rule.body.includes('min-height: 263px')
     ), 'a dragged share must respect the raised expanded pane floor');
     const compiledFitListSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list';

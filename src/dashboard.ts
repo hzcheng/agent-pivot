@@ -1241,6 +1241,8 @@ async function initializeDashboard(
             });
             return decision?.kind === 'profile' ? decision.name : undefined;
         },
+        getQuickCreateProvider: scopeIdentity =>
+            aiSessionWorkspaceStateStore.getActiveProviders()[scopeIdentity],
         getProviderSelection: scopeIdentity => {
             const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
             if (stored) {

@@ -76,7 +76,7 @@ const dashboardStyles = fs.readFileSync(
 );
 // The full stylesheet gates card visibility behind the dashboard tab chrome;
 // the caption behavior is self-contained in its own compiled rules.
-const captionStyleRules = (dashboardStyles.match(/[^{}]*ai-session-create-caption[^{}]*\{[^}]*\}/g) || [])
+const captionStyleRules = (dashboardStyles.match(/[^{}]*ai-session-create-[a-z]+[^{}]*\{[^}]*\}/g) || [])
     .join('\n');
 
 let browser;
@@ -89,7 +89,7 @@ test.after(async () => {
     await browser.close();
 });
 
-function getSessionSurface(id, activeProvider, quickCreateProfile) {
+function getSessionSurface(id, activeProvider, extras = {}) {
     return {
         id,
         activeAiSessionProvider: activeProvider,
@@ -99,14 +99,17 @@ function getSessionSurface(id, activeProvider, quickCreateProfile) {
         kimiSessions: [{ id: `${id}-kimi`, name: 'Kimi history', provider: 'kimi' }],
         claudeSessions: [{ id: `${id}-claude`, name: 'Claude history', provider: 'claude' }],
         activeAiSessions: [],
-        ...(quickCreateProfile ? { quickCreateProfile } : {}),
+        ...extras,
     };
 }
 
 async function openQuickCreatePage(t, options = {}) {
     const page = await browser.newPage({ viewport: { width: 360, height: 900 } });
     t.after(() => page.close());
-    const firstPanel = getAiSessionsDiv(getSessionSurface('project-a', 'codex', options.profile));
+    const firstPanel = getAiSessionsDiv(getSessionSurface('project-a', 'codex', {
+        ...(options.profile ? { quickCreateProfile: options.profile } : {}),
+        ...(options.provider ? { quickCreateProvider: options.provider } : {}),
+    }));
     const secondPanel = getAiSessionsDiv(getSessionSurface('project-b', 'kimi'));
 
     await page.setContent(`<!doctype html>
@@ -239,42 +242,46 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
     assert.deepEqual(await postedMessages(page), []);
 });
 
-test('AI-SESSION-QUICK-CREATE-001 the hover caption identifies the quick-create provider and profile', async t => {
+test('AI-SESSION-QUICK-CREATE-001 the caption identifies the quick-create provider and profile at rest', async t => {
     const page = await openQuickCreatePage(t, { profile: 'deepseek', withStyles: true });
     const project = page.locator('.project[data-id="project-a"]');
     const quickButton = project.locator('[data-action="create-ai-session-quick"]');
     const caption = project.locator('.ai-session-create-caption');
-    const captionOpacity = () => caption.evaluate(
-        element => parseFloat(getComputedStyle(element).opacity)
-    );
 
     assert.equal(await caption.textContent(), 'Codex · deepseek');
     assert.equal(await caption.getAttribute('aria-hidden'), 'true');
     assert.equal(await quickButton.getAttribute('aria-label'),
         'New Codex session with profile deepseek');
-    assert.equal(await captionOpacity(), 0, 'the caption stays hidden until hover or focus');
-
-    await quickButton.hover();
-    await page.waitForFunction(
-        element => parseFloat(getComputedStyle(element).opacity) === 1,
-        await caption.elementHandle()
-    );
-
-    await page.mouse.move(10, 400);
-    await page.waitForFunction(
-        element => parseFloat(getComputedStyle(element).opacity) === 0,
-        await caption.elementHandle()
-    );
-
-    await quickButton.focus();
-    await page.waitForFunction(
-        element => parseFloat(getComputedStyle(element).opacity) === 1,
-        await caption.elementHandle()
-    );
+    assert.ok((await caption.boundingBox()).height > 0,
+        'the caption is visible without any hover or focus');
 
     const kimiCaption = page.locator('.project[data-id="project-b"] .ai-session-create-caption');
     assert.equal(await kimiCaption.textContent(), 'Kimi',
         'providers without a profile caption the provider name alone');
+});
+
+test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provider, not the list filter', async t => {
+    const page = await openQuickCreatePage(t, { provider: 'kimi', withStyles: true });
+    const project = page.locator('.project[data-id="project-a"]');
+    const quickButton = project.locator('[data-action="create-ai-session-quick"]');
+
+    assert.equal(await quickButton.getAttribute('data-provider'), 'kimi',
+        'a stored codex-heavy list filter must not pin the quick-create button');
+    assert.equal(await quickButton.getAttribute('aria-label'), 'New Kimi session');
+    assert.equal(await project.locator('.ai-session-create-caption').textContent(), 'Kimi');
+    assert.equal(
+        await page.locator('.project[data-id="project-a"] [data-ai-session-region]')
+            .getAttribute('data-active-ai-session-provider'),
+        'codex',
+        'the session list filter keeps its own primary provider'
+    );
+
+    await quickButton.click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-a',
+        provider: 'kimi',
+    }], 'quick-create launches the remembered provider');
 });
 
 test('AI-SESSION-QUICK-CREATE-001 the arrow toggles the dropdown and mirrors aria-expanded', async t => {

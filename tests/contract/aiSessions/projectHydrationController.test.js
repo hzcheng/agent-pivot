@@ -148,7 +148,7 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
 });
 
 test('AI-SESSION-QUICK-CREATE-001 hydration carries the quick-create profile into the view model', () => {
-    const makeController = getQuickCreateProfile => new WorkspaceSessionHydrationController({
+    const makeController = (getQuickCreateProfile, getQuickCreateProvider) => new WorkspaceSessionHydrationController({
         providers: [{ id: 'codex', label: 'Codex', terminalCwdFields: ['cwd'] }],
         readCoordinator: {
             getResults: () => ({
@@ -161,6 +161,7 @@ test('AI-SESSION-QUICK-CREATE-001 hydration carries the quick-create profile int
         getPinnedSessions: () => new Set(),
         getAliases: () => ({}),
         getQuickCreateProfile,
+        getQuickCreateProvider,
         getProviderSelection: () => undefined,
         getExpanded: () => true,
         getProjectionSnapshot: () => ({
@@ -177,13 +178,20 @@ test('AI-SESSION-QUICK-CREATE-001 hydration carries the quick-create profile int
     assert.equal(withProfile.quickCreateProfile, 'deepseek',
         'the webview snapshot must name the profile quick-create would launch with');
 
-    const withoutProfile = makeController(() => undefined).hydrate(WORKSPACE);
-    assert.equal('quickCreateProfile' in withoutProfile, false,
+    const withProvider = makeController(() => undefined, () => 'kimi').hydrate(WORKSPACE);
+    assert.equal(withProvider.quickCreateProvider, 'kimi',
+        'the webview snapshot must name the provider quick-create remembers');
+
+    const withoutEither = makeController(() => undefined, () => undefined).hydrate(WORKSPACE);
+    assert.equal('quickCreateProfile' in withoutEither, false,
         'no quick-create profile keeps the field out of the view model');
+    assert.equal('quickCreateProvider' in withoutEither, false,
+        'no remembered provider keeps the field out of the view model');
 
     const legacy = makeController(undefined).hydrate(WORKSPACE);
     assert.equal('quickCreateProfile' in legacy, false,
         'hosts without the wiring keep the field out of the view model');
+    assert.equal('quickCreateProvider' in legacy, false);
 });
 
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 hydration consumes the captured presentation without recomputing it', () => {

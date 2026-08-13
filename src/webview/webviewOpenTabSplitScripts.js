@@ -16,7 +16,7 @@ function initOpenTabSplit() {
     // and one session row stay reachable. Measured against the sidebar fit
     // layout (360px/240px widths) and mirrored as the min-height of the
     // expanded rules in media/styles.scss.
-    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 250;
+    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 263;
     var OPEN_TAB_KEY_STEP_PX = 24;
     var OPEN_TAB_STATE_KEY = 'openTab';
 

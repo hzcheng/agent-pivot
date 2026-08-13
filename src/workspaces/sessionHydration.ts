@@ -31,7 +31,7 @@ import {
     buildWorkspaceSessionAttentionIndex,
     getWorkspaceSessionAttention,
 } from './sessionAttention';
-import type { WorktreeSnapshot } from '../worktrees/types';
+import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import { buildWorkspaceAiSessionViewModel } from './viewModels';
 import {
     assignPathToWorkspaceWorktree,
@@ -44,6 +44,7 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     workspace: OpenWorkspace;
     /** Coherent discovery input reserved for worktree-aware projection. */
     worktreeSnapshot?: WorktreeSnapshot | null;
+    provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
     providers: readonly HydrationProvider[];
     sessionResults: Record<AiSessionProviderId, AiSessionReadResult>;
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;
@@ -196,6 +197,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         quickCreateProfile: input.quickCreateProfile,
         quickCreateProvider: input.quickCreateProvider,
         worktreeSnapshot: input.worktreeSnapshot,
+        provisioningWorktrees: input.provisioningWorktrees,
     });
 }
 

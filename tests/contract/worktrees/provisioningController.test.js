@@ -171,3 +171,63 @@ test('WORKTREE-PROVISIONING-STATE-001 rejects duplicate, concurrent retry, and l
     await pending;
     assert.equal(current.controller.cancel('operation-guard'), false);
 });
+
+test('WORKTREE-PROVISIONING-STATE-001 cancellation publishes one non-cancellable authoritative row', async () => {
+    let releaseCreate;
+    const gate = new Promise(resolve => { releaseCreate = resolve; });
+    const current = fixture({
+        createWorktree: async () => {
+            current.calls.push('worktree');
+            await gate;
+            return key;
+        },
+    });
+    const pending = current.controller.start('operation-cancel-once', plan);
+    for (let index = 0; index < 10 && !current.calls.length; index += 1) await Promise.resolve();
+    assert.equal(current.controller.cancel('operation-cancel-once'), true);
+    assert.equal(current.controller.cancel('operation-cancel-once'), false);
+    assert.equal(current.controller.getRows()[0].cancellable, false);
+    releaseCreate();
+    await pending;
+});
+
+test('WORKTREE-PROVISIONING-STATE-001 a pre-create retry may atomically replace its collided plan', async () => {
+    let attempts = 0;
+    const current = fixture({
+        createWorktree: async selectedPlan => {
+            current.calls.push(selectedPlan.slug);
+            attempts += 1;
+            if (attempts === 1) {
+                throw Object.assign(new Error('collision'), { code: 'branch-conflict' });
+            }
+            return { ...key, canonicalWorktreePath: selectedPlan.worktreePath };
+        },
+    });
+    await current.controller.start('operation-replan', plan);
+    const replacement = {
+        ...plan,
+        slug: 'fix-login-race-2',
+        branchName: 'agent-pivot/fix-login-race-2',
+        worktreePath: `${plan.worktreePath}-2`,
+    };
+    const outcome = await current.controller.retry('operation-replan', replacement);
+    assert.equal(outcome.kind, 'succeeded');
+    assert.deepEqual(current.calls.slice(0, 2), ['fix-login-race', 'fix-login-race-2']);
+});
+
+test('WORKTREE-PROVISIONING-STATE-001 preserves an explicitly non-retryable failure', async () => {
+    const current = fixture({
+        createWorktree: async () => {
+            throw Object.assign(new Error('invalid plan'), {
+                code: 'invalid-plan',
+                retryable: false,
+            });
+        },
+    });
+
+    const outcome = await current.controller.start('operation-invalid', plan);
+    assert.equal(outcome.errorCode, 'invalid-plan');
+    assert.equal(current.controller.getRows()[0].retryable, false);
+    assert.equal((await current.controller.retry('operation-invalid')).errorCode,
+        'retry-unavailable');
+});

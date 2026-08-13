@@ -366,6 +366,38 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 quick-create carries an explicit worktr
     assert.equal(fixture.requests.length, 1);
 });
 
+test('WORKTREE-ISOLATED-SESSION-001 WORKTREE-PROVISIONING-STATE-001 isolated creation uses the task title and reports actual runtime start', async () => {
+    const key = {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    };
+    const fixture = makeQuickCreateController({
+        selectCreationScopeTarget: async (_workspace, explicitKey) => ({
+            kind: 'worktree', key: explicitKey,
+        }),
+    });
+
+    assert.equal(await fixture.controller.createSessionInWorktree(
+        'p', 'codex', ' Fix login race ', key), true);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.requests[0].title, 'Fix login race');
+    assert.deepEqual(fixture.requests[0].identity.worktreeKey, directoryScope.worktreeKey);
+
+    const blocked = makeQuickCreateController({
+        selectCreationScopeTarget: async (_workspace, explicitKey) => ({
+            kind: 'worktree', key: explicitKey,
+        }),
+        runtimeCoordinator: {
+            create: async () => ({ status: 'blocked' }),
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+    assert.equal(await blocked.controller.createSessionInWorktree(
+        'p', 'kimi', 'Task', key), false,
+    'provisioning must not settle as success for a non-started runtime result');
+});
+
 test('WORKTREE-SESSION-CREATE-TARGET-001 cancellation stops quick-create before scope or runtime work', async () => {
     const fixture = makeQuickCreateController({
         selectCreationScopeTarget: async () => null,

@@ -155,3 +155,30 @@ test('WORKTREE-PRESENTATION-001 defensively snapshots nested worktree identities
     assert.equal(viewModel.worktrees.length, 3,
         'a last-good snapshot from removed workspace roots must not leak stale repositories');
 });
+
+test('WORKTREE-PROVISIONING-STATE-001 WORKTREE-PROVISIONING-UI-001 projects only workspace-owned provisioning rows defensively', () => {
+    const provisioning = [{
+        kind: 'provisioning', operationId: 'operation-1', repositoryKey: '/repo/.git',
+        taskName: 'Fix login race', proposedPath: '/repo/.agent-pivot/worktrees/fix-login-race',
+        stage: 'creating', completedSteps: [], retryable: false, cancellable: true,
+    }, {
+        kind: 'provisioning', operationId: 'operation-foreign', repositoryKey: '/foreign/.git',
+        taskName: 'Foreign', stage: 'queued', completedSteps: [],
+        retryable: false, cancellable: true,
+    }];
+    const viewModel = buildWorkspaceAiSessionViewModel({
+        workspace: WORKSPACE,
+        providers: [{ id: 'codex', label: 'Codex' }],
+        sessionsByProvider: { codex: [] }, unavailableProviders: [],
+        activeSessions: [], attentionCount: 0,
+        worktreeSnapshot: SNAPSHOT,
+        provisioningWorktrees: provisioning,
+    });
+
+    provisioning[0].completedSteps.push('mutated');
+    assert.equal(viewModel.worktrees[0].kind, 'provisioning');
+    assert.equal(viewModel.worktrees[0].operationId, 'operation-1');
+    assert.deepEqual(viewModel.worktrees[0].completedSteps, []);
+    assert.equal(viewModel.worktrees.some(row => row.kind === 'provisioning'
+        && row.operationId === 'operation-foreign'), false);
+});

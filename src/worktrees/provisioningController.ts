@@ -16,17 +16,20 @@ export type WorktreeProvisioningOutcome =
 export interface WorktreeProvisioningControllerOptions {
     createWorktree: (
         plan: WorktreeProvisioningPlan,
-        isCancelled: () => boolean
+        isCancelled: () => boolean,
+        operationId: string
     ) => Promise<WorktreeKey>;
     runSetup: (
         plan: WorktreeProvisioningPlan,
         worktreeKey: WorktreeKey,
-        isCancelled: () => boolean
+        isCancelled: () => boolean,
+        operationId: string
     ) => Promise<void>;
     startAgent: (
         plan: WorktreeProvisioningPlan,
         worktreeKey: WorktreeKey,
-        isCancelled: () => boolean
+        isCancelled: () => boolean,
+        operationId: string
     ) => Promise<void>;
     publish: (revision: number, rows: readonly ProvisioningWorktreeRow[]) => void;
     onSettled?: (outcome: WorktreeProvisioningOutcome) => void;
@@ -68,11 +71,18 @@ export class WorktreeProvisioningController {
         return Promise.resolve().then(() => this.run(operation));
     }
 
-    retry(operationId: string): Promise<WorktreeProvisioningOutcome> {
+    retry(
+        operationId: string,
+        replacementPlan?: WorktreeProvisioningPlan
+    ): Promise<WorktreeProvisioningOutcome> {
         const operation = this.operations.get(operationId);
         if (!operation || operation.running || operation.row.stage !== 'failed'
-            || !operation.row.retryable) {
+            || !operation.row.retryable
+            || (replacementPlan && operation.completedSteps.includes('worktree'))) {
             return Promise.resolve({ kind: 'failed', operationId, errorCode: 'retry-unavailable' });
+        }
+        if (replacementPlan) {
+            operation.plan = clonePlan(replacementPlan);
         }
         operation.cancelled = false;
         operation.row = createRow(operation.operationId, operation.plan, operation.completedSteps);
@@ -86,6 +96,8 @@ export class WorktreeProvisioningController {
             return false;
         }
         operation.cancelled = true;
+        operation.row = { ...operation.row, cancellable: false };
+        this.publish();
         return true;
     }
 
@@ -113,7 +125,8 @@ export class WorktreeProvisioningController {
                 this.setStage(operation, 'creating', true);
                 operation.worktreeKey = await this.options.createWorktree(
                     operation.plan,
-                    () => operation.cancelled
+                    () => operation.cancelled,
+                    operation.operationId
                 );
                 operation.completedSteps.push('worktree');
                 if (operation.cancelled) {
@@ -125,7 +138,8 @@ export class WorktreeProvisioningController {
                 await this.options.runSetup(
                     operation.plan,
                     operation.worktreeKey!,
-                    () => operation.cancelled
+                    () => operation.cancelled,
+                    operation.operationId
                 );
                 operation.completedSteps.push('setup');
                 if (operation.cancelled) {
@@ -137,7 +151,8 @@ export class WorktreeProvisioningController {
                 await this.options.startAgent(
                     operation.plan,
                     operation.worktreeKey!,
-                    () => operation.cancelled
+                    () => operation.cancelled,
+                    operation.operationId
                 );
                 operation.completedSteps.push('agent');
             }
@@ -153,9 +168,10 @@ export class WorktreeProvisioningController {
             return outcome;
         } catch (error) {
             const errorCode = getErrorCode(error);
+            const retryable = getRetryable(error);
             return operation.completedSteps.includes('worktree')
-                ? this.partial(operation, errorCode, attempt)
-                : this.fail(operation, errorCode, attempt);
+                ? this.partial(operation, errorCode, attempt, retryable)
+                : this.fail(operation, errorCode, attempt, retryable);
         } finally {
             operation.running = false;
         }
@@ -164,7 +180,8 @@ export class WorktreeProvisioningController {
     private partial(
         operation: ProvisioningOperation,
         errorCode: string,
-        attempt: number
+        attempt: number,
+        retryable = true
     ): WorktreeProvisioningOutcome {
         const outcome: WorktreeProvisioningOutcome = {
             kind: 'partial',
@@ -173,7 +190,7 @@ export class WorktreeProvisioningController {
             errorCode,
             completedSteps: operation.completedSteps.slice(),
         };
-        this.setFailed(operation, errorCode, attempt, true);
+        this.setFailed(operation, errorCode, attempt, retryable);
         this.options.onSettled?.(outcome);
         return outcome;
     }
@@ -181,7 +198,8 @@ export class WorktreeProvisioningController {
     private fail(
         operation: ProvisioningOperation,
         errorCode: string,
-        attempt: number
+        attempt: number,
+        retryable = true
     ): WorktreeProvisioningOutcome {
         const outcome: WorktreeProvisioningOutcome = {
             kind: 'failed', operationId: operation.operationId, errorCode,
@@ -191,7 +209,7 @@ export class WorktreeProvisioningController {
             this.operations.delete(operation.operationId);
             this.publish();
         } else {
-            this.setFailed(operation, errorCode, attempt, true);
+            this.setFailed(operation, errorCode, attempt, retryable);
         }
         this.options.onSettled?.(outcome);
         return outcome;
@@ -273,4 +291,9 @@ function getErrorCode(error: unknown): string {
         return (error as { code: string }).code;
     }
     return 'unexpected-error';
+}
+
+function getRetryable(error: unknown): boolean {
+    return !(error && typeof error === 'object'
+        && (error as { retryable?: unknown }).retryable === false);
 }

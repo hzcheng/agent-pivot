@@ -11,7 +11,7 @@ import type {
     WorkspaceAiSessionViewModel,
 } from '../aiSessions/types';
 import type { OpenWorkspace } from './types';
-import type { WorktreeSnapshot } from '../worktrees/types';
+import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import { worktreeKeysEqual } from '../worktrees/types';
 
 export interface BuildWorkspaceAiSessionViewModelInput {
@@ -29,6 +29,7 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
     worktreeSnapshot?: WorktreeSnapshot | null;
+    provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
 }
 
 export function buildWorkspaceAiSessionViewModel(
@@ -54,6 +55,7 @@ export function buildWorkspaceAiSessionViewModel(
         input.worktreeSnapshot,
         allSessions,
         activeSessions,
+        input.provisioningWorktrees,
     );
     const selection = normalizeAiSessionProviderSelection({
         registeredProviders: input.providers.map(provider => provider.id),
@@ -121,6 +123,7 @@ function buildWorktreeRows(
     snapshot: WorktreeSnapshot | null | undefined,
     sessions: readonly AiSessionViewModel[],
     activeSessions: readonly ActiveAiSessionViewModel[],
+    provisioningWorktrees: readonly ProvisioningWorktreeRow[] = [],
 ): WorktreeRowViewModel[] {
     if (!snapshot) {
         return [];
@@ -162,6 +165,16 @@ function buildWorktreeRows(
                     liveOwnerAvailable,
                 },
             });
+        }));
+    const repositoryKeys = new Set(snapshot.repositories
+        .filter(repository => repository.rootBindings.some(binding =>
+            workspaceRootIds.has(binding.workspaceRootId)))
+        .map(repository => repository.repositoryKey));
+    provisioningWorktrees
+        .filter(row => repositoryKeys.has(row.repositoryKey))
+        .forEach(row => rows.unshift({
+            ...row,
+            completedSteps: row.completedSteps.slice(),
         }));
     return rows;
 }

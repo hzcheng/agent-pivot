@@ -2052,7 +2052,7 @@ body .project {
     // content-sized pane. In auto layout the pane pins to the same half share
     // the 50% cap implies; a dragged share keeps priority because this auto
     // rule excludes the manual layout via :not(.open-tab-split-manual).
-    // The 263px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
+    // The 283px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
     // webviewOpenTabSplitScripts.js: below it the fixed AI-session chrome
     // (module header with the quick-create caption, tabs, provider controls)
     // would clip away and the session list would starve to zero height.
@@ -2061,11 +2061,11 @@ body .project {
             flex: 0 0 auto;
             height: 50%;
             max-height: none;
-            min-height: 263px;
+            min-height: 283px;
         }
 
         .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded {
-            min-height: 263px;
+            min-height: 283px;
         }
 
         // In both layouts the expanded card fills the group list (keeping the
@@ -3090,6 +3090,31 @@ body.steward-sidebar {
             flex: 0 0 auto;
         }
 
+        .ai-session-create-isolated-button {
+            min-height: 24px;
+            padding: 3px 9px;
+            border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+            border-radius: 5px;
+            color: var(--vscode-button-foreground);
+            background: var(--vscode-button-background);
+            font: 600 9px/1.2 var(--vscode-font-family);
+            cursor: pointer;
+
+            &:hover:not(:disabled) {
+                background: var(--vscode-button-hoverBackground);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            &:disabled {
+                opacity: .55;
+                cursor: progress;
+            }
+        }
+
         .ai-session-module-title {
             min-width: 0;
             overflow: hidden;
@@ -3321,6 +3346,65 @@ body.steward-sidebar {
         .ai-session-worktree-session-list,
         .ai-session-worktree-toolbar {
             min-width: 0;
+        }
+
+        .ai-session-provisioning-row {
+            display: grid;
+            grid-template-columns: 14px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+            padding: 7px;
+            border: 1px solid var(--vscode-focusBorder);
+            border-radius: 7px;
+            background: var(--vscode-sideBar-background);
+
+            &[data-provisioning-stage="failed"] {
+                border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+            }
+        }
+
+        .ai-session-provisioning-spinner {
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--vscode-panel-border);
+            border-top-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+            border-radius: 50%;
+            animation: steward-session-icon-spin 1s linear infinite;
+        }
+
+        .ai-session-provisioning-copy {
+            display: grid;
+            min-width: 0;
+            gap: 2px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+
+            strong {
+                overflow: hidden;
+                color: var(--vscode-foreground);
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+        }
+
+        .ai-session-provisioning-error {
+            color: var(--vscode-errorForeground);
+        }
+
+        .ai-session-provisioning-actions {
+            display: inline-flex;
+            gap: 4px;
+
+            button {
+                padding: 2px 6px;
+                border: 1px solid var(--vscode-button-secondaryBackground, var(--vscode-panel-border));
+                border-radius: 4px;
+                color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                background: var(--vscode-button-secondaryBackground, transparent);
+                font: inherit;
+                cursor: pointer;
+            }
         }
 
         .ai-session-worktree-group {

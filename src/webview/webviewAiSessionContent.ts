@@ -13,7 +13,7 @@ import type {
     ReadyWorktreeRow,
     WorktreeRowViewModel,
 } from '../aiSessions/types';
-import type { WorktreeKey } from '../worktrees/types';
+import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees/types';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { escapeAttribute } from './webviewHtmlEscape';
 import {
@@ -142,6 +142,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         ? `${quickCreateProviderLabel} · ${quickCreateProfile}`
         : quickCreateProviderLabel;
     var readyWorktrees = getReadyWorktrees(project.worktrees);
+    var provisioningWorktrees = getProvisioningWorktrees(project.worktrees);
     var defaultGrouping = readyWorktrees.length > 1 ? 'worktree' : 'flat';
     var groupingControl = readyWorktrees.length > 1
         ? `<label class="ai-session-grouping-control">Group by:<select data-ai-session-grouping-select aria-label="Group AI sessions by"><option value="flat">Flat</option><option value="worktree" selected>Worktree</option></select></label>`
@@ -162,6 +163,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     <div class="ai-session-module-header">
         <span class="ai-session-module-title">AI SESSIONS</span>
         <span class="ai-session-create-actions">
+            <button type="button" class="ai-session-create-isolated-button" data-action="create-isolated-session"${provisioningWorktrees.some(row => row.stage !== 'failed') ? ' disabled' : ''}>New Isolated Session</button>
             <span class="ai-session-create-split-button">
                 <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>
                 <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
@@ -258,6 +260,7 @@ function getAiSessionHistoryPanel(
         claude: claudeSessions.map(session => ({ ...session, provider: 'claude' })),
     });
     var worktrees = getReadyWorktrees(project.worktrees);
+    var provisioningWorktrees = getProvisioningWorktrees(project.worktrees);
     var worktreeLabels = getWorktreeLabels(worktrees);
     var flatSessions = [...projection.pinned, ...projection.unpinned];
     var historyEntries = flatSessions.map((session, index) => ({
@@ -285,13 +288,15 @@ function getAiSessionHistoryPanel(
     var pinnedHeading = projection.pinned.length
         ? '<div class="ai-session-pinned-heading ai-session-flat-only" style="order: 0">PINNED</div>'
         : '';
-    var sessionRows = worktrees.length
+    var provisioningRows = provisioningWorktrees.map(getProvisioningWorktreeHtml).join('\n');
+    var historyRows = worktrees.length
         ? `${pinnedHeading}${getWorktreeGroupsHtml(
             worktrees, historyEntries, 'sessions', quickCreateProvider, quickCreateProfile
         )}`
         : historyEntries.length
             ? `${pinnedHeading}${historyEntries.map(entry => entry.html).join('\n')}`
             : '<div class="codex-sessions-empty"><span>No selected AI sessions yet</span></div>';
+    var sessionRows = `${provisioningRows}${historyRows}`;
     var truncatedNotice = (project.truncatedWorktreeCount || 0) > 0
         ? `<div class="ai-session-worktree-truncated" role="status">${project.truncatedWorktreeCount} more worktrees not shown</div>`
         : '';
@@ -322,6 +327,45 @@ function getAiSessionHistoryPanel(
         </div>
     </div>
 </div>`;
+}
+
+function getProvisioningWorktrees(
+    worktrees: readonly WorktreeRowViewModel[] | undefined
+): ProvisioningWorktreeRow[] {
+    return (worktrees || []).filter(
+        (row): row is ProvisioningWorktreeRow => row.kind === 'provisioning'
+    );
+}
+
+function getProvisioningWorktreeHtml(row: ProvisioningWorktreeRow): string {
+    const stageLabel: Record<ProvisioningWorktreeRow['stage'], string> = {
+        queued: 'Queued',
+        creating: 'Creating worktree',
+        'setting-up': 'Setting up environment',
+        'starting-agent': 'Starting agent',
+        failed: 'Needs attention',
+    };
+    const error = row.errorCode
+        ? `<span class="ai-session-provisioning-error">${escapeAttribute(row.errorCode)}</span>`
+        : '';
+    const retry = row.retryable
+        ? `<button type="button" data-action="retry-isolated-session" data-operation-id="${escapeAttribute(row.operationId)}">Retry</button>`
+        : '';
+    const cancel = row.cancellable
+        ? `<button type="button" data-action="cancel-isolated-session" data-operation-id="${escapeAttribute(row.operationId)}">Cancel</button>`
+        : '';
+    const progress = row.stage === 'failed'
+        ? ''
+        : '<span class="ai-session-provisioning-spinner" aria-hidden="true"></span>';
+    return `<section class="ai-session-provisioning-row" data-provisioning-operation-id="${escapeAttribute(row.operationId)}" data-provisioning-stage="${escapeAttribute(row.stage)}" role="status">
+        ${progress}
+        <span class="ai-session-provisioning-copy">
+            <strong>${escapeAttribute(row.taskName)}</strong>
+            <span>${escapeAttribute(stageLabel[row.stage])}</span>
+            ${error}
+        </span>
+        <span class="ai-session-provisioning-actions">${retry}${cancel}</span>
+    </section>`;
 }
 
 function getAiProviderSelectionSummary(

@@ -805,6 +805,36 @@ test('WORKTREE-GROUPING-UI-001 keeps Flat as the default without multiple ready 
     assert.doesNotMatch(html, /data-ai-session-grouping-select/);
 });
 
+test('WORKTREE-PROVISIONING-UI-001 renders authoritative progress, retry, and cancel controls', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'provisioning-worktrees',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktrees: [{
+            kind: 'provisioning', operationId: 'operation-active', repositoryKey: '/repo/.git',
+            taskName: 'Fix <login>', proposedPath: '/repo/.agent-pivot/worktrees/fix-login',
+            stage: 'creating', completedSteps: [], retryable: false, cancellable: true,
+        }, {
+            kind: 'provisioning', operationId: 'operation-failed', repositoryKey: '/repo/.git',
+            taskName: 'Repair setup', proposedPath: '/repo/.agent-pivot/worktrees/repair-setup',
+            stage: 'failed', completedSteps: ['worktree'], retryable: true,
+            cancellable: false, errorCode: 'setup-failed',
+        }],
+        worktreeSnapshotRevision: 1,
+        worktreeRepositoryCount: 1,
+    });
+
+    assert.match(html, /data-action="create-isolated-session" disabled/);
+    assert.match(html, /data-provisioning-operation-id="operation-active"/);
+    assert.match(html, /Creating worktree/);
+    assert.match(html, /Fix &lt;login&gt;/);
+    assert.match(html, /data-action="cancel-isolated-session" data-operation-id="operation-active"/);
+    assert.match(html, /data-action="retry-isolated-session" data-operation-id="operation-failed"/);
+    assert.match(html, /setup-failed/);
+});
+
 test('WORKTREE-GROUPING-UI-001 renders distinct no-repository and bare-repository empty states', () => {
     const base = {
         activeAiSessionProvider: 'codex',

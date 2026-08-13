@@ -191,6 +191,49 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the 
     });
 });
 
+test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a terminal settlement', async t => {
+    const page = await openQuickCreatePage(t);
+    const project = page.locator('.project[data-id="project-a"]');
+    const button = project.locator('[data-action="create-isolated-session"]');
+
+    await button.click();
+    const request = (await postedMessages(page))[0];
+    assert.deepEqual(request, {
+        type: 'start-isolated-session', version: 1,
+        requestId: 'isolated-1', projectId: 'project-a',
+    });
+    assert.equal(await button.isDisabled(), true);
+
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'isolated-session-settlement', version: 1,
+            requestId, operationId: requestId, status: 'accepted',
+        } }));
+    }, request.requestId);
+    assert.equal(await button.isDisabled(), true, 'accepted is progress, not success');
+
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'isolated-session-settlement', version: 1,
+            requestId, operationId: 'another-operation', status: 'rejected',
+            errorCode: 'workspace-untrusted',
+        } }));
+    }, request.requestId);
+    assert.equal(await button.isDisabled(), true,
+        'a settlement for another operation cannot unlock this request');
+
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'isolated-session-settlement', version: 1,
+            requestId, operationId: requestId, status: 'rejected',
+            errorCode: 'workspace-untrusted',
+        } }));
+    }, request.requestId);
+    assert.equal(await button.isDisabled(), false);
+    assert.match(await project.locator('[data-ai-session-live-region]').textContent(),
+        /workspace-untrusted/);
+});
+
 test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact target and remembered provider', async t => {
     const key = {
         repositoryKey: '/repo/.git',

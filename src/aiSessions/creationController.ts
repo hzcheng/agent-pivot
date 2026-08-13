@@ -254,6 +254,56 @@ export class AiSessionCreationController {
         }
     }
 
+    /**
+     * Picker-free creation for a Host-provisioned worktree. Unlike the legacy
+     * quick-create boolean, this reports true only after the runtime starts so
+     * a provisioning operation can settle or retry authoritatively.
+     */
+    async createSessionInWorktree(
+        projectId: string,
+        providerId: AiSessionProviderId,
+        title: string,
+        worktreeKey: WorktreeKey,
+        codexProfileDecision?: SessionProfileDecision
+    ): Promise<boolean> {
+        if (this.creating || !this.options.isProviderId(providerId)) {
+            return false;
+        }
+        const workspace = this.options.getWorkspaceTarget(projectId);
+        const target: AiSessionCreationTarget | null = workspace
+            ? { id: workspace.cardId, name: workspace.workspace.displayName, workspace }
+            : null;
+        if (!target) {
+            return false;
+        }
+        this.creating = true;
+        try {
+            const scopeTarget = await this.selectCreationScopeTarget(
+                target.workspace.workspace,
+                worktreeKey
+            );
+            if (!scopeTarget || scopeTarget.kind !== 'worktree') {
+                return false;
+            }
+            const effectiveProfile = codexProfileDecision
+                ?? (providerId === 'codex'
+                    ? this.options.getDefaultCodexProfileDecision?.()
+                    : undefined);
+            return await this.createProviderSession(
+                providerId,
+                target,
+                {
+                    title: sanitizeAiSessionAlias(title),
+                    codexProfileDecision: effectiveProfile,
+                },
+                undefined,
+                scopeTarget.key
+            );
+        } finally {
+            this.creating = false;
+        }
+    }
+
     private async queryCodexProfileDecision(
         providerId: AiSessionProviderId
     ): Promise<SessionProfileDecision | undefined> {
@@ -291,14 +341,15 @@ export class AiSessionCreationController {
         fields: NewAiSessionFields,
         explicitRootId?: string,
         worktreeKey?: WorktreeKey
-    ): Promise<void> {
+    ): Promise<boolean> {
         const directoryScope = await this.options.resolveWorkspaceDirectoryScope(
             target.workspace, providerId, explicitRootId, worktreeKey
         );
         if (!directoryScope) {
-            return;
+            return false;
         }
-        await this.createRuntimeSession(providerId, target, fields, directoryScope, this.options);
+        return await this.createRuntimeSession(
+            providerId, target, fields, directoryScope, this.options);
     }
 
     private async createRuntimeSession(
@@ -307,7 +358,7 @@ export class AiSessionCreationController {
         fields: NewAiSessionFields,
         directoryScope: AiSessionDirectoryScope,
         options: AiSessionCreationRuntimeControllerOptions
-    ): Promise<void> {
+    ): Promise<boolean> {
         const coordinator = options.runtimeCoordinator;
         const sessionProvider = options.getProvider(providerId);
         if (!sessionProvider.buildNewSessionLaunchSpec) {
@@ -374,15 +425,15 @@ export class AiSessionCreationController {
                 await options.showWarningMessage('Could not start the AI session runtime.');
             }
             options.refresh();
-            return;
+            return false;
         }
         if (result.status === 'cancelled' || result.status === 'settings') {
-            return;
+            return false;
         }
         if (result.status === 'conflict') {
             options.refresh();
             await options.announceStatus(target.id, 'Multiple live runtimes match this AI session.');
-            return;
+            return false;
         }
         if (result.status === 'blocked') {
             options.refresh();
@@ -390,7 +441,7 @@ export class AiSessionCreationController {
                 target.id,
                 'Runtime creation is still awaiting lifecycle acknowledgement.'
             );
-            return;
+            return false;
         }
         if (result.status === 'started') {
             await options.rememberDirectoryScope?.(directoryScope);
@@ -402,6 +453,7 @@ export class AiSessionCreationController {
         await options.showActiveTab(target.id);
         options.refresh();
         options.scheduleNewSessionRefresh(providerId);
+        return result.status === 'started';
     }
 
     private async selectCreationScopeTarget(

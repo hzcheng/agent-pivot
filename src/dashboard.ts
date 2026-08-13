@@ -248,6 +248,13 @@ import {
 import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
 import { worktreeKeysEqual } from './worktrees/types';
 import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
+import { IsolatedSessionController } from './worktrees/isolatedSessionController';
+import {
+    acceptedIsolatedSessionSettlement,
+    cancelledMutationSettlement,
+    parseIsolatedSessionRequest,
+    settledIsolatedSessionSettlement,
+} from './worktrees/provisioningProtocol';
 
 const NEW_AI_SESSION_REFRESH_DELAYS_MS = [250, 1000, 2500, 5000];
 const AI_SESSION_REFRESH_DEBOUNCE_MS = 3000;
@@ -1304,6 +1311,7 @@ async function initializeDashboard(
             scheduleRefresh: () => refreshAiSessionViewsIncrementally(),
             logDiagnostic: logAiSessionDiagnostic,
         });
+    let isolatedSessionController: IsolatedSessionController | undefined;
     const workspaceSessionHydrationController = new WorkspaceSessionHydrationController<vscode.Terminal>({
         providers: aiSessionProviders,
         readCoordinator: aiSessionReadCoordinator,
@@ -1338,6 +1346,7 @@ async function initializeDashboard(
         },
         getExpanded: scopeIdentity => aiSessionWorkspaceStateStore.getExpandedWorkspaces().has(scopeIdentity),
         getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),
+        getProvisioningWorktrees: () => isolatedSessionController?.getRows() || [],
         onDidReadSessions: (workspace, sessionResults, reason) => {
             void workspacePendingSessionPromotionController.promote(
                 workspace,
@@ -1407,6 +1416,23 @@ async function initializeDashboard(
         writeClipboard: value => vscode.env.clipboard.writeText(value),
         focusTerminalView: () => vscode.commands.executeCommand('workbench.action.terminal.focus'),
         nowMs: () => Date.now(),
+    });
+    isolatedSessionController = new IsolatedSessionController({
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        getActiveEditorPath: () => vscode.window.activeTextEditor?.document.uri.fsPath,
+        isProviderId: isAiSessionProviderId,
+        isWorkspaceTrusted: () => (
+            vscode.workspace as typeof vscode.workspace & { isTrusted?: boolean }
+        ).isTrusted !== false,
+        showInputBox: options => vscode.window.showInputBox(options),
+        showQuickPick: (items, quickPickOptions) =>
+            vscode.window.showQuickPick(items, quickPickOptions),
+        refreshWorktreeSnapshot: () => worktreeSnapshotCoordinator.refresh('provisioning'),
+        createSessionInWorktree: (projectId, providerId, title, worktreeKey, profile) =>
+            aiSessionCreationController.createSessionInWorktree(
+                projectId, providerId, title, worktreeKey, profile),
+        publishRows: () => refreshAiSessionViewsIncrementally(),
     });
     let currentAiSessionRefreshReason = 'refresh';
     const notifyConfiguration = ownResource(() => createNotifyConfiguration({
@@ -1820,6 +1846,38 @@ async function initializeDashboard(
         showSponsorOptions,
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
+    const isolatedSessionHandlers = {
+        'start-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'start-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const outcome = await isolatedSessionController!.start(
+                request.requestId, request.projectId);
+            await provider.postMessage(settledIsolatedSessionSettlement(request, outcome));
+        },
+        'retry-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'retry-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const outcome = await isolatedSessionController!.retry(
+                request.operationId, request.projectId);
+            await provider.postMessage(settledIsolatedSessionSettlement(request, outcome));
+        },
+        'cancel-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'cancel-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const accepted = isolatedSessionController!.cancel(
+                request.operationId, request.projectId);
+            await provider.postMessage(cancelledMutationSettlement(request, accepted));
+        },
+    };
 
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
@@ -1830,6 +1888,7 @@ async function initializeDashboard(
             ...projectHandlers,
             ...skillPanel.handlers,
             ...dashboardMessageHandlers,
+            ...isolatedSessionHandlers,
         },
         createAiSession: async e => {
             const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')

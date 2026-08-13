@@ -57,6 +57,12 @@ function surface() {
         claudeSessions: [],
         activeAiSessions: [],
         worktrees: [
+            {
+                kind: 'provisioning', operationId: 'operation-1', repositoryKey: '/repo/.git',
+                taskName: 'Prepare frontend authentication environment',
+                proposedPath: '/repo/.agent-pivot/worktrees/prepare-frontend-authentication',
+                stage: 'creating', completedSteps: [], retryable: false, cancellable: true,
+            },
             worktree(frontendKey, 'refs/heads/frontend/feature-authentication-with-a-long-name', 'attention'),
             worktree(backendKey, 'refs/heads/backend', 'idle'),
         ],
@@ -100,7 +106,7 @@ async function openSurfacePage(width) {
     return page;
 }
 
-test('WORKTREE-GROUPING-UI-001 stays usable at the 170px minimum sidebar width', async t => {
+test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 stays usable at the 170px minimum sidebar width', async t => {
     const page = await openSurfacePage(170);
     t.after(() => page.close());
 
@@ -108,6 +114,8 @@ test('WORKTREE-GROUPING-UI-001 stays usable at the 170px minimum sidebar width',
     assert.equal(await page.locator('.codex-session-row[data-session-id="frontend-session"]').count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
     assert.equal(await page.locator('.ai-session-worktree-quick-create').count(), 2);
+    assert.equal(await page.locator('.ai-session-provisioning-row').count(), 1);
+    assert.equal(await page.locator('[data-action="cancel-isolated-session"]').isVisible(), true);
     assert.equal(
         await page.locator('.ai-session-worktree-quick-create').first().getAttribute('aria-label'),
         'New Codex session in frontend/feature-authentication-with-a-long-name'

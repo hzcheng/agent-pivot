@@ -15,6 +15,8 @@ function initProjectAiSessionControls(options) {
     var nextAiSessionBatchArchiveRequestId = 0;
     var nextAiSessionProviderSelectionRequestId = 0;
     var nextAiSessionAttentionAcknowledgementRequestId = 0;
+    var nextIsolatedSessionRequestId = 0;
+    var pendingIsolatedSessionRequests = new Map();
     var pendingAiSessionAttentionAcknowledgements = new Map();
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
@@ -160,6 +162,33 @@ function initProjectAiSessionControls(options) {
 
     function onTriggerAiSessionAction(target, projectId) {
         var projectDiv = target.closest('.project[data-id]');
+        var isolatedCreateAction = target.closest('[data-action="create-isolated-session"]');
+        if (isolatedCreateAction) {
+            submitIsolatedSessionRequest(
+                'start-isolated-session', projectId, null, isolatedCreateAction
+            );
+            return true;
+        }
+        var isolatedRetryAction = target.closest(
+            '[data-action="retry-isolated-session"][data-operation-id]'
+        );
+        if (isolatedRetryAction) {
+            submitIsolatedSessionRequest(
+                'retry-isolated-session', projectId,
+                isolatedRetryAction.getAttribute('data-operation-id'), isolatedRetryAction
+            );
+            return true;
+        }
+        var isolatedCancelAction = target.closest(
+            '[data-action="cancel-isolated-session"][data-operation-id]'
+        );
+        if (isolatedCancelAction) {
+            submitIsolatedSessionRequest(
+                'cancel-isolated-session', projectId,
+                isolatedCancelAction.getAttribute('data-operation-id'), isolatedCancelAction
+            );
+            return true;
+        }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
         if (worktreeToggle) {
             setAiSessionWorktreeGroupExpanded(
@@ -416,6 +445,69 @@ function initProjectAiSessionControls(options) {
         }
         if (activation.message) {
             window.vscode.postMessage(activation.message);
+        }
+        return true;
+    }
+
+    function submitIsolatedSessionRequest(type, projectId, operationId, button) {
+        if (!projectId || !button || button.disabled)
+            return;
+        nextIsolatedSessionRequestId = nextIsolatedSessionRequestId >= Number.MAX_SAFE_INTEGER
+            ? 1 : nextIsolatedSessionRequestId + 1;
+        var requestId = 'isolated-' + nextIsolatedSessionRequestId.toString(36);
+        var message = {
+            type: type,
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+        };
+        if (operationId) message.operationId = operationId;
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        pendingIsolatedSessionRequests.set(requestId, {
+            button: button,
+            projectId: projectId,
+            requestType: type,
+            operationId: operationId || requestId,
+        });
+        window.vscode.postMessage(message);
+    }
+
+    function applyIsolatedSessionSettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'operationId', 'requestId', 'status', 'type', 'version']
+            : ['operationId', 'requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'isolated-session-settlement'
+            || message.version !== 1
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || Object.keys(message).length !== expectedKeys.length
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.operationId !== 'string' || !message.operationId
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))
+            || !['accepted', 'cancelled', 'rejected', 'succeeded', 'partial', 'failed']
+                .includes(message.status)) {
+            return false;
+        }
+        var pending = pendingIsolatedSessionRequests.get(message.requestId);
+        if (!pending) return true;
+        if (pending.operationId !== message.operationId) return true;
+        if (message.status === 'accepted') return true;
+        pendingIsolatedSessionRequests.delete(message.requestId);
+        if (pending.button && pending.button.isConnected) {
+            pending.button.disabled = false;
+            pending.button.removeAttribute('aria-disabled');
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = message.status === 'succeeded'
+                ? pending.requestType === 'cancel-isolated-session'
+                    ? 'Isolated session cancellation requested.'
+                    : 'Isolated session started.'
+                : message.status === 'cancelled'
+                    ? 'Isolated session creation cancelled.'
+                    : `Isolated session ${message.status}: ${message.errorCode || 'try again'}.`;
         }
         return true;
     }
@@ -931,6 +1023,7 @@ function initProjectAiSessionControls(options) {
         batchAiSessionManager: batchAiSessionManager,
         batchAiSessionState: batchAiSessionState,
         applyAiSessionAttentionAcknowledgementResult: applyAiSessionAttentionAcknowledgementResult,
+        applyIsolatedSessionSettlement: applyIsolatedSessionSettlement,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
         applyAiSessionProviderSelectionResult: applyAiSessionProviderSelectionResult,

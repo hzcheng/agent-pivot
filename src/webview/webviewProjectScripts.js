@@ -581,6 +581,11 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'isolated-session-settlement') {
+            aiSessionControls.applyIsolatedSessionSettlement(message);
+            return;
+        }
+
         if (!message || message.type !== 'ai-sessions-updated') {
             return;
         }

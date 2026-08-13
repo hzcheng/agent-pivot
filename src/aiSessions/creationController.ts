@@ -18,6 +18,8 @@ import type {
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
 import type { AiSessionDirectoryScope, SessionProfileDecision, WorkspaceAiSessionActionTarget } from './types';
+import type { WorktreeKey } from '../worktrees/types';
+import type { AiSessionCreationScopeTarget } from './worktreeCreationTarget';
 
 interface AiSessionCreationTarget {
     id: string;
@@ -54,6 +56,12 @@ export interface AiSessionCreationControllerCommonOptions {
         workspace: WorkspaceAiSessionActionTarget['workspace']
     ) => Thenable<string | undefined> | Promise<string | undefined>;
     pickProvider: () => Thenable<AiSessionProviderId | undefined>;
+    selectCreationScopeTarget?: (
+        workspace: WorkspaceAiSessionActionTarget['workspace'],
+        explicitWorktreeKey?: WorktreeKey
+    ) => AiSessionCreationScopeTarget | null
+        | Thenable<AiSessionCreationScopeTarget | null>
+        | Promise<AiSessionCreationScopeTarget | null>;
     /**
      * Codex-only profile picker. Returns 'base' for an explicit base-config
      * decision (including the picker-hidden fallback), a profile name for a
@@ -88,7 +96,8 @@ export interface AiSessionCreationControllerCommonOptions {
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
         providerId: AiSessionProviderId,
-        explicitRootId?: string
+        explicitRootId?: string,
+        worktreeKey?: WorktreeKey
     ) => AiSessionDirectoryScope | null | Thenable<AiSessionDirectoryScope | null> | Promise<AiSessionDirectoryScope | null>;
     rememberDirectoryScope?: (
         directoryScope: AiSessionDirectoryScope
@@ -129,7 +138,7 @@ export class AiSessionCreationController {
     /**
      * Full interactive flow: pick provider, (codex) pick profile, input title.
      */
-    async createSession(projectId: string): Promise<void> {
+    async createSession(projectId: string, explicitWorktreeKey?: WorktreeKey): Promise<void> {
         if (this.creating) {
             return;
         }
@@ -143,8 +152,15 @@ export class AiSessionCreationController {
         }
         this.creating = true;
         try {
+            const scopeTarget = await this.selectCreationScopeTarget(
+                target.workspace.workspace,
+                explicitWorktreeKey
+            );
+            if (!scopeTarget) {
+                return;
+            }
             let explicitRootId: string | undefined;
-            if (target.workspace.workspace.roots.length > 1) {
+            if (scopeTarget.kind === 'workspace' && target.workspace.workspace.roots.length > 1) {
                 explicitRootId = await this.options.pickWorkspaceRoot(target.workspace.workspace);
                 if (!explicitRootId) {
                     return;
@@ -165,14 +181,21 @@ export class AiSessionCreationController {
             if (codexProfileDecision) {
                 fields.codexProfileDecision = codexProfileDecision;
             }
-            await this.createProviderSession(providerId, target, fields, explicitRootId);
+            await this.createProviderSession(
+                providerId,
+                target,
+                fields,
+                explicitRootId,
+                scopeTarget.kind === 'worktree' ? scopeTarget.key : undefined
+            );
         } finally {
             this.creating = false;
         }
     }
 
     /**
-     * Quick-create: skip all pickers and use the given provider/profile directly.
+     * Quick-create: use the given provider/profile directly. Worktree target
+     * selection may still prompt when multiple linked worktrees are eligible.
      * Returns false only when the creation was never attempted: another
      * creation is in flight, the workspace is unknown, or the provider id is
      * invalid. Directory-scope and runtime failures surface their own UI
@@ -181,7 +204,8 @@ export class AiSessionCreationController {
     async createSessionQuick(
         projectId: string,
         providerId: AiSessionProviderId,
-        codexProfileDecision?: SessionProfileDecision
+        codexProfileDecision?: SessionProfileDecision,
+        explicitWorktreeKey?: WorktreeKey
     ): Promise<boolean> {
         if (this.creating) {
             return false;
@@ -198,6 +222,13 @@ export class AiSessionCreationController {
         }
         this.creating = true;
         try {
+            const scopeTarget = await this.selectCreationScopeTarget(
+                target.workspace.workspace,
+                explicitWorktreeKey
+            );
+            if (!scopeTarget) {
+                return true;
+            }
             // Resolve default profile when none is explicitly provided
             const effectiveProfile = codexProfileDecision
                 ?? (providerId === 'codex'
@@ -207,10 +238,16 @@ export class AiSessionCreationController {
                 title: '',
                 codexProfileDecision: effectiveProfile,
             };
-            // No explicit root: the directory-scope preflight resolves the
-            // multi-root choice from the active editor or the remembered
-            // primary root (see rememberDirectoryScope) without prompting.
-            await this.createProviderSession(providerId, target, fields);
+            // The selected worktree, when any, owns directory resolution.
+            // Legacy non-Git workspaces continue to use the active editor or
+            // remembered primary root (see rememberDirectoryScope).
+            await this.createProviderSession(
+                providerId,
+                target,
+                fields,
+                undefined,
+                scopeTarget.kind === 'worktree' ? scopeTarget.key : undefined
+            );
             return true;
         } finally {
             this.creating = false;
@@ -252,10 +289,11 @@ export class AiSessionCreationController {
         providerId: AiSessionProviderId,
         target: AiSessionCreationTarget,
         fields: NewAiSessionFields,
-        explicitRootId?: string
+        explicitRootId?: string,
+        worktreeKey?: WorktreeKey
     ): Promise<void> {
         const directoryScope = await this.options.resolveWorkspaceDirectoryScope(
-            target.workspace, providerId, explicitRootId
+            target.workspace, providerId, explicitRootId, worktreeKey
         );
         if (!directoryScope) {
             return;
@@ -364,6 +402,16 @@ export class AiSessionCreationController {
         await options.showActiveTab(target.id);
         options.refresh();
         options.scheduleNewSessionRefresh(providerId);
+    }
+
+    private async selectCreationScopeTarget(
+        workspace: WorkspaceAiSessionActionTarget['workspace'],
+        explicitWorktreeKey?: WorktreeKey
+    ): Promise<AiSessionCreationScopeTarget | null> {
+        if (!this.options.selectCreationScopeTarget) {
+            return { kind: 'workspace' };
+        }
+        return this.options.selectCreationScopeTarget(workspace, explicitWorktreeKey);
     }
 }
 

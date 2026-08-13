@@ -101,6 +101,7 @@ import {
 import {
     createWorktreeOrSessionSwitchHandler,
 } from './dashboard/worktreeQuickSwitch';
+import { parseAiSessionCreationWorktreeKey } from './aiSessions/worktreeCreationTarget';
 import {
     createAiSessionMruTracker,
 } from './aiSessions/sessionMru';
@@ -1831,14 +1832,28 @@ async function initializeDashboard(
             ...dashboardMessageHandlers,
         },
         createAiSession: async e => {
-            await aiSessionCreationController.createSession(e.projectId as string);
+            const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
+                ? parseAiSessionCreationWorktreeKey(e.worktreeKey)
+                : undefined;
+            if (worktreeKey === null) {
+                return;
+            }
+            await aiSessionCreationController.createSession(e.projectId as string, worktreeKey);
         },
         createAiSessionQuick: async e => {
             const providerId = e.provider as AiSessionProviderId;
+            const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
+                ? parseAiSessionCreationWorktreeKey(e.worktreeKey)
+                : undefined;
+            if (worktreeKey === null) {
+                return;
+            }
             if (providerId && isAiSessionProviderId(providerId)) {
                 await aiSessionCreationController.createSessionQuick(
                     e.projectId as string,
-                    providerId
+                    providerId,
+                    undefined,
+                    worktreeKey
                 );
             }
         },

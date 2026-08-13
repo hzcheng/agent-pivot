@@ -22,6 +22,11 @@ import { getAiSessionIdsForCwd } from './pendingTerminals';
 import type AiSessionPinController from './pinController';
 import type AiSessionProfileController from './sessionProfileController';
 import { resolveDefaultCodexProfileDecision } from './sessionProfileController';
+import {
+    resolveAiSessionWorktreeCreationTarget,
+} from './worktreeCreationTarget';
+import type { AiSessionCreationScopeTarget } from './worktreeCreationTarget';
+import type { WorktreeKey } from '../worktrees/types';
 import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
 import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
 import type { AiSessionReadCoordinator } from './readCoordinator';
@@ -211,6 +216,48 @@ export function createSessionControllerComposition(
         );
         return selected?.rootId;
     };
+    const selectAiSessionCreationScopeTarget = async (
+        workspace: OpenWorkspace,
+        explicitWorktreeKey?: WorktreeKey
+    ): Promise<AiSessionCreationScopeTarget | null> => {
+        const resolution = resolveAiSessionWorktreeCreationTarget({
+            workspace,
+            snapshot: options.getWorktreeSnapshot(),
+            activeEditorPath: options.getActiveEditorUri()?.fsPath,
+            explicitKey: explicitWorktreeKey,
+        });
+        if (resolution.status === 'workspace') {
+            return { kind: 'workspace' };
+        }
+        if (resolution.status === 'selected') {
+            return { kind: 'worktree', key: resolution.key };
+        }
+        if (resolution.status === 'blocked') {
+            await showWarningMessage(
+                resolution.reason === 'snapshot-unavailable'
+                    ? 'Worktree discovery is not ready yet. Refresh the dashboard and try again.'
+                    : resolution.reason === 'no-linked-worktrees'
+                        ? 'No linked worktree is available for a new AI session.'
+                        : 'The selected worktree is no longer available. Refresh the dashboard and try again.'
+            );
+            return null;
+        }
+        const selected = await showQuickPick(
+            resolution.candidates.map(candidate => ({
+                label: candidate.label,
+                description: candidate.description,
+                worktreeKey: candidate.key,
+            })),
+            {
+                placeHolder: 'Select the worktree where the AI session will run',
+                ignoreFocusOut: true,
+                title: 'New AI Session Worktree',
+            } as vscode.QuickPickOptions & { title: string }
+        );
+        return selected
+            ? { kind: 'worktree', key: { ...selected.worktreeKey } }
+            : null;
+    };
     const pickAiSessionProvider = async (): Promise<AiSessionProviderId | undefined> => {
         const quickPickOptions: vscode.QuickPickOptions = {
             placeHolder: 'Select an AI provider',
@@ -345,6 +392,7 @@ export function createSessionControllerComposition(
         isProviderId: isAiSessionProviderId,
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         pickWorkspaceRoot: workspace => pickAiSessionWorkspaceRoot(workspace, 'create'),
+        selectCreationScopeTarget: selectAiSessionCreationScopeTarget,
         pickProvider: pickAiSessionProvider,
         pickCodexProfile,
         rememberSessionProfile: (pendingId, decision) => {
@@ -366,9 +414,9 @@ export function createSessionControllerComposition(
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,
-        resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId) =>
+        resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId, worktreeKey) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(
-                target.workspace, providerId, undefined, explicitRootId
+                target.workspace, providerId, undefined, explicitRootId, worktreeKey
             ),
         rememberDirectoryScope: async directoryScope => {
             try {

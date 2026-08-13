@@ -109,6 +109,12 @@ async function openQuickCreatePage(t, options = {}) {
     const firstPanel = getAiSessionsDiv(getSessionSurface('project-a', 'codex', {
         ...(options.profile ? { quickCreateProfile: options.profile } : {}),
         ...(options.provider ? { quickCreateProvider: options.provider } : {}),
+        ...(options.worktrees ? {
+            worktrees: options.worktrees,
+            worktreeSnapshotRevision: 1,
+            worktreeRepositoryCount: 1,
+            bareWorktreeCount: 0,
+        } : {}),
     }));
     const secondPanel = getAiSessionsDiv(getSessionSurface('project-b', 'kimi'));
 
@@ -183,6 +189,44 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the 
         projectId: 'project-b',
         provider: 'kimi',
     });
+});
+
+test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact target and remembered provider', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const page = await openQuickCreatePage(t, {
+        provider: 'kimi',
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key,
+                branchRef: 'refs/heads/feature/auth',
+                head: 'a'.repeat(40),
+                isMain: false,
+                isBare: false,
+                health: 'normal',
+                headKind: 'branch',
+            },
+            activity: 'idle',
+            sessions: [],
+            authority: { canResume: true },
+        }],
+    });
+    const button = page.locator(
+        '.project[data-id="project-a"] .ai-session-worktree-quick-create'
+    );
+
+    assert.equal(await button.getAttribute('data-provider'), 'kimi');
+    assert.equal(await button.getAttribute('aria-label'), 'New Kimi session in feature/auth');
+    await button.click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-a',
+        provider: 'kimi',
+        worktreeKey: key,
+    }]);
 });
 
 test('AI-SESSION-QUICK-CREATE-001 the split button arrow opens the create dropdown without posting', async t => {

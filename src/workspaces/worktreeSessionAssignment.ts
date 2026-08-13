@@ -83,7 +83,7 @@ export function assignPathToWorkspaceWorktree(
         return null;
     }
 
-    const rootMatches = matched.repository.rootBindings
+    const boundRoots = matched.repository.rootBindings
         .map(binding => {
             const root = workspace.roots.find(candidate => candidate.id === binding.workspaceRootId);
             const mappedRootPath = root
@@ -96,15 +96,19 @@ export function assignPathToWorkspaceWorktree(
         })
         .filter((candidate): candidate is { root: WorkspaceRoot; mappedRootPath: string } =>
             !!candidate.root
-            && !!candidate.mappedRootPath
-            && isWorkspaceHostPathContained(candidate.mappedRootPath, candidatePath))
+            && !!candidate.mappedRootPath);
+    const rootMatches = boundRoots
+        .filter(candidate => isWorkspaceHostPathContained(candidate.mappedRootPath, candidatePath))
         .sort((left, right) => right.mappedRootPath.length - left.mappedRootPath.length
             || left.root.ordinal - right.root.ordinal);
+    const fallbackRoot = exactKey
+        ? boundRoots.slice().sort((left, right) => left.root.ordinal - right.root.ordinal)[0]
+        : undefined;
     return {
         repository: matched.repository,
         worktree: matched.worktree,
-        root: rootMatches[0]?.root || null,
-        mappedRootPath: rootMatches[0]?.mappedRootPath || null,
+        root: rootMatches[0]?.root || fallbackRoot?.root || null,
+        mappedRootPath: rootMatches[0]?.mappedRootPath || fallbackRoot?.mappedRootPath || null,
     };
 }
 

@@ -37,7 +37,7 @@ function worktree(key, branchRef, activity) {
         },
         activity,
         sessions: [],
-        authority: {},
+        authority: { canResume: true },
     };
 }
 
@@ -107,6 +107,11 @@ test('WORKTREE-GROUPING-UI-001 stays usable at the 170px minimum sidebar width',
     assert.equal(await page.locator('[data-ai-session-grouping-select]').inputValue(), 'worktree');
     assert.equal(await page.locator('.codex-session-row[data-session-id="frontend-session"]').count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
+    assert.equal(await page.locator('.ai-session-worktree-quick-create').count(), 2);
+    assert.equal(
+        await page.locator('.ai-session-worktree-quick-create').first().getAttribute('aria-label'),
+        'New Codex session in frontend/feature-authentication-with-a-long-name'
+    );
     const layout = await page.evaluate(() => ({
         viewportWidth: document.documentElement.clientWidth,
         documentWidth: document.documentElement.scrollWidth,

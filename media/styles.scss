@@ -3318,7 +3318,8 @@ body.steward-sidebar {
         }
 
         .ai-session-worktree-group,
-        .ai-session-worktree-session-list {
+        .ai-session-worktree-session-list,
+        .ai-session-worktree-toolbar {
             min-width: 0;
         }
 
@@ -3342,6 +3343,36 @@ body.steward-sidebar {
             background: transparent;
             font-family: var(--vscode-font-family);
             text-align: left;
+            cursor: pointer;
+
+            &:hover,
+            &:focus-visible {
+                background: var(--vscode-list-hoverBackground);
+            }
+        }
+
+        .ai-session-worktree-toolbar {
+            display: flex;
+            align-items: stretch;
+        }
+
+        .ai-session-worktree-toolbar .ai-session-worktree-header {
+            width: auto;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .ai-session-worktree-quick-create {
+            display: inline-flex;
+            flex: 0 0 28px;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            min-width: 28px;
+            border: 0;
+            border-left: 1px solid var(--vscode-panel-border);
+            color: var(--vscode-foreground);
+            background: transparent;
             cursor: pointer;
 
             &:hover,
@@ -3438,6 +3469,7 @@ body.steward-sidebar {
                 display: contents;
             }
 
+            .ai-session-worktree-toolbar,
             .ai-session-worktree-header,
             .ai-session-worktree-empty {
                 display: none;

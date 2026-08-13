@@ -175,8 +175,8 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     </div>
     ${groupingControl}
     ${worktreeEmptyState}
-    ${getActiveAiSessionPanel(project, activeSessions, options)}
-    ${getAiSessionHistoryPanel(project, activeProvider, selectedProviders, options)}
+    ${getActiveAiSessionPanel(project, activeSessions, options, quickCreateProvider, quickCreateProfile)}
+    ${getAiSessionHistoryPanel(project, activeProvider, selectedProviders, options, quickCreateProvider, quickCreateProfile)}
     <div class="ai-session-live-region" data-ai-session-live-region aria-live="polite" aria-atomic="true"></div>
 </div>`;
 }
@@ -199,7 +199,9 @@ function getAiSessionTabButton(project: AiSessionSurfaceViewModel, tab: AiSessio
 function getActiveAiSessionPanel(
     project: AiSessionSurfaceViewModel,
     sessions: ActiveAiSessionViewModel[],
-    options: AiSessionRenderOptions
+    options: AiSessionRenderOptions,
+    quickCreateProvider: AiSessionProviderId,
+    quickCreateProfile: string
 ): string {
     var projectId = escapeAttribute(project.id || 'project');
     var selected = project.activeAiSessionTab === 'active';
@@ -218,7 +220,9 @@ function getActiveAiSessionPanel(
     }));
     var rows = entries.length
         ? worktrees.length
-            ? getWorktreeGroupsHtml(worktrees, entries, 'active')
+            ? getWorktreeGroupsHtml(
+                worktrees, entries, 'active', quickCreateProvider, quickCreateProfile
+            )
             : entries.map(entry => entry.html).join('\n')
         : `<div class="codex-sessions-empty ai-session-active-empty">
             <strong>No active sessions</strong>
@@ -237,7 +241,9 @@ function getAiSessionHistoryPanel(
     project: AiSessionSurfaceViewModel,
     activeProvider: AiSessionProviderId,
     selectedProviders: readonly AiSessionProviderId[],
-    options: AiSessionRenderOptions
+    options: AiSessionRenderOptions,
+    quickCreateProvider: AiSessionProviderId,
+    quickCreateProfile: string
 ): string {
     var projectId = escapeAttribute(project.id || 'project');
     var selected = project.activeAiSessionTab === 'sessions';
@@ -280,7 +286,9 @@ function getAiSessionHistoryPanel(
         ? '<div class="ai-session-pinned-heading ai-session-flat-only" style="order: 0">PINNED</div>'
         : '';
     var sessionRows = worktrees.length
-        ? `${pinnedHeading}${getWorktreeGroupsHtml(worktrees, historyEntries, 'sessions')}`
+        ? `${pinnedHeading}${getWorktreeGroupsHtml(
+            worktrees, historyEntries, 'sessions', quickCreateProvider, quickCreateProfile
+        )}`
         : historyEntries.length
             ? `${pinnedHeading}${historyEntries.map(entry => entry.html).join('\n')}`
             : '<div class="codex-sessions-empty"><span>No selected AI sessions yet</span></div>';
@@ -478,6 +486,8 @@ function getWorktreeGroupsHtml(
     worktrees: readonly ReadyWorktreeRow[],
     entries: readonly WorktreeSessionRenderEntry[],
     tab: AiSessionTabId,
+    quickCreateProvider: AiSessionProviderId,
+    quickCreateProfile: string,
 ): string {
     const rendered: string[] = [];
     worktrees.forEach((worktree, index) => {
@@ -485,7 +495,9 @@ function getWorktreeGroupsHtml(
         if (tab === 'active' && !matched.length) {
             return;
         }
-        rendered.push(getWorktreeGroupHtml(worktree, matched, index));
+        rendered.push(getWorktreeGroupHtml(
+            worktree, matched, index, quickCreateProvider, quickCreateProfile
+        ));
     });
     const unmanaged = entries.filter(entry => !entry.worktreeKey
         || !worktrees.some(worktree => worktreeKeysEqual(entry.worktreeKey, worktree.git.key)));
@@ -499,6 +511,8 @@ function getWorktreeGroupHtml(
     worktree: ReadyWorktreeRow,
     entries: readonly WorktreeSessionRenderEntry[],
     groupOrder: number,
+    quickCreateProvider: AiSessionProviderId,
+    quickCreateProfile: string,
 ): string {
     const name = getWorktreeLabel(worktree);
     const count = entries.length;
@@ -514,14 +528,24 @@ function getWorktreeGroupHtml(
             : '';
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
     const ariaLabel = `${name}, ${sessionLabel}, ${activity}`;
+    const providerLabel = getAiProviderLabel(quickCreateProvider);
+    const createLabel = quickCreateProfile
+        ? `New ${providerLabel} session in ${name} with profile ${quickCreateProfile}`
+        : `New ${providerLabel} session in ${name}`;
+    const quickCreate = worktree.authority.canResume
+        ? `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(createLabel)}" title="${escapeAttribute(createLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>`
+        : '';
     return `<section class="ai-session-worktree-group" data-worktree-repository-key="${escapeAttribute(worktree.git.key.repositoryKey)}" data-worktree-path="${escapeAttribute(worktree.git.key.canonicalWorktreePath)}" data-worktree-activity="${worktree.activity}" style="order: ${groupOrder}">
-        <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
-            <span class="ai-session-worktree-indicator" aria-hidden="true">${worktree.activity === 'idle' ? '○' : '●'}</span>
-            <span class="ai-session-worktree-title">${escapeAttribute(name)}</span>
-            ${health}${head}
-            <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
-            <span class="ai-session-worktree-chevron" aria-hidden="true">⌄</span>
-        </button>
+        <div class="ai-session-worktree-toolbar">
+            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
+                <span class="ai-session-worktree-indicator" aria-hidden="true">${worktree.activity === 'idle' ? '○' : '●'}</span>
+                <span class="ai-session-worktree-title">${escapeAttribute(name)}</span>
+                ${health}${head}
+                <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
+                <span class="ai-session-worktree-chevron" aria-hidden="true">⌄</span>
+            </button>
+            ${quickCreate}
+        </div>
         <div class="ai-session-worktree-session-list">${entries.length
             ? entries.map(entry => entry.html).join('\n')
             : '<div class="ai-session-worktree-empty">(no sessions)</div>'}</div>

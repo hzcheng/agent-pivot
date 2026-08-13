@@ -194,17 +194,28 @@ export class AiSessionCommandController {
         workspace: OpenWorkspace,
         providerId: AiSessionProviderId,
         session?: AiSessionViewModel,
-        explicitRootId?: string
+        explicitRootId?: string,
+        creationWorktreeKey?: WorktreeKey
     ): Promise<AiSessionDirectoryScope | null> {
         const historicalCwd = session?.cwd || session?.workDir;
-        const worktreeAssignment = session?.worktreeKey
+        const requestedWorktreeKey = session?.worktreeKey || creationWorktreeKey;
+        const worktreeAssignment = requestedWorktreeKey
             ? assignPathToWorkspaceWorktree(
                 historicalCwd || '',
                 workspace,
                 this.options.getWorktreeSnapshot?.(),
-                session.worktreeKey,
+                requestedWorktreeKey,
             )
             : null;
+        if (creationWorktreeKey && (!worktreeAssignment
+            || worktreeAssignment.worktree.isBare
+            || worktreeAssignment.worktree.health === 'missing'
+            || worktreeAssignment.worktree.health === 'prunable')) {
+            this.options.showWarningMessage?.(
+                'The selected worktree is no longer available. Refresh the dashboard and try again.'
+            );
+            return null;
+        }
         const result = await preflightAiSessionDirectoryScope({
             workspace,
             provider: this.options.getProvider?.(providerId) || null,

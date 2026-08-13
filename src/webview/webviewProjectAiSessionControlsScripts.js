@@ -204,11 +204,21 @@ function initProjectAiSessionControls(options) {
         if (quickCreateAction) {
             var provider = quickCreateAction.getAttribute('data-provider');
             if (provider) {
-                window.vscode.postMessage({
+                var message = {
                     type: 'create-ai-session-quick',
                     projectId,
                     provider: provider,
-                });
+                };
+                var worktreeGroup = quickCreateAction.closest(
+                    '[data-worktree-repository-key][data-worktree-path]'
+                );
+                if (worktreeGroup) {
+                    message.worktreeKey = {
+                        repositoryKey: worktreeGroup.getAttribute('data-worktree-repository-key'),
+                        canonicalWorktreePath: worktreeGroup.getAttribute('data-worktree-path'),
+                    };
+                }
+                window.vscode.postMessage(message);
             }
 
             return true;

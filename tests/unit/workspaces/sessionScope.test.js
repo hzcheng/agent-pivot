@@ -283,6 +283,56 @@ test('SESSION-WORKTREE-ASSIGNMENT-001 resumes a sibling-worktree session in its 
     assert.equal(fallbackScope.worktreeKey, undefined);
 });
 
+test('WORKTREE-SESSION-CREATE-TARGET-001 creation binds a selected worktree and rejects a stale key', async () => {
+    const current = workspace({
+        roots: [
+            { id: 'root-repo', name: 'Repo', uri: 'file:///repos/main/app', hostPath: '/repos/main/app', ordinal: 0 },
+            { id: 'root-other', name: 'Other', uri: 'file:///other', hostPath: '/other', ordinal: 1 },
+        ],
+    });
+    const key = {
+        repositoryKey: '/repos/main/.git',
+        canonicalWorktreePath: '/managed/feature',
+    };
+    let snapshot = {
+        revision: 1,
+        truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: key.repositoryKey,
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: 'app' }],
+            worktrees: [{
+                key, branchRef: 'refs/heads/feature', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            }],
+        }],
+    };
+    const warnings = [];
+    const controller = new AiSessionCommandController({
+        getWorktreeSnapshot: () => snapshot,
+        getProvider: () => ({ id: 'codex', label: 'Codex', commandName: 'codex' }),
+        getProviderDirectoryCapability: async () => ({ status: 'supported' }),
+        isWorkspaceTrusted: () => true,
+        isDirectory: () => true,
+        pickWorkspaceRoot: async () => { throw new Error('selected worktree must determine the root'); },
+        showWarningMessage: message => warnings.push(message),
+    });
+
+    const scope = await controller.resolveWorkspaceDirectoryScope(
+        current, 'codex', undefined, undefined, key
+    );
+    assert.equal(scope.primaryRootId, 'root-repo');
+    assert.equal(scope.primaryCwd, '/managed/feature/app');
+    assert.deepEqual(scope.worktreeKey, key);
+    assert.deepEqual(scope.writableRootHostPaths, ['/managed/feature/app', '/other']);
+    assert.deepEqual(scope.additionalDirectories, ['/other']);
+
+    snapshot = { revision: 2, truncatedWorktreeCount: 0, repositories: [] };
+    assert.equal(await controller.resolveWorkspaceDirectoryScope(
+        current, 'codex', undefined, undefined, key
+    ), null);
+    assert.match(warnings.at(-1), /no longer available/i);
+});
+
 test('SESSION-WORKTREE-SCOPE-001 rejects escaping bindings and unavailable mapped roots', () => {
     const current = workspace({
         roots: [{

@@ -342,6 +342,41 @@ test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the gi
     assert.deepEqual(fixture.effects, [['refresh']]);
 });
 
+test('WORKTREE-SESSION-CREATE-TARGET-001 quick-create carries an explicit worktree through scope resolution', async () => {
+    const key = {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    };
+    const selections = [];
+    const fixture = makeQuickCreateController({
+        selectCreationScopeTarget: async (selectedWorkspace, explicitKey) => {
+            selections.push([selectedWorkspace.scopeIdentity, explicitKey]);
+            return { kind: 'worktree', key: explicitKey };
+        },
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'kimi', undefined, key), true);
+    assert.deepEqual(selections, [['scope:fixture', key]]);
+    assert.deepEqual(fixture.resolvedScopes, [[
+        makeWorkspaceTarget(),
+        'kimi',
+        undefined,
+        key,
+    ]]);
+    assert.equal(fixture.requests.length, 1);
+});
+
+test('WORKTREE-SESSION-CREATE-TARGET-001 cancellation stops quick-create before scope or runtime work', async () => {
+    const fixture = makeQuickCreateController({
+        selectCreationScopeTarget: async () => null,
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true);
+    assert.deepEqual(fixture.resolvedScopes, []);
+    assert.deepEqual(fixture.requests, []);
+    assert.deepEqual(fixture.rememberedProviders, []);
+});
+
 test('AI-SESSION-QUICK-CREATE-001 rejects unknown workspaces and invalid providers without side effects', async () => {
     const fixture = makeQuickCreateController();
 

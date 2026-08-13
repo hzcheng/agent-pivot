@@ -2126,6 +2126,25 @@
     ]
   },
   {
+    "id": "WORKTREE-SESSION-CREATE-TARGET-001",
+    "domain": "runtime",
+    "title": "Session creation resolves an explicit, active-editor, unique, or user-picked worktree independently of display grouping and launches with a snapshot-validated worktree scope",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/worktreeCreationTarget.test.js",
+      "tests/unit/workspaces/sessionScope.test.js",
+      "tests/browser/quickSessionCreate.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/worktreeCreationTarget.ts",
+      "src/aiSessions/creationController.ts",
+      "src/aiSessions/commandController.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
     "domain": "runtime",
     "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",

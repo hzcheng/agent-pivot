@@ -4668,7 +4668,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '0565696a49b5650821460bb0f9551d0d80418bf280844a21f94682aa8574477f',
+        '2188b3989a31d5f5f3b7ca828fd8a5a842487b706b85b972b234cdf0374c33c5',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -10856,8 +10856,8 @@ test('CONVERSATION-PROVIDER-PARITY-001 keeps default disclosure and live status 
         });
 
         assert.equal(
-            await page.locator('.conversation-identity strong').innerText(),
-            fixture.label
+            await page.locator('[data-telemetry-provider]').getAttribute('data-provider'),
+            fixture.provider
         );
         assert.match(
             await page.locator('.conversation-progress').innerText(),

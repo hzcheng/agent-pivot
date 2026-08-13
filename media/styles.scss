@@ -3133,6 +3133,11 @@ body.steward-sidebar {
             }
 
             > span:first-child {
+                font-size: 13px;
+                font-weight: 500;
+            }
+        }
+
         .ai-session-create-split-button {
             display: inline-flex;
             align-items: center;
@@ -3221,11 +3226,6 @@ body.steward-sidebar {
             line-height: 1;
             font-size: 10px;
             opacity: 0.8;
-        }
-
-                font-size: 13px;
-                font-weight: 500;
-            }
         }
 
         .ai-session-tabs {

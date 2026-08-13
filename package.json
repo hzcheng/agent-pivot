@@ -320,6 +320,12 @@
                     "scope": "machine",
                     "description": "Codex configuration profile (-p <name>, layered from <name>.config.toml in the Codex home) used for newly created Codex sessions. Does not affect resuming existing sessions: a resumed session always reuses the profile decision recorded when it was created."
                 },
+                "agentPivot.worktreeDirectory": {
+                    "type": "string",
+                    "scope": "machine",
+                    "default": ".worktrees",
+                    "markdownDescription": "Directory that holds isolated worktrees created by Agent Pivot, relative to the repository root (for example `.worktrees` or `.git/worktrees`). Absolute paths and `..` segments are not allowed. Existing worktrees created under previous locations stay manageable."
+                },
                 "agentPivot.worktreeSetupCommand": {
                     "type": "array",
                     "scope": "machine",

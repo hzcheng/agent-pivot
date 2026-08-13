@@ -190,14 +190,12 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
         '[data-ai-session-surface-panel="worktree"] .codex-session-row[data-session-id="frontend-session"]'
     ).count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
-    assert.equal(await page.locator('.ai-session-worktree-quick-create').count(), 2);
-    assert.equal(await page.locator('.ai-session-worktree-branch-create').count(), 2);
-    assert.equal(await page.locator('[data-action="remove-managed-worktree"]').count(), 1);
+    assert.equal(await page.locator('.ai-session-worktree-more').count(), 2);
     assert.equal(await page.locator('.ai-session-provisioning-row').count(), 1);
     assert.equal(await page.locator('[data-action="cancel-isolated-session"]').isVisible(), true);
     assert.equal(
-        await page.locator('.ai-session-worktree-quick-create').first().getAttribute('aria-label'),
-        'New Codex session in frontend/feature-authentication-with-a-long-name'
+        await page.locator('.ai-session-worktree-more').first().getAttribute('aria-label'),
+        'Actions for frontend/feature-authentication-with-a-long-name'
     );
     const layout = await page.evaluate(() => ({
         viewportWidth: document.documentElement.clientWidth,

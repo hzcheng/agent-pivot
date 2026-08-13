@@ -669,10 +669,8 @@ function runWorkspaceCardRenderingChecks() {
         'the quick-create button announces the provider it will launch');
     assert.ok(multiHtml.includes('data-action="create-ai-session-dropdown"'),
         'the split button keeps a dropdown entry for other providers');
-    assert.ok(multiHtml.includes('class="ai-session-create-caption"'),
-        'the split button carries a hover caption identifying the quick-create target');
-    assert.ok(multiHtml.includes('aria-hidden="true">Codex</span>'),
-        'the caption names the active provider when no profile applies');
+    assert.ok(multiHtml.includes('title="New Codex session"'),
+        'the quick-create button names its provider in the hover tooltip');
 
     const captionSurface = {
         id: 'project-caption',
@@ -688,16 +686,18 @@ function runWorkspaceCardRenderingChecks() {
     const captionHtml = webviewAiSessionContent.getAiSessionsDiv(captionSurface);
     assert.ok(captionHtml.includes('aria-label="New Codex session with profile deepseek"'),
         'the quick button announces the effective profile');
-    assert.ok(captionHtml.includes('aria-hidden="true">Codex · deepseek</span>'),
-        'the caption shows the provider and profile');
+    assert.ok(captionHtml.includes('title="New Codex session with profile deepseek"'),
+        'the quick button tooltip shows the provider and profile');
 
     const kimiCaptionHtml = webviewAiSessionContent.getAiSessionsDiv({
         ...captionSurface,
         activeAiSessionProvider: 'kimi',
         quickCreateProfile: 'deepseek',
     });
-    assert.ok(kimiCaptionHtml.includes('aria-hidden="true">Kimi</span>'),
+    assert.ok(kimiCaptionHtml.includes('title="New Kimi session"'),
         'a non-codex provider never carries the codex profile');
+    assert.ok(!kimiCaptionHtml.includes('ai-session-create-caption'),
+        'no visible caption crowds the toolbar row');
     assert.ok(kimiCaptionHtml.includes('aria-label="New Kimi session"'));
 
     const rememberedHtml = webviewAiSessionContent.getAiSessionsDiv({
@@ -708,8 +708,8 @@ function runWorkspaceCardRenderingChecks() {
     });
     assert.ok(rememberedHtml.includes('data-action="create-ai-session-quick" data-provider="kimi"'),
         'the quick button follows the remembered provider, not the list filter');
-    assert.ok(rememberedHtml.includes('aria-hidden="true">Kimi</span>'),
-        'the caption follows the remembered provider');
+    assert.ok(rememberedHtml.includes('title="New Kimi session"'),
+        'the quick button tooltip follows the remembered provider');
     assert.ok(rememberedHtml.includes('data-active-ai-session-provider="codex"'),
         'the session list filter keeps its own primary provider');
 

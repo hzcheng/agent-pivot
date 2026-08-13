@@ -37,7 +37,10 @@ export interface PersistedWorktreeProvisioningOperation {
 export class WorktreeProvisioningStore {
     private writeQueue: Promise<void> = Promise.resolve();
 
-    constructor(private readonly memento: MementoLike) {
+    constructor(
+        private readonly memento: MementoLike,
+        private readonly getWorktreeDirectory?: () => string
+    ) {
     }
 
     read(): PersistedWorktreeProvisioningOperation[] {
@@ -48,7 +51,7 @@ export class WorktreeProvisioningStore {
         const seen = new Set<string>();
         const records: PersistedWorktreeProvisioningOperation[] = [];
         for (const candidate of value.slice(0, MAX_RECORDS)) {
-            const record = parseRecord(candidate);
+            const record = parseRecord(candidate, this.getWorktreeDirectory?.());
             if (record && !seen.has(record.operationId)) {
                 seen.add(record.operationId);
                 records.push(record);
@@ -59,7 +62,7 @@ export class WorktreeProvisioningStore {
 
     replace(records: readonly PersistedWorktreeProvisioningOperation[]): Promise<void> {
         const snapshot = records.slice(0, MAX_RECORDS)
-            .map(parseRecord)
+            .map(record => parseRecord(record, this.getWorktreeDirectory?.()))
             .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
         const operation = async (): Promise<void> => {
             await this.memento.update(STORAGE_KEY, snapshot);
@@ -70,7 +73,7 @@ export class WorktreeProvisioningStore {
     }
 }
 
-function parseRecord(value: unknown): PersistedWorktreeProvisioningOperation | null {
+function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorktreeProvisioningOperation | null {
     if (!isRecord(value) || value.version !== 1
         || !safeId(value.operationId) || !safeString(value.projectId)
         || !['codex', 'kimi', 'claude'].includes(String(value.providerId))) {
@@ -88,7 +91,7 @@ function parseRecord(value: unknown): PersistedWorktreeProvisioningOperation | n
         || row.operationId !== value.operationId || row.repositoryKey !== plan.repositoryKey
         || row.taskName !== plan.taskName || row.proposedPath !== plan.worktreePath
         || row.completedSteps.join('\0') !== completedSteps.join('\0')
-        || !isManagedWorktreePath(plan.repositoryKey, plan.worktreePath)
+        || !isManagedWorktreePath(plan.repositoryKey, plan.worktreePath, worktreeDirectory)
         || !Array.isArray(value.setupCommand)
         || setupCommand.length !== value.setupCommand.length
         || (completedSteps.includes('worktree') !== !!worktreeKey)

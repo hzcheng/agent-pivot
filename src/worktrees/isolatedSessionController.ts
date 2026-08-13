@@ -66,6 +66,7 @@ export interface IsolatedSessionControllerOptions {
     ) => Thenable<RepositoryPick | undefined>;
     refreshWorktreeSnapshot: () => Promise<void>;
     getSetupCommand?: () => readonly string[];
+    getWorktreeDirectory?: () => string;
     createSessionInWorktree: (
         projectId: string,
         providerId: AiSessionProviderId,
@@ -369,6 +370,7 @@ export class IsolatedSessionController {
             repository,
             taskName,
             baseRefOverride,
+            worktreeDirectory: this.options.getWorktreeDirectory?.(),
             isBranchAvailable: branchName =>
                 this.provisioner.isBranchAvailable(
                     repositoryCommandCwd(repository), branchName),

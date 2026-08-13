@@ -22,6 +22,8 @@ export interface WorktreeProvisioningPlanOptions {
     taskName: string;
     /** Branch from this ref instead of the repository default base ref. */
     baseRefOverride?: string;
+    /** Directory (relative to the repository root) that holds managed worktrees. */
+    worktreeDirectory?: string;
     isBranchAvailable: (branchName: string) => boolean | Promise<boolean>;
     isPathAvailable: (worktreePath: string) => boolean | Promise<boolean>;
     reservedBranches?: ReadonlySet<string>;
@@ -57,7 +59,10 @@ export async function createWorktreeProvisioningPlan(
     }
     const pathApi = getPathApi(commandCwd);
     const repositoryRoot = getManagedRepositoryRoot(options.repository.repositoryKey, pathApi);
-    const managedRoot = pathApi.join(repositoryRoot, '.agent-pivot', 'worktrees');
+    const managedRoot = pathApi.join(
+        repositoryRoot,
+        normalizeWorktreeDirectory(options.worktreeDirectory)
+    );
     for (let suffix = 1; suffix <= MAX_SUFFIX; suffix += 1) {
         const candidateSlug = suffix === 1 ? slug : `${slug}-${suffix}`;
         const branchName = `agent-pivot/${candidateSlug}`;
@@ -128,17 +133,51 @@ function getManagedRepositoryRoot(
     return pathApi.dirname(repositoryKey);
 }
 
-export function isManagedWorktreePath(repositoryKey: string, worktreePath: string): boolean {
+export const DEFAULT_WORKTREE_DIRECTORY = '.worktrees';
+// Worktrees created before the directory became configurable live here;
+// they stay manageable so removal and recovery keep working for them.
+const LEGACY_WORKTREE_DIRECTORIES = ['.agent-pivot/worktrees'];
+
+/** Resolves the configured managed-worktree directory, falling back to the default. */
+export function normalizeWorktreeDirectory(value: unknown): string {
+    if (typeof value !== 'string') {
+        return DEFAULT_WORKTREE_DIRECTORY;
+    }
+    const trimmed = value.trim().replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!trimmed || trimmed === '.' || /[\0\r\n]/u.test(trimmed)
+        || trimmed.startsWith('/') || /^[a-zA-Z]:/u.test(trimmed)
+        || trimmed.split('/').some(segment => segment === '..')) {
+        return DEFAULT_WORKTREE_DIRECTORY;
+    }
+    return trimmed;
+}
+
+function getManagedWorktreeRoots(
+    repositoryKey: string,
+    pathApi: typeof path.posix | typeof path.win32,
+    directory?: string
+): string[] {
+    const repositoryRoot = getManagedRepositoryRoot(repositoryKey, pathApi);
+    const directories = [
+        normalizeWorktreeDirectory(directory),
+        DEFAULT_WORKTREE_DIRECTORY,
+        ...LEGACY_WORKTREE_DIRECTORIES,
+    ];
+    return [...new Set(directories)].map(entry => pathApi.join(repositoryRoot, entry));
+}
+
+export function isManagedWorktreePath(
+    repositoryKey: string,
+    worktreePath: string,
+    directory?: string
+): boolean {
     if (!repositoryKey || !worktreePath) {
         return false;
     }
     const pathApi = getPathApi(repositoryKey);
-    const managedRoot = pathApi.join(
-        getManagedRepositoryRoot(repositoryKey, pathApi),
-        '.agent-pivot',
-        'worktrees'
-    );
-    const relative = pathApi.relative(managedRoot, worktreePath);
-    return !!relative && relative !== '..' && !relative.startsWith(`..${pathApi.sep}`)
-        && !pathApi.isAbsolute(relative) && !relative.includes(pathApi.sep);
+    return getManagedWorktreeRoots(repositoryKey, pathApi, directory).some(managedRoot => {
+        const relative = pathApi.relative(managedRoot, worktreePath);
+        return !!relative && relative !== '..' && !relative.startsWith(`..${pathApi.sep}`)
+            && !pathApi.isAbsolute(relative) && !relative.includes(pathApi.sep);
+    });
 }

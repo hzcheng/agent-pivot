@@ -251,6 +251,7 @@ import { worktreeKeysEqual } from './worktrees/types';
 import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
 import { IsolatedSessionController } from './worktrees/isolatedSessionController';
 import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
+import { normalizeWorktreeDirectory } from './worktrees/provisioningPlan';
 import {
     normalizeWorktreeSetupCommand,
     WorktreeSetupRunner,
@@ -1246,7 +1247,11 @@ async function initializeDashboard(
         ? openWorkspaceController.getCurrentWorkspace()
         : resolveCurrentOpenWorkspace();
     const worktreeBaseRefStore = new WorktreeBaseRefStore(context.globalState);
-    const worktreeProvisioningStore = new WorktreeProvisioningStore(context.globalState);
+    const worktreeProvisioningStore = new WorktreeProvisioningStore(
+        context.globalState,
+        () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees'))
+    );
     const worktreeSetupRunner = new WorktreeSetupRunner();
     const gitWorktreeDiscovery = new GitWorktreeDiscovery({
         getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
@@ -1350,6 +1355,8 @@ async function initializeDashboard(
             aiSessionWorkspaceStateStore.getQuickCreateProviders()[scopeIdentity],
         getSelectedSurface: scopeIdentity =>
             aiSessionWorkspaceStateStore.getSelectedSurfaces()[scopeIdentity],
+        getWorktreeDirectory: () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         getProviderSelection: scopeIdentity => {
             const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
             if (stored) {
@@ -1447,6 +1454,8 @@ async function initializeDashboard(
         refreshWorktreeSnapshot: () => worktreeSnapshotCoordinator.refresh('provisioning'),
         getSetupCommand: () => normalizeWorktreeSetupCommand(
             getAgentPivotConfiguration().get<unknown>('worktreeSetupCommand', [])),
+        getWorktreeDirectory: () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         runSetup: (_plan, worktreeKey, isCancelled, command) =>
             worktreeSetupRunner.run(command, worktreeKey.canonicalWorktreePath, isCancelled),
         createSessionInWorktree: (projectId, providerId, title, worktreeKey, profile) =>
@@ -1662,6 +1671,8 @@ async function initializeDashboard(
     }));
     managedWorktreeRemovalController = new ManagedWorktreeRemovalController({
         getSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        getWorktreeDirectory: () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         isProjectTarget: projectId => !!getCurrentWorkspaceActionTarget(projectId),
         isActive: key => getPriorityWorktreeKeys().some(candidate =>
             worktreeKeysEqual(candidate, key)),

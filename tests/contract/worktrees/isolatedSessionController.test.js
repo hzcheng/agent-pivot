@@ -138,7 +138,7 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launche
     const create = current.effects.find(effect => effect[0] === 'create');
     assert.equal(create[1].taskName, 'Fix login race');
     assert.equal(create[1].branchName, 'agent-pivot/fix-login-race');
-    assert.equal(create[1].worktreePath, '/repo/.agent-pivot/worktrees/fix-login-race');
+    assert.equal(create[1].worktreePath, '/repo/.worktrees/fix-login-race');
     const refreshIndex = current.effects.findIndex(effect => effect[0] === 'refresh-snapshot');
     const startIndex = current.effects.findIndex(effect => effect[0] === 'start-session');
     assert.ok(refreshIndex >= 0 && refreshIndex < startIndex);
@@ -148,7 +148,7 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launche
         'Fix login race',
         {
             repositoryKey: '/repo/.git',
-            canonicalWorktreePath: '/repo/.agent-pivot/worktrees/fix-login-race',
+            canonicalWorktreePath: '/repo/.worktrees/fix-login-race',
         },
         { kind: 'profile', name: 'glm' },
     ]);
@@ -348,7 +348,7 @@ test('WORKTREE-ISOLATED-SESSION-001 reallocates after a pre-create branch collis
     const succeeded = await current.controller.retry('request-collision', 'project');
     assert.equal(succeeded.kind, 'succeeded');
     assert.equal(succeeded.worktreeKey.canonicalWorktreePath,
-        '/repo/.agent-pivot/worktrees/fix-login-race-2');
+        '/repo/.worktrees/fix-login-race-2');
     assert.equal(createAttempts, 2);
 });
 

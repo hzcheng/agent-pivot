@@ -32,6 +32,8 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     quickCreateProvider?: AiSessionProviderId;
     /** The AI session surface the user last selected for this workspace. */
     selectedSurface?: 'worktree' | 'chats';
+    /** Configured managed-worktree directory (relative to each repository root). */
+    worktreeDirectory?: string;
     worktreeSnapshot?: WorktreeSnapshot | null;
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
 }
@@ -60,6 +62,7 @@ export function buildWorkspaceAiSessionViewModel(
         allSessions,
         activeSessions,
         input.provisioningWorktrees,
+        input.worktreeDirectory,
     );
     const selection = normalizeAiSessionProviderSelection({
         registeredProviders: input.providers.map(provider => provider.id),
@@ -88,6 +91,7 @@ export function buildWorkspaceAiSessionViewModel(
         ...(input.selectedSurface === 'worktree' || input.selectedSurface === 'chats'
             ? { selectedSurface: input.selectedSurface }
             : {}),
+        ...(input.worktreeDirectory ? { worktreeDirectory: input.worktreeDirectory } : {}),
         activeSessions,
         activeSessionCount: activeSessions.length,
         activeAttentionCount: activeSessions.filter(session => session.needsAttention).length,
@@ -131,6 +135,7 @@ function buildWorktreeRows(
     sessions: readonly AiSessionViewModel[],
     activeSessions: readonly ActiveAiSessionViewModel[],
     provisioningWorktrees: readonly ProvisioningWorktreeRow[] = [],
+    worktreeDirectory?: string,
 ): WorktreeRowViewModel[] {
     if (!snapshot) {
         return [];
@@ -176,7 +181,8 @@ function buildWorktreeRows(
                         && !openAsWorkspace
                         && isManagedWorktreePath(
                             worktree.key.repositoryKey,
-                            worktree.key.canonicalWorktreePath),
+                            worktree.key.canonicalWorktreePath,
+                            worktreeDirectory),
                     canTakeControl: false,
                     liveOwnerAvailable,
                 },

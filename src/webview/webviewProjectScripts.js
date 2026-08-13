@@ -360,6 +360,12 @@ function initProjects() {
             return;
         }
 
+        contextMenuElement = e.target.closest("#aiSessionWorktreeMenu [data-action]");
+        if (contextMenuElement) {
+            aiSessionControls.activateAiSessionWorktreeMenuItem(contextMenuElement);
+            return;
+        }
+
         contextMenuElement = e.target.closest("#groupContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onGroupContextMenuActionClicked(contextMenuElement);
@@ -368,7 +374,8 @@ function initProjects() {
 
         // The create-dropdown arrow owns its toggle: the generic close would
         // hide the menu before the arrow handler can see it was open.
-        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')) {
+        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')
+            && !e.target.closest('[data-action="ai-session-worktree-menu"]')) {
             contextMenus.closeContextMenus();
         }
         if (!e.target.closest('.ai-session-provider-menu-wrapper')) {
@@ -767,6 +774,41 @@ function initProjects() {
             }
             if (e.key === 'Tab') {
                 contextMenus.closeContextMenus();
+            }
+        }
+
+        var worktreeMenuItem = e.target && e.target.closest
+            ? e.target.closest('#aiSessionWorktreeMenu [role="menuitem"]')
+            : null;
+        if (worktreeMenuItem) {
+            var worktreeMenu = worktreeMenuItem.closest('#aiSessionWorktreeMenu');
+            var worktreeItems = Array.from(
+                worktreeMenu.querySelectorAll('[role="menuitem"]:not([hidden])')
+            );
+            var worktreeIndex = worktreeItems.indexOf(worktreeMenuItem);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+                e.preventDefault();
+                var nextWorktreeIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? worktreeItems.length - 1
+                        : (worktreeIndex + (e.key === 'ArrowDown' ? 1 : -1) + worktreeItems.length)
+                            % worktreeItems.length;
+                worktreeItems[nextWorktreeIndex]?.focus();
+                return;
+            }
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                aiSessionControls.activateAiSessionWorktreeMenuItem(worktreeMenuItem);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                var worktreeOrigin = worktreeMenu.__originButton || null;
+                aiSessionControls.closeAiSessionWorktreeMenu();
+                worktreeOrigin?.focus();
+                return;
+            }
+            if (e.key === 'Tab') {
+                aiSessionControls.closeAiSessionWorktreeMenu();
             }
         }
 

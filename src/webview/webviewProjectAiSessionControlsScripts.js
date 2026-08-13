@@ -211,6 +211,11 @@ function initProjectAiSessionControls(options) {
             );
             return true;
         }
+        var worktreeMenuAction = target.closest('[data-action="ai-session-worktree-menu"]');
+        if (worktreeMenuAction) {
+            toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);
+            return true;
+        }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
         if (worktreeToggle) {
             setAiSessionWorktreeGroupExpanded(
@@ -552,6 +557,123 @@ function initProjectAiSessionControls(options) {
                     : `Isolated session ${message.status}: ${message.errorCode || 'try again'}.`;
         }
         return true;
+    }
+
+    // The per-worktree ⋯ menu is one shared body-level element; the context is
+    // rebound from the clicked row every time it opens so a single menu can
+    // serve quick create, per-provider create, branch-from-here, and removal.
+    function toggleAiSessionWorktreeMenu(button, projectId) {
+        var menu = document.getElementById('aiSessionWorktreeMenu');
+        if (!menu || !button) return false;
+        var wasOpen = menu.classList.contains('visible') && menu.__originButton === button;
+        if (window.__agentPivotContextMenus
+            && typeof window.__agentPivotContextMenus.closeContextMenus === 'function') {
+            window.__agentPivotContextMenus.closeContextMenus();
+        }
+        if (wasOpen) return true;
+        var group = button.closest('.ai-session-worktree-group[data-worktree-repository-key]');
+        if (!group) return false;
+        menu.__context = {
+            projectId: projectId,
+            repositoryKey: group.getAttribute('data-worktree-repository-key'),
+            worktreePath: group.getAttribute('data-worktree-path'),
+            quickProvider: button.getAttribute('data-quick-provider') || '',
+            canResume: button.getAttribute('data-can-resume') === 'true',
+            canRemove: button.getAttribute('data-can-remove') === 'true',
+            canBranchCreate: button.getAttribute('data-can-branch-create') === 'true'
+                && button.getAttribute('data-worktree-head-kind') === 'branch',
+        };
+        menu.__originButton = button;
+        var quickItem = menu.querySelector('[data-action="worktree-quick-create"]');
+        quickItem.textContent = button.getAttribute('data-quick-label')
+            || ('New session in ' + (button.getAttribute('data-worktree-name') || 'worktree'));
+        quickItem.hidden = !menu.__context.canResume;
+        var branchItem = menu.querySelector('[data-action="worktree-branch-create"]');
+        branchItem.textContent = 'New worktree from '
+            + (button.getAttribute('data-worktree-name') || 'this branch');
+        branchItem.hidden = !menu.__context.canBranchCreate;
+        var removeItem = menu.querySelector('[data-action="worktree-remove"]');
+        removeItem.hidden = !menu.__context.canRemove;
+        var removeSeparator = menu.querySelector('[data-worktree-remove-separator]');
+        if (removeSeparator) removeSeparator.hidden = !menu.__context.canRemove;
+
+        button.setAttribute('aria-expanded', 'true');
+        menu.style.visibility = 'hidden';
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+        menu.classList.add('visible');
+        var buttonRect = button.getBoundingClientRect();
+        var menuRect = menu.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = Math.max(viewportPadding, Math.min(
+            buttonRect.right - menuRect.width,
+            window.innerWidth - menuRect.width - viewportPadding
+        ));
+        var top = buttonRect.bottom + 2;
+        if (top + menuRect.height > window.innerHeight - viewportPadding) {
+            top = Math.max(viewportPadding, buttonRect.top - menuRect.height - 2);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.style.visibility = 'visible';
+        var firstItem = menu.querySelector('[role="menuitem"]:not([hidden])');
+        firstItem?.focus();
+        return true;
+    }
+
+    function closeAiSessionWorktreeMenu() {
+        var menu = document.getElementById('aiSessionWorktreeMenu');
+        if (!menu) return;
+        if (menu.__originButton) {
+            menu.__originButton.setAttribute('aria-expanded', 'false');
+        }
+        menu.__originButton = null;
+        menu.classList.remove('visible');
+    }
+
+    function activateAiSessionWorktreeMenuItem(item) {
+        var menu = document.getElementById('aiSessionWorktreeMenu');
+        var context = menu && menu.__context;
+        var originButton = menu ? menu.__originButton : null;
+        if (!menu || !context || !context.projectId) return;
+        var action = item.getAttribute('data-action');
+        var worktreeKey = {
+            repositoryKey: context.repositoryKey,
+            canonicalWorktreePath: context.worktreePath,
+        };
+        if (action === 'worktree-quick-create' && context.canResume) {
+            window.vscode.postMessage({
+                type: 'create-ai-session-quick',
+                projectId: context.projectId,
+                provider: context.quickProvider,
+                worktreeKey: worktreeKey,
+            });
+        } else if (action === 'worktree-provider-create') {
+            var provider = item.getAttribute('data-provider');
+            if (!provider) return;
+            window.vscode.postMessage({
+                type: 'create-ai-session-quick',
+                projectId: context.projectId,
+                provider: provider,
+                worktreeKey: worktreeKey,
+            });
+        } else if (action === 'worktree-branch-create' && context.canBranchCreate) {
+            submitIsolatedSessionRequest(
+                'start-isolated-session', context.projectId, null, originButton, worktreeKey
+            );
+        } else if (action === 'worktree-remove' && context.canRemove) {
+            var projectDiv = document.querySelector(
+                '.project[data-id="' + CSS.escape(context.projectId) + '"]'
+            );
+            var group = projectDiv && projectDiv.querySelector(
+                '.ai-session-worktree-group[data-worktree-path="' + CSS.escape(context.worktreePath) + '"]'
+            );
+            if (!group || !originButton || !originButton.isConnected) return;
+            submitManagedWorktreeRemoval(context.projectId, group, originButton);
+        } else {
+            return;
+        }
+        closeAiSessionWorktreeMenu();
     }
 
     function submitManagedWorktreeRemoval(projectId, group, button) {
@@ -1123,9 +1245,12 @@ function initProjectAiSessionControls(options) {
         applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
+        activateAiSessionWorktreeMenuItem: activateAiSessionWorktreeMenuItem,
         applyAiSessionProviderSelectionResult: applyAiSessionProviderSelectionResult,
         closeAiSessionProviderMenu: closeAiSessionProviderMenu,
         closeAiSessionProviderMenus: closeAiSessionProviderMenus,
+        closeAiSessionWorktreeMenu: closeAiSessionWorktreeMenu,
+        toggleAiSessionWorktreeMenu: toggleAiSessionWorktreeMenu,
         exitAiSessionBatchManagement: exitAiSessionBatchManagement,
         getAiSessionProviderOptions: getAiSessionProviderOptions,
         getArchiveAiSessionMessageType: getArchiveAiSessionMessageType,

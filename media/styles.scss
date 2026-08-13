@@ -3266,25 +3266,25 @@ body.steward-sidebar {
             opacity: 0.8;
         }
 
-        .ai-session-create-caption {
-            max-width: 132px;
-            padding: 0 2px;
-            overflow: hidden;
-            color: var(--vscode-descriptionForeground);
-            font-size: 8px;
-            font-weight: 700;
-            letter-spacing: .04em;
-            line-height: 1.3;
-            text-align: right;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        // The surface bar keeps the WORKTREE/CHATS switcher and the
+        // new-worktree icon button on one row.
+        .ai-session-surface-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 6px;
+            flex: 0 0 auto;
+
+            .ai-session-surface-tabs {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
         }
 
         .ai-session-surface-tabs {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 3px;
-            margin-top: 6px;
             padding: 2px;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 7px;
@@ -3396,7 +3396,6 @@ body.steward-sidebar {
         }
 
         .ai-session-surface-tabs {
-            margin-top: 7px;
             border-radius: 6px;
 
             [role="tab"] {
@@ -3544,34 +3543,19 @@ body.steward-sidebar {
             flex: 1 1 auto;
         }
 
-        .ai-session-worktree-quick-create,
-        .ai-session-worktree-branch-create,
-        .ai-session-worktree-remove {
+        .ai-session-worktree-more {
             display: inline-flex;
-            flex: 0 0 28px;
+            flex: 0 0 24px;
             align-items: center;
             justify-content: center;
+            align-self: stretch;
             box-sizing: border-box;
-            min-width: 28px;
+            min-width: 24px;
             border: 0;
             border-left: 1px solid var(--vscode-panel-border);
-            color: var(--vscode-foreground);
+            color: var(--vscode-descriptionForeground);
             background: transparent;
             cursor: pointer;
-
-            &:hover,
-            &:focus-visible {
-                background: var(--vscode-list-hoverBackground);
-            }
-
-            &:disabled {
-                opacity: .55;
-                cursor: progress;
-            }
-        }
-
-        .ai-session-worktree-branch-create {
-            color: var(--vscode-descriptionForeground);
 
             svg {
                 width: 13px;
@@ -3579,16 +3563,16 @@ body.steward-sidebar {
             }
 
             &:hover,
-            &:focus-visible {
+            &:focus-visible,
+            &[aria-expanded="true"] {
                 color: var(--steward-foreground);
+                background: var(--vscode-list-hoverBackground);
             }
-        }
 
-        .ai-session-worktree-remove {
-            flex-basis: 24px;
-            min-width: 24px;
-            color: var(--vscode-descriptionForeground);
-            font-size: 15px;
+            &:disabled {
+                opacity: .55;
+                cursor: progress;
+            }
         }
 
         .ai-session-worktree-indicator {
@@ -3630,8 +3614,16 @@ body.steward-sidebar {
 
         .ai-session-worktree-chevron {
             flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            color: var(--vscode-descriptionForeground);
             transform: rotate(0deg);
             transition: transform $defaultTransition;
+
+            svg {
+                width: 11px;
+                height: 11px;
+            }
         }
 
         .ai-session-worktree-group[data-worktree-collapsed] .ai-session-worktree-chevron {
@@ -3642,7 +3634,11 @@ body.steward-sidebar {
             display: flex;
             flex-direction: column;
             gap: 2px;
-            padding: 0 3px 3px;
+            // Indent under the group header so the cards read as belonging
+            // to the worktree, with a quiet tree guide along the edge.
+            margin-left: 7px;
+            padding: 0 3px 3px 9px;
+            border-left: 1px solid var(--vscode-panel-border);
 
             // The display rule above outranks the UA [hidden] style, so the
             // collapse toggle must win explicitly.
@@ -3677,35 +3673,6 @@ body.steward-sidebar {
             font-size: 8px;
             text-overflow: ellipsis;
             white-space: nowrap;
-        }
-
-        .codex-sessions[data-ai-session-grouping="flat"] {
-            .ai-session-worktree-group,
-            .ai-session-worktree-session-list {
-                display: contents;
-            }
-
-            .ai-session-worktree-toolbar,
-            .ai-session-worktree-header,
-            .ai-session-worktree-empty {
-                display: none;
-            }
-        }
-
-        .codex-sessions[data-ai-session-grouping="worktree"] {
-            .codex-sessions-list {
-                gap: 5px;
-            }
-
-            .ai-session-worktree-group {
-                display: flex;
-                flex-direction: column;
-            }
-
-            .ai-session-flat-only,
-            .ai-session-worktree-chip {
-                display: none;
-            }
         }
 
         .ai-session-tab-count {

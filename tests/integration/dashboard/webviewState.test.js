@@ -796,8 +796,12 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     const chatsPanel = html.match(
         /data-ai-session-surface-panel="chats"[\s\S]*?ai-session-live-region/
     )[0];
-    assert.match(worktreePanel, /data-action="create-isolated-session"/,
-        'New Worktree creation belongs to the Worktree surface');
+    const surfaceBar = html.match(/ai-session-surface-bar[\s\S]*?data-ai-session-surface-panel/)[0];
+    assert.match(surfaceBar, /data-action="create-isolated-session"/,
+        'New Worktree creation lives on the surface bar next to the tabs');
+    assert.doesNotMatch(worktreePanel, /data-action="create-isolated-session"/);
+    assert.match(worktreePanel, /data-action="ai-session-worktree-menu"/,
+        'each worktree row exposes one unified actions menu');
     assert.doesNotMatch(chatsPanel, /data-action="create-isolated-session"/);
     assert.match(chatsPanel, /data-action="create-ai-session-quick"/,
         'session creation belongs to the Chats surface');
@@ -1828,12 +1832,17 @@ test('WORKTREE-QUICK-SWITCH-001 reveals, expands, and persists the selected work
     assert.equal(harness.context.window.__agentPivotRevealWorkspaceWorktree(
         'navigation-1', '/repo/.git', '/repo/topic'
     ), true);
-    assert.equal(sectionAttributes.get('data-ai-session-grouping'), 'worktree');
+    assert.equal(sectionAttributes.get('data-selected-ai-session-surface'), 'worktree',
+        'revealing a worktree selects the Worktree surface');
     assert.equal(headerAttributes.get('aria-expanded'), 'true');
     assert.equal(groupAttributes.has('data-worktree-collapsed'), false);
     assert.equal(listAttributes.has('hidden'), false);
     assert.equal(focused, true);
-    assert.equal(harness.getWebviewState().aiSessionGrouping['workspace-1'], 'worktree');
+    assert.equal(harness.getWebviewState().aiSessionSurfaces['workspace-1'], 'worktree');
+    assert.ok(harness.messages.some(message =>
+        message.type === 'select-ai-session-surface'
+        && message.projectId === 'workspace-1' && message.surface === 'worktree'),
+        'the reveal reports the surface selection for authoritative re-renders');
 });
 
 test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unlocks later retries', () => {
@@ -2755,10 +2764,10 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
     });
     assert.equal(harness.getWebviewState().unrelated, 'preserved');
 
-    context.writeAiSessionGroupingState(context.window.vscode, 'project-a', 'worktree');
-    context.writeAiSessionGroupingState(context.window.vscode, 'project-b', 'invalid');
-    assert.deepEqual(toPlain(context.readAiSessionGroupingState(context.window.vscode)), {
-        'project-a': 'worktree', 'project-b': 'flat',
+    context.writeAiSessionSurfaceState(context.window.vscode, 'project-a', 'worktree');
+    context.writeAiSessionSurfaceState(context.window.vscode, 'project-b', 'invalid');
+    assert.deepEqual(toPlain(context.readAiSessionSurfaceState(context.window.vscode)), {
+        'project-a': 'worktree', 'project-b': 'chats',
     });
     assert.equal(harness.getWebviewState().unrelated, 'preserved');
 

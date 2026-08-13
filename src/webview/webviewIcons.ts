@@ -1,6 +1,20 @@
 // This way to include SVGs was much easier to include than as file
 
 // Original Author: Jason Long, Source: https://commons.wikimedia.org/wiki/File:Git_.svg
+export const moreActions = `
+<svg viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="5" cy="12" r="1.8"></circle>
+    <circle cx="12" cy="12" r="1.8"></circle>
+    <circle cx="19" cy="12" r="1.8"></circle>
+</svg>
+`;
+
+export const chevronDown = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m6 9.5 6 6 6-6"></path>
+</svg>
+`;
+
 export const gitBranchAdd = `
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="6" cy="5" r="2.1"></circle>

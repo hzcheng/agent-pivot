@@ -3,7 +3,7 @@ function normalizeAiSessionTab(value) {
 }
 
 function normalizeAiSessionSurface(value) {
-    return value === 'chats' ? 'chats' : 'worktree';
+    return value === 'worktree' ? 'worktree' : 'chats';
 }
 
 function getAdjacentAiSessionSurface(surface, key) {
@@ -83,26 +83,6 @@ function getSelectedAiSessionSurface(projectDiv) {
         : null;
 }
 
-function normalizeAiSessionGrouping(value) {
-    return value === 'worktree' ? 'worktree' : 'flat';
-}
-
-function readAiSessionGroupingState(vscodeApi) {
-    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
-    return state.aiSessionGrouping && typeof state.aiSessionGrouping === 'object'
-        && !Array.isArray(state.aiSessionGrouping)
-        ? Object.assign({}, state.aiSessionGrouping)
-        : {};
-}
-
-function writeAiSessionGroupingState(vscodeApi, projectId, grouping) {
-    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectId) return;
-    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
-    var groupings = readAiSessionGroupingState(vscodeApi);
-    groupings[projectId] = normalizeAiSessionGrouping(grouping);
-    vscodeApi.setState(Object.assign({}, state, { aiSessionGrouping: groupings }));
-}
-
 function readAiSessionWorktreeCollapseState(vscodeApi) {
     var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
     return state.aiSessionCollapsedWorktrees
@@ -130,46 +110,6 @@ function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
         '.ai-session-worktree-group[data-worktree-collapsed]'
     )).map(getAiSessionWorktreeGroupKey)));
     vscodeApi.setState(Object.assign({}, state, { aiSessionCollapsedWorktrees: projects }));
-}
-
-function applyAiSessionGroupingDom(projectDiv, grouping, announce) {
-    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return 'flat';
-    var section = projectDiv.querySelector('.codex-sessions');
-    if (!section) return 'flat';
-    var select = projectDiv.querySelector('[data-ai-session-grouping-select]');
-    grouping = normalizeAiSessionGrouping(grouping);
-    if (grouping === 'worktree' && !select) grouping = 'flat';
-    section.setAttribute('data-ai-session-grouping', grouping);
-    if (select) select.value = grouping;
-    if (announce) {
-        var liveRegion = projectDiv.querySelector('[data-ai-session-live-region]');
-        if (liveRegion) {
-            var count = new Set(Array.from(projectDiv.querySelectorAll(
-                '.ai-session-worktree-group'
-            )).map(getAiSessionWorktreeGroupKey)).size;
-            liveRegion.textContent = grouping === 'worktree'
-                ? 'Grouped AI sessions by ' + count + ' worktree' + (count === 1 ? '.' : 's.')
-                : 'Showing a flat AI session list.';
-        }
-    }
-    return grouping;
-}
-
-function restoreAiSessionGroupingFromState(projectDiv, vscodeApi) {
-    if (!projectDiv) return 'flat';
-    var projectId = projectDiv.getAttribute('data-id');
-    var groupings = readAiSessionGroupingState(vscodeApi);
-    var section = projectDiv.querySelector('.codex-sessions');
-    var fallback = section && typeof section.getAttribute === 'function'
-        ? section.getAttribute('data-default-ai-session-grouping') || 'flat'
-        : 'flat';
-    return applyAiSessionGroupingDom(
-        projectDiv,
-        Object.prototype.hasOwnProperty.call(groupings, projectId)
-            ? groupings[projectId]
-            : fallback,
-        false
-    );
 }
 
 function setAiSessionWorktreeExpanded(header, expanded) {

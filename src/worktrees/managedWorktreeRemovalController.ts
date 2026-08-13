@@ -23,6 +23,7 @@ export type ManagedWorktreeRemovalOutcome =
 
 export interface ManagedWorktreeRemovalControllerOptions {
     getSnapshot: () => WorktreeSnapshot | null;
+    getWorktreeDirectory?: () => string;
     isProjectTarget: (projectId: string) => boolean;
     isActive: (key: WorktreeKey) => boolean;
     isOpenWorkspace: (key: WorktreeKey) => boolean;
@@ -115,7 +116,10 @@ export class ManagedWorktreeRemovalController {
             worktreeKeysEqual(candidate.key, key));
         if (!repository || !worktree || worktree.isMain || worktree.isBare
             || worktree.health !== 'normal'
-            || !isManagedWorktreePath(key.repositoryKey, key.canonicalWorktreePath)) {
+            || !isManagedWorktreePath(
+                key.repositoryKey,
+                key.canonicalWorktreePath,
+                this.options.getWorktreeDirectory?.())) {
             return null;
         }
         const commandCwd = repository.worktrees.find(candidate =>

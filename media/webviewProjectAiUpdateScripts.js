@@ -704,10 +704,16 @@ function initProjectAiSessionsUpdate(options) {
         if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
             toggleCodexSessions(workspaceDiv, workspaceId);
         }
-        selectAiSessionTabDom(workspaceDiv, 'sessions');
-        writeAiSessionTabState(window.vscode, workspaceId, 'sessions');
-        var grouping = applyAiSessionGroupingDom(workspaceDiv, 'worktree', true);
-        writeAiSessionGroupingState(window.vscode, workspaceId, grouping);
+        selectAiSessionSurfaceDom(workspaceDiv, 'worktree');
+        writeAiSessionSurfaceState(window.vscode, workspaceId, 'worktree');
+        if (window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: workspaceId,
+                surface: 'worktree',
+            });
+        }
         var group = Array.from(workspaceDiv.querySelectorAll(
             '.ai-session-worktree-group[data-worktree-repository-key][data-worktree-path]'
         )).find(candidate =>
@@ -717,10 +723,6 @@ function initProjectAiSessionsUpdate(options) {
         if (!group) {
             focusSearchRevealTarget(workspaceDiv);
             return false;
-        }
-        if (grouping !== 'worktree') {
-            focusSearchRevealTarget(workspaceDiv);
-            return true;
         }
         var header = group.querySelector('.ai-session-worktree-header');
         setAiSessionWorktreeGroupExpanded(workspaceDiv, group, true);

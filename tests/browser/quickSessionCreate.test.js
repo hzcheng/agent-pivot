@@ -28,7 +28,7 @@ function loadWebviewModules() {
     }
 }
 
-const { getAiSessionsDiv, getAiSessionCreateDropdown } = loadWebviewModules();
+const { getAiSessionsDiv, getAiSessionCreateDropdown, getAiSessionWorktreeMenu } = loadWebviewModules();
 
 const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
@@ -135,6 +135,7 @@ async function openQuickCreatePage(t, options = {}) {
                 </div>
                 <button type="button" id="outside">Outside</button>
                 ${getAiSessionCreateDropdown()}
+                ${getAiSessionWorktreeMenu()}
             </body>
         </html>`);
     await page.evaluate(() => {
@@ -287,8 +288,13 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
     await page.evaluate(() => {
         selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
     });
-    const button = project.locator('[data-action="remove-managed-worktree"]');
+    const button = project.locator('.ai-session-worktree-more');
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const removeItem = menu.locator('[data-action="worktree-remove"]');
     await button.click();
+    assert.equal(await removeItem.isVisible(), true,
+        'a removable worktree offers removal inside its unified menu');
+    await removeItem.click();
     assert.deepEqual((await postedMessages(page))[0], {
         type: 'remove-managed-worktree', version: 1,
         requestId: 'worktree-remove-1', projectId: 'project-a',
@@ -310,6 +316,7 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         /worktree-dirty/);
 
     await button.click();
+    await removeItem.click();
     const retry = (await postedMessages(page)).at(-1);
     assert.equal(retry.requestId, 'worktree-remove-2');
     await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
@@ -317,8 +324,8 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         requestId, status: 'accepted',
     } })), retry.requestId);
     await postAuthoritativeWorktreeRemoval(page, 2);
-    assert.equal(await page.locator('[data-action="remove-managed-worktree"]').count(), 0,
-        'authoritative HTML removes the control before success settles pending');
+    assert.equal(await page.locator('.ai-session-worktree-more').count(), 0,
+        'authoritative HTML removes the row before success settles pending');
     await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'managed-worktree-removal-settlement', version: 1,
         requestId, status: 'succeeded',
@@ -351,19 +358,60 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact
         }],
     });
     const button = page.locator(
-        '.project[data-id="project-a"] .ai-session-worktree-quick-create'
+        '.project[data-id="project-a"] .ai-session-worktree-more'
     );
 
     await page.evaluate(() => {
         selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
     });
-    assert.equal(await button.getAttribute('data-provider'), 'kimi');
-    assert.equal(await button.getAttribute('aria-label'), 'New Kimi session in feature/auth');
     await button.click();
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const quickItem = menu.locator('[data-action="worktree-quick-create"]');
+    assert.equal(await quickItem.textContent(), 'New Kimi session in feature/auth');
+    await quickItem.click();
     assert.deepEqual(await postedMessages(page), [{
         type: 'create-ai-session-quick',
         projectId: 'project-a',
         provider: 'kimi',
+        worktreeKey: key,
+    }]);
+    assert.equal(await menu.evaluate(element => element.classList.contains('visible')), false,
+        'choosing an item closes the menu');
+});
+
+test('WORKTREE-SESSION-CREATE-TARGET-001 the menu offers every provider for the worktree', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const page = await openQuickCreatePage(t, {
+        provider: 'kimi',
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key,
+                branchRef: 'refs/heads/feature/auth',
+                head: 'a'.repeat(40),
+                isMain: false,
+                isBare: false,
+                health: 'normal',
+                headKind: 'branch',
+            },
+            activity: 'idle',
+            sessions: [],
+            authority: { canResume: true },
+        }],
+    });
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
+    await page.locator('.project[data-id="project-a"] .ai-session-worktree-more').click();
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    await menu.locator('[data-action="worktree-provider-create"][data-provider="claude"]').click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-a',
+        provider: 'claude',
         worktreeKey: key,
     }]);
 });
@@ -439,12 +487,14 @@ test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon starts provisioning from
         selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
     });
     const button = page.locator(
-        '.project[data-id="project-a"] .ai-session-worktree-branch-create'
+        '.project[data-id="project-a"] .ai-session-worktree-more'
     );
-    assert.equal(await button.getAttribute('aria-label'), 'New worktree from feature/auth');
     assert.equal(await button.locator('svg').count(), 1,
-        'the branch-create affordance is an icon, not an English label');
+        'the row actions affordance is an icon, not an English label');
     await button.click();
+    const branchItem = page.locator('#aiSessionWorktreeMenu [data-action="worktree-branch-create"]');
+    assert.equal(await branchItem.textContent(), 'New worktree from feature/auth');
+    await branchItem.click();
     assert.deepEqual(await postedMessages(page), [{
         type: 'start-isolated-session',
         version: 1,
@@ -537,22 +587,23 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
     assert.deepEqual(await postedMessages(page), []);
 });
 
-test('AI-SESSION-QUICK-CREATE-001 the caption identifies the quick-create provider and profile at rest', async t => {
+test('AI-SESSION-QUICK-CREATE-001 the quick button tooltip identifies the provider and profile', async t => {
     const page = await openQuickCreatePage(t, { profile: 'deepseek', withStyles: true });
     const project = page.locator('.project[data-id="project-a"]');
     const quickButton = project.locator('[data-action="create-ai-session-quick"]');
-    const caption = project.locator('.ai-session-create-caption');
 
-    assert.equal(await caption.textContent(), 'Codex · deepseek');
-    assert.equal(await caption.getAttribute('aria-hidden'), 'true');
     assert.equal(await quickButton.getAttribute('aria-label'),
         'New Codex session with profile deepseek');
-    assert.ok((await caption.boundingBox()).height > 0,
-        'the caption is visible without any hover or focus');
+    assert.equal(await quickButton.getAttribute('title'),
+        'New Codex session with profile deepseek');
+    assert.equal(await project.locator('.ai-session-create-caption').count(), 0,
+        'no visible caption crowds the toolbar row');
 
-    const kimiCaption = page.locator('.project[data-id="project-b"] .ai-session-create-caption');
-    assert.equal(await kimiCaption.textContent(), 'Kimi',
-        'providers without a profile caption the provider name alone');
+    const kimiButton = page.locator(
+        '.project[data-id="project-b"] [data-action="create-ai-session-quick"]'
+    );
+    assert.equal(await kimiButton.getAttribute('title'), 'New Kimi session',
+        'providers without a profile name the provider alone in the tooltip');
 });
 
 test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provider, not the list filter', async t => {
@@ -563,7 +614,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provid
     assert.equal(await quickButton.getAttribute('data-provider'), 'kimi',
         'a stored codex-heavy list filter must not pin the quick-create button');
     assert.equal(await quickButton.getAttribute('aria-label'), 'New Kimi session');
-    assert.equal(await project.locator('.ai-session-create-caption').textContent(), 'Kimi');
+    assert.equal(await quickButton.getAttribute('title'), 'New Kimi session');
     assert.equal(
         await page.locator('.project[data-id="project-a"] [data-ai-session-region]')
             .getAttribute('data-active-ai-session-provider'),

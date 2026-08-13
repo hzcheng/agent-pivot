@@ -50,7 +50,7 @@ test('WORKTREE-PROVISIONING-PLAN-001 allocates one shared suffix for branch and 
     });
 
     assert.equal(plan.branchName, 'agent-pivot/fix-login-race-3');
-    assert.equal(plan.worktreePath, '/repo/.agent-pivot/worktrees/fix-login-race-3');
+    assert.equal(plan.worktreePath, '/repo/.worktrees/fix-login-race-3');
     assert.equal(plan.commandCwd, '/repo');
     assert.equal(plan.baseRef, 'refs/heads/main');
     assert.deepEqual(branchChecks, [
@@ -58,8 +58,8 @@ test('WORKTREE-PROVISIONING-PLAN-001 allocates one shared suffix for branch and 
         'agent-pivot/fix-login-race-3',
     ]);
     assert.deepEqual(pathChecks, [
-        '/repo/.agent-pivot/worktrees/fix-login-race-2',
-        '/repo/.agent-pivot/worktrees/fix-login-race-3',
+        '/repo/.worktrees/fix-login-race-2',
+        '/repo/.worktrees/fix-login-race-3',
     ]);
 });
 
@@ -93,7 +93,7 @@ test('WORKTREE-PROVISIONING-PLAN-001 supports Windows repository paths', async (
         isBranchAvailable: async () => true,
         isPathAvailable: async () => true,
     });
-    assert.equal(plan.worktreePath, 'C:\\repo\\.agent-pivot\\worktrees\\task');
+    assert.equal(plan.worktreePath, 'C:\\repo\\.worktrees\\task');
 });
 
 test('WORKTREE-PROVISIONING-PLAN-001 keeps bare repositories in a repository-specific managed root', async () => {
@@ -110,12 +110,42 @@ test('WORKTREE-PROVISIONING-PLAN-001 keeps bare repositories in a repository-spe
         isBranchAvailable: async () => true,
         isPathAvailable: async () => true,
     });
-    assert.equal(plan.worktreePath, '/repos/platform/.agent-pivot/worktrees/task');
+    assert.equal(plan.worktreePath, '/repos/platform/.worktrees/task');
+});
+
+test('WORKTREE-PROVISIONING-PLAN-001 honors the configured worktree directory', async () => {
+    const available = async () => true;
+    const plan = await createWorktreeProvisioningPlan({
+        repository: repository(),
+        taskName: 'Task',
+        worktreeDirectory: '.git/wt',
+        isBranchAvailable: available,
+        isPathAvailable: available,
+    });
+    assert.equal(plan.worktreePath, '/repo/.git/wt/task');
+
+    for (const invalid of ['', '  ', '/abs/path', 'C:\\abs', '../escape', 'a/../b', null, 7]) {
+        const fallback = await createWorktreeProvisioningPlan({
+            repository: repository(),
+            taskName: 'Task',
+            worktreeDirectory: invalid,
+            isBranchAvailable: available,
+            isPathAvailable: available,
+        });
+        assert.equal(fallback.worktreePath, '/repo/.worktrees/task',
+            `invalid directory ${JSON.stringify(invalid)} must fall back to the default`);
+    }
 });
 
 test('WORKTREE-MANAGED-CLEANUP-001 recognizes only direct managed worktree children', () => {
     assert.equal(isManagedWorktreePath('/repo/.git', '/repo/.agent-pivot/worktrees/task'), true);
     assert.equal(isManagedWorktreePath('/repo/.git', '/repo/.agent-pivot/worktrees/task/nested'), false);
+    assert.equal(isManagedWorktreePath('/repo/.git', '/repo/.worktrees/task'), true,
+        'the new default directory is managed');
+    assert.equal(isManagedWorktreePath('/repo/.git', '/repo/custom/task', 'custom'), true,
+        'the configured directory is managed');
+    assert.equal(isManagedWorktreePath('/repo/.git', '/repo/custom/task'), false,
+        'an unconfigured custom directory is not managed');
     assert.equal(isManagedWorktreePath('/repo/.git', '/repo/other'), false);
     assert.equal(isManagedWorktreePath(
         'C:\\repo\\.git', 'C:\\repo\\.agent-pivot\\worktrees\\task'), true);

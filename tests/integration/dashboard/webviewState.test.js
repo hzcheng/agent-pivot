@@ -709,6 +709,136 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 summarizes one or two selected 
     assert.match(html, /data-provider="claude"[\s\S]*?ai-session-provider-count">1/);
 });
 
+test('WORKTREE-GROUPING-UI-001 renders one authoritative session tree with worktree defaults, chips, and empty rows', () => {
+    const frontendKey = {
+        repositoryKey: '/repos/frontend/.git',
+        canonicalWorktreePath: '/managed/frontend-feature',
+    };
+    const idleKey = {
+        repositoryKey: '/repos/frontend/.git',
+        canonicalWorktreePath: '/managed/frontend-idle',
+    };
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'worktree-groups',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [{
+            id: 'feature-session',
+            name: 'Feature session',
+            provider: 'codex',
+            updatedAt: '2026-08-13T00:00:00.000Z',
+            worktreeKey: frontendKey,
+        }],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [],
+        quickCreateProvider: 'codex',
+        worktrees: [
+            {
+                kind: 'ready',
+                git: {
+                    key: idleKey,
+                    branchRef: 'refs/heads/feature/idle',
+                    head: 'b'.repeat(40),
+                    isMain: false,
+                    isBare: false,
+                    health: 'locked',
+                    headKind: 'branch',
+                },
+                activity: 'idle',
+                sessions: [],
+                authority: {
+                    canInput: false, canFocus: false, canStop: false,
+                    canResume: true, canArchive: false, canTakeControl: false,
+                    liveOwnerAvailable: false,
+                },
+            },
+            {
+                kind: 'ready',
+                git: {
+                    key: frontendKey,
+                    branchRef: 'refs/heads/feature/auth',
+                    head: 'a'.repeat(40),
+                    isMain: false,
+                    isBare: false,
+                    health: 'normal',
+                    headKind: 'branch',
+                },
+                activity: 'attention',
+                sessions: [],
+                authority: {
+                    canInput: false, canFocus: false, canStop: false,
+                    canResume: true, canArchive: true, canTakeControl: false,
+                    liveOwnerAvailable: false,
+                },
+            },
+        ],
+        truncatedWorktreeCount: 2,
+    });
+
+    assert.match(html, /data-default-ai-session-grouping="worktree"/);
+    assert.match(html, /data-ai-session-grouping-select/);
+    assert.match(html, /<option value="flat">Flat<\/option>/);
+    assert.match(html, /<option value="worktree" selected>Worktree<\/option>/);
+    assert.equal((html.match(/data-session-id="feature-session"/g) || []).length, 1,
+        'Flat and Worktree modes must share one session DOM node');
+    assert.match(html, /class="ai-session-worktree-chip"[^>]*>feature\/auth<\/span>/);
+    assert.match(html, /data-worktree-activity="attention"/);
+    assert.ok(html.indexOf('feature/auth') < html.indexOf('feature/idle'),
+        'attention worktrees render first while stable snapshot order breaks ties');
+    assert.match(html, /feature\/idle[\s\S]*?locked[\s\S]*?\(no sessions\)/);
+    assert.match(html, /2 more worktrees not shown/);
+    assert.match(html, /data-action="toggle-ai-session-worktree"/);
+    assert.match(html, /aria-label="feature\/auth, 1 session, needs attention"/);
+});
+
+test('WORKTREE-GROUPING-UI-001 keeps Flat as the default without multiple ready worktrees', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'flat-default',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktrees: [],
+    });
+    assert.match(html, /data-default-ai-session-grouping="flat"/);
+    assert.doesNotMatch(html, /data-ai-session-grouping-select/);
+});
+
+test('WORKTREE-GROUPING-UI-001 renders distinct no-repository and bare-repository empty states', () => {
+    const base = {
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktreeSnapshotRevision: 1,
+    };
+    const noRepository = webviewModules.content.getAiSessionsDiv({
+        ...base,
+        id: 'no-repository',
+        worktrees: [],
+        worktreeRepositoryCount: 0,
+        bareWorktreeCount: 0,
+    });
+    assert.match(noRepository, /No git repository found in this workspace\./);
+
+    const bareRepository = webviewModules.content.getAiSessionsDiv({
+        ...base,
+        id: 'bare-repository',
+        worktreeRepositoryCount: 1,
+        bareWorktreeCount: 1,
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo' },
+                head: '', isMain: true, isBare: true, health: 'normal', headKind: 'unknown',
+            },
+            activity: 'idle', sessions: [], authority: {},
+        }],
+    });
+    assert.match(bareRepository, /No linked worktrees/);
+    assert.doesNotMatch(bareRepository, /data-worktree-repository-key=/);
+});
+
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 renders one named availability summary alongside available provider rows', () => {
     const html = webviewModules.content.getAiSessionsDiv({
         id: 'mixed-availability',
@@ -1534,6 +1664,111 @@ test('WEBVIEW-AI-DASHBOARD-001 receives select-dashboard-tab and delegates exter
 
     harness.controller.setSearchQuery('prompt-refresh');
     assert.equal(JSON.stringify(toPlain(harness.searchResults.children)), searchBefore);
+});
+
+test('WORKTREE-QUICK-SWITCH-001 receives an exact host reveal request and activates OPEN', () => {
+    const harness = createDashboardHarness({ initialTab: 'ai' });
+    const reveals = [];
+    harness.context.window.__agentPivotRevealWorkspaceWorktree = (...args) => reveals.push(args);
+    harness.controller.setSearchQuery('topic');
+
+    harness.windowListeners.message({ data: {
+        type: 'reveal-workspace-worktree-requested',
+        version: 1,
+        navigationIdentity: 'navigation-1',
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/topic',
+    } });
+
+    assert.equal(harness.controller.getActiveTab(), 'open');
+    assert.equal(harness.controller.isSearchActive(), false);
+    assert.deepEqual(toPlain(reveals), [[
+        'navigation-1', '/repo/.git', '/repo/topic',
+    ]]);
+
+    harness.windowListeners.message({ data: {
+        type: 'reveal-workspace-worktree-requested',
+        version: 2,
+        navigationIdentity: 'navigation-2',
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/ignored',
+    } });
+    harness.windowListeners.message({ data: {
+        type: 'reveal-workspace-worktree-requested',
+        version: 1,
+        navigationIdentity: 'navigation-3',
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/extra-key',
+        unexpected: true,
+    } });
+    assert.equal(reveals.length, 1);
+});
+
+test('WORKTREE-QUICK-SWITCH-001 reveals, expands, and persists the selected worktree group', () => {
+    const harness = createProjectVm();
+    const sectionAttributes = new Map();
+    const section = {
+        getAttribute: name => sectionAttributes.get(name) || null,
+        setAttribute: (name, value) => sectionAttributes.set(name, String(value)),
+    };
+    const select = { value: 'flat' };
+    const liveRegion = { textContent: '' };
+    const listAttributes = new Set(['hidden']);
+    const list = { toggleAttribute: (name, enabled) => enabled ? listAttributes.add(name) : listAttributes.delete(name) };
+    const groupAttributes = new Set(['data-worktree-collapsed']);
+    const group = {
+        getAttribute: name => name === 'data-worktree-repository-key' ? '/repo/.git'
+            : name === 'data-worktree-path' ? '/repo/topic' : null,
+        hasAttribute: name => groupAttributes.has(name),
+        toggleAttribute: (name, enabled) => enabled ? groupAttributes.add(name) : groupAttributes.delete(name),
+        querySelector: selector => selector === '.ai-session-worktree-header' ? header
+            : selector === '.ai-session-worktree-session-list' ? list : null,
+    };
+    const headerAttributes = new Map([['aria-expanded', 'false']]);
+    let focused = false;
+    const header = {
+        closest: selector => selector === '.ai-session-worktree-group' ? group : null,
+        getAttribute: name => headerAttributes.get(name) || null,
+        setAttribute: (name, value) => headerAttributes.set(name, String(value)),
+        removeAttribute: () => undefined,
+        focus: () => { focused = true; },
+        scrollIntoView: () => undefined,
+        addEventListener: () => undefined,
+    };
+    const tab = {
+        getAttribute: name => name === 'data-ai-session-tab' ? 'sessions' : null,
+        setAttribute: () => undefined,
+    };
+    const panel = {
+        getAttribute: name => name === 'data-ai-session-panel' ? 'sessions' : null,
+        toggleAttribute: () => undefined,
+    };
+    const workspace = {
+        getAttribute: name => name === 'data-workspace-navigation-identity' ? 'navigation-1'
+            : name === 'data-id' ? 'workspace-1' : null,
+        hasAttribute: name => name === 'data-codex-expanded',
+        querySelector: selector => selector === '.codex-sessions' ? section
+            : selector === '[data-ai-session-grouping-select]' ? select
+                : selector === '[data-ai-session-live-region]' ? liveRegion : null,
+        querySelectorAll: selector => selector === '[data-ai-session-tab]' ? [tab]
+            : selector === '[data-ai-session-panel]' ? [panel]
+                : selector === '.ai-session-worktree-group' ? [group]
+                    : selector.includes('data-worktree-collapsed')
+                        ? (groupAttributes.has('data-worktree-collapsed') ? [group] : [])
+                        : selector.includes('.ai-session-worktree-group') ? [group] : [],
+    };
+    harness.context.document.querySelectorAll = selector =>
+        selector === '.workspace-card[data-workspace-navigation-identity]' ? [workspace] : [];
+
+    assert.equal(harness.context.window.__agentPivotRevealWorkspaceWorktree(
+        'navigation-1', '/repo/.git', '/repo/topic'
+    ), true);
+    assert.equal(sectionAttributes.get('data-ai-session-grouping'), 'worktree');
+    assert.equal(headerAttributes.get('aria-expanded'), 'true');
+    assert.equal(groupAttributes.has('data-worktree-collapsed'), false);
+    assert.equal(listAttributes.has('hidden'), false);
+    assert.equal(focused, true);
+    assert.equal(harness.getWebviewState().aiSessionGrouping['workspace-1'], 'worktree');
 });
 
 test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unlocks later retries', () => {
@@ -2436,6 +2671,32 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
     });
     assert.equal(harness.getWebviewState().unrelated, 'preserved');
 
+    const collapsedAttributes = new Set(['data-worktree-collapsed']);
+    const collapseGroup = {
+        getAttribute: name => name === 'data-worktree-repository-key' ? '/repo/.git'
+            : name === 'data-worktree-path' ? '/repo/topic' : null,
+        hasAttribute: name => collapsedAttributes.has(name),
+    };
+    const collapseProject = {
+        getAttribute: name => name === 'data-id' ? 'project-a' : null,
+        querySelectorAll: selector => selector.includes('data-worktree-collapsed')
+            ? [collapseGroup] : [],
+    };
+    context.writeAiSessionWorktreeCollapseState(context.window.vscode, collapseProject);
+    assert.deepEqual(toPlain(
+        context.readAiSessionWorktreeCollapseState(context.window.vscode)
+    ), {
+        'project-a': ['["/repo/.git","/repo/topic",false]'],
+    });
+    assert.equal(harness.getWebviewState().unrelated, 'preserved');
+
+    context.writeAiSessionGroupingState(context.window.vscode, 'project-a', 'worktree');
+    context.writeAiSessionGroupingState(context.window.vscode, 'project-b', 'invalid');
+    assert.deepEqual(toPlain(context.readAiSessionGroupingState(context.window.vscode)), {
+        'project-a': 'worktree', 'project-b': 'flat',
+    });
+    assert.equal(harness.getWebviewState().unrelated, 'preserved');
+
     const activeList = { scrollTop: 0, scrollHeight: 100, clientHeight: 40 };
     const historyList = { scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
     const tab = id => {
@@ -2487,6 +2748,36 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
     assert.equal(historyList.scrollTop, 29);
     assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
     assert.equal(tabs[1].getAttribute('aria-selected'), 'false');
+});
+
+test('WORKTREE-GROUPING-UI-001 moves keyboard focus among worktree headers', () => {
+    const harness = createProjectVm();
+    const focused = [];
+    const panel = { querySelectorAll: () => headers };
+    const headers = ['one', 'two', 'three'].map(name => ({
+        name,
+        closest: selector => selector === '[data-ai-session-panel]' ? panel
+            : selector === '.ai-session-worktree-header' ? this : null,
+        focus: () => focused.push(name),
+    }));
+    const eventFor = (header, key) => ({
+        target: {
+            closest: selector => selector === '.ai-session-worktree-header' ? header : null,
+        },
+        key,
+        preventDefault: () => focused.push('prevented'),
+    });
+
+    harness.documentListeners.keydown(eventFor(headers[1], 'ArrowDown'));
+    harness.documentListeners.keydown(eventFor(headers[0], 'ArrowUp'));
+    harness.documentListeners.keydown(eventFor(headers[1], 'Home'));
+    harness.documentListeners.keydown(eventFor(headers[1], 'End'));
+    assert.deepEqual(focused, [
+        'prevented', 'three',
+        'prevented', 'three',
+        'prevented', 'one',
+        'prevented', 'three',
+    ]);
 });
 
 test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 announces renderer readiness after installing the message listener', () => {

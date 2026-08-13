@@ -1200,6 +1200,8 @@ function runTmuxLayoutChecks() {
         workspaceScopeIdentity: '@agent-pivot-workspace-scope-identity',
         workspaceNavigationIdentity: '@agent-pivot-workspace-navigation-identity',
         workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
+        writableRootHostPaths: '@agent-pivot-writable-root-host-paths',
+        worktreeKey: '@agent-pivot-worktree-key',
         cwd: '@agent-pivot-cwd',
         provider: '@agent-pivot-provider',
         sessionId: '@agent-pivot-session-id',
@@ -2762,8 +2764,9 @@ async function runTmuxDiscoveryChecks() {
     const releaseAcknowledgement = deferred();
     let persistedAcknowledgementExpected;
     const mutationBinding = {
-        version: 2, state: 'completed', provider: 'codex', sessionId: 'mutation-ack',
+        version: 3, state: 'completed', provider: 'codex', sessionId: 'mutation-ack',
         workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], cwd: '/work', layout: 'project',
+        writableRootHostPaths: ['/work'],
         locator: {
             layout: 'project', sessionName: 'project-pk', windowName: 'mutation-ack',
         },
@@ -3435,6 +3438,8 @@ async function runTmuxStoreChecks() {
         assert.strictEqual(staleCrossTransition, false);
         assert.deepStrictEqual(await crossHostA.getKnown('codex', 'cross-host'), {
             ...crossNew,
+            version: 3,
+            writableRootHostPaths: ['/work'],
             cwd: crossRuntime.identity.cwd,
             markerPath: crossRuntime.markerPath,
             runStartedAtMs: crossRuntime.runStartedAtMs,
@@ -4277,13 +4282,14 @@ async function runTmuxStoreChecks() {
             tmux: { layout: 'session', sessionName: 'agent-pivot-s-codex-legacy' },
         }]);
         assert.deepStrictEqual(await legacyReconcileStore.getKnown('codex', 'legacy-live'), {
-            version: 2,
+            version: 3,
             state: 'known',
             provider: 'codex',
             sessionId: 'legacy-live',
             workspaceScopeIdentity: 'legacy-project',
             workspaceNavigationIdentity: 'nav-1',
             workspaceRootHostPaths: ['/work'],
+            writableRootHostPaths: ['/work'],
             cwd: '/work',
             layout: 'session',
             locator: { layout: 'session', sessionName: 'agent-pivot-s-codex-legacy' },
@@ -4339,7 +4345,7 @@ async function runTmuxStoreChecks() {
         attach.set(Promise.resolve(41), binding);
         await attach.flush();
         assert.deepStrictEqual(attach.get(41), binding);
-        assert.deepStrictEqual([...state.keys()], ['aiSessionTmuxAttachProcessBinding.v2.41']);
+        assert.deepStrictEqual([...state.keys()], ['aiSessionTmuxAttachProcessBinding.v3.41']);
         attach.setRecovery('0123456789abcdef0123456789abcdef', Promise.resolve(61), binding);
         await attach.flush();
         assert.deepStrictEqual(
@@ -4787,7 +4793,7 @@ async function runTmuxBackendChecks() {
             sessionName, windowName: 'agent-pivot', windowId: `@ownership-${index}`,
             active: false,
             sessionMetadata: {
-                managed: '1', version: '2', layout: 'project', workspaceScopeIdentity: 'owned-conflict',
+                managed: '1', version: '3', layout: 'project', workspaceScopeIdentity: 'owned-conflict',
             },
             windowMetadata: {}, metadata: {},
         });
@@ -4824,7 +4830,7 @@ async function runTmuxBackendChecks() {
     );
     const renamedContainerSuffix = renamedContainerPreferred.sessionName.match(/([0-9a-f]{8})$/)[1];
     const renamedContainerMetadata = {
-        managed: '1', version: '2', layout: 'project', workspaceScopeIdentity: 'renamed-container',
+        managed: '1', version: '3', layout: 'project', workspaceScopeIdentity: 'renamed-container',
     };
     const seedProjectContainer = (harness, sessionName, index = 0) => {
         harness.windows.push({
@@ -5162,11 +5168,12 @@ async function runTmuxBackendChecks() {
     const projectManagedRows = projectHarness.windows.filter(row => row.windowMetadata.provider);
     assert.strictEqual(projectManagedRows.length, 2);
     assert.deepStrictEqual(projectManagedRows[0].sessionMetadata, {
-        managed: '1', version: '2', layout: 'project', workspaceScopeIdentity: 'pk',
+        managed: '1', version: '3', layout: 'project', workspaceScopeIdentity: 'pk',
     });
     assert.deepStrictEqual(projectManagedRows[0].windowMetadata, {
-        managed: '1', version: '2', layout: 'project', workspaceScopeIdentity: 'pk',
+        managed: '1', version: '3', layout: 'project', workspaceScopeIdentity: 'pk',
         workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: '["/work"]', cwd: '/work',
+        writableRootHostPaths: '["/work"]',
         provider: 'codex', sessionId: 's1',
         createdAt: '2026-07-18T10:00:00.000Z', marker: '/tmp/m1',
     });
@@ -5304,12 +5311,13 @@ async function runTmuxBackendChecks() {
         'initial session-layout viewers must use the same tmux-specific naming as reattach');
     const sessionManagedRow = sessionHarness.windows[0];
     assert.deepStrictEqual(sessionManagedRow.sessionMetadata, {
-        managed: '1', version: '2', layout: 'session', workspaceScopeIdentity: 'pk', provider: 'codex',
+        managed: '1', version: '3', layout: 'session', workspaceScopeIdentity: 'pk', provider: 'codex',
         workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: '["/work"]', cwd: '/work',
+        writableRootHostPaths: '["/work"]',
         sessionId: 's1', createdAt: '2026-07-18T10:00:00.000Z', marker: '/tmp/s1',
     });
     assert.deepStrictEqual(sessionManagedRow.windowMetadata, {
-        managed: '1', version: '2', layout: 'session',
+        managed: '1', version: '3', layout: 'session',
     });
 
     const sessionFocusHarness = createTmuxBackendHarness();
@@ -5931,7 +5939,7 @@ async function runTmuxBackendChecks() {
     assert.ok(pendingHarness.operations.findIndex(item => item.type === 'store-consumed')
         < pendingHarness.operations.findIndex(item => item.type === 'remove-pending'));
     assert.ok(pendingHarness.operations.some(item => item.type === 'lock' && item.key === tmuxLayout.getTmuxRuntimeKey({
-        provider: 'claude', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], cwd: '/work', sessionId: 'final-1',
+        provider: 'claude', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], writableRootHostPaths: ['/work'], cwd: '/work', sessionId: 'final-1',
     })));
     assert.ok(pendingHarness.operations.some(item =>
         item.type === 'lock' && item.key === `pending:${tmuxLayout.getTmuxRuntimeKey(pendingRequest.identity)}`));
@@ -6030,7 +6038,7 @@ async function runTmuxBackendChecks() {
         );
         assert.strictEqual(builds, 1);
         const ambiguous = Array.from(stableHarness.ambiguous.values())[0];
-        assert.match(ambiguous.requestFingerprint, /^v3:[a-f0-9]{64}$/);
+        assert.match(ambiguous.requestFingerprint, /^v4:[a-f0-9]{64}$/);
         stableFingerprints.push(ambiguous.requestFingerprint);
     }
     assert.strictEqual(
@@ -6772,14 +6780,15 @@ async function runTmuxBackendChecks() {
         if (occupiedExpiredLayout === 'project') {
             renamedRow.windowName = occupiedExpiredIntent.sourceLocator.windowName;
             renamedRow.sessionMetadata = {
-                managed: '1', version: '2', layout: 'project',
+                managed: '1', version: '3', layout: 'project',
                 workspaceScopeIdentity: occupiedExpiredIntent.workspaceScopeIdentity,
             };
             renamedRow.windowMetadata = {
-                managed: '1', version: '2', layout: 'project', provider: occupiedExpiredIntent.provider,
+                managed: '1', version: '3', layout: 'project', provider: occupiedExpiredIntent.provider,
                 workspaceScopeIdentity: occupiedExpiredIntent.workspaceScopeIdentity,
                 workspaceNavigationIdentity: occupiedExpiredIntent.workspaceNavigationIdentity,
                 workspaceRootHostPaths: JSON.stringify(occupiedExpiredIntent.workspaceRootHostPaths),
+                writableRootHostPaths: JSON.stringify(occupiedExpiredIntent.writableRootHostPaths),
                 cwd: occupiedExpiredIntent.cwd,
                 createdAt: occupiedExpiredIntent.createdAt, pendingId: occupiedExpiredIntent.pendingId,
                 marker: occupiedExpiredIntent.markerPath,
@@ -6787,15 +6796,16 @@ async function runTmuxBackendChecks() {
         } else {
             renamedRow.windowName = occupiedExpiredIntent.sourceLocator.windowName || 'ai-session';
             renamedRow.sessionMetadata = {
-                managed: '1', version: '2', layout: 'session', provider: occupiedExpiredIntent.provider,
+                managed: '1', version: '3', layout: 'session', provider: occupiedExpiredIntent.provider,
                 workspaceScopeIdentity: occupiedExpiredIntent.workspaceScopeIdentity,
                 workspaceNavigationIdentity: occupiedExpiredIntent.workspaceNavigationIdentity,
                 workspaceRootHostPaths: JSON.stringify(occupiedExpiredIntent.workspaceRootHostPaths),
+                writableRootHostPaths: JSON.stringify(occupiedExpiredIntent.writableRootHostPaths),
                 cwd: occupiedExpiredIntent.cwd,
                 createdAt: occupiedExpiredIntent.createdAt, pendingId: occupiedExpiredIntent.pendingId,
                 marker: occupiedExpiredIntent.markerPath,
             };
-            renamedRow.windowMetadata = { managed: '1', version: '2', layout: 'session' };
+            renamedRow.windowMetadata = { managed: '1', version: '3', layout: 'session' };
         }
         renamedRow.metadata = { ...renamedRow.sessionMetadata, ...renamedRow.windowMetadata };
         occupiedExpiredHarness.windows.push({
@@ -7050,9 +7060,9 @@ async function runTmuxBackendChecks() {
     const recoveredLifecycleRow = ambiguousLifecycleHarness.windows[0];
     assert.strictEqual(recoveredLifecycle.identity.sessionId, 's2');
     assert.deepStrictEqual(ambiguousLifecycleHarness.known.get('codex:s2'), {
-        version: 2, state: 'known', provider: 'codex', sessionId: 's2',
+        version: 3, state: 'known', provider: 'codex', sessionId: 's2',
         workspaceScopeIdentity: 'ambiguous-lifecycle', workspaceNavigationIdentity: 'nav-1',
-        workspaceRootHostPaths: ['/work'], layout: 'session',
+        workspaceRootHostPaths: ['/work'], writableRootHostPaths: ['/work'], layout: 'session',
         locator: {
             layout: 'session', sessionName: recoveredLifecycleRow.sessionName,
             windowName: recoveredLifecycleRow.windowName,

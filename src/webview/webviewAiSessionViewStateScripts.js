@@ -2,6 +2,134 @@ function normalizeAiSessionTab(value) {
     return value === 'active' ? 'active' : 'sessions';
 }
 
+function normalizeAiSessionGrouping(value) {
+    return value === 'worktree' ? 'worktree' : 'flat';
+}
+
+function readAiSessionGroupingState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    return state.aiSessionGrouping && typeof state.aiSessionGrouping === 'object'
+        && !Array.isArray(state.aiSessionGrouping)
+        ? Object.assign({}, state.aiSessionGrouping)
+        : {};
+}
+
+function writeAiSessionGroupingState(vscodeApi, projectId, grouping) {
+    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectId) return;
+    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    var groupings = readAiSessionGroupingState(vscodeApi);
+    groupings[projectId] = normalizeAiSessionGrouping(grouping);
+    vscodeApi.setState(Object.assign({}, state, { aiSessionGrouping: groupings }));
+}
+
+function readAiSessionWorktreeCollapseState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    return state.aiSessionCollapsedWorktrees
+        && typeof state.aiSessionCollapsedWorktrees === 'object'
+        && !Array.isArray(state.aiSessionCollapsedWorktrees)
+        ? Object.assign({}, state.aiSessionCollapsedWorktrees)
+        : {};
+}
+
+function getAiSessionWorktreeGroupKey(group) {
+    return JSON.stringify([
+        group?.getAttribute('data-worktree-repository-key') || '',
+        group?.getAttribute('data-worktree-path') || '',
+        !!group?.hasAttribute('data-worktree-unmanaged'),
+    ]);
+}
+
+function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
+    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectDiv) return;
+    var projectId = projectDiv.getAttribute('data-id');
+    if (!projectId) return;
+    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    var projects = readAiSessionWorktreeCollapseState(vscodeApi);
+    projects[projectId] = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group[data-worktree-collapsed]'
+    )).map(getAiSessionWorktreeGroupKey)));
+    vscodeApi.setState(Object.assign({}, state, { aiSessionCollapsedWorktrees: projects }));
+}
+
+function applyAiSessionGroupingDom(projectDiv, grouping, announce) {
+    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return 'flat';
+    var section = projectDiv.querySelector('.codex-sessions');
+    if (!section) return 'flat';
+    var select = projectDiv.querySelector('[data-ai-session-grouping-select]');
+    grouping = normalizeAiSessionGrouping(grouping);
+    if (grouping === 'worktree' && !select) grouping = 'flat';
+    section.setAttribute('data-ai-session-grouping', grouping);
+    if (select) select.value = grouping;
+    if (announce) {
+        var liveRegion = projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            var count = new Set(Array.from(projectDiv.querySelectorAll(
+                '.ai-session-worktree-group'
+            )).map(getAiSessionWorktreeGroupKey)).size;
+            liveRegion.textContent = grouping === 'worktree'
+                ? 'Grouped AI sessions by ' + count + ' worktree' + (count === 1 ? '.' : 's.')
+                : 'Showing a flat AI session list.';
+        }
+    }
+    return grouping;
+}
+
+function restoreAiSessionGroupingFromState(projectDiv, vscodeApi) {
+    if (!projectDiv) return 'flat';
+    var projectId = projectDiv.getAttribute('data-id');
+    var groupings = readAiSessionGroupingState(vscodeApi);
+    var section = projectDiv.querySelector('.codex-sessions');
+    var fallback = section && typeof section.getAttribute === 'function'
+        ? section.getAttribute('data-default-ai-session-grouping') || 'flat'
+        : 'flat';
+    return applyAiSessionGroupingDom(
+        projectDiv,
+        Object.prototype.hasOwnProperty.call(groupings, projectId)
+            ? groupings[projectId]
+            : fallback,
+        false
+    );
+}
+
+function setAiSessionWorktreeExpanded(header, expanded) {
+    if (!header) return false;
+    var group = header.closest('.ai-session-worktree-group');
+    if (!group) return false;
+    expanded = expanded !== false;
+    header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    group.toggleAttribute('data-worktree-collapsed', !expanded);
+    var list = group.querySelector('.ai-session-worktree-session-list');
+    if (list) list.toggleAttribute('hidden', !expanded);
+    return true;
+}
+
+function setAiSessionWorktreeGroupExpanded(projectDiv, group, expanded) {
+    if (!projectDiv || !group) return false;
+    var key = getAiSessionWorktreeGroupKey(group);
+    var changed = false;
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(candidate => {
+        if (getAiSessionWorktreeGroupKey(candidate) !== key) return;
+        changed = setAiSessionWorktreeExpanded(
+            candidate.querySelector('.ai-session-worktree-header'),
+            expanded
+        ) || changed;
+    });
+    return changed;
+}
+
+function restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi) {
+    if (!projectDiv) return;
+    var projectId = projectDiv.getAttribute('data-id');
+    var projects = readAiSessionWorktreeCollapseState(vscodeApi);
+    var collapsed = new Set(Array.isArray(projects[projectId]) ? projects[projectId] : []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(group => {
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !collapsed.has(getAiSessionWorktreeGroupKey(group))
+        );
+    });
+}
+
 function parseAiSessionConversationFocusOrigin(message) {
     var expectedKeys = [
         'type',
@@ -124,6 +252,8 @@ function restoreAiSessionTabsFromState(root, vscodeApi) {
         if (Object.prototype.hasOwnProperty.call(tabs, projectId)) {
             selectAiSessionTabDom(projectDiv, tabs[projectId]);
         }
+        restoreAiSessionGroupingFromState(projectDiv, vscodeApi);
+        restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi);
     });
 }
 
@@ -197,6 +327,14 @@ function captureAiSessionViewState(projectDiv) {
             pendingCreatedAt: focusedRow.getAttribute('data-pending-created-at') || '',
             panel: focusedRow.closest('[data-ai-session-panel]')?.getAttribute('data-ai-session-panel') || '',
         } : null,
+        grouping: projectDiv.querySelector('.codex-sessions')
+            ?.getAttribute('data-ai-session-grouping') || 'flat',
+        collapsedWorktrees: Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-worktree-collapsed]'
+        )).map(getAiSessionWorktreeGroupKey),
+        worktreeKeys: Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group'
+        )).map(getAiSessionWorktreeGroupKey))),
     };
 }
 
@@ -222,6 +360,26 @@ function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
 
 function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options) {
     if (!projectDiv || !viewState) return null;
+    applyAiSessionGroupingDom(projectDiv, viewState.grouping, false);
+    var collapsed = new Set(viewState.collapsedWorktrees || []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(group => {
+        var key = getAiSessionWorktreeGroupKey(group);
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !collapsed.has(key)
+        );
+    });
+    var currentWorktreeKeys = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group'
+    )).map(getAiSessionWorktreeGroupKey)));
+    if (Array.isArray(viewState.worktreeKeys)
+        && JSON.stringify(viewState.worktreeKeys) !== JSON.stringify(currentWorktreeKeys)) {
+        var liveRegion = projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = 'Worktree list updated. ' + currentWorktreeKeys.length
+                + ' worktree' + (currentWorktreeKeys.length === 1 ? ' shown.' : 's shown.');
+        }
+    }
     var activeList = projectDiv.querySelector('.ai-session-active-panel .codex-sessions-list');
     var historyList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
     selectAiSessionTabDom(projectDiv, 'active');

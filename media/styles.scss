@@ -3294,6 +3294,172 @@ body.steward-sidebar {
             }
         }
 
+        .ai-session-grouping-control {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 5px;
+            margin-top: 5px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+            font-weight: 600;
+
+            select {
+                min-width: 72px;
+                height: 22px;
+                padding: 1px 18px 1px 5px;
+                border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+                border-radius: 4px;
+                color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+                background: var(--vscode-dropdown-background, var(--vscode-input-background));
+                font-family: var(--vscode-font-family);
+                font-size: 10px;
+            }
+        }
+
+        .ai-session-worktree-group,
+        .ai-session-worktree-session-list {
+            min-width: 0;
+        }
+
+        .ai-session-worktree-group {
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 7px;
+            background: var(--vscode-sideBar-background);
+            overflow: hidden;
+        }
+
+        .ai-session-worktree-header {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 30px;
+            padding: 4px 6px;
+            border: 0;
+            color: var(--vscode-foreground);
+            background: transparent;
+            font-family: var(--vscode-font-family);
+            text-align: left;
+            cursor: pointer;
+
+            &:hover,
+            &:focus-visible {
+                background: var(--vscode-list-hoverBackground);
+            }
+        }
+
+        .ai-session-worktree-indicator {
+            flex: 0 0 auto;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .ai-session-worktree-group[data-worktree-activity="active"] .ai-session-worktree-indicator {
+            color: var(--vscode-terminal-ansiGreen, #89d185);
+        }
+
+        .ai-session-worktree-group[data-worktree-activity="attention"] .ai-session-worktree-indicator {
+            color: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+        }
+
+        .ai-session-worktree-title {
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            font-size: 10px;
+            font-weight: 600;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ai-session-worktree-health,
+        .ai-session-worktree-head,
+        .ai-session-worktree-count {
+            flex: 0 0 auto;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+        }
+
+        .ai-session-worktree-health {
+            padding: 1px 3px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 999px;
+        }
+
+        .ai-session-worktree-chevron {
+            flex: 0 0 auto;
+            transform: rotate(0deg);
+            transition: transform $defaultTransition;
+        }
+
+        .ai-session-worktree-group[data-worktree-collapsed] .ai-session-worktree-chevron {
+            transform: rotate(-90deg);
+        }
+
+        .ai-session-worktree-session-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 0 3px 3px;
+        }
+
+        .ai-session-worktree-empty,
+        .ai-session-worktree-truncated,
+        .ai-session-worktree-empty-state {
+            padding: 5px 7px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+        }
+
+        .ai-session-worktree-empty-state {
+            margin-top: 5px;
+            border: 1px dashed var(--vscode-panel-border);
+            border-radius: 6px;
+        }
+
+        .ai-session-worktree-chip {
+            display: inline-flex;
+            min-width: 0;
+            max-width: 92px;
+            padding: 1px 4px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 999px;
+            overflow: hidden;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .codex-sessions[data-ai-session-grouping="flat"] {
+            .ai-session-worktree-group,
+            .ai-session-worktree-session-list {
+                display: contents;
+            }
+
+            .ai-session-worktree-header,
+            .ai-session-worktree-empty {
+                display: none;
+            }
+        }
+
+        .codex-sessions[data-ai-session-grouping="worktree"] {
+            .codex-sessions-list {
+                gap: 5px;
+            }
+
+            .ai-session-worktree-group {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .ai-session-flat-only,
+            .ai-session-worktree-chip {
+                display: none;
+            }
+        }
+
         .ai-session-tab-count {
             display: inline-flex;
             align-items: center;

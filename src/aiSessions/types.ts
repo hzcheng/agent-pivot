@@ -253,6 +253,8 @@ export interface WorkspaceAiSessionViewModel {
     activeSessionCount: number;
     activeAttentionCount: number;
     worktrees: WorktreeRowViewModel[];
+    worktreeRepositoryCount?: number;
+    bareWorktreeCount?: number;
     unmanagedSessions: AiSessionViewModel[];
     unmanagedActiveSessions: ActiveAiSessionViewModel[];
     worktreeSnapshotRevision?: number;

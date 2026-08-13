@@ -99,6 +99,9 @@ import {
     createAiSessionQuickSwitchHandlers,
 } from './dashboard/sessionQuickSwitch';
 import {
+    createWorktreeOrSessionSwitchHandler,
+} from './dashboard/worktreeQuickSwitch';
+import {
     createAiSessionMruTracker,
 } from './aiSessions/sessionMru';
 import {
@@ -2227,6 +2230,29 @@ async function initializeDashboard(
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
     });
+    const switchWorktreeOrSession = createWorktreeOrSessionSwitchHandler({
+        getWorkspaceTarget: getCurrentWorkspaceActionTargetWithoutCardId,
+        showPick: async (items, placeHolder) => vscode.window.showQuickPick([...items], {
+            placeHolder,
+            matchOnDescription: true,
+        }),
+        focusSession: (projectId, provider, sessionId) =>
+            aiSessionTerminalCommandController.focusActive(projectId, provider, sessionId),
+        resumeSession: (projectId, provider, sessionId) =>
+            aiSessionResumeController.resumeProjectSession(projectId, provider, sessionId),
+        revealWorktree: async (navigationIdentity, key) => {
+            await showAgentPivot();
+            await provider.postMessage({
+                type: 'reveal-workspace-worktree-requested',
+                version: 1,
+                navigationIdentity,
+                repositoryKey: key.repositoryKey,
+                canonicalWorktreePath: key.canonicalWorktreePath,
+            });
+        },
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
+    });
     // The first paint happens after bootstrap settles (see the post-ready
     // startup timer below); earlier reads of the card projection are unsafe.
     const workspaceNavigationQuickPickController = new WorkspaceNavigationQuickPickController({
@@ -2495,6 +2521,7 @@ async function initializeDashboard(
             runningSessionJumpHandler.jumpToNextRunningSession(),
         switchToAiSession: () =>
             aiSessionQuickSwitchHandlers.switchToAiSession(),
+        switchWorktreeOrSession: () => switchWorktreeOrSession(),
         toggleLastAiSession: () =>
             aiSessionQuickSwitchHandlers.toggleLastAiSession(),
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),

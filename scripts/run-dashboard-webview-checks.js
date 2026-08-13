@@ -3800,6 +3800,7 @@ async function runDashboardCommandRegistrationChecks() {
         'nextAttentionSession',
         'nextRunningSession',
         'switchToAiSession',
+        'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
     ];
@@ -3835,6 +3836,7 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.nextAttentionSession',
         'agentPivot.nextRunningSession',
         'agentPivot.switchToAiSession',
+        'agentPivot.switchWorktreeOrSession',
         'agentPivot.toggleLastAiSession',
         'agentPivot.switchToOpenWindow',
     ]);
@@ -3873,6 +3875,7 @@ async function runDashboardCommandRegistrationChecks() {
         'nextAttentionSession',
         'nextRunningSession',
         'switchToAiSession',
+        'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
     ]);

@@ -135,6 +135,10 @@
                 "title": "Agent Pivot: Switch to AI Session"
             },
             {
+                "command": "agentPivot.switchWorktreeOrSession",
+                "title": "Agent Pivot: Switch Worktree or Session"
+            },
+            {
                 "command": "agentPivot.toggleLastAiSession",
                 "title": "Agent Pivot: Toggle Last AI Session"
             },

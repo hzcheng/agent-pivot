@@ -692,7 +692,45 @@ function initProjectAiSessionsUpdate(options) {
         return false;
     }
 
+    function revealWorkspaceWorktree(navigationIdentity, repositoryKey, canonicalWorktreePath) {
+        if (!repositoryKey || !canonicalWorktreePath) {
+            return false;
+        }
+        var workspaceDiv = findWorkspaceDiv(navigationIdentity);
+        if (!workspaceDiv) {
+            return false;
+        }
+        var workspaceId = workspaceDiv.getAttribute('data-id');
+        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
+            toggleCodexSessions(workspaceDiv, workspaceId);
+        }
+        selectAiSessionTabDom(workspaceDiv, 'sessions');
+        writeAiSessionTabState(window.vscode, workspaceId, 'sessions');
+        var grouping = applyAiSessionGroupingDom(workspaceDiv, 'worktree', true);
+        writeAiSessionGroupingState(window.vscode, workspaceId, grouping);
+        var group = Array.from(workspaceDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-worktree-repository-key][data-worktree-path]'
+        )).find(candidate =>
+            candidate.getAttribute('data-worktree-repository-key') === repositoryKey
+            && candidate.getAttribute('data-worktree-path') === canonicalWorktreePath
+        );
+        if (!group) {
+            focusSearchRevealTarget(workspaceDiv);
+            return false;
+        }
+        if (grouping !== 'worktree') {
+            focusSearchRevealTarget(workspaceDiv);
+            return true;
+        }
+        var header = group.querySelector('.ai-session-worktree-header');
+        setAiSessionWorktreeGroupExpanded(workspaceDiv, group, true);
+        writeAiSessionWorktreeCollapseState(window.vscode, workspaceDiv);
+        focusSearchRevealTarget(header || group);
+        return true;
+    }
+
     window.__agentPivotRevealWorkspaceSession = revealWorkspaceSession;
+    window.__agentPivotRevealWorkspaceWorktree = revealWorkspaceWorktree;
     window.__agentPivotRevealPendingWorkspaceSession = () => {
         if (!pendingWorkspaceSessionReveal) {
             return false;

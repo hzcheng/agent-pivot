@@ -160,6 +160,16 @@ function initProjectAiSessionControls(options) {
 
     function onTriggerAiSessionAction(target, projectId) {
         var projectDiv = target.closest('.project[data-id]');
+        var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
+        if (worktreeToggle) {
+            setAiSessionWorktreeGroupExpanded(
+                projectDiv,
+                worktreeToggle.closest('.ai-session-worktree-group'),
+                worktreeToggle.getAttribute('aria-expanded') !== 'true'
+            );
+            writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+            return true;
+        }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');
         if (tabAction) {
             var selectedTab = normalizeAiSessionTab(tabAction.getAttribute('data-tab'));

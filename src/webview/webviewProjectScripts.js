@@ -447,6 +447,21 @@ function initProjects() {
         if (todoControls.isDedicatedTodoTarget(e.target))
             return;
 
+        var groupingSelect = e.target.closest('[data-ai-session-grouping-select]');
+        if (groupingSelect) {
+            var groupingProject = groupingSelect.closest('.project[data-id]');
+            var groupingProjectId = groupingProject && groupingProject.getAttribute('data-id');
+            if (groupingProject && groupingProjectId) {
+                var grouping = applyAiSessionGroupingDom(
+                    groupingProject,
+                    groupingSelect.value,
+                    true
+                );
+                writeAiSessionGroupingState(window.vscode, groupingProjectId, grouping);
+            }
+            return;
+        }
+
         var todoPriorityInput = e.target.closest('.todo-priority-choice input[name="priority"]');
         if (todoPriorityInput) {
             todoControls.syncTodoPrioritySegment(todoPriorityInput.closest('.todo-priority-segment'));
@@ -613,6 +628,27 @@ function initProjects() {
     });
 
     document.addEventListener("keydown", e => {
+        var worktreeHeader = e.target && e.target.closest
+            ? e.target.closest('.ai-session-worktree-header')
+            : null;
+        if (worktreeHeader
+            && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
+                || e.key === 'Home' || e.key === 'End')) {
+            var worktreePanel = worktreeHeader.closest('[data-ai-session-panel]');
+            var worktreeHeaders = worktreePanel
+                ? Array.from(worktreePanel.querySelectorAll('.ai-session-worktree-header'))
+                : [];
+            var worktreeHeaderIndex = worktreeHeaders.indexOf(worktreeHeader);
+            if (worktreeHeaderIndex >= 0 && worktreeHeaders.length) {
+                e.preventDefault();
+                var nextWorktreeHeaderIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? worktreeHeaders.length - 1
+                        : (worktreeHeaderIndex + (e.key === 'ArrowDown' ? 1 : -1)
+                            + worktreeHeaders.length) % worktreeHeaders.length;
+                worktreeHeaders[nextWorktreeHeaderIndex]?.focus();
+            }
+            return;
+        }
         var aiSessionProviderTrigger = e.target && e.target.closest
             ? e.target.closest('[data-ai-provider-menu-trigger]')
             : null;

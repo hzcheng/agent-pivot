@@ -83,6 +83,14 @@ export function buildWorkspaceAiSessionViewModel(
         activeSessionCount: activeSessions.length,
         activeAttentionCount: activeSessions.filter(session => session.needsAttention).length,
         worktrees,
+        ...(input.worktreeSnapshot ? {
+            worktreeRepositoryCount: input.worktreeSnapshot.repositories.length,
+            bareWorktreeCount: input.worktreeSnapshot.repositories.reduce(
+                (count, repository) => count
+                    + repository.worktrees.filter(worktree => worktree.isBare).length,
+                0
+            ),
+        } : {}),
         unmanagedSessions: allSessions.filter(session => !session.worktreeKey),
         unmanagedActiveSessions: activeSessions.filter(session => !session.worktreeKey),
         ...(input.worktreeSnapshot ? {

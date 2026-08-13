@@ -2089,6 +2089,43 @@
     ]
   },
   {
+    "id": "WORKTREE-GROUPING-UI-001",
+    "domain": "webview",
+    "title": "The Dashboard renders one authoritative session tree with persistent Flat or Worktree grouping, accessible navigation, explicit empty states, and a bounded 170px layout",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/worktreeGrouping.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewAiSessionViewStateScripts.js",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "WORKTREE-QUICK-SWITCH-001",
+    "domain": "webview",
+    "title": "The public Worktree or Session switch command orders attention, active, recent, and idle targets and safely focuses, resumes, or reveals the selected target",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/dashboard/worktreeQuickSwitch.test.js",
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/worktreeQuickSwitch.ts",
+      "src/dashboard/commandRegistration.ts",
+      "src/dashboard.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "src/webview/webviewProjectAiUpdateScripts.js"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
     "domain": "runtime",
     "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",

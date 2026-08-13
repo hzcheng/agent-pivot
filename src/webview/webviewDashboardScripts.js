@@ -469,6 +469,31 @@ function initDashboard(options) {
             activateTab('ai');
             aiPanel.applyPendingAiSubtab();
         }
+        if (event && event.data
+            && event.data.type === 'reveal-workspace-worktree-requested'
+            && event.data.version === 1
+            && Object.keys(event.data).length === 5
+            && typeof event.data.navigationIdentity === 'string'
+            && event.data.navigationIdentity
+            && typeof event.data.repositoryKey === 'string'
+            && event.data.repositoryKey
+            && typeof event.data.canonicalWorktreePath === 'string'
+            && event.data.canonicalWorktreePath) {
+            if (searchQuery && typeof options.clearSearch === 'function') {
+                options.clearSearch();
+            }
+            if (searchQuery) {
+                setSearchQuery('');
+            }
+            activateTab('open', false);
+            if (typeof window.__agentPivotRevealWorkspaceWorktree === 'function') {
+                window.__agentPivotRevealWorkspaceWorktree(
+                    event.data.navigationIdentity,
+                    event.data.repositoryKey,
+                    event.data.canonicalWorktreePath
+                );
+            }
+        }
     });
     if (searchResults) {
         searchResults.addEventListener('click', onSearchResultClick);

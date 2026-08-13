@@ -10,7 +10,10 @@ import type {
     AiSessionProviderSummary,
     AiSessionTabId,
     AiSessionViewModel,
+    ReadyWorktreeRow,
+    WorktreeRowViewModel,
 } from '../aiSessions/types';
+import type { WorktreeKey } from '../worktrees/types';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { escapeAttribute } from './webviewHtmlEscape';
 import {
@@ -33,6 +36,7 @@ export interface RootLabeledAiSession extends CodexSession {
     primaryRootLabel?: string;
     profile?: string;
     profileUnavailable?: boolean;
+    worktreeKey?: WorktreeKey;
 }
 
 function getAiSessionProfileBadge(
@@ -64,6 +68,11 @@ export interface AiSessionSurfaceViewModel {
     quickCreateProfile?: string;
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
+    worktrees?: WorktreeRowViewModel[];
+    worktreeSnapshotRevision?: number;
+    worktreeRepositoryCount?: number;
+    bareWorktreeCount?: number;
+    truncatedWorktreeCount?: number;
 }
 
 export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSessionSurfaceViewModel {
@@ -95,6 +104,11 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         kimiSessionsUnavailable: unavailable.has('kimi'),
         claudeSessionsUnavailable: unavailable.has('claude'),
         activeAiSessions: aiSessions.activeSessions.slice(),
+        worktrees: (aiSessions.worktrees || []).slice(),
+        worktreeSnapshotRevision: aiSessions.worktreeSnapshotRevision,
+        worktreeRepositoryCount: aiSessions.worktreeRepositoryCount,
+        bareWorktreeCount: aiSessions.bareWorktreeCount,
+        truncatedWorktreeCount: aiSessions.truncatedWorktreeCount,
         ...(aiSessions.quickCreateProfile
             ? { quickCreateProfile: aiSessions.quickCreateProfile }
             : {}),
@@ -127,9 +141,24 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var quickCreateCaption = quickCreateProfile
         ? `${quickCreateProviderLabel} · ${quickCreateProfile}`
         : quickCreateProviderLabel;
+    var readyWorktrees = getReadyWorktrees(project.worktrees);
+    var defaultGrouping = readyWorktrees.length > 1 ? 'worktree' : 'flat';
+    var groupingControl = readyWorktrees.length > 1
+        ? `<label class="ai-session-grouping-control">Group by:<select data-ai-session-grouping-select aria-label="Group AI sessions by"><option value="flat">Flat</option><option value="worktree" selected>Worktree</option></select></label>`
+        : '';
+    var worktreeEmptyState = typeof project.worktreeSnapshotRevision === 'number'
+        && readyWorktrees.length === 0
+        ? `<div class="ai-session-worktree-empty-state" role="status">${
+            (project.worktreeRepositoryCount || 0) === 0
+                ? 'No git repository found in this workspace.'
+                : (project.bareWorktreeCount || 0) > 0
+                    ? 'No linked worktrees'
+                    : 'No worktrees found in this workspace.'
+        }</div>`
+        : '';
 
     return `
-<div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
+<div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}" data-default-ai-session-grouping="${defaultGrouping}" data-ai-session-grouping="${defaultGrouping}">
     <div class="ai-session-module-header">
         <span class="ai-session-module-title">AI SESSIONS</span>
         <span class="ai-session-create-actions">
@@ -144,6 +173,8 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         ${getAiSessionTabButton(project, 'active', activeSessions.length)}
         ${getAiSessionTabButton(project, 'sessions', totalSessionCount)}
     </div>
+    ${groupingControl}
+    ${worktreeEmptyState}
     ${getActiveAiSessionPanel(project, activeSessions, options)}
     ${getAiSessionHistoryPanel(project, activeProvider, selectedProviders, options)}
     <div class="ai-session-live-region" data-ai-session-live-region aria-live="polite" aria-atomic="true"></div>
@@ -172,13 +203,23 @@ function getActiveAiSessionPanel(
 ): string {
     var projectId = escapeAttribute(project.id || 'project');
     var selected = project.activeAiSessionTab === 'active';
-    var rows = sessions.length
-        ? sessions.map(session => getActiveAiSessionRow(
+    var worktrees = getReadyWorktrees(project.worktrees);
+    var worktreeLabels = getWorktreeLabels(worktrees);
+    var entries = sessions.map((session, index) => ({
+        worktreeKey: session.worktreeKey,
+        html: getActiveAiSessionRow(
             session,
             options.showRootChips,
             options.runningIconAnimation,
             project.id || 'project',
-        )).join('\n')
+            worktreeLabelForKey(worktreeLabels, session.worktreeKey),
+            index + 1,
+        ),
+    }));
+    var rows = entries.length
+        ? worktrees.length
+            ? getWorktreeGroupsHtml(worktrees, entries, 'active')
+            : entries.map(entry => entry.html).join('\n')
         : `<div class="codex-sessions-empty ai-session-active-empty">
             <strong>No active sessions</strong>
             <span>Start a new AI session or open one from Sessions.</span>
@@ -210,13 +251,21 @@ function getAiSessionHistoryPanel(
         kimi: kimiSessions.map(session => ({ ...session, provider: 'kimi' })),
         claude: claudeSessions.map(session => ({ ...session, provider: 'claude' })),
     });
-    var historyRows = (sessions: AiSessionViewModel[]) => sessions.map(session => getCodexSessionRow(
+    var worktrees = getReadyWorktrees(project.worktrees);
+    var worktreeLabels = getWorktreeLabels(worktrees);
+    var flatSessions = [...projection.pinned, ...projection.unpinned];
+    var historyEntries = flatSessions.map((session, index) => ({
+        worktreeKey: session.worktreeKey,
+        html: getCodexSessionRow(
             session,
             session.provider,
             (project.activeAiSessions || []).find(runtime =>
                 runtime.provider === session.provider && runtime.sessionId === session.id),
-            options.showRootChips
-        )).join('\n');
+            options.showRootChips,
+            worktreeLabelForKey(worktreeLabels, session.worktreeKey),
+            index + 1,
+        ),
+    }));
     var selectedProviderSummaries = selectedProviders.map(provider => providersById.get(provider)).filter(
         (provider): provider is AiSessionProviderSummary => !!provider
     );
@@ -227,9 +276,17 @@ function getAiSessionHistoryPanel(
     var availabilitySummary = unavailableProviderLabels.length
         ? `<div class="ai-session-availability-summary" role="status">History unavailable: ${unavailableProviderLabels.join(', ')}.</div>`
         : '';
-    var sessionRows = projection.pinned.length || projection.unpinned.length
-        ? `${projection.pinned.length ? `<div class="ai-session-pinned-heading">PINNED</div>${historyRows(projection.pinned)}` : ''}${historyRows(projection.unpinned)}`
-        : '<div class="codex-sessions-empty"><span>No selected AI sessions yet</span></div>';
+    var pinnedHeading = projection.pinned.length
+        ? '<div class="ai-session-pinned-heading ai-session-flat-only" style="order: 0">PINNED</div>'
+        : '';
+    var sessionRows = worktrees.length
+        ? `${pinnedHeading}${getWorktreeGroupsHtml(worktrees, historyEntries, 'sessions')}`
+        : historyEntries.length
+            ? `${pinnedHeading}${historyEntries.map(entry => entry.html).join('\n')}`
+            : '<div class="codex-sessions-empty"><span>No selected AI sessions yet</span></div>';
+    var truncatedNotice = (project.truncatedWorktreeCount || 0) > 0
+        ? `<div class="ai-session-worktree-truncated" role="status">${project.truncatedWorktreeCount} more worktrees not shown</div>`
+        : '';
 
     return `<div id="ai-session-history-${projectId}" class="ai-session-tab-panel ai-session-history-panel" role="tabpanel" data-ai-session-panel="sessions" aria-labelledby="ai-session-sessions-tab-${projectId}"${selected ? '' : ' hidden'}>
     <div class="ai-session-provider-controls">
@@ -245,6 +302,7 @@ function getAiSessionHistoryPanel(
     <div class="codex-sessions-list">
         ${sessionRows}
     </div>
+    ${truncatedNotice}
     <div class="ai-session-batch-actions" aria-live="polite">
         <div class="ai-session-batch-selection-actions">
             <button type="button" data-action="select-unpinned-ai-sessions" title="Select all unpinned sessions" aria-label="Select all unpinned sessions">All</button>
@@ -359,11 +417,146 @@ function getAiProviderIcon(providerId: AiSessionProviderId): string {
     }
 }
 
+interface WorktreeSessionRenderEntry {
+    worktreeKey?: WorktreeKey;
+    html: string;
+}
+
+function getReadyWorktrees(
+    rows: readonly WorktreeRowViewModel[] | undefined,
+): ReadyWorktreeRow[] {
+    return (rows || [])
+        .map((row, index) => ({ row, index }))
+        .filter((candidate): candidate is { row: ReadyWorktreeRow; index: number } =>
+            candidate.row.kind === 'ready' && candidate.row.git.isBare !== true)
+        .sort((left, right) => activityPriority(left.row.activity)
+            - activityPriority(right.row.activity)
+            || left.index - right.index)
+        .map(candidate => candidate.row);
+}
+
+function activityPriority(activity: ReadyWorktreeRow['activity']): number {
+    return activity === 'attention' ? 0 : activity === 'active' ? 1 : 2;
+}
+
+function worktreeLookupKey(key: WorktreeKey): string {
+    return JSON.stringify([key.repositoryKey, key.canonicalWorktreePath]);
+}
+
+function getWorktreeLabels(worktrees: readonly ReadyWorktreeRow[]): Map<string, string> {
+    return new Map(worktrees.map(worktree => [
+        worktreeLookupKey(worktree.git.key),
+        getWorktreeLabel(worktree),
+    ]));
+}
+
+function worktreeLabelForKey(
+    labels: ReadonlyMap<string, string>,
+    key: WorktreeKey | undefined,
+): string {
+    return key ? labels.get(worktreeLookupKey(key)) || '' : '';
+}
+
+function getWorktreeLabel(worktree: ReadyWorktreeRow): string {
+    if (worktree.git.branchRef) {
+        return worktree.git.branchRef.replace(/^refs\/heads\//, '');
+    }
+    const pathName = worktree.git.key.canonicalWorktreePath
+        .replace(/[\\/]+$/g, '')
+        .split(/[\\/]/)
+        .pop();
+    return pathName || worktree.git.head.substring(0, 8) || 'worktree';
+}
+
+function worktreeKeysEqual(left: WorktreeKey | undefined, right: WorktreeKey): boolean {
+    return !!left
+        && left.repositoryKey === right.repositoryKey
+        && left.canonicalWorktreePath === right.canonicalWorktreePath;
+}
+
+function getWorktreeGroupsHtml(
+    worktrees: readonly ReadyWorktreeRow[],
+    entries: readonly WorktreeSessionRenderEntry[],
+    tab: AiSessionTabId,
+): string {
+    const rendered: string[] = [];
+    worktrees.forEach((worktree, index) => {
+        const matched = entries.filter(entry => worktreeKeysEqual(entry.worktreeKey, worktree.git.key));
+        if (tab === 'active' && !matched.length) {
+            return;
+        }
+        rendered.push(getWorktreeGroupHtml(worktree, matched, index));
+    });
+    const unmanaged = entries.filter(entry => !entry.worktreeKey
+        || !worktrees.some(worktree => worktreeKeysEqual(entry.worktreeKey, worktree.git.key)));
+    if (unmanaged.length) {
+        rendered.push(getUnmanagedWorktreeGroupHtml(unmanaged, worktrees.length));
+    }
+    return rendered.join('\n');
+}
+
+function getWorktreeGroupHtml(
+    worktree: ReadyWorktreeRow,
+    entries: readonly WorktreeSessionRenderEntry[],
+    groupOrder: number,
+): string {
+    const name = getWorktreeLabel(worktree);
+    const count = entries.length;
+    const activity = worktree.activity === 'attention' ? 'needs attention'
+        : worktree.activity === 'active' ? 'active' : 'idle';
+    const health = worktree.git.health !== 'normal'
+        ? `<span class="ai-session-worktree-health">${escapeAttribute(worktree.git.health)}</span>`
+        : '';
+    const head = worktree.git.headKind === 'detached'
+        ? `<span class="ai-session-worktree-head">detached · ${escapeAttribute(worktree.git.head.substring(0, 8))}</span>`
+        : worktree.git.headKind === 'contained-in-base'
+            ? '<span class="ai-session-worktree-head">contained in base</span>'
+            : '';
+    const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
+    const ariaLabel = `${name}, ${sessionLabel}, ${activity}`;
+    return `<section class="ai-session-worktree-group" data-worktree-repository-key="${escapeAttribute(worktree.git.key.repositoryKey)}" data-worktree-path="${escapeAttribute(worktree.git.key.canonicalWorktreePath)}" data-worktree-activity="${worktree.activity}" style="order: ${groupOrder}">
+        <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
+            <span class="ai-session-worktree-indicator" aria-hidden="true">${worktree.activity === 'idle' ? '○' : '●'}</span>
+            <span class="ai-session-worktree-title">${escapeAttribute(name)}</span>
+            ${health}${head}
+            <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
+            <span class="ai-session-worktree-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="ai-session-worktree-session-list">${entries.length
+            ? entries.map(entry => entry.html).join('\n')
+            : '<div class="ai-session-worktree-empty">(no sessions)</div>'}</div>
+    </section>`;
+}
+
+function getUnmanagedWorktreeGroupHtml(
+    entries: readonly WorktreeSessionRenderEntry[],
+    groupOrder: number,
+): string {
+    const count = entries.length;
+    return `<section class="ai-session-worktree-group ai-session-worktree-unmanaged" data-worktree-unmanaged style="order: ${groupOrder}">
+        <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="Unmanaged, ${count} session${count === 1 ? '' : 's'}, idle">
+            <span class="ai-session-worktree-indicator" aria-hidden="true">○</span>
+            <span class="ai-session-worktree-title">Unmanaged</span>
+            <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
+            <span class="ai-session-worktree-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="ai-session-worktree-session-list">${entries.map(entry => entry.html).join('\n')}</div>
+    </section>`;
+}
+
+function getFlatOrderAttributes(flatOrder: number | undefined): string {
+    return Number.isSafeInteger(flatOrder) && (flatOrder as number) >= 0
+        ? ` data-ai-session-flat-order="${flatOrder}" style="order: ${flatOrder}"`
+        : '';
+}
+
 function getCodexSessionRow(
     session: RootLabeledAiSession,
     provider: AiSessionProviderId,
     runtime?: ActiveAiSessionViewModel,
-    showRootChip: boolean = false
+    showRootChip: boolean = false,
+    worktreeLabel: string = '',
+    flatOrder?: number,
 ) {
     var sessionName = escapeAttribute(sanitizeProjectName(session.name || session.id));
     var sessionId = escapeAttribute(session.id || '');
@@ -414,6 +607,9 @@ function getCodexSessionRow(
     var rootChip = showRootChip && primaryRootLabel
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(primaryRootLabel))}</span>`
         : '';
+    var worktreeChip = worktreeLabel
+        ? `<span class="ai-session-worktree-chip" title="Worktree ${escapeAttribute(worktreeLabel)}">${escapeAttribute(worktreeLabel)}</span>`
+        : '';
     var providerBadge = `<span class="ai-session-provider-badge">${providerLabel}</span>`;
     var profileBadge = getAiSessionProfileBadge(session.profile, session.profileUnavailable);
     var profileAriaLabel = session.profile
@@ -421,13 +617,13 @@ function getCodexSessionRow(
         : '';
 
     return `
-<div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(attentionEventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}">
+<div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(attentionEventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}"${getFlatOrderAttributes(flatOrder)}>
     ${batchCheckbox}
     <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session">
         ${attentionIndicator}
         <span class="codex-session-icon">${getAiProviderIcon(provider)}</span>
         <span class="codex-session-text">
-            <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${providerBadge}${profileBadge}${rootChip}</span>
+            <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${providerBadge}${profileBadge}${rootChip}${worktreeChip}</span>
             <span class="codex-session-meta">${activeStatus}${active && metadata ? ' · ' : ''}${metadata}</span>
         </span>
     </button>
@@ -443,6 +639,8 @@ function getActiveAiSessionRow(
     showRootChip: boolean = false,
     runningIconAnimation?: string,
     projectId: string = 'project',
+    worktreeLabel: string = '',
+    flatOrder?: number,
 ): string {
     var providerLabel = getAiProviderLabel(model.provider);
     var sessionName = escapeAttribute(sanitizeProjectName(model.name || model.sessionId || `New ${providerLabel} session`));
@@ -514,6 +712,9 @@ function getActiveAiSessionRow(
     var rootChip = showRootChip && model.primaryRootLabel
         ? `<span class="ai-session-root-chip">${escapeAttribute(sanitizeProjectName(model.primaryRootLabel))}</span>`
         : '';
+    var worktreeChip = worktreeLabel
+        ? `<span class="ai-session-worktree-chip" title="Worktree ${escapeAttribute(worktreeLabel)}">${escapeAttribute(worktreeLabel)}</span>`
+        : '';
     var profileBadge = getAiSessionProfileBadge(model.profile, model.profileUnavailable);
     var profileAriaLabel = model.profile
         ? `, Codex config profile ${escapeAttribute(model.profile)}${model.profileUnavailable ? ' (unavailable)' : ''}`
@@ -521,12 +722,12 @@ function getActiveAiSessionRow(
     var openConversationHint = hasOpenConversationHint
         ? '<span class="ai-session-open-conversation-hint" aria-hidden="true">›</span>'
         : '';
-    return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}>
+    return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}${getFlatOrderAttributes(flatOrder)}>
         <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryTitle}" data-focus-aria-label="${focusAriaLabel}" data-focus-title="${focusTitle}" data-conversation-aria-label="${conversationAriaLabel}" data-conversation-title="${conversationTitle}">
             ${attentionIndicator}
             <span class="codex-session-icon">${getAiProviderIcon(model.provider)}</span>
             <span class="codex-session-text">
-                <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${profileBadge}${rootChip}</span>
+                <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${profileBadge}${rootChip}${worktreeChip}</span>
                 <span class="codex-session-meta">${metadata}</span>
             </span>
             ${openConversationHint}

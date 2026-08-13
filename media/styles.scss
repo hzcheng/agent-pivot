@@ -2052,20 +2052,21 @@ body .project {
     // content-sized pane. In auto layout the pane pins to the same half share
     // the 50% cap implies; a dragged share keeps priority because this auto
     // rule excludes the manual layout via :not(.open-tab-split-manual).
-    // The 283px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
+    // The 322px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
     // webviewOpenTabSplitScripts.js: below it the fixed AI-session chrome
-    // (module header with the quick-create caption, tabs, provider controls)
-    // would clip away and the session list would starve to zero height.
+    // (module header with the quick-create caption, surface tabs, chat tabs,
+    // provider controls) would clip away and the session list would starve
+    // to zero height.
     body.steward-sidebar & {
         .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded {
             flex: 0 0 auto;
             height: 50%;
             max-height: none;
-            min-height: 283px;
+            min-height: 322px;
         }
 
         .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded {
-            min-height: 283px;
+            min-height: 322px;
         }
 
         // In both layouts the expanded card fills the group list (keeping the
@@ -2096,6 +2097,13 @@ body .project {
                     flex-direction: column;
                     max-height: 100vh;
                     overflow: hidden;
+                }
+
+                .ai-session-surface-panel:not([hidden]) {
+                    flex: 1 1 0;
+                    min-height: 0;
+                    display: flex;
+                    flex-direction: column;
                 }
 
                 .ai-session-tab-panel:not([hidden]) {
@@ -3268,7 +3276,8 @@ body.steward-sidebar {
             white-space: nowrap;
         }
 
-        .ai-session-tabs {
+        .ai-session-tabs,
+        .ai-session-surface-tabs {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 3px;
@@ -3317,6 +3326,32 @@ body.steward-sidebar {
                     background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
                 }
             }
+        }
+
+        .ai-session-surface-tabs {
+            margin-top: 7px;
+            border-radius: 6px;
+
+            [role="tab"] {
+                min-height: 28px;
+                font-size: 10px;
+            }
+        }
+
+        .ai-session-chats-surface .ai-session-tabs {
+            margin-top: 6px;
+        }
+
+        .ai-session-surface-panel[hidden] {
+            display: none;
+        }
+
+        .ai-session-worktree-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 0;
+            margin-top: 6px;
         }
 
         .ai-session-grouping-control {

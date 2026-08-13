@@ -5,6 +5,8 @@ import type { AiSessionRuntimeIdentity } from './runtimeTypes';
 import type { WorktreeKey } from '../worktrees/types';
 import {
     cloneAiSessionRuntimeIdentity,
+    getAiSessionRuntimeIdentityPersistenceFields,
+    getAiSessionRuntimeIdentityVersion,
     isValidAiSessionRuntimeIdentity,
 } from './runtimeTypes';
 
@@ -98,6 +100,10 @@ export default class AiSessionTerminalBindingStore {
                     getLegacyBindingKey(processId), null as unknown
                 ));
             }
+            record = downgradeLegacyEquivalentRecord(record);
+            if (current && record?.version === 2) {
+                this.enqueueWrite(processId, record);
+            }
             return record ? cloneRecord(record) : null;
         } catch (error) {
             this.reportErrorOnce(error);
@@ -108,8 +114,7 @@ export default class AiSessionTerminalBindingStore {
     setPending(processId: AiSessionTerminalProcessId, input: PendingAiSessionTerminalBindingInput): void {
         let record = validateRecord({
             ...input,
-            version: 3,
-            writableRootHostPaths: input.writableRootHostPaths ?? input.workspaceRootHostPaths,
+            ...getAiSessionRuntimeIdentityPersistenceFields(input),
             state: 'pending',
             updatedAtMs: this.now(),
         });
@@ -122,8 +127,7 @@ export default class AiSessionTerminalBindingStore {
     setBound(processId: AiSessionTerminalProcessId, input: BoundAiSessionTerminalBindingInput): void {
         let record = validateRecord({
             ...input,
-            version: 3,
-            writableRootHostPaths: input.writableRootHostPaths ?? input.workspaceRootHostPaths,
+            ...getAiSessionRuntimeIdentityPersistenceFields(input),
             state: 'bound',
             updatedAtMs: this.now(),
         });
@@ -136,8 +140,7 @@ export default class AiSessionTerminalBindingStore {
     setReleased(processId: AiSessionTerminalProcessId, input: ReleasedAiSessionTerminalBindingInput): void {
         let record = validateRecord({
             ...input,
-            version: 3,
-            writableRootHostPaths: input.writableRootHostPaths ?? input.workspaceRootHostPaths,
+            ...getAiSessionRuntimeIdentityPersistenceFields(input),
             state: 'released',
             updatedAtMs: this.now(),
         });
@@ -162,8 +165,16 @@ export default class AiSessionTerminalBindingStore {
             if (!isProcessId(pid)) {
                 return;
             }
-            await this.state.update(getBindingKey(pid), record ? cloneRecord(record) : undefined);
-            await this.state.update(getLegacyBindingKey(pid), undefined);
+            if (!record) {
+                await this.state.update(getBindingKey(pid), undefined);
+                await this.state.update(getLegacyBindingKey(pid), undefined);
+            } else if (record.version === 3) {
+                await this.state.update(getBindingKey(pid), cloneRecord(record));
+                await this.state.update(getLegacyBindingKey(pid), undefined);
+            } else {
+                await this.state.update(getLegacyBindingKey(pid), cloneRecord(record));
+                await this.state.update(getBindingKey(pid), undefined);
+            }
         }).catch(error => {
             this.reportErrorOnce(error);
         });
@@ -334,6 +345,18 @@ function cloneRecord(record: AiSessionTerminalBinding): AiSessionTerminalBinding
         };
     }
     return { ...record, workspaceRootHostPaths: roots, ...cloneIdentityExtensionFields(record) };
+}
+
+function downgradeLegacyEquivalentRecord(
+    record: AiSessionTerminalBinding | null
+): AiSessionTerminalBinding | null {
+    if (!record || record.version !== 3 || getAiSessionRuntimeIdentityVersion(record) === 3) {
+        return record;
+    }
+    const downgraded = cloneRecord({ ...record, version: 2 } as AiSessionTerminalBinding);
+    delete downgraded.writableRootHostPaths;
+    delete downgraded.worktreeKey;
+    return downgraded;
 }
 
 function identityExtensionFields(identity: AiSessionRuntimeIdentity) {

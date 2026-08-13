@@ -214,6 +214,17 @@ function initProjectAiSessionControls(options) {
             writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
             return true;
         }
+        var surfaceAction = target.closest(
+            '[data-action="select-ai-session-surface"][data-surface]'
+        );
+        if (surfaceAction) {
+            var selectedSurface = normalizeAiSessionSurface(
+                surfaceAction.getAttribute('data-surface')
+            );
+            selectAiSessionSurfaceDom(projectDiv, selectedSurface);
+            writeAiSessionSurfaceState(window.vscode, projectId, selectedSurface);
+            return true;
+        }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');
         if (tabAction) {
             var selectedTab = normalizeAiSessionTab(tabAction.getAttribute('data-tab'));

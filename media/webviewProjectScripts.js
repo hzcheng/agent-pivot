@@ -447,21 +447,6 @@ function initProjects() {
         if (todoControls.isDedicatedTodoTarget(e.target))
             return;
 
-        var groupingSelect = e.target.closest('[data-ai-session-grouping-select]');
-        if (groupingSelect) {
-            var groupingProject = groupingSelect.closest('.project[data-id]');
-            var groupingProjectId = groupingProject && groupingProject.getAttribute('data-id');
-            if (groupingProject && groupingProjectId) {
-                var grouping = applyAiSessionGroupingDom(
-                    groupingProject,
-                    groupingSelect.value,
-                    true
-                );
-                writeAiSessionGroupingState(window.vscode, groupingProjectId, grouping);
-            }
-            return;
-        }
-
         var todoPriorityInput = e.target.closest('.todo-priority-choice input[name="priority"]');
         if (todoPriorityInput) {
             todoControls.syncTodoPrioritySegment(todoPriorityInput.closest('.todo-priority-segment'));
@@ -783,6 +768,35 @@ function initProjects() {
             if (e.key === 'Tab') {
                 contextMenus.closeContextMenus();
             }
+        }
+
+        var surfaceTab = e.target && e.target.closest
+            ? e.target.closest('[data-ai-session-surface-tab]')
+            : null;
+        if (surfaceTab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+            e.preventDefault();
+            var nextSurfaceId = getAdjacentAiSessionSurface(
+                surfaceTab.getAttribute('data-ai-session-surface-tab'),
+                e.key
+            );
+            var surfaceProject = surfaceTab.closest('.project[data-id]');
+            var nextSurface = surfaceProject
+                && Array.from(surfaceProject.querySelectorAll('[data-ai-session-surface-tab]'))
+                    .find(candidate =>
+                        candidate.getAttribute('data-ai-session-surface-tab') === nextSurfaceId
+                    );
+            nextSurface?.focus();
+            return;
+        }
+        if (surfaceTab && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            var surfaceTabProject = surfaceTab.closest('.project[data-id]');
+            var surfaceTabProjectId = surfaceTabProject
+                && surfaceTabProject.getAttribute('data-id');
+            if (surfaceTabProjectId) {
+                aiSessionControls.onTriggerAiSessionAction(surfaceTab, surfaceTabProjectId);
+            }
+            return;
         }
 
         var tab = e.target && e.target.closest ? e.target.closest('[data-ai-session-tab]') : null;

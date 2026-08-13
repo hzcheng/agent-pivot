@@ -196,7 +196,7 @@ test('RUNTIME-TMUX-WORKTREE-RECORDS-001 dual-reads v2 and preserves v3 identity 
     assert.equal(validateKnownRecord({ ...known, writableRootHostPaths: undefined }), null);
 });
 
-test('RUNTIME-TMUX-RECORDS-001 accepts the prior v3 pending fingerprint after v4 migration', () => {
+test('RUNTIME-TMUX-RECORDS-001 keeps legacy pending fingerprints rollback-readable', () => {
     const binding = makeTmuxPendingBinding('legacy-v3-fingerprint');
     const request = {
         identity: identityOf(binding),
@@ -231,7 +231,7 @@ test('RUNTIME-TMUX-RECORDS-001 accepts the prior v3 pending fingerprint after v4
         requestFingerprint: `v3:${legacyDigest}`,
     };
 
-    assert.match(pendingRequestFingerprint(request), /^v4:[a-f0-9]{64}$/);
+    assert.equal(pendingRequestFingerprint(request), `v3:${legacyDigest}`);
     assert.ok(validateAmbiguousRecord(ambiguous));
     assert.equal(pendingAmbiguityMatches(
         ambiguous, request, binding, binding.locator

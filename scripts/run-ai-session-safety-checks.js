@@ -26,6 +26,7 @@ const jsonlTail = require('../out/aiSessions/jsonlTail');
 const terminalBindingStore = require('../out/aiSessions/terminalBindingStore');
 const AiSessionTerminalBindingStore = terminalBindingStore.default;
 const AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX = terminalBindingStore.AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX;
+const AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX = terminalBindingStore.AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX;
 const AiSessionAttentionMonitor = require('../out/aiSessions/attentionMonitor').default;
 const AiSessionExecutionMonitor = require('../out/aiSessions/executionMonitor').default;
 const attentionPayload = require('../out/aiSessions/attentionPayload');
@@ -4107,9 +4108,12 @@ async function runAiSessionTerminalBindingStoreChecks() {
     assert.strictEqual(restoredPending.state, 'pending');
     assert.strictEqual(restoredPending.providerId, 'codex');
     assert.deepStrictEqual(restoredPending.excludedSessionIds, ['old']);
-    assert.ok(stateData[AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX + processId]);
+    assert.ok(stateData[AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX + processId],
+        'ordinary terminal bindings must persist under the rollback-readable v2 key');
+    assert.strictEqual(stateData[AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX + processId], undefined,
+        'ordinary terminal bindings must not occupy the v3 key');
     const validPendingRecord = JSON.parse(JSON.stringify(
-        stateData[AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX + processId]
+        stateData[AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX + processId]
     ));
     for (const [offset, invalid] of [
         [1, { ...validPendingRecord, sessionId: 'also-bound' }],
@@ -4159,12 +4163,11 @@ async function runAiSessionTerminalBindingStoreChecks() {
     });
     await released.flush();
     assert.deepStrictEqual(new AiSessionTerminalBindingStore(state).get(processId), {
-        version: 3,
+        version: 2,
         state: 'released',
         ...createTestAiSessionTerminalBindingIdentity(
             'codex', '/work/app', { sessionId: 'session-new' }
         ),
-        writableRootHostPaths: ['/work/app'],
         markerPath: '/tmp/session-new.done',
         updatedAtMs: released.get(processId).updatedAtMs,
     });

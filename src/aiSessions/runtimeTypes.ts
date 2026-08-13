@@ -102,7 +102,14 @@ export function getAiSessionRuntimeIdentityExtensionFields(identity: AiSessionRu
     };
 }
 
-export function getAiSessionRuntimeIdentityV3Fields(identity: AiSessionRuntimeIdentity) {
+type AiSessionRuntimeIdentityPersistenceSource = Pick<
+    AiSessionRuntimeIdentity,
+    'workspaceRootHostPaths' | 'writableRootHostPaths' | 'worktreeKey'
+>;
+
+export function getAiSessionRuntimeIdentityV3Fields(
+    identity: AiSessionRuntimeIdentityPersistenceSource
+) {
     return {
         writableRootHostPaths: [
             ...(identity.writableRootHostPaths ?? identity.workspaceRootHostPaths),
@@ -110,6 +117,30 @@ export function getAiSessionRuntimeIdentityV3Fields(identity: AiSessionRuntimeId
         ...(identity.worktreeKey
             ? { worktreeKey: cloneWorktreeKey(identity.worktreeKey) }
             : {}),
+    };
+}
+
+export function getAiSessionRuntimeIdentityVersion(
+    identity: AiSessionRuntimeIdentityPersistenceSource
+): 2 | 3 {
+    if (identity.worktreeKey !== undefined) {
+        return 3;
+    }
+    const writableRoots = identity.writableRootHostPaths;
+    return writableRoots !== undefined
+        && getNormalizedRuntimeRootsKey(writableRoots)
+            !== getNormalizedRuntimeRootsKey(identity.workspaceRootHostPaths)
+        ? 3
+        : 2;
+}
+
+export function getAiSessionRuntimeIdentityPersistenceFields(
+    identity: AiSessionRuntimeIdentityPersistenceSource
+) {
+    const version = getAiSessionRuntimeIdentityVersion(identity);
+    return {
+        version,
+        ...(version === 3 ? getAiSessionRuntimeIdentityV3Fields(identity) : {}),
     };
 }
 

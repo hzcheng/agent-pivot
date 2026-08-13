@@ -8,7 +8,8 @@ import type {
 import {
     aiSessionRuntimeIdentitiesEqual,
     cloneAiSessionRuntimeIdentity,
-    getAiSessionRuntimeIdentityV3Fields,
+    getAiSessionRuntimeIdentityExtensionFields,
+    getAiSessionRuntimeIdentityPersistenceFields,
     isValidAiSessionPromotionDisplayName,
     isValidAiSessionRuntimeIdentity,
 } from './runtimeTypes';
@@ -163,7 +164,7 @@ export function createTmuxPromotionCapability<TTerminal>(
                 workspaceScopeIdentity: currentBinding.workspaceScopeIdentity,
                 workspaceNavigationIdentity: currentBinding.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...currentBinding.workspaceRootHostPaths],
-                ...getAiSessionRuntimeIdentityV3Fields(currentBinding as AiSessionRuntimeIdentity),
+                ...getAiSessionRuntimeIdentityExtensionFields(currentBinding as AiSessionRuntimeIdentity),
                 cwd: currentBinding.cwd,
                 sessionId,
             };
@@ -187,7 +188,8 @@ export function createTmuxPromotionCapability<TTerminal>(
                     const expectedIntent = promotionIntent(currentBinding, {
                         ...pendingSnapshot,
                         markerPath: intent?.markerPath ?? pendingSnapshot.markerPath,
-                    }, finalIdentityValue, sessionName, finalLocator, nowMs(), intent?.version ?? 3);
+                    }, finalIdentityValue, sessionName, finalLocator, nowMs(),
+                    intent?.version ?? currentBinding.version);
                     if (intent && !promotionIntentsMatch(intent, expectedIntent)) {
                         throw new Error('The pending tmux runtime has a conflicting promotion in progress.');
                     }
@@ -319,7 +321,7 @@ export function createTmuxPromotionCapability<TTerminal>(
                 workspaceScopeIdentity: intent.workspaceScopeIdentity,
                 workspaceNavigationIdentity: intent.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...intent.workspaceRootHostPaths],
-                ...getAiSessionRuntimeIdentityV3Fields(intent as AiSessionRuntimeIdentity),
+                ...getAiSessionRuntimeIdentityExtensionFields(intent as AiSessionRuntimeIdentity),
                 cwd: intent.cwd,
                 pendingId: intent.pendingId,
             };
@@ -334,8 +336,8 @@ export function createTmuxPromotionCapability<TTerminal>(
             const identityOptions = intent.layout === 'project' ? windowOptions : sessionOptions;
             const baseOptions = intent.layout === 'project' ? sessionOptions : windowOptions;
             const expectedBase = intent.layout === 'project'
-                ? projectSessionMetadata(pendingIdentityValue, intent.version)
-                : sessionWindowMetadata(intent.version);
+                ? projectSessionMetadata(pendingIdentityValue)
+                : sessionWindowMetadata();
             return recordsEqual(baseOptions, expectedBase)
                 && [pendingMetadata, finalMetadata, bothMetadata]
                     .some(expected => recordsEqual(identityOptions, expected));
@@ -374,14 +376,14 @@ export function createTmuxPromotionCapability<TTerminal>(
                 workspaceScopeIdentity: intent.workspaceScopeIdentity,
                 workspaceNavigationIdentity: intent.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...intent.workspaceRootHostPaths],
-                ...getAiSessionRuntimeIdentityV3Fields(intent as AiSessionRuntimeIdentity),
+                ...getAiSessionRuntimeIdentityExtensionFields(intent as AiSessionRuntimeIdentity),
                 cwd: intent.cwd,
                 pendingId: intent.pendingId,
             };
             return recordsEqual(sessionOptions, fullMetadata(
                 pendingIdentityValue, intent.layout, intent.createdAt, intent.markerPath,
                 intent.version
-            )) && recordsEqual(windowOptions, sessionWindowMetadata(intent.version));
+            )) && recordsEqual(windowOptions, sessionWindowMetadata());
         } catch (_error) {
             return false;
         }
@@ -454,14 +456,13 @@ export function createTmuxPromotionCapability<TTerminal>(
             throw new Error('A consumed pending runtime requires pending and final IDs.');
         }
         if (await runtimeStore.setConsumed({
-            version: 3,
+            ...getAiSessionRuntimeIdentityPersistenceFields(pending.identity),
             state: 'consumed',
             pendingId: pending.identity.pendingId,
             provider: pending.identity.provider,
             workspaceScopeIdentity: pending.identity.workspaceScopeIdentity,
             workspaceNavigationIdentity: pending.identity.workspaceNavigationIdentity,
             workspaceRootHostPaths: [...pending.identity.workspaceRootHostPaths],
-            ...getAiSessionRuntimeIdentityV3Fields(pending.identity),
             cwd: pending.identity.cwd,
             finalSessionId: finalIdentityValue.sessionId,
             finalSessionName,

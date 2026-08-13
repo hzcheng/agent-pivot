@@ -11,6 +11,9 @@ const { TmuxRuntimeBackend } = require('../../out/aiSessions/tmuxRuntimeBackend'
 const { TmuxRuntimeDiscovery } = require('../../out/aiSessions/tmuxRuntimeDiscovery');
 const { ProjectTmuxLayout, SessionTmuxLayout } = require('../../out/aiSessions/tmuxLayout');
 const { TmuxClientError } = require('../../out/aiSessions/tmuxClient');
+const {
+    getAiSessionRuntimeIdentityPersistenceFields,
+} = require('../../out/aiSessions/runtimeTypes');
 
 const FIXED_NOW = Date.parse('2026-07-18T10:00:00.000Z');
 
@@ -351,14 +354,7 @@ function createSyntheticTmuxStore(initial = {}) {
                         runStartedAtMs: runtime.runStartedAtMs,
                         lastSeenAtMs: FIXED_NOW,
                     }),
-                    version: 3,
-                    writableRootHostPaths: [
-                        ...(runtime.identity.writableRootHostPaths
-                            || runtime.identity.workspaceRootHostPaths),
-                    ],
-                    ...(runtime.identity.worktreeKey
-                        ? { worktreeKey: { ...runtime.identity.worktreeKey } }
-                        : {}),
+                    ...getAiSessionRuntimeIdentityPersistenceFields(runtime.identity),
                 });
                 inactive.delete(key);
             }

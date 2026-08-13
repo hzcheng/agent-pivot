@@ -709,7 +709,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 summarizes one or two selected 
     assert.match(html, /data-provider="claude"[\s\S]*?ai-session-provider-count">1/);
 });
 
-test('WORKTREE-GROUPING-UI-001 renders one authoritative session tree with worktree defaults, chips, and empty rows', () => {
+test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status rows', () => {
     const frontendKey = {
         repositoryKey: '/repos/frontend/.git',
         canonicalWorktreePath: '/managed/frontend-feature',
@@ -777,13 +777,12 @@ test('WORKTREE-GROUPING-UI-001 renders one authoritative session tree with workt
         truncatedWorktreeCount: 2,
     });
 
-    assert.match(html, /data-default-ai-session-grouping="worktree"/);
-    assert.match(html, /data-ai-session-grouping-select/);
-    assert.match(html, /<option value="flat">Flat<\/option>/);
-    assert.match(html, /<option value="worktree" selected>Worktree<\/option>/);
-    assert.equal((html.match(/data-session-id="feature-session"/g) || []).length, 1,
-        'Flat and Worktree modes must share one session DOM node');
-    assert.match(html, /class="ai-session-worktree-chip"[^>]*>feature\/auth<\/span>/);
+    assert.match(html, /data-ai-session-surface-tab="worktree"/);
+    assert.match(html, /data-ai-session-surface-tab="chats"/);
+    assert.match(html, /data-selected-ai-session-surface="chats"/);
+    assert.doesNotMatch(html, /data-ai-session-grouping-select/);
+    assert.equal((html.match(/data-session-id="feature-session"/g) || []).length, 2,
+        'the assigned session must remain available in both Worktree and Chats All');
     assert.match(html, /data-worktree-activity="attention"/);
     assert.ok(html.indexOf('feature/auth') < html.indexOf('feature/idle'),
         'attention worktrees render first while stable snapshot order breaks ties');
@@ -793,7 +792,7 @@ test('WORKTREE-GROUPING-UI-001 renders one authoritative session tree with workt
     assert.match(html, /aria-label="feature\/auth, 1 session, needs attention"/);
 });
 
-test('WORKTREE-GROUPING-UI-001 keeps Flat as the default without multiple ready worktrees', () => {
+test('WORKTREE-GROUPING-UI-001 keeps Chats available when no worktrees exist', () => {
     const html = webviewModules.content.getAiSessionsDiv({
         id: 'flat-default',
         activeAiSessionProvider: 'codex',
@@ -801,7 +800,9 @@ test('WORKTREE-GROUPING-UI-001 keeps Flat as the default without multiple ready 
         codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
         worktrees: [],
     });
-    assert.match(html, /data-default-ai-session-grouping="flat"/);
+    assert.match(html, /data-selected-ai-session-surface="chats"/);
+    assert.match(html, /data-ai-session-surface-panel="worktree"/);
+    assert.match(html, /data-ai-session-surface-panel="chats"/);
     assert.doesNotMatch(html, /data-ai-session-grouping-select/);
 });
 

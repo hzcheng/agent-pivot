@@ -10,6 +10,7 @@ import type {
 } from './runtimeTypes';
 import {
     getAiSessionRuntimeRootSnapshotKey,
+    getAiSessionRuntimeIdentityVersion,
     isValidAiSessionRuntimeIdentity,
 } from './runtimeTypes';
 import { legacyTmuxLocator } from './tmuxNaming';
@@ -75,7 +76,7 @@ export function getTmuxRuntimeKey(identity: AiSessionRuntimeIdentity): string {
     }
     const kind = hasSessionId ? 'session' : 'pending';
     const id = requireIdentityId(hasSessionId ? identity.sessionId : identity.pendingId, `${kind}Id`);
-    const usesWorktreeIdentity = !!identity.writableRootHostPaths || !!identity.worktreeKey;
+    const usesWorktreeIdentity = getAiSessionRuntimeIdentityVersion(identity) === METADATA_VERSION;
     return JSON.stringify([
         usesWorktreeIdentity ? METADATA_VERSION : LEGACY_METADATA_VERSION,
         identity.provider,

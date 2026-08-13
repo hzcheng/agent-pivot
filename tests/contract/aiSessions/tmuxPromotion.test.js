@@ -144,7 +144,7 @@ test('RUNTIME-TMUX-BACKEND-001 [tmux session] persisted intent resumes through a
     assert.equal(harness.store.promoting.size, 0);
 });
 
-test('RUNTIME-TMUX-BACKEND-001 [tmux session] v2 pending state promotes and rewrites v3 ownership', async () => {
+test('RUNTIME-TMUX-BACKEND-001 [tmux session] v2 pending state remains rollback-readable after promotion', async () => {
     const { harness, request } = await seedPending('session');
     const legacyPending = asLegacyV2Binding(
         harness.store.pending.get(request.identity.pendingId)
@@ -157,10 +157,10 @@ test('RUNTIME-TMUX-BACKEND-001 [tmux session] v2 pending state promotes and rewr
     );
     assert.equal(promoted.length, 1);
     assert.equal(promoted[0].identity.sessionId, 'final-v2-upgrade');
-    assert.equal(harness.store.known.get('codex:final-v2-upgrade').version, 3);
-    assert.equal([...harness.store.consumed.values()][0].version, 3);
-    assert.ok(harness.windows.every(row => row.sessionMetadata.version === '3'
-        && row.windowMetadata.version === '3'));
+    assert.equal(harness.store.known.get('codex:final-v2-upgrade').version, 2);
+    assert.equal([...harness.store.consumed.values()][0].version, 2);
+    assert.ok(harness.windows.every(row => row.sessionMetadata.version === '2'
+        && row.windowMetadata.version === '2'));
 });
 
 test('RUNTIME-TMUX-BACKEND-001 [tmux session] v2 live metadata and promotion intent resume after upgrade', async () => {

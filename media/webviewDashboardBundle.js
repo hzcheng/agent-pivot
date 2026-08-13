@@ -84,6 +84,87 @@ function normalizeAiSessionTab(value) {
     return value === 'active' ? 'active' : 'sessions';
 }
 
+function normalizeAiSessionSurface(value) {
+    return value === 'chats' ? 'chats' : 'worktree';
+}
+
+function getAdjacentAiSessionSurface(surface, key) {
+    surface = normalizeAiSessionSurface(surface);
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        return surface === 'worktree' ? 'chats' : 'worktree';
+    }
+    if (key === 'Home') return 'worktree';
+    if (key === 'End') return 'chats';
+    return surface;
+}
+
+function readAiSessionSurfaceState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function'
+        ? vscodeApi.getState() || {}
+        : {};
+    return state.aiSessionSurfaces && typeof state.aiSessionSurfaces === 'object'
+        && !Array.isArray(state.aiSessionSurfaces)
+        ? Object.assign({}, state.aiSessionSurfaces)
+        : {};
+}
+
+function writeAiSessionSurfaceState(vscodeApi, projectId, surface) {
+    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectId) return;
+    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    var surfaces = readAiSessionSurfaceState(vscodeApi);
+    surfaces[projectId] = normalizeAiSessionSurface(surface);
+    vscodeApi.setState(Object.assign({}, state, { aiSessionSurfaces: surfaces }));
+}
+
+function selectAiSessionSurfaceDom(projectDiv, surface) {
+    if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return null;
+    surface = normalizeAiSessionSurface(surface);
+    var sessionSection = projectDiv.querySelector('.codex-sessions');
+    if (sessionSection && typeof sessionSection.setAttribute === 'function') {
+        sessionSection.setAttribute('data-selected-ai-session-surface', surface);
+    }
+    var selectedTab = null;
+    projectDiv.querySelectorAll('[data-ai-session-surface-tab]').forEach(tab => {
+        var selected = tab.getAttribute('data-ai-session-surface-tab') === surface;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.setAttribute('tabindex', selected ? '0' : '-1');
+        if (selected) selectedTab = tab;
+    });
+    projectDiv.querySelectorAll('[data-ai-session-surface-panel]').forEach(panel => {
+        panel.toggleAttribute(
+            'hidden',
+            panel.getAttribute('data-ai-session-surface-panel') !== surface
+        );
+    });
+    return selectedTab;
+}
+
+function restoreAiSessionSurfaceFromState(projectDiv, vscodeApi) {
+    if (!projectDiv) return null;
+    var projectId = projectDiv.getAttribute('data-id');
+    var surfaces = readAiSessionSurfaceState(vscodeApi);
+    var section = projectDiv.querySelector('.codex-sessions');
+    var fallback = section && typeof section.getAttribute === 'function'
+        ? section.getAttribute('data-selected-ai-session-surface') || 'worktree'
+        : 'worktree';
+    return selectAiSessionSurfaceDom(
+        projectDiv,
+        Object.prototype.hasOwnProperty.call(surfaces, projectId)
+            ? surfaces[projectId]
+            : fallback
+    );
+}
+
+function getSelectedAiSessionSurface(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+    var selected = projectDiv.querySelector(
+        '[data-ai-session-surface-tab][aria-selected="true"]'
+    );
+    return selected
+        ? normalizeAiSessionSurface(selected.getAttribute('data-ai-session-surface-tab'))
+        : null;
+}
+
 function normalizeAiSessionGrouping(value) {
     return value === 'worktree' ? 'worktree' : 'flat';
 }
@@ -251,6 +332,8 @@ function focusAiSessionConversationOrigin(message) {
     if (!projectDiv) {
         return false;
     }
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
+    writeAiSessionSurfaceState(window.vscode, origin.projectId, 'chats');
     selectAiSessionTabDom(projectDiv, 'active');
     writeAiSessionTabState(window.vscode, origin.projectId, 'active');
     var row = Array.from(projectDiv.querySelectorAll(
@@ -334,7 +417,7 @@ function restoreAiSessionTabsFromState(root, vscodeApi) {
         if (Object.prototype.hasOwnProperty.call(tabs, projectId)) {
             selectAiSessionTabDom(projectDiv, tabs[projectId]);
         }
-        restoreAiSessionGroupingFromState(projectDiv, vscodeApi);
+        restoreAiSessionSurfaceFromState(projectDiv, vscodeApi);
         restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi);
     });
 }
@@ -372,7 +455,8 @@ function restoreAiSessionListAnchor(list, anchor) {
 function getFocusedAiSessionCardIdentity(projectDiv) {
     if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
     var row = projectDiv.querySelector(
-        '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+        '.ai-session-chats-surface .codex-session-row'
+        + '[data-session-focused][data-session-provider][data-session-id]'
     );
     return row ? {
         provider: row.getAttribute('data-session-provider') || '',
@@ -388,13 +472,20 @@ function captureAiSessionViewState(projectDiv) {
     var focusedInside = focused && typeof focused.closest === 'function' && focused.closest('.project[data-id]') === projectDiv;
     var focusedRow = focusedInside ? focused.closest('.codex-session-row') : null;
     var focusedTab = focusedInside ? focused.closest('[data-ai-session-tab]') : null;
+    var focusedSurfaceTab = focusedInside
+        ? focused.closest('[data-ai-session-surface-tab]')
+        : null;
     var selectedTab = getSelectedAiSessionTab(projectDiv);
+    var selectedSurface = getSelectedAiSessionSurface(projectDiv);
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
     selectAiSessionTabDom(projectDiv, 'active');
     var activeAnchor = captureAiSessionListAnchor(activeList);
     selectAiSessionTabDom(projectDiv, 'sessions');
     var historyAnchor = captureAiSessionListAnchor(historyList);
     selectAiSessionTabDom(projectDiv, selectedTab);
+    selectAiSessionSurfaceDom(projectDiv, selectedSurface);
     return {
+        selectedSurface: selectedSurface,
         selectedTab: selectedTab,
         activeAnchor: activeAnchor,
         historyAnchor: historyAnchor,
@@ -403,14 +494,14 @@ function captureAiSessionViewState(projectDiv) {
         restoreFocus: !!focusedInside,
         focusedSession: focusedSession,
         focusedTab: focusedTab && focusedTab.getAttribute('data-ai-session-tab'),
+        focusedSurfaceTab: focusedSurfaceTab
+            && focusedSurfaceTab.getAttribute('data-ai-session-surface-tab'),
         focusedRow: focusedRow ? {
             provider: focusedRow.getAttribute('data-session-provider') || '',
             sessionId: focusedRow.getAttribute('data-session-id') || '',
             pendingCreatedAt: focusedRow.getAttribute('data-pending-created-at') || '',
             panel: focusedRow.closest('[data-ai-session-panel]')?.getAttribute('data-ai-session-panel') || '',
         } : null,
-        grouping: projectDiv.querySelector('.codex-sessions')
-            ?.getAttribute('data-ai-session-grouping') || 'flat',
         collapsedWorktrees: Array.from(projectDiv.querySelectorAll(
             '.ai-session-worktree-group[data-worktree-collapsed]'
         )).map(getAiSessionWorktreeGroupKey),
@@ -422,6 +513,15 @@ function captureAiSessionViewState(projectDiv) {
 
 function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
     if (!viewState || !viewState.restoreFocus) return;
+    if (viewState.focusedSurfaceTab) {
+        var surfaceTabToFocus = Array.from(projectDiv.querySelectorAll(
+            '[data-ai-session-surface-tab]'
+        )).find(tab =>
+            tab.getAttribute('data-ai-session-surface-tab') === viewState.focusedSurfaceTab
+        );
+        surfaceTabToFocus?.focus({ preventScroll: true });
+        return;
+    }
     if (viewState.focusedTab) {
         var tabToFocus = Array.from(projectDiv.querySelectorAll('[data-ai-session-tab]'))
             .find(tab => tab.getAttribute('data-ai-session-tab') === viewState.focusedTab);
@@ -429,7 +529,9 @@ function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
         return;
     }
     if (!viewState.focusedRow) return;
-    var rows = Array.from(projectDiv.querySelectorAll('.codex-session-row'));
+    var rows = Array.from(projectDiv.querySelectorAll(
+        '.ai-session-chats-surface .codex-session-row'
+    ));
     var match = rows.find(row => {
         var panel = row.closest('[data-ai-session-panel]');
         return (row.getAttribute('data-session-provider') || '') === viewState.focusedRow.provider
@@ -442,7 +544,6 @@ function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
 
 function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options) {
     if (!projectDiv || !viewState) return null;
-    applyAiSessionGroupingDom(projectDiv, viewState.grouping, false);
     var collapsed = new Set(viewState.collapsedWorktrees || []);
     projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(group => {
         var key = getAiSessionWorktreeGroupKey(group);
@@ -464,11 +565,13 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
     }
     var activeList = projectDiv.querySelector('.ai-session-active-panel .codex-sessions-list');
     var historyList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
     selectAiSessionTabDom(projectDiv, 'active');
     restoreAiSessionListAnchor(activeList, viewState.activeAnchor);
     selectAiSessionTabDom(projectDiv, 'sessions');
     restoreAiSessionListAnchor(historyList, viewState.historyAnchor);
     var selectedTab = selectAiSessionTabDom(projectDiv, requestedTab || viewState.selectedTab);
+    selectAiSessionSurfaceDom(projectDiv, viewState.selectedSurface);
     if (!options || options.restoreFocus !== false) {
         restoreAiSessionViewFocus(projectDiv, viewState, selectedTab);
     }
@@ -495,6 +598,12 @@ function revealChangedFocusedAiSessionCard(root, states) {
         // surface it instead of preserving the stale scroll position.
         var panel = row.closest('[data-ai-session-panel]');
         if (panel && panel.hidden) {
+            selectAiSessionSurfaceDom(projectDiv, 'chats');
+            writeAiSessionSurfaceState(
+                window.vscode,
+                projectDiv.getAttribute('data-id'),
+                'chats'
+            );
             selectAiSessionTabDom(projectDiv, 'active');
             writeAiSessionTabState(window.vscode, projectDiv.getAttribute('data-id'), 'active');
         }
@@ -1277,11 +1386,11 @@ function initOpenTabSplit() {
     // innerHTML replacements, so replacements never have to replay it.
     var OPEN_TAB_PANE_MIN_PX = 72;
     // Expanded CURRENT WINDOW cards carry fixed AI-session chrome (module
-    // header, tabs, provider controls); the pane minimum rises so the chrome
-    // and one session row stay reachable. Measured against the sidebar fit
-    // layout (360px/240px widths) and mirrored as the min-height of the
-    // expanded rules in media/styles.scss.
-    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
+    // header, surface tabs, chat tabs, provider controls); the pane minimum
+    // rises so the chrome and one session row stay reachable. Measured
+    // against the sidebar fit layout (360px/240px widths) and mirrored as
+    // the min-height of the expanded rules in media/styles.scss.
+    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 322;
     var OPEN_TAB_KEY_STEP_PX = 24;
     var OPEN_TAB_STATE_KEY = 'openTab';
 
@@ -3198,6 +3307,17 @@ function initProjectAiSessionControls(options) {
             writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
             return true;
         }
+        var surfaceAction = target.closest(
+            '[data-action="select-ai-session-surface"][data-surface]'
+        );
+        if (surfaceAction) {
+            var selectedSurface = normalizeAiSessionSurface(
+                surfaceAction.getAttribute('data-surface')
+            );
+            selectAiSessionSurfaceDom(projectDiv, selectedSurface);
+            writeAiSessionSurfaceState(window.vscode, projectId, selectedSurface);
+            return true;
+        }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');
         if (tabAction) {
             var selectedTab = normalizeAiSessionTab(tabAction.getAttribute('data-tab'));
@@ -4550,21 +4670,6 @@ function initProjects() {
         if (todoControls.isDedicatedTodoTarget(e.target))
             return;
 
-        var groupingSelect = e.target.closest('[data-ai-session-grouping-select]');
-        if (groupingSelect) {
-            var groupingProject = groupingSelect.closest('.project[data-id]');
-            var groupingProjectId = groupingProject && groupingProject.getAttribute('data-id');
-            if (groupingProject && groupingProjectId) {
-                var grouping = applyAiSessionGroupingDom(
-                    groupingProject,
-                    groupingSelect.value,
-                    true
-                );
-                writeAiSessionGroupingState(window.vscode, groupingProjectId, grouping);
-            }
-            return;
-        }
-
         var todoPriorityInput = e.target.closest('.todo-priority-choice input[name="priority"]');
         if (todoPriorityInput) {
             todoControls.syncTodoPrioritySegment(todoPriorityInput.closest('.todo-priority-segment'));
@@ -4886,6 +4991,35 @@ function initProjects() {
             if (e.key === 'Tab') {
                 contextMenus.closeContextMenus();
             }
+        }
+
+        var surfaceTab = e.target && e.target.closest
+            ? e.target.closest('[data-ai-session-surface-tab]')
+            : null;
+        if (surfaceTab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+            e.preventDefault();
+            var nextSurfaceId = getAdjacentAiSessionSurface(
+                surfaceTab.getAttribute('data-ai-session-surface-tab'),
+                e.key
+            );
+            var surfaceProject = surfaceTab.closest('.project[data-id]');
+            var nextSurface = surfaceProject
+                && Array.from(surfaceProject.querySelectorAll('[data-ai-session-surface-tab]'))
+                    .find(candidate =>
+                        candidate.getAttribute('data-ai-session-surface-tab') === nextSurfaceId
+                    );
+            nextSurface?.focus();
+            return;
+        }
+        if (surfaceTab && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            var surfaceTabProject = surfaceTab.closest('.project[data-id]');
+            var surfaceTabProjectId = surfaceTabProject
+                && surfaceTabProject.getAttribute('data-id');
+            if (surfaceTabProjectId) {
+                aiSessionControls.onTriggerAiSessionAction(surfaceTab, surfaceTabProjectId);
+            }
+            return;
         }
 
         var tab = e.target && e.target.closest ? e.target.closest('[data-ai-session-tab]') : null;

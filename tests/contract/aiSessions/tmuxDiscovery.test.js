@@ -72,22 +72,63 @@ test('RUNTIME-TMUX-DISCOVERY-001 enumerate prefers one final snapshot read over 
     assert.equal(discovery.getActive().length, 1);
 });
 
-test('RUNTIME-TMUX-WORKTREE-RELOAD-001 rejects mixed-version tmux ownership proofs', async () => {
-    const row = makeTmuxDiscoveryRow({ sessionId: 'mixed-version' });
+test('RUNTIME-TMUX-WORKTREE-RELOAD-001 preserves active runtimes across mixed v2/v3 ownership proofs', async () => {
+    for (const upgradedLayer of ['session', 'window']) {
+        const row = makeTmuxDiscoveryRow({ sessionId: `mixed-version-${upgradedLayer}` });
+        if (upgradedLayer === 'session') {
+            row.sessionMetadata = { ...row.sessionMetadata, version: '3' };
+        } else {
+            row.windowMetadata = {
+                ...row.windowMetadata,
+                version: '3',
+                writableRootHostPaths: row.windowMetadata.workspaceRootHostPaths,
+            };
+        }
+        const discovery = new TmuxRuntimeDiscovery({
+            client: { listWindows: async () => [row] },
+            bindingStore: createSyntheticTmuxStore(),
+            markerIsCurrent: () => false,
+            cacheTtlMs: 0,
+        });
+
+        await discovery.refresh(true);
+        assert.deepEqual(
+            discovery.getActive().map(runtime => runtime.identity.sessionId),
+            [`mixed-version-${upgradedLayer}`]
+        );
+    }
+});
+
+test('RUNTIME-TMUX-WORKTREE-RELOAD-001 repairs legacy-equivalent v3 metadata for safe rollback', async () => {
+    const row = makeTmuxDiscoveryRow({ sessionId: 'rollback-compatible' });
+    row.sessionMetadata = { ...row.sessionMetadata, version: '3' };
     row.windowMetadata = {
         ...row.windowMetadata,
         version: '3',
         writableRootHostPaths: row.windowMetadata.workspaceRootHostPaths,
     };
+    const repairs = [];
     const discovery = new TmuxRuntimeDiscovery({
-        client: { listWindows: async () => [row] },
+        client: {
+            listWindows: async () => [row],
+            setSessionOptions: async (sessionName, values) => {
+                repairs.push(['session', sessionName, values]);
+            },
+            setWindowOptions: async (sessionName, windowName, values) => {
+                repairs.push(['window', sessionName, windowName, values]);
+            },
+        },
         bindingStore: createSyntheticTmuxStore(),
         markerIsCurrent: () => false,
         cacheTtlMs: 0,
     });
 
     await discovery.refresh(true);
-    assert.deepEqual(discovery.getActive(), []);
+    assert.equal(discovery.getActive()[0].identity.writableRootHostPaths, undefined);
+    assert.equal(repairs.length, 2);
+    assert.equal(repairs[0][2].version, '2');
+    assert.equal(repairs[1][3].version, '2');
+    assert.equal(repairs[1][3].writableRootHostPaths, undefined);
 });
 
 test('RUNTIME-TMUX-DISCOVERY-001 enumerate falls back to separate binding lists without snapshot support', async () => {

@@ -52,6 +52,10 @@ function surface() {
             name: 'Implement the responsive worktree session grouping experience',
             provider: 'codex',
             worktreeKey: frontendKey,
+        }, {
+            id: 'legacy-session',
+            name: 'Existing project chat must remain visible',
+            provider: 'codex',
         }],
         kimiSessions: [],
         claudeSessions: [],
@@ -71,6 +75,45 @@ function surface() {
         bareWorktreeCount: 0,
     });
 }
+
+test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats as the only top-level tabs', async t => {
+    const page = await openSurfacePage(320);
+    t.after(() => page.close());
+
+    const topLevelTabs = page.locator('[data-ai-session-surface-tab]');
+    assert.deepEqual(await topLevelTabs.allTextContents(), ['WORKTREE', 'CHATS']);
+    assert.equal(await page.locator('[data-ai-session-surface-panel="worktree"]').count(), 1);
+    assert.equal(await page.locator('[data-ai-session-surface-panel="chats"]').count(), 1);
+    assert.equal(await page.locator('[data-ai-session-grouping-select]').count(), 0,
+        'Worktree is a first-class surface, not a Flat/Worktree grouping preference');
+});
+
+test('WORKTREE-GROUPING-UI-001 keeps the original Active and All chat lists intact', async t => {
+    const page = await openSurfacePage(320);
+    t.after(() => page.close());
+
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'chats');
+    });
+    const chats = page.locator('[data-ai-session-surface-panel="chats"]');
+    assert.deepEqual(
+        await chats.locator('[data-ai-session-tab]').allTextContents(),
+        ['ACTIVE0', 'ALL2'],
+    );
+    await page.evaluate(() => {
+        selectAiSessionTabDom(document.querySelector('.project'), 'sessions');
+    });
+    assert.equal(
+        await chats.locator('[data-ai-session-panel="sessions"] .codex-session-row').count(),
+        2,
+        'assigned and legacy current-project chats must both remain in All',
+    );
+    assert.equal(
+        await chats.locator('[data-ai-session-panel="sessions"] .ai-session-worktree-group').count(),
+        0,
+        'Chats must retain the original flat history layout',
+    );
+});
 
 let browser;
 
@@ -110,8 +153,12 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     const page = await openSurfacePage(170);
     t.after(() => page.close());
 
-    assert.equal(await page.locator('[data-ai-session-grouping-select]').inputValue(), 'worktree');
-    assert.equal(await page.locator('.codex-session-row[data-session-id="frontend-session"]').count(), 1);
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
+    });
+    assert.equal(await page.locator(
+        '[data-ai-session-surface-panel="worktree"] .codex-session-row[data-session-id="frontend-session"]'
+    ).count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
     assert.equal(await page.locator('.ai-session-worktree-quick-create').count(), 2);
     assert.equal(await page.locator('[data-action="remove-managed-worktree"]').count(), 1);
@@ -149,34 +196,37 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     assert.ok(screenshot.length > 1_000, '170px acceptance screenshot must contain rendered pixels');
 
     await page.evaluate(() => {
-        applyAiSessionGroupingDom(document.querySelector('.project'), 'flat', true);
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'chats');
+        selectAiSessionTabDom(document.querySelector('.project'), 'sessions');
     });
-    assert.equal(await page.locator('.codex-sessions').getAttribute('data-ai-session-grouping'), 'flat');
-    assert.equal(await page.locator('.codex-session-row[data-session-id="frontend-session"]').count(), 1,
-        'Flat and Worktree modes must keep one authoritative session node');
+    assert.equal(await page.locator(
+        '[data-ai-session-surface-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
+    ).count(), 1,
+        'Chats All must retain the assigned session');
     assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), false);
 });
 
-test('WORKTREE-GROUPING-UI-001 renders Worktree and Flat modes at the default sidebar width', async t => {
+test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats at the default sidebar width', async t => {
     const page = await openSurfacePage(320);
     t.after(() => page.close());
 
-    const section = page.locator('.codex-sessions');
-    const chip = page.locator('.ai-session-worktree-chip');
-    assert.equal(await section.getAttribute('data-ai-session-grouping'), 'worktree');
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
+    });
     assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), true);
-    assert.equal(await chip.isVisible(), false);
     const worktreeScreenshot = await page.screenshot({ fullPage: true });
     assert.ok(worktreeScreenshot.length > 1_000,
         'default-width Worktree screenshot must contain rendered pixels');
 
     await page.evaluate(() => {
-        applyAiSessionGroupingDom(document.querySelector('.project'), 'flat', true);
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'chats');
+        selectAiSessionTabDom(document.querySelector('.project'), 'sessions');
     });
-    assert.equal(await section.getAttribute('data-ai-session-grouping'), 'flat');
-    assert.equal(await chip.isVisible(), true);
-    assert.equal(await page.locator('.codex-session-row[data-session-id="frontend-session"]').count(), 1);
-    const flatScreenshot = await page.screenshot({ fullPage: true });
-    assert.ok(flatScreenshot.length > 1_000,
-        'default-width Flat screenshot must contain rendered pixels');
+    assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), false);
+    assert.equal(await page.locator(
+        '[data-ai-session-surface-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
+    ).count(), 1);
+    const chatsScreenshot = await page.screenshot({ fullPage: true });
+    assert.ok(chatsScreenshot.length > 1_000,
+        'default-width Chats screenshot must contain rendered pixels');
 });

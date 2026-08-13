@@ -11,7 +11,9 @@ import type {
 import {
     aiSessionRuntimeIdentitiesEqual,
     cloneAiSessionRuntimeIdentity,
+    getAiSessionRuntimeIdentityExtensionFields,
     getAiSessionRuntimeIdentityV3Fields,
+    getAiSessionRuntimeIdentityVersion,
 } from './runtimeTypes';
 import { getTmuxRuntimeKey } from './tmuxLayout';
 import {
@@ -50,7 +52,7 @@ export function pendingLifecycleIdentityMatches(
             workspaceScopeIdentity: record.workspaceScopeIdentity,
             workspaceNavigationIdentity: record.workspaceNavigationIdentity,
             workspaceRootHostPaths: [...record.workspaceRootHostPaths],
-            ...getAiSessionRuntimeIdentityV3Fields(record as AiSessionRuntimeIdentity),
+            ...getAiSessionRuntimeIdentityExtensionFields(record as AiSessionRuntimeIdentity),
             cwd: record.cwd,
             pendingId: record.pendingId,
         });
@@ -63,6 +65,9 @@ function locatorsEqual(left: AiSessionTmuxLocator, right: AiSessionTmuxLocator):
 }
 
 export function pendingRequestFingerprint(request: AiSessionDeferredCreateRuntimeRequest): string {
+    if (getAiSessionRuntimeIdentityVersion(request.identity) === 2) {
+        return legacyV3PendingRequestFingerprint(request);
+    }
     const digest = createHash('sha256').update(JSON.stringify([
         4,
         request.identity.provider,
@@ -107,7 +112,7 @@ function identityFromPendingBinding(binding: TmuxPendingRuntimeBinding): AiSessi
         workspaceScopeIdentity: binding.workspaceScopeIdentity,
         workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
-        ...getAiSessionRuntimeIdentityV3Fields(binding as AiSessionRuntimeIdentity),
+        ...getAiSessionRuntimeIdentityExtensionFields(binding as AiSessionRuntimeIdentity),
         cwd: binding.cwd,
         pendingId: binding.pendingId,
     };
@@ -149,7 +154,7 @@ export function promotionIntent(
     finalSessionName: string,
     finalLocator: AiSessionTmuxLocator,
     recordedAtMs: number,
-    version: 2 | 3 = 3
+    version: 2 | 3 = getAiSessionRuntimeIdentityVersion(binding as AiSessionRuntimeIdentity)
 ): TmuxPromotingRuntimeBinding {
     if (!finalIdentityValue.sessionId) {
         throw new Error('A promotion intent requires a final session ID.');

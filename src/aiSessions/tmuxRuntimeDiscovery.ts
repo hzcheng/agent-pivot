@@ -21,7 +21,8 @@ import {
     aiSessionRuntimeIdentitiesEqual,
     cloneAiSessionRuntimeIdentity,
     getAiSessionRuntimeIdentityExtensionFields,
-    getAiSessionRuntimeIdentityV3Fields,
+    getAiSessionRuntimeIdentityPersistenceFields,
+    getAiSessionRuntimeIdentityVersion,
 } from './runtimeTypes';
 import type {
     TmuxFinalBindingSnapshot,
@@ -48,6 +49,12 @@ interface DiscoveryWindowRecord {
 
 interface TmuxDiscoveryClient {
     listWindows(): Promise<DiscoveryWindowRecord[]>;
+    setSessionOptions?(sessionName: string, values: Record<string, string>): Promise<void>;
+    setWindowOptions?(
+        sessionName: string,
+        windowName: string,
+        values: Record<string, string>
+    ): Promise<void>;
 }
 
 interface TmuxDiscoveryBindingStore {
@@ -393,6 +400,7 @@ export class TmuxRuntimeDiscovery {
             if (!parsed || !actual) {
                 continue;
             }
+            await repairLegacyEquivalentMetadata(this.options.client, row, parsed);
             const pendingBinding = parsed.pendingId !== undefined
                 ? findPendingBinding(pendingByLocator, actual, parsed)
                 : undefined;
@@ -401,7 +409,9 @@ export class TmuxRuntimeDiscovery {
                 workspaceScopeIdentity: parsed.workspaceScopeIdentity,
                 workspaceNavigationIdentity: parsed.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...parsed.workspaceRootHostPaths],
-                ...getAiSessionRuntimeIdentityExtensionFields(parsed),
+                ...(getAiSessionRuntimeIdentityVersion(parsed) === 3
+                    ? getAiSessionRuntimeIdentityExtensionFields(parsed)
+                    : {}),
                 cwd: parsed.cwd,
                 ...(parsed.sessionId !== undefined
                     ? { sessionId: parsed.sessionId }
@@ -723,14 +733,13 @@ function inactiveBindingFromSnapshot(
         throw new Error('An inactive tmux runtime requires a final managed identity.');
     }
     return {
-        version: 3,
+        ...getAiSessionRuntimeIdentityPersistenceFields(runtime.identity),
         state: runtime.state,
         provider: runtime.identity.provider,
         sessionId: runtime.identity.sessionId,
         workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
         workspaceNavigationIdentity: runtime.identity.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...runtime.identity.workspaceRootHostPaths],
-        ...getAiSessionRuntimeIdentityV3Fields(runtime.identity),
         cwd: runtime.identity.cwd,
         layout: runtime.tmux.layout,
         locator: { ...runtime.tmux },
@@ -800,20 +809,42 @@ function parseRowMetadata(row: DiscoveryWindowRecord): AiSessionManagedTmuxMetad
             return null;
         }
         const windowProof = parseManagedTmuxMetadata(row.windowMetadata);
-        return windowProof && windowProof.layout === 'project'
-            && windowProof.version === Number(row.sessionMetadata.version)
-            ? windowProof
-            : null;
+        return windowProof && windowProof.layout === 'project' ? windowProof : null;
     }
     if (row.sessionMetadata.layout === 'session' && row.windowMetadata.layout === 'session') {
         const sessionProof = parseManagedTmuxMetadata(row.sessionMetadata);
         return sessionProof && sessionProof.layout === 'session'
-            && isSessionWindowOwnershipBase(row.windowMetadata)
-            && sessionProof.version === Number(row.windowMetadata.version)
-            ? sessionProof
-            : null;
+            && isSessionWindowOwnershipBase(row.windowMetadata) ? sessionProof : null;
     }
     return null;
+}
+
+async function repairLegacyEquivalentMetadata(
+    client: TmuxDiscoveryClient,
+    row: DiscoveryWindowRecord,
+    parsed: AiSessionManagedTmuxMetadata
+): Promise<void> {
+    if (parsed.version !== 3 || getAiSessionRuntimeIdentityVersion(parsed) === 3
+        || !client.setSessionOptions || !client.setWindowOptions) {
+        return;
+    }
+    const full = parsed.layout === 'project' ? row.windowMetadata : row.sessionMetadata;
+    const base = parsed.layout === 'project' ? row.sessionMetadata : row.windowMetadata;
+    const legacyFull: Record<string, string> = { ...full, version: '2' };
+    delete legacyFull.writableRootHostPaths;
+    delete legacyFull.worktreeKey;
+    const legacyBase: Record<string, string> = { ...base, version: '2' };
+    try {
+        if (parsed.layout === 'project') {
+            await client.setSessionOptions(row.sessionName, legacyBase);
+            await client.setWindowOptions(row.sessionName, row.windowName, legacyFull);
+        } else {
+            await client.setSessionOptions(row.sessionName, legacyFull);
+            await client.setWindowOptions(row.sessionName, row.windowName, legacyBase);
+        }
+    } catch (_error) {
+        // Discovery remains available even if a best-effort rollback-compatibility repair fails.
+    }
 }
 
 function isProjectSessionOwnershipBase(values: Record<string, string>): boolean {

@@ -12,6 +12,7 @@ import {
     aiSessionRuntimeIdentitiesEqual,
     cloneAiSessionRuntimeIdentity,
     getAiSessionRuntimeRootSnapshotKey,
+    getAiSessionRuntimeIdentityVersion,
     isValidAiSessionPromotionDisplayName,
     isValidAiSessionRuntimeIdentity,
 } from './runtimeTypes';
@@ -202,7 +203,7 @@ function validatePendingRecord(value: unknown): TmuxPendingRuntimeBinding | null
         return null;
     }
     return {
-        version: record.version as 2 | 3,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'pending',
         pendingId: identity.pendingId as string,
         ...bindingIdentityFields(identity),
@@ -267,7 +268,7 @@ export function validateConsumedRecord(
         return null;
     }
     return {
-        version: record.version as 2 | 3,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'consumed',
         pendingId: identity.pendingId as string,
         ...bindingIdentityFields(identity),
@@ -389,7 +390,7 @@ export function validateAmbiguousRecord(value: unknown): TmuxAmbiguousRuntimeBin
         return null;
     }
     return {
-        version: record.version as 2 | 3,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'ambiguous',
         ...bindingIdentityFields(identity),
         ...(hasSessionId
@@ -402,7 +403,10 @@ export function validateAmbiguousRecord(value: unknown): TmuxAmbiguousRuntimeBin
                 ...(record.projectName === undefined ? {} : { projectName: record.projectName as string }),
                 ...(record.title === undefined ? {} : { title: record.title as string }),
                 ...(record.markerPath === undefined ? {} : { markerPath: record.markerPath as string }),
-                requestFingerprint: record.requestFingerprint as string,
+                requestFingerprint: record.version === 3
+                    && getAiSessionRuntimeIdentityVersion(identity) === 2
+                    ? legacyPendingRequestFingerprint(record)
+                    : record.requestFingerprint as string,
             }),
         layout: record.layout,
         locator,
@@ -434,7 +438,7 @@ export function validateKnownRecord(value: unknown): TmuxKnownRuntimeBinding | n
         return null;
     }
     return {
-        version: record.version as 2 | 3,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'known',
         sessionId: identity.sessionId as string,
         ...bindingIdentityFields(identity),
@@ -498,7 +502,7 @@ export function validateInactiveRecord(
         return null;
     }
     return {
-        version: record.version as 2 | 3,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: record.state,
         sessionId: identity.sessionId as string,
         ...bindingIdentityFields(identity),
@@ -826,9 +830,32 @@ function validateBindingIdentity(
         cwd: record.cwd,
         ...id,
     };
-    return isValidAiSessionRuntimeIdentity(identity)
-        ? cloneAiSessionRuntimeIdentity(identity)
-        : null;
+    if (!isValidAiSessionRuntimeIdentity(identity)) {
+        return null;
+    }
+    const clone = cloneAiSessionRuntimeIdentity(identity);
+    if (getAiSessionRuntimeIdentityVersion(clone) === 2) {
+        delete clone.writableRootHostPaths;
+        delete clone.worktreeKey;
+    }
+    return clone;
+}
+
+function legacyPendingRequestFingerprint(record: Record<string, unknown>): string {
+    const digest = createHash('sha256').update(JSON.stringify([
+        3,
+        record.provider,
+        record.workspaceScopeIdentity,
+        record.workspaceNavigationIdentity,
+        [...record.workspaceRootHostPaths as string[]].sort(),
+        record.pendingId,
+        record.cwd,
+        record.createdAt,
+        record.excludedSessionIds,
+        record.title ?? null,
+        record.markerPath ?? '',
+    ]), 'utf8').digest('hex');
+    return `v3:${digest}`;
 }
 
 function bindingIdentityFields(identity: AiSessionRuntimeIdentity) {

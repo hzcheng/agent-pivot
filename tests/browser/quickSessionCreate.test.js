@@ -280,6 +280,9 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         activity: 'idle', sessions: [], authority: { canResume: true, canRemove: true },
     }] });
     const project = page.locator('.project[data-id="project-a"]');
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
     const button = project.locator('[data-action="remove-managed-worktree"]');
     await button.click();
     assert.deepEqual((await postedMessages(page))[0], {
@@ -347,6 +350,9 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact
         '.project[data-id="project-a"] .ai-session-worktree-quick-create'
     );
 
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
     assert.equal(await button.getAttribute('data-provider'), 'kimi');
     assert.equal(await button.getAttribute('aria-label'), 'New Kimi session in feature/auth');
     await button.click();

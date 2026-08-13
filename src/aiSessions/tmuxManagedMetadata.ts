@@ -6,23 +6,23 @@ import type {
     AiSessionTmuxLayout,
     AiSessionTmuxLocator,
 } from './runtimeTypes';
+import { getAiSessionRuntimeIdentityVersion } from './runtimeTypes';
 
 const SESSION_WINDOW = 'ai-session';
 
 export function projectSessionMetadata(
-    identity: AiSessionRuntimeIdentity,
-    version: 2 | 3 = 3
+    identity: AiSessionRuntimeIdentity
 ): Record<string, string> {
     return {
         managed: '1',
-        version: String(version),
+        version: '2',
         layout: 'project',
         workspaceScopeIdentity: identity.workspaceScopeIdentity,
     };
 }
 
-export function sessionWindowMetadata(version: 2 | 3 = 3): Record<string, string> {
-    return { managed: '1', version: String(version), layout: 'session' };
+export function sessionWindowMetadata(): Record<string, string> {
+    return { managed: '1', version: '2', layout: 'session' };
 }
 
 export function fullMetadata(
@@ -30,7 +30,7 @@ export function fullMetadata(
     layout: AiSessionTmuxLayout,
     createdAt: string,
     markerPath: string,
-    version: 2 | 3 = 3
+    version: 2 | 3 = getAiSessionRuntimeIdentityVersion(identity)
 ): Record<string, string> {
     return {
         managed: '1',
@@ -91,7 +91,7 @@ export async function verifyPendingMetadata(
     locator: AiSessionTmuxLocator,
     createdAt: string,
     markerPath: string,
-    version: 2 | 3 = 3
+    version: 2 | 3 = getAiSessionRuntimeIdentityVersion(identity)
 ): Promise<void> {
     const sessionOptions = await client.getSessionOptions(locator.sessionName);
     const windowName = locator.layout === 'project'
@@ -102,11 +102,11 @@ export async function verifyPendingMetadata(
     }
     const windowOptions = await client.getWindowOptions(locator.sessionName, windowName);
     const expectedSession = locator.layout === 'project'
-        ? projectSessionMetadata(identity, version)
+        ? projectSessionMetadata(identity)
         : fullMetadata(identity, locator.layout, createdAt, markerPath, version);
     const expectedWindow = locator.layout === 'project'
         ? fullMetadata(identity, locator.layout, createdAt, markerPath, version)
-        : sessionWindowMetadata(version);
+        : sessionWindowMetadata();
     if (!recordsEqual(sessionOptions, expectedSession) || !recordsEqual(windowOptions, expectedWindow)) {
         throw new Error('The pending tmux metadata could not be verified.');
     }

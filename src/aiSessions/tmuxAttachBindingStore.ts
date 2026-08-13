@@ -2,7 +2,11 @@
 
 import type { AiSessionProviderId } from '../models';
 import type { AiSessionRuntimeIdentity, AiSessionTmuxLayout } from './runtimeTypes';
-import { cloneAiSessionRuntimeIdentity, isValidAiSessionRuntimeIdentity } from './runtimeTypes';
+import {
+    cloneAiSessionRuntimeIdentity,
+    getAiSessionRuntimeIdentityVersion,
+    isValidAiSessionRuntimeIdentity,
+} from './runtimeTypes';
 
 export const AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX = 'aiSessionTmuxAttachProcessBinding.v3.';
 export const AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX = 'aiSessionTmuxAttachProcessBinding.v2.';
@@ -60,9 +64,12 @@ export class TmuxAttachBindingStore {
             const current = validateRecord(this.state.get(
                 getBindingKey(processId), null as unknown
             ));
-            const record = current || validateRecord(
+            const record = downgradeLegacyEquivalentBinding(current || validateRecord(
                 this.state.get(getLegacyBindingKey(processId), null as unknown)
-            );
+            ));
+            if (current && record?.version === 2) {
+                this.enqueueWrite(processId, record);
+            }
             return record ? cloneBinding(record) : null;
         } catch (error) {
             this.reportErrorOnce(error);
@@ -71,6 +78,10 @@ export class TmuxAttachBindingStore {
     }
 
     getRecovery(token: string): TmuxAttachRecoveryBinding | null {
+        return this.readRecovery(token, true);
+    }
+
+    private readRecovery(token: string, migrate: boolean): TmuxAttachRecoveryBinding | null {
         if (!isRecoveryToken(token)) {
             return null;
         }
@@ -78,7 +89,17 @@ export class TmuxAttachBindingStore {
             const record = validateRecoveryRecord(
                 this.state.get(getRecoveryBindingKey(token), null as unknown)
             );
-            return record ? cloneRecoveryBinding(record) : null;
+            if (!record) {
+                return null;
+            }
+            const binding = downgradeLegacyEquivalentBinding(record.binding);
+            if (!binding) {
+                return null;
+            }
+            if (migrate && record.binding.version === 3 && binding.version === 2) {
+                this.enqueueRecoveryMigration(token, record.processId, binding);
+            }
+            return cloneRecoveryBinding({ processId: record.processId, binding });
         } catch (error) {
             this.reportErrorOnce(error);
             return null;
@@ -112,9 +133,8 @@ export class TmuxAttachBindingStore {
             if (!isProcessId(pid)) {
                 return;
             }
-            const previous = this.getRecovery(token);
-            await this.state.update(getBindingKey(pid), cloneBinding(binding));
-            await this.state.update(getLegacyBindingKey(pid), undefined);
+            const previous = this.readRecovery(token, false);
+            await this.writeProcessBinding(pid, binding);
             await this.state.update(getRecoveryBindingKey(token), {
                 version: 1,
                 processId: pid,
@@ -131,7 +151,7 @@ export class TmuxAttachBindingStore {
             return;
         }
         this.writeQueue = this.writeQueue.then(async () => {
-            const previous = this.getRecovery(token);
+            const previous = this.readRecovery(token, false);
             await this.state.update(getRecoveryBindingKey(token), undefined);
             if (previous) {
                 await this.removeProcessBindings(previous.processId);
@@ -150,8 +170,7 @@ export class TmuxAttachBindingStore {
             if (!isProcessId(pid)) {
                 return;
             }
-            await this.state.update(getBindingKey(pid), record ? cloneBinding(record) : undefined);
-            await this.state.update(getLegacyBindingKey(pid), undefined);
+            await this.writeProcessBinding(pid, record);
         }).catch(error => this.reportErrorOnce(error));
     }
 
@@ -187,6 +206,36 @@ export class TmuxAttachBindingStore {
     private async removeProcessBindings(processId: number): Promise<void> {
         await this.state.update(getBindingKey(processId), undefined);
         await this.state.update(getLegacyBindingKey(processId), undefined);
+    }
+
+    private async writeProcessBinding(
+        processId: number,
+        record: TmuxAttachBinding | null
+    ): Promise<void> {
+        if (!record) {
+            await this.removeProcessBindings(processId);
+        } else if (record.version === 3) {
+            await this.state.update(getBindingKey(processId), cloneBinding(record));
+            await this.state.update(getLegacyBindingKey(processId), undefined);
+        } else {
+            await this.state.update(getLegacyBindingKey(processId), cloneBinding(record));
+            await this.state.update(getBindingKey(processId), undefined);
+        }
+    }
+
+    private enqueueRecoveryMigration(
+        token: string,
+        processId: number,
+        binding: TmuxAttachBinding
+    ): void {
+        this.writeQueue = this.writeQueue.then(async () => {
+            await this.writeProcessBinding(processId, binding);
+            await this.state.update(getRecoveryBindingKey(token), {
+                version: 1,
+                processId,
+                binding: cloneBinding(binding),
+            });
+        }).catch(error => this.reportErrorOnce(error));
     }
 }
 
@@ -296,6 +345,18 @@ function cloneBinding(binding: TmuxAttachBinding): TmuxAttachBinding {
             : {}),
         ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
     };
+}
+
+function downgradeLegacyEquivalentBinding(
+    binding: TmuxAttachBinding | null
+): TmuxAttachBinding | null {
+    if (!binding || binding.version !== 3 || getAiSessionRuntimeIdentityVersion(binding) === 3) {
+        return binding;
+    }
+    const downgraded = cloneBinding({ ...binding, version: 2 });
+    delete downgraded.writableRootHostPaths;
+    delete downgraded.worktreeKey;
+    return downgraded;
 }
 
 function cloneRecoveryBinding(record: TmuxAttachRecoveryBinding): TmuxAttachRecoveryBinding {

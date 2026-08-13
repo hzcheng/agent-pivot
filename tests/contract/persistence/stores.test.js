@@ -20,6 +20,7 @@ const AiSessionTerminalBindingStore = require('../../../out/aiSessions/terminalB
 const {
     AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX,
     AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX,
+    AI_SESSION_TMUX_ATTACH_RECOVERY_BINDING_KEY_PREFIX,
     TmuxAttachBindingStore,
 } = require('../../../out/aiSessions/tmuxAttachBindingStore');
 const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntimeBindingStore');
@@ -360,6 +361,7 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
     const processId = 42001;
     const legacyProcessId = 42002;
     const missingProcessId = 42003;
+    const pollutedProcessId = 42005;
     const workspaceIdentity = {
         workspaceScopeIdentity: 'scope:fixture',
         workspaceNavigationIdentity: 'navigation:fixture',
@@ -385,12 +387,30 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
             runStartedAtMs: 1,
             updatedAtMs: 2,
         },
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`]: {
+            version: 3,
+            state: 'bound',
+            providerId: 'codex',
+            sessionId: 'polluted-ordinary',
+            markerPath: '/tmp/polluted.done',
+            runStartedAtMs: 1,
+            updatedAtMs: 2,
+            ...workspaceIdentity,
+            writableRootHostPaths: [...workspaceIdentity.workspaceRootHostPaths],
+        },
     });
     const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
 
     assert.equal(store.get(legacyProcessId).sessionId, 'legacy');
     assert.equal(store.get(legacyProcessId).version, 2);
     assert.equal(store.get(missingProcessId), null);
+    assert.equal(store.get(pollutedProcessId).version, 2);
+    await store.flush();
+    assert.equal(
+        state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX}${pollutedProcessId}`].version,
+        2
+    );
+    assert.equal(state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`], undefined);
     store.setPending(processId, {
         providerId: 'codex',
         markerPath: '/tmp/valid.done',
@@ -418,6 +438,12 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
     });
     await store.flush();
     assert.equal(new AiSessionTerminalBindingStore(state.memento).get(processId).sessionId, 'valid');
+    assert.equal(
+        state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX}${processId}`].version,
+        2,
+        'ordinary terminal bindings must remain readable by the rollback release'
+    );
+    assert.equal(state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${processId}`], undefined);
     assert.equal(new AiSessionTerminalBindingStore(state.memento).get(42004), null);
 
     store.setReleased(processId, {
@@ -474,6 +500,9 @@ test('PERSIST-AI-SESSION-TERMINAL-V3-001 reloads worktree bindings without losin
 test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 dual-reads v2 and reloads v3 worktree bindings', async () => {
     const legacyProcessId = 42201;
     const processId = 42202;
+    const writtenLegacyProcessId = 42203;
+    const pollutedProcessId = 42204;
+    const recoveryToken = '0123456789abcdef0123456789abcdef';
     const legacy = {
         version: 2,
         layout: 'session',
@@ -488,9 +517,47 @@ test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 dual-reads v2 and reloads v3 worktre
     };
     const state = makeState({
         [`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${legacyProcessId}`]: legacy,
+        [`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`]: {
+            ...legacy,
+            version: 3,
+            sessionId: 'polluted-ordinary',
+            writableRootHostPaths: [...legacy.workspaceRootHostPaths],
+        },
+        [`${AI_SESSION_TMUX_ATTACH_RECOVERY_BINDING_KEY_PREFIX}${recoveryToken}`]: {
+            version: 1,
+            processId: pollutedProcessId,
+            binding: {
+                ...legacy,
+                version: 3,
+                sessionId: 'polluted-ordinary',
+                writableRootHostPaths: [...legacy.workspaceRootHostPaths],
+            },
+        },
     });
     const store = new TmuxAttachBindingStore(state.memento);
     assert.deepEqual(store.get(legacyProcessId), legacy);
+    assert.equal(store.get(pollutedProcessId).version, 2);
+    await store.flush();
+    assert.equal(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${pollutedProcessId}`].version,
+        2
+    );
+    assert.equal(state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`], undefined);
+    store.setRecovery(recoveryToken, 42205, legacy);
+    await store.flush();
+    assert.deepEqual(store.getRecovery(recoveryToken), { processId: 42205, binding: legacy },
+        'an internal legacy read must not queue a stale migration after a newer recovery write');
+    store.set(writtenLegacyProcessId, legacy);
+    await store.flush();
+    assert.deepEqual(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${writtenLegacyProcessId}`],
+        legacy,
+        'ordinary attach bindings must remain readable by the rollback release'
+    );
+    assert.equal(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${writtenLegacyProcessId}`],
+        undefined
+    );
 
     const current = {
         version: 3,
@@ -546,6 +613,16 @@ test('RUNTIME-TMUX-STORE-001 ignores corrupt, oversized, partially written, and 
 
     const [recordName] = fs.readdirSync(fixture.root).filter(name => name.endsWith('.json'));
     const recordPath = fixture.resolve(recordName);
+    fs.writeFileSync(recordPath, JSON.stringify({
+        ...binding,
+        version: 3,
+        writableRootHostPaths: [...binding.workspaceRootHostPaths],
+    }), 'utf8');
+    const migrated = await new TmuxRuntimeBindingStore(fixture.root, () => NOW).listKnown();
+    assert.equal(migrated[0].version, 2);
+    assert.equal(JSON.parse(fs.readFileSync(recordPath, 'utf8')).version, 2,
+        'legacy-equivalent runtime files must be repaired for rollback');
+
     fs.writeFileSync(recordPath, '{"version":1', 'utf8');
     fs.writeFileSync(fixture.resolve('.interrupted.tmp'), JSON.stringify(binding), 'utf8');
     assert.deepEqual(await new TmuxRuntimeBindingStore(fixture.root, () => NOW).listKnown(), []);

@@ -58,7 +58,7 @@ const openTabSplitScript = fs.readFileSync(
 const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
 const OPEN_TAB_PANE_MIN_PX = 72;
 // Mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in webviewOpenTabSplitScripts.js.
-const OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
+const OPEN_TAB_PANE_MIN_EXPANDED_PX = 322;
 
 let browser;
 
@@ -584,7 +584,9 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 fits the expanded CURRENT WINDOW ca
     // scoped there: cover the default and minimum supported sidebar widths.
     for (const config of [
         { width: 360, height: 900, isSidebar: true },
-        { width: 240, height: 720, isSidebar: true },
+        // The taller viewport keeps the auto half-pane pin above the raised
+        // expanded floor (OPEN_TAB_PANE_MIN_EXPANDED_PX) so both rules show.
+        { width: 240, height: 760, isSidebar: true },
     ]) {
         const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
         const page = await openDashboardPage(t, { ...config, cards });
@@ -728,7 +730,7 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
         group.classList.remove('current-card-expanded');
         group.querySelector('.workspace-card').removeAttribute('data-codex-expanded');
     });
-    for (let step = 0; step < 10; step += 1) {
+    for (let step = 0; step < 12; step += 1) {
         await page.keyboard.press('ArrowUp');
     }
     const collapsedFloor = await openTabGeometry(page);

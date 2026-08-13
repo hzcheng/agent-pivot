@@ -5,6 +5,9 @@ const test = require('node:test');
 const {
     renderConversationMarkdown,
 } = require('../../../out/aiSessions/conversation/markdown');
+const {
+    normalizeVisibleText,
+} = require('../../../out/aiSessions/conversation/text');
 
 test('CONVERSATION-VIEWER-MARKDOWN-001 renders readable Markdown without executable HTML', () => {
     const html = renderConversationMarkdown(`# Heading
@@ -26,6 +29,32 @@ Plain **strong** text.
     assert.match(html, /Plain <strong>strong<\/strong> text\./);
     assert.equal(html.includes('<script>'), false);
     assert.match(html, /&lt;script&gt;window\.__executed = true&lt;\/script&gt;/);
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-FENCED-CODE-001 renders provider code indented and highlighted after normalization', () => {
+    const providerText = [
+        '关键实现：',
+        '',
+        '```python',
+        'def execute_tool(name: str) -> str:',
+        '    if name == "read_file":',
+        '        return read_file(args["path"])',
+        '```',
+    ].join('\n');
+    const html = renderConversationMarkdown(
+        normalizeVisibleText(providerText)
+    );
+    assert.match(html, /<code class="hljs language-python">/);
+    assert.match(
+        html,
+        /\n {4}<span class="hljs-keyword">if<\/span>/,
+        'four-space indentation survives into the highlighted code'
+    );
+    assert.match(
+        html,
+        /\n {8}<span class="hljs-keyword">return<\/span>/,
+        'nested eight-space indentation survives too'
+    );
 });
 
 test('CONVERSATION-VIEWER-MARKDOWN-002 emits href attributes only for HTTPS links', () => {

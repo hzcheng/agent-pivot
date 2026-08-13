@@ -4413,6 +4413,34 @@
     ]
   },
   {
+    "id": "SESSION-AI-SESSION-CONVERSATION-FENCED-CODE-001",
+    "domain": "session",
+    "title": "Provider conversation text normalization keeps fenced code block content verbatim, preserving indentation and blank lines so rendered code stays readable and highlighted",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationText.test.js",
+      "tests/unit/aiSessions/conversationMarkdown.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/text.ts",
+      "src/aiSessions/conversation/markdown.ts"
+    ]
+  },
+  {
+    "id": "WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001",
+    "domain": "webview",
+    "title": "Conversation code blocks render highlighted code at source width without decorative indent guide markup, keeping highlight.js spans and text identical",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001",
     "domain": "webview",
     "title": "Conversation markers open and reload restores one bounded sanitized rich Markdown viewer with live updates",

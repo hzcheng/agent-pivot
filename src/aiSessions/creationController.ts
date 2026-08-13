@@ -66,9 +66,13 @@ export interface AiSessionCreationControllerCommonOptions {
     /**
      * Called after any runtime successfully started so the provider choice
      * can be remembered for the next quick-create. Never called for
-     * cancelled/failed creations.
+     * cancelled/failed creations. Awaited before the session reveal so the
+     * following refresh already sees the remembered provider.
      */
-    rememberSessionProvider?: (workspaceScopeIdentity: string, providerId: AiSessionProviderId) => void;
+    rememberSessionProvider?: (
+        workspaceScopeIdentity: string,
+        providerId: AiSessionProviderId
+    ) => void | Thenable<void> | Promise<void>;
     /**
      * Returns the default Codex profile decision for quick-create when no
      * explicit profile is provided. Returns undefined when there is no
@@ -343,7 +347,7 @@ export class AiSessionCreationController {
         }
         if (result.status === 'started') {
             await options.rememberDirectoryScope?.(directoryScope);
-            options.rememberSessionProvider?.(directoryScope.workspaceScopeIdentity, providerId);
+            await options.rememberSessionProvider?.(directoryScope.workspaceScopeIdentity, providerId);
             if (providerId === 'codex' && fields.codexProfileDecision) {
                 options.rememberSessionProfile?.(pendingId, fields.codexProfileDecision);
             }

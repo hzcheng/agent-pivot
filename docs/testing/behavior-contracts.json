@@ -443,12 +443,17 @@
       "tests/contract/aiSessions/sessionControllers.test.js",
       "tests/contract/aiSessions/sessionControllerComposition.test.js",
       "tests/contract/aiSessions/sessionControllerComposition.profile.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js",
+      "tests/contract/persistence/stores.test.js",
       "tests/integration/dashboard/messageRouter.test.js",
       "tests/browser/quickSessionCreate.test.js"
     ],
     "evidence": [
       "src/aiSessions/creationController.ts",
       "src/aiSessions/sessionControllerComposition.ts",
+      "src/aiSessions/workspaceStateStore.ts",
+      "src/workspaces/sessionHydrationController.ts",
+      "src/workspaces/viewModels.ts",
       "src/dashboard/messageRouter.ts",
       "src/webview/webviewAiSessionContent.ts",
       "src/webview/webviewProjectAiSessionControlsScripts.js",

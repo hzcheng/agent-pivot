@@ -65,6 +65,7 @@ function createFixture(overrides = {}) {
             setExpanded: record('setExpanded'),
             setProviderSelection: record('setProviderSelection'),
             setActiveProvider: record('setActiveProvider'),
+            setQuickCreateProvider: record('setQuickCreateProvider'),
         },
         aiSessionPinController: { toggle: record('pinToggle'), remove: record('pinRemove') },
         aiSessionAliasController: {
@@ -194,15 +195,20 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 AI-SESSION-QUICK-CREATE-001 per
 
     await controllerOptions.creation.rememberSessionProvider('scope-1', 'kimi');
     assert.deepEqual(
-        calls.filter(call => call[0] === 'setActiveProvider'),
-        [['setActiveProvider', 'scope-1', 'kimi']],
+        calls.filter(call => call[0] === 'setQuickCreateProvider'),
+        [['setQuickCreateProvider', 'scope-1', 'kimi']],
         'a started session remembers its provider as the next quick-create default'
+    );
+    assert.deepEqual(
+        calls.filter(call => call[0] === 'setActiveProvider'),
+        [],
+        'the quick-create memory must not clobber the list-filter active provider'
     );
 
     const failing = createFixture({
         compositionOptions: {
             aiSessionWorkspaceStateStore: {
-                setActiveProvider: async () => { throw new Error('disk full'); },
+                setQuickCreateProvider: async () => { throw new Error('disk full'); },
             },
         },
     });

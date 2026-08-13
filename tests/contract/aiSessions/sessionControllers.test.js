@@ -405,6 +405,36 @@ test('AI-SESSION-QUICK-CREATE-001 SESSION-CODEX-PROFILE-PICK-001 quick-create ap
     assert.deepEqual(kimi.rememberedProfiles, []);
 });
 
+test('AI-SESSION-QUICK-CREATE-001 awaits the provider memory write before revealing the session', async () => {
+    const order = [];
+    let releaseWrite;
+    const writeGate = new Promise(resolve => { releaseWrite = resolve; });
+    const fixture = makeQuickCreateController({
+        rememberSessionProvider: (scope, providerId) => {
+            order.push(['remember:start', scope, providerId]);
+            return writeGate.then(() => { order.push(['remember:write']); });
+        },
+        showActiveTab: async id => { order.push(['showActiveTab', id]); },
+        refresh: () => { order.push(['refresh']); },
+    });
+
+    const pending = fixture.controller.createSessionQuick('p', 'kimi');
+    for (let index = 0; index < 20 && order.length === 0; index += 1) {
+        await Promise.resolve();
+    }
+    assert.deepEqual(order, [['remember:start', 'scope:fixture', 'kimi']],
+        'the reveal and refresh must park behind a delayed memory write');
+
+    releaseWrite();
+    assert.equal(await pending, true);
+    assert.deepEqual(order, [
+        ['remember:start', 'scope:fixture', 'kimi'],
+        ['remember:write'],
+        ['showActiveTab', 'p'],
+        ['refresh'],
+    ], 'the refresh after a started quick-create reads the settled provider memory');
+});
+
 test('AI-SESSION-QUICK-CREATE-001 remembers the provider only after the runtime started', async () => {
     for (const status of ['blocked', 'conflict', 'cancelled', 'settings']) {
         const fixture = makeQuickCreateController({

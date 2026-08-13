@@ -350,7 +350,7 @@ export function createSessionControllerComposition(
         },
         rememberSessionProvider: async (workspaceScopeIdentity, providerId) => {
             try {
-                await aiSessionWorkspaceStateStore.setActiveProvider(workspaceScopeIdentity, providerId);
+                await aiSessionWorkspaceStateStore.setQuickCreateProvider(workspaceScopeIdentity, providerId);
             } catch (error) {
                 logError("Failed to remember the AI session provider.", error);
             }

@@ -2014,6 +2014,43 @@
     ]
   },
   {
+    "id": "WORKTREE-DISCOVERY-001",
+    "domain": "session",
+    "title": "Workspace roots discover bounded, canonical Git worktree snapshots with compatible porcelain parsing and stable per-repository base refs",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/baseRefStore.test.js",
+      "tests/unit/worktrees/gitWorktreeDiscovery.test.js",
+      "tests/unit/worktrees/porcelainParser.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/baseRefStore.ts",
+      "src/worktrees/gitWorktreeDiscovery.ts",
+      "src/worktrees/porcelainParser.ts",
+      "src/worktrees/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-SNAPSHOT-001",
+    "domain": "session",
+    "title": "Worktree snapshots refresh automatically with single-flight generation safety and flow coherently through session hydration and presentation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/gitRepositoryStateMonitor.test.js",
+      "tests/unit/worktrees/snapshotCoordinator.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/worktrees/gitRepositoryStateMonitor.ts",
+      "src/worktrees/snapshotCoordinator.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/sessionHydrationController.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
     "domain": "runtime",
     "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",

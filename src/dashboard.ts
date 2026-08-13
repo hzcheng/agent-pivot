@@ -236,6 +236,14 @@ import {
 } from './workspaces/sessionHydrationController';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
+import { GitWorktreeDiscovery } from './worktrees/gitWorktreeDiscovery';
+import {
+    GitApiLike,
+    GitRepositoryStateMonitor,
+} from './worktrees/gitRepositoryStateMonitor';
+import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
+import { worktreeKeysEqual } from './worktrees/types';
+import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
 
 const NEW_AI_SESSION_REFRESH_DELAYS_MS = [250, 1000, 2500, 5000];
 const AI_SESSION_REFRESH_DEBOUNCE_MS = 3000;
@@ -306,6 +314,21 @@ function runBoundedAiProviderHelp(
             });
         });
     });
+}
+
+async function getVsCodeGitApiForWorktreeMonitoring(): Promise<GitApiLike | undefined> {
+    const extension = vscode.extensions.getExtension('vscode.git');
+    if (!extension) {
+        return undefined;
+    }
+    const exports = extension.isActive ? extension.exports : await extension.activate();
+    const api = (exports as { getAPI?: (version: number) => unknown } | undefined)
+        ?.getAPI?.(1) as GitApiLike | undefined;
+    return api && Array.isArray(api.repositories)
+        && typeof api.onDidOpenRepository === 'function'
+        && typeof api.onDidCloseRepository === 'function'
+        ? api
+        : undefined;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -1199,6 +1222,60 @@ async function initializeDashboard(
     const getCurrentOpenWorkspace = (): OpenWorkspace | null => openWorkspaceController
         ? openWorkspaceController.getCurrentWorkspace()
         : resolveCurrentOpenWorkspace();
+    const worktreeBaseRefStore = new WorktreeBaseRefStore(context.globalState);
+    const gitWorktreeDiscovery = new GitWorktreeDiscovery({
+        getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
+    });
+    const getPriorityWorktreeKeys = (): import('./worktrees/types').WorktreeKey[] => [
+        ...aiSessionRuntimeCoordinator.getActive(),
+        ...aiSessionRuntimeCoordinator.getPending(),
+    ].reduce((keys, runtime) => {
+        const key = runtime.identity.worktreeKey;
+        if (key && !keys.some(candidate => worktreeKeysEqual(candidate, key))) {
+            keys.push({ ...key });
+        }
+        return keys;
+    }, [] as import('./worktrees/types').WorktreeKey[]);
+    const getWorktreePrioritySignature = (): string => JSON.stringify(
+        getPriorityWorktreeKeys()
+            .map(key => [key.repositoryKey, key.canonicalWorktreePath])
+            .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    );
+    let requestedWorktreePrioritySignature = getWorktreePrioritySignature();
+    const worktreeSnapshotCoordinator = ownResource(() =>
+        new WorktreeSnapshotCoordinator({
+            load: async () => {
+                const workspace = getCurrentOpenWorkspace();
+                const snapshot = await gitWorktreeDiscovery.discover({
+                    workspaceRoots: workspace?.roots || [],
+                    priorityWorktreeKeys: getPriorityWorktreeKeys(),
+                });
+                for (const repository of snapshot.repositories) {
+                    if (repository.baseRef) {
+                        try {
+                            await worktreeBaseRefStore.rememberInitial(
+                                repository.repositoryKey, repository.baseRef);
+                        } catch (error) {
+                            // Discovery remains usable when VS Code cannot
+                            // persist the initial preference. A later refresh
+                            // can retry without discarding the Git snapshot.
+                            logError('Failed to remember the worktree base ref.', error);
+                        }
+                    }
+                }
+                return snapshot;
+            },
+            setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+            clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
+        }));
+    const gitRepositoryStateMonitor = ownResource(() =>
+        new GitRepositoryStateMonitor({
+            getApi: getVsCodeGitApiForWorktreeMonitoring,
+            onDidChange: () => worktreeSnapshotCoordinator.invalidate('git-state'),
+            onError: error => logError(
+                'Failed to subscribe to Git repository state changes.', error),
+        }));
+    void gitRepositoryStateMonitor.start();
     const savedWorkspaceProjectAdapter = new SavedWorkspaceProjectAdapter({
         getCurrentWorkspace: resolveCurrentOpenWorkspace,
         pendingStore: new PendingWorkspaceSaveStore(context.globalState),
@@ -1425,6 +1502,14 @@ async function initializeDashboard(
         nowMs: () => Date.now(),
     });
     aiSessionProjectionCoordinator = new AiSessionProjectionCoordinator<vscode.Terminal>({
+        getWorktreeSnapshot: () => {
+            const prioritySignature = getWorktreePrioritySignature();
+            if (prioritySignature !== requestedWorktreePrioritySignature) {
+                requestedWorktreePrioritySignature = prioritySignature;
+                worktreeSnapshotCoordinator.invalidate('runtime-priority');
+            }
+            return worktreeSnapshotCoordinator.getSnapshot();
+        },
         getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),
         getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending(),
         getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot(),
@@ -1803,6 +1888,7 @@ async function initializeDashboard(
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
             setAiSessionWatchersActive(visible);
+            worktreeSnapshotCoordinator.setVisible(visible);
             activeAiSessionTerminalHighlighter.setVisible(visible);
             aiSessionAttentionEvent.setDeferredRestoreRefreshReady(visible);
             publishDeferredTmuxRestoreIfReady();
@@ -1894,6 +1980,18 @@ async function initializeDashboard(
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         refresh: refreshStewardViews,
     });
+    ownResource(() => worktreeSnapshotCoordinator.onDidChange(state => {
+        if ((state.kind === 'ready' && !state.refreshing) || state.kind === 'error') {
+            void aiSessionDashboardController.refreshNow('worktree-snapshot', {
+                fallbackToFullRefresh: false,
+            });
+        }
+    }));
+    if (provider.visible) {
+        worktreeSnapshotCoordinator.setVisible(true);
+    } else {
+        void worktreeSnapshotCoordinator.start();
+    }
     const buildCurrentAttentionQueue = (): AttentionQueue => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         let workspace: AttentionQueueWorkspace | null = null;
@@ -2412,6 +2510,7 @@ async function initializeDashboard(
     }));
 
     ownResource(() => vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        worktreeSnapshotCoordinator.invalidate('workspace-roots');
         dashboardLifecycleController.handleWorkspaceFoldersChanged();
     }));
 

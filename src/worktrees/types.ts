@@ -1,5 +1,7 @@
 'use strict';
 
+import type { RepositoryRootBinding } from '../workspaces/types';
+
 // ── Stable Identity ──────────────────────────────────────────────
 
 /**
@@ -38,6 +40,39 @@ export interface WorktreeGitSnapshot {
     health: WorktreeHealth;
     headKind: WorktreeHeadKind;
 }
+
+export interface WorktreeRepositorySnapshot {
+    /** Canonical common-dir; also used by every child WorktreeKey. */
+    repositoryKey: string;
+    /** Workspace roots that caused this repository to be discovered. */
+    rootBindings: readonly RepositoryRootBinding[];
+    /** Explicit or initially detected local base ref, when available. */
+    baseRef?: string;
+    worktrees: readonly WorktreeGitSnapshot[];
+}
+
+/** Immutable, coherent Git discovery result published to projection readers. */
+export interface WorktreeSnapshot {
+    revision: number;
+    repositories: readonly WorktreeRepositorySnapshot[];
+    truncatedWorktreeCount: number;
+}
+
+export interface WorktreeSnapshotContent {
+    repositories: readonly WorktreeRepositorySnapshot[];
+    truncatedWorktreeCount: number;
+}
+
+export type WorktreeSnapshotState =
+  | { kind: 'uninitialized' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; snapshot: WorktreeSnapshot; refreshing: boolean }
+  | {
+      kind: 'error';
+      message: string;
+      lastGoodSnapshot?: WorktreeSnapshot;
+      retryable: boolean;
+  };
 
 // ── Provisioning row (Host-owned union) ──────────────────────────
 

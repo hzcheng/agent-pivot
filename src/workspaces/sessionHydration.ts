@@ -35,12 +35,15 @@ import {
     buildWorkspaceSessionAttentionIndex,
     getWorkspaceSessionAttention,
 } from './sessionAttention';
+import type { WorktreeSnapshot } from '../worktrees/types';
 import { buildWorkspaceAiSessionViewModel } from './viewModels';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label'>;
 
 export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     workspace: OpenWorkspace;
+    /** Coherent discovery input reserved for worktree-aware projection. */
+    worktreeSnapshot?: WorktreeSnapshot | null;
     providers: readonly HydrationProvider[];
     sessionResults: Record<AiSessionProviderId, AiSessionReadResult>;
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;

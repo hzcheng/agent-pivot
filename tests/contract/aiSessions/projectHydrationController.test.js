@@ -20,7 +20,18 @@ const WORKSPACE = {
     ],
 };
 
-test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projection, runtime, pending, and diagnostic boundaries', () => {
+const WORKTREE_SNAPSHOT = {
+    revision: 12,
+    repositories: [{
+        repositoryKey: '/work/repo/.git',
+        rootBindings: [{ workspaceRootId: 'root:a', repositoryRelativePath: 'a' }],
+        baseRef: 'refs/heads/main',
+        worktrees: [],
+    }],
+    truncatedWorktreeCount: 3,
+};
+
+test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-001 preserves scan, projection, runtime, pending, worktree, and diagnostic boundaries', () => {
     let reason = 'refresh';
     let nowMs = 1000;
     const reads = [];
@@ -70,6 +81,7 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
         getExpanded: scope => scope === WORKSPACE.scopeIdentity,
         getProjectionSnapshot: () => ({
             revision: 1,
+            worktreeSnapshot: WORKTREE_SNAPSHOT,
             activeRuntimes: [{
                 identity: activeIdentity,
                 backend: 'vscode', state: 'active', markerPath: '/tmp/a.done',
@@ -141,6 +153,9 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 preserves scan, projec
     ]);
     assert.equal(diagnostics[1].activeSessionCount, 2);
     assert.equal(diagnostics[1].unavailableProviderCount, 1);
+    assert.equal(diagnostics[1].worktreeSnapshotRevision, 12);
+    assert.equal(diagnostics[1].worktreeRepositoryCount, 1);
+    assert.equal(diagnostics[1].truncatedWorktreeCount, 3);
 
     reason = 'terminal-candidates';
     controller.hydrate(WORKSPACE);

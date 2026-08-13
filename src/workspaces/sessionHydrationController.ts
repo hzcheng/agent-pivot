@@ -21,6 +21,7 @@ import type { OpenWorkspace } from './types';
 import { projectWorkspaceActiveSessions } from './activeSessionPresentation';
 import type { WorkspaceActiveSessionPresentation } from './activeSessionPresentation';
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
+import type { WorktreeSnapshot } from '../worktrees/types';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label' | 'terminalCwdFields'>;
 
@@ -34,6 +35,7 @@ export interface WorkspaceSessionHydrationReadCoordinator {
 
 export interface AiSessionProjectionSnapshot<TTerminal = unknown> {
     revision: number;
+    worktreeSnapshot: WorktreeSnapshot | null;
     activeRuntimes: readonly AiSessionRuntimeSnapshot<TTerminal>[];
     pendingRuntimes: readonly AiSessionPendingRuntimeSnapshot<TTerminal>[];
     executionSnapshot: Readonly<Record<string, AiSessionExecutionSnapshot>>;
@@ -47,6 +49,7 @@ export interface AiSessionPresentationTransaction<TTerminal = unknown>
 }
 
 export interface AiSessionProjectionCoordinatorOptions<TTerminal = unknown> {
+    getWorktreeSnapshot?: () => WorktreeSnapshot | null;
     getActiveRuntimes: () => readonly AiSessionRuntimeSnapshot<TTerminal>[];
     getPendingRuntimes: () => readonly AiSessionPendingRuntimeSnapshot<TTerminal>[];
     getExecutionSnapshot: () => Readonly<Record<string, AiSessionExecutionSnapshot>>;
@@ -75,6 +78,7 @@ export class AiSessionProjectionCoordinator<TTerminal = unknown> {
     capture(): AiSessionProjectionSnapshot<TTerminal> {
         return {
             revision: this.revision,
+            worktreeSnapshot: this.options.getWorktreeSnapshot?.() || null,
             activeRuntimes: this.options.getActiveRuntimes(),
             pendingRuntimes: this.options.getPendingRuntimes(),
             executionSnapshot: this.options.getExecutionSnapshot(),
@@ -191,6 +195,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             executionSnapshot: projection.executionSnapshot,
             focusedIdentity: projection.focusedIdentity,
             attentionAggregate: projection.attentionAggregate,
+            worktreeSnapshot: projection.worktreeSnapshot,
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
             expanded: this.options.getExpanded(workspace.scopeIdentity),
@@ -205,6 +210,11 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             sessionCount: result.aiSessionCount,
             activeSessionCount: result.activeSessionCount,
             unavailableProviderCount: result.unavailableProviders.length,
+            ...(projection.worktreeSnapshot ? {
+                worktreeSnapshotRevision: projection.worktreeSnapshot.revision,
+                worktreeRepositoryCount: projection.worktreeSnapshot.repositories.length,
+                truncatedWorktreeCount: projection.worktreeSnapshot.truncatedWorktreeCount,
+            } : {}),
         });
         return result;
     }

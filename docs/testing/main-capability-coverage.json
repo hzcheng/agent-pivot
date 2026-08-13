@@ -386,7 +386,7 @@
         {
             "id": "MAIN-WORKSPACE-HYDRATION",
             "title": "Workspace session hydration",
-            "requirement": "Activation, hydration, pending promotion, and archive behavior expose one coherent workspace session surface.",
+            "requirement": "Activation, worktree discovery, hydration, pending promotion, and archive behavior expose one coherent workspace session surface.",
             "commits": [
                 "3bdf33dd2acfb0b6bf23cef589dda639c41deace",
                 "0da6d2f23e951a6db1fc2c010bc58682d2a8856a",
@@ -398,7 +398,9 @@
                 "911e592f02fd9fbc71c8f566d61074a3e96d263b"
             ],
             "behaviors": [
-                "PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001"
+                "PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001",
+                "WORKTREE-DISCOVERY-001",
+                "WORKTREE-SNAPSHOT-001"
             ],
             "prGates": [
                 "test:deterministic:run"

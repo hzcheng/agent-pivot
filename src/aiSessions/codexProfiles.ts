@@ -248,3 +248,53 @@ export class CodexProfileSupportProbe {
         }
     }
 }
+
+// A profile-declared model_context_window is authoritative for the telemetry
+// display: the app-server reports its built-in default (258400) for custom
+// provider models, ignoring the profile overlay. Files change rarely, so
+// reads are cached briefly per resolved path.
+const PROFILE_CONTEXT_WINDOW_CACHE_TTL_MS = 10 * 1000;
+const MAX_MODEL_CONTEXT_WINDOW = 100_000_000;
+const TOP_LEVEL_CONTEXT_WINDOW_PATTERN = /^\s*model_context_window\s*=\s*([0-9]+)\s*(?:#.*)?$/m;
+
+const profileContextWindowCache = new Map<string, { at: number; value: number | undefined }>();
+
+/**
+ * Reads the top-level `model_context_window` from a profile's
+ * `<name>.config.toml` overlay. Returns undefined for unknown names, missing
+ * files, and absent or implausible values.
+ */
+export function readCodexProfileContextWindow(
+    name: string,
+    env: NodeJS.ProcessEnv = process.env,
+    homedir: string = os.homedir(),
+    nowMs: number = Date.now()
+): number | undefined {
+    if (!isValidCodexProfileName(name)) {
+        return undefined;
+    }
+    const filePath = path.join(
+        resolveCodexHome(env, homedir),
+        `${name}${CODEX_PROFILE_CONFIG_SUFFIX}`
+    );
+    const cached = profileContextWindowCache.get(filePath);
+    if (cached && nowMs - cached.at < PROFILE_CONTEXT_WINDOW_CACHE_TTL_MS) {
+        return cached.value;
+    }
+    let value: number | undefined;
+    try {
+        const content = fs.readFileSync(filePath, 'utf8');
+        // Only top-level keys count: a model_context_window inside a
+        // [model_providers.*] table configures something else entirely.
+        const topLevel = content.split(/^\s*\[/m, 1)[0];
+        const match = TOP_LEVEL_CONTEXT_WINDOW_PATTERN.exec(topLevel ?? '');
+        const parsed = match ? Number(match[1]) : Number.NaN;
+        if (Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_MODEL_CONTEXT_WINDOW) {
+            value = parsed;
+        }
+    } catch {
+        value = undefined;
+    }
+    profileContextWindowCache.set(filePath, { at: nowMs, value });
+    return value;
+}

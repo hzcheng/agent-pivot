@@ -48,6 +48,7 @@ import {
     CodexProfileSupportProbe,
     codexProfileFileExists,
     listCodexConfigProfiles,
+    readCodexProfileContextWindow,
 } from './aiSessions/codexProfiles';
 import AiSessionAliasController from './aiSessions/aliasController';
 import AiSessionPinStore from './aiSessions/pinStore';
@@ -1599,6 +1600,12 @@ async function initializeDashboard(
             conversationSessionRebindCoordinator.resolve(target),
         getShowThinking: () => getAgentPivotConfiguration()
             .get<unknown>('aiConversation.showThinking', false) === true,
+        getCodexSessionProfileContextWindow: sessionId => {
+            const decision = aiSessionProfileController.getDecision('codex', sessionId);
+            return decision?.kind === 'profile'
+                ? readCodexProfileContextWindow(decision.name)
+                : undefined;
+        },
         readSessionStatus: () => ({
             runningSessions: sumOpenWorkspaceRunningAiSessionCounts(
                 latestOpenWorkspaceAggregate

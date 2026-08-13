@@ -14,7 +14,7 @@ test('release content validation cannot satisfy current facts from historical no
     const changelog = [
         '# Changelog',
         '',
-        '## [1.1.0] - 2026-08-09',
+        '## [1.1.1] - 2026-08-13',
         '',
         '- AI Conversation renders provider tool calls as collapsible entries.',
         '- Added context-window usage telemetry.',
@@ -33,10 +33,10 @@ test('release content validation cannot satisfy current facts from historical no
             changelog,
             packageMetadata: {
                 displayName: 'Agent Pivot',
-                version: '1.1.0',
+                version: '1.1.1',
                 description: 'Workspace command center.',
             },
         }),
-        /1\.1\.0 CHANGELOG release must document sponsor entry points/,
+        /1\.1\.1 CHANGELOG release must document one-click session creation/,
     );
 });

@@ -123,6 +123,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/out/workspaces/sessionScope.js',
     'extension/out/workspaces/types.js',
     'extension/out/workspaces/viewModels.js',
+    'extension/out/workspaces/worktreeSessionAssignment.js',
     'extension/package.json',
     'extension/readme.md',
 ]);
@@ -994,6 +995,7 @@ function run() {
         'out/workspaces/contextResolver.js',
         'out/workspaces/currentWorkspaceSessionAuthority.js',
         'out/workspaces/savedWorkspaceProjectAdapter.js',
+        'out/workspaces/worktreeSessionAssignment.js',
         'out/openWorkspaces/attentionFocusProtocol.js',
         'out/openWorkspaces/protocol.js',
         'out/openWorkspaces/runningFocusProtocol.js',

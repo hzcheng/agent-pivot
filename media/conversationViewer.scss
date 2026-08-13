@@ -412,8 +412,6 @@ body[data-conversation-loading='true'] .conversation-messages {
     gap: 0.5rem;
     min-height: 1.75rem;
     padding: 0.15rem 0.35rem 0.15rem 0.75rem;
-    border-bottom: 1px solid var(--vscode-panel-border);
-    background: var(--vscode-editor-background);
 }
 
 .conversation-code-lang {
@@ -1043,21 +1041,6 @@ body[data-conversation-loading='true'] .conversation-messages {
         overflow-wrap: normal;
         white-space: inherit;
         word-break: normal;
-    }
-
-    .conversation-code-indent {
-        display: inline-block;
-        white-space: pre;
-        background-image: linear-gradient(
-            to right,
-            transparent calc(100% - 1px),
-            var(
-                --vscode-editorIndentGuide-background1,
-                rgba(127, 127, 127, 0.28)
-            ) calc(100% - 1px)
-        );
-        background-repeat: repeat-x;
-        background-size: var(--conversation-code-indent-step) 100%;
     }
 
     a {
@@ -2768,40 +2751,51 @@ body[data-viewing-subagent="true"] .conversation-outline-bookmarks-only {
 
 .hljs-keyword,
 .hljs-selector-tag,
-.hljs-literal,
-.hljs-built_in {
-    color: var(--vscode-symbolIcon-keywordForeground, #569cd6);
+.hljs-doctag,
+.hljs-formula {
+    color: #c678dd;
+}
+
+.hljs-literal {
+    color: #56b6c2;
 }
 
 .hljs-string,
 .hljs-regexp,
-.hljs-attr {
-    color: var(--vscode-symbolIcon-stringForeground, #ce9178);
+.hljs-addition,
+.hljs-attribute {
+    color: #98c379;
 }
 
+.hljs-attr,
 .hljs-number,
 .hljs-symbol,
-.hljs-literal {
-    color: var(--vscode-symbolIcon-numberForeground, #b5cea8);
+.hljs-bullet {
+    color: #d19a66;
 }
 
 .hljs-comment,
 .hljs-quote {
-    color: var(--vscode-symbolIcon-textForeground, #6a9955);
+    color: #7f848e;
     font-style: italic;
 }
 
 .hljs-title,
 .hljs-name,
-.hljs-section {
-    color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
+.hljs-meta {
+    color: #61afef;
 }
 
+.hljs-built_in,
 .hljs-type,
 .hljs-class,
+.hljs-title.class_ {
+    color: #e5c07b;
+}
+
 .hljs-variable,
 .hljs-template-variable {
-    color: var(--vscode-symbolIcon-classForeground, #4ec9b0);
+    color: #e06c75;
 }
 
 .hljs-operator,
@@ -2813,38 +2807,49 @@ body.vscode-light,
 body.vscode-high-contrast-light {
     .hljs-keyword,
     .hljs-selector-tag,
-    .hljs-literal,
-    .hljs-built_in {
-        color: var(--vscode-symbolIcon-keywordForeground, #0000ff);
+    .hljs-doctag,
+    .hljs-formula {
+        color: #a626a4;
+    }
+
+    .hljs-literal {
+        color: #0184bb;
     }
 
     .hljs-string,
     .hljs-regexp,
-    .hljs-attr {
-        color: var(--vscode-symbolIcon-stringForeground, #a31515);
+    .hljs-addition,
+    .hljs-attribute {
+        color: #50a14f;
     }
 
+    .hljs-attr,
     .hljs-number,
     .hljs-symbol,
-    .hljs-literal {
-        color: var(--vscode-symbolIcon-numberForeground, #098658);
+    .hljs-bullet {
+        color: #b76b01;
     }
 
     .hljs-comment,
     .hljs-quote {
-        color: var(--vscode-symbolIcon-textForeground, #008000);
+        color: #a0a1a7;
     }
 
     .hljs-title,
     .hljs-name,
-    .hljs-section {
-        color: var(--vscode-symbolIcon-functionForeground, #795e26);
+    .hljs-meta {
+        color: #4078f2;
     }
 
+    .hljs-built_in,
     .hljs-type,
     .hljs-class,
+    .hljs-title.class_ {
+        color: #c18401;
+    }
+
     .hljs-variable,
     .hljs-template-variable {
-        color: var(--vscode-symbolIcon-classForeground, #267f99);
+        color: #e45649;
     }
 }

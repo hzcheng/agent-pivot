@@ -4430,7 +4430,7 @@
   {
     "id": "WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001",
     "domain": "webview",
-    "title": "Conversation code indentation guides wrap leading whitespace without flattening highlight.js spans, so indented code keeps syntax highlighting and identical text",
+    "title": "Conversation code blocks render highlighted code at source width without decorative indent guide markup, keeping highlight.js spans and text identical",
     "priority": "P1",
     "status": "automated",
     "owners": [

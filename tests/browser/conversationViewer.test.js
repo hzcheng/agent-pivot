@@ -3000,8 +3000,9 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
                 && button.right <= headerRect.right + 1,
             nothingOnCode: label.bottom <= preRect.top + 1
                 && button.bottom <= preRect.top + 1,
-            distinctSurface: getComputedStyle(header).backgroundColor
-                !== getComputedStyle(pre).backgroundColor,
+            unifiedSurface: getComputedStyle(header).backgroundColor
+                === getComputedStyle(pre).backgroundColor
+                && getComputedStyle(header).borderBottomWidth === '0px',
         };
     });
     assert.deepEqual(chrome, {
@@ -3009,8 +3010,8 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         labelInHeader: true,
         buttonInHeader: true,
         nothingOnCode: true,
-        distinctSurface: true,
-    }, 'code chrome lives on its own header strip above the code');
+        unifiedSurface: true,
+    }, 'code chrome sits above the code on one unified card surface');
     const initialIcon = await copyButton.evaluate(element =>
         element.querySelector('svg')?.innerHTML);
     assert.ok(initialIcon, 'the icon starts as the copy glyph');
@@ -4529,7 +4530,6 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '                isLiveRefresh,\n'
                 + '                oldSignatures\n'
                 + '            );\n'
-                + '            enhanceCodeBlockIndentation();\n'
                 + '            Array.prototype.forEach.call(\n'
                 + "                messages.querySelectorAll('img'),\n"
                 + '                function (image) {\n'
@@ -4558,7 +4558,6 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '            isLiveRefresh,\n'
                 + '            oldSignatures\n'
                 + '        );\n'
-                + '        enhanceCodeBlockIndentation();\n'
                 + '        Array.prototype.forEach.call(\n'
                 + "            messages.querySelectorAll('img'),\n"
                 + '            function (image) {\n'
@@ -4668,7 +4667,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '64fe43bb1406335a0d4fe64b638bd0961452bdff754231938c121a7d41511196',
+        'c2ca7e89d1fbdb33aea2fb6c35cff7e25329ce708a69242a847391804ad80a40',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -8861,12 +8860,22 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text inden
 
     const presentation = await page.locator('pre').evaluate(pre => {
         const code = pre.querySelector('code');
-        const indent = code.querySelector('.conversation-code-indent');
+        const textNode = code.firstChild;
+        const indentStart = textNode.nodeValue.indexOf('\n  sourceKind') + 1;
+        const indentRange = new Range();
+        indentRange.setStart(textNode, indentStart);
+        indentRange.setEnd(textNode, indentStart + 2);
+        const charRange = new Range();
+        charRange.setStart(textNode, indentStart + 2);
+        charRange.setEnd(textNode, indentStart + 3);
         const preStyle = getComputedStyle(pre);
         const codeStyle = getComputedStyle(code);
         return {
             text: code.textContent,
-            indentation: indent.getBoundingClientRect().width,
+            indentation: indentRange.getBoundingClientRect().width,
+            characterWidth: charRange.getBoundingClientRect().width,
+            guideSpans: code.querySelectorAll('.conversation-code-indent')
+                .length,
             preWhiteSpace: preStyle.whiteSpace,
             preOverflowWrap: preStyle.overflowWrap,
             preWordBreak: preStyle.wordBreak,
@@ -8879,7 +8888,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text inden
     });
 
     assert.match(presentation.text, /\n  sourceKind: PRIMARY_KEY/);
-    assert.ok(presentation.indentation > 0, 'leading spaces must remain visible');
+    assert.equal(presentation.guideSpans, 0,
+        'reading surfaces render no indent guide markup');
+    assert.ok(
+        presentation.indentation >= presentation.characterWidth * 1.75
+            && presentation.indentation <= presentation.characterWidth * 2.25,
+        'two source spaces render as two columns'
+    );
     assert.equal(presentation.preWhiteSpace, 'pre');
     assert.equal(presentation.preOverflowWrap, 'normal');
     assert.equal(presentation.preWordBreak, 'normal');
@@ -8892,7 +8907,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves structured text inden
     );
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 makes protobuf indentation visibly distinct without changing its source', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders protobuf indentation at source width without guide markup', async t => {
     const page = await openViewerPage(t);
     await page.addStyleTag({ content: viewerCss });
     const protobuf = `syntax = "proto3";
@@ -8916,33 +8931,33 @@ service DtsService {
 
     const code = page.locator('pre > code.language-protobuf');
     assert.equal(await code.textContent(), protobuf);
-    const guides = code.locator('.conversation-code-indent');
-    assert.equal(await guides.count(), 3);
-    const presentation = await guides.evaluateAll(elements =>
-        elements.map(element => ({
-            text: element.textContent,
-            width: element.getBoundingClientRect().width,
-            characterWidth: (() => {
-                const range = new Range();
-                range.setStart(element.nextSibling, 0);
-                range.setEnd(element.nextSibling, 1);
-                return range.getBoundingClientRect().width;
-            })(),
-            guide: getComputedStyle(element).backgroundImage,
-        }))
+    assert.equal(
+        await code.locator('.conversation-code-indent').count(),
+        0,
+        'reading surfaces render no indent guide markup'
     );
-    presentation.forEach(indent => {
-        assert.equal(indent.text, '  ');
-        assert.ok(
-            indent.width >= indent.characterWidth * 1.75
-                && indent.width <= indent.characterWidth * 2.25,
-            'two source spaces render as two columns, not amplified'
-        );
-        assert.notEqual(indent.guide, 'none');
+    const presentation = await code.evaluate(element => {
+        const textNode = element.firstChild;
+        const start = textNode.nodeValue.indexOf('\n  rpc') + 1;
+        const indentRange = new Range();
+        indentRange.setStart(textNode, start);
+        indentRange.setEnd(textNode, start + 2);
+        const charRange = new Range();
+        charRange.setStart(textNode, start + 2);
+        charRange.setEnd(textNode, start + 3);
+        return {
+            width: indentRange.getBoundingClientRect().width,
+            characterWidth: charRange.getBoundingClientRect().width,
+        };
     });
+    assert.ok(
+        presentation.width >= presentation.characterWidth * 1.75
+            && presentation.width <= presentation.characterWidth * 2.25,
+        'two source spaces render as two columns'
+    );
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001 keeps syntax highlighting when indentation guides wrap leading whitespace', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001 renders highlighted code at source width without guide markup', async t => {
     const page = await openViewerPage(t);
     await page.addStyleTag({ content: viewerCss });
     const source = 'def foo():\n    if x:\n        print(x)';
@@ -8962,17 +8977,14 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001 keeps syntax highlighti
 
     const code = page.locator('pre > code.language-python');
     assert.equal(await code.textContent(), source);
-    const guides = code.locator('.conversation-code-indent');
-    assert.equal(await guides.count(), 2);
-    assert.deepEqual(
-        await guides.evaluateAll(elements =>
-            elements.map(element => element.textContent)
-        ),
-        ['    ', '        ']
+    assert.equal(
+        await code.locator('.conversation-code-indent').count(),
+        0,
+        'no indent guide spans decorate or rewrite highlighted code'
     );
     assert.ok(
         await code.locator('.hljs-keyword').count() >= 2,
-        'hljs keyword spans survive the indentation guide pass'
+        'hljs keyword spans render untouched'
     );
 });
 

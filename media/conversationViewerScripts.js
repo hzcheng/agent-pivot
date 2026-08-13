@@ -549,106 +549,6 @@
         }
     });
 
-    function codeIndentColumns(whitespace) {
-        var columns = 0;
-        for (var index = 0; index < whitespace.length; index += 1) {
-            if (whitespace[index] === '\t') {
-                columns += 4 - (columns % 4);
-            } else {
-                columns += 1;
-            }
-        }
-        return columns;
-    }
-
-    function wrapCodeLineIndentation(code, indentStep) {
-        // The host renders syntax highlighting as inline spans, so rebuild
-        // nothing from textContent here: walk the live text nodes and wrap
-        // only each line's leading whitespace, leaving every other node —
-        // including the highlight spans — untouched.
-        var walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
-        var textNodes = [];
-        while (walker.nextNode()) {
-            textNodes.push(walker.currentNode);
-        }
-        var atLineStart = true;
-        textNodes.forEach(function (node) {
-            var value = node.nodeValue;
-            if (!value) {
-                return;
-            }
-            var firstSegmentIsLineStart = atLineStart;
-            atLineStart = value.charAt(value.length - 1) === '\n';
-            var segments = value.split('\n');
-            var needsWrap = false;
-            for (var index = 0; index < segments.length; index += 1) {
-                if ((index > 0 || firstSegmentIsLineStart)
-                    && /^[\t ]+/.test(segments[index])) {
-                    needsWrap = true;
-                    break;
-                }
-            }
-            if (!needsWrap) {
-                return;
-            }
-            var fragment = document.createDocumentFragment();
-            segments.forEach(function (segment, index) {
-                if (index > 0) {
-                    fragment.appendChild(document.createTextNode('\n'));
-                }
-                var match = (index > 0 || firstSegmentIsLineStart)
-                    ? segment.match(/^[\t ]+/)
-                    : null;
-                if (!match) {
-                    fragment.appendChild(document.createTextNode(segment));
-                    return;
-                }
-                var indent = document.createElement('span');
-                indent.className = 'conversation-code-indent';
-                indent.style.setProperty(
-                    '--conversation-code-indent-step',
-                    indentStep + 'ch'
-                );
-                indent.textContent = match[0];
-                fragment.appendChild(indent);
-                fragment.appendChild(document.createTextNode(
-                    segment.slice(match[0].length)
-                ));
-            });
-            node.parentNode.replaceChild(fragment, node);
-        });
-    }
-
-    function enhanceCodeBlockIndentation() {
-        Array.prototype.forEach.call(
-            messages.querySelectorAll(
-                'pre > code:not(.language-mermaid)'
-            ),
-            function (code) {
-                if (code.hasAttribute('data-conversation-code-guides')) {
-                    return;
-                }
-                code.setAttribute('data-conversation-code-guides', 'true');
-                var source = code.textContent || '';
-                var lines = source.split('\n');
-                var indentation = lines.map(function (line) {
-                    var match = line.match(/^[\t ]+/);
-                    return match ? codeIndentColumns(match[0]) : 0;
-                }).filter(function (columns) {
-                    return columns > 0;
-                });
-                if (!indentation.length) return;
-                var indentStep = indentation.reduce(
-                    function (smallest, columns) {
-                        return Math.min(smallest, columns);
-                    },
-                    indentation[0]
-                );
-                wrapCodeLineIndentation(code, indentStep);
-            }
-        );
-    }
-
     function post(message) {
         if (vscodeApi && typeof vscodeApi.postMessage === 'function') {
             vscodeApi.postMessage(message);
@@ -1532,7 +1432,6 @@
                 isLiveRefresh,
                 oldSignatures
             );
-            enhanceCodeBlockIndentation();
             Array.prototype.forEach.call(
                 messages.querySelectorAll('img'),
                 function (image) {

@@ -87,6 +87,8 @@ test('COVERAGE-CHANGED-CODE-001 exempts only the paths the suite structurally ca
     assert.equal(isUninstrumentedByDesign('scripts/run-ai-session-safety-checks.js'), true);
     assert.equal(isUninstrumentedByDesign('src/webview/conversationViewerScripts.js'), true);
     assert.equal(isUninstrumentedByDesign('src/services/ntc.ts'), true);
+    assert.equal(isUninstrumentedByDesign('src/workspaces/types.ts'), true,
+        'a statement-less workspace type module cannot appear in V8 coverage');
     assert.equal(isUninstrumentedByDesign('src/services/colorService.ts'), false);
     assert.equal(isUninstrumentedByDesign('src/webview/webviewContent.ts'), false);
     assert.equal(isUninstrumentedByDesign('src/aiSessions/dashboardController.ts'), false);

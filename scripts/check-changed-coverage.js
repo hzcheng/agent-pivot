@@ -36,6 +36,10 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // compiles to an empty, statement-less file, so there is nothing to
     // instrument.
     'src/aiSessions/conversation/viewerTarget.ts',
+    // Type-only module: it declares workspace/root transport shapes and
+    // compiles to an empty, statement-less file. Do not generalize this to
+    // every types.ts file; several of them also export executable helpers.
+    'src/workspaces/types.ts',
     // Vendored third-party library (Name that Color, Creative Commons). It is
     // only reachable through colorService, whose own unit tests exercise the
     // ntc call sites; vendored code carries no per-change coverage obligation.

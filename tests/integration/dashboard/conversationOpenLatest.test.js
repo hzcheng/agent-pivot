@@ -331,6 +331,7 @@ test('CONVERSATION-OPEN-LATEST-001 opens the latest interaction of the resolved 
     assert.deepEqual(viewerTargets, [{
         projectId: 'project-a',
         provider: 'codex',
+        workspaceName: '',
         sessionId: 'session-a',
         interactionId: 'input-b',
         expectedRevision: 'r1',
@@ -750,6 +751,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 restores only an authoritative 
     assert.deepEqual(harness.restoredViewerTargets[0].target, {
         projectId: 'project-a',
         provider: 'codex',
+        workspaceName: '',
         sessionId: 'session-a',
         interactionId: 'input-a',
         expectedRevision: 'r1',
@@ -914,6 +916,7 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the latest interaction only
     assert.deepEqual(openHarness.followedViewerTargets, [{
         projectId: 'project-a',
         provider: 'codex',
+        workspaceName: '',
         sessionId: 'session-a',
         interactionId: 'input-b',
         expectedRevision: 'r1',

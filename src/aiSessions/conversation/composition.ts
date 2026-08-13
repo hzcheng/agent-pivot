@@ -111,6 +111,9 @@ export interface ConversationCapabilityOptions {
     resolveActiveTargets?: (
         projectId: string
     ) => readonly ActiveAiSessionViewModel[];
+    resolveWorkspaceName?: (
+        projectId: string
+    ) => string;
     publish: (message: unknown) => Thenable<boolean>;
     createPanel: typeof vscode.window.createWebviewPanel;
     openExternal: typeof vscode.env.openExternal;
@@ -1351,6 +1354,9 @@ async function resolveLatestConversationTarget(
         viewerTarget: {
             projectId: target.projectId,
             provider: target.provider,
+            workspaceName: typeof options.resolveWorkspaceName === 'function'
+                ? options.resolveWorkspaceName(target.projectId)
+                : '',
             sessionId: target.sessionId,
             interactionId: selected.id,
             expectedRevision: snapshot.outline.sourceRevision,

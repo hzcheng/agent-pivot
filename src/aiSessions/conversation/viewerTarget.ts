@@ -5,6 +5,7 @@ import type { AiSessionProviderId } from '../../models';
 export interface ConversationViewerTarget {
     projectId: string;
     provider: AiSessionProviderId;
+    workspaceName: string;
     sessionId: string;
     interactionId: string;
     expectedRevision: string;

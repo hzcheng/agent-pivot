@@ -1732,6 +1732,7 @@ test('PRODUCTION-CONVERSATION-DISPLAY-001 derives duplicate metadata only from n
     assert.deepEqual(harness.viewerTargets, [{
         projectId: 'project-a',
         provider: 'codex',
+        workspaceName: '',
         sessionId: 'session-a',
         interactionId: 'input-b',
         expectedRevision: 'r1',

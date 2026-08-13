@@ -1,0 +1,127 @@
+'use strict';
+
+import * as path from 'path';
+import { createHash } from 'crypto';
+import type { WorktreeRepositorySnapshot } from './types';
+
+const MAX_TASK_NAME_LENGTH = 200;
+const MAX_SUFFIX = 999;
+
+export interface WorktreeProvisioningPlan {
+    repositoryKey: string;
+    commandCwd: string;
+    baseRef: string;
+    taskName: string;
+    slug: string;
+    branchName: string;
+    worktreePath: string;
+}
+
+export interface WorktreeProvisioningPlanOptions {
+    repository: WorktreeRepositorySnapshot;
+    taskName: string;
+    isBranchAvailable: (branchName: string) => boolean | Promise<boolean>;
+    isPathAvailable: (worktreePath: string) => boolean | Promise<boolean>;
+    reservedBranches?: ReadonlySet<string>;
+    reservedPaths?: ReadonlySet<string>;
+}
+
+export class WorktreeProvisioningPlanError extends Error {
+    constructor(readonly code: 'invalid-task' | 'base-ref-unavailable' | 'allocation-exhausted') {
+        super(code);
+        this.name = 'WorktreeProvisioningPlanError';
+        Object.setPrototypeOf(this, WorktreeProvisioningPlanError.prototype);
+    }
+}
+
+/** Atomically chooses one suffix shared by the branch and managed path. */
+export async function createWorktreeProvisioningPlan(
+    options: WorktreeProvisioningPlanOptions
+): Promise<WorktreeProvisioningPlan> {
+    const taskName = normalizeTaskName(options.taskName);
+    const slug = slugifyTaskName(taskName);
+    if (!taskName || !slug) {
+        throw new WorktreeProvisioningPlanError('invalid-task');
+    }
+    const baseRef = options.repository.baseRef;
+    if (!baseRef || baseRef.startsWith('-') || /[\0\r\n]/u.test(baseRef)) {
+        throw new WorktreeProvisioningPlanError('base-ref-unavailable');
+    }
+    const commandCwd = options.repository.worktrees.find(worktree =>
+        worktree.isMain && !worktree.isBare)?.key.canonicalWorktreePath
+        || options.repository.worktrees.find(worktree => !worktree.isBare)?.key.canonicalWorktreePath;
+    if (!commandCwd) {
+        throw new WorktreeProvisioningPlanError('base-ref-unavailable');
+    }
+    const pathApi = getPathApi(commandCwd);
+    const repositoryRoot = getManagedRepositoryRoot(options.repository.repositoryKey, pathApi);
+    const managedRoot = pathApi.join(repositoryRoot, '.agent-pivot', 'worktrees');
+    for (let suffix = 1; suffix <= MAX_SUFFIX; suffix += 1) {
+        const candidateSlug = suffix === 1 ? slug : `${slug}-${suffix}`;
+        const branchName = `agent-pivot/${candidateSlug}`;
+        const worktreePath = pathApi.join(managedRoot, candidateSlug);
+        if (options.reservedBranches?.has(branchName)
+            || options.reservedPaths?.has(worktreePath)) {
+            continue;
+        }
+        const [branchAvailable, pathAvailable] = await Promise.all([
+            options.isBranchAvailable(branchName),
+            options.isPathAvailable(worktreePath),
+        ]);
+        if (branchAvailable && pathAvailable) {
+            return {
+                repositoryKey: options.repository.repositoryKey,
+                commandCwd,
+                baseRef,
+                taskName,
+                slug: candidateSlug,
+                branchName,
+                worktreePath,
+            };
+        }
+    }
+    throw new WorktreeProvisioningPlanError('allocation-exhausted');
+}
+
+export function slugifyTaskName(value: string): string {
+    const normalizedTaskName = normalizeTaskName(value);
+    if (!normalizedTaskName) {
+        return '';
+    }
+    const slug = normalizedTaskName
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/gu, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/gu, '-')
+        .replace(/^-+|-+$/gu, '')
+        .replace(/-{2,}/gu, '-')
+        .slice(0, 60)
+        .replace(/-+$/gu, '');
+    return slug || `task-${createHash('sha256').update(normalizedTaskName).digest('hex').slice(0, 8)}`;
+}
+
+function normalizeTaskName(value: string): string {
+    return typeof value === 'string'
+        ? value.trim().replace(/\s+/gu, ' ').slice(0, MAX_TASK_NAME_LENGTH)
+        : '';
+}
+
+function getPathApi(value: string): typeof path.posix | typeof path.win32 {
+    return /^[a-zA-Z]:[\\/]/u.test(value) || value.startsWith('\\\\')
+        ? path.win32
+        : path.posix;
+}
+
+function getManagedRepositoryRoot(
+    repositoryKey: string,
+    pathApi: typeof path.posix | typeof path.win32
+): string {
+    const baseName = pathApi.basename(repositoryKey);
+    if (baseName === '.git') {
+        return pathApi.dirname(repositoryKey);
+    }
+    if (baseName.toLowerCase().endsWith('.git') && baseName.length > 4) {
+        return pathApi.join(pathApi.dirname(repositoryKey), baseName.slice(0, -4));
+    }
+    return pathApi.dirname(repositoryKey);
+}

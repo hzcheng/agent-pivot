@@ -2145,6 +2145,33 @@
     ]
   },
   {
+    "id": "WORKTREE-PROVISIONING-PLAN-001",
+    "domain": "runtime",
+    "title": "Isolated worktree planning derives a bounded recoverable slug and atomically allocates one collision suffix across the Git branch and managed path",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/provisioningPlan.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/provisioningPlan.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-STATE-001",
+    "domain": "runtime",
+    "title": "Host-owned isolated worktree provisioning publishes queued, create, setup, and agent stages and retries or cancels without repeating completed work",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/provisioningController.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/provisioningController.ts",
+      "src/worktrees/types.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
     "domain": "runtime",
     "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",

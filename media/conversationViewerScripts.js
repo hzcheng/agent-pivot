@@ -39,6 +39,9 @@
     var conversationProvider = document.querySelector(
         '[data-conversation-provider]'
     );
+    var conversationWorkspaceName = document.querySelector(
+        '[data-conversation-workspace-name]'
+    );
     var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
     var telemetryProvider = document.querySelector('[data-telemetry-provider]');
     var telemetryModel = document.querySelector('[data-telemetry-model]');
@@ -799,6 +802,7 @@
             'projectId', 'provider', 'sessionId', 'interactionId', 'displayName',
         ];
         var allowed = new Set(required.concat(['duplicateDisplayName']));
+        allowed.add('workspaceName');
         return Object.keys(value).every(function (key) {
             return allowed.has(key);
         }) && required.every(function (key) {
@@ -1054,6 +1058,10 @@
             conversationProvider.textContent = providerLabel(
                 message.target.provider
             );
+        }
+        if (conversationWorkspaceName
+            && typeof message.target.workspaceName === 'string') {
+            conversationWorkspaceName.textContent = message.target.workspaceName;
         }
         return true;
     }
@@ -1538,6 +1546,11 @@
                 === 'string'
                 ? message.displayName
                 : message.target.displayName;
+        }
+        if (conversationWorkspaceName
+            && validPageTarget(message.target)
+            && typeof message.target.workspaceName === 'string') {
+            conversationWorkspaceName.textContent = message.target.workspaceName;
         }
         updatePosition(message);
         var latestInteraction = message.outline[message.outline.length - 1];

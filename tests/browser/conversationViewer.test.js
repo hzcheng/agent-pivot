@@ -196,7 +196,7 @@ async function openViewerPage(t, options = {}) {
                 data-subscription-generation="1"
                 data-conversation-target='{"projectId":"project-1","provider":"codex","sessionId":"session-telemetry"}'>
                 <header>
-                    <strong data-conversation-provider>Codex</strong>
+                    <span data-conversation-workspace-name>Test Workspace</span>
                     <span data-conversation-display-name>Original session</span>
                     <span data-conversation-position>Input 0 of 0</span>
                     <button type="button" data-action="previous">Previous</button>
@@ -367,6 +367,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
             sessionId: 'kimi-session',
             interactionId: 'kimi-input',
             displayName: 'Kimi Session',
+            workspaceName: 'Test Workspace',
         },
         comments: { revision: 0, comments: [] },
         projectComments: { revision: 0, comments: [] },
@@ -376,7 +377,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
     assert.deepEqual(await page.evaluate(() => ({
         retainedRoot: document.querySelector('[data-conversation-messages]')
             === window.__retainedConversationMessages,
-        provider: document.querySelector('[data-conversation-provider]')
+        workspaceName: document.querySelector('[data-conversation-workspace-name]')
             .textContent,
         telemetryProvider: document.querySelector('[data-telemetry-provider]')
             .getAttribute('data-provider'),
@@ -389,7 +390,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
             .textContent.trim(),
     })), {
         retainedRoot: true,
-        provider: 'Kimi',
+        workspaceName: 'Test Workspace',
         telemetryProvider: 'kimi',
         telemetryProviderTitle: 'Provider · Kimi',
         displayName: 'Kimi Session',
@@ -4667,7 +4668,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '0565696a49b5650821460bb0f9551d0d80418bf280844a21f94682aa8574477f',
+        '2188b3989a31d5f5f3b7ca828fd8a5a842487b706b85b972b234cdf0374c33c5',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -10431,7 +10432,7 @@ test('CONVERSATION-VIEWER-BROWSER-CORRELATION-001 rejects stale request and subs
     assert.equal(await page.locator(
         '[data-message-id="invalid-generation-2-0"]'
     ).count(), 0);
-    assert.equal(await page.locator('[data-conversation-provider]').innerText(), 'Codex');
+    assert.equal(await page.locator('[data-conversation-workspace-name]').innerText(), 'Test Workspace');
 });
 
 test('CONVERSATION-VIEWER-BROWSER-RACE-001 treats a refresh that wins initial loading as the initial page', async t => {
@@ -10855,8 +10856,8 @@ test('CONVERSATION-PROVIDER-PARITY-001 keeps default disclosure and live status 
         });
 
         assert.equal(
-            await page.locator('.conversation-identity strong').innerText(),
-            fixture.label
+            await page.locator('[data-telemetry-provider]').getAttribute('data-provider'),
+            fixture.provider
         );
         assert.match(
             await page.locator('.conversation-progress').innerText(),
@@ -11551,6 +11552,3 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         tag: 'convention',
     });
 });
-
-
-

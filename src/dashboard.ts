@@ -1560,6 +1560,9 @@ async function initializeDashboard(
         resolveActiveTargets: projectId =>
             getCurrentWorkspaceActionTarget(projectId)
                 ?.sessions.activeSessions || [],
+        resolveWorkspaceName: projectId =>
+            getCurrentWorkspaceActionTarget(projectId)
+                ?.workspace.displayName || '',
         getWorkspaceRootHostPaths: () =>
             getCurrentWorkspaceActionTargetWithoutCardId()
                 ?.workspace.roots.map(root => root.hostPath) || [],

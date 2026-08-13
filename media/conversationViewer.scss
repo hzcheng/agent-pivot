@@ -38,8 +38,17 @@ body {
     gap: 0.5rem;
     align-items: baseline;
 
-    strong {
+    [data-conversation-workspace-name] {
         flex: 0 0 auto;
+        font-weight: 600;
+    }
+
+    .conversation-identity-separator {
+        flex: 0 0 auto;
+    }
+
+    [data-conversation-display-name] {
+        font-style: italic;
     }
 
     span {

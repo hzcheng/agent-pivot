@@ -165,9 +165,10 @@ export function renderConversationViewerDocument(
     data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${projectCommentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>
     <header class="conversation-header">
         <div class="conversation-identity">
-            <strong data-conversation-provider>${escapeHtml(
-                providerLabel(target.provider)
-            )}</strong>
+            <span data-conversation-workspace-name>${escapeHtml(
+                target.workspaceName || ''
+            )}</span>
+            <span class="conversation-identity-separator" aria-hidden="true">·</span>
             <span data-conversation-display-name>${escapeHtml(
                 target.displayName + duplicateId
             )}</span>

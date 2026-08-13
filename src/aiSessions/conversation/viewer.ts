@@ -241,7 +241,7 @@ export interface ConversationViewerPageMessage {
     target: Pick<
         ConversationViewerTarget,
         'projectId' | 'provider' | 'sessionId' | 'interactionId'
-            | 'displayName' | 'duplicateDisplayName'
+            | 'displayName' | 'duplicateDisplayName' | 'workspaceName'
     >;
     comments: ConversationCommentSnapshot;
     projectComments: ProjectCommentSnapshot;
@@ -2283,6 +2283,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 interactionId: target.interactionId,
                 displayName: target.displayName,
                 duplicateDisplayName: target.duplicateDisplayName,
+                workspaceName: target.workspaceName,
             },
             comments: this.commentController.snapshot,
             projectComments: this.projectCommentController.snapshot,

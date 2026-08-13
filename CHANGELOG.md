@@ -4,8 +4,24 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-13
+
 ### Added
 
+- AI SESSIONS now has a keyboard-accessible split create button: one click
+  starts a new Session without opening any picker, using the provider last
+  started in that workspace and the default Codex profile when applicable.
+  The adjacent menu can quickly choose Codex, Claude, or Kimi, or open the
+  full customized creation flow; its caption always shows what the next
+  one-click launch will use.
+- Codex configuration profiles are now first-class Session options. Creation
+  discovers profile overlays, remembers the chosen profile with the Session,
+  resumes with the same configuration, marks missing profiles, and shows the
+  profile on Session rows. Older Codex CLIs keep the existing profile-free
+  flow and receive a one-time upgrade hint.
+- New `Agent Pivot: Seek to Latest Conversation Interaction` command exposes
+  the AI Conversation viewer's Latest action to the Command Palette and
+  custom keybindings.
 - The AI Conversation header carries a pair of global Session status dots
   between the title and the navigation buttons: a green dot pulses while AI
   Sessions are running in any open window and a red dot pulses while
@@ -15,6 +31,18 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Changed
 
+- Large Codex conversations now open behind an outline-complete summary
+  window and load older content on demand. Subsequent refreshes validate and
+  incrementally update bounded caches, cutting cold starts and switch-back
+  waits without loading the entire conversation into the Webview at once.
+- Switching back to a recently viewed conversation restores its retained
+  frame, reading position, and expanded work entries when the content is
+  unchanged. While a different Session is loading, the previous conversation
+  remains visible in a dimmed busy state instead of appearing frozen.
+- Clicking the active Outline, Comments, or Subagents telemetry pill now
+  closes the AI Conversation sidebar; clicking a different pill switches tabs
+  while keeping the sidebar open, and the pressed state is exposed to
+  assistive technology.
 - On the OPEN tab, expanding the CURRENT WINDOW card now fits the card to
   its window region (half the pane by default, or the dragged separator
   share): the visible AI session panel fills the remaining card height and
@@ -47,6 +75,19 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Fixed
 
+- Oversized conversation turns with hundreds of tool events are now reduced
+  deterministically while preserving the user request, latest answer, key
+  identifiers, and an explicit omission notice, so one very large turn no
+  longer prevents the entire conversation from opening.
+- Rapid Session switches no longer leave Kimi or Claude conversations showing
+  stale content, and failed frame restores now request a fresh document only
+  for the Session generation that still owns the viewer.
+- Codex telemetry now honors a selected profile's declared context window,
+  including Sessions started outside Agent Pivot when their rollout model
+  matches one unambiguous profile.
+- Cross-window running/attention rotation, focus handoff, and acknowledgement
+  recovery are more reliable under concurrent refreshes; background worker
+  completion no longer leaves the Extension Host waiting indefinitely.
 - SKILL.md frontmatter parsing understands YAML block scalars
   (`description: >-` folded and `|` literal) and a UTF-8 BOM, so vendored
   skills with multi-line descriptions show their real summary instead of

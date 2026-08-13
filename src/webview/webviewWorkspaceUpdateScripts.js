@@ -274,7 +274,7 @@ function applyOpenWorkspacesUpdate(message, options) {
         || typeof message.html !== 'string'
         || typeof normalizeDashboardSearchCatalog !== 'function'
         || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-        || message.searchCatalog.version !== 2) {
+        || message.searchCatalog.version !== 3) {
         return false;
     }
     if (message.semanticRevision === lastAppliedOpenWorkspacesSemanticRevision) {

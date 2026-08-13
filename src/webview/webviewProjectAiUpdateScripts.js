@@ -560,7 +560,7 @@ function initProjectAiSessionsUpdate(options) {
             || typeof message.html !== 'string'
             || typeof normalizeDashboardSearchCatalog !== 'function'
             || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-            || message.searchCatalog.version !== 2) {
+            || message.searchCatalog.version !== 3) {
             presentationTransactions.requestFullRefresh('unsupported-ai-session-message');
             return;
         }

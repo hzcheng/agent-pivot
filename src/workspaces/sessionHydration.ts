@@ -19,11 +19,7 @@ import type {
 } from '../aiSessions/types';
 import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
 import { getAiSessionKey, prepareAiSessionsForDisplay } from '../aiSessions/sessionHelpers';
-import {
-    assignPathToWorkspaceRoot,
-    getWorkspaceHostPathComparisonKey,
-    normalizeWorkspaceHostPath,
-} from './sessionAssignment';
+import { assignPathToWorkspaceRoot } from './sessionAssignment';
 import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 export { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 import {
@@ -37,6 +33,10 @@ import {
 } from './sessionAttention';
 import type { WorktreeSnapshot } from '../worktrees/types';
 import { buildWorkspaceAiSessionViewModel } from './viewModels';
+import {
+    assignPathToWorkspaceWorktree,
+    getWorkspaceWorktreeCandidatePaths,
+} from './worktreeSessionAssignment';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label'>;
 
@@ -70,25 +70,17 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     expanded?: boolean;
 }
 
-export function getWorkspaceAiSessionCandidatePaths(workspace: OpenWorkspace | null): string[] {
-    const seen = new Set<string>();
-    return (workspace?.roots || [])
-        .slice()
-        .sort((left, right) => left.ordinal - right.ordinal)
-        .map(root => normalizeWorkspaceHostPath(root.hostPath))
-        .filter(candidatePath => {
-            const key = getWorkspaceHostPathComparisonKey(candidatePath);
-            if (!key || seen.has(key)) {
-                return false;
-            }
-            seen.add(key);
-            return true;
-        });
+export function getWorkspaceAiSessionCandidatePaths(
+    workspace: OpenWorkspace | null,
+    worktreeSnapshot?: WorktreeSnapshot | null,
+): string[] {
+    return getWorkspaceWorktreeCandidatePaths(workspace, worktreeSnapshot);
 }
 
 interface AssignedHistory {
     session: CodexSession;
-    root: WorkspaceRoot;
+    root: WorkspaceRoot | null;
+    worktreeKey?: import('../worktrees/types').WorktreeKey;
 }
 
 interface SortableActiveSession extends ActiveAiSessionViewModel {
@@ -119,7 +111,12 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)));
     const pendingRuntimes = deduplicatePendingRuntimes((input.pendingRuntimes || [])
         .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)
-            && !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots)));
+            && (!!assignPathToWorkspaceWorktree(
+                runtime.identity.cwd,
+                input.workspace,
+                input.worktreeSnapshot,
+                runtime.identity.worktreeKey,
+            ) || !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots))));
     const activeSessionKeys = new Set(activeRuntimes
         .filter(runtime => !!runtime.identity.sessionId)
         .map(runtime => getAiSessionKey(runtime.identity.provider, runtime.identity.sessionId)));
@@ -143,17 +140,19 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         const assigned = assignHistorySessions(
             provider.id,
             result.sessions,
-            input.workspace.roots,
+            input.workspace,
+            input.worktreeSnapshot,
             input.getSessionComparableCwd
         );
-        const rootBySessionId = new Map(assigned.map(item => [item.session.id, item.root]));
+        const assignmentBySessionId = new Map(assigned.map(item => [item.session.id, item]));
         sessionsByProvider[provider.id] = prepareAiSessionsForDisplay(
             assigned.map(item => item.session),
             provider.id,
             new Set(input.pinnedSessions),
             { ...input.aliases }
         ).map(session => {
-            const root = rootBySessionId.get(session.id);
+            const assignment = assignmentBySessionId.get(session.id);
+            const root = assignment?.root;
             const key = getAiSessionKey(provider.id, session.id);
             const attention = root && getWorkspaceSessionAttention(
                 attentionByRootAndSession,
@@ -168,8 +167,10 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
                 active: activeSessionKeys.has(key),
                 focused: focusedSessionKey === key,
                 ...(attention ? { attention } : {}),
-                primaryRootId: root.id,
-                primaryRootLabel: root.name,
+                ...rootMetadata(root || null),
+                ...(assignment?.worktreeKey ? {
+                    worktreeKey: { ...assignment.worktreeKey },
+                } : {}),
             };
         });
     }
@@ -194,13 +195,15 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         expanded: input.expanded,
         quickCreateProfile: input.quickCreateProfile,
         quickCreateProvider: input.quickCreateProvider,
+        worktreeSnapshot: input.worktreeSnapshot,
     });
 }
 
 function assignHistorySessions(
     providerId: AiSessionProviderId,
     sessions: readonly CodexSession[],
-    roots: readonly WorkspaceRoot[],
+    workspace: OpenWorkspace,
+    worktreeSnapshot: WorktreeSnapshot | null | undefined,
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string,
 ): AssignedHistory[] {
     const seen = new Set<string>();
@@ -210,9 +213,15 @@ function assignHistorySessions(
             continue;
         }
         seen.add(session.id);
-        const root = assignPathToWorkspaceRoot(getSessionComparableCwd(providerId, session), roots);
-        if (root) {
-            assigned.push({ session: { ...session }, root });
+        const cwd = getSessionComparableCwd(providerId, session);
+        const worktree = assignPathToWorkspaceWorktree(cwd, workspace, worktreeSnapshot);
+        const root = worktree?.root || assignPathToWorkspaceRoot(cwd, workspace.roots);
+        if (worktree || root) {
+            assigned.push({
+                session: { ...session },
+                root,
+                ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
+            });
         }
     }
     return assigned;
@@ -234,7 +243,14 @@ function buildActiveSessions<TTerminal>(input: {
             const key = getAiSessionKey(providerId, sessionId);
             const session = input.sessionsByProvider[providerId]
                 ?.find(candidate => candidate.id === sessionId);
-            const root = assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
+            const worktree = assignPathToWorkspaceWorktree(
+                runtime.identity.cwd,
+                input.input.workspace,
+                input.input.worktreeSnapshot,
+                runtime.identity.worktreeKey,
+            );
+            const root = worktree?.root
+                || assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
             const presentation = input.activePresentation.sessions.find(candidate =>
                 candidate.provider === providerId && candidate.sessionId === sessionId
             );
@@ -263,6 +279,7 @@ function buildActiveSessions<TTerminal>(input: {
                     ? { attentionEventId: presentation.eventIds[0] }
                     : {}),
                 ...rootMetadata(root),
+                ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
                 activityMs: finiteNumber(runtime.runStartedAtMs),
                 sourceOrder,
             };
@@ -271,7 +288,14 @@ function buildActiveSessions<TTerminal>(input: {
         const providerId = runtime.identity.provider;
         const pendingId = runtime.identity.pendingId || runtime.createdAt;
         const key = pendingKey(providerId, pendingId);
-        const root = assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
+        const worktree = assignPathToWorkspaceWorktree(
+            runtime.identity.cwd,
+            input.input.workspace,
+            input.input.worktreeSnapshot,
+            runtime.identity.worktreeKey,
+        );
+        const root = worktree?.root
+            || assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
         const focused = input.focusedPendingKey === key;
         const conflict = runtime.projectionConflict === true;
         return {
@@ -294,6 +318,7 @@ function buildActiveSessions<TTerminal>(input: {
             ...(runtime.stale ? { stale: true } : {}),
             createdAt: runtime.createdAt,
             ...rootMetadata(root),
+            ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
             activityMs: timestamp(runtime.createdAt),
             sourceOrder: active.length + sourceOrder,
         };

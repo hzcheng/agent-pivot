@@ -808,7 +808,8 @@ function runDashboardSearchCatalogChecks() {
             { ...otherWorkspace, id: 'workspace-current-shadow', navigationIdentity: 'navigation-current' },
         ],
     );
-    assert.strictEqual(workspaceCatalog.version, 2);
+    assert.strictEqual(workspaceCatalog.version, 3);
+    assert.deepStrictEqual(workspaceCatalog.worktrees, []);
     assert.strictEqual(workspaceCatalog.openWorkspaces.filter(item => item.current).length, 1);
     assert.deepStrictEqual(
         workspaceCatalog.openWorkspaces.map(item => item.navigationIdentity),
@@ -4158,11 +4159,12 @@ async function runAiSessionTerminalBindingStoreChecks() {
     });
     await released.flush();
     assert.deepStrictEqual(new AiSessionTerminalBindingStore(state).get(processId), {
-        version: 2,
+        version: 3,
         state: 'released',
         ...createTestAiSessionTerminalBindingIdentity(
             'codex', '/work/app', { sessionId: 'session-new' }
         ),
+        writableRootHostPaths: ['/work/app'],
         markerPath: '/tmp/session-new.done',
         updatedAtMs: released.get(processId).updatedAtMs,
     });
@@ -6724,12 +6726,13 @@ function runBatchAiSessionWebviewChecks() {
         Node: { TEXT_NODE: 3 },
         normalizeDashboardSearchCatalog: value => value
             && Array.isArray(value.sessions)
+            && Array.isArray(value.worktrees)
             && Array.isArray(value.savedProjects)
             && Array.isArray(value.todos)
-            && value.version === 2
+            && value.version === 3
             && Array.isArray(value.openWorkspaces)
             ? value
-            : { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
         document: {
             body: {
                 classList: { toggle: () => {} },
@@ -7177,7 +7180,7 @@ function runBatchAiSessionWebviewChecks() {
         generatedAt: '2026-08-11T00:00:00.000Z',
         currentWorkspaceCount: 1,
         html: '<div class="open-current-workspace-group"></div>',
-        searchCatalog: { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: TODO_SEARCH_ITEMS },
+        searchCatalog: { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: TODO_SEARCH_ITEMS },
         presentation: {
             type: 'ai-session-presentation-state', version: 1, projectionRevision: 2,
             workspaceScopeIdentity: null, workspaceNavigationIdentity: null,
@@ -7492,7 +7495,8 @@ function runAiSessionIncrementalRefreshSourceChecks() {
         false,
         'hydration must consume one projection snapshot instead of independently sampling runtime state',
     );
-    assert.ok(workspaceHydrationSource.includes('getWorkspaceAiSessionCandidatePaths(workspace)'));
+    assert.ok(workspaceHydrationSource.includes('getWorkspaceAiSessionCandidatePaths('));
+    assert.ok(workspaceHydrationSource.includes('projection.worktreeSnapshot'));
     assert.ok(workspaceHydrationSource.includes('this.options.readCoordinator.getResults({ candidatePaths, reason, maxFiles })'));
     assert.ok(workspaceHydrationSource.includes('hydrateWorkspaceAiSessions({'));
     assert.ok(workspaceHydrationSource.includes('providerSelection: this.options.getProviderSelection(workspace.scopeIdentity)'));
@@ -8216,7 +8220,7 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     assert.strictEqual(messages[2].version, 3);
     assert.strictEqual(messages[2].presentation.projectionRevision, messages[2].projectionRevision);
     assert.strictEqual(messages[2].currentWorkspaceCount, 1);
-    assert.strictEqual(messages[2].searchCatalog.version, 2);
+    assert.strictEqual(messages[2].searchCatalog.version, 3);
     assert.deepStrictEqual(messages[2].searchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.ok(messages[2].html.includes('Codex Two'));
 

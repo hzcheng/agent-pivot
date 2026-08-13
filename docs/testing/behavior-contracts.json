@@ -2051,6 +2051,44 @@
     ]
   },
   {
+    "id": "SESSION-WORKTREE-ASSIGNMENT-001",
+    "domain": "session",
+    "title": "Sibling worktree histories and runtimes map to stable worktree identity, resume in their owning worktree, and leave legacy records visible as unmanaged",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeSessionAssignment.test.js",
+      "tests/unit/workspaces/sessionScope.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/commandController.ts",
+      "src/workspaces/worktreeSessionAssignment.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/sessionHydrationController.ts",
+      "src/workspaces/sessionScope.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PRESENTATION-001",
+    "domain": "webview",
+    "title": "Workspace projections combine worktree Git and Session state and every Dashboard search channel publishes catalog v3 worktree entries",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeSessionAssignment.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/types.ts",
+      "src/workspaces/viewModels.ts",
+      "src/webview/dashboardViewModel.ts",
+      "src/webview/webviewDashboardValidationScripts.js",
+      "src/webview/webviewDashboardSearchScripts.js"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
     "domain": "runtime",
     "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",

@@ -24,14 +24,31 @@ const WORKTREE_SNAPSHOT = {
     revision: 12,
     repositories: [{
         repositoryKey: '/work/repo/.git',
-        rootBindings: [{ workspaceRootId: 'root:a', repositoryRelativePath: 'a' }],
+        rootBindings: [
+            { workspaceRootId: 'root:a', repositoryRelativePath: 'a' },
+            { workspaceRootId: 'root:b', repositoryRelativePath: 'b' },
+        ],
         baseRef: 'refs/heads/main',
-        worktrees: [],
+        worktrees: [{
+            key: {
+                repositoryKey: '/work/repo/.git',
+                canonicalWorktreePath: '/work',
+            },
+            branchRef: 'refs/heads/main', head: '1'.repeat(40), isMain: true,
+            isBare: false, health: 'normal', headKind: 'branch',
+        }, {
+            key: {
+                repositoryKey: '/work/repo/.git',
+                canonicalWorktreePath: '/work-topic',
+            },
+            branchRef: 'refs/heads/topic', head: '2'.repeat(40), isMain: false,
+            isBare: false, health: 'normal', headKind: 'branch',
+        }],
     }],
     truncatedWorktreeCount: 3,
 };
 
-test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-001 preserves scan, projection, runtime, pending, worktree, and diagnostic boundaries', () => {
+test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-001 / WORKTREE-PRESENTATION-001 preserves scan, projection, runtime, pending, worktree, and diagnostic boundaries', () => {
     let reason = 'refresh';
     let nowMs = 1000;
     const reads = [];
@@ -65,7 +82,16 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-00
             getResults: options => {
                 reads.push(options);
                 return {
-                    codex: { available: true, scannedFiles: 1, parsedFiles: 1, sessions: [session] },
+                    codex: {
+                        available: true, scannedFiles: 2, parsedFiles: 2,
+                        sessions: [session, {
+                            id: 'session-topic', name: 'Topic', cwd: '/work-topic/a/src',
+                            updatedAt: '2026-07-16T11:00:00Z',
+                        }, {
+                            id: 'session-topic-tools', name: 'Topic tools', cwd: '/work-topic/tools',
+                            updatedAt: '2026-07-16T12:00:00Z',
+                        }],
+                    },
                     kimi: { available: false, scannedFiles: 0, parsedFiles: 0, sessions: [] },
                 };
             },
@@ -129,7 +155,7 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-00
 
     const hydrated = controller.hydrate(WORKSPACE);
     assert.deepEqual(reads[0], {
-        candidatePaths: ['/work/a', '/work/b'],
+        candidatePaths: ['/work/a', '/work/b', '/work', '/work-topic'],
         reason: 'refresh',
         maxFiles: 123,
     });
@@ -142,6 +168,43 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-00
     assert.deepEqual(hydrated.sessionsByProvider.codex[0].attention, {
         eventId: 'event-a', reason: 'completed', unread: true,
     });
+    assert.deepEqual(hydrated.sessionsByProvider.codex.map(item => ({
+        id: item.id,
+        worktreePath: item.worktreeKey && item.worktreeKey.canonicalWorktreePath,
+        primaryRootId: item.primaryRootId,
+        outsideWorkspace: item.outsideWorkspace,
+    })), [{
+        id: 'session-a', worktreePath: '/work', primaryRootId: 'root:a',
+        outsideWorkspace: undefined,
+    }, {
+        id: 'session-topic-tools', worktreePath: '/work-topic', primaryRootId: undefined,
+        outsideWorkspace: true,
+    }, {
+        id: 'session-topic', worktreePath: '/work-topic', primaryRootId: 'root:a',
+        outsideWorkspace: undefined,
+    }]);
+    assert.deepEqual(hydrated.worktrees.map(row => ({
+        kind: row.kind,
+        path: row.git.key.canonicalWorktreePath,
+        activity: row.activity,
+        sessions: row.sessions.map(item => item.id),
+        authority: row.authority,
+    })), [{
+        kind: 'ready', path: '/work', activity: 'attention', sessions: ['session-a'],
+        authority: {
+            canInput: true, canFocus: true, canStop: true, canResume: true,
+            canArchive: true, canTakeControl: false, liveOwnerAvailable: true,
+        },
+    }, {
+        kind: 'ready', path: '/work-topic', activity: 'idle',
+        sessions: ['session-topic-tools', 'session-topic'],
+        authority: {
+            canInput: false, canFocus: false, canStop: false, canResume: true,
+            canArchive: true, canTakeControl: false, liveOwnerAvailable: false,
+        },
+    }]);
+    assert.deepEqual(hydrated.unmanagedSessions, []);
+    assert.deepEqual(hydrated.unmanagedActiveSessions, []);
     assert.deepEqual(hydrated.activeSessions.map(item => ({
         provider: item.provider,
         pending: item.pending,
@@ -198,6 +261,10 @@ test('AI-SESSION-QUICK-CREATE-001 hydration carries the quick-create profile int
         'the webview snapshot must name the provider quick-create remembers');
 
     const withoutEither = makeController(() => undefined, () => undefined).hydrate(WORKSPACE);
+    assert.deepEqual(withoutEither.worktrees, []);
+    assert.deepEqual(withoutEither.unmanagedSessions, []);
+    assert.deepEqual(withoutEither.unmanagedActiveSessions, []);
+    assert.equal(withoutEither.truncatedWorktreeCount, 0);
     assert.equal('quickCreateProfile' in withoutEither, false,
         'no quick-create profile keeps the field out of the view model');
     assert.equal('quickCreateProvider' in withoutEither, false,
@@ -207,6 +274,67 @@ test('AI-SESSION-QUICK-CREATE-001 hydration carries the quick-create profile int
     assert.equal('quickCreateProfile' in legacy, false,
         'hosts without the wiring keep the field out of the view model');
     assert.equal('quickCreateProvider' in legacy, false);
+});
+
+test('SESSION-WORKTREE-ASSIGNMENT-001 preserves legacy history and active runtimes as unmanaged', () => {
+    const identity = {
+        provider: 'codex', sessionId: 'legacy-active',
+        workspaceScopeIdentity: WORKSPACE.scopeIdentity,
+        workspaceNavigationIdentity: WORKSPACE.navigationIdentity,
+        workspaceRootHostPaths: ['/old/checkout'], cwd: '/old/checkout',
+    };
+    const controller = new WorkspaceSessionHydrationController({
+        providers: [{ id: 'codex', label: 'Codex', terminalCwdFields: ['cwd'] }],
+        readCoordinator: {
+            getResults: () => ({
+                codex: {
+                    available: true, scannedFiles: 1, parsedFiles: 1,
+                    sessions: [{ id: 'legacy-history', name: 'Legacy', cwd: '/work/a' }],
+                },
+            }),
+        },
+        incrementalScanMaxFiles: 10,
+        getRefreshReason: () => 'unmanaged-test',
+        getSessionComparableCwd: (_provider, session) => session.cwd,
+        getPinnedSessions: () => new Set(),
+        getAliases: () => ({}),
+        getProviderSelection: () => undefined,
+        getExpanded: () => true,
+        getProjectionSnapshot: () => ({
+            revision: 1,
+            worktreeSnapshot: {
+                revision: 4,
+                repositories: [{
+                    repositoryKey: '/replacement/.git',
+                    rootBindings: [{ workspaceRootId: 'root:a', repositoryRelativePath: '' }],
+                    worktrees: [{
+                        key: {
+                            repositoryKey: '/replacement/.git',
+                            canonicalWorktreePath: '/replacement/main',
+                        },
+                        head: '4'.repeat(40), isMain: true, isBare: false,
+                        health: 'normal', headKind: 'detached',
+                    }],
+                }],
+                truncatedWorktreeCount: 0,
+            },
+            activeRuntimes: [{
+                identity, backend: 'vscode', state: 'active', markerPath: '/tmp/legacy.done',
+                runStartedAtMs: 1, attached: true,
+            }],
+            pendingRuntimes: [], executionSnapshot: {}, focusedIdentity: null,
+            attentionAggregate: null,
+        }),
+    });
+
+    const hydrated = controller.hydrate(WORKSPACE);
+    assert.deepEqual(hydrated.unmanagedSessions.map(session => session.id), ['legacy-history']);
+    assert.deepEqual(hydrated.unmanagedActiveSessions.map(session => session.sessionId), ['legacy-active']);
+    assert.deepEqual(hydrated.worktrees.map(row => ({
+        path: row.git.key.canonicalWorktreePath,
+        activity: row.activity,
+        sessions: row.sessions.length,
+    })), [{ path: '/replacement/main', activity: 'idle', sessions: 0 }]);
 });
 
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 hydration consumes the captured presentation without recomputing it', () => {

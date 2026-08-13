@@ -6,6 +6,7 @@ import type * as vscode from 'vscode';
 import { isAiSessionProviderId } from '../models';
 import type { AiSessionProviderId } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
+import type { WorktreeSnapshot } from '../worktrees/types';
 import type { WorkspacePrimaryRootStore } from '../workspaces/primaryRootStore';
 import type { ActiveAiSessionTerminalIdentity } from './activeTerminalHighlight';
 import type AiSessionAliasController from './aliasController';
@@ -43,6 +44,7 @@ import type AiSessionWorkspaceStateStore from './workspaceStateStore';
 export interface SessionControllerCompositionOptions {
     getCurrentWorkspaceActionTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     getCurrentOpenWorkspace: () => OpenWorkspace | null;
+    getWorktreeSnapshot: () => WorktreeSnapshot | null;
     getActiveEditorUri: () => vscode.Uri | undefined;
     isWorkspaceTrusted: () => boolean;
     getRegisteredAiSessionProvider: (providerId: AiSessionProviderId) => AiSessionProvider;
@@ -301,6 +303,7 @@ export function createSessionControllerComposition(
     const aiSessionCommandController = factories.createCommandController({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getOpenWorkspace: getCurrentOpenWorkspace,
+        getWorktreeSnapshot: options.getWorktreeSnapshot,
         getActiveEditorUri: options.getActiveEditorUri,
         isWorkspaceTrusted: options.isWorkspaceTrusted,
         getProvider: getRegisteredAiSessionProvider,

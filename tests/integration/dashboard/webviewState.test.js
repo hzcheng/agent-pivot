@@ -146,13 +146,14 @@ function createSearchElement(tagName = 'div') {
 
 function makeCatalog(suffix = '') {
     return {
-        version: 2,
+        version: 3,
         sessions: [{
             key: `codex:c${suffix}`, searchText: `dashboard session ${suffix}`,
             workspaceId: 'current', workspaceNavigationIdentity: 'navigation:current',
             workspaceName: 'Dashboard', action: 'reveal-workspace-session',
             provider: 'codex', sessionId: `c${suffix}`, name: 'Session',
         }],
+        worktrees: [],
         openWorkspaces: [{
             key: `workspace:navigation:${suffix}`, navigationIdentity: `navigation:${suffix}`,
             searchText: `dashboard open ${suffix}`, workspaceId: 'current',
@@ -431,7 +432,7 @@ function loadWebviewModules(options = {}) {
 
 const webviewModules = loadWebviewModules();
 
-test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 de-duplicates saved path identities while retaining the favorite representative', () => {
+test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [
             { id: 'saved', name: 'Dashboard', path: '/work/dashboard', favorite: true },
@@ -443,21 +444,51 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 de-duplicates saved path identities w
         name: 'Dashboard',
         navigationIdentity: 'navigation:dashboard',
         aiSessions: {
-            sessionsByProvider: { codex: [{ id: 'c1', name: 'Fix dashboard' }] },
+            sessionsByProvider: { codex: [{
+                id: 'c1', name: 'Fix dashboard',
+                worktreeKey: {
+                    repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic',
+                },
+            }] },
+            worktrees: [{
+                kind: 'ready',
+                git: {
+                    key: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic' },
+                    branchRef: 'refs/heads/feature/topic', head: 'a'.repeat(40),
+                    isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+                },
+                activity: 'idle', sessions: [], authority: {
+                    canInput: false, canFocus: false, canStop: false, canResume: true,
+                    canArchive: false, canTakeControl: false, liveOwnerAvailable: false,
+                },
+            }],
             activeSessions: [], unavailableProviders: [], activeProvider: 'codex', expanded: true,
         },
     })], makeCatalog().todos);
 
     assert.deepEqual(catalog.sessions.map(item => item.key), ['codex:c1']);
+    assert.equal(catalog.sessions[0].worktreeName, 'feature/topic');
+    assert.match(catalog.sessions[0].searchText, /feature\/topic/);
+    assert.equal(catalog.version, 3);
+    assert.deepEqual(catalog.worktrees.map(item => ({
+        action: item.action, name: item.name, path: item.canonicalWorktreePath,
+    })), [{
+        action: 'reveal-workspace-worktree', name: 'feature/topic', path: '/repo/topic',
+    }]);
     assert.deepEqual(catalog.savedProjects.map(item => item.projectId), ['saved', 'other']);
     assert.deepEqual(catalog.savedProjects[0].groupLabels, ['FAVORITES', 'TOOLS']);
     assert.deepEqual(catalog.todos, makeCatalog().todos);
 });
 
-test('TODO-TODO-SEARCH-RESULT-RENDERING-001 locks catalog v2 section order and actions', () => {
+test('TODO-TODO-SEARCH-RESULT-RENDERING-001 locks catalog v3 section order and actions', () => {
     const harness = createDashboardHarness();
+    assert.deepEqual(toPlain(harness.context.normalizeDashboardSearchCatalog({
+        ...makeCatalog(), version: 2,
+    })), {
+        version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [],
+    });
     const catalog = {
-        version: 2,
+        version: 3,
         sessions: [{
             searchText: 'match',
             name: 'Session',
@@ -466,6 +497,11 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 locks catalog v2 section order and a
             workspaceId: 'current',
             workspaceNavigationIdentity: 'navigation:current',
             workspaceName: 'Current',
+        }],
+        worktrees: [{
+            searchText: 'match', name: 'feature/topic', workspaceId: 'current',
+            workspaceNavigationIdentity: 'navigation:current', repositoryKey: '/repo/.git',
+            canonicalWorktreePath: '/repo/topic', activity: 'idle', sessionCount: 1,
         }],
         openWorkspaces: [{
             searchText: 'match',
@@ -499,6 +535,7 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 locks catalog v2 section order and a
     const sections = harness.context.filterDashboardCatalog(catalog, 'match');
     assert.deepEqual(toPlain(sections.map(section => section.title)), [
         'AI SESSIONS',
+        'WORKTREES',
         'OPEN WORKSPACES',
         'SAVED PROJECTS',
         'TODO RESULTS',
@@ -510,6 +547,7 @@ test('TODO-TODO-SEARCH-RESULT-RENDERING-001 locks catalog v2 section order and a
     );
     assert.deepEqual(actions, [
         'reveal-workspace-session',
+        'reveal-workspace-worktree',
         'show-current-workspace',
         'switch-open-workspace',
         'open-saved-project',
@@ -1991,13 +2029,14 @@ function createProjectVm({
         CSS: { escape: value => String(value) },
         Node: { TEXT_NODE: 3 },
         normalizeDashboardSearchCatalog: value => value
-            && value.version === 2
+            && value.version === 3
             && Array.isArray(value.sessions)
+            && Array.isArray(value.worktrees)
             && Array.isArray(value.openWorkspaces)
             && Array.isArray(value.savedProjects)
             && Array.isArray(value.todos)
             ? value
-            : { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
         document: {
             activeElement: activeElement || null,
             body: {

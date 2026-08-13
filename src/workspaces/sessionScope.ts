@@ -6,6 +6,7 @@ import type { AiSessionDirectoryScope } from '../aiSessions/types';
 import {
     assignPathToWorkspaceRoot,
     getWorkspaceHostPathComparisonKey,
+    isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
 import type { OpenWorkspace, RepositoryRootBinding, WorkspaceRoot } from './types';
@@ -125,17 +126,6 @@ export function buildAiSessionDirectoryScope(
         throw new WorkspaceDirectoryScopeError(invalidRoots);
     }
 
-    const normalizedPrimaryCwd = normalizeWorkspaceHostPath(options.primaryCwd || '');
-    const historicalRoot = normalizedPrimaryCwd
-        ? assignPathToWorkspaceRoot(normalizedPrimaryCwd, roots)
-        : null;
-    const primaryRoot = historicalRoot || selectPrimaryWorkspaceRoot(workspace, options);
-    if (!primaryRoot) {
-        throw new WorkspaceDirectoryScopeError([]);
-    }
-
-    const primaryRootHostPath = normalizedRoots
-        .find(candidate => candidate.root.id === primaryRoot.id)?.hostPath || '';
     const worktreeRootBindings = buildWorktreeRootBindingMap(
         options.worktree?.key.repositoryKey,
         options.worktree?.key.canonicalWorktreePath,
@@ -159,11 +149,39 @@ export function buildAiSessionDirectoryScope(
             name: candidate.root.name,
         })));
     }
+    const normalizedPrimaryCwd = normalizeWorkspaceHostPath(options.primaryCwd || '');
+    const historicalRoot = normalizedPrimaryCwd
+        ? assignPathToWorkspaceRoot(normalizedPrimaryCwd, roots)
+        : null;
+    const historicalWorktreeRoot = !historicalRoot && normalizedPrimaryCwd
+        ? normalizedRoots
+            .filter(candidate => {
+                const mappedPath = worktreeRootBindings.get(candidate.root.id);
+                return !!mappedPath && isWorkspaceHostPathContained(mappedPath, normalizedPrimaryCwd);
+            })
+            .sort((left, right) => {
+                const leftPath = worktreeRootBindings.get(left.root.id) || '';
+                const rightPath = worktreeRootBindings.get(right.root.id) || '';
+                return rightPath.length - leftPath.length
+                    || left.root.ordinal - right.root.ordinal;
+            })[0]?.root || null
+        : null;
+    const primaryRoot = historicalRoot
+        || historicalWorktreeRoot
+        || selectPrimaryWorkspaceRoot(workspace, options);
+    if (!primaryRoot) {
+        throw new WorkspaceDirectoryScopeError([]);
+    }
+
+    const primaryRootHostPath = normalizedRoots
+        .find(candidate => candidate.root.id === primaryRoot.id)?.hostPath || '';
     const primaryWorktreePath = worktreeRootBindings.get(primaryRoot.id);
     if (options.worktree && !primaryWorktreePath) {
         throw new WorkspaceDirectoryScopeError([{ id: primaryRoot.id, name: primaryRoot.name }]);
     }
-    const primaryCwd = primaryWorktreePath
+    const primaryCwd = historicalWorktreeRoot
+        ? normalizedPrimaryCwd
+        : primaryWorktreePath
         || (historicalRoot ? normalizedPrimaryCwd : primaryRootHostPath);
     const seenPaths = new Set<string>();
     const workspaceRootHostPaths = normalizedRoots.reduce((result, candidate) => {
@@ -182,7 +200,9 @@ export function buildAiSessionDirectoryScope(
         ? dedupeHostPaths(normalizedRoots.map(candidate =>
             worktreeRootBindings.get(candidate.root.id) || candidate.hostPath))
         : workspaceRootHostPaths;
-    const writablePrimaryComparisonKey = getWorkspaceHostPathComparisonKey(primaryCwd);
+    const writablePrimaryComparisonKey = getWorkspaceHostPathComparisonKey(
+        primaryWorktreePath || primaryCwd
+    );
     const writableAdditionalDirectories = writableRootHostPaths.filter(
         hostPath => getWorkspaceHostPathComparisonKey(hostPath) !== writablePrimaryComparisonKey
     );

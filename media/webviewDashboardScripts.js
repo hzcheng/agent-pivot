@@ -263,6 +263,24 @@ function initDashboard(options) {
             }
             return;
         }
+        if (action === 'reveal-workspace-worktree') {
+            if (typeof options.clearSearch === 'function') {
+                options.clearSearch();
+            } else {
+                setSearchQuery('');
+            }
+            activateTab('open', false);
+            if (typeof window.__agentPivotRevealWorkspaceWorktree === 'function') {
+                window.__agentPivotRevealWorkspaceWorktree(
+                    button.dataset.workspaceNavigationIdentity,
+                    button.dataset.repositoryKey,
+                    button.dataset.worktreePath
+                );
+            } else if (typeof window.__agentPivotRevealWorkspace === 'function') {
+                window.__agentPivotRevealWorkspace(button.dataset.workspaceNavigationIdentity);
+            }
+            return;
+        }
         if (action === 'show-current-workspace') {
             if (typeof options.clearSearch === 'function') {
                 options.clearSearch();

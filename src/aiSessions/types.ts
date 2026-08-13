@@ -116,6 +116,7 @@ export interface ActiveAiSessionViewModel {
     primaryRootId?: string;
     primaryRootLabel?: string;
     outsideWorkspace?: boolean;
+    worktreeKey?: WorktreeKey;
 }
 
 export interface AiSessionReadResult {
@@ -233,6 +234,7 @@ export interface AiSessionViewModel {
     primaryRootId?: string;
     primaryRootLabel?: string;
     outsideWorkspace?: boolean;
+    worktreeKey?: WorktreeKey;
 }
 
 export interface WorkspaceAiSessionViewModel {
@@ -250,6 +252,11 @@ export interface WorkspaceAiSessionViewModel {
     activeSessions: ActiveAiSessionViewModel[];
     activeSessionCount: number;
     activeAttentionCount: number;
+    worktrees: WorktreeRowViewModel[];
+    unmanagedSessions: AiSessionViewModel[];
+    unmanagedActiveSessions: ActiveAiSessionViewModel[];
+    worktreeSnapshotRevision?: number;
+    truncatedWorktreeCount: number;
     /** The Codex profile a picker-free quick-create would launch with, when any. */
     quickCreateProfile?: string;
     /** The provider quick-create remembers for this workspace, when any. */

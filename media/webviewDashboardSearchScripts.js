@@ -20,6 +20,7 @@ function filterDashboardCatalog(catalog, query) {
     var regex = globToDashboardRegex(query);
     var sections = [
         { id: 'ai-sessions', title: 'AI SESSIONS', type: 'session', items: catalog.sessions },
+        { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
         { id: 'todos', title: 'TODO RESULTS', type: 'todo', items: catalog.todos },
@@ -86,6 +87,14 @@ function renderDashboardSearchResults(container, sections) {
                     activeBadge.textContent = 'Active';
                     metadata.appendChild(activeBadge);
                 }
+            } else if (section.type === 'worktree') {
+                button.dataset.searchAction = 'reveal-workspace-worktree';
+                button.dataset.workspaceId = String(item.workspaceId || '');
+                button.dataset.workspaceNavigationIdentity = String(item.workspaceNavigationIdentity || '');
+                button.dataset.repositoryKey = String(item.repositoryKey || '');
+                button.dataset.worktreePath = String(item.canonicalWorktreePath || '');
+                metadata.textContent = [item.workspaceName, item.activity, `${item.sessionCount || 0} sessions`]
+                    .filter(Boolean).join(' · ');
             } else if (section.type === 'open-workspace') {
                 button.dataset.workspaceId = String(item.workspaceId || '');
                 button.dataset.workspaceNavigationIdentity = String(item.navigationIdentity || '');

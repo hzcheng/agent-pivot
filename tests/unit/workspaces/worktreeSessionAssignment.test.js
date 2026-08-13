@@ -1,0 +1,157 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const {
+    assignPathToWorkspaceWorktree,
+    getWorkspaceWorktreeCandidatePaths,
+} = require('../../../out/workspaces/worktreeSessionAssignment');
+const { buildWorkspaceAiSessionViewModel } = require('../../../out/workspaces/viewModels');
+
+const WORKSPACE = {
+    navigationIdentity: 'navigation:fixture',
+    scopeIdentity: 'scope:fixture',
+    kind: 'savedMultiRoot',
+    displayName: 'Fixture',
+    navigationUri: 'file:///work/fixture.code-workspace',
+    environment: 'local',
+    roots: [
+        {
+            id: 'api', name: 'API', uri: 'file:///repo/main/packages/api',
+            hostPath: '/repo/main/packages/api', ordinal: 0,
+        },
+        {
+            id: 'other', name: 'Other', uri: 'file:///other',
+            hostPath: '/other', ordinal: 1,
+        },
+    ],
+};
+
+const SNAPSHOT = {
+    revision: 3,
+    repositories: [{
+        repositoryKey: '/repo/.git',
+        rootBindings: [{ workspaceRootId: 'api', repositoryRelativePath: 'packages/api' }],
+        worktrees: [
+            {
+                key: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/main' },
+                head: '1'.repeat(40), branchRef: 'refs/heads/main', isMain: true,
+                isBare: false, health: 'normal', headKind: 'branch',
+            },
+            {
+                key: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic' },
+                head: '2'.repeat(40), branchRef: 'refs/heads/topic', isMain: false,
+                isBare: false, health: 'normal', headKind: 'branch',
+            },
+        ],
+    }, {
+        repositoryKey: '/other/.git',
+        rootBindings: [{ workspaceRootId: 'other', repositoryRelativePath: '' }],
+        worktrees: [{
+            key: { repositoryKey: '/other/.git', canonicalWorktreePath: '/other' },
+            head: '3'.repeat(40), branchRef: 'refs/heads/main', isMain: true,
+            isBare: false, health: 'normal', headKind: 'branch',
+        }],
+    }],
+    truncatedWorktreeCount: 0,
+};
+
+test('SESSION-WORKTREE-ASSIGNMENT-001 scans sibling checkout roots once while retaining workspace-root priority', () => {
+    assert.deepEqual(getWorkspaceWorktreeCandidatePaths(WORKSPACE, SNAPSHOT), [
+        '/repo/main/packages/api',
+        '/other',
+        '/repo/main',
+        '/repo/topic',
+    ]);
+});
+
+test('SESSION-WORKTREE-ASSIGNMENT-001 maps sibling cwd to stable worktree identity and repository-relative root metadata', () => {
+    const topic = assignPathToWorkspaceWorktree(
+        '/repo/topic/packages/api/src/index.ts',
+        WORKSPACE,
+        SNAPSHOT,
+    );
+    assert.deepEqual(topic && {
+        key: topic.worktree.key,
+        rootId: topic.root && topic.root.id,
+        mappedRootPath: topic.mappedRootPath,
+    }, {
+        key: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic' },
+        rootId: 'api',
+        mappedRootPath: '/repo/topic/packages/api',
+    });
+
+    const repositoryOwned = assignPathToWorkspaceWorktree(
+        '/repo/topic/tools/generator',
+        WORKSPACE,
+        SNAPSHOT,
+    );
+    assert.deepEqual(repositoryOwned && repositoryOwned.worktree.key, {
+        repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic',
+    });
+    assert.equal(repositoryOwned.root, null,
+        'repository visibility is broader than the mapped workspace subdirectory');
+});
+
+test('SESSION-WORKTREE-ASSIGNMENT-001 prefers an exact runtime key and rejects keys outside the coherent snapshot', () => {
+    const exact = assignPathToWorkspaceWorktree(
+        '/legacy/location',
+        WORKSPACE,
+        SNAPSHOT,
+        { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic' },
+    );
+    assert.deepEqual(exact && exact.worktree.key, {
+        repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic',
+    });
+
+    assert.equal(assignPathToWorkspaceWorktree(
+        '/legacy/location',
+        WORKSPACE,
+        SNAPSHOT,
+        { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/removed' },
+    ), null);
+});
+
+test('WORKTREE-PRESENTATION-001 defensively snapshots nested worktree identities in the combined view model', () => {
+    const worktreeSnapshot = JSON.parse(JSON.stringify(SNAPSHOT));
+    worktreeSnapshot.repositories.push({
+        repositoryKey: '/stale/.git',
+        rootBindings: [{ workspaceRootId: 'removed-root', repositoryRelativePath: '' }],
+        worktrees: [{
+            key: { repositoryKey: '/stale/.git', canonicalWorktreePath: '/stale/main' },
+            head: '5'.repeat(40), isMain: true, isBare: false,
+            health: 'normal', headKind: 'detached',
+        }],
+    });
+    const worktreeKey = {
+        repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/topic',
+    };
+    const history = { id: 'history', name: 'History', provider: 'codex', worktreeKey };
+    const activeKey = { ...worktreeKey };
+    const active = {
+        key: 'codex:history', provider: 'codex', sessionId: 'history', name: 'History',
+        executionState: 'running', focused: false, needsAttention: false, pending: false,
+        backend: 'vscode', attached: true, worktreeKey: activeKey,
+    };
+    const viewModel = buildWorkspaceAiSessionViewModel({
+        workspace: WORKSPACE,
+        providers: [{ id: 'codex', label: 'Codex' }],
+        sessionsByProvider: { codex: [history] },
+        unavailableProviders: [], activeSessions: [active], attentionCount: 0,
+        worktreeSnapshot,
+    });
+
+    worktreeKey.canonicalWorktreePath = '/mutated/history';
+    activeKey.canonicalWorktreePath = '/mutated/active';
+    worktreeSnapshot.repositories[0].worktrees[1].key.canonicalWorktreePath = '/mutated/git';
+
+    assert.equal(
+        viewModel.sessionsByProvider.codex[0].worktreeKey.canonicalWorktreePath,
+        '/repo/topic',
+    );
+    assert.equal(viewModel.activeSessions[0].worktreeKey.canonicalWorktreePath, '/repo/topic');
+    assert.equal(viewModel.worktrees[1].git.key.canonicalWorktreePath, '/repo/topic');
+    assert.equal(viewModel.worktrees[1].activity, 'active');
+    assert.equal(viewModel.worktrees.length, 3,
+        'a last-good snapshot from removed workspace roots must not leak stale repositories');
+});

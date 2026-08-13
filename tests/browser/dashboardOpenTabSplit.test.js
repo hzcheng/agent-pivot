@@ -469,8 +469,9 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 keeps the OPEN WINDOWS scroll anchor across aut
         + `<div class="group-list">${listCards}</div></div>`;
     const navigationCount = before.identities.filter(info => info.isNavigation).length;
     const catalog = {
-        version: 2,
+        version: 3,
         sessions: [],
+        worktrees: [],
         openWorkspaces: before.identities.map(info => ({
             workspaceId: info.id,
             action: 'switch-open-workspace',

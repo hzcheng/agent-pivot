@@ -59,6 +59,10 @@ commit only the intended files.
      only checks whose inputs and outputs do not overlap. Classify
      `MODULE_NOT_FOUND` from a concurrently deleted build tree as a scheduling
      failure only after the affected checks pass in dependency order.
+   - Run browser performance-threshold tests without concurrent CPU-intensive
+     checks such as coverage. If a threshold fails under resource contention,
+     rerun the affected test and the browser suite alone before classifying it
+     as a product regression.
 
 7. Complete final integration review after all task-level reviews.
    - Run one final, read-only review of the complete merge-base-to-HEAD diff;

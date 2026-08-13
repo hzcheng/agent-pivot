@@ -10,12 +10,17 @@ import type {
     AiSessionRuntimeActionResult,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
-import type { AiSessionDirectoryScope, SessionProfileDecision, WorkspaceAiSessionActionTarget } from './types';
+import type {
+    AiSessionDirectoryScope,
+    AiSessionViewModel,
+    SessionProfileDecision,
+    WorkspaceAiSessionActionTarget,
+} from './types';
 
 interface AiSessionResumeTarget {
     id: string;
     name: string;
-    session: CodexSession;
+    session: AiSessionViewModel;
     workspace: WorkspaceAiSessionActionTarget;
 }
 
@@ -55,7 +60,7 @@ export interface AiSessionResumeControllerCommonOptions {
     getProvider: (providerId: AiSessionProviderId) => AiSessionResumeProvider | null;
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
-        session: CodexSession,
+        session: AiSessionViewModel,
         providerId: AiSessionProviderId,
         explicitRootId?: string
     ) => AiSessionDirectoryScope | null | Thenable<AiSessionDirectoryScope | null> | Promise<AiSessionDirectoryScope | null>;

@@ -161,11 +161,14 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             return null;
         }
 
-        const candidatePaths = getWorkspaceAiSessionCandidatePaths(workspace);
+        const projection = projectionOverride || this.options.getProjectionSnapshot();
+        const candidatePaths = getWorkspaceAiSessionCandidatePaths(
+            workspace,
+            projection.worktreeSnapshot,
+        );
         const maxFiles = getAiSessionScanMaxFiles(reason, this.options.incrementalScanMaxFiles);
         const sessionResults = this.options.readCoordinator.getResults({ candidatePaths, reason, maxFiles });
         this.options.onDidReadSessions?.(workspace, sessionResults, reason);
-        const projection = projectionOverride || this.options.getProjectionSnapshot();
         const activePresentation = Object.prototype.hasOwnProperty.call(
             projection,
             'presentation'

@@ -304,13 +304,14 @@ function cssRuleIncludesTopLevelDeclaration(rule, declaration) {
 
 function makeDashboardCatalog() {
     return {
-        version: 2,
+        version: 3,
         sessions: [{
             key: 'codex:c1', searchText: 'fix dashboard codex c1', workspaceId: 'workspace-current',
             workspaceNavigationIdentity: 'navigation-current', workspaceName: 'Dashboard Workspace',
             provider: 'codex', sessionId: 'c1', name: 'Fix dashboard', active: true,
             action: 'reveal-workspace-session',
         }],
+        worktrees: [],
         openWorkspaces: [{
             key: 'workspace:navigation-current', navigationIdentity: 'navigation-current',
             searchText: 'dashboard workspace local app api', workspaceId: 'workspace-current',
@@ -344,13 +345,14 @@ function makeUpdatedDashboardCatalog() {
 
 function makeWorkspaceDashboardCatalog() {
     return {
-        version: 2,
+        version: 3,
         sessions: [{
             key: 'codex:c1', searchText: 'fix dashboard codex c1', workspaceId: 'workspace-current',
             workspaceNavigationIdentity: 'navigation-current', workspaceName: 'Dashboard Workspace',
             provider: 'codex', sessionId: 'c1', name: 'Fix dashboard', active: true,
             action: 'reveal-workspace-session',
         }],
+        worktrees: [],
         openWorkspaces: [{
             key: 'workspace:navigation-current', navigationIdentity: 'navigation-current',
             searchText: 'dashboard workspace local app api', workspaceId: 'workspace-current',
@@ -432,14 +434,14 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(aiMessage.projectionRevision, 7);
     assert.strictEqual(aiMessage.presentation.projectionRevision, 7);
     assert.strictEqual(aiMessage.currentWorkspaceCount, 1);
-    assert.strictEqual(aiMessage.searchCatalog.version, 2);
+    assert.strictEqual(aiMessage.searchCatalog.version, 3);
     assert.deepStrictEqual(aiMessage.searchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.ok(aiMessage.html.includes('data-current-workspace'));
     assert.ok(aiMessage.html.includes('data-session-icon-fx="halo"'),
         'AI session incremental updates must use the configured running icon animation');
     assert.ok(aiMessage.html.includes('data-session-fx="custom"'),
         'AI session incremental updates must preserve the independent running card animation');
-    assert.strictEqual(workspaceSearchCatalog.version, 2);
+    assert.strictEqual(workspaceSearchCatalog.version, 3);
     assert.deepStrictEqual(workspaceSearchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.deepStrictEqual(workspaceSearchCatalog.sessions.map(item => item.action), ['reveal-workspace-session']);
     assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
@@ -448,7 +450,7 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(openWorkspacesMessage.presentation.projectionRevision, 1);
     assert.strictEqual(openWorkspacesMessage.currentWorkspaceCount, 1);
     assert.strictEqual(openWorkspacesMessage.navigationWorkspaceCount, 1);
-    assert.strictEqual(openWorkspacesMessage.searchCatalog.version, 2);
+    assert.strictEqual(openWorkspacesMessage.searchCatalog.version, 3);
     assert.strictEqual(openWorkspacesMessage.otherWindowsStatus, 'ready');
     assert.deepStrictEqual(
         openWorkspacesMessage.searchCatalog.openWorkspaces.map(item => item.action),
@@ -4079,7 +4081,7 @@ function runControllerChecks(source) {
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(workspaceTodoSections.map(section => section.title))),
         ['TODO RESULTS'],
-        'v2 search must preserve searchable TODO results beside workspace-first sections'
+        'v3 search must preserve searchable TODO results beside workspace-first sections'
     );
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(workspaceTodoSections.map(section => section.id))),
@@ -4088,19 +4090,19 @@ function runControllerChecks(source) {
     assert.strictEqual(context.filterDashboardCatalog(makeWorkspaceDashboardCatalog(), 'missing').length, 0);
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(context.normalizeDashboardSearchCatalog(null))),
-        { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] }
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] }
     );
     assert.strictEqual(
         context.normalizeDashboardSearchCatalog(makeWorkspaceDashboardCatalog()).version,
-        2
+        3
     );
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(context.normalizeDashboardSearchCatalog({
             ...makeDashboardCatalog(),
             openWorkspaces: null,
         }))),
-        { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] },
-        'a malformed v2 catalog must fail closed'
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
+        'a malformed v3 catalog must fail closed'
     );
     const state = {
         activeTab: 'projects',

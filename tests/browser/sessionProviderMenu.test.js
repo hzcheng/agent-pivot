@@ -161,8 +161,9 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
             currentWorkspaceCount: 1,
             html,
             searchCatalog: {
-                version: 2,
+                version: 3,
                 sessions: [],
+                worktrees: [],
                 openWorkspaces: [],
                 savedProjects: [],
                 todos: [],

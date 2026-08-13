@@ -400,7 +400,9 @@
             "behaviors": [
                 "PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001",
                 "WORKTREE-DISCOVERY-001",
-                "WORKTREE-SNAPSHOT-001"
+                "WORKTREE-SNAPSHOT-001",
+                "SESSION-WORKTREE-ASSIGNMENT-001",
+                "WORKTREE-PRESENTATION-001"
             ],
             "prGates": [
                 "test:deterministic:run"

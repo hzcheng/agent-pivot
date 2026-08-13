@@ -722,7 +722,7 @@ function applyOpenWorkspacesUpdate(message, options) {
         || typeof message.html !== 'string'
         || typeof normalizeDashboardSearchCatalog !== 'function'
         || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-        || message.searchCatalog.version !== 2) {
+        || message.searchCatalog.version !== 3) {
         return false;
     }
     if (message.semanticRevision === lastAppliedOpenWorkspacesSemanticRevision) {
@@ -2631,7 +2631,7 @@ function initProjectAiSessionsUpdate(options) {
             || typeof message.html !== 'string'
             || typeof normalizeDashboardSearchCatalog !== 'function'
             || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-            || message.searchCatalog.version !== 2) {
+            || message.searchCatalog.version !== 3) {
             presentationTransactions.requestFullRefresh('unsupported-ai-session-message');
             return;
         }
@@ -6246,15 +6246,16 @@ function validatePromptPanelUpdatedMessage(message) {
 
 function normalizeDashboardSearchCatalog(value) {
     if (value
-        && value.version === 2
+        && value.version === 3
         && Array.isArray(value.sessions)
+        && Array.isArray(value.worktrees)
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
         && Array.isArray(value.todos)
         && (value.skills === undefined || Array.isArray(value.skills))) {
         return value;
     }
-    return { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] };
+    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
 }
 
 function replaceDashboardSearchCatalogState(state, catalog) {
@@ -6286,6 +6287,7 @@ function filterDashboardCatalog(catalog, query) {
     var regex = globToDashboardRegex(query);
     var sections = [
         { id: 'ai-sessions', title: 'AI SESSIONS', type: 'session', items: catalog.sessions },
+        { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
         { id: 'todos', title: 'TODO RESULTS', type: 'todo', items: catalog.todos },
@@ -6352,6 +6354,14 @@ function renderDashboardSearchResults(container, sections) {
                     activeBadge.textContent = 'Active';
                     metadata.appendChild(activeBadge);
                 }
+            } else if (section.type === 'worktree') {
+                button.dataset.searchAction = 'reveal-workspace-worktree';
+                button.dataset.workspaceId = String(item.workspaceId || '');
+                button.dataset.workspaceNavigationIdentity = String(item.workspaceNavigationIdentity || '');
+                button.dataset.repositoryKey = String(item.repositoryKey || '');
+                button.dataset.worktreePath = String(item.canonicalWorktreePath || '');
+                metadata.textContent = [item.workspaceName, item.activity, `${item.sessionCount || 0} sessions`]
+                    .filter(Boolean).join(' · ');
             } else if (section.type === 'open-workspace') {
                 button.dataset.workspaceId = String(item.workspaceId || '');
                 button.dataset.workspaceNavigationIdentity = String(item.navigationIdentity || '');
@@ -7222,6 +7232,24 @@ function initDashboard(options) {
                     button.dataset.provider,
                     button.dataset.sessionId
                 );
+            }
+            return;
+        }
+        if (action === 'reveal-workspace-worktree') {
+            if (typeof options.clearSearch === 'function') {
+                options.clearSearch();
+            } else {
+                setSearchQuery('');
+            }
+            activateTab('open', false);
+            if (typeof window.__agentPivotRevealWorkspaceWorktree === 'function') {
+                window.__agentPivotRevealWorkspaceWorktree(
+                    button.dataset.workspaceNavigationIdentity,
+                    button.dataset.repositoryKey,
+                    button.dataset.worktreePath
+                );
+            } else if (typeof window.__agentPivotRevealWorkspace === 'function') {
+                window.__agentPivotRevealWorkspace(button.dataset.workspaceNavigationIdentity);
             }
             return;
         }

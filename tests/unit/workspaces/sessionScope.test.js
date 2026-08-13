@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const commandBuilders = require('../../../out/aiSessions/commandBuilders');
 const {
+    AiSessionCommandController,
     preflightAiSessionDirectoryScope,
 } = require('../../../out/aiSessions/commandController');
 const {
@@ -196,6 +197,90 @@ test('SESSION-WORKTREE-SCOPE-001 replaces the selected repository roots with lin
     ]);
     assert.deepEqual(scope.worktreeKey, worktreeKey);
     assert.equal(scope.additionalDirectories.includes('/repos/frontend'), false);
+});
+
+test('SESSION-WORKTREE-ASSIGNMENT-001 resumes a sibling-worktree session in its exact historical directory', async () => {
+    const current = workspace({
+        roots: [
+            {
+                id: 'root-frontend', name: 'Frontend', uri: 'file:///repos/frontend',
+                hostPath: '/repos/frontend', ordinal: 0,
+            },
+            {
+                id: 'root-frontend-web', name: 'Frontend Web',
+                uri: 'file:///repos/frontend/packages/web',
+                hostPath: '/repos/frontend/packages/web', ordinal: 1,
+            },
+        ],
+    });
+    const siblingKey = {
+        repositoryKey: '/repos/frontend/.git',
+        canonicalWorktreePath: '/managed/frontend-feature',
+    };
+    let snapshot = {
+        revision: 7,
+        truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: siblingKey.repositoryKey,
+            rootBindings: [
+                { workspaceRootId: 'stale-root', repositoryRelativePath: 'retired' },
+                { workspaceRootId: 'root-frontend', repositoryRelativePath: '' },
+                { workspaceRootId: 'root-frontend-web', repositoryRelativePath: 'packages/web' },
+            ],
+            worktrees: [{
+                key: siblingKey,
+                head: 'a'.repeat(40),
+                isMain: false,
+                isBare: false,
+                health: 'normal',
+                headKind: 'branch',
+            }],
+        }],
+    };
+    let rootPicks = 0;
+    const controller = new AiSessionCommandController({
+        getWorktreeSnapshot: () => snapshot,
+        getProvider: () => ({ id: 'codex', label: 'Codex', commandName: 'codex' }),
+        getProviderDirectoryCapability: async () => ({ status: 'supported' }),
+        isWorkspaceTrusted: () => true,
+        isDirectory: () => true,
+        pickWorkspaceRoot: async () => {
+            rootPicks += 1;
+            return 'root-frontend';
+        },
+    });
+
+    const scope = await controller.resolveWorkspaceDirectoryScope(current, 'codex', {
+        id: 'session-1',
+        name: 'Feature work',
+        provider: 'codex',
+        cwd: '/managed/frontend-feature/packages/web/src/components',
+        worktreeKey: siblingKey,
+    });
+
+    assert.equal(rootPicks, 0, 'an assigned sibling worktree must not prompt for a current-root fallback');
+    assert.equal(scope.primaryRootId, 'root-frontend-web');
+    assert.equal(scope.primaryCwd, '/managed/frontend-feature/packages/web/src/components');
+    assert.deepEqual(scope.worktreeKey, siblingKey);
+    assert.deepEqual(scope.writableRootHostPaths, [
+        '/managed/frontend-feature',
+        '/managed/frontend-feature/packages/web',
+    ]);
+    assert.deepEqual(scope.additionalDirectories, [
+        '/managed/frontend-feature',
+    ]);
+
+    snapshot = { revision: 8, truncatedWorktreeCount: 0, repositories: [] };
+    const fallbackScope = await controller.resolveWorkspaceDirectoryScope(current, 'codex', {
+        id: 'session-1',
+        name: 'Feature work',
+        provider: 'codex',
+        cwd: '/managed/frontend-feature/packages/web/src/components',
+        worktreeKey: siblingKey,
+    });
+    assert.equal(rootPicks, 1, 'a stale worktree key uses the existing safe root-selection fallback');
+    assert.equal(fallbackScope.primaryCwd, '/repos/frontend');
+    assert.equal(fallbackScope.worktreeKey, undefined);
 });
 
 test('SESSION-WORKTREE-SCOPE-001 rejects escaping bindings and unavailable mapped roots', () => {

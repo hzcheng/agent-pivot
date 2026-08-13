@@ -1356,6 +1356,7 @@ async function initializeDashboard(
     } = createSessionControllerComposition({
         getCurrentWorkspaceActionTarget,
         getCurrentOpenWorkspace,
+        getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
         getRegisteredAiSessionProvider,
         getRegisteredAiSessionProviders,
         getAiSessionRuntimeById,

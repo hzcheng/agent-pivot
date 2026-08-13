@@ -152,7 +152,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001
 });
 
 function catalog() {
-    return { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] };
+    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
 }
 
 function project(id) {

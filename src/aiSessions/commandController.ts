@@ -2,24 +2,27 @@
 
 import type * as vscode from 'vscode';
 
-import type { AiSessionProviderId, CodexSession } from '../models';
+import type { AiSessionProviderId } from '../models';
 import type {
     ProviderDirectoryCapabilityProvider,
     ProviderDirectoryCapabilityResult,
 } from './providerDirectoryCapability';
 import { assignPathToWorkspaceRoot } from '../workspaces/sessionAssignment';
+import { assignPathToWorkspaceWorktree } from '../workspaces/worktreeSessionAssignment';
 import {
     buildAiSessionDirectoryScope,
     WorkspaceDirectoryScopeError,
 } from '../workspaces/sessionScope';
 import type { ActiveEditorUri } from '../workspaces/sessionScope';
-import type { OpenWorkspace } from '../workspaces/types';
+import type { OpenWorkspace, RepositoryRootBinding } from '../workspaces/types';
+import type { WorktreeKey, WorktreeSnapshot } from '../worktrees/types';
 import { sanitizeAiSessionAlias } from './aliasStore';
 import { normalizeAiSessionProviderSelection } from './providerSelection';
 import type { AiSessionProviderSelection } from './providerSelection';
 import type {
     AiSessionDirectoryScope,
     AiSessionProviderSelectionResultMessage,
+    AiSessionViewModel,
     WorkspaceAiSessionActionTarget,
 } from './types';
 
@@ -55,6 +58,10 @@ export interface AiSessionWorkspaceLaunchPreflightOptions {
     explicitRootId?: string;
     historicalCwd?: string;
     lastUsedRootId?: string;
+    worktree?: {
+        key: WorktreeKey;
+        rootBindings: readonly RepositoryRootBinding[];
+    };
 }
 
 function blocked(
@@ -116,9 +123,10 @@ export async function preflightAiSessionDirectoryScope(
             explicitRootId,
             activeEditorUri: options.action === 'create' ? options.activeEditorUri : null,
             lastUsedRootId: options.action === 'create' ? options.lastUsedRootId : null,
-            primaryCwd: options.action === 'resume' && historicalRoot
+            primaryCwd: options.action === 'resume' && (historicalRoot || options.worktree)
                 ? options.historicalCwd
                 : undefined,
+            worktree: options.worktree,
             isDirectory: options.isDirectory,
         });
         return { status: 'ready', directoryScope };
@@ -139,6 +147,7 @@ export async function preflightAiSessionDirectoryScope(
 export interface AiSessionCommandControllerOptions {
     getWorkspaceTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     getOpenWorkspace?: () => OpenWorkspace | null;
+    getWorktreeSnapshot?: () => WorktreeSnapshot | null;
     getActiveEditorUri?: () => ActiveEditorUri | string | null;
     isWorkspaceTrusted?: () => boolean;
     getProvider?: (
@@ -184,9 +193,18 @@ export class AiSessionCommandController {
     async resolveWorkspaceDirectoryScope(
         workspace: OpenWorkspace,
         providerId: AiSessionProviderId,
-        session?: CodexSession,
+        session?: AiSessionViewModel,
         explicitRootId?: string
     ): Promise<AiSessionDirectoryScope | null> {
+        const historicalCwd = session?.cwd || session?.workDir;
+        const worktreeAssignment = session?.worktreeKey
+            ? assignPathToWorkspaceWorktree(
+                historicalCwd || '',
+                workspace,
+                this.options.getWorktreeSnapshot?.(),
+                session.worktreeKey,
+            )
+            : null;
         const result = await preflightAiSessionDirectoryScope({
             workspace,
             provider: this.options.getProvider?.(providerId) || null,
@@ -196,9 +214,16 @@ export class AiSessionCommandController {
             isDirectory: this.options.isDirectory,
             pickWorkspaceRoot: this.options.pickWorkspaceRoot,
             activeEditorUri: this.options.getActiveEditorUri?.(),
-            explicitRootId,
-            historicalCwd: session?.cwd || session?.workDir,
+            explicitRootId: explicitRootId || worktreeAssignment?.root?.id,
+            historicalCwd,
             lastUsedRootId: this.options.getPrimaryRootId?.(workspace),
+            ...(worktreeAssignment ? {
+                worktree: {
+                    key: worktreeAssignment.worktree.key,
+                    rootBindings: worktreeAssignment.repository.rootBindings.filter(binding =>
+                        workspace.roots.some(root => root.id === binding.workspaceRootId)),
+                },
+            } : {}),
         });
         if (result.status === 'blocked') {
             this.options.showWarningMessage?.(result.message);

@@ -52,6 +52,7 @@ function createFixture(overrides = {}) {
     const composition = createSessionControllerComposition({
         getCurrentWorkspaceActionTarget: cardId => ({ cardId }),
         getCurrentOpenWorkspace: () => ({ scopeIdentity: 'scope-1' }),
+        getWorktreeSnapshot: () => ({ revision: 9 }),
         getActiveEditorUri: () => undefined,
         isWorkspaceTrusted: () => true,
         getRegisteredAiSessionProvider: providerId => providers.find(provider => provider.id === providerId) || null,
@@ -182,6 +183,8 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 delegates directory scopes to t
     await controllerOptions.resume.resolveWorkspaceDirectoryScope({ workspace: 'w' }, 'session', 'kimi', 'root-8');
     assert.deepEqual(resolved[1], ['w', 'kimi', 'session', 'root-8'],
         'resume resolves against the target workspace with the session');
+    assert.deepEqual(controllerOptions.command.getWorktreeSnapshot(), { revision: 9 },
+        'resume scope resolution receives the current coherent worktree snapshot');
 
     await controllerOptions.creation.rememberDirectoryScope({ rootId: 'root-1' });
     const logErrorCall = calls.find(call => call[0] === 'logError');

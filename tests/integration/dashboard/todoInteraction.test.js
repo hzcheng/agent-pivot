@@ -324,7 +324,7 @@ test('TODO-INCREMENTAL-ROOT-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 accept 
         success: true,
         snapshot: snapshot(),
         searchCatalog: {
-            version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [],
+            version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [],
         },
     });
 

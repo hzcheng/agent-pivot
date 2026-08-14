@@ -626,7 +626,7 @@ function getWorktreeGroupHtml(
         </div>
         <div class="ai-session-worktree-session-list">${entries.length
             ? entries.map(entry => entry.html).join('\n')
-            : '<div class="ai-session-worktree-empty">(no sessions)</div>'}</div>
+            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}</div>
     </section>`;
 }
 

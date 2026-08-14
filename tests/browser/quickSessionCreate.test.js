@@ -229,13 +229,19 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the 
 test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a terminal settlement', async t => {
     const page = await openQuickCreatePage(t);
     const project = page.locator('.project[data-id="project-a"]');
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
     const button = project.locator('[data-action="create-isolated-session"]');
 
     await button.click();
-    const request = (await postedMessages(page))[0];
+    const messages = await postedMessages(page);
+    assert.deepEqual(messages[0], {
+        type: 'select-ai-session-surface', version: 1,
+        projectId: 'project-a', surface: 'worktree',
+    }, 'starting creation follows the progress row into the Worktree surface');
+    assert.equal(
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
+        'worktree'
+    );
+    const request = messages[1];
     assert.deepEqual(request, {
         type: 'start-isolated-session', version: 1,
         requestId: 'isolated-1', projectId: 'project-a',
@@ -269,7 +275,7 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a t
     }, request.requestId);
     assert.equal(await button.isDisabled(), false);
     assert.match(await project.locator('[data-ai-session-live-region]').textContent(),
-        /workspace-untrusted/);
+        /not trusted/);
 });
 
 test('WORKTREE-MANAGED-CLEANUP-001 removal stays discoverable for busy managed worktrees', async t => {

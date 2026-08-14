@@ -240,6 +240,16 @@ function initProjectAiSessionControls(options) {
         }
         var isolatedCreateAction = target.closest('[data-action="create-isolated-session"]');
         if (isolatedCreateAction) {
+            // Creating starts a background provisioning row that only renders
+            // in the Worktree surface, so follow it there immediately.
+            selectAiSessionSurfaceDom(projectDiv, 'worktree');
+            writeAiSessionSurfaceState(window.vscode, projectId, 'worktree');
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: projectId,
+                surface: 'worktree',
+            });
             submitIsolatedSessionRequest(
                 'start-isolated-session', projectId, null, isolatedCreateAction,
                 isolatedCreateAction.getAttribute('data-repository-key')
@@ -611,11 +621,11 @@ function initProjectAiSessionControls(options) {
         if (liveRegion) {
             liveRegion.textContent = message.status === 'succeeded'
                 ? pending.requestType === 'cancel-isolated-session'
-                    ? 'Isolated session cancellation requested.'
-                    : 'Isolated session started.'
+                    ? 'Worktree creation cancelled.'
+                    : 'Worktree created.'
                 : message.status === 'cancelled'
-                    ? 'Isolated session creation cancelled.'
-                    : `Isolated session ${message.status}: ${message.errorCode || 'try again'}.`;
+                    ? 'Worktree creation cancelled.'
+                    : `Worktree creation ${message.status}: ${describeProvisioningError(message.errorCode)}`;
         }
         return true;
     }
@@ -789,6 +799,32 @@ function initProjectAiSessionControls(options) {
                     : `Worktree removal ${message.status}: ${describeWorktreeRemovalError(message.errorCode)}`;
         }
         return true;
+    }
+
+    function describeProvisioningError(errorCode) {
+        switch (errorCode) {
+            case 'snapshot-unavailable':
+                return 'worktree discovery is not ready yet; try again';
+            case 'workspace-untrusted':
+                return 'the workspace is not trusted';
+            case 'repository-unavailable':
+                return 'no usable repository found in this workspace';
+            case 'base-ref-unavailable':
+                return 'that worktree has no branch to base on';
+            case 'duplicate-operation':
+            case 'operation-running':
+                return 'another creation is already in progress';
+            case 'invalid-task':
+                return 'enter a task name';
+            case 'setup-failed':
+                return 'the setup command failed';
+            case 'worktree-create-failed':
+                return 'Git could not create the worktree';
+            case 'git-timeout':
+                return 'Git timed out';
+            default:
+                return (errorCode || 'try again') + '';
+        }
     }
 
     function describeWorktreeRemovalError(errorCode) {

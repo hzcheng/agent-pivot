@@ -802,7 +802,7 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     assert.match(html, /data-worktree-activity="attention"/);
     assert.ok(html.indexOf('feature/auth') < html.indexOf('feature/idle'),
         'attention worktrees render first while stable snapshot order breaks ties');
-    assert.match(html, /feature\/idle[\s\S]*?locked[\s\S]*?\(no sessions\)/);
+    assert.match(html, /feature\/idle[\s\S]*?locked[\s\S]*?\(no active sessions\)/);
     assert.match(html, /2 more worktrees not shown/);
     assert.match(html, /data-action="toggle-ai-session-worktree"/);
     assert.match(html, /aria-label="feature\/auth, 1 session, needs attention"/);

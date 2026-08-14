@@ -4362,6 +4362,7 @@ body.steward-sidebar {
 
         .codex-session-icon,
         .codex-session-pin,
+        .codex-session-view,
         .codex-session-archive,
         .ai-session-close-terminal {
             display: inline-flex;
@@ -4473,6 +4474,7 @@ body.steward-sidebar {
         }
 
         .codex-session-pin,
+        .codex-session-view,
         .codex-session-archive,
         .ai-session-close-terminal {
             svg {
@@ -4482,6 +4484,7 @@ body.steward-sidebar {
         }
 
         .codex-session-pin,
+        .codex-session-view,
         .codex-session-archive,
         .ai-session-close-terminal {
             color: var(--vscode-descriptionForeground);
@@ -4517,6 +4520,13 @@ body.steward-sidebar {
             &.active {
                 color: var(--vscode-focusBorder);
                 background: var(--vscode-list-inactiveSelectionBackground, transparent);
+            }
+        }
+
+        .codex-session-view {
+            &:hover {
+                color: var(--vscode-focusBorder);
+                transform: scale(1.08);
             }
         }
 

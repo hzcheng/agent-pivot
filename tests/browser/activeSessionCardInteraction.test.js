@@ -2747,6 +2747,20 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a history row View Conversation butto
     );
     const viewButton = historyRow.locator('[data-action="view-ai-session-conversation"]');
     assert.equal(await viewButton.count(), 1);
+    const iconMetrics = await viewButton.evaluate(button => {
+        const svg = button.querySelector('svg');
+        const rect = svg.getBoundingClientRect();
+        return {
+            width: rect.width,
+            height: rect.height,
+            fill: getComputedStyle(svg).fill,
+            color: getComputedStyle(button).color,
+        };
+    });
+    assert.ok(iconMetrics.width <= 14 && iconMetrics.height <= 14,
+        `the view icon must stay icon-sized, got ${iconMetrics.width}x${iconMetrics.height}`);
+    assert.equal(iconMetrics.fill, iconMetrics.color,
+        'the view icon inherits the button color instead of rendering as a solid box');
 
     await viewButton.click();
 

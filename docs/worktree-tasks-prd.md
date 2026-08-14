@@ -79,7 +79,7 @@ Member: memberId, repositoryKey, worktreeKey?, branchName, path, state
 两个结构性概念：
 
 - **组行**：Worktree tab 的一级条目。同一组的多个物理 worktree 聚合成一行；行下的一级内容是 session（跨 member 汇总），物理 worktree 是次要信息。
-- **Current 锚点行**：固定在顶部的唯一基准行，**永久只占一个顶层行**（可展开查看其下 session），唯一职能是收容跑在各仓库主 checkout 上的 session。锚点行渲染**快照中各主 checkout 实际检出的分支，且每个分支带仓库标签**（如 `agent-pivot: main · pi: 1.0 · infra: 3.0`——多个仓库都在 main 时，没有仓库标签的分支列表信息几乎无效）。它不是被管理的 worktree：无 ⋯ 菜单、无删除、无派生按钮。没有活跃 session 时可弱化显示。在主 checkout 建 session 的入口由 Chats tab 的 + 承担，锚点行不因此加回菜单。
+- **Current 锚点行**：固定在顶部的唯一基准行，**永久只占一个顶层行**（可展开查看其下 session），唯一职能是收容跑在各仓库主 checkout 上的 session。它不是被管理的 worktree：无 ⋯ 菜单、无删除、无派生按钮。两个由 M1 体验反馈修订的交互（2026-08-14 批注）：**① 行内保持紧凑**，只显示 `Current` + 状态 + session 数，各主 checkout 实际检出的分支（带仓库标签，如 `agent-pivot: main`）通过 hover 快速 tooltip **每行一个仓库**展示——内联长列表会把行名挤没；**② 锚点行保留一个快速创建 + 按钮**（创建主 checkout 的普通 session，与 Chats 的 + 等价）——用户在 Worktree 面板找不到创建入口的发现性问题优先于"入口只在 Chats"的纯度。没有活跃 session 时可弱化显示。
 
 ### 4.1 术语约定
 
@@ -161,7 +161,7 @@ ready → deleting → deleted（从 manifest 移除）
 
 行为：
 
-1. 入口：tab 行图标按钮 / 组行 ⋯ 菜单（派生，见 §6.2）/ Current 锚点不出现入口。触发后在**列表顶部就地展开创建卡片**，不遮挡既有列表；Esc 或收起按钮放弃且不产生任何副作用，再次打开时保留上次未提交的输入。
+1. 入口：tab 行图标按钮 / 组行 ⋯ 菜单（派生，见 §6.2）/ Current 锚点不出现建组入口（其 + 按钮只建主 checkout 普通 session，见 §4）。触发后在**列表顶部就地展开创建卡片**，不遮挡既有列表；Esc 或收起按钮放弃且不产生任何副作用，再次打开时保留上次未提交的输入。
 2. 输入组名（建议 slug 生成规则见 §5.2）；**预览随输入实时更新**（slug、各 member 的路径与分支名即时反映）。
 3. 名称下方直接渲染**创建预览**，逐 member 一行，完整展示全部物理副作用：
    - 目标仓库（可取消勾选）与基准分支（可搜索下拉覆盖，第一版列本地分支 + 记忆的基准，不含 remote-only 分支）；

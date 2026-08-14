@@ -11,6 +11,7 @@ import { assignPathToWorkspaceRoot } from '../workspaces/sessionAssignment';
 import { assignPathToWorkspaceWorktree } from '../workspaces/worktreeSessionAssignment';
 import {
     buildAiSessionDirectoryScope,
+    mapWorktreeBoundHostPaths,
     WorkspaceDirectoryScopeError,
 } from '../workspaces/sessionScope';
 import type { ActiveEditorUri } from '../workspaces/sessionScope';
@@ -249,17 +250,25 @@ export class AiSessionCommandController {
         for (const peerKey of peerKeys) {
             const peerAssignment = assignPathToWorkspaceWorktree(
                 '', workspace, this.options.getWorktreeSnapshot?.(), peerKey);
-            const peerPath = peerKey.canonicalWorktreePath;
+            // Peers grant their bound workspace subdirectories, never the
+            // whole physical worktree root (same mapping as the primary).
+            const peerPaths = peerAssignment
+                ? mapWorktreeBoundHostPaths(
+                    peerKey.canonicalWorktreePath,
+                    peerAssignment.repository.rootBindings,
+                    workspace.roots)
+                : [];
             if (!peerAssignment
                 || peerAssignment.worktree.isBare
                 || peerAssignment.worktree.health !== 'normal'
-                || !this.options.isDirectory?.(peerPath)) {
+                || peerPaths.length === 0
+                || peerPaths.some(peerPath => !this.options.isDirectory?.(peerPath))) {
                 this.options.showWarningMessage?.(
                     'A member worktree of this group is no longer available. Refresh the dashboard and resolve the group before starting sessions in it.'
                 );
                 return null;
             }
-            extraWritableHostPaths.push(peerPath);
+            extraWritableHostPaths.push(...peerPaths);
         }
         const result = await preflightAiSessionDirectoryScope({
             workspace,

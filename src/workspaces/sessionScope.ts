@@ -256,6 +256,34 @@ function normalizeExtraWritableHostPaths(
     });
 }
 
+/**
+ * Maps a peer member's visible repository bindings into its worktree, so a
+ * group session writes the bound workspace subdirectories — not the whole
+ * physical worktree root (review: peer rootBindings must be honored).
+ */
+export function mapWorktreeBoundHostPaths(
+    worktreePath: string,
+    bindings: readonly RepositoryRootBinding[],
+    roots: readonly WorkspaceRoot[]
+): string[] {
+    const visibleRootIds = new Set(roots.map(root => root.id));
+    const visibleBindings = bindings.filter(binding => visibleRootIds.has(binding.workspaceRootId));
+    if (visibleBindings.length === 0) {
+        return [];
+    }
+    const pathApi = /^[a-zA-Z]:[\\/]/.test(worktreePath) || worktreePath.startsWith('\\\\')
+        ? path.win32
+        : path.posix;
+    return visibleBindings.map(binding => {
+        const relativePath = normalizeRepositoryRelativePath(binding.repositoryRelativePath);
+        if (relativePath === null) {
+            throw new WorkspaceDirectoryScopeError([]);
+        }
+        return normalizeWorkspaceHostPath(
+            relativePath ? pathApi.join(worktreePath, relativePath) : worktreePath);
+    });
+}
+
 function buildWorktreeRootBindingMap(
     repositoryKey: string | undefined,
     worktreePath: string | undefined,

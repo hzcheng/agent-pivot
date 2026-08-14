@@ -306,6 +306,11 @@ export interface AiSessionViewModel {
     primaryRootLabel?: string;
     outsideWorkspace?: boolean;
     worktreeKey?: WorktreeKey;
+    /**
+     * The session's worktree is gone or unhealthy (PRD §6.4): viewing the
+     * conversation stays available, resume fails closed.
+     */
+    worktreeUnavailable?: boolean;
 }
 
 export interface WorkspaceAiSessionViewModel {

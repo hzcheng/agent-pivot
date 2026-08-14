@@ -499,6 +499,41 @@ test('RUNTIME-TMUX-CLIENT-001 metadata batch reads stay under the tmux command l
     }
 });
 
+test('RUNTIME-TMUX-CLIENT-001 metadata batches respect the byte limit with multibyte session names', async t => {
+    // CJK names occupy 3 UTF-8 bytes per character; a character-counted cap
+    // would still overflow the serialized tmux command.
+    const sessions = Array.from({ length: 6 },
+        (_unused, index) => `ap-深度调研任务-${'数据'.repeat(30)}-${index}`);
+    const windowRows = sessions.map((name, index) =>
+        `${name}|:ap-field:|窗口-${index}|:ap-field:|@${300 + index}|:ap-field:|1`);
+    const paneRows = sessions.map((_name, index) =>
+        `@${300 + index}|:ap-field:|%${400 + index}|:ap-field:|1|:ap-field:|${6000 + index}`);
+    const metadataCalls = [];
+    const client = new TmuxClient('tmux', {
+        run: async (_file, args) => {
+            const available = availabilityResult(args);
+            if (available) return available;
+            if (args[0] === 'list-windows') {
+                return { exitCode: 0, stdout: `${windowRows.join('\n')}\n`, stderr: '' };
+            }
+            if (args[0] === 'list-panes') {
+                return { exitCode: 0, stdout: `${paneRows.join('\n')}\n`, stderr: '' };
+            }
+            if (args.includes('show-options')) {
+                metadataCalls.push(args);
+                return metadataSequenceResult(args, () => undefined);
+            }
+            return { exitCode: 0, stdout: '', stderr: '' };
+        },
+    });
+    const windows = await client.listWindows();
+    assert.equal(windows.length, sessions.length);
+    for (const args of metadataCalls) {
+        assert.ok(Buffer.byteLength(args.join(' '), 'utf8') <= 12288,
+            'metadata batch argv must respect the byte limit, not the character count');
+    }
+});
+
 test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed active pane PIDs', async () => {
     let paneResult = {
         exitCode: 0,

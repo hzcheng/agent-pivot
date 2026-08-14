@@ -297,6 +297,10 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 checkpoints each durable step before ad
     assert.deepEqual(current.calls, ['worktree', 'setup'],
         'success waits for persisted setup state');
     releases.shift()();
+    for (let index = 0; index < 20 && checkpoints.length < 3; index += 1) await Promise.resolve();
+    assert.deepEqual(checkpoints[2], { steps: [], rowSteps: [] },
+        'success waits for the final recovery cleanup to persist');
+    releases.shift()();
     assert.equal((await pending).kind, 'succeeded');
 });
 

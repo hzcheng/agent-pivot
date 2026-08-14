@@ -1296,12 +1296,17 @@ async function initializeDashboard(
                         }
                     }
                 }
-                const workspaceForManifest = getCurrentOpenWorkspace();
-                if (workspaceForManifest) {
+                // Reconcile against the workspace captured when this load
+                // started: if the user switched workspaces mid-discovery,
+                // this snapshot belongs to the old one and must not leak
+                // into the new workspace's manifest bucket.
+                if (workspace
+                    && getCurrentOpenWorkspace()?.navigationIdentity
+                        === workspace.navigationIdentity) {
                     try {
                         await reconcileWorktreeGroupManifest({
                             store: worktreeGroupManifestStore,
-                            workspaceIdentity: workspaceForManifest.navigationIdentity,
+                            workspaceIdentity: workspace.navigationIdentity,
                             snapshot,
                             recoveryRecords: worktreeProvisioningStore.read(),
                             onError: (message, error) => logError(message, error),
@@ -1736,20 +1741,22 @@ async function initializeDashboard(
             && row.proposedPath === key.canonicalWorktreePath),
         confirm: (message, action) => vscode.window.showWarningMessage(
             message, { modal: true }, action),
-        refresh: async removedKey => {
+        getWorkspaceIdentity: projectId =>
+            getCurrentWorkspaceActionTarget(projectId)?.workspace.navigationIdentity ?? null,
+        refresh: async (removedKey, workspaceIdentity) => {
             // Retire the manifest member before any snapshot/view refresh:
             // the physical directory is already gone at this point, and a
             // failed retirement must surface as a partial outcome instead of
-            // leaving a ghost group behind.
-            const workspace = getCurrentOpenWorkspace();
-            if (workspace) {
+            // leaving a ghost group behind. The bucket identity was captured
+            // when the removal started, so a workspace switch cannot divert it.
+            if (workspaceIdentity) {
                 const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
-                    workspace.navigationIdentity, removedKey);
+                    workspaceIdentity, removedKey);
                 const member = group?.members.find(candidate => candidate.worktreeKey
                     && worktreeKeysEqual(candidate.worktreeKey, removedKey));
                 if (group && member) {
                     await worktreeGroupManifestStore.removeMember(
-                        workspace.navigationIdentity, group.groupId, member.memberId);
+                        workspaceIdentity, group.groupId, member.memberId);
                 }
             }
             await worktreeSnapshotCoordinator.refresh('managed-worktree-removed');
@@ -2101,9 +2108,11 @@ async function initializeDashboard(
                     target.workspace.navigationIdentity, request.groupId, request.memberId);
             } catch (error) {
                 logError('Failed to set the worktree group primary member.', error);
+                void vscode.window.showWarningMessage(
+                    'Agent Pivot: could not set the primary worktree. Refresh the dashboard and try again.');
                 return;
             }
-            void aiSessionDashboardController.refreshNow('worktree-group-primary-changed', {
+            await aiSessionDashboardController.refreshNow('worktree-group-primary-changed', {
                 fallbackToFullRefresh: false,
             });
         },

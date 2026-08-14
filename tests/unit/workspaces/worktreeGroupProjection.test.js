@@ -188,7 +188,8 @@ test('WORKTREE-GROUPS-002 member status reflects manifest state and snapshot hea
     const byId = Object.fromEntries(groups[0].members.map(m => [m.memberId, m.status]));
     assert.equal(byId['m-alpha'], 'ready');
     assert.equal(byId['m-planned'], 'pending');
-    assert.equal(byId['m-beta'], 'detached');
+    assert.equal(byId['m-beta'], undefined,
+        'detached members stay off the row until their repository returns');
     assert.equal(groups[0].hasDetachedMembers, true);
 });
 

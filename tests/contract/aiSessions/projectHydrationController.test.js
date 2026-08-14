@@ -345,6 +345,84 @@ test('SESSION-WORKTREE-ASSIGNMENT-001 preserves legacy history and active runtim
         [{ repositoryLabel: 'replacement', branch: '44444444' }]);
 });
 
+test('WORKTREE-GROUPS-002 deleted worktrees keep history identity through the manifest fallback', () => {
+    const controller = new WorkspaceSessionHydrationController({
+        providers: [{ id: 'codex', label: 'Codex', terminalCwdFields: ['cwd'] }],
+        readCoordinator: {
+            getResults: () => ({
+                codex: {
+                    available: true, scannedFiles: 2, parsedFiles: 2,
+                    sessions: [
+                        { id: 'inside-repo', name: 'Inside', cwd: '/work-topic/src' },
+                        { id: 'outside-root', name: 'Outside', cwd: '/managed/deleted/lib' },
+                    ],
+                },
+            }),
+        },
+        incrementalScanMaxFiles: 10,
+        getRefreshReason: () => 'deleted-worktree',
+        getSessionComparableCwd: (_provider, session) => session.cwd,
+        getPinnedSessions: () => new Set(),
+        getAliases: () => ({}),
+        getProviderSelection: () => undefined,
+        getExpanded: () => true,
+        getWorktreeGroups: () => [{
+            groupId: 'g-1', displayName: 'Topic', suggestedSlug: 'topic',
+            primaryMemberId: 'm-1', createdAt: 1,
+            members: [{
+                memberId: 'm-1', repositoryKey: '/work/repo/.git',
+                worktreeKey: {
+                    repositoryKey: '/work/repo/.git',
+                    canonicalWorktreePath: '/work-topic',
+                },
+                branchName: 'agent-pivot/topic', path: '/work-topic', state: 'ready',
+            }, {
+                memberId: 'm-2', repositoryKey: '/external/repo/.git',
+                worktreeKey: {
+                    repositoryKey: '/external/repo/.git',
+                    canonicalWorktreePath: '/managed/deleted',
+                },
+                branchName: 'agent-pivot/topic', path: '/managed/deleted', state: 'ready',
+            }],
+        }],
+        getProjectionSnapshot: () => ({
+            revision: 1,
+            worktreeSnapshot: {
+                revision: 4,
+                repositories: [{
+                    repositoryKey: '/work/repo/.git',
+                    rootBindings: [{ workspaceRootId: 'root:a', repositoryRelativePath: 'a' }],
+                    worktrees: [{
+                        key: {
+                            repositoryKey: '/work/repo/.git',
+                            canonicalWorktreePath: '/work',
+                        },
+                        head: '4'.repeat(40), isMain: true, isBare: false,
+                        health: 'normal', headKind: 'detached',
+                    }],
+                }],
+                truncatedWorktreeCount: 0,
+            },
+            activeRuntimes: [], pendingRuntimes: [], executionSnapshot: {},
+            focusedIdentity: null, attentionAggregate: null,
+        }),
+    });
+
+    const hydrated = controller.hydrate(WORKSPACE);
+    const byId = Object.fromEntries(
+        hydrated.sessionsByProvider.codex.map(session => [session.id, session]));
+    assert.deepEqual(byId['inside-repo'].worktreeKey, {
+        repositoryKey: '/work/repo/.git',
+        canonicalWorktreePath: '/work-topic',
+    }, 'a deleted in-repo worktree keeps its identity so resume fails closed');
+    assert.equal(byId['inside-repo'].worktreeUnavailable, true);
+    assert.deepEqual(byId['outside-root'].worktreeKey, {
+        repositoryKey: '/external/repo/.git',
+        canonicalWorktreePath: '/managed/deleted',
+    }, 'a deleted worktree outside the workspace roots stays in history');
+    assert.equal(byId['outside-root'].worktreeUnavailable, true);
+});
+
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 hydration consumes the captured presentation without recomputing it', () => {
     const identity = {
         provider: 'codex',

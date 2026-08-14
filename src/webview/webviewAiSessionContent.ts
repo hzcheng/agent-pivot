@@ -39,6 +39,8 @@ export interface RootLabeledAiSession extends CodexSession {
     profile?: string;
     profileUnavailable?: boolean;
     worktreeKey?: WorktreeKey;
+    /** The session's worktree is gone or unhealthy; resume is blocked. */
+    worktreeUnavailable?: boolean;
 }
 
 function getAiSessionProfileBadge(
@@ -920,9 +922,10 @@ function getCodexSessionRow(
         ? `<button type="button" class="codex-session-archive" disabled title="Stop the active runtime before archiving." aria-label="Stop the active runtime before archiving.">${Icons.archive}</button>`
         : `<button type="button" class="codex-session-archive" data-action="archive-${provider}-session" title="Archive Session" aria-label="Archive Session">${Icons.archive}</button>`;
     var activeStatus = active ? '<span class="ai-session-history-active-status">Active</span>' : '';
+    var worktreeGone = !active && session.worktreeUnavailable === true;
     var primaryAction = conflict ? 'Choose runtime'
         : active && backend === 'tmux' && !attached ? 'Attach or focus'
-            : active ? 'Focus' : 'Resume';
+            : active ? 'Focus' : worktreeGone ? 'Unavailable' : 'Resume';
     var runtimeDescription = conflict ? 'runtime conflict'
         : backend === 'tmux'
             ? `tmux ${runtime?.tmuxLayout || 'unknown'} layout, ${attached ? 'attached' : 'detached'}`
@@ -930,6 +933,9 @@ function getCodexSessionRow(
     var primaryAriaLabel = conflict
         ? `Choose runtime for ${providerLabel} session ${sessionName}, runtime conflict`
         : `${primaryAction} ${providerLabel} session ${sessionName} using ${runtimeDescription}`;
+    if (worktreeGone) {
+        primaryAriaLabel = `${providerLabel} session ${sessionName}: its worktree was deleted, so it cannot be resumed; view the conversation instead`;
+    }
     if (runtime?.stale) {
         primaryAriaLabel += ', runtime status is stale';
     }
@@ -953,7 +959,7 @@ function getCodexSessionRow(
     return `
 <div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(attentionEventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}"${getFlatOrderAttributes(flatOrder)}>
     ${batchCheckbox}
-    <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryAction} ${providerLabel} Session">
+    <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${worktreeGone ? 'Worktree deleted — view the conversation instead' : `${primaryAction} ${providerLabel} Session`}"${worktreeGone ? ' disabled data-session-worktree-unavailable' : ''}>
         ${attentionIndicator}
         <span class="codex-session-icon">${getAiProviderIcon(provider)}</span>
         <span class="codex-session-text">
@@ -962,6 +968,7 @@ function getCodexSessionRow(
         </span>
     </button>
     <span class="codex-session-actions">
+        ${!active ? `<button type="button" class="codex-session-view" data-action="view-ai-session-conversation" title="View Conversation" aria-label="View conversation for ${providerLabel} session ${sessionName}">${Icons.viewConversation}</button>` : ''}
         ${pinAction}
         ${archiveAction}
     </span>

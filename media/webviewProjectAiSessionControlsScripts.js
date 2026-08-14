@@ -319,12 +319,31 @@ function initProjectAiSessionControls(options) {
             '[data-action="set-group-primary"][data-group-id][data-member-id]'
         );
         if (setPrimaryAction) {
+            // Transient pending state until the authoritative refresh
+            // re-renders the row (resilient webview mutation protocol).
+            setPrimaryAction.disabled = true;
             window.vscode.postMessage({
                 type: 'set-worktree-group-primary',
                 projectId: projectId,
                 groupId: setPrimaryAction.getAttribute('data-group-id'),
                 memberId: setPrimaryAction.getAttribute('data-member-id'),
             });
+            return true;
+        }
+        var viewConversationAction = target.closest(
+            '[data-action="view-ai-session-conversation"]'
+        );
+        if (viewConversationAction) {
+            var viewRow = viewConversationAction.closest('.codex-session-row[data-session-id]');
+            if (viewRow) {
+                window.vscode.postMessage({
+                    type: 'open-active-ai-session-conversation',
+                    version: 1,
+                    projectId: projectId,
+                    provider: viewRow.getAttribute('data-session-provider'),
+                    sessionId: viewRow.getAttribute('data-session-id'),
+                });
+            }
             return true;
         }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');

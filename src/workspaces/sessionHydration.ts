@@ -33,6 +33,10 @@ import {
 } from './sessionAttention';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import {
+    findGroupMemberWorktreeKeyForPath,
+    manifestClaimsWorktreeKey,
+} from './worktreeGroupProjection';
 import { buildWorkspaceAiSessionViewModel } from './viewModels';
 import {
     assignPathToWorkspaceWorktree,
@@ -86,6 +90,7 @@ interface AssignedHistory {
     session: CodexSession;
     root: WorkspaceRoot | null;
     worktreeKey?: import('../worktrees/types').WorktreeKey;
+    worktreeUnavailable?: boolean;
 }
 
 interface SortableActiveSession extends ActiveAiSessionViewModel {
@@ -121,7 +126,9 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
                 input.workspace,
                 input.worktreeSnapshot,
                 runtime.identity.worktreeKey,
-            ) || !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots))));
+            ) || !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots)
+            || !!findGroupMemberWorktreeKeyForPath(
+                input.worktreeGroups || [], runtime.identity.cwd))));
     const activeSessionKeys = new Set(activeRuntimes
         .filter(runtime => !!runtime.identity.sessionId)
         .map(runtime => getAiSessionKey(runtime.identity.provider, runtime.identity.sessionId)));
@@ -147,7 +154,8 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
             result.sessions,
             input.workspace,
             input.worktreeSnapshot,
-            input.getSessionComparableCwd
+            input.getSessionComparableCwd,
+            input.worktreeGroups
         );
         const assignmentBySessionId = new Map(assigned.map(item => [item.session.id, item]));
         sessionsByProvider[provider.id] = prepareAiSessionsForDisplay(
@@ -176,6 +184,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
                 ...(assignment?.worktreeKey ? {
                     worktreeKey: { ...assignment.worktreeKey },
                 } : {}),
+                ...(assignment?.worktreeUnavailable ? { worktreeUnavailable: true } : {}),
             };
         });
     }
@@ -213,6 +222,7 @@ function assignHistorySessions(
     workspace: OpenWorkspace,
     worktreeSnapshot: WorktreeSnapshot | null | undefined,
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string,
+    worktreeGroups?: readonly WorktreeGroup[],
 ): AssignedHistory[] {
     const seen = new Set<string>();
     const assigned: AssignedHistory[] = [];
@@ -223,12 +233,24 @@ function assignHistorySessions(
         seen.add(session.id);
         const cwd = getSessionComparableCwd(providerId, session);
         const worktree = assignPathToWorkspaceWorktree(cwd, workspace, worktreeSnapshot);
-        const root = worktree?.root || assignPathToWorkspaceRoot(cwd, workspace.roots);
-        if (worktree || root) {
+        // Manifest fallback (PRD §6.4): history keeps the worktree identity
+        // even after the physical worktree is deleted — including worktrees
+        // outside the workspace roots, which would otherwise vanish.
+        const manifestKey = worktree
+            ? null
+            : findGroupMemberWorktreeKeyForPath(worktreeGroups || [], cwd);
+        const root = worktree?.root || (manifestKey ? null : assignPathToWorkspaceRoot(cwd, workspace.roots));
+        const worktreeUnavailable = !!manifestKey
+            || !!worktree && (worktree.worktree.health === 'missing'
+                || worktree.worktree.health === 'prunable');
+        if (worktree || manifestKey || root) {
             assigned.push({
                 session: { ...session },
                 root,
-                ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
+                ...(worktree
+                    ? { worktreeKey: { ...worktree.worktree.key } }
+                    : manifestKey ? { worktreeKey: manifestKey } : {}),
+                ...(worktreeUnavailable ? { worktreeUnavailable: true } : {}),
             });
         }
     }
@@ -257,6 +279,11 @@ function buildActiveSessions<TTerminal>(input: {
                 input.input.worktreeSnapshot,
                 runtime.identity.worktreeKey,
             );
+            const manifestKey = !worktree && runtime.identity.worktreeKey
+                && manifestClaimsWorktreeKey(
+                    input.input.worktreeGroups || [], runtime.identity.worktreeKey)
+                ? { ...runtime.identity.worktreeKey }
+                : null;
             const root = worktree?.root
                 || assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
             const presentation = input.activePresentation.sessions.find(candidate =>
@@ -287,7 +314,9 @@ function buildActiveSessions<TTerminal>(input: {
                     ? { attentionEventId: presentation.eventIds[0] }
                     : {}),
                 ...rootMetadata(root),
-                ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
+                ...(worktree
+                    ? { worktreeKey: { ...worktree.worktree.key } }
+                    : manifestKey ? { worktreeKey: manifestKey } : {}),
                 // Pre-isolation worktree runtimes keep their wider writable
                 // roots until restarted (PRD §5.5 legacy marker).
                 ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
@@ -307,6 +336,11 @@ function buildActiveSessions<TTerminal>(input: {
             input.input.worktreeSnapshot,
             runtime.identity.worktreeKey,
         );
+        const manifestKey = !worktree && runtime.identity.worktreeKey
+            && manifestClaimsWorktreeKey(
+                input.input.worktreeGroups || [], runtime.identity.worktreeKey)
+            ? { ...runtime.identity.worktreeKey }
+            : null;
         const root = worktree?.root
             || assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
         const focused = input.focusedPendingKey === key;
@@ -331,7 +365,9 @@ function buildActiveSessions<TTerminal>(input: {
             ...(runtime.stale ? { stale: true } : {}),
             createdAt: runtime.createdAt,
             ...rootMetadata(root),
-            ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
+            ...(worktree
+                ? { worktreeKey: { ...worktree.worktree.key } }
+                : manifestKey ? { worktreeKey: manifestKey } : {}),
             ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
                 ? { legacyScope: true }
                 : {}),

@@ -20,6 +20,52 @@ import type {
 } from '../worktrees/types';
 import { worktreeKeysEqual } from '../worktrees/types';
 import type { OpenWorkspace } from './types';
+import {
+    isWorkspaceHostPathContained,
+    normalizeWorkspaceHostPath,
+} from './sessionAssignment';
+
+/**
+ * Manifest fallback for history identity (PRD §6.4): a session whose
+ * worktree was deleted must keep its worktree identity in the history list —
+ * display does not depend on the physical directory, and resume fails closed
+ * on the retained key. Longest matching member path wins.
+ */
+export function findGroupMemberWorktreeKeyForPath(
+    groups: readonly WorktreeGroup[],
+    candidatePath: string
+): WorktreeKey | null {
+    const normalized = normalizeWorkspaceHostPath(candidatePath || '');
+    if (!normalized) {
+        return null;
+    }
+    let best: WorktreeKey | null = null;
+    let bestLength = -1;
+    for (const group of groups) {
+        for (const member of group.members) {
+            if (!member.worktreeKey) {
+                continue;
+            }
+            const memberPath = normalizeWorkspaceHostPath(member.path);
+            if (memberPath
+                && memberPath.length > bestLength
+                && isWorkspaceHostPathContained(memberPath, normalized)) {
+                best = { ...member.worktreeKey };
+                bestLength = memberPath.length;
+            }
+        }
+    }
+    return best;
+}
+
+/** Whether the authoritative manifest claims the given worktree key. */
+export function manifestClaimsWorktreeKey(
+    groups: readonly WorktreeGroup[],
+    key: WorktreeKey
+): boolean {
+    return groups.some(group => group.members.some(member =>
+        member.worktreeKey && worktreeKeysEqual(member.worktreeKey, key)));
+}
 
 export interface WorktreeGroupProjectionInput {
     workspace: OpenWorkspace;
@@ -96,13 +142,23 @@ export function buildWorktreeGroupProjection(
         const groupSessions: AiSessionViewModel[] = [];
         const groupLive: ActiveAiSessionViewModel[] = [];
         for (const member of group.members) {
+            // Detached members (repository left the workspace) stay in the
+            // manifest but off the row (PRD §7: 组行只显示可见 member).
+            if (member.detached) {
+                continue;
+            }
             const visible = member.worktreeKey
                 ? worktreeByKey.get(lookupKey(member.worktreeKey))
                 : undefined;
-            if (member.worktreeKey && visible) {
+            if (member.worktreeKey) {
+                // Sessions keep their worktree identity even when the
+                // physical worktree is gone (hydration manifest fallback),
+                // so aggregate by the member key, not by snapshot visibility.
                 claimedKeys.add(lookupKey(member.worktreeKey));
                 groupSessions.push(...sessionsOfWorktree(input.sessions, member.worktreeKey));
-                groupLive.push(...liveSessionsOfWorktree(input.activeSessions, member.worktreeKey));
+                if (visible) {
+                    groupLive.push(...liveSessionsOfWorktree(input.activeSessions, member.worktreeKey));
+                }
             }
             members.push({
                 memberId: member.memberId,

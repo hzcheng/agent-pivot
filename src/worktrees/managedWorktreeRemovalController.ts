@@ -27,7 +27,12 @@ export interface ManagedWorktreeRemovalControllerOptions {
     isOpenWorkspace: (key: WorktreeKey) => boolean;
     isProvisioning: (key: WorktreeKey) => boolean;
     confirm: (message: string, action: string) => PromiseLike<string | undefined>;
-    refresh: (removedKey: WorktreeKey) => Promise<void>;
+    refresh: (removedKey: WorktreeKey, workspaceIdentity: string | null) => Promise<void>;
+    /**
+     * Resolves the manifest bucket when the removal starts, so a workspace
+     * switch mid-operation cannot retire the wrong workspace's records.
+     */
+    getWorkspaceIdentity?: (projectId: string) => string | null;
     runGit?: RunGitCommand;
     pathExists?: (candidatePath: string) => Promise<boolean>;
     canonicalizeExistingPath?: (candidatePath: string) => Promise<string>;
@@ -62,6 +67,7 @@ export class ManagedWorktreeRemovalController {
             return { kind: 'rejected', errorCode: 'operation-running' };
         }
         this.pending.add(token);
+        const workspaceIdentity = this.options.getWorkspaceIdentity?.(projectId) ?? null;
         try {
             const initial = this.resolveTarget(key);
             const blocked = await this.getBlocker(initial, key);
@@ -94,7 +100,7 @@ export class ManagedWorktreeRemovalController {
                 };
             }
             try {
-                await this.options.refresh(key);
+                await this.options.refresh(key, workspaceIdentity);
             } catch (_error) {
                 return { kind: 'partial', errorCode: 'worktree-removed-refresh-failed' };
             }

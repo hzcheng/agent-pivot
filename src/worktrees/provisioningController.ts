@@ -250,6 +250,10 @@ export class WorktreeProvisioningController {
                     operation, getErrorCode(error), attempt, getRetryable(error));
             }
             this.operations.delete(operation.operationId);
+            // The completed operation's recovery record must be durably gone
+            // before success publishes; a fire-and-forget cleanup could
+            // resurrect it as an interrupted operation after a crash.
+            await this.options.checkpoint?.();
             this.publish();
             await this.options.onSettled?.(outcome);
             return outcome;

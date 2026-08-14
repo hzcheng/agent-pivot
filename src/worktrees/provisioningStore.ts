@@ -24,6 +24,13 @@ export interface PersistedWorktreeProvisioningOperation {
     version: 1;
     operationId: string;
     projectId: string;
+    /**
+     * The workspace navigation identity captured when provisioning started.
+     * Save Workspace As can reuse a legacy projectId for different roots, so
+     * finalize and reconciliation must match this identity strictly instead
+     * of trusting the projectId alone. Absent only in pre-binding records.
+     */
+    workspaceNavigationIdentity?: string;
     providerId: 'codex' | 'kimi' | 'claude';
     profile?: ProvisioningSessionProfile;
     setupCommand: string[];
@@ -85,9 +92,15 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
     const worktreeKey = value.worktreeKey === undefined
         ? undefined : parseWorktreeKey(value.worktreeKey);
     const profile = value.profile === undefined ? undefined : parseProfile(value.profile);
+    const workspaceNavigationIdentity = value.workspaceNavigationIdentity === undefined
+        ? undefined
+        : (typeof value.workspaceNavigationIdentity === 'string'
+            && safeString(value.workspaceNavigationIdentity)
+            ? value.workspaceNavigationIdentity : null);
     const setupCommand = normalizeWorktreeSetupCommand(value.setupCommand);
     if (!plan || !row || !completedSteps || (value.worktreeKey !== undefined && !worktreeKey)
         || (value.profile !== undefined && !profile)
+        || workspaceNavigationIdentity === null
         || row.operationId !== value.operationId || row.repositoryKey !== plan.repositoryKey
         || row.taskName !== plan.taskName || row.proposedPath !== plan.worktreePath
         || row.completedSteps.join('\0') !== completedSteps.join('\0')
@@ -104,6 +117,7 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
         version: 1,
         operationId: value.operationId,
         projectId: value.projectId,
+        ...(workspaceNavigationIdentity ? { workspaceNavigationIdentity } : {}),
         providerId: value.providerId as 'codex' | 'kimi' | 'claude',
         ...(profile ? { profile } : {}),
         setupCommand,

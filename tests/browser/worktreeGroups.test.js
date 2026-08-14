@@ -25,6 +25,30 @@ const scrollStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewScrollStateScripts.js'),
     'utf8'
 );
+const projectCollapseScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
+    'utf8'
+);
+const todoGroupScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
+    'utf8'
+);
+const todoControlScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewTodoControlScripts.js'),
+    'utf8'
+);
+const projectContextMenuScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectContextMenuScripts.js'),
+    'utf8'
+);
+const projectAiUpdateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectAiUpdateScripts.js'),
+    'utf8'
+);
+const projectScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
+    'utf8'
+);
 
 const alphaMainKey = { repositoryKey: '/alpha/.git', canonicalWorktreePath: '/alpha/main' };
 const alphaLoginKey = {
@@ -444,6 +468,94 @@ test('WORKTREE-GROUPS-UI-001 an unavailable primary disables creation and offers
     assert.equal(await choice.count(), 1);
     assert.equal(await choice.getAttribute('data-member-id'), 'm-2',
         'only ready members are offered as replacements');
+});
+
+test('WORKTREE-GROUPS-UI-001 a failed set-primary re-enables the button via the authoritative refresh', async t => {
+    // The button disables itself as a transient pending state; only an
+    // authoritative refresh re-renders the row. When the Host rejects the
+    // mutation it still sends that refresh, so the button must recover.
+    const primaryPickerGroup = groupRow({
+        canCreateSession: false,
+        needsPrimarySelection: true,
+        members: [
+            member({
+                status: 'missing', isPrimary: true,
+                path: '/alpha/.worktrees/gone',
+                worktreeKey: undefined,
+            }),
+            member({
+                memberId: 'm-2', repositoryKey: '/beta/.git', repositoryLabel: 'beta',
+                path: '/beta/.worktrees/fix-login', worktreeKey: betaLoginKey,
+                isPrimary: false,
+            }),
+        ],
+        chips: [{ label: 'a', title: 'alpha' }, { label: 'b', title: 'beta' }],
+    });
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [primaryPickerGroup],
+    });
+    const groupHtml = () =>
+        `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${sessionHtml()}</div>`
+        + `</div></div>`;
+    const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
+        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${groupHtml()}</div></div>
+    </body></html>`);
+    await page.addStyleTag({ content: styles });
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+        window.vscode = {
+            getState: () => undefined,
+            setState() {},
+            postMessage: message => window.__postedMessages.push(message),
+        };
+    });
+    await page.addScriptTag({ content: viewStateScript });
+    await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: workspaceUpdateScript });
+    await page.addScriptTag({ content: todoGroupScript });
+    await page.addScriptTag({ content: projectCollapseScript });
+    await page.addScriptTag({ content: todoControlScript });
+    await page.addScriptTag({ content: projectContextMenuScript });
+    await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: controlsScript });
+    await page.addScriptTag({ content: projectScript });
+    await page.evaluate(() => {
+        initProjects();
+        window.__postedMessages.length = 0;
+    });
+
+    const choice = page.locator('[data-action="set-group-primary"][data-member-id="m-2"]');
+    assert.equal(await choice.count(), 1);
+    // The minimal fixture lacks the full layout CSS, so dispatch the click
+    // directly: it still travels the real delegated handler chain.
+    await choice.evaluate(button => button.click());
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
+        type: 'set-worktree-group-primary',
+        projectId: 'project-a',
+        groupId: 'g-1',
+        memberId: 'm-2',
+    });
+    assert.equal(await choice.isDisabled(), true,
+        'the clicked button enters its transient pending state');
+
+    const applied = await page.evaluate(replacementHtml =>
+        applyWorkspaceUpdate({
+            type: 'workspace-updated',
+            version: 2,
+            currentWorkspaceCount: 1,
+            html: replacementHtml,
+        }), groupHtml());
+    assert.equal(applied, true, 'the failure refresh applies');
+    const rerendered = page.locator('[data-action="set-group-primary"][data-member-id="m-2"]');
+    assert.equal(await rerendered.count(), 1);
+    assert.equal(await rerendered.isDisabled(), false,
+        'the authoritative refresh restores the button after a failed mutation');
 });
 
 test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list scroll position', async t => {

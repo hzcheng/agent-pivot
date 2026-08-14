@@ -176,6 +176,43 @@ test('WORKTREE-GROUPS-003 awaits the manifest record before publishing success',
         '/repo/.worktrees/fix-login-race');
 });
 
+test('WORKTREE-GROUPS-003 binds the manifest record to the starting navigation identity', async () => {
+    const recorded = [];
+    const current = fixture({
+        recordProvisionedWorktree: async info => { recorded.push(info); },
+    });
+
+    const outcome = await current.controller.start('request-identity', 'project');
+
+    assert.equal(outcome.kind, 'succeeded');
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].navigationIdentity, 'navigation:workspace',
+        'the manifest write must match the identity captured at start, not a re-resolved one');
+    assert.ok(current.persisted.some(operations => operations.some(record =>
+        record.operationId === 'request-identity'
+        && record.workspaceNavigationIdentity === 'navigation:workspace')),
+        'recovery records persist the starting navigation identity');
+});
+
+test('WORKTREE-GROUPS-003 a restored operation keeps its starting navigation identity', async () => {
+    const recorded = [];
+    const restored = {
+        ...recoveryOperation(),
+        workspaceNavigationIdentity: 'navigation:original-workspace',
+    };
+    const current = fixture({
+        recoveredOperations: [restored],
+        recordProvisionedWorktree: async info => { recorded.push(info); },
+    });
+
+    const outcome = await current.controller.retry('request-restored', 'project');
+
+    assert.equal(outcome.kind, 'succeeded');
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].navigationIdentity, 'navigation:original-workspace',
+        'a Save Workspace As must not rewrite the identity the operation started with');
+});
+
 test('WORKTREE-GROUPS-003 a failed manifest write degrades success to a retryable partial', async () => {
     const manifestError = new Error('manifest unavailable');
     manifestError.code = 'manifest-unavailable';

@@ -132,6 +132,57 @@ test('WORKTREE-GROUPS-003 recovery records migrate renamed branches with their o
         'the member records the branch as it actually is');
 });
 
+test('WORKTREE-GROUPS-003 a recovery record bound to another navigation identity never seeds this bucket', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const content = snapshot([{
+        repositoryKey: '/alpha/.git',
+        rootBindings: [],
+        worktrees: [
+            // The record is the only migration signal for a renamed branch.
+            gitWorktree('/alpha/.git', '/alpha/.worktrees/renamed', {
+                branchRef: 'refs/heads/hotfix/renamed-by-user',
+            }),
+            // The managed branch prefix stays an independent signal.
+            gitWorktree('/alpha/.git', '/alpha/.worktrees/managed', {
+                branchRef: 'refs/heads/agent-pivot/managed',
+            }),
+        ],
+    }]);
+    const foreignRecord = {
+        version: 1,
+        operationId: 'op-foreign',
+        projectId: 'project',
+        workspaceNavigationIdentity: 'workspace-other-nav-id',
+        providerId: 'codex',
+        setupCommand: [],
+        plan: {
+            repositoryKey: '/alpha/.git', commandCwd: '/alpha/main',
+            baseRef: 'refs/heads/main', taskName: 'Renamed task', slug: 'renamed-task',
+            branchName: 'agent-pivot/renamed-task',
+            worktreePath: '/alpha/.worktrees/renamed',
+        },
+        completedSteps: ['worktree', 'setup'],
+        worktreeKey: {
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/renamed',
+        },
+        row: {
+            kind: 'provisioning', operationId: 'op-foreign', repositoryKey: '/alpha/.git',
+            taskName: 'Renamed task', stage: 'creating', completedSteps: [],
+            retryable: false, cancellable: false,
+        },
+    };
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        recoveryRecords: [foreignRecord],
+    });
+    const groups = store.listGroups(WORKSPACE);
+    assert.equal(groups.length, 1,
+        'the foreign record must not seed this workspace bucket');
+    assert.equal(groups[0].members[0].path, '/alpha/.worktrees/managed',
+        'the managed branch prefix still seeds independently');
+});
+
 test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seeding until retried', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const content = snapshot([{

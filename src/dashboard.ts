@@ -1510,6 +1510,14 @@ async function initializeDashboard(
                 (error as Error & { code?: string }).code = 'manifest-unavailable';
                 throw error;
             }
+            // Save Workspace As can reuse a legacy projectId for a different
+            // workspace; never write the old operation into the new bucket.
+            if (info.navigationIdentity
+                && target.workspace.navigationIdentity !== info.navigationIdentity) {
+                const error = new Error('The workspace changed since provisioning started.');
+                (error as Error & { code?: string }).code = 'manifest-unavailable';
+                throw error;
+            }
             const bucket = target.workspace.navigationIdentity;
             if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
                 return;
@@ -1798,9 +1806,28 @@ async function initializeDashboard(
                 session.provider === providerId
                 && session.sessionId === sessionId
             );
-            return activeSession
-                ? withConversationDisplayMetadata(
+            if (activeSession) {
+                return withConversationDisplayMetadata(
                     activeSession,
+                    activeSessions
+                );
+            }
+            // History rows resolve too (PRD §6.4): a session whose runtime
+            // is gone — including one whose worktree was deleted — must
+            // still open its read-only conversation. The viewer reads the
+            // transcript from disk; it never needed a live runtime.
+            const historySession = (
+                target?.sessions.sessionsByProvider[providerId] || []
+            ).find(session => session.id === sessionId);
+            return historySession
+                ? withConversationDisplayMetadata(
+                    {
+                        provider: providerId,
+                        sessionId: historySession.id,
+                        name: historySession.name,
+                        focused: false,
+                        executionState: 'stopped',
+                    },
                     activeSessions
                 )
                 : null;
@@ -2110,6 +2137,11 @@ async function initializeDashboard(
                 logError('Failed to set the worktree group primary member.', error);
                 void vscode.window.showWarningMessage(
                     'Agent Pivot: could not set the primary worktree. Refresh the dashboard and try again.');
+                // The webview disabled the clicked button as a transient
+                // pending state; only an authoritative refresh re-renders
+                // the row and re-enables it.
+                await aiSessionDashboardController.refreshNow(
+                    'worktree-group-primary-failed', { fallbackToFullRefresh: false });
                 return;
             }
             await aiSessionDashboardController.refreshNow('worktree-group-primary-changed', {

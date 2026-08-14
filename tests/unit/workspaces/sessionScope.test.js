@@ -448,6 +448,61 @@ test('SESSION-WORKTREE-SCOPE-001 group peers missing from the snapshot or disk f
     assert.match(warnings.at(-1), /member worktree.*no longer available/i);
 });
 
+test('SESSION-WORKTREE-SCOPE-001 a locked group peer stays writable like the projection promises', async () => {
+    // Git only blocks prune/repair for a locked worktree; the projection
+    // renders it ready, so session creation must not reject it either.
+    const current = workspace({
+        roots: [
+            { id: 'root-repo', name: 'Repo', uri: 'file:///repos/main/app', hostPath: '/repos/main/app', ordinal: 0 },
+            { id: 'root-peer', name: 'Peer', uri: 'file:///repos/peer', hostPath: '/repos/peer', ordinal: 1 },
+        ],
+    });
+    const key = {
+        repositoryKey: '/repos/main/.git',
+        canonicalWorktreePath: '/managed/feature',
+    };
+    const lockedPeerKey = {
+        repositoryKey: '/repos/peer/.git',
+        canonicalWorktreePath: '/managed/peer-feature',
+    };
+    const snapshot = {
+        revision: 1,
+        truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: key.repositoryKey,
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: 'app' }],
+            worktrees: [{
+                key, branchRef: 'refs/heads/feature', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            }],
+        }, {
+            repositoryKey: lockedPeerKey.repositoryKey,
+            rootBindings: [{ workspaceRootId: 'root-peer', repositoryRelativePath: '' }],
+            worktrees: [{
+                key: lockedPeerKey, branchRef: 'refs/heads/peer-feature', head: 'b'.repeat(40),
+                isMain: false, isBare: false, health: 'locked', headKind: 'branch',
+            }],
+        }],
+    };
+    const controller = new AiSessionCommandController({
+        getWorktreeSnapshot: () => snapshot,
+        getProvider: () => ({ id: 'codex', label: 'Codex', commandName: 'codex' }),
+        getProviderDirectoryCapability: async () => ({ status: 'supported' }),
+        isWorkspaceTrusted: () => true,
+        isDirectory: () => true,
+        pickWorkspaceRoot: async () => { throw new Error('selected worktree must determine the root'); },
+        showWarningMessage: () => undefined,
+        getWorktreeGroupPeerKeys: () => [lockedPeerKey],
+    });
+
+    const scope = await controller.resolveWorkspaceDirectoryScope(
+        current, 'codex', undefined, undefined, key
+    );
+    assert.ok(scope, 'a locked member worktree is still a valid session scope');
+    assert.deepEqual(scope.writableRootHostPaths,
+        ['/managed/feature/app', '/managed/peer-feature']);
+});
+
 test('SESSION-WORKTREE-SCOPE-001 rejects malformed group peer paths instead of widening scope', () => {
     const current = workspace({
         roots: [

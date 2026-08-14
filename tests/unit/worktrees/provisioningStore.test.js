@@ -63,6 +63,22 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 round-trips defensive bounded operation
     assert.deepEqual(store.read(), [record()]);
 });
 
+test('WORKTREE-PROVISIONING-RECOVERY-001 round-trips the starting navigation identity', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const bound = { ...record('bound'), workspaceNavigationIdentity: 'navigation:workspace' };
+    await store.replace([bound]);
+    const restored = store.read();
+    assert.equal(restored.length, 1);
+    assert.equal(restored[0].workspaceNavigationIdentity, 'navigation:workspace');
+    const corrupt = memento([
+        { ...record('bad-identity'), workspaceNavigationIdentity: 42 },
+        { ...record('empty-identity'), workspaceNavigationIdentity: '' },
+    ]);
+    assert.deepEqual(new WorktreeProvisioningStore(corrupt).read(), [],
+        'a non-string identity invalidates the whole record, fail closed');
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
     const valid = record('valid');
     const state = memento([

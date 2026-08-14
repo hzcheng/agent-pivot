@@ -228,6 +228,39 @@ test('WORKTREE-PROVISIONING-STATE-001 preserves an explicitly non-retryable fail
         'retry-unavailable');
 });
 
+test('WORKTREE-PROVISIONING-RECOVERY-001 a failed final cleanup checkpoint keeps a retryable partial', async () => {
+    let checkpointCalls = 0;
+    const current = fixture({
+        checkpoint: async () => {
+            checkpointCalls += 1;
+            if (checkpointCalls === 3) {
+                // The post-completion cleanup fails after both durable steps
+                // checkpointed: the operation must survive as a retryable
+                // partial instead of vanishing from rows and recovery.
+                throw Object.assign(new Error('persist'), { code: 'recovery-persist-failed' });
+            }
+        },
+    });
+
+    const outcome = await current.controller.start('operation-final-cleanup', plan);
+    assert.deepEqual(outcome, {
+        kind: 'partial', operationId: 'operation-final-cleanup', worktreeKey: key,
+        errorCode: 'recovery-persist-failed', completedSteps: ['worktree', 'setup'],
+    });
+    const rows = current.controller.getRows();
+    assert.equal(rows.length, 1, 'the operation stays tracked');
+    assert.equal(rows[0].stage, 'failed');
+    assert.equal(rows[0].retryable, true);
+    assert.equal(current.controller.getRecoveryOperations().length, 1,
+        'the recovery export still contains the operation');
+
+    const retried = await current.controller.retry('operation-final-cleanup');
+    assert.equal(retried.kind, 'succeeded');
+    assert.deepEqual(current.calls, ['worktree', 'setup'],
+        'retry performs no duplicate physical work');
+    assert.deepEqual(current.controller.getRows(), []);
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 restores interrupted durable state for explicit retry', async () => {
     const current = fixture();
     current.controller.restore([{

@@ -57,9 +57,17 @@ export async function reconcileWorktreeGroupManifest(
             if (worktree.isMain || worktree.isBare) {
                 continue;
             }
-            const record = (options.recoveryRecords || []).find(candidate =>
+            const matchedRecord = (options.recoveryRecords || []).find(candidate =>
                 candidate.plan.repositoryKey === worktree.key.repositoryKey
                 && candidate.plan.worktreePath === worktree.key.canonicalWorktreePath);
+            // A record bound to a different navigation identity (Save
+            // Workspace As can reuse a legacy projectId for new roots) must
+            // never seed this workspace's bucket; the managed branch prefix
+            // remains an independent seeding signal.
+            const record = matchedRecord?.workspaceNavigationIdentity
+                && matchedRecord.workspaceNavigationIdentity !== workspaceIdentity
+                ? undefined
+                : matchedRecord;
             if (record && !isCompleteRecoveryRecord(record)) {
                 // The physical worktree exists but its setup never finished:
                 // the restored provisioning row owns the retry/dismiss flow,

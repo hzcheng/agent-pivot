@@ -601,7 +601,10 @@ export class TmuxClient {
             if (result.exitCode !== 0) {
                 throw resultError('list-windows', result);
             }
-            const parsed = parseMetadataBatchSequence(result.stdout, batch.length);
+            // Each piece carries the exact key subset it requested (a single
+            // over-long target is split across pieces): parsing must expect
+            // precisely those keys or it rejects valid partial output.
+            const parsed = parseMetadataBatchSequence(result.stdout, batch);
             for (let index = 0; index < batch.length; index++) {
                 values.set(batch[index].id, {
                     ...values.get(batch[index].id),
@@ -921,7 +924,7 @@ function metadataBatchReadArgs(
 
 function parseMetadataBatchSequence(
     stdout: string,
-    requestCount: number
+    requests: readonly { keys?: MetadataOptionKey[] }[]
 ): Record<string, string>[] {
     if (stdout.length > MAX_LIST_OUTPUT_LENGTH || !stdout) {
         throw new TmuxClientError('list-windows', 'invalid-output');
@@ -932,12 +935,13 @@ function parseMetadataBatchSequence(
     }
     const values: Record<string, string>[] = [];
     let lineIndex = 0;
-    for (let index = 0; index < requestCount; index++) {
+    for (let index = 0; index < requests.length; index++) {
         if (lines[lineIndex] !== metadataBatchReadMarker(index)) {
             throw new TmuxClientError('list-windows', 'invalid-output');
         }
         lineIndex += 1;
-        const parsed = parseMetadataSequenceLines(lines, lineIndex, 'list-windows');
+        const parsed = parseMetadataSequenceLines(
+            lines, lineIndex, 'list-windows', requests[index].keys);
         values.push(parsed.values);
         lineIndex = parsed.nextLineIndex;
     }
@@ -972,10 +976,11 @@ function parseMetadataSequenceLines(
     lines: string[],
     startLineIndex: number,
     operation: TmuxOperation,
+    keys: readonly MetadataOptionKey[] = metadataOptionKeys(),
 ): { values: Record<string, string>; nextLineIndex: number } {
     const values: Record<string, string> = {};
     let lineIndex = startLineIndex;
-    for (const key of metadataOptionKeys()) {
+    for (const key of keys) {
         const marker = metadataReadMarker(key);
         if (lines[lineIndex] !== marker) {
             const value = lines[lineIndex++];

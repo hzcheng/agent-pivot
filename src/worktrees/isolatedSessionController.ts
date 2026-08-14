@@ -33,6 +33,12 @@ interface RepositoryPick extends vscode.QuickPickItem {
 
 interface IsolatedSessionOperationContext {
     projectId: string;
+    /**
+     * Navigation identity captured when the operation started. Save
+     * Workspace As can reuse a legacy projectId for a different workspace,
+     * so the manifest write must match this identity strictly.
+     */
+    navigationIdentity?: string;
     repository: WorktreeRepositorySnapshot;
     taskName: string;
     providerId: AiSessionProviderId;
@@ -86,6 +92,7 @@ export interface IsolatedSessionControllerOptions {
      */
     recordProvisionedWorktree?: (info: {
         projectId: string;
+        navigationIdentity?: string;
         plan: WorktreeProvisioningPlan;
         worktreeKey: WorktreeKey;
     }) => Promise<void>;
@@ -105,6 +112,9 @@ export class IsolatedSessionController {
                 candidate.repositoryKey === record.plan.repositoryKey);
             this.contextsByOperation.set(record.operationId, {
                 projectId: record.projectId,
+                ...(record.workspaceNavigationIdentity
+                    ? { navigationIdentity: record.workspaceNavigationIdentity }
+                    : {}),
                 repository,
                 taskName: record.plan.taskName,
                 providerId: record.providerId,
@@ -152,6 +162,9 @@ export class IsolatedSessionController {
                 // partial instead of a false success.
                 return options.recordProvisionedWorktree({
                     projectId: context.projectId,
+                    ...(context.navigationIdentity
+                        ? { navigationIdentity: context.navigationIdentity }
+                        : {}),
                     plan: outcome.plan,
                     worktreeKey: outcome.worktreeKey,
                 });
@@ -230,6 +243,7 @@ export class IsolatedSessionController {
             const profile = preferredProfile(target, providerId);
             this.contextsByOperation.set(operationId, {
                 projectId,
+                navigationIdentity: target.workspace.navigationIdentity,
                 repository,
                 taskName: plan.taskName,
                 providerId,
@@ -413,6 +427,9 @@ export class IsolatedSessionController {
                     version: 1 as const,
                     operationId: operation.operationId,
                     projectId: context.projectId,
+                    ...(context.navigationIdentity
+                        ? { workspaceNavigationIdentity: context.navigationIdentity }
+                        : {}),
                     providerId: context.providerId,
                     ...(context.profile ? { profile: { ...context.profile } } : {}),
                     setupCommand: context.setupCommand.slice(),

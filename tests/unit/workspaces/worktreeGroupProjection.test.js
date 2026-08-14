@@ -210,6 +210,19 @@ test('WORKTREE-GROUPS-002 marks missing worktrees without dropping the group row
     assert.equal(groups[0].members[0].status, 'missing');
 });
 
+test('WORKTREE-GROUPS-002 a group whose members all detached renders no ghost row', () => {
+    const { groups } = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha', detached: true }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta', detached: true }),
+            ],
+        })],
+    });
+    assert.deepEqual(groups, [],
+        'the manifest record survives for re-attachment, but a memberless row is a blank ghost');
+});
+
 test('WORKTREE-GROUPS-002 merge hints follow shared suggested slugs without merging silently', () => {
     const { groups } = project({
         groups: [

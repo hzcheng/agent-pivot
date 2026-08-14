@@ -260,7 +260,12 @@ export class AiSessionCommandController {
                 : [];
             if (!peerAssignment
                 || peerAssignment.worktree.isBare
-                || peerAssignment.worktree.health !== 'normal'
+                // Locked worktrees still exist and stay usable (Git only
+                // blocks prune/repair): keep the check aligned with the
+                // projection and the primary-member rule, which reject only
+                // missing/prunable/bare.
+                || peerAssignment.worktree.health === 'missing'
+                || peerAssignment.worktree.health === 'prunable'
                 || peerPaths.length === 0
                 || peerPaths.some(peerPath => !this.options.isDirectory?.(peerPath))) {
                 this.options.showWarningMessage?.(

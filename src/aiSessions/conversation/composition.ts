@@ -12,6 +12,7 @@ import type {
     AiSessionDisposable,
     AiSessionService,
 } from '../types';
+import type { ConversationAuthoritativeTarget } from './displayMetadata';
 import {
     ClaudeConversationAdapter,
     ClaudeConversationAdapterOptions,
@@ -107,7 +108,7 @@ export interface ConversationCapabilityOptions {
         projectId: string,
         provider: AiSessionProviderId,
         sessionId: string
-    ) => ActiveAiSessionViewModel | null;
+    ) => ConversationAuthoritativeTarget | null;
     resolveActiveTargets?: (
         projectId: string
     ) => readonly ActiveAiSessionViewModel[];
@@ -600,7 +601,7 @@ function createAvailableConversationCapability(
                         authoritativeTarget.executionState === 'stopped'
                     );
                     const displayMetadata = authoritativeTarget as
-                        ActiveAiSessionViewModel & {
+                        ConversationAuthoritativeTarget & {
                             conversationDisplayName?: string;
                             duplicateConversationDisplayName?: boolean;
                         };
@@ -1344,7 +1345,7 @@ async function resolveLatestConversationTarget(
             },
         };
     }
-    const displayMetadata = authoritativeTarget as ActiveAiSessionViewModel & {
+    const displayMetadata = authoritativeTarget as ConversationAuthoritativeTarget & {
         conversationDisplayName?: string;
         duplicateConversationDisplayName?: boolean;
     };
@@ -1378,8 +1379,8 @@ function resolveExactTarget(
         provider: AiSessionProviderId;
         sessionId: string;
     }
-): ActiveAiSessionViewModel | null {
-    let authoritativeTarget: ActiveAiSessionViewModel | null;
+): ConversationAuthoritativeTarget | null {
+    let authoritativeTarget: ConversationAuthoritativeTarget | null;
     try {
         authoritativeTarget = options.resolveTarget(
             target.projectId,
@@ -1390,7 +1391,7 @@ function resolveExactTarget(
         return null;
     }
     const projectedTarget = authoritativeTarget as
-        | (ActiveAiSessionViewModel & { projectId?: string })
+        | (ConversationAuthoritativeTarget & { projectId?: string })
         | null;
     if (!projectedTarget
         || authoritativeTarget.provider !== target.provider

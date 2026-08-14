@@ -250,10 +250,19 @@ export class WorktreeProvisioningController {
                     operation, getErrorCode(error), attempt, getRetryable(error));
             }
             this.operations.delete(operation.operationId);
-            // The completed operation's recovery record must be durably gone
-            // before success publishes; a fire-and-forget cleanup could
-            // resurrect it as an interrupted operation after a crash.
-            await this.options.checkpoint?.();
+            try {
+                // The completed operation's recovery record must be durably
+                // gone before success publishes; a fire-and-forget cleanup
+                // could resurrect it as an interrupted operation after a
+                // crash.
+                await this.options.checkpoint?.();
+            } catch (error) {
+                // The cleanup must not lose the operation either: put it
+                // back and degrade to a retryable partial.
+                this.operations.set(operation.operationId, operation);
+                return await this.partial(
+                    operation, getErrorCode(error), attempt, getRetryable(error));
+            }
             this.publish();
             await this.options.onSettled?.(outcome);
             return outcome;

@@ -2732,6 +2732,33 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 click focuses an unfocused card and o
     );
 });
 
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a history row View Conversation button posts the open request', async t => {
+    // Regression: history rows — including sessions whose worktree was
+    // deleted (PRD §6.4) — must reach the Host conversation resolver with
+    // their provider and session id; the row itself cannot be resumed.
+    const page = await openListPage(t, [], [historySession('codex', 'history-1')]);
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.vscode.postMessage = message => window.__postedMessages.push(message);
+    });
+    await page.locator('[data-ai-session-tab="sessions"]').click();
+    const historyRow = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-1"]'
+    );
+    const viewButton = historyRow.locator('[data-action="view-ai-session-conversation"]');
+    assert.equal(await viewButton.count(), 1);
+
+    await viewButton.click();
+
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'open-active-ai-session-conversation',
+        version: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'history-1',
+    });
+});
+
 test('ACTIVE-SESSION-CONVERSATION-OPEN-001 RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 rendered Conversation actions keep one project authority when roots change', async t => {
     const authority = new CurrentWorkspaceSessionAuthority();
     const beforeProjectId = authority.getProjectId({

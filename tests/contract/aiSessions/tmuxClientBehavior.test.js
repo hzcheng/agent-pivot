@@ -534,6 +534,48 @@ test('RUNTIME-TMUX-CLIENT-001 metadata batches respect the byte limit with multi
     }
 });
 
+test('RUNTIME-TMUX-CLIENT-001 a single over-long target splits its metadata keys and still parses', async () => {
+    // Regression: one target whose own key set exceeds the byte limit (a
+    // legitimate 512-CJK-character session name) is read in several pieces;
+    // parsing must expect exactly each piece's key subset, or the merged
+    // read fails with invalid-output.
+    // 512 UTF-16 code units is the maximum accepted target field length.
+    const name = `ap-${'深'.repeat(509)}`;
+    const metadataCalls = [];
+    const client = new TmuxClient('tmux', {
+        run: async (_file, args) => {
+            const available = availabilityResult(args);
+            if (available) return available;
+            if (args[0] === 'list-windows') {
+                return {
+                    exitCode: 0,
+                    stdout: `${name}|:ap-field:|window-a|:ap-field:|@12|:ap-field:|1\n`,
+                    stderr: '',
+                };
+            }
+            if (args[0] === 'list-panes') {
+                return { exitCode: 0, stdout: '@12|:ap-field:|%20|:ap-field:|1|:ap-field:|4311\n', stderr: '' };
+            }
+            if (args.includes('show-options')) {
+                metadataCalls.push(args);
+                return metadataSequenceResult(args, key =>
+                    key === 'provider' ? encodedMetadata('codex') : undefined);
+            }
+            return { exitCode: 0, stdout: '', stderr: '' };
+        },
+    });
+    const windows = await client.listWindows();
+    assert.equal(windows.length, 1);
+    assert.equal(windows[0].metadata.provider, 'codex',
+        'values from every split piece must merge into one record');
+    assert.ok(metadataCalls.length > 1,
+        'the over-long target must be read in several pieces');
+    for (const args of metadataCalls) {
+        assert.ok(Buffer.byteLength(args.join(' '), 'utf8') <= 12288,
+            'each split piece must respect the byte limit');
+    }
+});
+
 test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed active pane PIDs', async () => {
     let paneResult = {
         exitCode: 0,

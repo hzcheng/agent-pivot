@@ -186,6 +186,13 @@ export function buildWorktreeGroupProjection(
             && members.some(member =>
                 member.memberId === group.primaryMemberId && member.status === 'ready');
         const hasReadyMember = members.some(member => member.status === 'ready');
+        if (members.length === 0) {
+            // Every member is detached (their repositories left the
+            // workspace): the manifest record survives for automatic
+            // re-attachment, but a memberless row is a blank ghost (PRD §7:
+            // 组行只显示可见 member).
+            continue;
+        }
         groupRows.push({
             kind: 'group',
             groupId: group.groupId,

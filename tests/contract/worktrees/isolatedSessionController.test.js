@@ -35,6 +35,7 @@ function recoveryOperation() {
         version: 1,
         operationId: 'request-restored',
         projectId: 'project',
+        workspaceNavigationIdentity: 'navigation:workspace',
         providerId: 'codex',
         profile: { kind: 'base' },
         setupCommand: ['npm', 'ci'],
@@ -192,16 +193,37 @@ test('WORKTREE-GROUPS-003 binds the manifest record to the starting navigation i
         record.operationId === 'request-identity'
         && record.workspaceNavigationIdentity === 'navigation:workspace')),
         'recovery records persist the starting navigation identity');
+    assert.deepEqual(
+        current.controller.getVisibleRows('navigation:workspace').map(row => row.operationId),
+        [],
+        'a settled operation leaves no row');
+});
+
+test('WORKTREE-GROUPS-003 visible rows follow the workspace navigation identity', async () => {
+    let releaseSetup;
+    const current = fixture({
+        runSetup: () => new Promise(resolve => { releaseSetup = resolve; }),
+    });
+    const pending = current.controller.start('request-visible', 'project');
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(
+        current.controller.getVisibleRows('navigation:workspace').map(row => row.operationId),
+        ['request-visible'],
+        'the owning workspace sees its provisioning row');
+    assert.deepEqual(current.controller.getVisibleRows('navigation:other'), [],
+        'another workspace bucket never sees it');
+    assert.deepEqual(current.controller.getVisibleRows(''), [],
+        'an unavailable identity fails closed');
+
+    releaseSetup();
+    await pending;
 });
 
 test('WORKTREE-GROUPS-003 a restored operation keeps its starting navigation identity', async () => {
     const recorded = [];
-    const restored = {
-        ...recoveryOperation(),
-        workspaceNavigationIdentity: 'navigation:original-workspace',
-    };
     const current = fixture({
-        recoveredOperations: [restored],
+        recoveredOperations: [recoveryOperation()],
         recordProvisionedWorktree: async info => { recorded.push(info); },
     });
 
@@ -209,8 +231,44 @@ test('WORKTREE-GROUPS-003 a restored operation keeps its starting navigation ide
 
     assert.equal(outcome.kind, 'succeeded');
     assert.equal(recorded.length, 1);
-    assert.equal(recorded[0].navigationIdentity, 'navigation:original-workspace',
-        'a Save Workspace As must not rewrite the identity the operation started with');
+    assert.equal(recorded[0].navigationIdentity, 'navigation:workspace',
+        'the manifest write uses the identity captured when the operation started');
+});
+
+test('WORKTREE-GROUPS-003 recovery rows and operations stay locked to their starting identity', async () => {
+    // Save Workspace As can reuse a legacy projectId for different roots:
+    // a record bound to another navigation identity must not be visible,
+    // retryable, cancellable, or dismissable from this workspace.
+    const foreign = {
+        ...recoveryOperation(),
+        operationId: 'request-foreign',
+        workspaceNavigationIdentity: 'navigation:other-workspace',
+    };
+    foreign.row = { ...foreign.row, operationId: 'request-foreign' };
+    // Records predating identity binding cannot be verified either; they
+    // fail closed rather than operating on whichever workspace shares the
+    // legacy projectId.
+    const legacy = recoveryOperation();
+    delete legacy.workspaceNavigationIdentity;
+    const current = fixture({ recoveredOperations: [foreign, legacy] });
+
+    assert.deepEqual(
+        current.controller.getVisibleRows('navigation:workspace').map(row => row.operationId),
+        [],
+        'foreign and unverifiable rows stay out of this workspace');
+    assert.equal(current.controller.getRows().length, 2,
+        'the records themselves survive untouched');
+    for (const operationId of ['request-foreign', 'request-restored']) {
+        assert.equal(
+            (await current.controller.retry(operationId, 'project')).errorCode,
+            'workspace-unavailable');
+        assert.equal(current.controller.cancel(operationId, 'project'), false);
+        assert.equal(current.controller.dismiss(operationId, 'project'), false);
+    }
+    assert.equal(current.controller.getRows().length, 2,
+        'blocked operations leave the recovery records intact');
+    assert.deepEqual(current.effects.filter(effect =>
+        effect[0] === 'setup-command' || effect[0] === 'create'), []);
 });
 
 test('WORKTREE-GROUPS-003 a failed manifest write degrades success to a retryable partial', async () => {

@@ -274,6 +274,9 @@ export class IsolatedSessionController {
             return { kind: 'failed', operationId, errorCode: 'workspace-untrusted' };
         }
         const target = this.options.getWorkspaceTarget(context.projectId);
+        if (!this.contextMatchesWorkspace(context, target)) {
+            return { kind: 'failed', operationId, errorCode: 'workspace-unavailable' };
+        }
         const snapshot = this.options.getWorktreeSnapshot();
         const rootIds = new Set(target?.workspace.roots.map(root => root.id) || []);
         const repository = snapshot?.repositories.find(candidate =>
@@ -301,7 +304,9 @@ export class IsolatedSessionController {
 
     cancel(operationId: string, projectId?: string): boolean {
         const context = this.contextsByOperation.get(operationId);
-        if (!context || (projectId && context.projectId !== projectId)) {
+        if (!context || (projectId && context.projectId !== projectId)
+            || !this.contextMatchesWorkspace(
+                context, this.options.getWorkspaceTarget(context.projectId))) {
             return false;
         }
         return this.provisioning.cancel(operationId);
@@ -309,7 +314,9 @@ export class IsolatedSessionController {
 
     dismiss(operationId: string, projectId?: string): boolean {
         const context = this.contextsByOperation.get(operationId);
-        if (!context || (projectId && context.projectId !== projectId)) {
+        if (!context || (projectId && context.projectId !== projectId)
+            || !this.contextMatchesWorkspace(
+                context, this.options.getWorkspaceTarget(context.projectId))) {
             return false;
         }
         if (!this.provisioning.discard(operationId)) {
@@ -321,6 +328,29 @@ export class IsolatedSessionController {
 
     getRows(): ProvisioningWorktreeRow[] {
         return this.provisioning.getRows();
+    }
+
+    /**
+     * Rows visible to one workspace bucket. Save Workspace As can reuse a
+     * legacy projectId for different roots, so visibility follows the
+     * navigation identity captured when the operation started — and records
+     * predating identity binding fail closed rather than leaking into
+     * whichever workspace happens to share their projectId.
+     */
+    getVisibleRows(navigationIdentity: string): ProvisioningWorktreeRow[] {
+        return this.provisioning.getRows().filter(row => {
+            const context = this.contextsByOperation.get(row.operationId);
+            return !!navigationIdentity && !!context?.navigationIdentity
+                && context.navigationIdentity === navigationIdentity;
+        });
+    }
+
+    private contextMatchesWorkspace(
+        context: IsolatedSessionOperationContext,
+        target: IsolatedSessionWorkspaceTarget | null
+    ): boolean {
+        return !!target && !!context.navigationIdentity
+            && target.workspace.navigationIdentity === context.navigationIdentity;
     }
 
     /** Publishes rows restored at construction once composition has settled. */

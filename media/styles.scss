@@ -5996,8 +5996,20 @@ body.steward-sidebar .project .ai-session-attention-indicator {
                 .ai-session-primary-action {
                     grid-template-columns: 22px minmax(0, 1fr);
                     gap: 5px;
-                    padding-right: 36px;
+                    // No permanent reservation for the hover action pill:
+                    // three action icons need ~48px, which would leave the
+                    // title unreadable at the minimum sidebar width. The
+                    // pill transiently overlays the truncated tail instead
+                    // (VS Code list rows behave the same way on hover).
+                    padding-right: 8px;
                     padding-left: 6px;
+                }
+
+                // The leading provider icon already encodes the provider;
+                // the text badge costs the truncated title ~30px it cannot
+                // spare in a narrow sidebar.
+                .ai-session-provider-badge {
+                    display: none;
                 }
             }
 

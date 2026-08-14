@@ -132,7 +132,9 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     ) => 'worktree' | 'chats' | undefined;
     getExpanded: (workspaceScopeIdentity: string) => boolean;
     getProjectionSnapshot: () => AiSessionProjectionSnapshot<TTerminal>;
-    getProvisioningWorktrees?: () => readonly ProvisioningWorktreeRow[];
+    getProvisioningWorktrees?: (
+        navigationIdentity: string
+    ) => readonly ProvisioningWorktreeRow[];
     /** Authoritative worktree group manifest bucket for the hydrated workspace. */
     getWorktreeGroups?: (
         workspaceNavigationIdentity: string
@@ -208,7 +210,8 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             focusedIdentity: projection.focusedIdentity,
             attentionAggregate: projection.attentionAggregate,
             worktreeSnapshot: projection.worktreeSnapshot,
-            provisioningWorktrees: this.options.getProvisioningWorktrees?.() || [],
+            provisioningWorktrees:
+                this.options.getProvisioningWorktrees?.(workspace.navigationIdentity) || [],
             worktreeGroups: this.options.getWorktreeGroups?.(workspace.navigationIdentity) || [],
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),

@@ -265,6 +265,11 @@ import {
     settledManagedWorktreeRemovalSettlement,
 } from './worktrees/removalProtocol';
 import {
+    acceptedWorktreeGroupPrimarySettlement,
+    parseSetWorktreeGroupPrimaryRequest,
+    settledWorktreeGroupPrimarySettlement,
+} from './worktrees/groupPrimaryProtocol';
+import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
     parseIsolatedSessionRequest,
@@ -1391,7 +1396,8 @@ async function initializeDashboard(
         },
         getExpanded: scopeIdentity => aiSessionWorkspaceStateStore.getExpandedWorkspaces().has(scopeIdentity),
         getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),
-        getProvisioningWorktrees: () => isolatedSessionController?.getRows() || [],
+        getProvisioningWorktrees: navigationIdentity =>
+            isolatedSessionController?.getVisibleRows(navigationIdentity) || [],
         getWorktreeGroups: navigationIdentity =>
             worktreeGroupManifestStore.listGroups(navigationIdentity),
         onDidReadSessions: (workspace, sessionResults, reason) => {
@@ -2118,16 +2124,19 @@ async function initializeDashboard(
             });
         },
         'set-worktree-group-primary': async (message: unknown) => {
-            const request = (message && typeof message === 'object')
-                ? message as { projectId?: unknown; groupId?: unknown; memberId?: unknown }
-                : {};
-            if (typeof request.projectId !== 'string'
-                || typeof request.groupId !== 'string' || !request.groupId
-                || typeof request.memberId !== 'string' || !request.memberId) {
+            const request = parseSetWorktreeGroupPrimaryRequest(message);
+            if (!request) {
                 return;
             }
+            // The webview keeps the button disabled from the accepted
+            // settlement until a terminal one arrives: every accepted
+            // request owes exactly one settled/failed settlement, because
+            // the authoritative refresh alone is fire-and-forget.
+            await provider.postMessage(acceptedWorktreeGroupPrimarySettlement(request));
             const target = getCurrentWorkspaceActionTarget(request.projectId);
             if (!target) {
+                await provider.postMessage(settledWorktreeGroupPrimarySettlement(
+                    request, { kind: 'failed', errorCode: 'workspace-unavailable' }));
                 return;
             }
             try {
@@ -2137,13 +2146,19 @@ async function initializeDashboard(
                 logError('Failed to set the worktree group primary member.', error);
                 void vscode.window.showWarningMessage(
                     'Agent Pivot: could not set the primary worktree. Refresh the dashboard and try again.');
-                // The webview disabled the clicked button as a transient
-                // pending state; only an authoritative refresh re-renders
-                // the row and re-enables it.
+                const errorCode = (error as { code?: string })?.code || 'set-primary-failed';
+                await provider.postMessage(settledWorktreeGroupPrimarySettlement(
+                    request, {
+                        kind: 'failed',
+                        errorCode: /^[a-z0-9-]{1,64}$/.test(errorCode)
+                            ? errorCode : 'set-primary-failed',
+                    }));
                 await aiSessionDashboardController.refreshNow(
                     'worktree-group-primary-failed', { fallbackToFullRefresh: false });
                 return;
             }
+            await provider.postMessage(settledWorktreeGroupPrimarySettlement(
+                request, { kind: 'settled' }));
             await aiSessionDashboardController.refreshNow('worktree-group-primary-changed', {
                 fallbackToFullRefresh: false,
             });

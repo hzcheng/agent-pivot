@@ -3280,6 +3280,8 @@ function initProjectAiSessionControls(options) {
     var pendingIsolatedSessionRequests = new Map();
     var nextManagedWorktreeRemovalRequestId = 0;
     var pendingManagedWorktreeRemovalRequests = new Map();
+    var nextSetGroupPrimaryRequestId = 0;
+    var pendingSetGroupPrimaryRequests = new Map();
     var pendingAiSessionAttentionAcknowledgements = new Map();
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
@@ -3519,15 +3521,7 @@ function initProjectAiSessionControls(options) {
             '[data-action="set-group-primary"][data-group-id][data-member-id]'
         );
         if (setPrimaryAction) {
-            // Transient pending state until the authoritative refresh
-            // re-renders the row (resilient webview mutation protocol).
-            setPrimaryAction.disabled = true;
-            window.vscode.postMessage({
-                type: 'set-worktree-group-primary',
-                projectId: projectId,
-                groupId: setPrimaryAction.getAttribute('data-group-id'),
-                memberId: setPrimaryAction.getAttribute('data-member-id'),
-            });
+            submitSetGroupPrimaryRequest(projectId, setPrimaryAction);
             return true;
         }
         var viewConversationAction = target.closest(
@@ -4058,6 +4052,67 @@ function initProjectAiSessionControls(options) {
                 : message.status === 'cancelled'
                     ? 'Worktree removal cancelled.'
                     : `Worktree removal ${message.status}: ${describeWorktreeRemovalError(message.errorCode)}`;
+        }
+        return true;
+    }
+
+    function submitSetGroupPrimaryRequest(projectId, button) {
+        var groupId = button && button.getAttribute('data-group-id');
+        var memberId = button && button.getAttribute('data-member-id');
+        if (!projectId || !groupId || !memberId || button.disabled) return;
+        nextSetGroupPrimaryRequestId = nextSetGroupPrimaryRequestId
+            >= Number.MAX_SAFE_INTEGER ? 1 : nextSetGroupPrimaryRequestId + 1;
+        var requestId = 'set-primary-' + nextSetGroupPrimaryRequestId.toString(36);
+        // Transient pending state until the Host's terminal settlement (or
+        // an authoritative refresh re-render) resolves it.
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        pendingSetGroupPrimaryRequests.set(requestId, {
+            button: button,
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+        });
+        window.vscode.postMessage({
+            type: 'set-worktree-group-primary',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+        });
+    }
+
+    function applySetGroupPrimarySettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'groupId', 'memberId', 'requestId', 'status', 'type', 'version']
+            : ['groupId', 'memberId', 'requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'worktree-group-primary-settlement'
+            || message.version !== 1
+            || Object.keys(message).length !== expectedKeys.length
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || typeof message.memberId !== 'string' || !message.memberId
+            || !['accepted', 'settled', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingSetGroupPrimaryRequests.get(message.requestId);
+        if (!pending) return true;
+        if (pending.groupId !== message.groupId
+            || pending.memberId !== message.memberId) return true;
+        if (message.status === 'accepted') return true;
+        pendingSetGroupPrimaryRequests.delete(message.requestId);
+        if (pending.button && pending.button.isConnected) {
+            pending.button.disabled = false;
+            pending.button.removeAttribute('aria-disabled');
+        }
+        if (message.status === 'failed') {
+            var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+            var liveRegion = projectDiv && projectDiv.querySelector('[data-ai-session-live-region]');
+            if (liveRegion) {
+                liveRegion.textContent = 'Could not set the primary worktree; try again.';
+            }
         }
         return true;
     }
@@ -4626,6 +4681,7 @@ function initProjectAiSessionControls(options) {
         applyAiSessionAttentionAcknowledgementResult: applyAiSessionAttentionAcknowledgementResult,
         applyIsolatedSessionSettlement: applyIsolatedSessionSettlement,
         applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
+        applySetGroupPrimarySettlement: applySetGroupPrimarySettlement,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
         activateAiSessionWorktreeMenuItem: activateAiSessionWorktreeMenuItem,
@@ -5239,6 +5295,11 @@ function initProjects() {
 
         if (message && message.type === 'managed-worktree-removal-settlement') {
             aiSessionControls.applyManagedWorktreeRemovalSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-primary-settlement') {
+            aiSessionControls.applySetGroupPrimarySettlement(message);
             return;
         }
 

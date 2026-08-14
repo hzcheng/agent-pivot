@@ -183,6 +183,47 @@ test('WORKTREE-GROUPS-003 a recovery record bound to another navigation identity
         'the managed branch prefix still seeds independently');
 });
 
+test('WORKTREE-GROUPS-003 a foreign incomplete recovery still blocks ready seeding', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const content = snapshot([{
+        repositoryKey: '/alpha/.git',
+        rootBindings: [],
+        worktrees: [gitWorktree('/alpha/.git', '/alpha/.worktrees/fix-login', {
+            branchRef: 'refs/heads/agent-pivot/fix-login',
+        })],
+    }]);
+    const foreignIncomplete = {
+        version: 1,
+        operationId: 'op-foreign-incomplete',
+        projectId: 'project',
+        workspaceNavigationIdentity: 'workspace-other-nav-id',
+        providerId: 'codex',
+        setupCommand: ['npm', 'ci'],
+        plan: {
+            repositoryKey: '/alpha/.git', commandCwd: '/alpha/main',
+            baseRef: 'refs/heads/main', taskName: 'Fix login', slug: 'fix-login',
+            branchName: 'agent-pivot/fix-login',
+            worktreePath: '/alpha/.worktrees/fix-login',
+        },
+        completedSteps: ['worktree'],
+        worktreeKey: {
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+        },
+        row: {
+            kind: 'provisioning', operationId: 'op-foreign-incomplete', repositoryKey: '/alpha/.git',
+            taskName: 'Fix login', stage: 'setting-up', completedSteps: ['worktree'],
+            retryable: true, cancellable: true,
+        },
+    };
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        recoveryRecords: [foreignIncomplete],
+    });
+    assert.deepEqual(store.listGroups(WORKSPACE), [],
+        'a half-provisioned worktree stays unseeded even when the record is foreign');
+});
+
 test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seeding until retried', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const content = snapshot([{

@@ -470,10 +470,10 @@ test('WORKTREE-GROUPS-UI-001 an unavailable primary disables creation and offers
         'only ready members are offered as replacements');
 });
 
-test('WORKTREE-GROUPS-UI-001 a failed set-primary re-enables the button via the authoritative refresh', async t => {
-    // The button disables itself as a transient pending state; only an
-    // authoritative refresh re-renders the row. When the Host rejects the
-    // mutation it still sends that refresh, so the button must recover.
+test('WORKTREE-GROUPS-UI-001 set-primary settlements drive the button pending state', async t => {
+    // The button disables itself as a transient pending state and only the
+    // Host's terminal settlement (or an authoritative re-render) releases
+    // it — a fire-and-forget refresh alone must never strand the button.
     const primaryPickerGroup = groupRow({
         canCreateSession: false,
         needsPrimarySelection: true,
@@ -537,6 +537,8 @@ test('WORKTREE-GROUPS-UI-001 a failed set-primary re-enables the button via the 
     await choice.evaluate(button => button.click());
     assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
         type: 'set-worktree-group-primary',
+        version: 1,
+        requestId: 'set-primary-1',
         projectId: 'project-a',
         groupId: 'g-1',
         memberId: 'm-2',
@@ -544,6 +546,38 @@ test('WORKTREE-GROUPS-UI-001 a failed set-primary re-enables the button via the 
     assert.equal(await choice.isDisabled(), true,
         'the clicked button enters its transient pending state');
 
+    const postSettlement = status => page.evaluate(statusValue => {
+        const request = window.__postedMessages
+            .filter(message => message.type === 'set-worktree-group-primary').at(-1);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-primary-settlement',
+                version: 1,
+                requestId: request.requestId,
+                groupId: request.groupId,
+                memberId: request.memberId,
+                ...(statusValue === 'failed' ? { errorCode: 'set-primary-failed' } : {}),
+                status: statusValue,
+            },
+        }));
+    }, status);
+    await postSettlement('accepted');
+    assert.equal(await choice.isDisabled(), true,
+        'the accepted settlement keeps the pending state');
+    await postSettlement('failed');
+    assert.equal(await choice.isDisabled(), false,
+        'a terminal failed settlement re-enables the button even without a refresh');
+
+    await choice.evaluate(button => button.click());
+    assert.equal(await choice.isDisabled(), true);
+    await postSettlement('settled');
+    assert.equal(await choice.isDisabled(), false,
+        'a terminal settled settlement releases the pending state');
+
+    // The authoritative refresh path still applies: a re-render replaces
+    // the row wholesale, so no pending state survives it either.
+    await choice.evaluate(button => button.click());
+    assert.equal(await choice.isDisabled(), true);
     const applied = await page.evaluate(replacementHtml =>
         applyWorkspaceUpdate({
             type: 'workspace-updated',
@@ -555,7 +589,7 @@ test('WORKTREE-GROUPS-UI-001 a failed set-primary re-enables the button via the 
     const rerendered = page.locator('[data-action="set-group-primary"][data-member-id="m-2"]');
     assert.equal(await rerendered.count(), 1);
     assert.equal(await rerendered.isDisabled(), false,
-        'the authoritative refresh restores the button after a failed mutation');
+        'the authoritative refresh replaces the pending row');
 });
 
 test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list scroll position', async t => {

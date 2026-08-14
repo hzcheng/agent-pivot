@@ -588,6 +588,11 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'worktree-group-primary-settlement') {
+            aiSessionControls.applySetGroupPrimarySettlement(message);
+            return;
+        }
+
         if (!message || message.type !== 'ai-sessions-updated') {
             return;
         }

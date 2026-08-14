@@ -60,6 +60,16 @@ export async function reconcileWorktreeGroupManifest(
             const matchedRecord = (options.recoveryRecords || []).find(candidate =>
                 candidate.plan.repositoryKey === worktree.key.repositoryKey
                 && candidate.plan.worktreePath === worktree.key.canonicalWorktreePath);
+            if (matchedRecord && !isCompleteRecoveryRecord(matchedRecord)) {
+                // The physical worktree exists but its setup never finished:
+                // the restored provisioning row owns the retry/dismiss flow,
+                // and a successful retry records the manifest through the
+                // finalize hook. Seeding it ready here would let users start
+                // sessions in a half-provisioned worktree. This gate applies
+                // to the *unfiltered* match: a foreign-workspace record still
+                // proves the worktree is incomplete.
+                continue;
+            }
             // A record bound to a different navigation identity (Save
             // Workspace As can reuse a legacy projectId for new roots) must
             // never seed this workspace's bucket; the managed branch prefix
@@ -68,14 +78,6 @@ export async function reconcileWorktreeGroupManifest(
                 && matchedRecord.workspaceNavigationIdentity !== workspaceIdentity
                 ? undefined
                 : matchedRecord;
-            if (record && !isCompleteRecoveryRecord(record)) {
-                // The physical worktree exists but its setup never finished:
-                // the restored provisioning row owns the retry/dismiss flow,
-                // and a successful retry records the manifest through the
-                // finalize hook. Seeding it ready here would let users start
-                // sessions in a half-provisioned worktree.
-                continue;
-            }
             const managedBranch = branchRef.startsWith(MANAGED_BRANCH_PREFIX)
                 ? branchRef.slice(MANAGED_BRANCH_PREFIX.length)
                 : '';

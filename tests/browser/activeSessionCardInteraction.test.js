@@ -248,10 +248,15 @@ function currentWorkspaceGroupMarkup(
             activeProvider: 'codex',
             selectedProviders: ['codex'],
             expanded: true,
-            sessionsByProvider: { codex: [], kimi: [], claude: [] },
+            sessionsByProvider: {
+                codex: options.historySessions || [],
+                kimi: [],
+                claude: [],
+            },
             unavailableProviders: [],
             activeSessions: activeAiSessions,
-            aiSessionCount: activeAiSessions.length,
+            aiSessionCount: activeAiSessions.length
+                + (options.historySessions || []).length,
             activeSessionCount: activeAiSessions.length,
             activeAttentionCount: activeAiSessions
                 .filter(entry => entry.needsAttention).length,
@@ -2823,6 +2828,52 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY
         provider: 'codex',
         sessionId: 'session-a',
     });
+});
+
+test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 a history row keeps a readable title at the 170px minimum width', async t => {
+    const history = [historySession('codex', 'history-1')];
+    const page = await openCardPage(
+        t,
+        [],
+        { width: 170, height: 600 },
+        currentWorkspaceGroupMarkup([], 0, { historySessions: history })
+    );
+    await page.locator('[data-ai-session-tab="sessions"]').click();
+    const historyRow = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-1"]'
+    );
+    const metrics = () => historyRow.evaluate(el => {
+        const name = el.querySelector('.codex-session-name').getBoundingClientRect();
+        const actions = el.querySelector('.codex-session-actions').getBoundingClientRect();
+        return {
+            nameWidth: Math.round(name.width),
+            rowRight: Math.round(el.getBoundingClientRect().right),
+            actionsRight: Math.round(actions.right),
+            actionsOpacity: getComputedStyle(el.querySelector('.codex-session-actions')).opacity,
+            documentScrollWidth: document.documentElement.scrollWidth,
+        };
+    });
+
+    const idle = await metrics();
+    assert.equal(idle.documentScrollWidth, 170, 'no horizontal overflow at 170px');
+    // The fixture card chrome costs ~80px of wrapper/list paddings, so 40px
+    // here corresponds to roughly 60-80px in the real sidebar; before the
+    // narrow-width rules the title collapsed to 0-27px.
+    assert.ok(idle.nameWidth >= 40,
+        `the title must keep a readable width, got ${idle.nameWidth}px`);
+
+    await historyRow.hover();
+    await waitForPageCondition(page, () => {
+        const actions = document.querySelector(
+            '.codex-session-row[data-session-id="history-1"] .codex-session-actions');
+        return actions && getComputedStyle(actions).opacity === '1';
+    });
+    const hovered = await metrics();
+    assert.equal(hovered.actionsOpacity, '1', 'the action pill reveals on hover');
+    assert.ok(hovered.actionsRight <= hovered.rowRight + 1,
+        'the hover action pill overlays the truncated tail but stays inside the row');
+    assert.equal(hovered.documentScrollWidth, 170,
+        'the revealed actions must not introduce horizontal overflow');
 });
 
 test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card header without focusing another session', async t => {

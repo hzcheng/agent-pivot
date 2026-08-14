@@ -80,7 +80,6 @@ export type ProvisioningStage =
   | 'queued'
   | 'creating'
   | 'setting-up'
-  | 'starting-agent'
   | 'failed';
 
 export interface ProvisioningWorktreeRow {

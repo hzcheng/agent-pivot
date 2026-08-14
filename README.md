@@ -41,18 +41,22 @@ Inactive history rows resume the selected provider session. For multi-root
 workspaces, Agent Pivot uses the provider's native additional-directory option
 so the session can work with all workspace folders.
 
-Choose `New Isolated Session` to create a dedicated Git worktree and branch
-under `<repository>/.agent-pivot/worktrees/` before the provider starts. Set
+The Worktree tab lists the Git worktrees of every repository in the workspace
+with their live sessions. Use the branch icon beside the tabs to create a
+dedicated worktree and branch under `<repository>/.worktrees/` (configurable
+via `agentPivot.worktreeDirectory`), or branch a new worktree from any row's
+menu. Creating a worktree never starts a session; each row's menu starts a
+session in that worktree with the remembered or any chosen provider. Set
 `agentPivot.worktreeSetupCommand` to an executable-and-arguments array such as
-`["npm", "ci"]` when every new isolated worktree needs setup; Agent Pivot runs
-it directly without a shell. Provisioning progress survives extension reloads,
+`["npm", "ci"]` when every new worktree needs setup; Agent Pivot runs it
+directly without a shell. Provisioning progress survives extension reloads,
 and an interrupted row can be retried without recreating a completed worktree
 or rerunning a completed setup step.
 
-An idle, clean worktree created in that managed directory has a remove button.
-Removal is confirmed and revalidated against Git immediately before execution;
-worktrees that are dirty, active, currently open, or still provisioning are
-left untouched. Removing a worktree keeps its local branch.
+Managed worktrees offer removal from their row menu. Removal is confirmed and
+revalidated against Git immediately before execution; worktrees that are
+dirty, active, currently open, or still provisioning are refused with the
+reason. Removing a worktree keeps its local branch.
 
 Direct VS Code terminals are the default. The optional tmux mode keeps a
 provider process available while its execution host remains awake and running;
@@ -294,9 +298,12 @@ Configure Agent Pivot in VS Code settings. Common settings include:
 - `agentPivot.aiSessionYoloMode`: opt in to provider approval and sandbox
   bypass for newly created and resumed provider processes. It is off by
   default and does not change an already-running process.
+- `agentPivot.worktreeDirectory`: directory that holds isolated worktrees,
+  relative to the repository root. Defaults to `.worktrees`. Absolute paths
+  and `..` segments fall back to the default.
 - `agentPivot.worktreeSetupCommand`: optional executable-and-arguments array
-  run in each newly created isolated worktree before the provider starts. No
-  shell syntax is interpreted; leave it empty to skip setup.
+  run in each newly created worktree. No shell syntax is interpreted; leave it
+  empty to skip setup.
 - `agentPivot.codexDefaultProfile`: default Codex configuration profile
   (`-p <name>`, layered from `<name>.config.toml` in the Codex home) for
   newly created Codex sessions. When at least one profile file exists, the

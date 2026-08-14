@@ -494,6 +494,23 @@ body .project {
 }
 
 // CONTEXT MENU
+.ai-session-fast-tooltip {
+    position: fixed;
+    z-index: 10001;
+    max-width: 260px;
+    padding: 3px 8px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 5px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+    font-family: var(--vscode-font-family);
+    font-size: 10px;
+    line-height: 1.4;
+    pointer-events: none;
+    white-space: nowrap;
+}
+
 .custom-context-menu {
     position: fixed;
     z-index: 10000;
@@ -3407,6 +3424,7 @@ body.steward-sidebar {
         .ai-session-surface-panel[hidden] {
             display: none;
         }
+
 
         .ai-session-worktree-list {
             display: flex;

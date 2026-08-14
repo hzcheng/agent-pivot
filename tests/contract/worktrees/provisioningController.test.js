@@ -28,7 +28,6 @@ function fixture(overrides = {}) {
     const controller = new WorktreeProvisioningController({
         createWorktree: async () => { calls.push('worktree'); return key; },
         runSetup: async () => { calls.push('setup'); },
-        startAgent: async () => { calls.push('agent'); },
         publish: (revision, rows) => publications.push({ revision, rows }),
         onSettled: outcome => settlements.push(outcome),
         ...overrides,
@@ -40,12 +39,12 @@ test('WORKTREE-PROVISIONING-STATE-001 publishes every stage and one terminal suc
     const current = fixture();
     const outcome = await current.controller.start('operation-1', plan);
 
-    assert.deepEqual(current.calls, ['worktree', 'setup', 'agent']);
+    assert.deepEqual(current.calls, ['worktree', 'setup']);
     assert.deepEqual(outcome, { kind: 'succeeded', operationId: 'operation-1', worktreeKey: key });
     assert.deepEqual(current.settlements, [outcome]);
-    assert.deepEqual(current.publications.map(publication => publication.revision), [1, 2, 3, 4, 5]);
+    assert.deepEqual(current.publications.map(publication => publication.revision), [1, 2, 3, 4]);
     assert.deepEqual(current.publications.slice(0, -1).map(publication =>
-        publication.rows[0].stage), ['queued', 'creating', 'setting-up', 'starting-agent']);
+        publication.rows[0].stage), ['queued', 'creating', 'setting-up']);
     assert.deepEqual(current.publications.at(-1).rows, []);
     assert.deepEqual(current.controller.getRows(), []);
 });
@@ -59,7 +58,6 @@ test('WORKTREE-PROVISIONING-STATE-001 setup failure retries without creating a s
             setupAttempts += 1;
             if (setupAttempts === 1) throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        startAgent: async () => { current.calls.push('agent'); },
     });
 
     const failed = await current.controller.start('operation-setup', plan);
@@ -76,27 +74,9 @@ test('WORKTREE-PROVISIONING-STATE-001 setup failure retries without creating a s
 
     const succeeded = await current.controller.retry('operation-setup');
     assert.equal(succeeded.kind, 'succeeded');
-    assert.deepEqual(current.calls, ['worktree', 'setup', 'setup', 'agent'],
+    assert.deepEqual(current.calls, ['worktree', 'setup', 'setup'],
         'retry resumes after the durable worktree step');
     assert.equal(current.settlements.length, 2, 'each attempt settles exactly once');
-});
-
-test('WORKTREE-PROVISIONING-STATE-001 agent failure retries only the agent step', async () => {
-    let agentAttempts = 0;
-    const current = fixture({
-        createWorktree: async () => { current.calls.push('worktree'); return key; },
-        runSetup: async () => { current.calls.push('setup'); },
-        startAgent: async () => {
-            current.calls.push('agent');
-            agentAttempts += 1;
-            if (agentAttempts === 1) throw Object.assign(new Error('agent'), { code: 'agent-failed' });
-        },
-    });
-
-    const failed = await current.controller.start('operation-agent', plan);
-    assert.deepEqual(failed.completedSteps, ['worktree', 'setup']);
-    await current.controller.retry('operation-agent');
-    assert.deepEqual(current.calls, ['worktree', 'setup', 'agent', 'agent']);
 });
 
 test('WORKTREE-PROVISIONING-STATE-001 cancellation before create does no work and removes the row', async () => {
@@ -123,7 +103,6 @@ test('WORKTREE-PROVISIONING-STATE-001 cancellation after create retains a retrya
             return key;
         },
         runSetup: async () => { current.calls.push('setup'); },
-        startAgent: async () => { current.calls.push('agent'); },
     });
     const pending = current.controller.start('operation-cancel-after', plan);
     for (let index = 0; index < 10 && !current.calls.length; index += 1) await Promise.resolve();
@@ -136,7 +115,7 @@ test('WORKTREE-PROVISIONING-STATE-001 cancellation after create retains a retrya
     assert.deepEqual(outcome.completedSteps, ['worktree']);
     assert.equal(current.controller.getRows()[0].retryable, true);
     await current.controller.retry('operation-cancel-after');
-    assert.deepEqual(current.calls, ['worktree', 'setup', 'agent']);
+    assert.deepEqual(current.calls, ['worktree', 'setup']);
 });
 
 test('WORKTREE-PROVISIONING-STATE-001 cancelling a queued retry preserves the completed worktree', async () => {
@@ -255,7 +234,7 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 restores interrupted durable state for 
         errorCode: 'interrupted',
     });
     assert.equal((await current.controller.retry('operation-restored')).kind, 'succeeded');
-    assert.deepEqual(current.calls, ['setup', 'agent']);
+    assert.deepEqual(current.calls, ['setup']);
 });
 
 test('WORKTREE-PROVISIONING-RECOVERY-001 exports defensive operation recovery state', async () => {
@@ -298,7 +277,8 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 checkpoints each durable step before ad
         { steps: ['worktree'], rowSteps: ['worktree'] },
         { steps: ['worktree', 'setup'], rowSteps: ['worktree', 'setup'] },
     ]);
-    assert.deepEqual(current.calls, ['worktree', 'setup'], 'agent waits for persisted setup state');
+    assert.deepEqual(current.calls, ['worktree', 'setup'],
+        'success waits for persisted setup state');
     releases.shift()();
     assert.equal((await pending).kind, 'succeeded');
 });
@@ -322,5 +302,5 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 revalidates a durable worktree before s
 
     const outcome = await current.controller.retry('operation-changed');
     assert.equal(outcome.errorCode, 'worktree-create-failed');
-    assert.deepEqual(current.calls, [], 'setup and agent must not run in a changed checkout');
+    assert.deepEqual(current.calls, [], 'setup must not run in a changed checkout');
 });

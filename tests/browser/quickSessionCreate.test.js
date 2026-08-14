@@ -110,6 +110,7 @@ async function openQuickCreatePage(t, options = {}) {
         ...(options.profile ? { quickCreateProfile: options.profile } : {}),
         ...(options.provider ? { quickCreateProvider: options.provider } : {}),
         ...(options.codexSessions ? { codexSessions: options.codexSessions } : {}),
+        ...(options.activeAiSessions ? { activeAiSessions: options.activeAiSessions } : {}),
         ...(options.worktrees ? {
             worktrees: options.worktrees,
             worktreeSnapshotRevision: 1,
@@ -271,6 +272,28 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a t
         /workspace-untrusted/);
 });
 
+test('WORKTREE-MANAGED-CLEANUP-001 removal stays discoverable for busy managed worktrees', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/.worktrees/busy',
+    };
+    const page = await openQuickCreatePage(t, { worktrees: [{
+        kind: 'ready',
+        git: {
+            key, branchRef: 'refs/heads/agent-pivot/busy', head: 'a'.repeat(40),
+            isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+        },
+        activity: 'attention', sessions: [], authority: { canResume: true, canRemove: false },
+    }] });
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
+    await page.locator('.project[data-id="project-a"] .ai-session-worktree-more').click();
+    const removeItem = page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]');
+    assert.equal(await removeItem.isVisible(), true,
+        'the menu always offers removal for managed worktrees; the host explains any refusal');
+});
+
 test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated through confirmation', async t => {
     const key = {
         repositoryKey: '/repo/.git',
@@ -313,7 +336,7 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
     } })));
     assert.equal(await button.isDisabled(), false);
     assert.match(await project.locator('[data-ai-session-live-region]').textContent(),
-        /worktree-dirty/);
+        /uncommitted changes/);
 
     await button.click();
     await removeItem.click();
@@ -422,9 +445,17 @@ test('WORKTREE-GROUPING-UI-001 collapsing a worktree really hides every session 
         canonicalWorktreePath: '/repo-feature',
     };
     const page = await openQuickCreatePage(t, {
-        codexSessions: [
-            { id: 'feature-session', name: 'Feature session', provider: 'codex', worktreeKey: key },
-            { id: 'other-session', name: 'Other session', provider: 'codex', worktreeKey: key },
+        activeAiSessions: [
+            {
+                key: 'codex:feature-session', provider: 'codex', sessionId: 'feature-session',
+                name: 'Feature session', executionState: 'running', backend: 'vscode',
+                attached: true, worktreeKey: key,
+            },
+            {
+                key: 'codex:other-session', provider: 'codex', sessionId: 'other-session',
+                name: 'Other session', executionState: 'stopped', backend: 'vscode',
+                attached: false, worktreeKey: key,
+            },
         ],
         worktrees: [{
             kind: 'ready',
@@ -587,6 +618,26 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
     assert.deepEqual(await postedMessages(page), []);
 });
 
+test('AI-SESSION-QUICK-CREATE-001 the fast tooltip appears promptly on hover and focus', async t => {
+    const page = await openQuickCreatePage(t, { profile: 'deepseek' });
+    const quickButton = page.locator(
+        '.project[data-id="project-a"] [data-action="create-ai-session-quick"]'
+    );
+    const tip = page.locator('.ai-session-fast-tooltip');
+
+    await quickButton.hover();
+    await tip.waitFor({ state: 'visible', timeout: 800 });
+    assert.equal(await tip.textContent(), 'New Codex session with profile deepseek',
+        'the tooltip must appear well ahead of the native title delay');
+    await page.locator('#outside').hover();
+    assert.equal(await tip.count(), 0, 'leaving the button dismisses the tooltip');
+
+    await quickButton.focus();
+    await tip.waitFor({ state: 'visible', timeout: 800 });
+    await page.locator('#outside').click();
+    assert.equal(await tip.count(), 0, 'clicking elsewhere dismisses the tooltip');
+});
+
 test('AI-SESSION-QUICK-CREATE-001 the quick button tooltip identifies the provider and profile', async t => {
     const page = await openQuickCreatePage(t, { profile: 'deepseek', withStyles: true });
     const project = page.locator('.project[data-id="project-a"]');
@@ -594,7 +645,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button tooltip identifies the provid
 
     assert.equal(await quickButton.getAttribute('aria-label'),
         'New Codex session with profile deepseek');
-    assert.equal(await quickButton.getAttribute('title'),
+    assert.equal(await quickButton.getAttribute('data-tooltip'),
         'New Codex session with profile deepseek');
     assert.equal(await project.locator('.ai-session-create-caption').count(), 0,
         'no visible caption crowds the toolbar row');
@@ -602,7 +653,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button tooltip identifies the provid
     const kimiButton = page.locator(
         '.project[data-id="project-b"] [data-action="create-ai-session-quick"]'
     );
-    assert.equal(await kimiButton.getAttribute('title'), 'New Kimi session',
+    assert.equal(await kimiButton.getAttribute('data-tooltip'), 'New Kimi session',
         'providers without a profile name the provider alone in the tooltip');
 });
 
@@ -614,7 +665,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provid
     assert.equal(await quickButton.getAttribute('data-provider'), 'kimi',
         'a stored codex-heavy list filter must not pin the quick-create button');
     assert.equal(await quickButton.getAttribute('aria-label'), 'New Kimi session');
-    assert.equal(await quickButton.getAttribute('title'), 'New Kimi session');
+    assert.equal(await quickButton.getAttribute('data-tooltip'), 'New Kimi session');
     assert.equal(
         await page.locator('.project[data-id="project-a"] [data-ai-session-region]')
             .getAttribute('data-active-ai-session-provider'),

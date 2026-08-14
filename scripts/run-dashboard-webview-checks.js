@@ -669,8 +669,8 @@ function runWorkspaceCardRenderingChecks() {
         'the quick-create button announces the provider it will launch');
     assert.ok(multiHtml.includes('data-action="create-ai-session-dropdown"'),
         'the split button keeps a dropdown entry for other providers');
-    assert.ok(multiHtml.includes('title="New Codex session"'),
-        'the quick-create button names its provider in the hover tooltip');
+    assert.ok(multiHtml.includes('data-tooltip="New Codex session"'),
+        'the quick-create button names its provider in the fast tooltip');
 
     const captionSurface = {
         id: 'project-caption',
@@ -686,7 +686,7 @@ function runWorkspaceCardRenderingChecks() {
     const captionHtml = webviewAiSessionContent.getAiSessionsDiv(captionSurface);
     assert.ok(captionHtml.includes('aria-label="New Codex session with profile deepseek"'),
         'the quick button announces the effective profile');
-    assert.ok(captionHtml.includes('title="New Codex session with profile deepseek"'),
+    assert.ok(captionHtml.includes('data-tooltip="New Codex session with profile deepseek"'),
         'the quick button tooltip shows the provider and profile');
 
     const kimiCaptionHtml = webviewAiSessionContent.getAiSessionsDiv({
@@ -694,7 +694,7 @@ function runWorkspaceCardRenderingChecks() {
         activeAiSessionProvider: 'kimi',
         quickCreateProfile: 'deepseek',
     });
-    assert.ok(kimiCaptionHtml.includes('title="New Kimi session"'),
+    assert.ok(kimiCaptionHtml.includes('data-tooltip="New Kimi session"'),
         'a non-codex provider never carries the codex profile');
     assert.ok(!kimiCaptionHtml.includes('ai-session-create-caption'),
         'no visible caption crowds the toolbar row');
@@ -708,7 +708,7 @@ function runWorkspaceCardRenderingChecks() {
     });
     assert.ok(rememberedHtml.includes('data-action="create-ai-session-quick" data-provider="kimi"'),
         'the quick button follows the remembered provider, not the list filter');
-    assert.ok(rememberedHtml.includes('title="New Kimi session"'),
+    assert.ok(rememberedHtml.includes('data-tooltip="New Kimi session"'),
         'the quick button tooltip follows the remembered provider');
     assert.ok(rememberedHtml.includes('data-active-ai-session-provider="codex"'),
         'the session list filter keeps its own primary provider');

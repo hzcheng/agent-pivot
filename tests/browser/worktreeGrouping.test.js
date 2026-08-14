@@ -48,18 +48,22 @@ function surface() {
         selectedAiSessionProviders: ['codex'],
         activeAiSessionTab: 'sessions',
         codexSessions: [{
-            id: 'frontend-session',
-            name: 'Implement the responsive worktree session grouping experience',
-            provider: 'codex',
-            worktreeKey: frontendKey,
-        }, {
             id: 'legacy-session',
             name: 'Existing project chat must remain visible',
             provider: 'codex',
         }],
         kimiSessions: [],
         claudeSessions: [],
-        activeAiSessions: [],
+        activeAiSessions: [{
+            key: 'codex:frontend-session',
+            provider: 'codex',
+            sessionId: 'frontend-session',
+            name: 'Implement the responsive worktree session grouping experience',
+            executionState: 'running',
+            backend: 'vscode',
+            attached: true,
+            worktreeKey: frontendKey,
+        }],
         worktrees: [
             {
                 kind: 'provisioning', operationId: 'operation-1', repositoryKey: '/repo/.git',
@@ -98,15 +102,20 @@ test('WORKTREE-GROUPING-UI-001 keeps the original Active and All chat lists inta
     const chats = page.locator('[data-ai-session-surface-panel="chats"]');
     assert.deepEqual(
         await chats.locator('[data-ai-session-tab]').allTextContents(),
-        ['ACTIVE0', 'ALL2'],
+        ['ACTIVE1', 'ALL1'],
+    );
+    assert.equal(
+        await chats.locator('[data-ai-session-panel="active"] .active-ai-session-row').count(),
+        1,
+        'the live session remains in Chats Active as well',
     );
     await page.evaluate(() => {
         selectAiSessionTabDom(document.querySelector('.project'), 'sessions');
     });
     assert.equal(
         await chats.locator('[data-ai-session-panel="sessions"] .codex-session-row').count(),
-        2,
-        'assigned and legacy current-project chats must both remain in All',
+        1,
+        'legacy current-project chats remain in All',
     );
     assert.equal(
         await chats.locator('[data-ai-session-panel="sessions"] .ai-session-worktree-group').count(),

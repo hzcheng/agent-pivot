@@ -1458,9 +1458,6 @@ async function initializeDashboard(
             getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         runSetup: (_plan, worktreeKey, isCancelled, command) =>
             worktreeSetupRunner.run(command, worktreeKey.canonicalWorktreePath, isCancelled),
-        createSessionInWorktree: (projectId, providerId, title, worktreeKey, profile) =>
-            aiSessionCreationController.createSessionInWorktree(
-                projectId, providerId, title, worktreeKey, profile),
         publishRows: () => refreshAiSessionViewsIncrementally(),
         recoveredOperations: worktreeProvisioningStore.read(),
         persistOperations: operations => worktreeProvisioningStore.replace(operations),

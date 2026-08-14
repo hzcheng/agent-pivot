@@ -67,13 +67,6 @@ export interface IsolatedSessionControllerOptions {
     refreshWorktreeSnapshot: () => Promise<void>;
     getSetupCommand?: () => readonly string[];
     getWorktreeDirectory?: () => string;
-    createSessionInWorktree: (
-        projectId: string,
-        providerId: AiSessionProviderId,
-        title: string,
-        worktreeKey: WorktreeKey,
-        profile?: SessionProfileDecision
-    ) => Promise<boolean>;
     publishRows: (revision: number, rows: readonly ProvisioningWorktreeRow[]) => void;
     runSetup?: (
         plan: WorktreeProvisioningPlan,
@@ -125,32 +118,6 @@ export class IsolatedSessionController {
                     ? options.runSetup(plan, worktreeKey, isCancelled, command)
                     : Promise.resolve();
             },
-            startAgent: async (plan, worktreeKey, isCancelled, operationId) => {
-                if (isCancelled()) {
-                    throw provisioningError('cancelled');
-                }
-                if (!options.isWorkspaceTrusted()) {
-                    throw provisioningError('workspace-untrusted');
-                }
-                await options.refreshWorktreeSnapshot();
-                if (isCancelled()) {
-                    throw provisioningError('cancelled');
-                }
-                const context = this.contextsByOperation.get(operationId);
-                if (!context) {
-                    throw provisioningError('workspace-unavailable');
-                }
-                const started = await options.createSessionInWorktree(
-                    context.projectId,
-                    context.providerId,
-                    plan.taskName,
-                    worktreeKey,
-                    context.profile
-                );
-                if (!started) {
-                    throw provisioningError('agent-start-failed');
-                }
-            },
             publish: (revision, rows) => {
                 options.publishRows(revision, rows);
                 void this.persistOperations().catch(error =>
@@ -168,6 +135,11 @@ export class IsolatedSessionController {
                 if (outcome.kind === 'succeeded'
                     || (outcome.kind === 'failed' && outcome.errorCode === 'cancelled')) {
                     this.contextsByOperation.delete(outcome.operationId);
+                }
+                if (outcome.kind === 'succeeded') {
+                    // The session is started separately from the row menu, so
+                    // provisioning finishes by making the new worktree visible.
+                    void options.refreshWorktreeSnapshot();
                 }
                 options.onSettled?.(outcome);
             },

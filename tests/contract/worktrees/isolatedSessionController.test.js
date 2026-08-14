@@ -108,10 +108,6 @@ function fixture(overrides = {}) {
         runSetup: async (plan, worktreeKey, isCancelled, command) => {
             effects.push(['setup-command', plan.taskName, worktreeKey, isCancelled(), command]);
         },
-        createSessionInWorktree: async (...args) => {
-            effects.push(['start-session', ...args]);
-            return true;
-        },
         publishRows: (revision, rows) => publications.push({ revision, rows }),
         onSettled: outcome => settlements.push(outcome),
         persistOperations: operations => { persisted.push(operations); return Promise.resolve(); },
@@ -123,7 +119,7 @@ function fixture(overrides = {}) {
     };
 }
 
-test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launches with remembered preferences', async () => {
+test('WORKTREE-ISOLATED-SESSION-001 provisions the worktree only and refreshes discovery', async () => {
     const current = fixture();
 
     const outcome = await current.controller.start('request-1', 'project');
@@ -131,7 +127,7 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launche
     assert.equal(outcome.kind, 'succeeded');
     assert.equal(current.publications.at(-1).rows.length, 0);
     assert.deepEqual(current.publications.slice(0, -1).map(item => item.rows[0].stage), [
-        'queued', 'creating', 'setting-up', 'starting-agent',
+        'queued', 'creating', 'setting-up',
     ]);
     assert.deepEqual(current.effects.find(effect => effect[0] === 'setup-command')[4],
         ['npm', 'ci']);
@@ -139,19 +135,10 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions, refreshes discovery, and launche
     assert.equal(create[1].taskName, 'Fix login race');
     assert.equal(create[1].branchName, 'agent-pivot/fix-login-race');
     assert.equal(create[1].worktreePath, '/repo/.worktrees/fix-login-race');
-    const refreshIndex = current.effects.findIndex(effect => effect[0] === 'refresh-snapshot');
-    const startIndex = current.effects.findIndex(effect => effect[0] === 'start-session');
-    assert.ok(refreshIndex >= 0 && refreshIndex < startIndex);
-    assert.deepEqual(current.effects[startIndex].slice(1), [
-        'project',
-        'codex',
-        'Fix login race',
-        {
-            repositoryKey: '/repo/.git',
-            canonicalWorktreePath: '/repo/.worktrees/fix-login-race',
-        },
-        { kind: 'profile', name: 'glm' },
-    ]);
+    assert.ok(current.effects.some(effect => effect[0] === 'refresh-snapshot'),
+        'a finished worktree must refresh discovery so it appears in the list');
+    assert.equal(current.effects.filter(effect => effect[0] === 'start-session').length, 0,
+        'provisioning never starts a session; sessions are created from the row menu');
     assert.deepEqual(current.settlements, [outcome]);
 });
 
@@ -236,7 +223,6 @@ test('WORKTREE-ISOLATED-SESSION-001 active editor chooses one repository before 
         showInputBox: async () => 'Nested task',
         showQuickPick: async () => { picks += 1; return undefined; },
         refreshWorktreeSnapshot: async () => undefined,
-        createSessionInWorktree: async () => true,
         publishRows: () => undefined,
         provisioner: current.provisioner,
     });
@@ -269,55 +255,6 @@ test('WORKTREE-ISOLATED-SESSION-001 rejects untrusted workspaces before prompts 
     });
     assert.deepEqual(current.effects, []);
     assert.deepEqual(current.publications, []);
-});
-
-test('WORKTREE-ISOLATED-SESSION-001 retains a retryable row when runtime launch fails', async () => {
-    let attempts = 0;
-    const current = fixture({
-        createSessionInWorktree: async () => {
-            attempts += 1;
-            return attempts > 1;
-        },
-    });
-
-    const failed = await current.controller.start('request-retry', 'project');
-    assert.equal(failed.kind, 'partial');
-    assert.equal(failed.errorCode, 'agent-start-failed');
-    assert.deepEqual(failed.completedSteps, ['worktree', 'setup']);
-    assert.equal(current.controller.getRows()[0].retryable, true);
-
-    const succeeded = await current.controller.retry('request-retry', 'project');
-    assert.equal(succeeded.kind, 'succeeded');
-    assert.equal(attempts, 2);
-    assert.deepEqual(current.effects.filter(effect => effect[0] === 'create').length, 1);
-});
-
-test('WORKTREE-ISOLATED-SESSION-001 freezes provider preferences while Git creation is in flight', async () => {
-    let releaseCreate;
-    const gate = new Promise(resolve => { releaseCreate = resolve; });
-    const current = fixture();
-    const provisioner = {
-        ...current.provisioner,
-        createWorktree: async plan => {
-            await gate;
-            return {
-                repositoryKey: plan.repositoryKey,
-                canonicalWorktreePath: plan.worktreePath,
-            };
-        },
-    };
-    const frozen = fixture({ provisioner });
-    const pending = frozen.controller.start('request-frozen', 'project');
-    for (let index = 0; index < 20
-        && frozen.controller.getRows()[0]?.stage !== 'creating'; index += 1) await Promise.resolve();
-    frozen.target.sessions.quickCreateProvider = 'kimi';
-    frozen.target.sessions.quickCreateProfile = 'changed';
-    releaseCreate();
-    await pending;
-
-    const started = frozen.effects.find(effect => effect[0] === 'start-session');
-    assert.equal(started[2], 'codex');
-    assert.deepEqual(started[5], { kind: 'profile', name: 'glm' });
 });
 
 test('WORKTREE-ISOLATED-SESSION-001 reallocates after a pre-create branch collision', async () => {
@@ -353,7 +290,11 @@ test('WORKTREE-ISOLATED-SESSION-001 reallocates after a pre-create branch collis
 });
 
 test('WORKTREE-PROVISIONING-PROTOCOL-001 rejects retry and cancel from another project scope', async () => {
-    const current = fixture({ createSessionInWorktree: async () => false });
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+    });
     await current.controller.start('request-scoped', 'project');
 
     assert.equal((await current.controller.retry('request-scoped', 'forged-project')).errorCode,

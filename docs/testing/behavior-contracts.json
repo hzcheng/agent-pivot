@@ -2187,7 +2187,7 @@
   {
     "id": "WORKTREE-ISOLATED-SESSION-001",
     "domain": "runtime",
-    "title": "New Isolated Session selects a workspace repository, freezes remembered launch preferences, creates and discovers one linked worktree, and starts or safely retries the scoped agent runtime",
+    "title": "New worktree creation selects a workspace repository, creates and discovers one linked worktree with an optional setup command, and keeps failures safely retryable; sessions start separately from the row menu",
     "priority": "P0",
     "status": "automated",
     "owners": [

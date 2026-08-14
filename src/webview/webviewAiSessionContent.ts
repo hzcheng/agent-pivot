@@ -159,7 +159,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
             ${getAiSessionSurfaceTabButton(project.id, 'worktree', 'WORKTREE', selectedSurface)}
             ${getAiSessionSurfaceTabButton(project.id, 'chats', 'CHATS', selectedSurface)}
         </div>
-        <button type="button" class="ai-session-create-isolated-button" data-action="create-isolated-session" aria-label="New worktree" title="New worktree"${provisioningWorktrees.some(row => row.stage !== 'failed') ? ' disabled' : ''}>${Icons.gitBranchAdd}</button>
+        <button type="button" class="ai-session-create-isolated-button" data-action="create-isolated-session" aria-label="New worktree" data-tooltip="New worktree"${provisioningWorktrees.some(row => row.stage !== 'failed') ? ' disabled' : ''}>${Icons.gitBranchAdd}</button>
     </div>
     ${getWorktreeSurfacePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, selectedSurface, provisioningWorktrees)}
     <div id="ai-session-chats-${escapeAttribute(project.id || 'project')}" class="ai-session-surface-panel ai-session-chats-surface" role="tabpanel" data-ai-session-surface-panel="chats" aria-labelledby="ai-session-surface-chats-tab-${escapeAttribute(project.id || 'project')}"${selectedSurface === 'chats' ? '' : ' hidden'}>
@@ -170,8 +170,8 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
             </div>
             <div class="ai-session-surface-actions ai-session-chats-actions">
                 <span class="ai-session-create-split-button">
-                    <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" title="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>
-                    <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" title="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
+                    <button type="button" class="ai-session-create-quick-button" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickCreateActionLabel)}" data-tooltip="${escapeAttribute(quickCreateActionLabel)}"><span class="codex-session-icon ai-session-create-icon">${getAiProviderIcon(quickCreateProvider)}</span></button>
+                    <button type="button" class="ai-session-create-dropdown-button" data-action="create-ai-session-dropdown" aria-label="More create options" data-tooltip="More create options" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"><span class="ai-session-dropdown-arrow">&#9662;</span></button>
                 </span>
             </div>
         </div>
@@ -207,15 +207,8 @@ function getWorktreeSurfacePanel(
     const provisioningRows = provisioningWorktrees
         .map(getProvisioningWorktreeHtml).join('\n');
     const createIsolatedDisabled = provisioningWorktrees.some(row => row.stage !== 'failed');
-    const projection = projectAiSessionHistory(selectedProviders, {
-        codex: (project.codexSessions || []).map(session => ({ ...session, provider: 'codex' })),
-        kimi: (project.kimiSessions || []).map(session => ({ ...session, provider: 'kimi' })),
-        claude: (project.claudeSessions || []).map(session => ({ ...session, provider: 'claude' })),
-    });
+    // The Worktree surface lists only live sessions; history stays in Chats.
     const activeSessions = project.activeAiSessions || [];
-    const activeKeys = new Set(activeSessions
-        .filter(session => !!session.sessionId)
-        .map(session => `${session.provider}:${session.sessionId}`));
     const entries: WorktreeSessionRenderEntry[] = activeSessions
         .filter(session => !!session.worktreeKey)
         .map(session => ({
@@ -226,13 +219,6 @@ function getWorktreeSurfacePanel(
                 options.runningIconAnimation,
                 project.id || 'project',
             ),
-        }));
-    [...projection.pinned, ...projection.unpinned]
-        .filter(session => !!session.worktreeKey
-            && !activeKeys.has(`${session.provider}:${session.id}`))
-        .forEach(session => entries.push({
-            worktreeKey: session.worktreeKey,
-            html: getCodexSessionRow(session, session.provider, undefined, options.showRootChips),
         }));
     const groups = worktrees.length
         ? getWorktreeGroupsHtml(
@@ -382,7 +368,6 @@ function getProvisioningWorktreeHtml(row: ProvisioningWorktreeRow): string {
         queued: 'Queued',
         creating: 'Creating worktree',
         'setting-up': 'Setting up environment',
-        'starting-agent': 'Starting agent',
         failed: 'Needs attention',
     };
     const error = row.errorCode
@@ -621,17 +606,17 @@ function getWorktreeGroupHtml(
     const quickLabel = quickCreateProfile
         ? `New ${providerLabel} session in ${name} with profile ${quickCreateProfile}`
         : `New ${providerLabel} session in ${name}`;
-    const canRemove = worktree.authority.canRemove
-        && !worktree.git.isMain
-        && worktree.git.health === 'normal'
-        && worktree.activity === 'idle'
+    // Offer removal for every managed non-main worktree; the host re-checks
+    // dirty, active, open, and provisioning state and explains any refusal.
+    const canRemove = !worktree.git.isMain
+        && !worktree.git.isBare
         && isManagedWorktreePath(
             worktree.git.key.repositoryKey,
             worktree.git.key.canonicalWorktreePath,
             worktreeDirectory
         );
     const moreLabel = `Actions for ${name}`;
-    const more = `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" title="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
+    const more = `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
         data-worktree-name="${escapeAttribute(name)}"
         data-worktree-head-kind="${worktree.git.headKind}"
         data-can-resume="${worktree.authority.canResume ? 'true' : 'false'}"

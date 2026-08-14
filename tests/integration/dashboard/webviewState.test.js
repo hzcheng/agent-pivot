@@ -732,7 +732,16 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
         }],
         kimiSessions: [],
         claudeSessions: [],
-        activeAiSessions: [],
+        activeAiSessions: [{
+            key: 'codex:live-session',
+            provider: 'codex',
+            sessionId: 'live-session',
+            name: 'Live session',
+            executionState: 'running',
+            backend: 'vscode',
+            attached: true,
+            worktreeKey: frontendKey,
+        }],
         quickCreateProvider: 'codex',
         worktrees: [
             {
@@ -781,8 +790,15 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     assert.match(html, /data-ai-session-surface-tab="chats"/);
     assert.match(html, /data-selected-ai-session-surface="chats"/);
     assert.doesNotMatch(html, /data-ai-session-grouping-select/);
-    assert.equal((html.match(/data-session-id="feature-session"/g) || []).length, 2,
-        'the assigned session must remain available in both Worktree and Chats All');
+    assert.equal((html.match(/data-session-id="feature-session"/g) || []).length, 1,
+        'history sessions stay in Chats All only');
+    const worktreeMarkup = html.match(
+        /data-ai-session-surface-panel="worktree"[\s\S]*?data-ai-session-surface-panel="chats"/
+    )[0];
+    assert.match(worktreeMarkup, /data-session-id="live-session"/,
+        'the Worktree surface lists the live session under its group');
+    assert.doesNotMatch(worktreeMarkup, /data-session-id="feature-session"/,
+        'the Worktree surface never duplicates history sessions');
     assert.match(html, /data-worktree-activity="attention"/);
     assert.ok(html.indexOf('feature/auth') < html.indexOf('feature/idle'),
         'attention worktrees render first while stable snapshot order breaks ties');

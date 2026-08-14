@@ -3,7 +3,7 @@
 import type { ProvisioningWorktreeRow, WorktreeKey } from './types';
 import type { WorktreeProvisioningPlan } from './provisioningPlan';
 
-export type WorktreeProvisioningCompletedStep = 'worktree' | 'setup' | 'agent';
+export type WorktreeProvisioningCompletedStep = 'worktree' | 'setup';
 
 export type WorktreeProvisioningOutcome =
   | { kind: 'succeeded'; operationId: string; worktreeKey: WorktreeKey }
@@ -20,12 +20,6 @@ export interface WorktreeProvisioningControllerOptions {
         operationId: string
     ) => Promise<WorktreeKey>;
     runSetup: (
-        plan: WorktreeProvisioningPlan,
-        worktreeKey: WorktreeKey,
-        isCancelled: () => boolean,
-        operationId: string
-    ) => Promise<void>;
-    startAgent: (
         plan: WorktreeProvisioningPlan,
         worktreeKey: WorktreeKey,
         isCancelled: () => boolean,
@@ -192,13 +186,11 @@ export class WorktreeProvisioningController {
                     return this.partial(operation, 'cancelled', attempt);
                 }
             }
-            if (!operation.completedSteps.includes('agent')) {
-                await this.options.validateWorktree?.(
-                    operation.plan,
-                    operation.worktreeKey!,
-                    operation.operationId
-                );
-            }
+            await this.options.validateWorktree?.(
+                operation.plan,
+                operation.worktreeKey!,
+                operation.operationId
+            );
             if (!operation.completedSteps.includes('setup')) {
                 this.setStage(operation, 'setting-up', true);
                 await this.options.runSetup(
@@ -213,16 +205,6 @@ export class WorktreeProvisioningController {
                 if (operation.cancelled) {
                     return this.partial(operation, 'cancelled', attempt);
                 }
-            }
-            if (!operation.completedSteps.includes('agent')) {
-                this.setStage(operation, 'starting-agent', false);
-                await this.options.startAgent(
-                    operation.plan,
-                    operation.worktreeKey!,
-                    () => operation.cancelled,
-                    operation.operationId
-                );
-                operation.completedSteps.push('agent');
             }
             const outcome: WorktreeProvisioningOutcome = {
                 kind: 'succeeded',

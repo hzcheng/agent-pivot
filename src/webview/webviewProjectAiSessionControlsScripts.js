@@ -6,6 +6,67 @@ function initProjectAiSessionControls(options) {
     var getAiSessionPresentationStateStore = options.getAiSessionPresentationStateStore;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
 
+    // Native title tooltips take over a second to appear; icon-only buttons
+    // get a shared fast tooltip instead (150ms), driven by data-tooltip.
+    var fastTooltip = null;
+    var fastTooltipTimer = null;
+    var fastTooltipTarget = null;
+
+    function hideFastTooltip() {
+        if (fastTooltipTimer) {
+            clearTimeout(fastTooltipTimer);
+            fastTooltipTimer = null;
+        }
+        fastTooltipTarget = null;
+        if (fastTooltip) {
+            fastTooltip.remove();
+            fastTooltip = null;
+        }
+    }
+
+    function showFastTooltip(target) {
+        var label = target.getAttribute('data-tooltip');
+        if (!label || !target.isConnected) return;
+        hideFastTooltip();
+        fastTooltipTarget = target;
+        fastTooltipTimer = setTimeout(() => {
+            if (fastTooltipTarget !== target || !target.isConnected) return;
+            fastTooltip = document.createElement('div');
+            fastTooltip.className = 'ai-session-fast-tooltip';
+            fastTooltip.setAttribute('role', 'tooltip');
+            fastTooltip.textContent = label;
+            document.body.appendChild(fastTooltip);
+            var rect = target.getBoundingClientRect();
+            var tipRect = fastTooltip.getBoundingClientRect();
+            var left = Math.max(4, Math.min(
+                rect.right - tipRect.width,
+                window.innerWidth - tipRect.width - 4
+            ));
+            var top = rect.top - tipRect.height - 5;
+            if (top < 4) {
+                top = rect.bottom + 5;
+            }
+            fastTooltip.style.left = left + 'px';
+            fastTooltip.style.top = top + 'px';
+        }, 150);
+    }
+
+    document.addEventListener('mouseover', event => {
+        var target = event.target && event.target.closest
+            ? event.target.closest('[data-tooltip]') : null;
+        if (target === fastTooltipTarget) return;
+        hideFastTooltip();
+        if (target) showFastTooltip(target);
+    });
+    document.addEventListener('pointerdown', hideFastTooltip, true);
+    document.addEventListener('focusin', event => {
+        var target = event.target && event.target.closest
+            ? event.target.closest('[data-tooltip]') : null;
+        hideFastTooltip();
+        if (target) showFastTooltip(target);
+    });
+    document.addEventListener('focusout', hideFastTooltip);
+
     var batchAiSessionState = {
         projectId: null,
         selectedItems: new Map(),
@@ -725,9 +786,28 @@ function initProjectAiSessionControls(options) {
                 ? 'Managed worktree removed; local branch kept.'
                 : message.status === 'cancelled'
                     ? 'Worktree removal cancelled.'
-                    : `Worktree removal ${message.status}: ${message.errorCode || 'try again'}.`;
+                    : `Worktree removal ${message.status}: ${describeWorktreeRemovalError(message.errorCode)}`;
         }
         return true;
+    }
+
+    function describeWorktreeRemovalError(errorCode) {
+        switch (errorCode) {
+            case 'worktree-dirty':
+                return 'the worktree has uncommitted changes';
+            case 'worktree-not-removable':
+                return 'it is not a removable Agent Pivot worktree';
+            case 'worktree-active':
+                return 'a session is still running in it';
+            case 'worktree-open':
+                return 'it is open as a workspace';
+            case 'worktree-provisioning':
+                return 'it is still being created';
+            case 'operation-running':
+                return 'another removal is already in progress';
+            default:
+                return (errorCode || 'try again') + '';
+        }
     }
 
     function acknowledgeAiSessionRow(sessionRow) {

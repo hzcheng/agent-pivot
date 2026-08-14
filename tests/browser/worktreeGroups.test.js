@@ -147,9 +147,8 @@ test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches a
     assert.ok(!text.includes('alpha: main'),
         'branch details stay off the compact row');
     const tooltip = await header.getAttribute('data-tooltip');
-    assert.ok(tooltip.includes('alpha: main'));
-    assert.ok(tooltip.includes('beta: 1.0'),
-        'full per-repository branch detail is one hover away');
+    assert.deepEqual(tooltip.split('\n'), ['alpha: main', 'beta: 1.0'],
+        'the hover tooltip lists one repository per line');
     assert.equal(await anchor.locator('.ai-session-worktree-more').count(), 0,
         'the anchor is not a managed worktree');
     assert.equal(await anchor.locator('[data-action="create-ai-session-quick"]').count(), 0);

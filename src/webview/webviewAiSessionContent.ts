@@ -699,20 +699,25 @@ function getWorktreeAnchorHtml(
     const keys = anchor.worktreeKeys || [];
     const matched = entries.filter(entry => keys.some(key =>
         worktreeKeysEqual(entry.worktreeKey, key)));
-    const summary = anchor.entries
+    const inlineSummary = anchor.entries
         .map(entry => `${entry.repositoryLabel}: ${entry.branch}`)
         .join(' · ');
+    // The hover tooltip lists one repository per line (feedback: the
+    // single-line dot-separated summary was hard to scan).
+    const tooltipSummary = anchor.entries
+        .map(entry => `${entry.repositoryLabel}: ${entry.branch}`)
+        .join('\n');
     const count = matched.length;
     const activity = anchor.activity === 'attention' ? 'needs attention'
         : anchor.activity === 'active' ? 'active' : 'idle';
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
-    const ariaLabel = `Current, ${summary}, ${sessionLabel}, ${activity}`;
+    const ariaLabel = `Current, ${inlineSummary}, ${sessionLabel}, ${activity}`;
     // The per-repository branch detail lives on the fast hover tooltip; the
     // row itself stays a single compact line (annotation: the inline summary
     // squeezed the "Current" title away).
     return `<section class="ai-session-worktree-group ai-session-worktree-anchor" data-worktree-anchor data-worktree-activity="${anchor.activity}">
         <div class="ai-session-worktree-toolbar">
-            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}" data-tooltip="${escapeAttribute(summary)}">
+            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}" data-tooltip="${escapeAttribute(tooltipSummary)}">
                 <span class="ai-session-worktree-indicator" aria-hidden="true">${anchor.activity === 'idle' ? '○' : '●'}</span>
                 <span class="ai-session-worktree-title">Current</span>
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>

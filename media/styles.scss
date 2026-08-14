@@ -507,8 +507,10 @@ body .project {
     font-family: var(--vscode-font-family);
     font-size: 10px;
     line-height: 1.4;
+    // Tooltips may carry one line per item (e.g. the Current anchor's
+    // per-repository branch list); pre-line keeps single-line tips intact.
+    white-space: pre-line;
     pointer-events: none;
-    white-space: nowrap;
 }
 
 .custom-context-menu {

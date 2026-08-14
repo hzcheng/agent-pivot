@@ -188,3 +188,21 @@ test('WORKTREE-MANAGED-CLEANUP-001 reports partial when removal succeeds before 
     });
     assert.equal(fs.existsSync(current.worktreePath), false);
 });
+
+test('WORKTREE-MANAGED-CLEANUP-001 passes the removed key to refresh so the manifest can retire first', async t => {
+    const current = await fixture(t);
+    const refreshedKeys = [];
+    const controller = new ManagedWorktreeRemovalController({
+        getSnapshot: () => current.snapshot,
+        isProjectTarget: () => true,
+        isActive: () => false,
+        isOpenWorkspace: () => false,
+        isProvisioning: () => false,
+        confirm: async () => 'Remove Worktree',
+        refresh: async removedKey => { refreshedKeys.push(removedKey); },
+    });
+
+    assert.deepEqual(await controller.remove('project', current.key), { kind: 'succeeded' });
+    assert.deepEqual(refreshedKeys, [current.key],
+        'the manifest retirement hook learns exactly which worktree was removed');
+});

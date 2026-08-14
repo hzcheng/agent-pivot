@@ -418,6 +418,8 @@ function describeProvisioningErrorCode(errorCode: string): string {
             return 'Git timed out';
         case 'interrupted':
             return 'interrupted by a reload; retry or dismiss';
+        case 'manifest-unavailable':
+            return 'the worktree was created but could not be recorded; retry to finish';
         case 'cancelled':
             return 'cancelled';
         default:
@@ -797,8 +799,9 @@ function getWorktreeGroupRowHtml(
     const chips = group.chips.map(chip =>
         `<span class="ai-session-repo-chip" role="note" aria-label="${escapeAttribute(chip.title)}" data-tooltip="${escapeAttribute(chip.title)}">${escapeAttribute(chip.label)}</span>`
     ).join('');
-    const primary = group.members.find(member => member.isPrimary && member.status === 'ready')
-        || group.members.find(member => member.status === 'ready');
+    // Never fall back to a non-primary member silently: when the primary is
+    // unavailable the user must explicitly choose a replacement.
+    const primary = group.members.find(member => member.isPrimary && member.status === 'ready');
     const providerLabel = getAiProviderLabel(quickCreateProvider);
     const quickLabel = quickCreateProfile
         ? `New ${providerLabel} session in ${name} with profile ${quickCreateProfile}`
@@ -810,13 +813,13 @@ function getWorktreeGroupRowHtml(
     // worktree operations — quick create, derive, remove — acting on the
     // primary member, so migration never removes capabilities (review I4).
     const moreLabel = `Actions for ${name}`;
-    const more = primary?.worktreeKey
+    const more = group.canCreateSession && primary?.worktreeKey
         ? `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
             data-worktree-name="${escapeAttribute(name)}"
             data-worktree-head-kind="branch"
-            data-can-resume="${primary.status === 'ready' ? 'true' : 'false'}"
-            data-can-remove="${primary.status === 'ready' ? 'true' : 'false'}"
-            data-can-branch-create="${primary.status === 'ready' ? 'true' : 'false'}"
+            data-can-resume="true"
+            data-can-remove="true"
+            data-can-branch-create="true"
             data-quick-provider="${escapeAttribute(quickCreateProvider)}"
             data-quick-label="${escapeAttribute(quickLabel)}"
             data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`
@@ -829,6 +832,15 @@ function getWorktreeGroupRowHtml(
     const memberNames = group.members.map(member => member.status === 'ready'
         ? member.repositoryLabel
         : `${member.repositoryLabel} (${member.status})`).join(', ');
+    const primaryPicker = group.needsPrimarySelection
+        ? `<div class="ai-session-worktree-primary-picker" role="group" aria-label="Select a new primary worktree for ${escapeAttribute(name)}">`
+            + `<span class="ai-session-worktree-primary-hint">Primary worktree unavailable — set a new primary:</span>`
+            + group.members
+                .filter(member => member.status === 'ready')
+                .map(member => `<button type="button" class="ai-session-worktree-primary-choice" data-action="set-group-primary" data-group-id="${escapeAttribute(group.groupId)}" data-member-id="${escapeAttribute(member.memberId)}" aria-label="Set ${escapeAttribute(member.repositoryLabel)} as the primary worktree">${escapeAttribute(member.repositoryLabel)}</button>`)
+                .join('')
+            + `</div>`
+        : '';
     const memberSummary = `<div class="ai-session-worktree-member-summary" role="note">${group.members.length} worktree${group.members.length === 1 ? '' : 's'} · ${escapeAttribute(memberNames)}</div>`;
     const primaryAttributes = primary?.worktreeKey
         ? ` data-worktree-repository-key="${escapeAttribute(primary.worktreeKey.repositoryKey)}" data-worktree-path="${escapeAttribute(primary.worktreeKey.canonicalWorktreePath)}"`
@@ -846,7 +858,7 @@ function getWorktreeGroupRowHtml(
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')
-            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}</div>
+            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${primaryPicker}</div>
     </section>`;
 }
 

@@ -143,6 +143,19 @@ export class IsolatedSessionController {
             onSettled: outcome => {
                 return this.handleSettled(outcome);
             },
+            finalizeSuccess: outcome => {
+                const context = this.contextsByOperation.get(outcome.operationId);
+                if (!context || !options.recordProvisionedWorktree) {
+                    return Promise.resolve();
+                }
+                // Throws propagate: the operation becomes a retryable
+                // partial instead of a false success.
+                return options.recordProvisionedWorktree({
+                    projectId: context.projectId,
+                    plan: outcome.plan,
+                    worktreeKey: outcome.worktreeKey,
+                });
+            },
         });
         this.provisioning.restore((options.recoveredOperations || []).map(record => ({
             operationId: record.operationId,
@@ -156,22 +169,6 @@ export class IsolatedSessionController {
     private async handleSettled(outcome: WorktreeProvisioningOutcome): Promise<void> {
         const options = this.options;
         if (outcome.kind === 'succeeded') {
-            const context = this.contextsByOperation.get(outcome.operationId);
-            // Persist the authoritative group record before the success
-            // settlement can publish (PRD §9 "新建即写入"); reconciliation
-            // after the snapshot refresh remains as a safety net, never the
-            // primary write.
-            if (context && options.recordProvisionedWorktree) {
-                try {
-                    await options.recordProvisionedWorktree({
-                        projectId: context.projectId,
-                        plan: outcome.plan,
-                        worktreeKey: outcome.worktreeKey,
-                    });
-                } catch (error) {
-                    options.onPersistenceError?.(error);
-                }
-            }
             this.contextsByOperation.delete(outcome.operationId);
             // The session is started separately from the row menu, so
             // provisioning finishes by making the new worktree visible.

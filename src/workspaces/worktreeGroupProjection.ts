@@ -118,11 +118,18 @@ export function buildWorktreeGroupProjection(
             });
         }
         groupSessions.sort(compareSessions);
-        const readyMembers = group.members.filter(member => member.state === 'ready');
         // PRD §8: a failed or missing member needs attention just like an
         // unread session — otherwise a broken group looks healthy.
         const memberIssue = members.some(member =>
             member.status === 'failed' || member.status === 'missing');
+        // Creation capability follows the *projected* primary status, never
+        // the manifest state and never a silent fallback to another member:
+        // a missing/detached/failed primary means the user must explicitly
+        // choose a new one (PRD §4.2).
+        const primaryReady = !!group.primaryMemberId
+            && members.some(member =>
+                member.memberId === group.primaryMemberId && member.status === 'ready');
+        const hasReadyMember = members.some(member => member.status === 'ready');
         groupRows.push({
             kind: 'group',
             groupId: group.groupId,
@@ -134,9 +141,8 @@ export function buildWorktreeGroupProjection(
             members,
             chips: buildChips(members.map(member => member.repositoryLabel), chipUniverse),
             hasDetachedMembers: group.members.some(member => !!member.detached),
-            needsPrimarySelection: readyMembers.length > 0 && !group.primaryMemberId,
-            canCreateSession: !!group.primaryMemberId
-                && readyMembers.some(member => member.memberId === group.primaryMemberId),
+            needsPrimarySelection: !primaryReady && hasReadyMember,
+            canCreateSession: primaryReady,
             mergeCandidateGroupIds: [],
         });
     }

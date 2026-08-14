@@ -279,9 +279,10 @@ test('SESSION-WORKTREE-ASSIGNMENT-001 resumes a sibling-worktree session in its 
         cwd: '/managed/frontend-feature/packages/web/src/components',
         worktreeKey: siblingKey,
     });
-    assert.equal(rootPicks, 1, 'a stale worktree key uses the existing safe root-selection fallback');
-    assert.equal(fallbackScope.primaryCwd, '/repos/frontend');
-    assert.equal(fallbackScope.worktreeKey, undefined);
+    assert.equal(fallbackScope, null,
+        'a session whose worktree is gone fails closed instead of resuming in the main checkout');
+    assert.equal(rootPicks, 0,
+        'a stale worktree key never falls back to the root picker or the main checkout');
 });
 
 test('WORKTREE-SESSION-CREATE-TARGET-001 creation binds a selected worktree and rejects a stale key', async () => {
@@ -348,6 +349,10 @@ test('SESSION-WORKTREE-SCOPE-001 group sessions mount every ready member worktre
         repositoryKey: '/repos/main/.git',
         canonicalWorktreePath: '/managed/feature',
     };
+    const peerKey = {
+        repositoryKey: '/repos/peer/.git',
+        canonicalWorktreePath: '/managed/peer-feature',
+    };
     const snapshot = {
         revision: 1,
         truncatedWorktreeCount: 0,
@@ -356,6 +361,13 @@ test('SESSION-WORKTREE-SCOPE-001 group sessions mount every ready member worktre
             rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: 'app' }],
             worktrees: [{
                 key, branchRef: 'refs/heads/feature', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            }],
+        }, {
+            repositoryKey: peerKey.repositoryKey,
+            rootBindings: [{ workspaceRootId: 'root-peer', repositoryRelativePath: '' }],
+            worktrees: [{
+                key: peerKey, branchRef: 'refs/heads/peer-feature', head: 'b'.repeat(40),
                 isMain: false, isBare: false, health: 'normal', headKind: 'branch',
             }],
         }],
@@ -368,10 +380,10 @@ test('SESSION-WORKTREE-SCOPE-001 group sessions mount every ready member worktre
         isDirectory: () => true,
         pickWorkspaceRoot: async () => { throw new Error('selected worktree must determine the root'); },
         showWarningMessage: () => undefined,
-        getWorktreeGroupPeerPaths: (navigationIdentity, requestedKey) => {
+        getWorktreeGroupPeerKeys: (navigationIdentity, requestedKey) => {
             assert.equal(navigationIdentity, current.navigationIdentity);
             assert.deepEqual(requestedKey, key);
-            return ['/managed/peer-feature'];
+            return [peerKey];
         },
     });
 
@@ -388,6 +400,52 @@ test('SESSION-WORKTREE-SCOPE-001 group sessions mount every ready member worktre
         'the peer main checkout is never writable');
     assert.equal(scope.writableRootHostPaths.includes('/repos/outsider'), false,
         'non-member repository main checkouts are never writable');
+});
+
+test('SESSION-WORKTREE-SCOPE-001 group peers missing from the snapshot or disk fail closed', async () => {
+    const current = workspace({
+        roots: [
+            { id: 'root-repo', name: 'Repo', uri: 'file:///repos/main/app', hostPath: '/repos/main/app', ordinal: 0 },
+        ],
+    });
+    const key = {
+        repositoryKey: '/repos/main/.git',
+        canonicalWorktreePath: '/managed/feature',
+    };
+    const missingPeerKey = {
+        repositoryKey: '/repos/peer/.git',
+        canonicalWorktreePath: '/managed/peer-gone',
+    };
+    const snapshot = {
+        revision: 1,
+        truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: key.repositoryKey,
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: 'app' }],
+            worktrees: [{
+                key, branchRef: 'refs/heads/feature', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            }],
+        }],
+    };
+    const warnings = [];
+    const controller = new AiSessionCommandController({
+        getWorktreeSnapshot: () => snapshot,
+        getProvider: () => ({ id: 'codex', label: 'Codex', commandName: 'codex' }),
+        getProviderDirectoryCapability: async () => ({ status: 'supported' }),
+        isWorkspaceTrusted: () => true,
+        isDirectory: () => true,
+        pickWorkspaceRoot: async () => { throw new Error('must not pick'); },
+        showWarningMessage: message => warnings.push(message),
+        getWorktreeGroupPeerKeys: () => [missingPeerKey],
+    });
+
+    const scope = await controller.resolveWorkspaceDirectoryScope(
+        current, 'codex', undefined, undefined, key
+    );
+    assert.equal(scope, null,
+        'a stale ready member in the manifest must block the launch, not widen the scope');
+    assert.match(warnings.at(-1), /member worktree.*no longer available/i);
 });
 
 test('SESSION-WORKTREE-SCOPE-001 rejects malformed group peer paths instead of widening scope', () => {

@@ -51,10 +51,10 @@ export interface SessionControllerCompositionOptions {
     getCurrentOpenWorkspace: () => OpenWorkspace | null;
     getWorktreeSnapshot: () => WorktreeSnapshot | null;
     /** Authoritative manifest lookup for group session scoping (PRD §5.5). */
-    getWorktreeGroupPeerPaths?: (
+    getWorktreeGroupPeerKeys?: (
         workspaceNavigationIdentity: string,
         key: WorktreeKey
-    ) => readonly string[] | null;
+    ) => readonly WorktreeKey[] | null;
     getActiveEditorUri: () => vscode.Uri | undefined;
     isWorkspaceTrusted: () => boolean;
     getRegisteredAiSessionProvider: (providerId: AiSessionProviderId) => AiSessionProvider;
@@ -356,7 +356,7 @@ export function createSessionControllerComposition(
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getOpenWorkspace: getCurrentOpenWorkspace,
         getWorktreeSnapshot: options.getWorktreeSnapshot,
-        getWorktreeGroupPeerPaths: options.getWorktreeGroupPeerPaths,
+        getWorktreeGroupPeerKeys: options.getWorktreeGroupPeerKeys,
         getActiveEditorUri: options.getActiveEditorUri,
         isWorkspaceTrusted: options.isWorkspaceTrusted,
         getProvider: getRegisteredAiSessionProvider,

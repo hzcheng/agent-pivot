@@ -1412,7 +1412,7 @@ async function initializeDashboard(
         getCurrentWorkspaceActionTarget,
         getCurrentOpenWorkspace,
         getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
-        getWorktreeGroupPeerPaths: (navigationIdentity, key) => {
+        getWorktreeGroupPeerKeys: (navigationIdentity, key) => {
             const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
                 navigationIdentity, key);
             if (!group) {
@@ -1420,12 +1420,13 @@ async function initializeDashboard(
             }
             // Group sessions write every ready, non-detached member worktree
             // (PRD §5.5); the requested key's own path is covered by the
-            // primary worktree bindings.
+            // primary worktree bindings. Keys are revalidated against the
+            // live snapshot and file system before entering the scope.
             return group.members
                 .filter(member => member.state === 'ready' && !member.detached
                     && !!member.worktreeKey
                     && !worktreeKeysEqual(member.worktreeKey, key))
-                .map(member => member.worktreeKey!.canonicalWorktreePath);
+                .map(member => ({ ...member.worktreeKey! }));
         },
         getRegisteredAiSessionProvider,
         getRegisteredAiSessionProviders,
@@ -1500,7 +1501,9 @@ async function initializeDashboard(
         recordProvisionedWorktree: async info => {
             const target = getCurrentWorkspaceActionTarget(info.projectId);
             if (!target) {
-                return;
+                const error = new Error('The workspace is unavailable for manifest recording.');
+                (error as Error & { code?: string }).code = 'manifest-unavailable';
+                throw error;
             }
             const bucket = target.workspace.navigationIdentity;
             if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
@@ -1733,7 +1736,22 @@ async function initializeDashboard(
             && row.proposedPath === key.canonicalWorktreePath),
         confirm: (message, action) => vscode.window.showWarningMessage(
             message, { modal: true }, action),
-        refresh: async () => {
+        refresh: async removedKey => {
+            // Retire the manifest member before any snapshot/view refresh:
+            // the physical directory is already gone at this point, and a
+            // failed retirement must surface as a partial outcome instead of
+            // leaving a ghost group behind.
+            const workspace = getCurrentOpenWorkspace();
+            if (workspace) {
+                const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                    workspace.navigationIdentity, removedKey);
+                const member = group?.members.find(candidate => candidate.worktreeKey
+                    && worktreeKeysEqual(candidate.worktreeKey, removedKey));
+                if (group && member) {
+                    await worktreeGroupManifestStore.removeMember(
+                        workspace.navigationIdentity, group.groupId, member.memberId);
+                }
+            }
             await worktreeSnapshotCoordinator.refresh('managed-worktree-removed');
             const delivered = await provider.postMessage(
                 aiSessionDashboardController.getUpdatedMessage('managed-worktree-removed'));
@@ -2007,27 +2025,6 @@ async function initializeDashboard(
                     canonicalWorktreePath: request.worktreePath,
                 }
             );
-            if (outcome.kind === 'succeeded') {
-                // A physical removal must retire the manifest member as
-                // well, or the group row keeps a ghost "missing" member.
-                const target = getCurrentWorkspaceActionTarget(request.projectId);
-                const key = {
-                    repositoryKey: request.repositoryKey,
-                    canonicalWorktreePath: request.worktreePath,
-                };
-                const group = target && worktreeGroupManifestStore.findGroupByWorktreeKey(
-                    target.workspace.navigationIdentity, key);
-                const member = group?.members.find(candidate => candidate.worktreeKey
-                    && worktreeKeysEqual(candidate.worktreeKey, key));
-                if (target && group && member) {
-                    try {
-                        await worktreeGroupManifestStore.removeMember(
-                            target.workspace.navigationIdentity, group.groupId, member.memberId);
-                    } catch (error) {
-                        logError('Failed to retire a removed worktree group member.', error);
-                    }
-                }
-            }
             await provider.postMessage(
                 settledManagedWorktreeRemovalSettlement(request, outcome));
         },
@@ -2083,6 +2080,30 @@ async function initializeDashboard(
                 return;
             }
             void aiSessionDashboardController.refreshNow('worktree-groups-merged', {
+                fallbackToFullRefresh: false,
+            });
+        },
+        'set-worktree-group-primary': async (message: unknown) => {
+            const request = (message && typeof message === 'object')
+                ? message as { projectId?: unknown; groupId?: unknown; memberId?: unknown }
+                : {};
+            if (typeof request.projectId !== 'string'
+                || typeof request.groupId !== 'string' || !request.groupId
+                || typeof request.memberId !== 'string' || !request.memberId) {
+                return;
+            }
+            const target = getCurrentWorkspaceActionTarget(request.projectId);
+            if (!target) {
+                return;
+            }
+            try {
+                await worktreeGroupManifestStore.setPrimaryMember(
+                    target.workspace.navigationIdentity, request.groupId, request.memberId);
+            } catch (error) {
+                logError('Failed to set the worktree group primary member.', error);
+                return;
+            }
+            void aiSessionDashboardController.refreshNow('worktree-group-primary-changed', {
                 fallbackToFullRefresh: false,
             });
         },

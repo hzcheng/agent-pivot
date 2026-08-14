@@ -132,6 +132,54 @@ test('WORKTREE-GROUPS-003 recovery records migrate renamed branches with their o
         'the member records the branch as it actually is');
 });
 
+test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seeding until retried', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const content = snapshot([{
+        repositoryKey: '/alpha/.git',
+        rootBindings: [],
+        worktrees: [gitWorktree('/alpha/.git', '/alpha/.worktrees/fix-login', {
+            branchRef: 'refs/heads/agent-pivot/fix-login',
+        })],
+    }]);
+    const interruptedRecord = {
+        version: 1,
+        operationId: 'op-interrupted',
+        projectId: 'project',
+        providerId: 'codex',
+        setupCommand: ['npm', 'ci'],
+        plan: {
+            repositoryKey: '/alpha/.git', commandCwd: '/alpha/main',
+            baseRef: 'refs/heads/main', taskName: 'Fix login', slug: 'fix-login',
+            branchName: 'agent-pivot/fix-login',
+            worktreePath: '/alpha/.worktrees/fix-login',
+        },
+        completedSteps: ['worktree'],
+        worktreeKey: {
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+        },
+        row: {
+            kind: 'provisioning', operationId: 'op-interrupted', repositoryKey: '/alpha/.git',
+            taskName: 'Fix login', stage: 'setting-up', completedSteps: ['worktree'],
+            retryable: true, cancellable: true,
+        },
+    };
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        recoveryRecords: [interruptedRecord],
+    });
+    assert.equal(store.listGroups(WORKSPACE).length, 0,
+        'a worktree whose setup never finished must not become a ready group');
+
+    // Once the record completes (or is dismissed and the worktree is
+    // finished by hand), the next reconcile seeds it normally.
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        recoveryRecords: [{ ...interruptedRecord, completedSteps: ['worktree', 'setup'] }],
+    });
+    assert.equal(store.listGroups(WORKSPACE).length, 1);
+});
+
 test('WORKTREE-GROUPS-003 flags members detached when their repository leaves and re-attaches on return', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const withBoth = snapshot([{

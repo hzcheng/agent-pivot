@@ -152,12 +152,14 @@ export interface AiSessionCommandControllerOptions {
     getWorktreeSnapshot?: () => WorktreeSnapshot | null;
     /**
      * Authoritative manifest lookup (PRD §5.2): the other ready, non-detached
-     * member worktree paths of the group that owns the given worktree.
+     * member worktree keys of the group that owns the given worktree. Every
+     * returned key is revalidated against the live snapshot and the file
+     * system before it enters the session scope.
      */
-    getWorktreeGroupPeerPaths?: (
+    getWorktreeGroupPeerKeys?: (
         workspaceNavigationIdentity: string,
         key: WorktreeKey
-    ) => readonly string[] | null;
+    ) => readonly WorktreeKey[] | null;
     getActiveEditorUri?: () => ActiveEditorUri | string | null;
     isWorkspaceTrusted?: () => boolean;
     getProvider?: (
@@ -221,14 +223,43 @@ export class AiSessionCommandController {
                 requestedWorktreeKey,
             )
             : null;
-        if (creationWorktreeKey && (!worktreeAssignment
+        if (requestedWorktreeKey && (!worktreeAssignment
             || worktreeAssignment.worktree.isBare
             || worktreeAssignment.worktree.health === 'missing'
             || worktreeAssignment.worktree.health === 'prunable')) {
+            // Fail closed for creation AND resume (PRD §6.4): a session whose
+            // worktree is gone must never fall back to the main checkout —
+            // the agent would otherwise write outside its task boundary.
             this.options.showWarningMessage?.(
-                'The selected worktree is no longer available. Refresh the dashboard and try again.'
+                creationWorktreeKey
+                    ? 'The selected worktree is no longer available. Refresh the dashboard and try again.'
+                    : 'This session\'s worktree was deleted, so it cannot be resumed in place. Restore the worktree or start a new session.'
             );
             return null;
+        }
+        // Group peer members must revalidate against the live snapshot and
+        // the file system: the manifest's ready state is not updated when a
+        // physical worktree disappears, so an unchecked path could hand the
+        // agent a writable directory that no longer belongs to the task.
+        const peerKeys = requestedWorktreeKey && worktreeAssignment
+            ? this.options.getWorktreeGroupPeerKeys?.(
+                workspace.navigationIdentity, requestedWorktreeKey) || []
+            : [];
+        const extraWritableHostPaths: string[] = [];
+        for (const peerKey of peerKeys) {
+            const peerAssignment = assignPathToWorkspaceWorktree(
+                '', workspace, this.options.getWorktreeSnapshot?.(), peerKey);
+            const peerPath = peerKey.canonicalWorktreePath;
+            if (!peerAssignment
+                || peerAssignment.worktree.isBare
+                || peerAssignment.worktree.health !== 'normal'
+                || !this.options.isDirectory?.(peerPath)) {
+                this.options.showWarningMessage?.(
+                    'A member worktree of this group is no longer available. Refresh the dashboard and resolve the group before starting sessions in it.'
+                );
+                return null;
+            }
+            extraWritableHostPaths.push(peerPath);
         }
         const result = await preflightAiSessionDirectoryScope({
             workspace,
@@ -251,12 +282,7 @@ export class AiSessionCommandController {
                     // worktree, not just its cwd repository (PRD §5.5). The
                     // lookup covers both creation (group row quick-create)
                     // and resume (session carries its worktreeKey).
-                    ...(requestedWorktreeKey && this.options.getWorktreeGroupPeerPaths
-                        ? {
-                            extraWritableHostPaths: this.options.getWorktreeGroupPeerPaths(
-                                workspace.navigationIdentity, requestedWorktreeKey) || [],
-                        }
-                        : {}),
+                    extraWritableHostPaths,
                 },
             } : {}),
         });

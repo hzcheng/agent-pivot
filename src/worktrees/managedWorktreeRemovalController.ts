@@ -27,7 +27,7 @@ export interface ManagedWorktreeRemovalControllerOptions {
     isOpenWorkspace: (key: WorktreeKey) => boolean;
     isProvisioning: (key: WorktreeKey) => boolean;
     confirm: (message: string, action: string) => PromiseLike<string | undefined>;
-    refresh: () => Promise<void>;
+    refresh: (removedKey: WorktreeKey) => Promise<void>;
     runGit?: RunGitCommand;
     pathExists?: (candidatePath: string) => Promise<boolean>;
     canonicalizeExistingPath?: (candidatePath: string) => Promise<string>;
@@ -94,7 +94,7 @@ export class ManagedWorktreeRemovalController {
                 };
             }
             try {
-                await this.options.refresh();
+                await this.options.refresh(key);
             } catch (_error) {
                 return { kind: 'partial', errorCode: 'worktree-removed-refresh-failed' };
             }

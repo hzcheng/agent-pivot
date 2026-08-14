@@ -176,6 +176,24 @@ test('WORKTREE-GROUPS-003 awaits the manifest record before publishing success',
         '/repo/.worktrees/fix-login-race');
 });
 
+test('WORKTREE-GROUPS-003 a failed manifest write degrades success to a retryable partial', async () => {
+    const manifestError = new Error('manifest unavailable');
+    manifestError.code = 'manifest-unavailable';
+    const current = fixture({
+        recordProvisionedWorktree: async () => { throw manifestError; },
+    });
+
+    const outcome = await current.controller.start('request-manifest-fails', 'project');
+
+    assert.equal(outcome.kind, 'partial',
+        'a worktree whose manifest record never landed is not a success');
+    assert.equal(outcome.errorCode, 'manifest-unavailable');
+    assert.equal(current.settlements.at(-1).kind, 'partial');
+    assert.equal(current.publications.at(-1).rows.length, 1,
+        'the operation stays visible as a retryable row');
+    assert.equal(current.publications.at(-1).rows[0].retryable, true);
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

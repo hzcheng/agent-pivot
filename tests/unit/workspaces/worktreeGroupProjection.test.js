@@ -316,6 +316,30 @@ test('WORKTREE-GROUPS-002 failed or missing members push the group into attentio
         'detached members are informational, not attention');
 });
 
+test('WORKTREE-GROUPS-002 an unavailable primary disables creation instead of falling back', () => {
+    const { groups } = project({
+        groups: [group({
+            primaryMemberId: 'm-missing',
+            members: [
+                member('/alpha/.git', 'fix-login', {
+                    memberId: 'm-missing',
+                    worktreeKey: {
+                        repositoryKey: '/alpha/.git',
+                        canonicalWorktreePath: '/alpha/.worktrees/deleted-externally',
+                    },
+                    path: '/alpha/.worktrees/deleted-externally',
+                }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta' }),
+            ],
+        })],
+    });
+    assert.equal(groups[0].members.find(m => m.memberId === 'm-missing').status, 'missing');
+    assert.equal(groups[0].canCreateSession, false,
+        'the ready peer must not silently take over creation');
+    assert.equal(groups[0].needsPrimarySelection, true,
+        'the row must ask the user to choose a new primary');
+});
+
 test('WORKTREE-GROUPS-002 a group without a ready primary cannot create sessions', () => {
     const { groups } = project({
         groups: [group({

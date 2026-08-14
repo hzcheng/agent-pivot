@@ -36,6 +36,15 @@ export interface WorktreeProvisioningControllerOptions {
     publish: (revision: number, rows: readonly ProvisioningWorktreeRow[]) => void;
     checkpoint?: () => Promise<void>;
     onSettled?: (outcome: WorktreeProvisioningOutcome) => void | Promise<void>;
+    /**
+     * Awaited after the physical worktree is complete but before the
+     * operation is dropped and success publishes. When it throws, the
+     * operation degrades to a retryable partial instead of a false success
+     * (e.g. the authoritative manifest write failed).
+     */
+    finalizeSuccess?: (
+        outcome: WorktreeProvisioningOutcome & { kind: 'succeeded' }
+    ) => Promise<void>;
 }
 
 interface ProvisioningOperation {
@@ -231,10 +240,17 @@ export class WorktreeProvisioningController {
                 plan: { ...operation.plan },
             };
             operation.settledAttempt = attempt;
+            try {
+                // The group manifest record must land before the success
+                // settlement reaches the webview (PRD §9 "新建即写入"); a
+                // failed write keeps the operation as a retryable partial.
+                await this.options.finalizeSuccess?.(outcome);
+            } catch (error) {
+                return await this.partial(
+                    operation, getErrorCode(error), attempt, getRetryable(error));
+            }
             this.operations.delete(operation.operationId);
             this.publish();
-            // Awaited: the group manifest record must land before the success
-            // settlement reaches the webview (PRD §9 "新建即写入").
             await this.options.onSettled?.(outcome);
             return outcome;
         } catch (error) {

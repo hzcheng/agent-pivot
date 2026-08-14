@@ -315,6 +315,18 @@ function initProjectAiSessionControls(options) {
             });
             return true;
         }
+        var setPrimaryAction = target.closest(
+            '[data-action="set-group-primary"][data-group-id][data-member-id]'
+        );
+        if (setPrimaryAction) {
+            window.vscode.postMessage({
+                type: 'set-worktree-group-primary',
+                projectId: projectId,
+                groupId: setPrimaryAction.getAttribute('data-group-id'),
+                memberId: setPrimaryAction.getAttribute('data-member-id'),
+            });
+            return true;
+        }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
         if (worktreeToggle) {
             setAiSessionWorktreeGroupExpanded(

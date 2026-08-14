@@ -60,6 +60,14 @@ export async function reconcileWorktreeGroupManifest(
             const record = (options.recoveryRecords || []).find(candidate =>
                 candidate.plan.repositoryKey === worktree.key.repositoryKey
                 && candidate.plan.worktreePath === worktree.key.canonicalWorktreePath);
+            if (record && !isCompleteRecoveryRecord(record)) {
+                // The physical worktree exists but its setup never finished:
+                // the restored provisioning row owns the retry/dismiss flow,
+                // and a successful retry records the manifest through the
+                // finalize hook. Seeding it ready here would let users start
+                // sessions in a half-provisioned worktree.
+                continue;
+            }
             const managedBranch = branchRef.startsWith(MANAGED_BRANCH_PREFIX)
                 ? branchRef.slice(MANAGED_BRANCH_PREFIX.length)
                 : '';
@@ -94,4 +102,13 @@ export async function reconcileWorktreeGroupManifest(
             }
         }
     }
+}
+
+function isCompleteRecoveryRecord(record: PersistedWorktreeProvisioningOperation): boolean {
+    if (!record.completedSteps.includes('worktree')) {
+        return false;
+    }
+    // Setup only counts when the operation actually had one to run.
+    return record.setupCommand.length === 0
+        || record.completedSteps.includes('setup');
 }

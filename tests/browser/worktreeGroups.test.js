@@ -410,6 +410,42 @@ test('WORKTREE-GROUPS-UI-001 collapse state is keyed independently for anchor an
         'collapsing the anchor must not collapse an unrelated group');
 });
 
+test('WORKTREE-GROUPS-UI-001 an unavailable primary disables creation and offers an explicit replacement', async t => {
+    const page = await openSurfacePage(surface({
+        worktreeGroups: [groupRow({
+            canCreateSession: false,
+            needsPrimarySelection: true,
+            members: [
+                member({
+                    status: 'missing', isPrimary: true,
+                    path: '/alpha/.worktrees/gone',
+                    worktreeKey: undefined,
+                }),
+                member({
+                    memberId: 'm-2', repositoryKey: '/beta/.git', repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login', worktreeKey: betaLoginKey,
+                    isPrimary: false,
+                }),
+            ],
+            chips: [{ label: 'a', title: 'alpha' }, { label: 'b', title: 'beta' }],
+        })],
+    }), 320);
+    t.after(() => page.close());
+
+    const row = page.locator('.ai-session-worktree-task-group');
+    assert.equal(await row.locator('[data-action="create-ai-session-quick"]').count(), 0,
+        'quick create must not silently use a non-primary member');
+    assert.equal(await row.locator('.ai-session-worktree-more').count(), 0,
+        'the actions menu is disabled while the primary is unavailable');
+    const picker = row.locator('.ai-session-worktree-primary-picker');
+    assert.equal(await picker.count(), 1);
+    assert.match(await picker.textContent(), /primary/i);
+    const choice = picker.locator('[data-action="set-group-primary"]');
+    assert.equal(await choice.count(), 1);
+    assert.equal(await choice.getAttribute('data-member-id'), 'm-2',
+        'only ready members are offered as replacements');
+});
+
 test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list scroll position', async t => {
     const sessionHtml = surface({
         selectedSurface: 'worktree',

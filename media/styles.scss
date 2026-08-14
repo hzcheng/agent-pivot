@@ -3777,6 +3777,33 @@ body.steward-sidebar {
             font-size: 8px;
         }
 
+        .ai-session-worktree-primary-picker {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 7px 3px;
+        }
+
+        .ai-session-worktree-primary-hint {
+            color: var(--vscode-editorWarning-foreground);
+            font-size: 8px;
+        }
+
+        .ai-session-worktree-primary-choice {
+            padding: 0 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 3px;
+            background: transparent;
+            color: var(--vscode-foreground);
+            font-size: 8px;
+            cursor: pointer;
+
+            &:hover {
+                background: var(--vscode-list-hoverBackground);
+            }
+        }
+
         .ai-session-legacy-scope {
             color: var(--vscode-editorWarning-foreground);
         }

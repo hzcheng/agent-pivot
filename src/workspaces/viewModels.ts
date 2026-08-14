@@ -14,6 +14,8 @@ import type { OpenWorkspace } from './types';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import { worktreeKeysEqual } from '../worktrees/types';
 import { isWorkspaceHostPathContained } from './sessionAssignment';
+import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import { buildWorktreeGroupProjection } from './worktreeGroupProjection';
 
 export interface BuildWorkspaceAiSessionViewModelInput {
     workspace: OpenWorkspace;
@@ -33,6 +35,8 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     selectedSurface?: 'worktree' | 'chats';
     worktreeSnapshot?: WorktreeSnapshot | null;
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
+    /** Authoritative manifest bucket for this workspace (PRD §5.2). */
+    worktreeGroups?: readonly WorktreeGroup[];
 }
 
 export function buildWorkspaceAiSessionViewModel(
@@ -53,11 +57,16 @@ export function buildWorkspaceAiSessionViewModel(
     const activeSessions = input.activeSessions.map(cloneActiveSession);
     const allSessions: AiSessionViewModel[] = [];
     input.providers.forEach(provider => allSessions.push(...(sessionsByProvider[provider.id] || [])));
-    const worktrees = buildWorktreeRows(
+    const groupProjection = buildWorktreeGroupProjection({
+        workspace: input.workspace,
+        snapshot: input.worktreeSnapshot,
+        groups: input.worktreeGroups || [],
+        sessions: allSessions,
+        activeSessions,
+    });
+    const provisioningRows = visibleProvisioningRows(
         input.workspace,
         input.worktreeSnapshot,
-        allSessions,
-        activeSessions,
         input.provisioningWorktrees,
     );
     const selection = normalizeAiSessionProviderSelection({
@@ -90,7 +99,12 @@ export function buildWorkspaceAiSessionViewModel(
         activeSessions,
         activeSessionCount: activeSessions.length,
         activeAttentionCount: activeSessions.filter(session => session.needsAttention).length,
-        worktrees,
+        worktreeAnchor: groupProjection.anchor,
+        worktreeGroups: groupProjection.groups,
+        worktrees: [
+            ...provisioningRows,
+            ...groupProjection.unmanaged,
+        ],
         ...(input.worktreeSnapshot ? {
             worktreeRepositoryCount: input.worktreeSnapshot.repositories.length,
             bareWorktreeCount: input.worktreeSnapshot.repositories.reduce(
@@ -124,76 +138,23 @@ function cloneActiveSession(session: ActiveAiSessionViewModel): ActiveAiSessionV
     };
 }
 
-function buildWorktreeRows(
+function visibleProvisioningRows(
     workspace: OpenWorkspace,
     snapshot: WorktreeSnapshot | null | undefined,
-    sessions: readonly AiSessionViewModel[],
-    activeSessions: readonly ActiveAiSessionViewModel[],
     provisioningWorktrees: readonly ProvisioningWorktreeRow[] = [],
-): WorktreeRowViewModel[] {
+): ProvisioningWorktreeRow[] {
     if (!snapshot) {
         return [];
     }
     const workspaceRootIds = new Set(workspace.roots.map(root => root.id));
-    const rows: WorktreeRowViewModel[] = [];
-    snapshot.repositories
-        .filter(repository => repository.rootBindings.some(binding =>
-            workspaceRootIds.has(binding.workspaceRootId)))
-        .forEach(repository => repository.worktrees.forEach(worktree => {
-            const worktreeSessions = sessions
-                .filter(session => !!session.worktreeKey
-                    && worktreeKeysEqual(session.worktreeKey, worktree.key));
-            const liveSessions = activeSessions.filter(session => !!session.worktreeKey
-                && worktreeKeysEqual(session.worktreeKey, worktree.key));
-            const needsAttention = worktreeSessions.some(session => session.attention?.unread)
-                || liveSessions.some(session => session.needsAttention);
-            const liveOwnerAvailable = liveSessions.length > 0;
-            const usable = !worktree.isBare
-                && worktree.health !== 'missing'
-                && worktree.health !== 'prunable';
-            const openAsWorkspace = inputWorkspaceUsesWorktree(
-                workspace,
-                worktree.key.canonicalWorktreePath
-            );
-            rows.push({
-                kind: 'ready' as const,
-                git: {
-                    ...worktree,
-                    key: { ...worktree.key },
-                },
-                activity: needsAttention ? 'attention' as const
-                    : liveOwnerAvailable ? 'active' as const
-                        : 'idle' as const,
-                sessions: worktreeSessions,
-                authority: {
-                    canInput: liveOwnerAvailable,
-                    canFocus: liveOwnerAvailable,
-                    canStop: liveOwnerAvailable,
-                    canResume: usable,
-                    canArchive: worktreeSessions.length > 0,
-                    // Removal is offered for every usable linked worktree;
-                    // the host revalidates dirty, active, open, and
-                    // provisioning state before anything is deleted.
-                    canRemove: usable && !worktree.isMain,
-                    canTakeControl: false,
-                    liveOwnerAvailable,
-                },
-            });
-        }));
     const repositoryKeys = new Set(snapshot.repositories
         .filter(repository => repository.rootBindings.some(binding =>
             workspaceRootIds.has(binding.workspaceRootId)))
         .map(repository => repository.repositoryKey));
-    provisioningWorktrees
+    return provisioningWorktrees
         .filter(row => repositoryKeys.has(row.repositoryKey))
-        .forEach(row => rows.unshift({
+        .map(row => ({
             ...row,
             completedSteps: row.completedSteps.slice(),
         }));
-    return rows;
-}
-
-function inputWorkspaceUsesWorktree(workspace: OpenWorkspace, worktreePath: string): boolean {
-    return workspace.roots.some(root =>
-        isWorkspaceHostPathContained(worktreePath, root.hostPath));
 }

@@ -150,10 +150,15 @@ test('WORKTREE-PRESENTATION-001 defensively snapshots nested worktree identities
         '/repo/topic',
     );
     assert.equal(viewModel.activeSessions[0].worktreeKey.canonicalWorktreePath, '/repo/topic');
-    assert.equal(viewModel.worktrees[1].git.key.canonicalWorktreePath, '/repo/topic');
-    assert.equal(viewModel.worktrees[1].activity, 'active');
-    assert.equal(viewModel.worktrees.length, 3,
-        'a last-good snapshot from removed workspace roots must not leak stale repositories');
+    assert.equal(viewModel.worktrees[0].git.key.canonicalWorktreePath, '/repo/topic');
+    assert.equal(viewModel.worktrees[0].activity, 'active');
+    assert.equal(viewModel.worktrees.length, 1,
+        'unmanaged rows exclude main checkouts and claimed worktrees, and a last-good'
+        + ' snapshot from removed workspace roots must not leak stale repositories');
+    assert.deepEqual(
+        viewModel.worktreeAnchor.entries.map(entry => entry.repositoryLabel).sort(),
+        ['other', 'repo'],
+        'main checkouts collapse into the anchor row with repository labels');
 });
 
 test('WORKTREE-PROVISIONING-STATE-001 WORKTREE-PROVISIONING-UI-001 projects only workspace-owned provisioning rows defensively', () => {
@@ -203,8 +208,8 @@ test('WORKTREE-MANAGED-CLEANUP-001 exposes removal for usable linked worktrees a
 
     const main = build(WORKSPACE).worktrees.find(row =>
         row.kind === 'ready' && row.git.key.canonicalWorktreePath === '/repo/main');
-    assert.equal(main.authority.canRemove, false,
-        'the main checkout is never removable');
+    assert.equal(main, undefined,
+        'the main checkout is never a removable row; it collapses into the anchor');
     const topic = build(WORKSPACE).worktrees.find(row =>
         row.kind === 'ready' && row.git.key.canonicalWorktreePath === '/repo/topic');
     assert.equal(topic.authority.canRemove, true,

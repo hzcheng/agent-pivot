@@ -65,6 +65,65 @@ export interface ReadyWorktreeRow extends WorktreeViewModel {
 
 export type WorktreeRowViewModel = ProvisioningWorktreeRow | ReadyWorktreeRow;
 
+// ── Worktree Groups (docs/worktree-tasks-prd.md) ────────────────
+
+export type WorktreeGroupMemberStatus =
+  | 'ready'
+  | 'pending'
+  | 'failed'
+  | 'missing'
+  | 'detached';
+
+export interface WorktreeGroupMemberViewModel {
+    memberId: string;
+    repositoryKey: string;
+    /** Human repository label derived from the repository key. */
+    repositoryLabel: string;
+    branchName: string;
+    path: string;
+    status: WorktreeGroupMemberStatus;
+    errorCode?: string;
+    isPrimary: boolean;
+}
+
+export interface WorktreeRepositoryChip {
+    /** Shortest unique prefix among the visible repository labels. */
+    label: string;
+    /** Full repository label; the chip's accessible name. */
+    title: string;
+}
+
+export interface WorktreeGroupRowViewModel {
+    kind: 'group';
+    groupId: string;
+    displayName: string;
+    /** Stable branch short name shown when group display names collide. */
+    discriminator?: string;
+    activity: WorktreeActivity;
+    sessions: AiSessionViewModel[];
+    members: WorktreeGroupMemberViewModel[];
+    chips: WorktreeRepositoryChip[];
+    hasDetachedMembers: boolean;
+    /** No ready primary member: the row must ask for a primary selection. */
+    needsPrimarySelection: boolean;
+    /** At least one ready member exists, so sessions can be launched. */
+    canCreateSession: boolean;
+    /** Other visible groups sharing this group's suggested slug (merge hint). */
+    mergeCandidateGroupIds: string[];
+}
+
+export interface WorktreeAnchorEntry {
+    repositoryLabel: string;
+    branch: string;
+}
+
+/** The single collapsed row anchoring sessions that run in main checkouts. */
+export interface WorktreeAnchorViewModel {
+    entries: WorktreeAnchorEntry[];
+    sessions: AiSessionViewModel[];
+    activity: WorktreeActivity;
+}
+
 export interface WorktreeQuickCreatePreferences {
     provider: AiSessionProviderId;
     profile?: string;
@@ -255,6 +314,11 @@ export interface WorkspaceAiSessionViewModel {
     activeSessions: ActiveAiSessionViewModel[];
     activeSessionCount: number;
     activeAttentionCount: number;
+    /** Collapsed main-checkout anchor row (PRD §4); sessions run in main checkouts. */
+    worktreeAnchor?: WorktreeAnchorViewModel;
+    /** Manifest-backed worktree group rows (authoritative grouping). */
+    worktreeGroups?: WorktreeGroupRowViewModel[];
+    /** Provisioning + unclaimed ready rows (rendered as the Unmanaged section). */
     worktrees: WorktreeRowViewModel[];
     worktreeRepositoryCount?: number;
     bareWorktreeCount?: number;

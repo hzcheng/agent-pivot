@@ -67,11 +67,13 @@ export function buildWorktreeGroupProjection(
     const anchorSessions: AiSessionViewModel[] = [];
     const anchorLive: ActiveAiSessionViewModel[] = [];
     const anchorEntries: { repositoryLabel: string; branch: string }[] = [];
+    const anchorKeys: WorktreeKey[] = [];
     for (const repository of repositories) {
         for (const worktree of repository.worktrees) {
             if (!worktree.isMain || worktree.isBare) {
                 continue;
             }
+            anchorKeys.push({ ...worktree.key });
             anchorEntries.push({
                 repositoryLabel: repositoryLabels.get(repository.repositoryKey) || 'repository',
                 branch: shortBranchName(worktree),
@@ -82,6 +84,7 @@ export function buildWorktreeGroupProjection(
     }
     const anchor: WorktreeAnchorViewModel = {
         entries: anchorEntries,
+        worktreeKeys: anchorKeys,
         sessions: anchorSessions,
         activity: aggregateActivity(anchorSessions, anchorLive),
     };
@@ -106,6 +109,7 @@ export function buildWorktreeGroupProjection(
                 repositoryKey: member.repositoryKey,
                 repositoryLabel: repositoryLabels.get(member.repositoryKey)
                     || fallbackRepositoryLabel(member.repositoryKey),
+                ...(member.worktreeKey ? { worktreeKey: { ...member.worktreeKey } } : {}),
                 branchName: member.branchName,
                 path: member.path,
                 status: memberStatus(member, visible?.worktree),

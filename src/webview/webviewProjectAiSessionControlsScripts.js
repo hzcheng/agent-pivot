@@ -304,6 +304,17 @@ function initProjectAiSessionControls(options) {
             toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);
             return true;
         }
+        var mergeGroupsAction = target.closest(
+            '[data-action="merge-worktree-groups"][data-group-id]'
+        );
+        if (mergeGroupsAction) {
+            window.vscode.postMessage({
+                type: 'merge-worktree-groups',
+                projectId: projectId,
+                sourceGroupId: mergeGroupsAction.getAttribute('data-group-id'),
+            });
+            return true;
+        }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
         if (worktreeToggle) {
             setAiSessionWorktreeGroupExpanded(

@@ -4181,16 +4181,75 @@
   {
     "id": "SESSION-WORKTREE-SCOPE-001",
     "domain": "session",
-    "title": "Worktree session scope replaces only the selected repository roots while preserving workspace ownership roots",
+    "title": "Worktree session scope confines writable roots to the bound repository worktrees, marks strict isolation, and preserves workspace ownership roots",
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/unit/workspaces/sessionScope.test.js"
+      "tests/unit/workspaces/sessionScope.test.js",
+      "tests/contract/aiSessions/runtimePrimitives.test.js"
     ],
     "evidence": [
       "src/workspaces/sessionScope.ts",
+      "src/aiSessions/runtimeTypes.ts",
       "src/workspaces/types.ts",
       "src/worktrees/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-001",
+    "domain": "persistence",
+    "title": "The worktree group manifest is the only authoritative grouping record, enforces one group per worktree key and one member per repository, and removes empty groups",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupManifestStore.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupManifestStore.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-002",
+    "domain": "session",
+    "title": "The worktree group projection collapses main checkouts into one labeled anchor row, groups manifest worktrees into single rows with shortest-unique-prefix repository chips, and never merges same-slug groups silently",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeGroupProjection.test.js"
+    ],
+    "evidence": [
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/workspaces/viewModels.ts",
+      "src/aiSessions/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-003",
+    "domain": "session",
+    "title": "Snapshot reconciliation seeds extension-created worktrees as one-worktree groups without cross-repository slug merging and tracks repository detachment idempotently",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupManifestReconciliation.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupManifestReconciliation.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-UI-001",
+    "domain": "webview",
+    "title": "The Worktree surface renders the Current anchor row without actions, group rows with chips and merge affordances, legacy-scope badges, and stays usable at the minimum sidebar width",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "media/styles.scss"
     ]
   },
   {

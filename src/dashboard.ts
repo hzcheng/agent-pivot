@@ -2001,7 +2001,7 @@ async function initializeDashboard(
             if (candidates.length === 0) {
                 return;
             }
-            interface MergePick extends vscode.QuickPickItem { groupId: string }
+            type MergePick = vscode.QuickPickItem & { groupId: string };
             const picks: MergePick[] = candidates.map(group => ({
                 label: group.displayName,
                 description: group.members.map(member => member.branchName).join(' · '),

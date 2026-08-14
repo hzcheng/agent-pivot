@@ -11,6 +11,8 @@ import type {
     AiSessionTabId,
     AiSessionViewModel,
     ReadyWorktreeRow,
+    WorktreeAnchorViewModel,
+    WorktreeGroupRowViewModel,
     WorktreeRowViewModel,
 } from '../aiSessions/types';
 import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees/types';
@@ -71,6 +73,10 @@ export interface AiSessionSurfaceViewModel {
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
     worktrees?: WorktreeRowViewModel[];
+    /** Collapsed main-checkout anchor row (PRD §4). */
+    worktreeAnchor?: WorktreeAnchorViewModel;
+    /** Manifest-backed worktree group rows (authoritative grouping). */
+    worktreeGroups?: WorktreeGroupRowViewModel[];
     worktreeSnapshotRevision?: number;
     worktreeRepositoryCount?: number;
     bareWorktreeCount?: number;
@@ -110,6 +116,10 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         claudeSessionsUnavailable: unavailable.has('claude'),
         activeAiSessions: aiSessions.activeSessions.slice(),
         worktrees: (aiSessions.worktrees || []).slice(),
+        ...(aiSessions.worktreeAnchor ? { worktreeAnchor: aiSessions.worktreeAnchor } : {}),
+        ...(aiSessions.worktreeGroups
+            ? { worktreeGroups: aiSessions.worktreeGroups.slice() }
+            : {}),
         worktreeSnapshotRevision: aiSessions.worktreeSnapshotRevision,
         worktreeRepositoryCount: aiSessions.worktreeRepositoryCount,
         bareWorktreeCount: aiSessions.bareWorktreeCount,
@@ -223,7 +233,16 @@ function getWorktreeSurfacePanel(
             createIsolatedDisabled
         )
         : '';
+    const anchorHtml = project.worktreeAnchor && project.worktreeAnchor.entries.length
+        ? getWorktreeAnchorHtml(project.worktreeAnchor, entries)
+        : '';
+    const groupRowsHtml = (project.worktreeGroups || []).length
+        ? getWorktreeGroupRowsHtml(
+            project.worktreeGroups || [], entries, quickCreateProvider, quickCreateProfile,
+        )
+        : '';
     const empty = typeof project.worktreeSnapshotRevision === 'number' && !worktrees.length
+        && !(project.worktreeGroups || []).length
         ? `<div class="ai-session-worktree-empty-state" role="status">${
             (project.worktreeRepositoryCount || 0) === 0
                 ? 'No git repository found in this workspace.'
@@ -236,7 +255,7 @@ function getWorktreeSurfacePanel(
         ? `<div class="ai-session-worktree-truncated" role="status">${project.truncatedWorktreeCount} more worktrees not shown</div>`
         : '';
     return `<div id="ai-session-worktree-${projectId}" class="ai-session-surface-panel ai-session-worktree-surface" role="tabpanel" data-ai-session-surface-panel="worktree" aria-labelledby="ai-session-surface-worktree-tab-${projectId}"${selectedSurface === 'worktree' ? '' : ' hidden'}>
-        <div class="ai-session-worktree-list">${provisioningRows}${groups}${empty}${truncated}</div>
+        <div class="ai-session-worktree-list">${anchorHtml}${groupRowsHtml}${provisioningRows}${groups}${empty}${truncated}</div>
     </div>`;
 }
 
@@ -667,6 +686,118 @@ function getWorktreeGroupHtml(
     </section>`;
 }
 
+/**
+ * The Current anchor row (PRD §4): one permanently single-line top-level row
+ * collecting sessions that run in the main checkouts. It is not a managed
+ * worktree — no actions menu, no removal — and shows each repository's
+ * actually checked-out branch with its repository label.
+ */
+function getWorktreeAnchorHtml(
+    anchor: WorktreeAnchorViewModel,
+    entries: readonly WorktreeSessionRenderEntry[],
+): string {
+    const keys = anchor.worktreeKeys || [];
+    const matched = entries.filter(entry => keys.some(key =>
+        worktreeKeysEqual(entry.worktreeKey, key)));
+    const summary = anchor.entries
+        .map(entry => `${entry.repositoryLabel}: ${entry.branch}`)
+        .join(' · ');
+    const count = matched.length;
+    const activity = anchor.activity === 'attention' ? 'needs attention'
+        : anchor.activity === 'active' ? 'active' : 'idle';
+    const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
+    const ariaLabel = `Current, ${summary}, ${sessionLabel}, ${activity}`;
+    return `<section class="ai-session-worktree-group ai-session-worktree-anchor" data-worktree-anchor data-worktree-activity="${anchor.activity}">
+        <div class="ai-session-worktree-toolbar">
+            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
+                <span class="ai-session-worktree-indicator" aria-hidden="true">${anchor.activity === 'idle' ? '○' : '●'}</span>
+                <span class="ai-session-worktree-title">Current</span>
+                <span class="ai-session-worktree-anchor-branches">${escapeAttribute(summary)}</span>
+                <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
+                <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
+            </button>
+        </div>
+        <div class="ai-session-worktree-session-list">${matched.length
+            ? matched.map(entry => entry.html).join('\n')
+            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}</div>
+    </section>`;
+}
+
+function getWorktreeGroupRowsHtml(
+    groups: readonly WorktreeGroupRowViewModel[],
+    entries: readonly WorktreeSessionRenderEntry[],
+    quickCreateProvider: AiSessionProviderId,
+    quickCreateProfile: string,
+): string {
+    return groups
+        .map((group, index) => getWorktreeGroupRowHtml(
+            group, entries, index, quickCreateProvider, quickCreateProfile))
+        .join('\n');
+}
+
+/**
+ * One manifest-backed worktree group row (PRD §10): display name plus
+ * repository chips, sessions aggregated across members as the primary
+ * content, and a secondary member summary line.
+ */
+function getWorktreeGroupRowHtml(
+    group: WorktreeGroupRowViewModel,
+    entries: readonly WorktreeSessionRenderEntry[],
+    groupOrder: number,
+    quickCreateProvider: AiSessionProviderId,
+    quickCreateProfile: string,
+): string {
+    const memberKeys = group.members
+        .filter(member => !!member.worktreeKey)
+        .map(member => member.worktreeKey) as WorktreeKey[];
+    const matched = entries.filter(entry => memberKeys.some(key =>
+        worktreeKeysEqual(entry.worktreeKey, key)));
+    const name = group.displayName;
+    const count = matched.length;
+    const activity = group.activity === 'attention' ? 'needs attention'
+        : group.activity === 'active' ? 'active' : 'idle';
+    const discriminator = group.discriminator
+        ? `<span class="ai-session-worktree-discriminator">${escapeAttribute(group.discriminator)}</span>`
+        : '';
+    const chips = group.chips.map(chip =>
+        `<span class="ai-session-repo-chip" role="note" aria-label="${escapeAttribute(chip.title)}" data-tooltip="${escapeAttribute(chip.title)}">${escapeAttribute(chip.label)}</span>`
+    ).join('');
+    const primary = group.members.find(member => member.isPrimary && member.status === 'ready')
+        || group.members.find(member => member.status === 'ready');
+    const providerLabel = getAiProviderLabel(quickCreateProvider);
+    const quickLabel = quickCreateProfile
+        ? `New ${providerLabel} session in ${name} with profile ${quickCreateProfile}`
+        : `New ${providerLabel} session in ${name}`;
+    const quickCreate = group.canCreateSession && primary?.worktreeKey
+        ? `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickLabel)}" data-tooltip="${escapeAttribute(quickLabel)}">${Icons.add}</button>`
+        : '';
+    const merge = group.mergeCandidateGroupIds.length
+        ? `<button type="button" class="ai-session-worktree-merge" data-action="merge-worktree-groups" data-group-id="${escapeAttribute(group.groupId)}" aria-label="Merge ${escapeAttribute(name)} with another group" data-tooltip="Merge with another group…">${Icons.foldAll}</button>`
+        : '';
+    const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
+    const ariaLabel = `${name}, ${sessionLabel}, ${activity}`;
+    const memberNames = group.members.map(member => member.repositoryLabel).join(', ');
+    const memberSummary = `<div class="ai-session-worktree-member-summary" role="note">${group.members.length} worktree${group.members.length === 1 ? '' : 's'} · ${escapeAttribute(memberNames)}</div>`;
+    const primaryAttributes = primary?.worktreeKey
+        ? ` data-worktree-repository-key="${escapeAttribute(primary.worktreeKey.repositoryKey)}" data-worktree-path="${escapeAttribute(primary.worktreeKey.canonicalWorktreePath)}"`
+        : '';
+    return `<section class="ai-session-worktree-group ai-session-worktree-task-group" data-group-id="${escapeAttribute(group.groupId)}" data-worktree-activity="${group.activity}"${primaryAttributes} style="order: ${groupOrder}">
+        <div class="ai-session-worktree-toolbar">
+            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
+                <span class="ai-session-worktree-indicator" aria-hidden="true">${group.activity === 'idle' ? '○' : '●'}</span>
+                <span class="ai-session-worktree-title">${escapeAttribute(name)}</span>
+                ${discriminator}${chips}
+                <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
+                <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
+            </button>
+            ${quickCreate}${merge}
+        </div>
+        <div class="ai-session-worktree-session-list">${matched.length
+            ? matched.map(entry => entry.html).join('\n')
+            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}</div>
+    </section>`;
+}
+
 function getUnmanagedWorktreeGroupHtml(
     entries: readonly WorktreeSessionRenderEntry[],
     groupOrder: number,
@@ -804,7 +935,10 @@ function getActiveAiSessionRow(
     var staleStatus = model.stale
         ? '<span class="ai-session-stale-status" title="Runtime status is stale">stale</span>'
         : '';
-    var metadata = [executionStatus, staleStatus, runtimeStatusLabel, createdAt, shortSessionId].filter(Boolean).join(' · ');
+    var legacyScopeBadge = model.legacyScope
+        ? '<span class="ai-session-legacy-scope" title="Runs with the pre-isolation workspace scope; restart the session to confine it to its worktree." aria-label="Legacy workspace scope">legacy scope</span>'
+        : '';
+    var metadata = [executionStatus, staleStatus, legacyScopeBadge, runtimeStatusLabel, createdAt, shortSessionId].filter(Boolean).join(' · ');
     var attentionIndicator = model.needsAttention
         ? '<span class="ai-session-attention-indicator" title="AI session needs attention" aria-label="AI session needs attention"></span>'
         : '';

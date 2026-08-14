@@ -190,13 +190,6 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-00
         sessions: row.sessions.map(item => item.id),
         authority: row.authority,
     })), [{
-        kind: 'ready', path: '/work', activity: 'attention', sessions: ['session-a'],
-        authority: {
-            canInput: true, canFocus: true, canStop: true, canResume: true,
-            canArchive: true, canRemove: false,
-            canTakeControl: false, liveOwnerAvailable: true,
-        },
-    }, {
         kind: 'ready', path: '/work-topic', activity: 'idle',
         sessions: ['session-topic-tools', 'session-topic'],
         authority: {
@@ -204,7 +197,18 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-00
             canArchive: true, canRemove: true,
             canTakeControl: false, liveOwnerAvailable: false,
         },
-    }]);
+    }], 'unmanaged rows exclude the main checkout and manifest-claimed worktrees');
+    assert.deepEqual({
+        entries: hydrated.worktreeAnchor.entries,
+        activity: hydrated.worktreeAnchor.activity,
+        sessions: hydrated.worktreeAnchor.sessions.map(item => item.id),
+    }, {
+        entries: [{ repositoryLabel: 'repo', branch: 'main' }],
+        activity: 'attention',
+        sessions: ['session-a'],
+    }, 'the main checkout collapses into the anchor with its live sessions');
+    assert.deepEqual(hydrated.worktreeGroups, [],
+        'no manifest records means no group rows');
     assert.deepEqual(hydrated.unmanagedSessions, []);
     assert.deepEqual(hydrated.unmanagedActiveSessions, []);
     assert.deepEqual(hydrated.activeSessions.map(item => ({
@@ -336,7 +340,9 @@ test('SESSION-WORKTREE-ASSIGNMENT-001 preserves legacy history and active runtim
         path: row.git.key.canonicalWorktreePath,
         activity: row.activity,
         sessions: row.sessions.length,
-    })), [{ path: '/replacement/main', activity: 'idle', sessions: 0 }]);
+    })), [], 'the main checkout is anchored, never listed as a manageable row');
+    assert.deepEqual(hydrated.worktreeAnchor.entries,
+        [{ repositoryLabel: 'replacement', branch: '44444444' }]);
 });
 
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 hydration consumes the captured presentation without recomputing it', () => {

@@ -81,6 +81,8 @@ export interface WorktreeGroupMemberViewModel {
     repositoryKey: string;
     /** Human repository label derived from the repository key. */
     repositoryLabel: string;
+    /** Physical worktree identity; present for members with a created worktree. */
+    worktreeKey?: WorktreeKey;
     branchName: string;
     path: string;
     status: WorktreeGroupMemberStatus;
@@ -122,6 +124,8 @@ export interface WorktreeAnchorEntry {
 /** The single collapsed row anchoring sessions that run in main checkouts. */
 export interface WorktreeAnchorViewModel {
     entries: WorktreeAnchorEntry[];
+    /** Main-checkout worktree keys, used to attribute live sessions. */
+    worktreeKeys: WorktreeKey[];
     sessions: AiSessionViewModel[];
     activity: WorktreeActivity;
 }

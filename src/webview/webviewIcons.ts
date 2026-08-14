@@ -1,6 +1,22 @@
 // This way to include SVGs was much easier to include than as file
 
 // Original Author: Jason Long, Source: https://commons.wikimedia.org/wiki/File:Git_.svg
+export const foldAll = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m6 10 6-6 6 6"></path>
+    <path d="m6 15.5 6-6 6 6"></path>
+    <path d="M5 21h14"></path>
+</svg>
+`;
+
+export const unfoldAll = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 3h14"></path>
+    <path d="m6 14.5 6 6 6-6"></path>
+    <path d="m6 9 6 6 6-6"></path>
+</svg>
+`;
+
 export const moreActions = `
 <svg viewBox="0 0 24 24" fill="currentColor">
     <circle cx="5" cy="12" r="1.8"></circle>

@@ -110,6 +110,35 @@ function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
         '.ai-session-worktree-group[data-worktree-collapsed]'
     )).map(getAiSessionWorktreeGroupKey)));
     vscodeApi.setState(Object.assign({}, state, { aiSessionCollapsedWorktrees: projects }));
+    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+}
+
+// The collapse-all affordance acts like every group toggle at once: any
+// expanded group collapses everything, otherwise everything expands.
+function toggleAllAiSessionWorktrees(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return;
+    var groups = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'));
+    if (!groups.length) return;
+    var anyExpanded = groups.some(group => !group.hasAttribute('data-worktree-collapsed'));
+    groups.forEach(group => {
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !anyExpanded
+        );
+    });
+    writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+}
+
+function syncAiSessionWorktreeCollapseAllButton(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return;
+    var button = projectDiv.querySelector('[data-action="toggle-all-ai-session-worktrees"]');
+    if (!button) return;
+    var anyExpanded = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
+        .some(group => !group.hasAttribute('data-worktree-collapsed'));
+    button.setAttribute('data-collapse-all-state', anyExpanded ? 'expanded' : 'collapsed');
+    var label = anyExpanded ? 'Collapse all worktrees' : 'Expand all worktrees';
+    button.setAttribute('aria-label', label);
+    button.setAttribute('data-tooltip', label);
 }
 
 function setAiSessionWorktreeExpanded(header, expanded) {
@@ -149,6 +178,7 @@ function restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi) {
             !collapsed.has(getAiSessionWorktreeGroupKey(group))
         );
     });
+    syncAiSessionWorktreeCollapseAllButton(projectDiv);
 }
 
 function parseAiSessionConversationFocusOrigin(message) {

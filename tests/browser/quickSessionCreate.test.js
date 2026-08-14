@@ -640,6 +640,70 @@ test('WORKTREE-GROUPING-UI-001 revealing a plain session lands on Chats active',
     );
 });
 
+test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at once', async t => {
+    const firstKey = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-feature' };
+    const secondKey = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-backend' };
+    const worktree = (key, branchRef) => ({
+        kind: 'ready',
+        git: {
+            key, branchRef, head: 'a'.repeat(40),
+            isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+        },
+        activity: 'active',
+        sessions: [],
+        authority: { canResume: true },
+    });
+    const page = await openQuickCreatePage(t, {
+        activeAiSessions: [
+            {
+                key: 'codex:feature-session', provider: 'codex', sessionId: 'feature-session',
+                name: 'Feature session', executionState: 'running', backend: 'vscode',
+                attached: true, worktreeKey: firstKey,
+            },
+            {
+                key: 'codex:backend-session', provider: 'codex', sessionId: 'backend-session',
+                name: 'Backend session', executionState: 'running', backend: 'vscode',
+                attached: true, worktreeKey: secondKey,
+            },
+        ],
+        worktrees: [
+            worktree(firstKey, 'refs/heads/feature/auth'),
+            worktree(secondKey, 'refs/heads/feature/backend'),
+        ],
+    });
+    const project = page.locator('.project[data-id="project-a"]');
+    const toggleAll = project.locator('[data-action="toggle-all-ai-session-worktrees"]');
+    const rows = project.locator('.ai-session-worktree-group .codex-session-row');
+
+    assert.equal(await toggleAll.count(), 1, 'the surface bar owns the collapse-all button');
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
+    assert.equal(await rows.first().isVisible(), true);
+
+    await toggleAll.click();
+    assert.equal(await rows.first().isVisible(), false, 'collapse-all hides every group');
+    assert.equal(await toggleAll.getAttribute('data-collapse-all-state'), 'collapsed');
+    assert.equal(await toggleAll.getAttribute('aria-label'), 'Expand all worktrees');
+
+    await toggleAll.click();
+    assert.equal(await rows.first().isVisible(), true, 'expand-all restores every group');
+    assert.equal(await toggleAll.getAttribute('aria-label'), 'Collapse all worktrees');
+
+    // A mixed state collapses everything first, matching group-toggle intuition.
+    await page.evaluate(() => {
+        const projectDiv = document.querySelector('.project[data-id="project-a"]');
+        setAiSessionWorktreeGroupExpanded(
+            projectDiv,
+            projectDiv.querySelectorAll('.ai-session-worktree-group')[0],
+            false
+        );
+    });
+    await toggleAll.click();
+    assert.equal(await rows.first().isVisible(), false,
+        'one expanded group left means collapse-all still collapses the rest');
+});
+
 test('WORKTREE-GROUPING-UI-001 selecting a surface reports it for authoritative re-renders', async t => {
     const page = await openQuickCreatePage(t);
     const project = page.locator('.project[data-id="project-a"]');

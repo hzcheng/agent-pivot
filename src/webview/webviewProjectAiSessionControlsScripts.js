@@ -282,6 +282,13 @@ function initProjectAiSessionControls(options) {
             );
             return true;
         }
+        var worktreeCollapseAllAction = target.closest(
+            '[data-action="toggle-all-ai-session-worktrees"]'
+        );
+        if (worktreeCollapseAllAction) {
+            toggleAllAiSessionWorktrees(projectDiv);
+            return true;
+        }
         var worktreeMenuAction = target.closest('[data-action="ai-session-worktree-menu"]');
         if (worktreeMenuAction) {
             toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);

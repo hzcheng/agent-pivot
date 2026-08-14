@@ -153,6 +153,9 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
             ${getAiSessionSurfaceTabButton(project.id, 'worktree', 'WORKTREE', selectedSurface)}
             ${getAiSessionSurfaceTabButton(project.id, 'chats', 'CHATS', selectedSurface)}
         </div>
+        ${getReadyWorktrees(project.worktrees).length
+            ? `<button type="button" class="ai-session-worktree-collapse-all" data-action="toggle-all-ai-session-worktrees" data-collapse-all-state="expanded" aria-label="Collapse all worktrees" data-tooltip="Collapse all worktrees"><span class="ai-session-worktree-collapse-all-icon" data-icon="collapse">${Icons.foldAll}</span><span class="ai-session-worktree-collapse-all-icon" data-icon="expand">${Icons.unfoldAll}</span></button>`
+            : ''}
         <button type="button" class="ai-session-create-isolated-button" data-action="create-isolated-session" aria-label="New worktree" data-tooltip="New worktree"${provisioningWorktrees.some(row => row.stage !== 'failed') ? ' disabled' : ''}>${Icons.gitBranchAdd}</button>
     </div>
     ${getWorktreeSurfacePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, selectedSurface, provisioningWorktrees)}

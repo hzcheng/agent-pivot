@@ -3298,6 +3298,50 @@ body.steward-sidebar {
             }
         }
 
+        .ai-session-worktree-collapse-all {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            min-height: 24px;
+            padding: 3px;
+            border: 1px solid transparent;
+            border-radius: 5px;
+            color: var(--vscode-descriptionForeground);
+            background: transparent;
+            cursor: pointer;
+
+            svg {
+                width: 13px;
+                height: 13px;
+            }
+
+            &:hover,
+            &:focus-visible {
+                color: var(--steward-foreground);
+                background: var(--vscode-list-hoverBackground);
+            }
+
+            [data-icon="expand"] {
+                display: none;
+            }
+
+            &[data-collapse-all-state="collapsed"] {
+                [data-icon="collapse"] {
+                    display: none;
+                }
+
+                [data-icon="expand"] {
+                    display: inline-flex;
+                }
+            }
+        }
+
+        // Collapsing worktrees only means something on the Worktree surface.
+        .codex-sessions[data-selected-ai-session-surface="chats"] .ai-session-worktree-collapse-all {
+            display: none;
+        }
+
         .ai-session-surface-tabs {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -145,9 +145,13 @@ export class WorktreeProvisioningController {
             }
             this.operations.set(operation.operationId, operation);
         }
-        if (this.operations.size) {
-            this.publish();
-        }
+        // Restore never publishes: it runs inside the constructor while the
+        // dashboard composition is not yet initialized. The owner calls
+        // publishNow once composition has settled.
+    }
+
+    publishNow(): void {
+        this.publish();
     }
 
     getRecoveryOperations(): WorktreeProvisioningRecoveryOperation[] {

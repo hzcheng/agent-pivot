@@ -271,6 +271,13 @@ export class IsolatedSessionController {
         return this.provisioning.getRows();
     }
 
+    /** Publishes rows restored at construction once composition has settled. */
+    publishRestoredRows(): void {
+        if (this.provisioning.getRows().length) {
+            this.provisioning.publishNow();
+        }
+    }
+
     getRevision(): number {
         return this.provisioning.getRevision();
     }

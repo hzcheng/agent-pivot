@@ -2136,6 +2136,9 @@ async function initializeDashboard(
     } else {
         void worktreeSnapshotCoordinator.start();
     }
+    // Restored provisioning rows were held back during construction; publish
+    // them only now that every controller they refresh is initialized.
+    isolatedSessionController?.publishRestoredRows();
     const buildCurrentAttentionQueue = (): AttentionQueue => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         let workspace: AttentionQueueWorkspace | null = null;

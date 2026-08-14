@@ -419,3 +419,37 @@ test('RUNTIME-WORKTREE-IDENTITY-001 validates and clones linked-worktree runtime
         worktreeKey: { ...identity.worktreeKey, canonicalWorktreePath: 'relative/path' },
     }), false);
 });
+
+test('SESSION-WORKTREE-SCOPE-001 isolatedRoots round-trips through persistence and marks strict isolation', () => {
+    const identity = {
+        provider: 'codex',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        isolatedRoots: true,
+        cwd: '/managed/frontend-feature/packages/web',
+        sessionId: 'session-worktree',
+    };
+
+    assert.equal(runtimeTypes.isValidAiSessionRuntimeIdentity(identity), true,
+        'a strictly isolated identity is valid without any main-checkout writable root');
+    const persisted = runtimeTypes.getAiSessionRuntimeIdentityPersistenceFields(identity);
+    assert.equal(persisted.version, 3);
+    assert.deepEqual(persisted.writableRootHostPaths, ['/managed/frontend-feature']);
+    assert.equal(persisted.isolatedRoots, true);
+    const clone = runtimeTypes.cloneAiSessionRuntimeIdentity(identity);
+    assert.equal(clone.isolatedRoots, true);
+
+    // Identities persisted before strict isolation lack the marker: they are
+    // the legacy-scope sessions the UI flags until restart.
+    const legacy = { ...identity };
+    delete legacy.isolatedRoots;
+    assert.equal(runtimeTypes.isValidAiSessionRuntimeIdentity(legacy), true);
+    assert.equal(runtimeTypes.getAiSessionRuntimeIdentityPersistenceFields(legacy)
+        .isolatedRoots, undefined);
+});

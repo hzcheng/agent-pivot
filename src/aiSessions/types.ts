@@ -34,6 +34,8 @@ export interface AiSessionDirectoryScope {
     workspaceRootHostPaths: string[];
     writableRootHostPaths?: string[];
     worktreeKey?: WorktreeKey;
+    /** Strict worktree isolation: writable roots cover member worktrees only. */
+    isolatedRoots?: boolean;
     primaryRootId: string;
     primaryCwd: string;
     additionalDirectories: string[];
@@ -177,6 +179,11 @@ export interface ActiveAiSessionViewModel {
     primaryRootLabel?: string;
     outsideWorkspace?: boolean;
     worktreeKey?: WorktreeKey;
+    /**
+     * Running pre-isolation worktree session (PRD §5.5): its writable roots
+     * still include non-member main checkouts until it is restarted.
+     */
+    legacyScope?: boolean;
 }
 
 export interface AiSessionReadResult {

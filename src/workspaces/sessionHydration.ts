@@ -288,6 +288,11 @@ function buildActiveSessions<TTerminal>(input: {
                     : {}),
                 ...rootMetadata(root),
                 ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
+                // Pre-isolation worktree runtimes keep their wider writable
+                // roots until restarted (PRD §5.5 legacy marker).
+                ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
+                    ? { legacyScope: true }
+                    : {}),
                 activityMs: finiteNumber(runtime.runStartedAtMs),
                 sourceOrder,
             };
@@ -327,6 +332,9 @@ function buildActiveSessions<TTerminal>(input: {
             createdAt: runtime.createdAt,
             ...rootMetadata(root),
             ...(worktree ? { worktreeKey: { ...worktree.worktree.key } } : {}),
+            ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
+                ? { legacyScope: true }
+                : {}),
             activityMs: timestamp(runtime.createdAt),
             sourceOrder: active.length + sourceOrder,
         };

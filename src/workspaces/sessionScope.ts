@@ -196,9 +196,15 @@ export function buildAiSessionDirectoryScope(
     const additionalDirectories = workspaceRootHostPaths.filter(
         hostPath => getWorkspaceHostPathComparisonKey(hostPath) !== primaryRootComparisonKey
     );
+    // Strict worktree isolation (docs/worktree-tasks-prd.md §5.5): a worktree
+    // session may write only the mapped paths of roots bound to its
+    // repository. Roots of other repositories no longer fall back to their
+    // main-checkout path, so a session can never write a non-member
+    // repository's main checkout.
     const writableRootHostPaths = options.worktree
-        ? dedupeHostPaths(normalizedRoots.map(candidate =>
-            worktreeRootBindings.get(candidate.root.id) || candidate.hostPath))
+        ? dedupeHostPaths(normalizedRoots
+            .map(candidate => worktreeRootBindings.get(candidate.root.id))
+            .filter((hostPath): hostPath is string => !!hostPath))
         : workspaceRootHostPaths;
     const writablePrimaryComparisonKey = getWorkspaceHostPathComparisonKey(
         primaryWorktreePath || primaryCwd
@@ -214,6 +220,7 @@ export function buildAiSessionDirectoryScope(
         ...(options.worktree ? {
             writableRootHostPaths: Object.freeze(writableRootHostPaths.slice()) as string[],
             worktreeKey: Object.freeze({ ...options.worktree.key }),
+            isolatedRoots: true,
         } : {}),
         primaryRootId: primaryRoot.id,
         primaryCwd,

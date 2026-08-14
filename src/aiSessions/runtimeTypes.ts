@@ -75,6 +75,8 @@ export interface AiSessionRuntimeIdentity {
     writableRootHostPaths?: string[];
     /** Worktree identity (v3+).  When present, cwd is a linked worktree path. */
     worktreeKey?: WorktreeKey;
+    /** Strict worktree isolation marker (v3+); absent on legacy identities. */
+    isolatedRoots?: boolean;
     cwd: string;
     sessionId?: string;
     pendingId?: string;
@@ -99,12 +101,13 @@ export function getAiSessionRuntimeIdentityExtensionFields(identity: AiSessionRu
         ...(identity.worktreeKey
             ? { worktreeKey: cloneWorktreeKey(identity.worktreeKey) }
             : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
     };
 }
 
 type AiSessionRuntimeIdentityPersistenceSource = Pick<
     AiSessionRuntimeIdentity,
-    'workspaceRootHostPaths' | 'writableRootHostPaths' | 'worktreeKey'
+    'workspaceRootHostPaths' | 'writableRootHostPaths' | 'worktreeKey' | 'isolatedRoots'
 >;
 
 export function getAiSessionRuntimeIdentityV3Fields(
@@ -117,6 +120,7 @@ export function getAiSessionRuntimeIdentityV3Fields(
         ...(identity.worktreeKey
             ? { worktreeKey: cloneWorktreeKey(identity.worktreeKey) }
             : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
     };
 }
 

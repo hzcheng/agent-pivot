@@ -393,6 +393,7 @@ export class AiSessionCreationController {
                 ...(directoryScope.worktreeKey ? {
                     worktreeKey: { ...directoryScope.worktreeKey },
                 } : {}),
+                ...(directoryScope.isolatedRoots ? { isolatedRoots: true } : {}),
                 cwd,
                 pendingId,
             },

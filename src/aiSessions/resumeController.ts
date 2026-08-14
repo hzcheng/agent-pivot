@@ -195,6 +195,7 @@ export class AiSessionResumeController<
                 ...(directoryScope.worktreeKey ? {
                     worktreeKey: { ...directoryScope.worktreeKey },
                 } : {}),
+                ...(directoryScope.isolatedRoots ? { isolatedRoots: true } : {}),
                 cwd,
             },
             projectName: target.name || 'AI Session',

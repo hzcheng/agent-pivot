@@ -190,13 +190,14 @@ test('SESSION-WORKTREE-SCOPE-001 replaces the selected repository roots with lin
     assert.deepEqual(scope.writableRootHostPaths, [
         '/managed/frontend-feature',
         '/managed/frontend-feature/packages/web',
-        '/repos/backend',
-    ]);
+    ], 'strict isolation: non-member repository main checkouts are never writable');
     assert.deepEqual(scope.additionalDirectories, [
-        '/managed/frontend-feature', '/repos/backend',
+        '/managed/frontend-feature',
     ]);
     assert.deepEqual(scope.worktreeKey, worktreeKey);
+    assert.equal(scope.isolatedRoots, true);
     assert.equal(scope.additionalDirectories.includes('/repos/frontend'), false);
+    assert.equal(scope.additionalDirectories.includes('/repos/backend'), false);
 });
 
 test('SESSION-WORKTREE-ASSIGNMENT-001 resumes a sibling-worktree session in its exact historical directory', async () => {
@@ -323,8 +324,10 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 creation binds a selected worktree and 
     assert.equal(scope.primaryRootId, 'root-repo');
     assert.equal(scope.primaryCwd, '/managed/feature/app');
     assert.deepEqual(scope.worktreeKey, key);
-    assert.deepEqual(scope.writableRootHostPaths, ['/managed/feature/app', '/other']);
-    assert.deepEqual(scope.additionalDirectories, ['/other']);
+    assert.deepEqual(scope.writableRootHostPaths, ['/managed/feature/app'],
+        'strict isolation: the unbound second repository root is not writable');
+    assert.deepEqual(scope.additionalDirectories, []);
+    assert.equal(scope.isolatedRoots, true);
 
     snapshot = { revision: 2, truncatedWorktreeCount: 0, repositories: [] };
     assert.equal(await controller.resolveWorkspaceDirectoryScope(

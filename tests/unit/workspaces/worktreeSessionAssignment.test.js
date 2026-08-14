@@ -183,7 +183,7 @@ test('WORKTREE-PROVISIONING-STATE-001 WORKTREE-PROVISIONING-UI-001 projects only
         && row.operationId === 'operation-foreign'), false);
 });
 
-test('WORKTREE-MANAGED-CLEANUP-001 exposes removal only for idle managed worktrees not open as workspace roots', () => {
+test('WORKTREE-MANAGED-CLEANUP-001 exposes removal for usable linked worktrees and lets the host guard busy ones', () => {
     const managedPath = '/repo/.agent-pivot/worktrees/fix-login-race';
     const worktreeSnapshot = JSON.parse(JSON.stringify(SNAPSHOT));
     worktreeSnapshot.repositories[0].worktrees.push({
@@ -201,9 +201,19 @@ test('WORKTREE-MANAGED-CLEANUP-001 exposes removal only for idle managed worktre
         row.kind === 'ready' && row.git.key.canonicalWorktreePath === managedPath);
     assert.equal(removable.authority.canRemove, true);
 
+    const main = build(WORKSPACE).worktrees.find(row =>
+        row.kind === 'ready' && row.git.key.canonicalWorktreePath === '/repo/main');
+    assert.equal(main.authority.canRemove, false,
+        'the main checkout is never removable');
+    const topic = build(WORKSPACE).worktrees.find(row =>
+        row.kind === 'ready' && row.git.key.canonicalWorktreePath === '/repo/topic');
+    assert.equal(topic.authority.canRemove, true,
+        'linked worktrees outside the managed directory remain removable');
+
     const openWorkspace = JSON.parse(JSON.stringify(WORKSPACE));
     openWorkspace.roots[0].hostPath = `${managedPath}/packages/api`;
     const open = build(openWorkspace).worktrees.find(row =>
         row.kind === 'ready' && row.git.key.canonicalWorktreePath === managedPath);
-    assert.equal(open.authority.canRemove, false);
+    assert.equal(open.authority.canRemove, true,
+        'removal stays discoverable; the host refuses open worktrees with the reason');
 });

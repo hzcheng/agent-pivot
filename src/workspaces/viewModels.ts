@@ -13,7 +13,6 @@ import type {
 import type { OpenWorkspace } from './types';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import { worktreeKeysEqual } from '../worktrees/types';
-import { isManagedWorktreePath } from '../worktrees/provisioningPlan';
 import { isWorkspaceHostPathContained } from './sessionAssignment';
 
 export interface BuildWorkspaceAiSessionViewModelInput {
@@ -32,8 +31,6 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     quickCreateProvider?: AiSessionProviderId;
     /** The AI session surface the user last selected for this workspace. */
     selectedSurface?: 'worktree' | 'chats';
-    /** Configured managed-worktree directory (relative to each repository root). */
-    worktreeDirectory?: string;
     worktreeSnapshot?: WorktreeSnapshot | null;
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
 }
@@ -62,7 +59,6 @@ export function buildWorkspaceAiSessionViewModel(
         allSessions,
         activeSessions,
         input.provisioningWorktrees,
-        input.worktreeDirectory,
     );
     const selection = normalizeAiSessionProviderSelection({
         registeredProviders: input.providers.map(provider => provider.id),
@@ -91,7 +87,6 @@ export function buildWorkspaceAiSessionViewModel(
         ...(input.selectedSurface === 'worktree' || input.selectedSurface === 'chats'
             ? { selectedSurface: input.selectedSurface }
             : {}),
-        ...(input.worktreeDirectory ? { worktreeDirectory: input.worktreeDirectory } : {}),
         activeSessions,
         activeSessionCount: activeSessions.length,
         activeAttentionCount: activeSessions.filter(session => session.needsAttention).length,
@@ -135,7 +130,6 @@ function buildWorktreeRows(
     sessions: readonly AiSessionViewModel[],
     activeSessions: readonly ActiveAiSessionViewModel[],
     provisioningWorktrees: readonly ProvisioningWorktreeRow[] = [],
-    worktreeDirectory?: string,
 ): WorktreeRowViewModel[] {
     if (!snapshot) {
         return [];
@@ -177,12 +171,10 @@ function buildWorktreeRows(
                     canStop: liveOwnerAvailable,
                     canResume: usable,
                     canArchive: worktreeSessions.length > 0,
-                    canRemove: usable && !worktree.isMain && !liveOwnerAvailable
-                        && !openAsWorkspace
-                        && isManagedWorktreePath(
-                            worktree.key.repositoryKey,
-                            worktree.key.canonicalWorktreePath,
-                            worktreeDirectory),
+                    // Removal is offered for every usable linked worktree;
+                    // the host revalidates dirty, active, open, and
+                    // provisioning state before anything is deleted.
+                    canRemove: usable && !worktree.isMain,
                     canTakeControl: false,
                     liveOwnerAvailable,
                 },

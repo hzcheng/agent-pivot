@@ -3,7 +3,6 @@
 import * as fs from 'fs';
 import type { RunGitCommand } from './gitWorktreeDiscovery';
 import { runProvisioningGitCommand } from './gitWorktreeProvisioner';
-import { isManagedWorktreePath } from './provisioningPlan';
 import type {
     WorktreeGitSnapshot,
     WorktreeKey,
@@ -23,7 +22,6 @@ export type ManagedWorktreeRemovalOutcome =
 
 export interface ManagedWorktreeRemovalControllerOptions {
     getSnapshot: () => WorktreeSnapshot | null;
-    getWorktreeDirectory?: () => string;
     isProjectTarget: (projectId: string) => boolean;
     isActive: (key: WorktreeKey) => boolean;
     isOpenWorkspace: (key: WorktreeKey) => boolean;
@@ -73,8 +71,8 @@ export class ManagedWorktreeRemovalController {
             const branch = initial!.worktree.branchRef?.replace(/^refs\/heads\//u, '')
                 || initial!.worktree.head.substring(0, 8);
             const confirmation = await this.options.confirm(
-                `Remove the clean Agent Pivot worktree “${branch}” at ${key.canonicalWorktreePath}? `
-                    + 'The local branch will be kept.',
+                `Remove the worktree “${branch}” at ${key.canonicalWorktreePath}? `
+                    + 'Only clean, idle worktrees can be removed; the local branch is kept.',
                 CONFIRM_ACTION
             );
             if (confirmation !== CONFIRM_ACTION) {
@@ -115,11 +113,7 @@ export class ManagedWorktreeRemovalController {
         const worktree = repository?.worktrees.find(candidate =>
             worktreeKeysEqual(candidate.key, key));
         if (!repository || !worktree || worktree.isMain || worktree.isBare
-            || worktree.health !== 'normal'
-            || !isManagedWorktreePath(
-                key.repositoryKey,
-                key.canonicalWorktreePath,
-                this.options.getWorktreeDirectory?.())) {
+            || worktree.health !== 'normal') {
             return null;
         }
         const commandCwd = repository.worktrees.find(candidate =>

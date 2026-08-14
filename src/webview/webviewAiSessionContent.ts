@@ -14,7 +14,6 @@ import type {
     WorktreeRowViewModel,
 } from '../aiSessions/types';
 import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees/types';
-import { isManagedWorktreePath } from '../worktrees/provisioningPlan';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { escapeAttribute } from './webviewHtmlEscape';
 import {
@@ -60,8 +59,6 @@ export interface AiSessionSurfaceViewModel {
     activeAiSessionTab?: AiSessionTabId;
     /** The surface the user last selected; absent renders the Chats default. */
     selectedSurface?: 'worktree' | 'chats';
-    /** Configured managed-worktree directory (relative to each repository root). */
-    worktreeDirectory?: string;
     codexSessions?: RootLabeledAiSession[];
     kimiSessions?: RootLabeledAiSession[];
     claudeSessions?: RootLabeledAiSession[];
@@ -104,9 +101,6 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         activeAiSessionTab: aiSessions.defaultTab,
         ...(aiSessions.selectedSurface
             ? { selectedSurface: aiSessions.selectedSurface }
-            : {}),
-        ...(aiSessions.worktreeDirectory
-            ? { worktreeDirectory: aiSessions.worktreeDirectory }
             : {}),
         codexSessions: aiSessions.sessionsByProvider.codex || [],
         kimiSessions: aiSessions.sessionsByProvider.kimi || [],
@@ -223,7 +217,7 @@ function getWorktreeSurfacePanel(
     const groups = worktrees.length
         ? getWorktreeGroupsHtml(
             worktrees, entries, 'sessions', quickCreateProvider, quickCreateProfile,
-            createIsolatedDisabled, project.worktreeDirectory
+            createIsolatedDisabled
         )
         : '';
     const empty = typeof project.worktreeSnapshotRevision === 'number' && !worktrees.length
@@ -558,7 +552,6 @@ function getWorktreeGroupsHtml(
     quickCreateProvider: AiSessionProviderId,
     quickCreateProfile: string,
     createIsolatedDisabled: boolean,
-    worktreeDirectory?: string,
 ): string {
     const rendered: string[] = [];
     worktrees.forEach((worktree, index) => {
@@ -568,7 +561,7 @@ function getWorktreeGroupsHtml(
         }
         rendered.push(getWorktreeGroupHtml(
             worktree, matched, index, quickCreateProvider, quickCreateProfile,
-            createIsolatedDisabled, worktreeDirectory
+            createIsolatedDisabled
         ));
     });
     const unmanaged = entries.filter(entry => !entry.worktreeKey
@@ -586,7 +579,6 @@ function getWorktreeGroupHtml(
     quickCreateProvider: AiSessionProviderId,
     quickCreateProfile: string,
     createIsolatedDisabled: boolean,
-    worktreeDirectory?: string,
 ): string {
     const name = getWorktreeLabel(worktree);
     const count = entries.length;
@@ -606,15 +598,11 @@ function getWorktreeGroupHtml(
     const quickLabel = quickCreateProfile
         ? `New ${providerLabel} session in ${name} with profile ${quickCreateProfile}`
         : `New ${providerLabel} session in ${name}`;
-    // Offer removal for every managed non-main worktree; the host re-checks
+    // Offer removal for every usable non-main worktree; the host re-checks
     // dirty, active, open, and provisioning state and explains any refusal.
-    const canRemove = !worktree.git.isMain
-        && !worktree.git.isBare
-        && isManagedWorktreePath(
-            worktree.git.key.repositoryKey,
-            worktree.git.key.canonicalWorktreePath,
-            worktreeDirectory
-        );
+    const canRemove = !!worktree.authority.canRemove
+        && !worktree.git.isMain
+        && !worktree.git.isBare;
     const moreLabel = `Actions for ${name}`;
     const more = `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
         data-worktree-name="${escapeAttribute(name)}"

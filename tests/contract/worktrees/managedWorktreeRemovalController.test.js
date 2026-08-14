@@ -137,25 +137,38 @@ test('WORKTREE-MANAGED-CLEANUP-001 revalidates identity and activity after confi
     assert.equal(fs.existsSync(becameActive.worktreePath), true);
 });
 
-test('WORKTREE-MANAGED-CLEANUP-001 rejects main, unmanaged, wrong-project, and cancelled removal', async t => {
+test('WORKTREE-MANAGED-CLEANUP-001 rejects main, wrong-project, and cancelled removal', async t => {
     const current = await fixture(t);
     assert.equal((await current.controller.remove('project', current.mainKey)).errorCode,
         'worktree-not-removable');
     assert.equal((await current.controller.remove('other', current.key)).errorCode,
         'project-unavailable');
-    const unmanagedPath = path.join(path.dirname(current.repositoryPath), 'unmanaged');
-    git(current.repositoryPath, ['worktree', 'add', '-b', 'unmanaged', unmanagedPath]);
-    current.snapshot.repositories[0].worktrees.push({
-        key: { repositoryKey: current.repositoryKey, canonicalWorktreePath: unmanagedPath },
-        branchRef: 'refs/heads/unmanaged', head: 'a'.repeat(40), isMain: false,
-        isBare: false, health: 'normal', headKind: 'branch',
-    });
-    assert.equal((await current.controller.remove('project', {
-        repositoryKey: current.repositoryKey, canonicalWorktreePath: unmanagedPath,
-    })).errorCode, 'worktree-not-removable');
     current.setConfirmation(undefined);
     assert.deepEqual(await current.controller.remove('project', current.key), { kind: 'cancelled' });
     assert.equal(fs.existsSync(current.worktreePath), true);
+});
+
+test('WORKTREE-MANAGED-CLEANUP-001 removes a clean idle worktree outside the managed directory', async t => {
+    const current = await fixture(t);
+    const unmanagedPath = path.join(path.dirname(current.repositoryPath), 'unmanaged');
+    git(current.repositoryPath, ['worktree', 'add', '-b', 'unmanaged', unmanagedPath]);
+    const unmanagedKey = {
+        repositoryKey: current.repositoryKey,
+        canonicalWorktreePath: await fs.promises.realpath(unmanagedPath),
+    };
+    current.snapshot.repositories[0].worktrees.push({
+        key: unmanagedKey,
+        branchRef: 'refs/heads/unmanaged', head: 'a'.repeat(40), isMain: false,
+        isBare: false, health: 'normal', headKind: 'branch',
+    });
+
+    // Any linked worktree may be removed; the same confirmation and Git
+    // revalidation still guard the destructive step.
+    assert.deepEqual(await current.controller.remove('project', unmanagedKey), {
+        kind: 'succeeded',
+    });
+    assert.equal(fs.existsSync(unmanagedPath), false);
+    git(current.repositoryPath, ['branch', '-D', 'unmanaged']);
 });
 
 test('WORKTREE-MANAGED-CLEANUP-001 reports partial when removal succeeds before refresh fails', async t => {

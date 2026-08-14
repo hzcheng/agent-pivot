@@ -201,7 +201,7 @@ test('PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001 / WORKTREE-SNAPSHOT-00
         sessions: ['session-topic-tools', 'session-topic'],
         authority: {
             canInput: false, canFocus: false, canStop: false, canResume: true,
-            canArchive: true, canRemove: false,
+            canArchive: true, canRemove: true,
             canTakeControl: false, liveOwnerAvailable: false,
         },
     }]);

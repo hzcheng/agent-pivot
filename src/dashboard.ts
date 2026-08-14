@@ -1355,8 +1355,6 @@ async function initializeDashboard(
             aiSessionWorkspaceStateStore.getQuickCreateProviders()[scopeIdentity],
         getSelectedSurface: scopeIdentity =>
             aiSessionWorkspaceStateStore.getSelectedSurfaces()[scopeIdentity],
-        getWorktreeDirectory: () => normalizeWorktreeDirectory(
-            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         getProviderSelection: scopeIdentity => {
             const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
             if (stored) {
@@ -1668,8 +1666,6 @@ async function initializeDashboard(
     }));
     managedWorktreeRemovalController = new ManagedWorktreeRemovalController({
         getSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
-        getWorktreeDirectory: () => normalizeWorktreeDirectory(
-            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         isProjectTarget: projectId => !!getCurrentWorkspaceActionTarget(projectId),
         isActive: key => getPriorityWorktreeKeys().some(candidate =>
             worktreeKeysEqual(candidate, key)),

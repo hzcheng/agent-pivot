@@ -252,8 +252,6 @@ export interface WorkspaceAiSessionViewModel {
     defaultTab: AiSessionTabId;
     /** The surface the user last selected; absent renders the Chats default. */
     selectedSurface?: 'worktree' | 'chats';
-    /** Configured managed-worktree directory (relative to each repository root). */
-    worktreeDirectory?: string;
     activeSessions: ActiveAiSessionViewModel[];
     activeSessionCount: number;
     activeAttentionCount: number;

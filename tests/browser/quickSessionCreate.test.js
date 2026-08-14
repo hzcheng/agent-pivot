@@ -283,7 +283,7 @@ test('WORKTREE-MANAGED-CLEANUP-001 removal stays discoverable for busy managed w
             key, branchRef: 'refs/heads/agent-pivot/busy', head: 'a'.repeat(40),
             isMain: false, isBare: false, health: 'normal', headKind: 'branch',
         },
-        activity: 'attention', sessions: [], authority: { canResume: true, canRemove: false },
+        activity: 'attention', sessions: [], authority: { canResume: true, canRemove: true },
     }] });
     await page.evaluate(() => {
         selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
@@ -291,7 +291,7 @@ test('WORKTREE-MANAGED-CLEANUP-001 removal stays discoverable for busy managed w
     await page.locator('.project[data-id="project-a"] .ai-session-worktree-more').click();
     const removeItem = page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]');
     assert.equal(await removeItem.isVisible(), true,
-        'the menu always offers removal for managed worktrees; the host explains any refusal');
+        'the menu always offers removal for usable worktrees; the host explains any refusal');
 });
 
 test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated through confirmation', async t => {

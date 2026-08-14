@@ -328,14 +328,14 @@
                 },
                 "agentPivot.worktreeSetupCommand": {
                     "type": "array",
-                    "scope": "machine",
+                    "scope": "machine-overridable",
                     "default": [],
                     "maxItems": 128,
                     "items": {
                         "type": "string",
                         "minLength": 1
                     },
-                    "markdownDescription": "Optional executable and argument array run once after Agent Pivot creates an isolated worktree and before it starts the AI session, for example `[\"npm\", \"ci\"]`. No shell is used, so pipes, redirects, variable expansion, and chained commands are not interpreted. Leave empty to skip setup."
+                    "markdownDescription": "Optional executable and argument array run once after Agent Pivot creates an isolated worktree and before it starts the AI session, for example `[\"npm\", \"ci\"]`. Resolvable per repository (workspace-folder override) so a multi-repo group can run the right setup for each stack. No shell is used, so pipes, redirects, variable expansion, and chained commands are not interpreted. Leave empty to skip setup."
                 },
                 "agentPivot.aiSessionTmuxLayout": {
                     "type": "string",

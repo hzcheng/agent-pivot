@@ -1,8 +1,8 @@
 # Worktree Tasks（多项目 Workspace 任务化 Worktree）PRD
 
-日期：2026-08-14（v4，第三轮评审修订版）
+日期：2026-08-14（v5，M2 实现前评审修订版）
 
-状态：产品方向与关键语义均已闭环，可进入实现拆解
+状态：M1 已交付；M2 语义经实现前评审闭环（配置 scope、执行期碰撞、创建中呈现、in-flight 对账），可进入 M2 实现
 
 ## 0. 核心产品承诺
 
@@ -161,17 +161,19 @@ ready → deleting → deleted（从 manifest 移除）
 
 行为：
 
-1. 入口：tab 行图标按钮 / 组行 ⋯ 菜单（派生，见 §6.2）/ Current 锚点不出现建组入口（其 + 按钮只建主 checkout 普通 session，见 §4）。触发后在**列表顶部就地展开创建卡片**，不遮挡既有列表；Esc 或收起按钮放弃且不产生任何副作用，再次打开时保留上次未提交的输入。
+1. 入口：tab 行图标按钮 / 组行 ⋯ 菜单（派生，见 §6.2）/ Current 锚点不出现建组入口（其 + 按钮只建主 checkout 普通 session，见 §4）。**Unmanaged 行的"从此分支新建 worktree"也被表单吸收**：打开表单、预选该仓库、基准预填该分支——不保留 QuickPick 旧流程，避免两套创建入口语义漂移。触发后在**列表顶部就地展开创建卡片**，不遮挡既有列表；**表单同时只允许一个实例**（新建入口在表单打开期间禁用；既有组内 failed member 的 Retry 不阻塞新建）。Esc 或收起按钮放弃且不产生任何副作用，再次打开时保留上次未提交的输入。
 2. 输入组名（建议 slug 生成规则见 §5.2）；**预览随输入实时更新**（slug、各 member 的路径与分支名即时反映）。
 3. 名称下方直接渲染**创建预览**，逐 member 一行，完整展示全部物理副作用：
-   - 目标仓库（可取消勾选）与基准分支（可搜索下拉覆盖，第一版列本地分支 + 记忆的基准，不含 remote-only 分支）；
+   - 目标仓库（可取消勾选）与基准分支（可搜索下拉覆盖，第一版列本地分支 + 记忆的基准，不含 remote-only 分支；排序：记忆的基准置顶，其余字母序，不设上限）；
    - 将创建的路径与**本地分支名**；
-   - 将执行的 **setup command**：**按仓库维度解析配置**（resource-scoped，跨仓库组常同时包含 Node/Java/Go 仓库，全局单一命令不适用），预览中可**逐 member 禁用**；"无 setup 配置"与"setup 对该仓库不适用"分别明确表达；
+   - 将执行的 **setup command**：**按仓库维度解析配置**（resource-scoped，跨仓库组常同时包含 Node/Java/Go 仓库，全局单一命令不适用；这要求 `agentPivot.worktreeSetupCommand` 的注册 scope 为 `machine-overridable`，见 §11），预览中可**逐 member 禁用**；"无 setup 配置"与"setup 对该仓库不适用"分别明确表达；
    - 哪个 member 是组 session 的 **primary cwd**（可切换，仅 ready 后生效）；
    - **逐 member 的预检结果**（路径已存在、分支名占用、仓库无提交等）。
 4. 预检任一项失败时**禁用普通确认**，不自动跳过错误行继续创建（静默部分执行同样是隐式魔法）；另提供显式动作："**仅创建可用的 N/M 个成员**"，文案列明被跳过的仓库与原因。被跳过的仓库不成为 member（§4.2）。
-5. 确认后并行 provisioning 各 member；逐 member 记录状态（沿用现有状态机按 member 扩展）。**Host 仅对用户最终确认时预览中的 repositoryKey/路径/分支集合执行创建，预览值与执行值逐项一致。**
+5. 确认后**组行立即出现**（member 以 planned/provisioning 呈现在组行内，不再是 Unmanaged 区的独立 provisioning 行），并行 provisioning 各 member；逐 member 记录状态（沿用现有状态机按 member 扩展）。**Host 仅对用户最终确认时预览中的 repositoryKey/路径/分支集合执行创建，预览值与执行值逐项一致。**执行期碰撞（确认后分支名/路径被外部占用，TOCTOU）时该 member **必须 failed（可 Retry），禁止静默追加后缀**——否则执行值偏离确认值（§8）。
 6. 可访问性随本流程交付：完整的 Tab 顺序、Enter 确认、Esc 取消、错误与表单项的 ARIA 关联、确认后焦点回到新建组行。
+
+**实时预览的工程契约**：输入防抖（约 300ms）后才触发重算；重算按仓库增量进行（只有受影响仓库重新跑 git 检查）；快速连续输入时**过期响应必须丢弃**（防串台）。确认消息携带完整的逐 member 计划集合，Host 逐项重新校验后才执行——"预览值与执行值逐项一致"（§13）在快速输入下也必须可复现。
 
 ### 6.2 从组派生组（stacked）
 
@@ -229,12 +231,13 @@ ready → deleting → deleted（从 manifest 移除）
 | 仓库基准变更（1.0 → 1.1） | 只影响未来组的默认基准；存量组的 member 分支不动 |
 | 外部 `git worktree move` / 手动删除 | 沿用现有快照对账：member 健康状态降级（missing/prunable），组行仍在，member 级提示 |
 | manifest 丢失 / 换机器 | 物理 worktree 无损；分组结构不可自动还原，以建议组形式呈现，用户 Adopt / Merge 重新组织（§5.2、§6.5） |
-| 单仓库 workspace | 整个机制退化：创建预览只有一行、无仓库勾选概念、无 member chips；Current 锚点显示单个带仓库标签的实际分支；操作路径与信息密度与现状一致 |
+| 单仓库 workspace | 整个机制退化：创建预览只有一行、无仓库勾选概念、无 member chips；**预检无失败时 Enter 直接提交**（与现行 InputBox 流程步骤数相等，§13 的"无额外负担"在 M2 继续成立）；Current 锚点显示单个带仓库标签的实际分支；操作路径与信息密度与现状一致 |
 | 组只剩一个 member | 不特殊处理；组模型天然兼容单 member，这也是多数派场景 |
 
 ## 8. 错误与部分失败
 
 - **创建/补建**：部分失败是一等状态。组行照常出现并可正常使用已建成的 member；失败的 member 留在组内（§4.2），在摘要行内显示人话错误（不显示裸错误码）+ member 级 Retry / Dismiss。
+- **执行期碰撞**：确认到执行之间分支名/路径被外部占用（TOCTOU）时，该 member 以预检同类错误 failed 并可 Retry；**任何创建路径都不得在执行期静默改名的后缀重试**（§6.1 行为 5 的推论，替代 M1 单仓库流程的碰撞重分配行为）。
 - **删除**：预检门禁保证"启动前全拦截"；执行期部分失败时不回滚、残余 member 保留在 manifest、提供 Retry，状态完整可见（§6.4）。
 - **聚合状态**：任一 member 或 session 需要关注 → 组行 needs attention。`repository-has-no-commits` 等可重试错误在 member 级保留现有语义。
 
@@ -250,6 +253,7 @@ ready → deleting → deleted（从 manifest 移除）
 2. **同 slug 只作为"建议合并"呈现**，且**组 → 组 Merge 的最小可用版本随 M1 交付**（§6.5、§12）——否则 M1 会把原本属于同一跨仓库工作的 worktree 拆成一组一行，M1 的价值主张不成立。
 3. 迁移幂等：已有 manifest 记录不被播种覆盖。
 4. **M1 起，所有新建 worktree（包括旧的单仓库创建流程）必须同步写入 manifest**——否则 M1 发布后新创建的 worktree 会直接掉进 Unmanaged。
+5. **in-flight member 对账（M2）**：重启后 manifest 中停留在 `provisioning` 的 member 由 reconciliation 降级为 `failed`（`interrupted`，可 Retry）——进程退出时未完成的状态不得永远卡住。provisioning 恢复记录携带 groupId，恢复时**关联回既有组**，不得新建重复组；物理 worktree 已建成但状态未落的 member，按既有恢复记录的完成度判定（与 §9 播种的不完整记录阻断规则一致）。
 
 ## 10. UI 结构
 
@@ -267,6 +271,7 @@ WORKTREES | CHATS                          [collapse-all] [new]
 ▸ Unmanaged (n)  ● 2                        ← 无主 worktree；参与 attention 聚合
 ```
 
+- **创建中的组行**（M2）：确认后组行立即出现在列表中，member 逐行显示 provisioning 进度 / failed + Retry / Dismiss；全部 member 就绪前组行禁用 New session（§4.2 primary 约束）。创建表单本身固定在列表顶部，收起不丢失输入（§6.1）。
 - **member chips 规则**：单仓库 workspace 不显示；多仓库 workspace 下所有组行显示（单 member 组显示 1 个 chip——承担"这组在哪个仓库"的消歧职能）；取**最短唯一前缀**（`agent-pivot`/`agent-platform` → `ag`/`p` 之类的首字母碰撞由前缀消歧，不接受"首字母→两字母"的退化规则）；每个 chip 与 `+N` 折叠提供完整 accessible name（hover tooltip 对键盘与屏幕阅读器不可用，不能作为唯一载体）；超过 4 个折叠为 `+N`。
 - **同名消歧**：显示名重复（尤其同仓库）时，组行稳定显示分支/路径短名（如 `修复登录 · agent-pivot/fix-login-2`）；**不依赖会变化的状态或被推迟的时间信息承担身份消歧**。
 - **组行排序**：聚合状态（attention → active → idle）→ 最近活动时间。
@@ -281,11 +286,11 @@ WORKTREES | CHATS                          [collapse-all] [new]
 | --- | --- | --- |
 | manifest 持久化 | 新增 store（`globalState`，按 `navigationIdentity` 分桶） | Group/Member 模型与状态机（§4/§4.2）；两条不变式校验；§9 迁移播种；所有创建路径同步写入 |
 | 聚合视图模型 | `snapshotCoordinator` / webview 投影 | WorktreeSnapshot → 组行投影：manifest 分组（权威，含脱离 member 归位）+ slug 建议组 + Current 锚点（实际分支 + 仓库标签）+ Unmanaged（参与 attention）；纯函数、可测 |
-| 多仓库 provisioning | `provisioningPlan` / `provisioningController` / `gitWorktreeProvisioner` | 计划按 member 扩展；预检（路径/分支/无提交）；per-repo setup 解析；并行执行、逐 member 状态机与恢复记录；Retry/Dismiss 复用现有协议 |
+| 多仓库 provisioning | `provisioningPlan` / `provisioningController` / `gitWorktreeProvisioner` + 新增组级编排器 | 确认即写 manifest（planned members，store 已支持零 ready 组）→ 并行 per-member provisioning → 逐 member finalize 状态机；预检（路径/分支/无提交）；**per-repo setup 要求 `worktreeSetupCommand` 注册 scope 为 `machine-overridable`**（原 `machine` 不支持 folder 覆盖）；恢复记录带 groupId 关联回既有组；执行期碰撞 fail-closed（§8）；Retry/Dismiss 复用现有 settlement 协议形态 |
 | 组 session 启动与 **scope 收紧（M1）** | `isolatedSessionController` / `sessionScope` | cwd = primary ready member；`writableRootHostPaths` 与 provider additional dirs 只含 ready member 路径（**收紧现有 workspace-roots 填充**，承诺 2，须入行为契约）；resume 按当前 member 重建；存量运行中 session 标 "Legacy workspace scope" |
 | 组级/member 级删除 | `managedWorktreeRemovalController` / `removalProtocol` | 预检门禁（逐 member `isActive` + clean-check，任一阻断不开始）+ 逐成员执行（承认 `partial`，不回滚，残余 + Retry）；脱离 member 双动作；历史 session 计数与标记 |
 | 组 → 组 Merge | manifest store + 投影 | M1 交付迁移建议合并的最小版本；M3 交付任意 Adopt/Merge；冲突阻断（不变式二） |
-| Webview UI | `webviewContent.ts` / `media/` | 锚点行、组行、member 摘要/详情行、创建预览表单（完整副作用 + 预检 + "仅创建可用成员"）、Adopt / Merge 勾选界面、a11y |
+| Webview UI | `webviewContent.ts` / `media/` | 锚点行、组行、member 摘要/详情行、创建预览表单（完整副作用 + 预检 + "仅创建可用成员"；基准下拉数据源为 `git for-each-ref` 本地分支 + 记忆基准，§6.1）、Adopt / Merge 勾选界面、a11y |
 
 session 归属的 cwd 匹配机制不变；聚合投影把物理 worktree 归到组行。切换 session 命令的视图跟随改为指向组行。
 

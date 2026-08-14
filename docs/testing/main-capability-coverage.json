@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "3c6f7877103e2ad0c1767967c7716f9d85e07c1e",
+        "head": "97615eefdcbcc2dfef8fedf5505da0f393ee5f2b",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -327,7 +327,8 @@
             "028c7846fb00cfeacc7189ba1e729a8213c281aa",
             "eb0cd5c194c8e9e9fac8579d9f9724c6c85af36a",
             "1cc7ffb62ca6b5027c08b8bb7e63c3aa56101cf9",
-            "e2c079525e1890c65f47e54fc9a45174235dcade"
+            "e2c079525e1890c65f47e54fc9a45174235dcade",
+            "ba461c6e223e0de9bbb2e476438feadc70142acc"
         ]
     },
     "capabilities": [
@@ -450,7 +451,8 @@
                 "ce0a46fbf99dc81cccd0adc9ce01e23dda4c083d",
                 "d03217b067fddff5d7403e2dbfad359d8c6a3612",
                 "eb7eb864b8b6d61d17ecf4c64b5878d4e273a1c7",
-                "3c6f7877103e2ad0c1767967c7716f9d85e07c1e"
+                "3c6f7877103e2ad0c1767967c7716f9d85e07c1e",
+                "97615eefdcbcc2dfef8fedf5505da0f393ee5f2b"
             ],
             "behaviors": [
                 "PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001",

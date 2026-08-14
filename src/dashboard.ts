@@ -249,6 +249,8 @@ import {
 import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
 import { worktreeKeysEqual } from './worktrees/types';
 import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
+import { WorktreeGroupManifestStore } from './worktrees/groupManifestStore';
+import { reconcileWorktreeGroupManifest } from './worktrees/groupManifestReconciliation';
 import { IsolatedSessionController } from './worktrees/isolatedSessionController';
 import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
 import { normalizeWorktreeDirectory } from './worktrees/provisioningPlan';
@@ -1253,6 +1255,7 @@ async function initializeDashboard(
             getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees'))
     );
     const worktreeSetupRunner = new WorktreeSetupRunner();
+    const worktreeGroupManifestStore = new WorktreeGroupManifestStore(context.globalState);
     const gitWorktreeDiscovery = new GitWorktreeDiscovery({
         getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
     });
@@ -1291,6 +1294,21 @@ async function initializeDashboard(
                             // can retry without discarding the Git snapshot.
                             logError('Failed to remember the worktree base ref.', error);
                         }
+                    }
+                }
+                const workspaceForManifest = getCurrentOpenWorkspace();
+                if (workspaceForManifest) {
+                    try {
+                        await reconcileWorktreeGroupManifest({
+                            store: worktreeGroupManifestStore,
+                            workspaceIdentity: workspaceForManifest.navigationIdentity,
+                            snapshot,
+                            onError: (message, error) => logError(message, error),
+                        });
+                    } catch (error) {
+                        // Reconciliation is additive bookkeeping; discovery
+                        // stays usable when persistence is unavailable.
+                        logError('Failed to reconcile the worktree group manifest.', error);
                     }
                 }
                 return snapshot;
@@ -1368,6 +1386,8 @@ async function initializeDashboard(
         getExpanded: scopeIdentity => aiSessionWorkspaceStateStore.getExpandedWorkspaces().has(scopeIdentity),
         getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),
         getProvisioningWorktrees: () => isolatedSessionController?.getRows() || [],
+        getWorktreeGroups: navigationIdentity =>
+            worktreeGroupManifestStore.listGroups(navigationIdentity),
         onDidReadSessions: (workspace, sessionResults, reason) => {
             void workspacePendingSessionPromotionController.promote(
                 workspace,
@@ -1952,6 +1972,61 @@ async function initializeDashboard(
             );
             await provider.postMessage(
                 settledManagedWorktreeRemovalSettlement(request, outcome));
+        },
+        'merge-worktree-groups': async (message: unknown) => {
+            // Migration-suggested group → group merge (PRD §6.5): the webview
+            // submits only the source group; the host stays authoritative by
+            // re-deriving same-slug candidates and confirming via QuickPick.
+            const request = (message && typeof message === 'object')
+                ? message as { projectId?: unknown; sourceGroupId?: unknown }
+                : {};
+            if (typeof request.projectId !== 'string'
+                || typeof request.sourceGroupId !== 'string'
+                || !request.sourceGroupId) {
+                return;
+            }
+            const target = getCurrentWorkspaceActionTarget(request.projectId);
+            if (!target) {
+                return;
+            }
+            const bucket = target.workspace.navigationIdentity;
+            const groups = worktreeGroupManifestStore.listGroups(bucket);
+            const source = groups.find(group => group.groupId === request.sourceGroupId);
+            if (!source) {
+                return;
+            }
+            const candidates = groups.filter(group =>
+                group.groupId !== source.groupId
+                && group.suggestedSlug === source.suggestedSlug);
+            if (candidates.length === 0) {
+                return;
+            }
+            interface MergePick extends vscode.QuickPickItem { groupId: string }
+            const picks: MergePick[] = candidates.map(group => ({
+                label: group.displayName,
+                description: group.members.map(member => member.branchName).join(' · '),
+                groupId: group.groupId,
+            }));
+            const chosen = await vscode.window.showQuickPick(picks, {
+                placeHolder: `Merge "${source.displayName}" into…`,
+            });
+            if (!chosen) {
+                return;
+            }
+            try {
+                await worktreeGroupManifestStore.mergeGroups(
+                    bucket, chosen.groupId, source.groupId);
+            } catch (error) {
+                const code = (error as { code?: string })?.code || 'merge-failed';
+                void vscode.window.showWarningMessage(
+                    code === 'repository-conflict'
+                        ? 'These groups cannot be merged: both contain a worktree of the same repository. Remove one of them first.'
+                        : 'The groups could not be merged. Try again.');
+                return;
+            }
+            void aiSessionDashboardController.refreshNow('worktree-groups-merged', {
+                fallbackToFullRefresh: false,
+            });
         },
     };
 

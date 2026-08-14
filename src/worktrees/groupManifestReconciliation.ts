@@ -1,0 +1,79 @@
+'use strict';
+
+import type { WorktreeGroupManifestStore } from './groupManifestStore';
+import type { WorktreeSnapshotContent } from './types';
+
+const MANAGED_BRANCH_PREFIX = 'refs/heads/agent-pivot/';
+
+export interface ReconcileWorktreeGroupManifestOptions {
+    store: WorktreeGroupManifestStore;
+    /** Stable workspace navigation identity (the manifest bucket, PRD §9). */
+    workspaceIdentity: string;
+    snapshot: WorktreeSnapshotContent;
+    onError?: (message: string, error: unknown) => void;
+}
+
+/**
+ * Reconciles the authoritative group manifest with a coherent Git snapshot
+ * (docs/worktree-tasks-prd.md §9):
+ *
+ * - Extension-created worktrees (recognizable by the managed branch prefix)
+ *   are seeded as one-worktree groups — never auto-merged across
+ *   repositories by slug. This doubles as the first-run migration and as the
+ *   "every new worktree lands in the manifest" guarantee, because every
+ *   extension creation flow produces exactly such a branch.
+ * - Members whose repository is no longer part of the workspace are flagged
+ *   detached (and re-attach automatically when the repository returns).
+ *
+ * Idempotent: reconciling the same snapshot twice changes nothing.
+ */
+export async function reconcileWorktreeGroupManifest(
+    options: ReconcileWorktreeGroupManifestOptions
+): Promise<void> {
+    const { store, workspaceIdentity, snapshot } = options;
+    const visibleRepositories = new Set(
+        snapshot.repositories.map(repository => repository.repositoryKey));
+    const manifestRepositories = new Set<string>();
+    for (const group of store.listGroups(workspaceIdentity)) {
+        for (const member of group.members) {
+            manifestRepositories.add(member.repositoryKey);
+        }
+    }
+    for (const repositoryKey of manifestRepositories) {
+        await store.setRepositoryDetached(
+            workspaceIdentity, repositoryKey, !visibleRepositories.has(repositoryKey));
+    }
+    for (const repository of snapshot.repositories) {
+        for (const worktree of repository.worktrees) {
+            const branchRef = worktree.branchRef || '';
+            if (worktree.isMain || worktree.isBare
+                || !branchRef.startsWith(MANAGED_BRANCH_PREFIX)) {
+                continue;
+            }
+            const slug = branchRef.slice(MANAGED_BRANCH_PREFIX.length);
+            if (!slug) {
+                continue;
+            }
+            if (store.findGroupByWorktreeKey(workspaceIdentity, worktree.key)) {
+                continue;
+            }
+            try {
+                await store.createGroup(workspaceIdentity, {
+                    displayName: slug,
+                    suggestedSlug: slug,
+                    members: [{
+                        repositoryKey: worktree.key.repositoryKey,
+                        worktreeKey: worktree.key,
+                        branchName: branchRef.slice('refs/heads/'.length),
+                        path: worktree.key.canonicalWorktreePath,
+                        state: 'ready',
+                    }],
+                });
+            } catch (error) {
+                // Seeding must never break discovery; a later snapshot
+                // reconciles the same worktree again.
+                options.onError?.('Failed to seed a worktree group record.', error);
+            }
+        }
+    }
+}

@@ -22,6 +22,7 @@ import { projectWorkspaceActiveSessions } from './activeSessionPresentation';
 import type { WorkspaceActiveSessionPresentation } from './activeSessionPresentation';
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
+import type { WorktreeGroup } from '../worktrees/groupManifestStore';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label' | 'terminalCwdFields'>;
 
@@ -132,6 +133,10 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getExpanded: (workspaceScopeIdentity: string) => boolean;
     getProjectionSnapshot: () => AiSessionProjectionSnapshot<TTerminal>;
     getProvisioningWorktrees?: () => readonly ProvisioningWorktreeRow[];
+    /** Authoritative worktree group manifest bucket for the hydrated workspace. */
+    getWorktreeGroups?: (
+        workspaceNavigationIdentity: string
+    ) => readonly WorktreeGroup[];
     onDidReadSessions?: (
         workspace: OpenWorkspace,
         sessionResults: Record<AiSessionProviderId, AiSessionReadResult>,
@@ -204,6 +209,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             attentionAggregate: projection.attentionAggregate,
             worktreeSnapshot: projection.worktreeSnapshot,
             provisioningWorktrees: this.options.getProvisioningWorktrees?.() || [],
+            worktreeGroups: this.options.getWorktreeGroups?.(workspace.navigationIdentity) || [],
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
             selectedSurface: this.options.getSelectedSurface?.(workspace.scopeIdentity),

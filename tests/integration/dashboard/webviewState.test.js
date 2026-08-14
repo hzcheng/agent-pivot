@@ -887,7 +887,10 @@ test('WORKTREE-PROVISIONING-UI-001 renders authoritative progress, retry, and ca
     assert.match(html, /Fix &lt;login&gt;/);
     assert.match(html, /data-action="cancel-isolated-session" data-operation-id="operation-active"/);
     assert.match(html, /data-action="retry-isolated-session" data-operation-id="operation-failed"/);
-    assert.match(html, /setup-failed/);
+    assert.match(html, /data-action="dismiss-isolated-session" data-operation-id="operation-failed"/,
+        'a failed row always offers dismiss');
+    assert.match(html, /the setup command failed/,
+        'the row explains the failure in plain language');
 });
 
 test('WORKTREE-GROUPING-UI-001 renders distinct no-repository and bare-repository empty states', () => {

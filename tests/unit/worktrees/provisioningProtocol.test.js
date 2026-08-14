@@ -19,8 +19,14 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 accepts only exact versioned request sh
         type: 'retry-isolated-session', version: 1,
         requestId: 'isolated-2', projectId: 'project', operationId: 'isolated-1',
     };
+    const dismiss = {
+        type: 'dismiss-isolated-session', version: 1,
+        requestId: 'isolated-3', projectId: 'project', operationId: 'isolated-1',
+    };
     assert.deepEqual(parseIsolatedSessionRequest(start), start);
     assert.deepEqual(parseIsolatedSessionRequest(retry), retry);
+    assert.deepEqual(parseIsolatedSessionRequest(dismiss), dismiss);
+    assert.equal(parseIsolatedSessionRequest({ ...dismiss, forged: true }), null);
     const sourceWorktree = {
         repositoryKey: '/repo/.git',
         canonicalWorktreePath: '/repo/.agent-pivot/worktrees/est',

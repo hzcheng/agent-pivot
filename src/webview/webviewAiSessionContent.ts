@@ -360,6 +360,37 @@ function getProvisioningWorktrees(
     );
 }
 
+function describeProvisioningErrorCode(errorCode: string): string {
+    switch (errorCode) {
+        case 'repository-has-no-commits':
+            return 'the repository has no commits yet; make an initial commit first';
+        case 'snapshot-unavailable':
+            return 'worktree discovery is not ready yet';
+        case 'workspace-untrusted':
+            return 'the workspace is not trusted';
+        case 'repository-unavailable':
+            return 'no usable repository found in this workspace';
+        case 'base-ref-unavailable':
+            return 'no branch to base the worktree on';
+        case 'invalid-task':
+            return 'enter a task name';
+        case 'setup-failed':
+            return 'the setup command failed';
+        case 'worktree-create-failed':
+            return 'Git could not create the worktree';
+        case 'invalid-plan':
+            return 'the saved creation plan is no longer valid';
+        case 'git-timeout':
+            return 'Git timed out';
+        case 'interrupted':
+            return 'interrupted by a reload; retry or dismiss';
+        case 'cancelled':
+            return 'cancelled';
+        default:
+            return errorCode;
+    }
+}
+
 function getProvisioningWorktreeHtml(row: ProvisioningWorktreeRow): string {
     const stageLabel: Record<ProvisioningWorktreeRow['stage'], string> = {
         queued: 'Queued',
@@ -368,13 +399,16 @@ function getProvisioningWorktreeHtml(row: ProvisioningWorktreeRow): string {
         failed: 'Needs attention',
     };
     const error = row.errorCode
-        ? `<span class="ai-session-provisioning-error">${escapeAttribute(row.errorCode)}</span>`
+        ? `<span class="ai-session-provisioning-error">${escapeAttribute(describeProvisioningErrorCode(row.errorCode))}</span>`
         : '';
     const retry = row.retryable
         ? `<button type="button" data-action="retry-isolated-session" data-operation-id="${escapeAttribute(row.operationId)}">Retry</button>`
         : '';
     const cancel = row.cancellable
         ? `<button type="button" data-action="cancel-isolated-session" data-operation-id="${escapeAttribute(row.operationId)}">Cancel</button>`
+        : '';
+    const dismiss = row.stage === 'failed'
+        ? `<button type="button" data-action="dismiss-isolated-session" data-operation-id="${escapeAttribute(row.operationId)}">Dismiss</button>`
         : '';
     const progress = row.stage === 'failed'
         ? ''
@@ -386,7 +420,7 @@ function getProvisioningWorktreeHtml(row: ProvisioningWorktreeRow): string {
             <span>${escapeAttribute(stageLabel[row.stage])}</span>
             ${error}
         </span>
-        <span class="ai-session-provisioning-actions">${retry}${cancel}</span>
+        <span class="ai-session-provisioning-actions">${retry}${cancel}${dismiss}</span>
     </section>`;
 }
 

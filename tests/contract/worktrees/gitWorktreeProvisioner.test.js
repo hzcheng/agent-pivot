@@ -67,6 +67,33 @@ test('WORKTREE-PROVISIONING-GIT-001 creates and reconciles a real linked worktre
         'a retry reconciles the already-created target instead of reporting a false conflict');
 });
 
+test('WORKTREE-PROVISIONING-GIT-001 names an unborn base ref instead of a bare invalid plan', async t => {
+    const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-provision-'));
+    t.after(async () => fs.promises.rm(sandbox, { recursive: true, force: true }));
+    const repositoryPath = path.join(sandbox, 'repository');
+    await fs.promises.mkdir(repositoryPath);
+    git(repositoryPath, ['init', '-b', 'main']);
+    // No commit at all: the base ref is unborn and cannot parent a worktree.
+    const repositoryKey = await fs.promises.realpath(path.join(repositoryPath, '.git'));
+    const provisioner = new GitWorktreeProvisioner();
+    const plan = {
+        repositoryKey,
+        commandCwd: repositoryPath,
+        baseRef: 'refs/heads/main',
+        taskName: 'Test',
+        slug: 'test',
+        branchName: 'agent-pivot/test',
+        worktreePath: path.join(repositoryPath, '.worktrees', 'test'),
+    };
+
+    await assert.rejects(
+        provisioner.createWorktree(plan, () => false),
+        error => error instanceof GitWorktreeProvisioningError
+            && error.code === 'repository-has-no-commits'
+            && error.retryable === true
+    );
+});
+
 test('WORKTREE-PROVISIONING-GIT-001 classifies real branch and path collisions', async t => {
     const fixture = await repositoryFixture(t);
     const provisioner = new GitWorktreeProvisioner();

@@ -98,6 +98,17 @@ export class WorktreeProvisioningController {
         return Promise.resolve().then(() => this.run(operation));
     }
 
+    /** Drops a settled-failed row; running or in-flight operations cannot be discarded. */
+    discard(operationId: string): boolean {
+        const operation = this.operations.get(operationId);
+        if (!operation || operation.running || operation.row.stage !== 'failed') {
+            return false;
+        }
+        this.operations.delete(operationId);
+        this.publish();
+        return true;
+    }
+
     cancel(operationId: string): boolean {
         const operation = this.operations.get(operationId);
         if (!operation || !operation.row.cancellable || operation.row.stage === 'failed') {

@@ -267,6 +267,18 @@ export class IsolatedSessionController {
         return this.provisioning.cancel(operationId);
     }
 
+    dismiss(operationId: string, projectId?: string): boolean {
+        const context = this.contextsByOperation.get(operationId);
+        if (!context || (projectId && context.projectId !== projectId)) {
+            return false;
+        }
+        if (!this.provisioning.discard(operationId)) {
+            return false;
+        }
+        this.contextsByOperation.delete(operationId);
+        return true;
+    }
+
     getRows(): ProvisioningWorktreeRow[] {
         return this.provisioning.getRows();
     }

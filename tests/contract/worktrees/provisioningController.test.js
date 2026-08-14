@@ -135,6 +135,21 @@ test('WORKTREE-PROVISIONING-STATE-001 cancelling a queued retry preserves the co
     assert.equal(current.controller.getRows()[0].retryable, true);
 });
 
+test('WORKTREE-PROVISIONING-STATE-001 discard drops only settled-failed rows', async () => {
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+    });
+    await current.controller.start('operation-dismiss', plan);
+    assert.equal(current.controller.getRows()[0].stage, 'failed');
+
+    assert.equal(current.controller.discard('operation-dismiss'), true);
+    assert.deepEqual(current.controller.getRows(), []);
+    assert.equal(current.controller.discard('operation-dismiss'), false,
+        'a second discard finds no row');
+});
+
 test('WORKTREE-PROVISIONING-STATE-001 rejects duplicate, concurrent retry, and late cancellation', async () => {
     let releaseSetup;
     const setup = new Promise(resolve => { releaseSetup = resolve; });

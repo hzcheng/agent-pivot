@@ -1927,6 +1927,16 @@ async function initializeDashboard(
                 request.operationId, request.projectId);
             await provider.postMessage(cancelledMutationSettlement(request, accepted));
         },
+        'dismiss-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'dismiss-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const accepted = isolatedSessionController!.dismiss(
+                request.operationId, request.projectId);
+            await provider.postMessage(cancelledMutationSettlement(request, accepted));
+        },
         'remove-managed-worktree': async (message: unknown) => {
             const request = parseManagedWorktreeRemovalRequest(message);
             if (!request) {

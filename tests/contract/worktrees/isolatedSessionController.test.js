@@ -289,6 +289,24 @@ test('WORKTREE-ISOLATED-SESSION-001 reallocates after a pre-create branch collis
     assert.equal(createAttempts, 2);
 });
 
+test('WORKTREE-PROVISIONING-PROTOCOL-001 dismiss drops a failed row only from its own project', async () => {
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+    });
+    await current.controller.start('request-dismiss', 'project');
+    assert.equal(current.controller.getRows()[0].stage, 'failed');
+
+    assert.equal(current.controller.dismiss('request-dismiss', 'forged-project'), false,
+        'another project cannot dismiss the row');
+    assert.equal(current.controller.getRows().length, 1);
+    assert.equal(current.controller.dismiss('request-dismiss', 'project'), true);
+    assert.deepEqual(current.controller.getRows(), []);
+    assert.equal(current.persisted.at(-1).length, 0,
+        'dismissal clears the persisted recovery record');
+});
+
 test('WORKTREE-PROVISIONING-PROTOCOL-001 rejects retry and cancel from another project scope', async () => {
     const current = fixture({
         runSetup: async () => {

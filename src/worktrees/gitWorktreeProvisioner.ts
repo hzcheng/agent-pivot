@@ -14,6 +14,7 @@ const PROVISIONING_GIT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 export type GitWorktreeProvisioningErrorCode =
   | 'cancelled'
   | 'invalid-plan'
+  | 'repository-has-no-commits'
   | 'branch-conflict'
   | 'path-conflict'
   | 'git-timeout'
@@ -159,6 +160,14 @@ export class GitWorktreeProvisioner {
         ]);
         if (branchValidation.exitCode !== 0 || baseValidation.exitCode !== 0
             || commonDir.exitCode !== 0) {
+            if (baseValidation.exitCode !== 0) {
+                const head = await this.runGit(plan.commandCwd, [
+                    '-C', plan.commandCwd, 'rev-parse', '--verify', '--quiet', 'HEAD',
+                ]);
+                if (head.exitCode !== 0) {
+                    throw new GitWorktreeProvisioningError('repository-has-no-commits');
+                }
+            }
             throw new GitWorktreeProvisioningError('invalid-plan');
         }
         try {

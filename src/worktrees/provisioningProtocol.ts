@@ -18,6 +18,10 @@ export type IsolatedSessionRequest =
   | {
       type: 'cancel-isolated-session'; version: 1;
       requestId: string; projectId: string; operationId: string;
+  }
+  | {
+      type: 'dismiss-isolated-session'; version: 1;
+      requestId: string; projectId: string; operationId: string;
   };
 
 export type IsolatedSessionSettlementStatus =
@@ -45,7 +49,8 @@ export function parseIsolatedSessionRequest(value: unknown): IsolatedSessionRequ
     const record = value as Record<string, unknown>;
     const type = record.type;
     const hasOperation = type === 'retry-isolated-session'
-        || type === 'cancel-isolated-session';
+        || type === 'cancel-isolated-session'
+        || type === 'dismiss-isolated-session';
     if (type !== 'start-isolated-session' && !hasOperation) {
         return null;
     }
@@ -131,7 +136,7 @@ export function settledIsolatedSessionSettlement(
 
 export function cancelledMutationSettlement(
     request: {
-        type: 'cancel-isolated-session'; version: 1; requestId: string;
+        type: 'cancel-isolated-session' | 'dismiss-isolated-session'; version: 1; requestId: string;
         projectId: string; operationId: string;
     },
     accepted: boolean

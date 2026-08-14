@@ -272,6 +272,16 @@ function initProjectAiSessionControls(options) {
             );
             return true;
         }
+        var isolatedDismissAction = target.closest(
+            '[data-action="dismiss-isolated-session"][data-operation-id]'
+        );
+        if (isolatedDismissAction) {
+            submitIsolatedSessionRequest(
+                'dismiss-isolated-session', projectId,
+                isolatedDismissAction.getAttribute('data-operation-id'), isolatedDismissAction
+            );
+            return true;
+        }
         var isolatedCancelAction = target.closest(
             '[data-action="cancel-isolated-session"][data-operation-id]'
         );
@@ -629,7 +639,9 @@ function initProjectAiSessionControls(options) {
             liveRegion.textContent = message.status === 'succeeded'
                 ? pending.requestType === 'cancel-isolated-session'
                     ? 'Worktree creation cancelled.'
-                    : 'Worktree created.'
+                    : pending.requestType === 'dismiss-isolated-session'
+                        ? 'Worktree creation dismissed.'
+                        : 'Worktree created.'
                 : message.status === 'cancelled'
                     ? 'Worktree creation cancelled.'
                     : `Worktree creation ${message.status}: ${describeProvisioningError(message.errorCode)}`;
@@ -810,6 +822,12 @@ function initProjectAiSessionControls(options) {
 
     function describeProvisioningError(errorCode) {
         switch (errorCode) {
+            case 'repository-has-no-commits':
+                return 'the repository has no commits yet; make an initial commit first';
+            case 'invalid-plan':
+                return 'the saved creation plan is no longer valid; dismiss and recreate';
+            case 'interrupted':
+                return 'interrupted by a reload; retry or dismiss';
             case 'snapshot-unavailable':
                 return 'worktree discovery is not ready yet; try again';
             case 'workspace-untrusted':

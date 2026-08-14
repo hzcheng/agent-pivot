@@ -226,6 +226,32 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the 
     });
 });
 
+test('WORKTREE-PROVISIONING-UI-001 a failed row shows a readable reason and can be dismissed', async t => {
+    const page = await openQuickCreatePage(t, {
+        worktrees: [{
+            kind: 'provisioning', operationId: 'operation-failed', repositoryKey: '/repo/.git',
+            taskName: 'test',
+            proposedPath: '/repo/.worktrees/test',
+            stage: 'failed', completedSteps: [], retryable: false, cancellable: false,
+            errorCode: 'repository-has-no-commits',
+        }],
+    });
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
+    const row = page.locator('.ai-session-provisioning-row');
+    assert.match(await row.locator('.ai-session-provisioning-error').textContent(),
+        /no commits yet/, 'the row explains the failure in plain language');
+    const dismiss = row.locator('[data-action="dismiss-isolated-session"]');
+    assert.equal(await dismiss.isVisible(), true,
+        'a failed row always offers a way out');
+    await dismiss.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'dismiss-isolated-session', version: 1,
+        requestId: 'isolated-1', projectId: 'project-a', operationId: 'operation-failed',
+    });
+});
+
 test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a terminal settlement', async t => {
     const page = await openQuickCreatePage(t);
     const project = page.locator('.project[data-id="project-a"]');

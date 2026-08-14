@@ -2656,14 +2656,23 @@ async function initializeDashboard(
         nextActiveSession: () => sessionNavigationCoordinator.enqueue(
             () => followAdjacentActiveConversationWithFeedback('next')
         ),
-        nextAttentionSession: () => jumpToNextAttentionSession(),
-        nextRunningSession: () =>
-            runningSessionJumpHandler.jumpToNextRunningSession(),
-        switchToAiSession: () =>
-            aiSessionQuickSwitchHandlers.switchToAiSession(),
+        nextAttentionSession: async () => {
+            await jumpToNextAttentionSession();
+            revealFocusedAiSessionInDashboard();
+        },
+        nextRunningSession: async () => {
+            await runningSessionJumpHandler.jumpToNextRunningSession();
+            revealFocusedAiSessionInDashboard();
+        },
+        switchToAiSession: async () => {
+            await aiSessionQuickSwitchHandlers.switchToAiSession();
+            revealFocusedAiSessionInDashboard();
+        },
         switchWorktreeOrSession: () => switchWorktreeOrSession(),
-        toggleLastAiSession: () =>
-            aiSessionQuickSwitchHandlers.toggleLastAiSession(),
+        toggleLastAiSession: async () => {
+            await aiSessionQuickSwitchHandlers.toggleLastAiSession();
+            revealFocusedAiSessionInDashboard();
+        },
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
     };
 
@@ -2887,6 +2896,33 @@ async function initializeDashboard(
         return result === 'opened';
     }
 
+    // After a command-driven session switch, make the sidebar follow the
+    // session: the webview reveals it inside its worktree group or the Chats
+    // active list, scrolling it into view without stealing keyboard focus.
+    function revealAiSessionInDashboard(
+        providerId: AiSessionProviderId,
+        sessionId: string
+    ): void {
+        const currentCard = getOpenWorkspaceCards().find(candidate => candidate.kind === 'current');
+        if (!currentCard || !sessionId) {
+            return;
+        }
+        void provider.postMessage({
+            type: 'reveal-ai-session-requested',
+            version: 1,
+            projectId: currentCard.id,
+            provider: providerId,
+            sessionId: sessionId,
+        });
+    }
+
+    function revealFocusedAiSessionInDashboard(): void {
+        const identity = getFocusedAiSessionIdentity();
+        if (identity?.sessionId) {
+            revealAiSessionInDashboard(identity.provider, identity.sessionId);
+        }
+    }
+
     async function followAdjacentActiveConversationWithFeedback(
         direction: 'previous' | 'next'
     ): Promise<void> {
@@ -2896,6 +2932,7 @@ async function initializeDashboard(
             const identity = getFocusedAiSessionIdentity();
             if (identity?.sessionId) {
                 aiSessionMru.record(identity.provider, identity.sessionId);
+                revealAiSessionInDashboard(identity.provider, identity.sessionId);
             }
         } else if (result === 'inactive' || result === 'closed') {
             void vscode.window.showInformationMessage(

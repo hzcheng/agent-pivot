@@ -477,6 +477,11 @@ function initProjects() {
             focusAiSessionConversationOrigin(message);
             return;
         }
+        if (message
+            && message.type === 'reveal-ai-session-requested') {
+            revealAiSessionInWorkspace(message);
+            return;
+        }
         if (message && message.type === 'todo-mutation-result') {
             applyTodoMutationResult(message, document);
             return;

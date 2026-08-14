@@ -258,6 +258,82 @@ function parseAiSessionConversationFocusOrigin(message) {
     return message;
 }
 
+function parseAiSessionRevealRequest(message) {
+    var expectedKeys = ['projectId', 'provider', 'sessionId', 'type', 'version'];
+    if (!message || typeof message !== 'object' || Array.isArray(message)
+        || Object.keys(message).length !== expectedKeys.length
+        || !expectedKeys.every(key =>
+            Object.prototype.hasOwnProperty.call(message, key))
+        || message.type !== 'reveal-ai-session-requested'
+        || message.version !== 1
+        || (message.provider !== 'codex'
+            && message.provider !== 'kimi'
+            && message.provider !== 'claude')
+        || !['projectId', 'sessionId'].every(key =>
+            typeof message[key] === 'string' && message[key].trim())) {
+        return null;
+    }
+    return message;
+}
+
+// Session-switch commands land here: the view follows the switched session
+// to wherever it lives — its worktree group (expanded, scrolled into view)
+// or the Chats active list. Scroll-only; keyboard focus stays put.
+function revealAiSessionInWorkspace(message) {
+    var request = parseAiSessionRevealRequest(message);
+    if (!request || typeof document === 'undefined'
+        || typeof document.querySelectorAll !== 'function') {
+        return false;
+    }
+    var projectDiv = Array.from(document.querySelectorAll(
+        '.workspace-card[data-current-workspace][data-id]'
+    )).find(candidate =>
+        candidate.getAttribute('data-id') === request.projectId
+    );
+    if (!projectDiv) {
+        return false;
+    }
+    var rowSelector = '[data-session-provider][data-session-id]';
+    var matches = candidate =>
+        candidate.getAttribute('data-session-provider') === request.provider
+        && candidate.getAttribute('data-session-id') === request.sessionId;
+    var worktreeRow = Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="worktree"] ' + rowSelector
+    )).find(matches);
+    var surface = worktreeRow ? 'worktree' : 'chats';
+    selectAiSessionSurfaceDom(projectDiv, surface);
+    writeAiSessionSurfaceState(window.vscode, request.projectId, surface);
+    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+        window.vscode.postMessage({
+            type: 'select-ai-session-surface',
+            version: 1,
+            projectId: request.projectId,
+            surface: surface,
+        });
+    }
+    if (worktreeRow) {
+        var group = worktreeRow.closest('.ai-session-worktree-group');
+        if (group) {
+            setAiSessionWorktreeGroupExpanded(projectDiv, group, true);
+            writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+        }
+        worktreeRow.scrollIntoView({ block: 'nearest' });
+        return true;
+    }
+    selectAiSessionTabDom(projectDiv, 'active');
+    writeAiSessionTabState(window.vscode, request.projectId, 'active');
+    var activeRow = Array.from(projectDiv.querySelectorAll(
+        '.active-ai-session-row' + rowSelector
+    )).find(matches) || Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="chats"] ' + rowSelector
+    )).find(matches);
+    if (activeRow) {
+        activeRow.scrollIntoView({ block: 'nearest' });
+        return true;
+    }
+    return false;
+}
+
 function focusAiSessionConversationOrigin(message) {
     var origin = parseAiSessionConversationFocusOrigin(message);
     if (!origin || typeof document === 'undefined'
@@ -4871,6 +4947,11 @@ function initProjects() {
         if (message
             && message.type === 'focus-ai-session-conversation-origin') {
             focusAiSessionConversationOrigin(message);
+            return;
+        }
+        if (message
+            && message.type === 'reveal-ai-session-requested') {
+            revealAiSessionInWorkspace(message);
             return;
         }
         if (message && message.type === 'todo-mutation-result') {

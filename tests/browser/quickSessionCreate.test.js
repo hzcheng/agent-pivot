@@ -535,6 +535,105 @@ test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon starts provisioning from
     }]);
 });
 
+test('WORKTREE-GROUPING-UI-001 revealing a switched session follows it into its worktree group', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const page = await openQuickCreatePage(t, {
+        activeAiSessions: [{
+            key: 'codex:feature-session', provider: 'codex', sessionId: 'feature-session',
+            name: 'Feature session', executionState: 'running', backend: 'vscode',
+            attached: true, worktreeKey: key,
+        }],
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key,
+                branchRef: 'refs/heads/feature/auth',
+                head: 'a'.repeat(40),
+                isMain: false,
+                isBare: false,
+                health: 'normal',
+                headKind: 'branch',
+            },
+            activity: 'active',
+            sessions: [],
+            authority: { canResume: true },
+        }],
+    });
+    const project = page.locator('.project[data-id="project-a"]');
+    // Start on Chats with the worktree group collapsed.
+    await page.evaluate(() => {
+        const projectDiv = document.querySelector('.project[data-id="project-a"]');
+        selectAiSessionSurfaceDom(projectDiv, 'chats');
+        setAiSessionWorktreeGroupExpanded(
+            projectDiv,
+            projectDiv.querySelector('.ai-session-worktree-group'),
+            false
+        );
+    });
+
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'reveal-ai-session-requested', version: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'feature-session',
+    } })));
+
+    assert.equal(
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
+        'worktree',
+        'the view follows a worktree session into the Worktree surface'
+    );
+    assert.equal(
+        await project.locator('.ai-session-worktree-group .codex-session-row').first().isVisible(),
+        true,
+        'the group expands so the session row is visible'
+    );
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'select-ai-session-surface',
+        version: 1,
+        projectId: 'project-a',
+        surface: 'worktree',
+    }, 'the follow reports the surface for authoritative re-renders');
+});
+
+test('WORKTREE-GROUPING-UI-001 revealing a plain session lands on Chats active', async t => {
+    const page = await openQuickCreatePage(t, {
+        activeAiSessions: [{
+            key: 'codex:plain-session', provider: 'codex', sessionId: 'plain-session',
+            name: 'Plain session', executionState: 'running', backend: 'vscode',
+            attached: true,
+        }],
+    });
+    const project = page.locator('.project[data-id="project-a"]');
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
+    });
+
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'reveal-ai-session-requested', version: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'plain-session',
+    } })));
+
+    assert.equal(
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
+        'chats'
+    );
+    assert.equal(
+        await project.locator('[data-ai-session-tab="active"]').getAttribute('aria-selected'),
+        'true'
+    );
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'reveal-ai-session-requested', version: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'plain-session', forged: true,
+    } })));
+    assert.equal(
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
+        'chats',
+        'malformed reveal requests are ignored'
+    );
+});
+
 test('WORKTREE-GROUPING-UI-001 selecting a surface reports it for authoritative re-renders', async t => {
     const page = await openQuickCreatePage(t);
     const project = page.locator('.project[data-id="project-a"]');

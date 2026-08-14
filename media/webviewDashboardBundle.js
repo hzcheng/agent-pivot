@@ -727,9 +727,47 @@ function captureCurrentWorkspaceAiSessionStates(root) {
             states.set(projectId, {
                 view: captureAiSessionViewState(projectDiv),
                 providerMenu: captureAiSessionProviderMenuState(projectDiv),
+                listScrolls: captureAiSessionListScrolls(projectDiv),
             });
         });
     return states;
+}
+
+// The worktree/chats panels scroll independently of the outer workspace
+// list, so an authoritative HTML replacement must carry each inner list's
+// scroll position across the new nodes; otherwise every refresh snaps the
+// panel back to the top.
+function captureAiSessionListScrolls(projectDiv) {
+    var scrolls = [];
+    projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel] .ai-session-worktree-list,'
+        + ' [data-ai-session-panel] .codex-sessions-list'
+    ).forEach(list => {
+        var panel = list.closest('[data-ai-session-surface-panel], [data-ai-session-panel]');
+        if (!panel) return;
+        var key = panel.getAttribute('data-ai-session-surface-panel')
+            || panel.getAttribute('data-ai-session-panel');
+        var scrollTop = Math.max(0, Number(list.scrollTop) || 0);
+        if (key && scrollTop > 0) {
+            scrolls.push({ key: key, scrollTop: scrollTop });
+        }
+    });
+    return scrolls;
+}
+
+function restoreAiSessionListScrolls(projectDiv, scrolls) {
+    (scrolls || []).forEach(saved => {
+        var panel = projectDiv.querySelector(
+            '[data-ai-session-surface-panel="' + saved.key + '"],'
+            + ' [data-ai-session-panel="' + saved.key + '"]'
+        );
+        var list = panel
+            ? panel.querySelector('.ai-session-worktree-list, .codex-sessions-list')
+            : null;
+        if (!list) return;
+        var maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+        list.scrollTop = Math.min(saved.scrollTop, maxScrollTop);
+    });
 }
 
 function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProviderMenu) {
@@ -742,6 +780,7 @@ function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProv
             restoreAiSessionViewState(projectDiv, state.view, state.view.selectedTab, {
                 restoreFocus: false,
             });
+            restoreAiSessionListScrolls(projectDiv, state.listScrolls);
             restoreAiSessionProviderMenuState(
                 projectDiv,
                 state.providerMenu,
@@ -3453,6 +3492,17 @@ function initProjectAiSessionControls(options) {
         var worktreeMenuAction = target.closest('[data-action="ai-session-worktree-menu"]');
         if (worktreeMenuAction) {
             toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);
+            return true;
+        }
+        var mergeGroupsAction = target.closest(
+            '[data-action="merge-worktree-groups"][data-group-id]'
+        );
+        if (mergeGroupsAction) {
+            window.vscode.postMessage({
+                type: 'merge-worktree-groups',
+                projectId: projectId,
+                sourceGroupId: mergeGroupsAction.getAttribute('data-group-id'),
+            });
             return true;
         }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');

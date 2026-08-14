@@ -707,12 +707,14 @@ function getWorktreeAnchorHtml(
         : anchor.activity === 'active' ? 'active' : 'idle';
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
     const ariaLabel = `Current, ${summary}, ${sessionLabel}, ${activity}`;
+    // The per-repository branch detail lives on the fast hover tooltip; the
+    // row itself stays a single compact line (annotation: the inline summary
+    // squeezed the "Current" title away).
     return `<section class="ai-session-worktree-group ai-session-worktree-anchor" data-worktree-anchor data-worktree-activity="${anchor.activity}">
         <div class="ai-session-worktree-toolbar">
-            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
+            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}" data-tooltip="${escapeAttribute(summary)}">
                 <span class="ai-session-worktree-indicator" aria-hidden="true">${anchor.activity === 'idle' ? '○' : '●'}</span>
                 <span class="ai-session-worktree-title">Current</span>
-                <span class="ai-session-worktree-anchor-branches">${escapeAttribute(summary)}</span>
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>

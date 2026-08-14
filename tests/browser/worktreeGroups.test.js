@@ -141,10 +141,15 @@ test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches a
 
     const anchor = page.locator('.ai-session-worktree-anchor');
     assert.equal(await anchor.count(), 1);
-    const text = await anchor.locator('.ai-session-worktree-header').textContent();
+    const header = anchor.locator('.ai-session-worktree-header');
+    const text = await header.textContent();
     assert.ok(text.includes('Current'));
-    assert.ok(text.includes('alpha: main'));
-    assert.ok(text.includes('beta: 1.0'));
+    assert.ok(!text.includes('alpha: main'),
+        'branch details stay off the compact row');
+    const tooltip = await header.getAttribute('data-tooltip');
+    assert.ok(tooltip.includes('alpha: main'));
+    assert.ok(tooltip.includes('beta: 1.0'),
+        'full per-repository branch detail is one hover away');
     assert.equal(await anchor.locator('.ai-session-worktree-more').count(), 0,
         'the anchor is not a managed worktree');
     assert.equal(await anchor.locator('[data-action="create-ai-session-quick"]').count(), 0);

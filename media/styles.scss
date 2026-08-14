@@ -3754,13 +3754,10 @@ body.steward-sidebar {
             white-space: nowrap;
         }
 
-        .ai-session-worktree-anchor-branches {
-            min-width: 0;
-            overflow: hidden;
-            color: var(--vscode-descriptionForeground);
-            font-size: 9px;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        // The anchor row keeps its title fully visible; branch details live
+        // on the hover tooltip.
+        .ai-session-worktree-anchor .ai-session-worktree-title {
+            flex: 0 0 auto;
         }
 
         .ai-session-worktree-discriminator {

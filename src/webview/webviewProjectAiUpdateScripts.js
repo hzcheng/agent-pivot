@@ -544,6 +544,7 @@ function initProjectAiSessionsUpdate(options) {
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
+    var reconcileWorktreeGroupFormDom = options.reconcileWorktreeGroupFormDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;
     var exitAiSessionBatchManagement = options.exitAiSessionBatchManagement;
@@ -602,6 +603,9 @@ function initProjectAiSessionsUpdate(options) {
                     }
                 }
                 reconcilePendingAiSessionProviderSelectionDom();
+                if (reconcileWorktreeGroupFormDom) {
+                    reconcileWorktreeGroupFormDom();
+                }
             },
         })) {
             return;

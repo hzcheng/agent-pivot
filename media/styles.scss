@@ -3777,6 +3777,182 @@ body.steward-sidebar {
             font-size: 8px;
         }
 
+        .ai-session-worktree-member-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 7px 2px;
+            font-size: 9px;
+
+            .ai-session-worktree-member-label {
+                font-weight: 600;
+            }
+
+            .ai-session-worktree-member-state {
+                flex: 1 1 auto;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--vscode-descriptionForeground);
+            }
+
+            &[data-member-status="failed"] .ai-session-worktree-member-state {
+                color: var(--vscode-editorWarning-foreground);
+            }
+
+            button {
+                padding: 0 6px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 3px;
+                background: transparent;
+                color: var(--vscode-foreground);
+                font-size: 8px;
+                cursor: pointer;
+
+                &:disabled {
+                    opacity: .6;
+                    cursor: default;
+                }
+            }
+        }
+
+        .ai-session-group-form {
+            margin: 2px 4px 6px;
+            padding: 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            background: var(--vscode-sideBar-background);
+            font-size: 10px;
+
+            .ai-session-group-form-header {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .ai-session-group-form-name {
+                flex: 1 1 auto;
+                min-width: 0;
+                padding: 3px 6px;
+                border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+                border-radius: 4px;
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground, var(--vscode-foreground));
+                font: inherit;
+            }
+
+            .ai-session-group-form-close {
+                padding: 0 6px;
+                border: 0;
+                background: transparent;
+                color: var(--vscode-descriptionForeground);
+                font-size: 12px;
+                cursor: pointer;
+            }
+
+            .ai-session-group-form-error {
+                margin-top: 4px;
+                color: var(--vscode-errorForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-loading {
+                margin-top: 4px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-member {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 4px 8px;
+                margin-top: 6px;
+                padding: 4px;
+                border-radius: 4px;
+
+                &[data-unchecked] {
+                    opacity: .55;
+                }
+            }
+
+            .ai-session-group-form-check {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-weight: 600;
+            }
+
+            .ai-session-group-form-base {
+                max-width: 140px;
+                background: var(--vscode-dropdown-background, var(--vscode-input-background));
+                color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+                border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+                font: inherit;
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-primary,
+            .ai-session-group-form-setup {
+                display: inline-flex;
+                align-items: center;
+                gap: 3px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-plan {
+                flex-basis: 100%;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-preflight {
+                flex-basis: 100%;
+                color: var(--vscode-errorForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-actions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-top: 8px;
+
+                button {
+                    padding: 2px 10px;
+                    border: 1px solid var(--vscode-button-border, transparent);
+                    border-radius: 4px;
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    font: inherit;
+                    font-size: 10px;
+                    cursor: pointer;
+
+                    &:disabled {
+                        opacity: .5;
+                        cursor: default;
+                    }
+                }
+
+                .ai-session-group-form-available {
+                    background: var(--vscode-button-secondaryBackground, transparent);
+                    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                    border-color: var(--vscode-panel-border);
+                }
+            }
+
+            .ai-session-group-form-pending {
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+        }
+
         .ai-session-worktree-primary-picker {
             display: flex;
             flex-wrap: wrap;

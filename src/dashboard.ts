@@ -2134,15 +2134,26 @@ async function initializeDashboard(
             }
             const repositories = await worktreeGroupCreationController
                 .listRepositoryOptions(request.projectId);
+            // Branch-from-here (PRD §6.1): resolve the seed worktree's
+            // branch so the form can prefill the base-ref override.
+            const seedWorktree = request.seedRepositoryKey
+                && request.seedWorktreePath
+                ? worktreeSnapshotCoordinator.getSnapshot()?.repositories
+                    .find(candidate =>
+                        candidate.repositoryKey === request.seedRepositoryKey)
+                    ?.worktrees.find(candidate =>
+                        candidate.key.canonicalWorktreePath
+                            === request.seedWorktreePath)
+                : undefined;
             await provider.postMessage({
                 type: 'worktree-group-form-state',
                 version: 1,
                 projectId: request.projectId,
-                ...(request.seedRepositoryKey
+                ...(request.seedRepositoryKey && seedWorktree?.branchRef
                     ? {
                         seed: {
                             repositoryKey: request.seedRepositoryKey,
-                            baseRef: request.seedBaseRef,
+                            baseRef: seedWorktree.branchRef,
                         },
                     }
                     : {}),
@@ -2160,6 +2171,7 @@ async function initializeDashboard(
                 type: 'worktree-group-preview',
                 version: 1,
                 requestId: request.requestId,
+                projectId: request.projectId,
                 slug: preview.slug,
                 ...(preview.formError ? { formError: preview.formError } : {}),
                 members: preview.members,

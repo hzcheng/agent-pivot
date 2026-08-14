@@ -17,6 +17,10 @@ const controlsScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectAiSessionControlsScripts.js'),
     'utf8'
 );
+const groupFormScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewGroupFormScripts.js'),
+    'utf8'
+);
 const workspaceUpdateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewWorkspaceUpdateScripts.js'),
     'utf8'
@@ -523,6 +527,7 @@ test('WORKTREE-GROUPS-UI-001 set-primary settlements drive the button pending st
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: groupFormScript });
     await page.addScriptTag({ content: controlsScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {

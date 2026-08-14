@@ -62,6 +62,10 @@ const aiSessionControlsScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectAiSessionControlsScripts.js'),
     'utf8'
 );
+const groupFormScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewGroupFormScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -156,6 +160,7 @@ async function openQuickCreatePage(t, options = {}) {
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: groupFormScript });
     await page.addScriptTag({ content: aiSessionControlsScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
@@ -252,7 +257,7 @@ test('WORKTREE-PROVISIONING-UI-001 a failed row shows a readable reason and can 
     });
 });
 
-test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a terminal settlement', async t => {
+test('WORKTREE-PROVISIONING-PROTOCOL-001 the new-worktree button opens the inline group creation form', async t => {
     const page = await openQuickCreatePage(t);
     const project = page.locator('.project[data-id="project-a"]');
     const button = project.locator('[data-action="create-isolated-session"]');
@@ -262,46 +267,31 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 isolated create stays pending until a t
     assert.deepEqual(messages[0], {
         type: 'select-ai-session-surface', version: 1,
         projectId: 'project-a', surface: 'worktree',
-    }, 'starting creation follows the progress row into the Worktree surface');
+    }, 'opening the form follows it into the Worktree surface');
     assert.equal(
         await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
         'worktree'
     );
-    const request = messages[1];
-    assert.deepEqual(request, {
-        type: 'start-isolated-session', version: 1,
-        requestId: 'isolated-1', projectId: 'project-a',
+    assert.deepEqual(messages[1], {
+        type: 'open-worktree-group-form', version: 1,
+        projectId: 'project-a',
+    }, 'M2 replaces the QuickPick/InputBox sequence with the inline form');
+    assert.equal(await button.isDisabled(), false,
+        'the button is not a pending mutation; the form owns its own state');
+
+    await page.evaluate(() => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'worktree-group-form-state', version: 1,
+            projectId: 'project-a',
+            repositories: [{
+                repositoryKey: '/repo/.git', label: 'repo',
+                defaultBaseRef: 'refs/heads/main', localBranches: ['main'],
+                defaultChecked: true, setupCommand: [],
+            }],
+        } }));
     });
-    assert.equal(await button.isDisabled(), true);
-
-    await page.evaluate(requestId => {
-        window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'isolated-session-settlement', version: 1,
-            requestId, operationId: requestId, status: 'accepted',
-        } }));
-    }, request.requestId);
-    assert.equal(await button.isDisabled(), true, 'accepted is progress, not success');
-
-    await page.evaluate(requestId => {
-        window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'isolated-session-settlement', version: 1,
-            requestId, operationId: 'another-operation', status: 'rejected',
-            errorCode: 'workspace-untrusted',
-        } }));
-    }, request.requestId);
-    assert.equal(await button.isDisabled(), true,
-        'a settlement for another operation cannot unlock this request');
-
-    await page.evaluate(requestId => {
-        window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'isolated-session-settlement', version: 1,
-            requestId, operationId: requestId, status: 'rejected',
-            errorCode: 'workspace-untrusted',
-        } }));
-    }, request.requestId);
-    assert.equal(await button.isDisabled(), false);
-    assert.match(await project.locator('[data-ai-session-live-region]').textContent(),
-        /not trusted/);
+    assert.equal(await project.locator('[data-worktree-group-form]').count(), 1,
+        'the form renders inline at the top of the Worktree panel');
 });
 
 test('WORKTREE-MANAGED-CLEANUP-001 removal stays discoverable for busy managed worktrees', async t => {
@@ -524,7 +514,7 @@ test('WORKTREE-GROUPING-UI-001 collapsing a worktree really hides every session 
         'expanding restores every session row');
 });
 
-test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon starts provisioning from that branch', async t => {
+test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon seeds the creation form from that branch', async t => {
     const key = {
         repositoryKey: '/repo/.git',
         canonicalWorktreePath: '/repo-feature',
@@ -559,12 +549,12 @@ test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon starts provisioning from
     assert.equal(await branchItem.textContent(), 'New worktree from feature/auth');
     await branchItem.click();
     assert.deepEqual(await postedMessages(page), [{
-        type: 'start-isolated-session',
+        type: 'open-worktree-group-form',
         version: 1,
-        requestId: 'isolated-1',
         projectId: 'project-a',
-        sourceWorktree: key,
-    }]);
+        seedRepositoryKey: key.repositoryKey,
+        seedWorktreePath: key.canonicalWorktreePath,
+    }], 'branch-from-here is absorbed by the form with a seed (PRD §6.1)');
 });
 
 test('WORKTREE-GROUPING-UI-001 revealing a switched session follows it into its worktree group', async t => {

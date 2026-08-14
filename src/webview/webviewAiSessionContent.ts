@@ -272,6 +272,7 @@ function getWorktreeSurfacePanel(
         ? `<div class="ai-session-worktree-truncated" role="status">${project.truncatedWorktreeCount} more worktrees not shown</div>`
         : '';
     return `<div id="ai-session-worktree-${projectId}" class="ai-session-surface-panel ai-session-worktree-surface" role="tabpanel" data-ai-session-surface-panel="worktree" aria-labelledby="ai-session-surface-worktree-tab-${projectId}"${selectedSurface === 'worktree' ? '' : ' hidden'}>
+        <div class="ai-session-group-form-slot" data-worktree-group-form-slot hidden></div>
         <div class="ai-session-worktree-list">${anchorHtml}${groupRowsHtml}${provisioningRows}${groups}${empty}${truncated}</div>
     </div>`;
 }
@@ -844,6 +845,26 @@ function getWorktreeGroupRowHtml(
             + `</div>`
         : '';
     const memberSummary = `<div class="ai-session-worktree-member-summary" role="note">${group.members.length} worktree${group.members.length === 1 ? '' : 's'} · ${escapeAttribute(memberNames)}</div>`;
+    // M2: in-flight and failed members render as actionable rows so the
+    // member state machine (provisioning / failed → Retry / Dismiss) is
+    // visible inside the group row (PRD §4.2, §8).
+    const memberStatusRows = group.members
+        .filter(member => member.status === 'pending' || member.status === 'failed')
+        .map(member => {
+            const statusLabel = member.status === 'pending'
+                ? 'creating…'
+                : `creation failed${member.errorCode ? `: ${describeMemberError(member.errorCode)}` : ''}`;
+            const actions = member.status === 'failed'
+                ? `<button type="button" class="ai-session-worktree-member-retry" data-action="retry-group-member" data-group-id="${escapeAttribute(group.groupId)}" data-member-id="${escapeAttribute(member.memberId)}" aria-label="Retry creating ${escapeAttribute(member.repositoryLabel)} worktree">Retry</button>`
+                    + `<button type="button" class="ai-session-worktree-member-dismiss" data-action="dismiss-group-member" data-group-id="${escapeAttribute(group.groupId)}" data-member-id="${escapeAttribute(member.memberId)}" aria-label="Dismiss the failed ${escapeAttribute(member.repositoryLabel)} worktree (keeps any files on disk)">Dismiss</button>`
+                : '';
+            return `<div class="ai-session-worktree-member-row" data-member-status="${member.status}">`
+                + `<span class="ai-session-worktree-member-label">${escapeAttribute(member.repositoryLabel)}</span>`
+                + `<span class="ai-session-worktree-member-state">${escapeAttribute(statusLabel)}</span>`
+                + actions
+                + `</div>`;
+        })
+        .join('\n');
     const primaryAttributes = primary?.worktreeKey
         ? ` data-worktree-repository-key="${escapeAttribute(primary.worktreeKey.repositoryKey)}" data-worktree-path="${escapeAttribute(primary.worktreeKey.canonicalWorktreePath)}"`
         : '';
@@ -860,8 +881,26 @@ function getWorktreeGroupRowHtml(
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')
-            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${primaryPicker}</div>
+            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${memberStatusRows}${primaryPicker}</div>
     </section>`;
+}
+
+/** Human-readable member creation errors (PRD §8: 人话错误，不显示裸错误码). */
+function describeMemberError(errorCode: string): string {
+    switch (errorCode) {
+        case 'branch-conflict': return 'branch name already exists';
+        case 'path-conflict': return 'path already exists';
+        case 'repository-has-no-commits': return 'repository has no commits yet';
+        case 'base-ref-unavailable': return 'base ref unavailable';
+        case 'interrupted': return 'interrupted by a reload; retry or dismiss';
+        case 'cancelled': return 'cancelled';
+        case 'git-timeout': return 'git timed out';
+        case 'manifest-unavailable': return 'the workspace changed during creation';
+        case 'recovery-persist-failed': return 'could not persist recovery state';
+        case 'workspace-untrusted': return 'the workspace is not trusted';
+        case 'workspace-unavailable': return 'workspace unavailable';
+        default: return errorCode;
+    }
 }
 
 function getUnmanagedWorktreeGroupHtml(

@@ -213,6 +213,9 @@ function initProjects() {
         if (dataId == null)
             return;
 
+        if (worktreeGroupForm.onClick(e.target, projectDiv, dataId))
+            return;
+
         if (aiSessionControls.onTriggerAiSessionAction(e.target, dataId))
             return;
 
@@ -281,6 +284,7 @@ function initProjects() {
         getSelectedAiSessionProviders: aiSessionControls.getSelectedAiSessionProviders,
         syncAiSessionBatchManagementDom: aiSessionControls.syncAiSessionBatchManagementDom,
         reconcilePendingAiSessionProviderSelectionDom: aiSessionControls.reconcilePendingAiSessionProviderSelectionDom,
+        reconcileWorktreeGroupFormDom: () => worktreeGroupForm.reconcileDom(),
         submitAiSessionProviderSelection: aiSessionControls.submitAiSessionProviderSelection,
         toggleCodexSessions: aiSessionControls.toggleCodexSessions,
         exitAiSessionBatchManagement: aiSessionControls.exitAiSessionBatchManagement,
@@ -288,6 +292,11 @@ function initProjects() {
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
         presentationTransactions: presentationTransactions,
     });
+    var worktreeGroupForm = initWorktreeGroupForm({
+        findCurrentWorkspaceDiv: projectId =>
+            aiSessionsUpdate.findCurrentWorkspaceDiv(projectId),
+    });
+    aiSessionControls.setWorktreeGroupForm(worktreeGroupForm);
 
     function applyValidatedAiSessionPresentationState(message) {
         if (!aiSessionPresentationStateStore.adopt(message)) return;
@@ -590,6 +599,26 @@ function initProjects() {
 
         if (message && message.type === 'worktree-group-primary-settlement') {
             aiSessionControls.applySetGroupPrimarySettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-form-state') {
+            worktreeGroupForm.applyFormState(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-preview') {
+            worktreeGroupForm.applyPreview(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-creation-settlement') {
+            worktreeGroupForm.applyCreationSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-member-settlement') {
+            worktreeGroupForm.applyMemberSettlement(message);
             return;
         }
 

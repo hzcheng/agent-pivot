@@ -12,7 +12,7 @@ export interface OpenWorktreeGroupFormRequest {
     projectId: string;
     /** Branch-from-here entry (PRD §6.1): precheck + prefill this repo. */
     seedRepositoryKey?: string;
-    seedBaseRef?: string;
+    seedWorktreePath?: string;
 }
 
 export interface PreviewWorktreeGroupRequest {
@@ -76,13 +76,13 @@ export function parseOpenWorktreeGroupFormRequest(
         return null;
     }
     const hasSeed = value.seedRepositoryKey !== undefined
-        || value.seedBaseRef !== undefined;
+        || value.seedWorktreePath !== undefined;
     const expected = hasSeed
-        ? ['projectId', 'seedBaseRef', 'seedRepositoryKey', 'type', 'version']
+        ? ['projectId', 'seedRepositoryKey', 'seedWorktreePath', 'type', 'version']
         : ['projectId', 'type', 'version'];
     if (!sameKeys(value, expected)
         || (hasSeed && (!isSafeString(value.seedRepositoryKey)
-            || !isSafeRef(value.seedBaseRef)))) {
+            || !isSafeString(value.seedWorktreePath)))) {
         return null;
     }
     return value as unknown as OpenWorktreeGroupFormRequest;

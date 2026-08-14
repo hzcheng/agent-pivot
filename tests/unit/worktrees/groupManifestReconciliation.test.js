@@ -224,7 +224,7 @@ test('WORKTREE-GROUPS-003 a foreign incomplete recovery still blocks ready seedi
         'a half-provisioned worktree stays unseeded even when the record is foreign');
 });
 
-test('WORKTREE-GROUPS-003 in-flight members without a live operation downgrade to interrupted', async () => {
+test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 in-flight members without a live operation downgrade to interrupted', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     await store.createGroup(WORKSPACE, {
         displayName: 'fix-login',

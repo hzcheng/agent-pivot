@@ -34,7 +34,7 @@ test('WORKTREE-GROUPS-CREATE-001 parses only exact bounded form requests', () =>
     }), { type: 'open-worktree-group-form', version: 1, projectId: 'project' });
     assert.ok(parseOpenWorktreeGroupFormRequest({
         type: 'open-worktree-group-form', version: 1, projectId: 'project',
-        seedRepositoryKey: '/alpha/.git', seedBaseRef: 'refs/heads/topic',
+        seedRepositoryKey: '/alpha/.git', seedWorktreePath: '/alpha/.worktrees/topic',
     }));
     assert.equal(parseOpenWorktreeGroupFormRequest({
         type: 'open-worktree-group-form', version: 1, projectId: 'project',

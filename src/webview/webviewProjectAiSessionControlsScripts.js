@@ -82,6 +82,11 @@ function initProjectAiSessionControls(options) {
     var pendingManagedWorktreeRemovalRequests = new Map();
     var nextSetGroupPrimaryRequestId = 0;
     var pendingSetGroupPrimaryRequests = new Map();
+    var worktreeGroupForm = null;
+
+    function setWorktreeGroupForm(form) {
+        worktreeGroupForm = form;
+    }
     var pendingAiSessionAttentionAcknowledgements = new Map();
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
@@ -242,8 +247,8 @@ function initProjectAiSessionControls(options) {
         }
         var isolatedCreateAction = target.closest('[data-action="create-isolated-session"]');
         if (isolatedCreateAction) {
-            // Creating starts a background provisioning row that only renders
-            // in the Worktree surface, so follow it there immediately.
+            // M2: the inline group creation form opens at the top of the
+            // Worktree surface, so follow it there immediately.
             selectAiSessionSurfaceDom(projectDiv, 'worktree');
             writeAiSessionSurfaceState(window.vscode, projectId, 'worktree');
             window.vscode.postMessage({
@@ -252,16 +257,9 @@ function initProjectAiSessionControls(options) {
                 projectId: projectId,
                 surface: 'worktree',
             });
-            submitIsolatedSessionRequest(
-                'start-isolated-session', projectId, null, isolatedCreateAction,
-                isolatedCreateAction.getAttribute('data-repository-key')
-                    && isolatedCreateAction.getAttribute('data-worktree-path')
-                    ? {
-                        repositoryKey: isolatedCreateAction.getAttribute('data-repository-key'),
-                        canonicalWorktreePath: isolatedCreateAction.getAttribute('data-worktree-path'),
-                    }
-                    : null
-            );
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(projectId, null);
+            }
             return true;
         }
         var isolatedRetryAction = target.closest(
@@ -784,9 +782,14 @@ function initProjectAiSessionControls(options) {
                 worktreeKey: worktreeKey,
             });
         } else if (action === 'worktree-branch-create' && context.canBranchCreate) {
-            submitIsolatedSessionRequest(
-                'start-isolated-session', context.projectId, null, originButton, worktreeKey
-            );
+            // M2: absorbed by the inline creation form with a branch seed
+            // (PRD §6.1 entry absorption).
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, {
+                    repositoryKey: context.repositoryKey,
+                    worktreePath: context.worktreePath,
+                });
+            }
         } else if (action === 'worktree-remove' && context.canRemove) {
             var projectDiv = document.querySelector(
                 '.project[data-id="' + CSS.escape(context.projectId) + '"]'
@@ -1482,6 +1485,7 @@ function initProjectAiSessionControls(options) {
         applyIsolatedSessionSettlement: applyIsolatedSessionSettlement,
         applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
         applySetGroupPrimarySettlement: applySetGroupPrimarySettlement,
+        setWorktreeGroupForm: setWorktreeGroupForm,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
         activateAiSessionWorktreeMenuItem: activateAiSessionWorktreeMenuItem,

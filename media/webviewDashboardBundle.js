@@ -175,6 +175,16 @@ function readAiSessionWorktreeCollapseState(vscodeApi) {
 }
 
 function getAiSessionWorktreeGroupKey(group) {
+    // Reserved identities first: the anchor and manifest groups must never
+    // collide with each other or with unmanaged rows on an empty
+    // repository/path pair.
+    if (group?.hasAttribute('data-worktree-anchor')) {
+        return '["__anchor__"]';
+    }
+    var groupId = group?.getAttribute('data-group-id');
+    if (groupId) {
+        return JSON.stringify(['group', groupId]);
+    }
     return JSON.stringify([
         group?.getAttribute('data-worktree-repository-key') || '',
         group?.getAttribute('data-worktree-path') || '',

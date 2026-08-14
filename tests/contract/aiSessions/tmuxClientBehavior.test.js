@@ -460,6 +460,45 @@ test('RUNTIME-TMUX-CLIENT-001 reads and writes metadata options and maps runner 
     });
 });
 
+test('RUNTIME-TMUX-CLIENT-001 metadata batch reads stay under the tmux command length limit', async () => {
+    // Regression: with many live sessions, the batched show-options sequence
+    // grew past tmux's "command too long" limit once another metadata key was
+    // added, breaking every listWindows caller (create, resume, attention).
+    const sessionCount = 12;
+    const sessions = Array.from({ length: sessionCount },
+        (_unused, index) => `ap-long-running-project-name-${index}-a1b2c3d4`);
+    const windowRows = sessions.map((name, index) =>
+        `${name}|:ap-field:|window-${index}|:ap-field:|@${100 + index}|:ap-field:|1`);
+    const paneRows = sessions.map((_name, index) =>
+        `@${100 + index}|:ap-field:|%${200 + index}|:ap-field:|1|:ap-field:|${5000 + index}`);
+    const metadataCalls = [];
+    const client = new TmuxClient('tmux', {
+        run: async (_file, args) => {
+            const available = availabilityResult(args);
+            if (available) return available;
+            if (args[0] === 'list-windows') {
+                return { exitCode: 0, stdout: `${windowRows.join('\n')}\n`, stderr: '' };
+            }
+            if (args[0] === 'list-panes') {
+                return { exitCode: 0, stdout: `${paneRows.join('\n')}\n`, stderr: '' };
+            }
+            if (args.includes('show-options')) {
+                metadataCalls.push(args);
+                return metadataSequenceResult(args, () => undefined);
+            }
+            return { exitCode: 0, stdout: '', stderr: '' };
+        },
+    });
+    const windows = await client.listWindows();
+    assert.equal(windows.length, sessionCount);
+    assert.ok(metadataCalls.length > 1,
+        'a busy tmux server must be read in more than one batch');
+    for (const args of metadataCalls) {
+        assert.ok(args.join(' ').length <= 12288,
+            `metadata batch argv (${args.join(' ').length} chars) exceeds the safe tmux command length`);
+    }
+});
+
 test('RUNTIME-TMUX-CLIENT-001 fails closed on missing, ambiguous, or malformed active pane PIDs', async () => {
     let paneResult = {
         exitCode: 0,

@@ -31,6 +31,17 @@ const METADATA_CHECKSUM_LENGTH = 16;
 const METADATA_READ_MARKER_PREFIX = '__project_steward_metadata__:';
 const METADATA_BATCH_MARKER_PREFIX = '__project_steward_metadata_batch__:';
 const MAX_METADATA_BATCH_TARGETS = 8;
+/**
+ * tmux rejects an over-long `;`-joined command sequence with the
+ * undocumented `command too long` error (exit 1). The per-target metadata
+ * read grows with every new metadata key, so chunk by the joined argument
+ * length as well as the target count; a fixed target count alone silently
+ * breaks when a key is added.
+ *
+ * Empirically (tmux 3.2a) the sequence fails at roughly 16K characters;
+ * 12K leaves a wide margin while still batching several targets per call.
+ */
+const MAX_METADATA_BATCH_ARGS_LENGTH = 12288;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const REQUIRED_COMMANDS = [
     'new-session',
@@ -550,8 +561,15 @@ export class TmuxClient {
         requests: MetadataReadRequest[]
     ): Promise<Map<string, Record<string, string>>> {
         const values = new Map<string, Record<string, string>>();
-        for (let offset = 0; offset < requests.length; offset += MAX_METADATA_BATCH_TARGETS) {
-            const batch = requests.slice(offset, offset + MAX_METADATA_BATCH_TARGETS);
+        for (let offset = 0; offset < requests.length;) {
+            let end = Math.min(offset + MAX_METADATA_BATCH_TARGETS, requests.length);
+            while (end > offset + 1
+                && metadataBatchReadArgs(requests.slice(offset, end)).join(' ').length
+                    > MAX_METADATA_BATCH_ARGS_LENGTH) {
+                end -= 1;
+            }
+            const batch = requests.slice(offset, end);
+            offset = end;
             const result = await this.invoke('list-windows', metadataBatchReadArgs(batch));
             if (result.exitCode !== 0) {
                 throw resultError('list-windows', result);

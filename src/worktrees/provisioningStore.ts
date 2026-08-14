@@ -31,6 +31,13 @@ export interface PersistedWorktreeProvisioningOperation {
      * of trusting the projectId alone. Absent only in pre-binding records.
      */
     workspaceNavigationIdentity?: string;
+    /**
+     * Group-creation membership (M2): when set, this operation provisions
+     * one member of an existing manifest group and must not surface as an
+     * Unmanaged provisioning row — the group row renders its state.
+     */
+    groupId?: string;
+    memberId?: string;
     providerId: 'codex' | 'kimi' | 'claude';
     profile?: ProvisioningSessionProfile;
     setupCommand: string[];
@@ -97,10 +104,18 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
         : (typeof value.workspaceNavigationIdentity === 'string'
             && safeString(value.workspaceNavigationIdentity)
             ? value.workspaceNavigationIdentity : null);
+    const groupId = value.groupId === undefined
+        ? undefined
+        : (safeId(value.groupId) ? value.groupId : null);
+    const memberId = value.memberId === undefined
+        ? undefined
+        : (safeId(value.memberId) ? value.memberId : null);
     const setupCommand = normalizeWorktreeSetupCommand(value.setupCommand);
     if (!plan || !row || !completedSteps || (value.worktreeKey !== undefined && !worktreeKey)
         || (value.profile !== undefined && !profile)
         || workspaceNavigationIdentity === null
+        || groupId === null || memberId === null
+        || (groupId === undefined) !== (memberId === undefined)
         || row.operationId !== value.operationId || row.repositoryKey !== plan.repositoryKey
         || row.taskName !== plan.taskName || row.proposedPath !== plan.worktreePath
         || row.completedSteps.join('\0') !== completedSteps.join('\0')
@@ -118,6 +133,7 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
         operationId: value.operationId,
         projectId: value.projectId,
         ...(workspaceNavigationIdentity ? { workspaceNavigationIdentity } : {}),
+        ...(groupId && memberId ? { groupId, memberId } : {}),
         providerId: value.providerId as 'codex' | 'kimi' | 'claude',
         ...(profile ? { profile } : {}),
         setupCommand,

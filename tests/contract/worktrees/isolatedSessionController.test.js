@@ -289,6 +289,85 @@ test('WORKTREE-GROUPS-003 a failed manifest write degrades success to a retryabl
     assert.equal(current.publications.at(-1).rows[0].retryable, true);
 });
 
+test('WORKTREE-GROUPS-CREATE-001 group member operations stay out of Unmanaged and bind the group', async () => {
+    const recorded = [];
+    const current = fixture({
+        recordProvisionedWorktree: async info => { recorded.push(info); },
+    });
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+
+    const outcome = await current.controller.startGroupMember({
+        operationId: 'group-member-m1',
+        projectId: 'project',
+        plan,
+        setupCommand: ['npm', 'ci'],
+        groupId: 'g1',
+        memberId: 'm1',
+        preferredPrimary: true,
+    });
+    assert.equal(outcome.kind, 'succeeded');
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].groupId, 'g1');
+    assert.equal(recorded[0].memberId, 'm1');
+    assert.equal(recorded[0].preferredPrimary, true);
+    assert.equal(recorded[0].navigationIdentity, 'navigation:workspace');
+    assert.deepEqual(current.controller.getVisibleRows('navigation:workspace'), [],
+        'group member operations render in the group row, never in Unmanaged');
+    assert.deepEqual(current.controller.getActiveGroupMemberIds(), [],
+        'a settled member is no longer active');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a failed group member retries its exact confirmed plan', async () => {
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const attemptedPlans = [];
+    let failCreates = true;
+    const current = fixture({
+        provisioner: {
+            isBranchAvailable: async () => true,
+            isPathAvailable: async () => true,
+            createWorktree: async attempted => {
+                attemptedPlans.push(attempted);
+                if (failCreates) {
+                    throw Object.assign(new Error('conflict'), { code: 'branch-conflict' });
+                }
+                return {
+                    repositoryKey: attempted.repositoryKey,
+                    canonicalWorktreePath: attempted.worktreePath,
+                };
+            },
+            validateCreatedWorktree: async () => undefined,
+        },
+    });
+    const failed = await current.controller.startGroupMember({
+        operationId: 'group-member-m2', projectId: 'project', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm2',
+    });
+    assert.equal(failed.kind, 'failed');
+    assert.equal(failed.errorCode, 'branch-conflict');
+    assert.deepEqual(current.controller.getActiveGroupMemberIds(), [],
+        'a settled-failed member is not active');
+    assert.deepEqual(current.controller.getVisibleRows('navigation:workspace'), []);
+
+    failCreates = false;
+    const retried = await current.controller.retry('group-member-m2', 'project');
+    assert.equal(retried.kind, 'succeeded');
+    assert.equal(attemptedPlans.length, 2);
+    assert.equal(attemptedPlans[1].branchName, 'agent-pivot/fix-login',
+        'a group member retry executes the confirmed plan verbatim');
+    assert.equal(attemptedPlans[1].worktreePath, '/repo/.worktrees/fix-login',
+        'an execution-time collision never silently re-suffixes the path');
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

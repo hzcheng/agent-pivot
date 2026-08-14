@@ -224,6 +224,53 @@ test('WORKTREE-GROUPS-003 a foreign incomplete recovery still blocks ready seedi
         'a half-provisioned worktree stays unseeded even when the record is foreign');
 });
 
+test('WORKTREE-GROUPS-003 in-flight members without a live operation downgrade to interrupted', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    await store.createGroup(WORKSPACE, {
+        displayName: 'fix-login',
+        suggestedSlug: 'fix-login',
+        members: [
+            {
+                repositoryKey: '/alpha/.git',
+                branchName: 'agent-pivot/fix-login',
+                path: '/alpha/.worktrees/fix-login',
+                state: 'provisioning',
+            },
+            {
+                repositoryKey: '/beta/.git',
+                branchName: 'agent-pivot/fix-login',
+                path: '/beta/.worktrees/fix-login',
+                state: 'provisioning',
+            },
+        ],
+    });
+    const content = snapshot([]);
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        activeGroupMemberIds: [],
+    });
+    let group = store.listGroups(WORKSPACE)[0];
+    assert.ok(group.members.every(member =>
+        member.state === 'failed' && member.lastError === 'interrupted'),
+        'a crashed creation never leaves members pending forever');
+
+    // A live operation is left alone: its own settlement drives the state.
+    await store.updateMember(WORKSPACE, group.groupId, group.members[0].memberId, {
+        state: 'provisioning', lastError: '',
+    });
+    await store.updateMember(WORKSPACE, group.groupId, group.members[1].memberId, {
+        state: 'provisioning', lastError: '',
+    });
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        activeGroupMemberIds: [group.members[0].memberId],
+    });
+    group = store.listGroups(WORKSPACE)[0];
+    assert.equal(group.members[0].state, 'provisioning',
+        'an actively provisioning member is not downgraded');
+    assert.equal(group.members[1].state, 'failed');
+});
+
 test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seeding until retried', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const content = snapshot([{

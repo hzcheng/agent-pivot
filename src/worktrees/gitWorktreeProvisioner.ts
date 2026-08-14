@@ -10,6 +10,7 @@ import type { WorktreeKey } from './types';
 const MAX_GIT_ERROR_LENGTH = 512;
 const PROVISIONING_GIT_TIMEOUT_MS = 60_000;
 const PROVISIONING_GIT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_LOCAL_BRANCHES = 512;
 
 export type GitWorktreeProvisioningErrorCode =
   | 'cancelled'
@@ -79,6 +80,53 @@ export class GitWorktreeProvisioner {
 
     async isPathAvailable(worktreePath: string): Promise<boolean> {
         return isSafeAbsolutePath(worktreePath) && !(await this.pathExists(worktreePath));
+    }
+
+    /**
+     * Local branches offered as base-ref candidates in the group creation
+     * form (PRD §6.1: 本地分支 + 记忆的基准, remote-only branches excluded).
+     */
+    async listLocalBranches(commandCwd: string): Promise<string[]> {
+        if (!isSafeAbsolutePath(commandCwd)) {
+            return [];
+        }
+        const result = await this.runGit(commandCwd, [
+            '-C', commandCwd, 'for-each-ref', '--format=%(refname:strip=2)',
+            'refs/heads',
+        ]);
+        if (result.exitCode !== 0) {
+            throw gitFailure('worktree-create-failed', result);
+        }
+        const branches = result.stdout
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line && isSafeBranchName(line));
+        return Array.from(new Set(branches))
+            .sort((left, right) => left.localeCompare(right))
+            .slice(0, MAX_LOCAL_BRANCHES);
+    }
+
+    /**
+     * Read-only gate for the group creation preview (PRD §6.1): validates
+     * the plan against the live repository and reports the exact blocker
+     * without creating anything.
+     */
+    async preflightPlan(
+        plan: WorktreeProvisioningPlan
+    ): Promise<'ok' | GitWorktreeProvisioningErrorCode> {
+        try {
+            await this.validatePlan(plan);
+        } catch (error) {
+            return error instanceof GitWorktreeProvisioningError
+                ? error.code : 'worktree-create-failed';
+        }
+        if (!(await this.isBranchAvailable(plan.commandCwd, plan.branchName))) {
+            return 'branch-conflict';
+        }
+        if (!(await this.isPathAvailable(plan.worktreePath))) {
+            return 'path-conflict';
+        }
+        return 'ok';
     }
 
     async createWorktree(

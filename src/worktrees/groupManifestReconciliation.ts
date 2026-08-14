@@ -18,6 +18,12 @@ export interface ReconcileWorktreeGroupManifestOptions {
      * (e.g. CJK names) keep their original display name here.
      */
     recoveryRecords?: readonly PersistedWorktreeProvisioningOperation[];
+    /**
+     * Member ids with a live provisioning operation (PRD §9 in-flight
+     * reconciliation): members stuck in planned/provisioning without one
+     * crashed mid-creation and are downgraded to failed/interrupted.
+     */
+    activeGroupMemberIds?: readonly string[];
     onError?: (message: string, error: unknown) => void;
 }
 
@@ -39,12 +45,30 @@ export async function reconcileWorktreeGroupManifest(
     options: ReconcileWorktreeGroupManifestOptions
 ): Promise<void> {
     const { store, workspaceIdentity, snapshot } = options;
+    const activeMemberIds = new Set(options.activeGroupMemberIds || []);
     const visibleRepositories = new Set(
         snapshot.repositories.map(repository => repository.repositoryKey));
     const manifestRepositories = new Set<string>();
     for (const group of store.listGroups(workspaceIdentity)) {
         for (const member of group.members) {
             manifestRepositories.add(member.repositoryKey);
+            if ((member.state === 'provisioning' || member.state === 'planned')
+                && !activeMemberIds.has(member.memberId)) {
+                // The process exited mid-creation: an in-flight member must
+                // not stay pending forever. It becomes a retryable failed
+                // member; a live operation's own settlement wins the race
+                // because it rewrites the state on every outcome.
+                try {
+                    await store.updateMember(
+                        workspaceIdentity, group.groupId, member.memberId, {
+                            state: 'failed',
+                            lastError: 'interrupted',
+                        });
+                } catch (error) {
+                    options.onError?.(
+                        'Failed to downgrade an interrupted group member.', error);
+                }
+            }
         }
     }
     for (const repositoryKey of manifestRepositories) {

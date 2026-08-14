@@ -254,6 +254,20 @@ import { reconcileWorktreeGroupManifest } from './worktrees/groupManifestReconci
 import { IsolatedSessionController } from './worktrees/isolatedSessionController';
 import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
 import { normalizeWorktreeDirectory } from './worktrees/provisioningPlan';
+import { GitWorktreeProvisioner } from './worktrees/gitWorktreeProvisioner';
+import {
+    WorktreeGroupCreationController,
+} from './worktrees/groupCreationController';
+import {
+    acceptedWorktreeGroupCreationSettlement,
+    acceptedWorktreeGroupMemberSettlement,
+    parseConfirmWorktreeGroupRequest,
+    parseOpenWorktreeGroupFormRequest,
+    parsePreviewWorktreeGroupRequest,
+    parseWorktreeGroupMemberRequest,
+    settledWorktreeGroupCreationSettlement,
+    settledWorktreeGroupMemberSettlement,
+} from './worktrees/groupCreationProtocol';
 import {
     normalizeWorktreeSetupCommand,
     WorktreeSetupRunner,
@@ -1314,6 +1328,8 @@ async function initializeDashboard(
                             workspaceIdentity: workspace.navigationIdentity,
                             snapshot,
                             recoveryRecords: worktreeProvisioningStore.read(),
+                            activeGroupMemberIds:
+                                isolatedSessionController?.getActiveGroupMemberIds() || [],
                             onError: (message, error) => logError(message, error),
                         });
                     } catch (error) {
@@ -1486,7 +1502,9 @@ async function initializeDashboard(
         focusTerminalView: () => vscode.commands.executeCommand('workbench.action.terminal.focus'),
         nowMs: () => Date.now(),
     });
+    const worktreeGroupProvisioner = new GitWorktreeProvisioner();
     isolatedSessionController = new IsolatedSessionController({
+        provisioner: worktreeGroupProvisioner,
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
         getActiveEditorPath: () => vscode.window.activeTextEditor?.document.uri.fsPath,
@@ -1525,6 +1543,21 @@ async function initializeDashboard(
                 throw error;
             }
             const bucket = target.workspace.navigationIdentity;
+            if (info.groupId && info.memberId) {
+                // Group creation (M2): the group already exists with this
+                // member planned; mark the member ready and apply the
+                // confirmed primary choice once its member is ready.
+                await worktreeGroupManifestStore.updateMember(
+                    bucket, info.groupId, info.memberId, {
+                        state: 'ready',
+                        worktreeKey: info.worktreeKey,
+                    });
+                if (info.preferredPrimary) {
+                    await worktreeGroupManifestStore.setPrimaryMember(
+                        bucket, info.groupId, info.memberId);
+                }
+                return;
+            }
             if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
                 return;
             }
@@ -1543,6 +1576,48 @@ async function initializeDashboard(
     });
     let managedWorktreeRemovalController: ManagedWorktreeRemovalController;
     let currentAiSessionRefreshReason = 'refresh';
+    const worktreeGroupCreationController = new WorktreeGroupCreationController({
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        listLocalBranches: commandCwd =>
+            worktreeGroupProvisioner.listLocalBranches(commandCwd),
+        isBranchAvailable: (commandCwd, branchName) =>
+            worktreeGroupProvisioner.isBranchAvailable(commandCwd, branchName),
+        isPathAvailable: worktreePath =>
+            worktreeGroupProvisioner.isPathAvailable(worktreePath),
+        preflightPlan: plan => worktreeGroupProvisioner.preflightPlan(plan),
+        // Resource-scoped per repository (PRD §6.1): a cross-repo group can
+        // mix Node/Java/Go stacks, so each member reads its own folder's
+        // setup override.
+        getSetupCommand: repositoryKey => {
+            const workspace = getCurrentOpenWorkspace();
+            const repository = worktreeSnapshotCoordinator.getSnapshot()
+                ?.repositories.find(candidate =>
+                    candidate.repositoryKey === repositoryKey);
+            const binding = repository?.rootBindings.find(candidate =>
+                workspace?.roots.some(root => root.id === candidate.workspaceRootId));
+            const root = workspace?.roots.find(candidate =>
+                candidate.id === binding?.workspaceRootId);
+            return normalizeWorktreeSetupCommand(
+                getAgentPivotConfiguration(
+                    root ? vscode.Uri.parse(root.uri) : undefined
+                ).get<unknown>('worktreeSetupCommand', []));
+        },
+        getWorktreeDirectory: () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
+        getActiveEditorPath: () => vscode.window.activeTextEditor?.document.uri.fsPath,
+        manifestStore: worktreeGroupManifestStore,
+        startMemberOperation: input =>
+            isolatedSessionController!.startGroupMember(input),
+        retryMemberOperation: (operationId, projectId) =>
+            isolatedSessionController!.retry(operationId, projectId),
+        dismissMemberOperation: (operationId, projectId) =>
+            isolatedSessionController!.dismiss(operationId, projectId),
+        onDidChange: () => {
+            void aiSessionDashboardController.refreshNow(
+                'worktree-group-creation', { fallbackToFullRefresh: false });
+        },
+    });
     const notifyConfiguration = ownResource(() => createNotifyConfiguration({
         context,
         getConfiguration: () => getAgentPivotConfiguration(),
@@ -2051,6 +2126,92 @@ async function initializeDashboard(
             const accepted = isolatedSessionController!.dismiss(
                 request.operationId, request.projectId);
             await provider.postMessage(cancelledMutationSettlement(request, accepted));
+        },
+        'open-worktree-group-form': async (message: unknown) => {
+            const request = parseOpenWorktreeGroupFormRequest(message);
+            if (!request) {
+                return;
+            }
+            const repositories = await worktreeGroupCreationController
+                .listRepositoryOptions(request.projectId);
+            await provider.postMessage({
+                type: 'worktree-group-form-state',
+                version: 1,
+                projectId: request.projectId,
+                ...(request.seedRepositoryKey
+                    ? {
+                        seed: {
+                            repositoryKey: request.seedRepositoryKey,
+                            baseRef: request.seedBaseRef,
+                        },
+                    }
+                    : {}),
+                repositories,
+            });
+        },
+        'preview-worktree-group': async (message: unknown) => {
+            const request = parsePreviewWorktreeGroupRequest(message);
+            if (!request) {
+                return;
+            }
+            const preview = await worktreeGroupCreationController.preview(
+                request.projectId, request.displayName, request.selections);
+            await provider.postMessage({
+                type: 'worktree-group-preview',
+                version: 1,
+                requestId: request.requestId,
+                slug: preview.slug,
+                ...(preview.formError ? { formError: preview.formError } : {}),
+                members: preview.members,
+            });
+        },
+        'confirm-worktree-group': async (message: unknown) => {
+            const request = parseConfirmWorktreeGroupRequest(message);
+            if (!request) {
+                return;
+            }
+            await provider.postMessage(
+                acceptedWorktreeGroupCreationSettlement(request));
+            const result = await worktreeGroupCreationController.confirm({
+                projectId: request.projectId,
+                displayName: request.displayName,
+                members: request.members,
+                ...(request.primaryRepositoryKey
+                    ? { primaryRepositoryKey: request.primaryRepositoryKey }
+                    : {}),
+            });
+            await provider.postMessage(
+                settledWorktreeGroupCreationSettlement(request, result));
+        },
+        'retry-worktree-group-member': async (message: unknown) => {
+            const request = parseWorktreeGroupMemberRequest(message);
+            if (!request || request.type !== 'retry-worktree-group-member') {
+                return;
+            }
+            await provider.postMessage(
+                acceptedWorktreeGroupMemberSettlement(request));
+            const outcome = await worktreeGroupCreationController.retryMember(
+                request.projectId, request.groupId, request.memberId);
+            await provider.postMessage(settledWorktreeGroupMemberSettlement(
+                request,
+                outcome.kind === 'succeeded'
+                    ? { kind: 'settled' }
+                    : { kind: 'failed', errorCode: outcome.errorCode }));
+        },
+        'dismiss-worktree-group-member': async (message: unknown) => {
+            const request = parseWorktreeGroupMemberRequest(message);
+            if (!request || request.type !== 'dismiss-worktree-group-member') {
+                return;
+            }
+            await provider.postMessage(
+                acceptedWorktreeGroupMemberSettlement(request));
+            const dismissed = await worktreeGroupCreationController.dismissMember(
+                request.projectId, request.groupId, request.memberId);
+            await provider.postMessage(settledWorktreeGroupMemberSettlement(
+                request,
+                dismissed
+                    ? { kind: 'settled' }
+                    : { kind: 'failed', errorCode: 'dismiss-unavailable' }));
         },
         'remove-managed-worktree': async (message: unknown) => {
             const request = parseManagedWorktreeRemovalRequest(message);

@@ -39,6 +39,15 @@ interface IsolatedSessionOperationContext {
      * so the manifest write must match this identity strictly.
      */
     navigationIdentity?: string;
+    /**
+     * Group-creation membership (M2): this operation provisions one member
+     * of an existing manifest group. Its row never surfaces in the
+     * Unmanaged section — the group row renders the member state.
+     */
+    groupId?: string;
+    memberId?: string;
+    /** The confirmed primary choice: applies once this member is ready. */
+    preferredPrimary?: boolean;
     repository: WorktreeRepositorySnapshot;
     taskName: string;
     providerId: AiSessionProviderId;
@@ -93,6 +102,9 @@ export interface IsolatedSessionControllerOptions {
     recordProvisionedWorktree?: (info: {
         projectId: string;
         navigationIdentity?: string;
+        groupId?: string;
+        memberId?: string;
+        preferredPrimary?: boolean;
         plan: WorktreeProvisioningPlan;
         worktreeKey: WorktreeKey;
     }) => Promise<void>;
@@ -114,6 +126,9 @@ export class IsolatedSessionController {
                 projectId: record.projectId,
                 ...(record.workspaceNavigationIdentity
                     ? { navigationIdentity: record.workspaceNavigationIdentity }
+                    : {}),
+                ...(record.groupId && record.memberId
+                    ? { groupId: record.groupId, memberId: record.memberId }
                     : {}),
                 repository,
                 taskName: record.plan.taskName,
@@ -165,6 +180,10 @@ export class IsolatedSessionController {
                     ...(context.navigationIdentity
                         ? { navigationIdentity: context.navigationIdentity }
                         : {}),
+                    ...(context.groupId && context.memberId
+                        ? { groupId: context.groupId, memberId: context.memberId }
+                        : {}),
+                    ...(context.preferredPrimary ? { preferredPrimary: true } : {}),
                     plan: outcome.plan,
                     worktreeKey: outcome.worktreeKey,
                 });
@@ -287,7 +306,10 @@ export class IsolatedSessionController {
         }
         context.repository = repository;
         let replacementPlan: WorktreeProvisioningPlan | undefined;
-        if (!row.completedSteps.includes('worktree')) {
+        // Group member operations execute exactly the confirmed plan
+        // (PRD §6.1/§8): a pre-create collision must surface as a failed
+        // member, never as a silently re-suffixed branch or path.
+        if (!row.completedSteps.includes('worktree') && !context.groupId) {
             try {
                 replacementPlan = await this.createPlan(
                     repository, context.taskName, operationId);
@@ -340,9 +362,77 @@ export class IsolatedSessionController {
     getVisibleRows(navigationIdentity: string): ProvisioningWorktreeRow[] {
         return this.provisioning.getRows().filter(row => {
             const context = this.contextsByOperation.get(row.operationId);
+            if (context?.groupId) {
+                // Group member operations render inside their group row.
+                return false;
+            }
             return !!navigationIdentity && !!context?.navigationIdentity
                 && context.navigationIdentity === navigationIdentity;
         });
+    }
+
+    /**
+     * Member ids with a live (not settled-failed) group provisioning
+     * operation. Reconciliation uses this to avoid downgrading members
+     * whose provisioning is actively running (PRD §9 in-flight 对账).
+     */
+    getActiveGroupMemberIds(): string[] {
+        const activeOperationIds = new Set(
+            this.provisioning.getRows()
+                .filter(row => row.stage !== 'failed')
+                .map(row => row.operationId));
+        const memberIds: string[] = [];
+        for (const [operationId, context] of this.contextsByOperation) {
+            if (context.groupId && context.memberId && activeOperationIds.has(operationId)) {
+                memberIds.push(context.memberId);
+            }
+        }
+        return memberIds;
+    }
+
+    /**
+     * Starts one group member's physical provisioning (M2). No prompts: the
+     * plan is exactly what the user confirmed in the creation preview.
+     */
+    async startGroupMember(input: {
+        operationId: string;
+        projectId: string;
+        plan: WorktreeProvisioningPlan;
+        setupCommand: readonly string[];
+        groupId: string;
+        memberId: string;
+        preferredPrimary?: boolean;
+    }): Promise<WorktreeProvisioningOutcome> {
+        const operationId = input.operationId;
+        if (!isSafeOperationId(operationId) || this.preparing.has(operationId)
+            || this.contextsByOperation.has(operationId)) {
+            return { kind: 'failed', operationId, errorCode: 'duplicate-operation' };
+        }
+        if (!this.options.isWorkspaceTrusted()) {
+            return { kind: 'failed', operationId, errorCode: 'workspace-untrusted' };
+        }
+        const target = this.options.getWorkspaceTarget(input.projectId);
+        const repository = this.options.getWorktreeSnapshot()?.repositories.find(candidate =>
+            candidate.repositoryKey === input.plan.repositoryKey);
+        if (!target || !repository) {
+            return { kind: 'failed', operationId, errorCode: 'workspace-unavailable' };
+        }
+        this.contextsByOperation.set(operationId, {
+            projectId: input.projectId,
+            navigationIdentity: target.workspace.navigationIdentity,
+            groupId: input.groupId,
+            memberId: input.memberId,
+            ...(input.preferredPrimary ? { preferredPrimary: true } : {}),
+            repository,
+            taskName: input.plan.taskName,
+            providerId: preferredProvider(target, this.options.isProviderId),
+            setupCommand: input.setupCommand.slice(),
+        });
+        const outcome = await this.provisioning.start(operationId, input.plan);
+        if (!this.provisioning.getRows().some(row => row.operationId === operationId)) {
+            this.contextsByOperation.delete(operationId);
+        }
+        return outcome;
     }
 
     private contextMatchesWorkspace(
@@ -453,13 +543,10 @@ export class IsolatedSessionController {
                 if (!context) {
                     return null;
                 }
-                return {
+                const record: PersistedWorktreeProvisioningOperation = {
                     version: 1 as const,
                     operationId: operation.operationId,
                     projectId: context.projectId,
-                    ...(context.navigationIdentity
-                        ? { workspaceNavigationIdentity: context.navigationIdentity }
-                        : {}),
                     providerId: context.providerId,
                     ...(context.profile ? { profile: { ...context.profile } } : {}),
                     setupCommand: context.setupCommand.slice(),
@@ -468,6 +555,14 @@ export class IsolatedSessionController {
                     ...(operation.worktreeKey ? { worktreeKey: operation.worktreeKey } : {}),
                     row: operation.row,
                 };
+                if (context.navigationIdentity) {
+                    record.workspaceNavigationIdentity = context.navigationIdentity;
+                }
+                if (context.groupId && context.memberId) {
+                    record.groupId = context.groupId;
+                    record.memberId = context.memberId;
+                }
+                return record;
             })
             .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
         return this.options.persistOperations(records);

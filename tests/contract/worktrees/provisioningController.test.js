@@ -40,7 +40,9 @@ test('WORKTREE-PROVISIONING-STATE-001 publishes every stage and one terminal suc
     const outcome = await current.controller.start('operation-1', plan);
 
     assert.deepEqual(current.calls, ['worktree', 'setup']);
-    assert.deepEqual(outcome, { kind: 'succeeded', operationId: 'operation-1', worktreeKey: key });
+    assert.deepEqual(outcome, {
+        kind: 'succeeded', operationId: 'operation-1', worktreeKey: key, plan,
+    });
     assert.deepEqual(current.settlements, [outcome]);
     assert.deepEqual(current.publications.map(publication => publication.revision), [1, 2, 3, 4]);
     assert.deepEqual(current.publications.slice(0, -1).map(publication =>

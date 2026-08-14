@@ -6,7 +6,10 @@ import type { WorktreeProvisioningPlan } from './provisioningPlan';
 export type WorktreeProvisioningCompletedStep = 'worktree' | 'setup';
 
 export type WorktreeProvisioningOutcome =
-  | { kind: 'succeeded'; operationId: string; worktreeKey: WorktreeKey }
+  | {
+      kind: 'succeeded'; operationId: string; worktreeKey: WorktreeKey;
+      plan: WorktreeProvisioningPlan;
+  }
   | {
       kind: 'partial'; operationId: string; worktreeKey: WorktreeKey;
       errorCode: string; completedSteps: WorktreeProvisioningCompletedStep[];
@@ -32,7 +35,7 @@ export interface WorktreeProvisioningControllerOptions {
     ) => Promise<void>;
     publish: (revision: number, rows: readonly ProvisioningWorktreeRow[]) => void;
     checkpoint?: () => Promise<void>;
-    onSettled?: (outcome: WorktreeProvisioningOutcome) => void;
+    onSettled?: (outcome: WorktreeProvisioningOutcome) => void | Promise<void>;
 }
 
 interface ProvisioningOperation {
@@ -184,8 +187,8 @@ export class WorktreeProvisioningController {
         try {
             if (operation.cancelled) {
                 return operation.completedSteps.includes('worktree')
-                    ? this.partial(operation, 'cancelled', attempt)
-                    : this.fail(operation, 'cancelled', attempt);
+                    ? await this.partial(operation, 'cancelled', attempt)
+                    : await this.fail(operation, 'cancelled', attempt);
             }
             if (!operation.completedSteps.includes('worktree')) {
                 this.setStage(operation, 'creating', true);
@@ -198,7 +201,7 @@ export class WorktreeProvisioningController {
                 this.synchronizeCompletedSteps(operation);
                 await this.options.checkpoint?.();
                 if (operation.cancelled) {
-                    return this.partial(operation, 'cancelled', attempt);
+                    return await this.partial(operation, 'cancelled', attempt);
                 }
             }
             await this.options.validateWorktree?.(
@@ -218,36 +221,39 @@ export class WorktreeProvisioningController {
                 this.synchronizeCompletedSteps(operation);
                 await this.options.checkpoint?.();
                 if (operation.cancelled) {
-                    return this.partial(operation, 'cancelled', attempt);
+                    return await this.partial(operation, 'cancelled', attempt);
                 }
             }
             const outcome: WorktreeProvisioningOutcome = {
                 kind: 'succeeded',
                 operationId: operation.operationId,
                 worktreeKey: { ...operation.worktreeKey! },
+                plan: { ...operation.plan },
             };
             operation.settledAttempt = attempt;
             this.operations.delete(operation.operationId);
             this.publish();
-            this.options.onSettled?.(outcome);
+            // Awaited: the group manifest record must land before the success
+            // settlement reaches the webview (PRD §9 "新建即写入").
+            await this.options.onSettled?.(outcome);
             return outcome;
         } catch (error) {
             const errorCode = getErrorCode(error);
             const retryable = getRetryable(error);
             return operation.completedSteps.includes('worktree')
-                ? this.partial(operation, errorCode, attempt, retryable)
-                : this.fail(operation, errorCode, attempt, retryable);
+                ? await this.partial(operation, errorCode, attempt, retryable)
+                : await this.fail(operation, errorCode, attempt, retryable);
         } finally {
             operation.running = false;
         }
     }
 
-    private partial(
+    private async partial(
         operation: ProvisioningOperation,
         errorCode: string,
         attempt: number,
         retryable = true
-    ): WorktreeProvisioningOutcome {
+    ): Promise<WorktreeProvisioningOutcome> {
         const outcome: WorktreeProvisioningOutcome = {
             kind: 'partial',
             operationId: operation.operationId,
@@ -256,16 +262,16 @@ export class WorktreeProvisioningController {
             completedSteps: operation.completedSteps.slice(),
         };
         this.setFailed(operation, errorCode, attempt, retryable);
-        this.options.onSettled?.(outcome);
+        await this.options.onSettled?.(outcome);
         return outcome;
     }
 
-    private fail(
+    private async fail(
         operation: ProvisioningOperation,
         errorCode: string,
         attempt: number,
         retryable = true
-    ): WorktreeProvisioningOutcome {
+    ): Promise<WorktreeProvisioningOutcome> {
         const outcome: WorktreeProvisioningOutcome = {
             kind: 'failed', operationId: operation.operationId, errorCode,
         };
@@ -276,7 +282,7 @@ export class WorktreeProvisioningController {
         } else {
             this.setFailed(operation, errorCode, attempt, retryable);
         }
-        this.options.onSettled?.(outcome);
+        await this.options.onSettled?.(outcome);
         return outcome;
     }
 

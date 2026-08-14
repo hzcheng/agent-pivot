@@ -80,6 +80,15 @@ export interface IsolatedSessionControllerOptions {
     ) => Promise<void>;
     onPersistenceError?: (error: unknown) => void;
     onSettled?: (outcome: WorktreeProvisioningOutcome) => void;
+    /**
+     * Awaited on the success path before the settlement publishes: records
+     * the provisioned worktree in the authoritative group manifest.
+     */
+    recordProvisionedWorktree?: (info: {
+        projectId: string;
+        plan: WorktreeProvisioningPlan;
+        worktreeKey: WorktreeKey;
+    }) => Promise<void>;
     provisioner?: GitWorktreeProvisioner;
 }
 
@@ -132,16 +141,7 @@ export class IsolatedSessionController {
                 }
             },
             onSettled: outcome => {
-                if (outcome.kind === 'succeeded'
-                    || (outcome.kind === 'failed' && outcome.errorCode === 'cancelled')) {
-                    this.contextsByOperation.delete(outcome.operationId);
-                }
-                if (outcome.kind === 'succeeded') {
-                    // The session is started separately from the row menu, so
-                    // provisioning finishes by making the new worktree visible.
-                    void options.refreshWorktreeSnapshot();
-                }
-                options.onSettled?.(outcome);
+                return this.handleSettled(outcome);
             },
         });
         this.provisioning.restore((options.recoveredOperations || []).map(record => ({
@@ -151,6 +151,35 @@ export class IsolatedSessionController {
             ...(record.worktreeKey ? { worktreeKey: record.worktreeKey } : {}),
             row: record.row,
         })));
+    }
+
+    private async handleSettled(outcome: WorktreeProvisioningOutcome): Promise<void> {
+        const options = this.options;
+        if (outcome.kind === 'succeeded') {
+            const context = this.contextsByOperation.get(outcome.operationId);
+            // Persist the authoritative group record before the success
+            // settlement can publish (PRD §9 "新建即写入"); reconciliation
+            // after the snapshot refresh remains as a safety net, never the
+            // primary write.
+            if (context && options.recordProvisionedWorktree) {
+                try {
+                    await options.recordProvisionedWorktree({
+                        projectId: context.projectId,
+                        plan: outcome.plan,
+                        worktreeKey: outcome.worktreeKey,
+                    });
+                } catch (error) {
+                    options.onPersistenceError?.(error);
+                }
+            }
+            this.contextsByOperation.delete(outcome.operationId);
+            // The session is started separately from the row menu, so
+            // provisioning finishes by making the new worktree visible.
+            void options.refreshWorktreeSnapshot();
+        } else if (outcome.kind === 'failed' && outcome.errorCode === 'cancelled') {
+            this.contextsByOperation.delete(outcome.operationId);
+        }
+        options.onSettled?.(outcome);
     }
 
     async start(

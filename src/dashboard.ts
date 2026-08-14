@@ -1496,6 +1496,27 @@ async function initializeDashboard(
         persistOperations: operations => worktreeProvisioningStore.replace(operations),
         onPersistenceError: error => logError(
             'Could not persist isolated worktree provisioning recovery state.', error),
+        recordProvisionedWorktree: async info => {
+            const target = getCurrentWorkspaceActionTarget(info.projectId);
+            if (!target) {
+                return;
+            }
+            const bucket = target.workspace.navigationIdentity;
+            if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
+                return;
+            }
+            await worktreeGroupManifestStore.createGroup(bucket, {
+                displayName: info.plan.taskName,
+                suggestedSlug: info.plan.slug,
+                members: [{
+                    repositoryKey: info.plan.repositoryKey,
+                    worktreeKey: info.worktreeKey,
+                    branchName: info.plan.branchName,
+                    path: info.worktreeKey.canonicalWorktreePath,
+                    state: 'ready',
+                }],
+            });
+        },
     });
     let managedWorktreeRemovalController: ManagedWorktreeRemovalController;
     let currentAiSessionRefreshReason = 'refresh';

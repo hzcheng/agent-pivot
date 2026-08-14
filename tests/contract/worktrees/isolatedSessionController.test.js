@@ -142,6 +142,40 @@ test('WORKTREE-ISOLATED-SESSION-001 provisions the worktree only and refreshes d
     assert.deepEqual(current.settlements, [outcome]);
 });
 
+test('WORKTREE-GROUPS-003 awaits the manifest record before publishing success', async () => {
+    const recorded = [];
+    let resolveRecord;
+    const recordGate = new Promise(resolve => {
+        resolveRecord = resolve;
+    });
+    const current = fixture({
+        recordProvisionedWorktree: async info => {
+            await recordGate;
+            recorded.push(info);
+        },
+    });
+
+    let settled = false;
+    const start = current.controller.start('request-manifest', 'project')
+        .then(outcome => {
+            settled = true;
+            return outcome;
+        });
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false,
+        'the success settlement waits for the manifest write');
+    assert.equal(recorded.length, 0);
+    resolveRecord();
+    const outcome = await start;
+    assert.equal(outcome.kind, 'succeeded');
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0].projectId, 'project');
+    assert.equal(recorded[0].plan.branchName, 'agent-pivot/fix-login-race');
+    assert.equal(recorded[0].worktreeKey.canonicalWorktreePath,
+        '/repo/.worktrees/fix-login-race');
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

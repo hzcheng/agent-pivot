@@ -30,6 +30,7 @@ export interface TmuxAttachBinding {
     workspaceRootHostPaths: string[];
     writableRootHostPaths?: string[];
     worktreeKey?: AiSessionRuntimeIdentity['worktreeKey'];
+    isolatedRoots?: boolean;
     cwd: string;
     sessionName: string;
     windowName?: string;
@@ -271,7 +272,7 @@ function validateRecord(value: unknown): TmuxAttachBinding | null {
     const record = value as Record<string, unknown>;
     const version = record.version;
     const v3RequiredKeys = version === 3 ? ['writableRootHostPaths'] : [];
-    const v3OptionalKeys = version === 3 ? ['worktreeKey'] : [];
+    const v3OptionalKeys = version === 3 ? ['worktreeKey', 'isolatedRoots'] : [];
     if ((version !== 2 && version !== 3) || !isLayout(record.layout)
         || !hasExactKeys(record, [
             'version', 'layout', 'workspaceScopeIdentity', 'workspaceNavigationIdentity',
@@ -294,6 +295,7 @@ function validateRecord(value: unknown): TmuxAttachBinding | null {
             ? { writableRootHostPaths: record.writableRootHostPaths }
             : {}),
         ...(record.worktreeKey !== undefined ? { worktreeKey: record.worktreeKey } : {}),
+        ...(record.isolatedRoots === true ? { isolatedRoots: true } : {}),
         cwd: record.cwd,
         ...(record.sessionId === undefined ? {} : { sessionId: record.sessionId }),
         ...(record.pendingId === undefined ? {} : { pendingId: record.pendingId }),
@@ -315,6 +317,7 @@ function validateRecord(value: unknown): TmuxAttachBinding | null {
             ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
             : {}),
         ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
         cwd: identity.cwd,
         sessionName: record.sessionName,
         ...(record.windowName === undefined ? {} : { windowName: record.windowName as string }),
@@ -356,6 +359,7 @@ function downgradeLegacyEquivalentBinding(
     const downgraded = cloneBinding({ ...binding, version: 2 });
     delete downgraded.writableRootHostPaths;
     delete downgraded.worktreeKey;
+    delete downgraded.isolatedRoots;
     return downgraded;
 }
 

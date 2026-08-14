@@ -44,6 +44,7 @@ export function fullMetadata(
                 identity.writableRootHostPaths ?? identity.workspaceRootHostPaths
             ),
             ...(identity.worktreeKey ? { worktreeKey: JSON.stringify(identity.worktreeKey) } : {}),
+            ...(identity.isolatedRoots ? { isolatedRoots: '1' } : {}),
         } : {}),
         cwd: identity.cwd,
         provider: identity.provider,

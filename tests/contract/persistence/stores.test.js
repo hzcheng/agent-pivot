@@ -510,6 +510,54 @@ test('PERSIST-AI-SESSION-TERMINAL-V3-001 reloads worktree bindings without losin
     });
 });
 
+test('PERSIST-AI-SESSION-TERMINAL-V3-001 persists the strict-isolation marker through pending and bound records', async () => {
+    const processId = 42111;
+    const identity = {
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        isolatedRoots: true,
+        cwd: '/managed/frontend-feature',
+    };
+    const state = makeState();
+    const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
+
+    store.setPending(processId, {
+        providerId: 'codex',
+        pendingId: 'pending-isolated',
+        createdAt: '2026-08-14T00:00:00Z',
+        markerPath: '/tmp/isolated.done',
+        excludedSessionIds: [],
+        ...identity,
+    });
+    await store.flush();
+    const stored = state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${processId}`];
+    assert.ok(stored, 'a strictly isolated identity must survive the store whitelist');
+    assert.equal(stored.isolatedRoots, true);
+
+    const reloadedPending = new AiSessionTerminalBindingStore(state.memento).get(processId);
+    assert.equal(reloadedPending.state, 'pending');
+    assert.equal(reloadedPending.isolatedRoots, true,
+        'reloads keep the marker instead of downgrading the session to legacy scope');
+
+    store.setBound(processId, {
+        providerId: 'codex',
+        sessionId: 'isolated-session',
+        markerPath: '/tmp/isolated.done',
+        runStartedAtMs: NOW,
+        ...identity,
+    });
+    await store.flush();
+    const reloadedBound = new AiSessionTerminalBindingStore(state.memento).get(processId);
+    assert.equal(reloadedBound.state, 'bound');
+    assert.equal(reloadedBound.isolatedRoots, true);
+});
+
 test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 dual-reads v2 and reloads v3 worktree bindings', async () => {
     const legacyProcessId = 42201;
     const processId = 42202;

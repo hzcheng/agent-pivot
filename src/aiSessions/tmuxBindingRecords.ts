@@ -25,6 +25,7 @@ interface TmuxRuntimeBindingIdentity {
     workspaceRootHostPaths: string[];
     writableRootHostPaths?: string[];
     worktreeKey?: AiSessionRuntimeIdentity['worktreeKey'];
+    isolatedRoots?: boolean;
     cwd: string;
 }
 
@@ -566,7 +567,7 @@ function hasBindingExactKeys(
     }
     return record.version === RECORD_VERSION
         ? hasExactKeys(record, [...required, 'writableRootHostPaths'], [
-            ...optional, 'worktreeKey',
+            ...optional, 'worktreeKey', 'isolatedRoots',
         ])
         : hasExactKeys(record, required, optional);
 }
@@ -827,6 +828,7 @@ function validateBindingIdentity(
             ? { writableRootHostPaths: record.writableRootHostPaths }
             : {}),
         ...(record.worktreeKey !== undefined ? { worktreeKey: record.worktreeKey } : {}),
+        ...(record.isolatedRoots === true ? { isolatedRoots: true } : {}),
         cwd: record.cwd,
         ...id,
     };
@@ -837,6 +839,7 @@ function validateBindingIdentity(
     if (getAiSessionRuntimeIdentityVersion(clone) === 2) {
         delete clone.writableRootHostPaths;
         delete clone.worktreeKey;
+        delete clone.isolatedRoots;
     }
     return clone;
 }
@@ -868,6 +871,7 @@ function bindingIdentityFields(identity: AiSessionRuntimeIdentity) {
             ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
             : {}),
         ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
         cwd: identity.cwd,
     };
 }
@@ -879,6 +883,7 @@ function cloneBindingIdentityFields(identity: TmuxRuntimeBindingIdentity) {
             ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
             : {}),
         ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
     };
 }
 

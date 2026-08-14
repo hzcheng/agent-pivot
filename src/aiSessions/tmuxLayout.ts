@@ -31,6 +31,7 @@ export const TMUX_METADATA_OPTIONS = {
     workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
     writableRootHostPaths: '@agent-pivot-writable-root-host-paths',
     worktreeKey: '@agent-pivot-worktree-key',
+    isolatedRoots: '@agent-pivot-isolated-roots',
     cwd: '@agent-pivot-cwd',
     provider: '@agent-pivot-provider',
     sessionId: '@agent-pivot-session-id',
@@ -106,7 +107,7 @@ export function parseManagedTmuxMetadata(values: unknown): AiSessionManagedTmuxM
             ? METADATA_VERSION
             : null;
     const v3RequiredKeys = version === METADATA_VERSION ? ['writableRootHostPaths'] : [];
-    const v3OptionalKeys = version === METADATA_VERSION ? ['worktreeKey'] : [];
+    const v3OptionalKeys = version === METADATA_VERSION ? ['worktreeKey', 'isolatedRoots'] : [];
     if (hasSessionId === hasPendingId || !hasExactKeys(record, [
         'managed', 'version', 'layout', 'workspaceScopeIdentity',
         'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd',
@@ -137,6 +138,9 @@ export function parseManagedTmuxMetadata(values: unknown): AiSessionManagedTmuxM
     if (record.worktreeKey !== undefined && !worktreeKey) {
         return null;
     }
+    if (record.isolatedRoots !== undefined && record.isolatedRoots !== '1') {
+        return null;
+    }
 
     const createdAt = record.createdAt;
     if (createdAt !== undefined
@@ -157,6 +161,7 @@ export function parseManagedTmuxMetadata(values: unknown): AiSessionManagedTmuxM
         workspaceRootHostPaths,
         ...(writableRootHostPaths ? { writableRootHostPaths } : {}),
         ...(worktreeKey ? { worktreeKey } : {}),
+        ...(record.isolatedRoots === '1' ? { isolatedRoots: true as const } : {}),
         cwd: record.cwd,
         provider: record.provider,
         ...(createdAt !== undefined ? { createdAt } : {}),

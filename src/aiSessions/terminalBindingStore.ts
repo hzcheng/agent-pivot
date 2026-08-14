@@ -31,6 +31,7 @@ interface AiSessionTerminalBindingBase {
     workspaceRootHostPaths: string[];
     writableRootHostPaths?: string[];
     worktreeKey?: WorktreeKey;
+    isolatedRoots?: boolean;
     cwd: string;
     markerPath: string;
     updatedAtMs: number;
@@ -225,7 +226,7 @@ function validateRecord(value: unknown): AiSessionTerminalBinding | null {
     let record = value as Record<string, unknown>;
     const version = record.version;
     const identityOptionalKeys = version === 3
-        ? ['worktreeKey']
+        ? ['worktreeKey', 'isolatedRoots']
         : [];
     const identityRequiredKeys = version === 3
         ? ['writableRootHostPaths']
@@ -356,6 +357,7 @@ function downgradeLegacyEquivalentRecord(
     const downgraded = cloneRecord({ ...record, version: 2 } as AiSessionTerminalBinding);
     delete downgraded.writableRootHostPaths;
     delete downgraded.worktreeKey;
+    delete downgraded.isolatedRoots;
     return downgraded;
 }
 
@@ -367,6 +369,7 @@ function identityExtensionFields(identity: AiSessionRuntimeIdentity) {
         ...(identity.worktreeKey
             ? { worktreeKey: { ...identity.worktreeKey } }
             : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
     };
 }
 
@@ -389,6 +392,7 @@ function validateIdentity(
         ...(record.worktreeKey !== undefined
             ? { worktreeKey: record.worktreeKey }
             : {}),
+        ...(record.isolatedRoots === true ? { isolatedRoots: true } : {}),
         cwd: record.cwd,
         ...id,
     };

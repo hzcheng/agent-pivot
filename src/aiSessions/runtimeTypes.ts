@@ -236,6 +236,9 @@ export function isValidAiSessionRuntimeIdentity(value: unknown): value is AiSess
             return false;
         }
     }
+    if (identity.isolatedRoots !== undefined && identity.isolatedRoots !== true) {
+        return false;
+    }
     return new Set(normalizedRootKeys).size === normalizedRootKeys.length
         && writableRoots.some(root => isWorkspaceHostPathContained(
             root as string, identity.cwd as string
@@ -320,6 +323,7 @@ export interface AiSessionManagedTmuxMetadataBase {
     workspaceRootHostPaths: string[];
     writableRootHostPaths?: string[];
     worktreeKey?: WorktreeKey;
+    isolatedRoots?: boolean;
     cwd: string;
     provider: AiSessionProviderId;
     createdAt?: string;

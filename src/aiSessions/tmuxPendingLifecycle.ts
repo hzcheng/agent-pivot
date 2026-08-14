@@ -206,6 +206,7 @@ function clonePendingBindingForVersion(
     if (version === 2) {
         delete clone.writableRootHostPaths;
         delete clone.worktreeKey;
+        delete clone.isolatedRoots;
     }
     return clone;
 }

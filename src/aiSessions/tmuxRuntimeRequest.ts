@@ -179,6 +179,7 @@ function snapshotResumeIdentity(value: unknown): AiSessionResumeRuntimeRequest['
     const worktreeKey = snapshotWorktreeKey(value.worktreeKey, 'The tmux runtime request');
     const cwd = snapshotRequiredString(value.cwd, 'The tmux runtime request');
     const sessionId = snapshotRequiredString(value.sessionId, 'The tmux runtime request');
+    const isolatedRoots = value.isolatedRoots === true ? true : undefined;
     return {
         provider: provider as AiSessionResumeRuntimeRequest['identity']['provider'],
         workspaceScopeIdentity,
@@ -186,6 +187,7 @@ function snapshotResumeIdentity(value: unknown): AiSessionResumeRuntimeRequest['
         workspaceRootHostPaths,
         ...(writableRootHostPaths ? { writableRootHostPaths } : {}),
         ...(worktreeKey ? { worktreeKey } : {}),
+        ...(isolatedRoots ? { isolatedRoots } : {}),
         cwd,
         sessionId,
     };
@@ -208,6 +210,7 @@ function snapshotPendingIdentity(value: unknown): AiSessionCreateRuntimeRequest[
     const worktreeKey = snapshotWorktreeKey(value.worktreeKey, 'The pending runtime request');
     const cwd = snapshotRequiredString(value.cwd, 'The pending runtime request');
     const pendingId = snapshotRequiredString(value.pendingId, 'The pending runtime request');
+    const isolatedRoots = value.isolatedRoots === true ? true : undefined;
     return {
         provider: provider as AiSessionCreateRuntimeRequest['identity']['provider'],
         workspaceScopeIdentity,
@@ -215,6 +218,7 @@ function snapshotPendingIdentity(value: unknown): AiSessionCreateRuntimeRequest[
         workspaceRootHostPaths,
         ...(writableRootHostPaths ? { writableRootHostPaths } : {}),
         ...(worktreeKey ? { worktreeKey } : {}),
+        ...(isolatedRoots ? { isolatedRoots } : {}),
         cwd,
         pendingId,
     };

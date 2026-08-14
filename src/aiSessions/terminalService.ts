@@ -449,6 +449,7 @@ export default class AiSessionTerminalService {
                             writableRootHostPaths: [...binding.writableRootHostPaths],
                         } : {}),
                         ...(binding.worktreeKey ? { worktreeKey: { ...binding.worktreeKey } } : {}),
+                        ...(binding.isolatedRoots ? { isolatedRoots: true } : {}),
                         cwd: binding.cwd,
                     },
                 }, false);
@@ -465,6 +466,7 @@ export default class AiSessionTerminalService {
                         writableRootHostPaths: [...binding.writableRootHostPaths],
                     } : {}),
                     ...(binding.worktreeKey ? { worktreeKey: { ...binding.worktreeKey } } : {}),
+                    ...(binding.isolatedRoots ? { isolatedRoots: true } : {}),
                     cwd: binding.cwd,
                 });
                 return;
@@ -489,6 +491,7 @@ export default class AiSessionTerminalService {
                             writableRootHostPaths: [...binding.writableRootHostPaths],
                         } : {}),
                         ...(binding.worktreeKey ? { worktreeKey: { ...binding.worktreeKey } } : {}),
+                        ...(binding.isolatedRoots ? { isolatedRoots: true } : {}),
                         cwd: binding.cwd,
                     },
                     createdAt: binding.createdAt,

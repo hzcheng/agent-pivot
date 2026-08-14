@@ -833,6 +833,7 @@ async function repairLegacyEquivalentMetadata(
     const legacyFull: Record<string, string> = { ...full, version: '2' };
     delete legacyFull.writableRootHostPaths;
     delete legacyFull.worktreeKey;
+    delete legacyFull.isolatedRoots;
     const legacyBase: Record<string, string> = { ...base, version: '2' };
     try {
         if (parsed.layout === 'project') {

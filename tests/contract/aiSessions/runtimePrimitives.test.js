@@ -302,6 +302,7 @@ test('RUNTIME-TMUX-LAYOUT-001 creates stable bounded locators and rejects ambigu
         workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
         writableRootHostPaths: '@agent-pivot-writable-root-host-paths',
         worktreeKey: '@agent-pivot-worktree-key',
+        isolatedRoots: '@agent-pivot-isolated-roots',
         cwd: '@agent-pivot-cwd',
         provider: '@agent-pivot-provider', sessionId: '@agent-pivot-session-id',
         pendingId: '@agent-pivot-pending-id', createdAt: '@agent-pivot-created-at',

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "f66a735b162f98ed670db77659a946f7566a26fb",
+        "head": "01c6a6365780e73354cfdc6e5b131e77dac74fca",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -317,7 +317,12 @@
             "c59621d11514d2f8cb5c8a3ea5a973c0e80a7e57",
             "3a7d36c583334cc5c46e57ae758e11df6d5bb6a9",
             "281afaf14a500edf8da78021980a85ad6b7e7d30",
-            "2f1f48a4ff28ab0d6d05e7956ba306a1fa65b1d4"
+            "2f1f48a4ff28ab0d6d05e7956ba306a1fa65b1d4",
+            "40aec48d88195796e8d04ce338d9375a34bfca78",
+            "11dbd3fc454b88ac2f4bf23cee2cab004eae4fcc",
+            "cd3faf60cccafcd45431ef6badab7226f93b35ef",
+            "cbe71f65941ed5c5c8f1aa38a941b9c33f909450",
+            "bb03c079813918575e139cf34adee3f9683f0337"
         ]
     },
     "capabilities": [
@@ -425,7 +430,12 @@
                 "067ebfaf1e9ba85e4ccf4dd9f3cf9f24105064c4",
                 "6780566a353ba766d2c1b59f3d52284b46c7205d",
                 "9258f1462e029168543ce17418554412b3ec44a0",
-                "f66a735b162f98ed670db77659a946f7566a26fb"
+                "f66a735b162f98ed670db77659a946f7566a26fb",
+                "56be2af95d8c46c92792499a22df694eb98e89fe",
+                "2e63603eb2572609374201e124b4faecbe4bae31",
+                "be04c586ab0bbef82da19c7e4f35f807eaff7156",
+                "2b4f96238abd2552fc6fce457293631086d8cc24",
+                "01c6a6365780e73354cfdc6e5b131e77dac74fca"
             ],
             "behaviors": [
                 "PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001",

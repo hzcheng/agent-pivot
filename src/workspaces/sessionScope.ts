@@ -28,6 +28,11 @@ export interface AiSessionDirectoryScopeOptions extends PrimaryWorkspaceRootSele
     worktree?: {
         key: WorktreeKey;
         rootBindings: readonly RepositoryRootBinding[];
+        /**
+         * Other ready group members' worktree paths (PRD §5.5): a group
+         * session writes every member worktree, not just its cwd repository.
+         */
+        extraWritableHostPaths?: readonly string[];
     };
 }
 
@@ -201,10 +206,13 @@ export function buildAiSessionDirectoryScope(
     // repository. Roots of other repositories no longer fall back to their
     // main-checkout path, so a session can never write a non-member
     // repository's main checkout.
+    const extraWritableHostPaths = normalizeExtraWritableHostPaths(
+        options.worktree?.extraWritableHostPaths);
     const writableRootHostPaths = options.worktree
         ? dedupeHostPaths(normalizedRoots
             .map(candidate => worktreeRootBindings.get(candidate.root.id))
-            .filter((hostPath): hostPath is string => !!hostPath))
+            .filter((hostPath): hostPath is string => !!hostPath)
+            .concat(extraWritableHostPaths))
         : workspaceRootHostPaths;
     const writablePrimaryComparisonKey = getWorkspaceHostPathComparisonKey(
         primaryWorktreePath || primaryCwd
@@ -227,6 +235,24 @@ export function buildAiSessionDirectoryScope(
         additionalDirectories: Object.freeze(
             (options.worktree ? writableAdditionalDirectories : additionalDirectories).slice()
         ) as string[],
+    });
+}
+
+function normalizeExtraWritableHostPaths(
+    value: readonly string[] | undefined
+): string[] {
+    if (!value) {
+        return [];
+    }
+    return value.map(candidate => {
+        const normalized = normalizeWorkspaceHostPath(candidate || '');
+        // Group member paths come from the authoritative manifest; reject
+        // anything that is not an absolute, already-normalized host path
+        // instead of silently widening or narrowing the session scope.
+        if (!normalized || normalized !== candidate || !isAbsoluteHostPath(normalized)) {
+            throw new WorkspaceDirectoryScopeError([]);
+        }
+        return normalized;
     });
 }
 

@@ -336,6 +336,80 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 creation binds a selected worktree and 
     assert.match(warnings.at(-1), /no longer available/i);
 });
 
+test('SESSION-WORKTREE-SCOPE-001 group sessions mount every ready member worktree', async () => {
+    const current = workspace({
+        roots: [
+            { id: 'root-repo', name: 'Repo', uri: 'file:///repos/main/app', hostPath: '/repos/main/app', ordinal: 0 },
+            { id: 'root-peer', name: 'Peer', uri: 'file:///repos/peer', hostPath: '/repos/peer', ordinal: 1 },
+            { id: 'root-outsider', name: 'Outsider', uri: 'file:///repos/outsider', hostPath: '/repos/outsider', ordinal: 2 },
+        ],
+    });
+    const key = {
+        repositoryKey: '/repos/main/.git',
+        canonicalWorktreePath: '/managed/feature',
+    };
+    const snapshot = {
+        revision: 1,
+        truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: key.repositoryKey,
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: 'app' }],
+            worktrees: [{
+                key, branchRef: 'refs/heads/feature', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            }],
+        }],
+    };
+    const controller = new AiSessionCommandController({
+        getWorktreeSnapshot: () => snapshot,
+        getProvider: () => ({ id: 'codex', label: 'Codex', commandName: 'codex' }),
+        getProviderDirectoryCapability: async () => ({ status: 'supported' }),
+        isWorkspaceTrusted: () => true,
+        isDirectory: () => true,
+        pickWorkspaceRoot: async () => { throw new Error('selected worktree must determine the root'); },
+        showWarningMessage: () => undefined,
+        getWorktreeGroupPeerPaths: (navigationIdentity, requestedKey) => {
+            assert.equal(navigationIdentity, current.navigationIdentity);
+            assert.deepEqual(requestedKey, key);
+            return ['/managed/peer-feature'];
+        },
+    });
+
+    const scope = await controller.resolveWorkspaceDirectoryScope(
+        current, 'codex', undefined, undefined, key
+    );
+    assert.equal(scope.primaryCwd, '/managed/feature/app');
+    assert.deepEqual(scope.writableRootHostPaths,
+        ['/managed/feature/app', '/managed/peer-feature'],
+        'a group session writes its own worktree and every ready member worktree');
+    assert.deepEqual(scope.additionalDirectories, ['/managed/peer-feature']);
+    assert.equal(scope.isolatedRoots, true);
+    assert.equal(scope.writableRootHostPaths.includes('/repos/peer'), false,
+        'the peer main checkout is never writable');
+    assert.equal(scope.writableRootHostPaths.includes('/repos/outsider'), false,
+        'non-member repository main checkouts are never writable');
+});
+
+test('SESSION-WORKTREE-SCOPE-001 rejects malformed group peer paths instead of widening scope', () => {
+    const current = workspace({
+        roots: [
+            { id: 'root-repo', name: 'Repo', uri: 'file:///repos/main/app', hostPath: '/repos/main/app', ordinal: 0 },
+        ],
+    });
+    assert.throws(() => buildAiSessionDirectoryScope(current, {
+        explicitRootId: 'root-repo',
+        isDirectory: () => true,
+        worktree: {
+            key: {
+                repositoryKey: '/repos/main/.git',
+                canonicalWorktreePath: '/managed/feature',
+            },
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: 'app' }],
+            extraWritableHostPaths: ['relative/peer'],
+        },
+    }), WorkspaceDirectoryScopeError);
+});
+
 test('SESSION-WORKTREE-SCOPE-001 rejects escaping bindings and unavailable mapped roots', () => {
     const current = workspace({
         roots: [{

@@ -1411,6 +1411,21 @@ async function initializeDashboard(
         getCurrentWorkspaceActionTarget,
         getCurrentOpenWorkspace,
         getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        getWorktreeGroupPeerPaths: (navigationIdentity, key) => {
+            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                navigationIdentity, key);
+            if (!group) {
+                return null;
+            }
+            // Group sessions write every ready, non-detached member worktree
+            // (PRD §5.5); the requested key's own path is covered by the
+            // primary worktree bindings.
+            return group.members
+                .filter(member => member.state === 'ready' && !member.detached
+                    && !!member.worktreeKey
+                    && !worktreeKeysEqual(member.worktreeKey, key))
+                .map(member => member.worktreeKey!.canonicalWorktreePath);
+        },
         getRegisteredAiSessionProvider,
         getRegisteredAiSessionProviders,
         getAiSessionRuntimeById,

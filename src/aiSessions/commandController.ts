@@ -61,6 +61,8 @@ export interface AiSessionWorkspaceLaunchPreflightOptions {
     worktree?: {
         key: WorktreeKey;
         rootBindings: readonly RepositoryRootBinding[];
+        /** Other ready group members' worktree paths (PRD §5.5). */
+        extraWritableHostPaths?: readonly string[];
     };
 }
 
@@ -148,6 +150,14 @@ export interface AiSessionCommandControllerOptions {
     getWorkspaceTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     getOpenWorkspace?: () => OpenWorkspace | null;
     getWorktreeSnapshot?: () => WorktreeSnapshot | null;
+    /**
+     * Authoritative manifest lookup (PRD §5.2): the other ready, non-detached
+     * member worktree paths of the group that owns the given worktree.
+     */
+    getWorktreeGroupPeerPaths?: (
+        workspaceNavigationIdentity: string,
+        key: WorktreeKey
+    ) => readonly string[] | null;
     getActiveEditorUri?: () => ActiveEditorUri | string | null;
     isWorkspaceTrusted?: () => boolean;
     getProvider?: (
@@ -237,6 +247,16 @@ export class AiSessionCommandController {
                     key: worktreeAssignment.worktree.key,
                     rootBindings: worktreeAssignment.repository.rootBindings.filter(binding =>
                         workspace.roots.some(root => root.id === binding.workspaceRootId)),
+                    // A manifest group session writes every ready member
+                    // worktree, not just its cwd repository (PRD §5.5). The
+                    // lookup covers both creation (group row quick-create)
+                    // and resume (session carries its worktreeKey).
+                    ...(requestedWorktreeKey && this.options.getWorktreeGroupPeerPaths
+                        ? {
+                            extraWritableHostPaths: this.options.getWorktreeGroupPeerPaths(
+                                workspace.navigationIdentity, requestedWorktreeKey) || [],
+                        }
+                        : {}),
                 },
             } : {}),
         });

@@ -275,6 +275,47 @@ test('WORKTREE-GROUPS-002 chips use the shortest prefix unique across the worksp
     assert.deepEqual(groups[0].chips, [{ label: 'a', title: 'alpha' }]);
 });
 
+test('WORKTREE-GROUPS-002 failed or missing members push the group into attention', () => {
+    const failed = project({
+        groups: [group({
+            primaryMemberId: null,
+            members: [{
+                memberId: 'm-failed', repositoryKey: '/alpha/.git',
+                branchName: 'agent-pivot/fix-login', path: '/alpha/.worktrees/fix-login',
+                state: 'failed', lastError: 'interrupted',
+            }],
+        })],
+    });
+    assert.equal(failed.groups[0].activity, 'attention',
+        'a failed member is as visible as an unread session');
+
+    const missing = project({
+        groups: [group({
+            members: [member('/alpha/.git', 'fix-login', {
+                memberId: 'm-alpha',
+                worktreeKey: {
+                    repositoryKey: '/alpha/.git',
+                    canonicalWorktreePath: '/alpha/.worktrees/deleted-externally',
+                },
+                path: '/alpha/.worktrees/deleted-externally',
+            })],
+        })],
+    });
+    assert.equal(missing.groups[0].activity, 'attention',
+        'an externally deleted worktree must not look like a healthy group');
+
+    const detached = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta', detached: true }),
+            ],
+        })],
+    });
+    assert.equal(detached.groups[0].activity, 'idle',
+        'detached members are informational, not attention');
+});
+
 test('WORKTREE-GROUPS-002 a group without a ready primary cannot create sessions', () => {
     const { groups } = project({
         groups: [group({

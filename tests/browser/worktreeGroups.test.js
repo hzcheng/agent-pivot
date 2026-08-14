@@ -321,6 +321,95 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
         `no horizontal overflow at 170px (document ${layout.documentWidth}px)`);
 });
 
+test('WORKTREE-GROUPS-UI-001 anchor and group sessions never duplicate into the Unmanaged section', async t => {
+    const unmanagedKey = {
+        repositoryKey: '/beta/.git',
+        canonicalWorktreePath: '/beta/manual-topic',
+    };
+    const page = await openSurfacePage(surface({
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [alphaMainKey],
+            sessions: [],
+            activity: 'active',
+        },
+        worktreeGroups: [groupRow()],
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key: unmanagedKey,
+                branchRef: 'refs/heads/manual-topic',
+                head: 'b'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            },
+            activity: 'active',
+            sessions: [],
+            authority: { canResume: true, canRemove: true },
+        }],
+        activeAiSessions: [
+            liveSession({ worktreeKey: alphaMainKey, sessionId: 's-main', key: 'codex:s-main' }),
+            liveSession(),
+            liveSession({
+                worktreeKey: unmanagedKey, sessionId: 's-manual', key: 'codex:s-manual',
+            }),
+        ],
+    }), 320);
+    t.after(() => page.close());
+
+    const panel = page.locator('[data-ai-session-surface-panel="worktree"]');
+    assert.equal(await panel.locator('.codex-session-row[data-session-id="s-main"]').count(), 1);
+    assert.equal(await panel.locator('.codex-session-row[data-session-id="s-1"]').count(), 1);
+    assert.equal(await panel.locator('.codex-session-row[data-session-id="s-manual"]').count(), 1);
+    const unmanagedSection = panel.locator('.ai-session-worktree-unmanaged');
+    assert.equal(await unmanagedSection.count(), 0,
+        'no session is left over for the Unmanaged section');
+});
+
+test('WORKTREE-GROUPS-UI-001 collapse state is keyed independently for anchor and groups', async t => {
+    const page = await openSurfacePage(surface({
+        selectedSurface: 'worktree',
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [alphaMainKey],
+            sessions: [],
+            activity: 'idle',
+        },
+        worktreeGroups: [groupRow({
+            // A group without a ready primary has no worktree key attributes,
+            // which previously collided with the anchor's empty key.
+            canCreateSession: false,
+            members: [{
+                memberId: 'm-failed', repositoryKey: '/alpha/.git', repositoryLabel: 'alpha',
+                branchName: 'agent-pivot/fix-login', path: '/alpha/.worktrees/fix-login',
+                status: 'failed', isPrimary: false, errorCode: 'interrupted',
+            }],
+        })],
+    }), 320);
+    t.after(() => page.close());
+
+    const keys = await page.evaluate(() => ({
+        anchor: getAiSessionWorktreeGroupKey(document.querySelector('.ai-session-worktree-anchor')),
+        group: getAiSessionWorktreeGroupKey(document.querySelector('.ai-session-worktree-task-group')),
+    }));
+    assert.notEqual(keys.anchor, keys.group,
+        'the anchor and a keyless group must not share a collapse key');
+
+    await page.evaluate(() => {
+        setAiSessionWorktreeExpanded(
+            document.querySelector('.ai-session-worktree-anchor .ai-session-worktree-header'),
+            false);
+    });
+    const state = await page.evaluate(() => ({
+        anchorCollapsed: document.querySelector('.ai-session-worktree-anchor')
+            .hasAttribute('data-worktree-collapsed'),
+        groupCollapsed: document.querySelector('.ai-session-worktree-task-group')
+            .hasAttribute('data-worktree-collapsed'),
+    }));
+    assert.equal(state.anchorCollapsed, true);
+    assert.equal(state.groupCollapsed, false,
+        'collapsing the anchor must not collapse an unrelated group');
+});
+
 test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list scroll position', async t => {
     const sessionHtml = surface({
         selectedSurface: 'worktree',

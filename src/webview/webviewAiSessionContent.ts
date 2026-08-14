@@ -227,9 +227,23 @@ function getWorktreeSurfacePanel(
                 project.id || 'project',
             ),
         }));
+    // The anchor and group rows own their sessions; the legacy renderer must
+    // only see sessions that belong to no claimed row, or every anchor/group
+    // session would render a second time under Unmanaged.
+    const claimedLookupKeys = new Set<string>();
+    (project.worktreeAnchor?.worktreeKeys || []).forEach(key =>
+        claimedLookupKeys.add(worktreeLookupKey(key)));
+    (project.worktreeGroups || []).forEach(group =>
+        group.members.forEach(member => {
+            if (member.worktreeKey) {
+                claimedLookupKeys.add(worktreeLookupKey(member.worktreeKey));
+            }
+        }));
+    const unclaimedEntries = entries.filter(entry => !entry.worktreeKey
+        || !claimedLookupKeys.has(worktreeLookupKey(entry.worktreeKey)));
     const groups = worktrees.length
         ? getWorktreeGroupsHtml(
-            worktrees, entries, 'sessions', quickCreateProvider, quickCreateProfile,
+            worktrees, unclaimedEntries, 'sessions', quickCreateProvider, quickCreateProfile,
             createIsolatedDisabled
         )
         : '';
@@ -792,12 +806,29 @@ function getWorktreeGroupRowHtml(
     const quickCreate = group.canCreateSession && primary?.worktreeKey
         ? `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickLabel)}" data-tooltip="${escapeAttribute(quickLabel)}">${Icons.add}</button>`
         : '';
+    // Until the full group menu lands (M3), group rows keep the existing
+    // worktree operations — quick create, derive, remove — acting on the
+    // primary member, so migration never removes capabilities (review I4).
+    const moreLabel = `Actions for ${name}`;
+    const more = primary?.worktreeKey
+        ? `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
+            data-worktree-name="${escapeAttribute(name)}"
+            data-worktree-head-kind="branch"
+            data-can-resume="${primary.status === 'ready' ? 'true' : 'false'}"
+            data-can-remove="${primary.status === 'ready' ? 'true' : 'false'}"
+            data-can-branch-create="${primary.status === 'ready' ? 'true' : 'false'}"
+            data-quick-provider="${escapeAttribute(quickCreateProvider)}"
+            data-quick-label="${escapeAttribute(quickLabel)}"
+            data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`
+        : '';
     const merge = group.mergeCandidateGroupIds.length
         ? `<button type="button" class="ai-session-worktree-merge" data-action="merge-worktree-groups" data-group-id="${escapeAttribute(group.groupId)}" aria-label="Merge ${escapeAttribute(name)} with another group" data-tooltip="Merge with another group…">${Icons.foldAll}</button>`
         : '';
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
     const ariaLabel = `${name}, ${sessionLabel}, ${activity}`;
-    const memberNames = group.members.map(member => member.repositoryLabel).join(', ');
+    const memberNames = group.members.map(member => member.status === 'ready'
+        ? member.repositoryLabel
+        : `${member.repositoryLabel} (${member.status})`).join(', ');
     const memberSummary = `<div class="ai-session-worktree-member-summary" role="note">${group.members.length} worktree${group.members.length === 1 ? '' : 's'} · ${escapeAttribute(memberNames)}</div>`;
     const primaryAttributes = primary?.worktreeKey
         ? ` data-worktree-repository-key="${escapeAttribute(primary.worktreeKey.repositoryKey)}" data-worktree-path="${escapeAttribute(primary.worktreeKey.canonicalWorktreePath)}"`
@@ -811,7 +842,7 @@ function getWorktreeGroupRowHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
-            ${quickCreate}${merge}
+            ${quickCreate}${merge}${more}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')

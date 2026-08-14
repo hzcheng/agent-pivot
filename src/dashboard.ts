@@ -1303,6 +1303,7 @@ async function initializeDashboard(
                             store: worktreeGroupManifestStore,
                             workspaceIdentity: workspaceForManifest.navigationIdentity,
                             snapshot,
+                            recoveryRecords: worktreeProvisioningStore.read(),
                             onError: (message, error) => logError(message, error),
                         });
                     } catch (error) {
@@ -2006,6 +2007,27 @@ async function initializeDashboard(
                     canonicalWorktreePath: request.worktreePath,
                 }
             );
+            if (outcome.kind === 'succeeded') {
+                // A physical removal must retire the manifest member as
+                // well, or the group row keeps a ghost "missing" member.
+                const target = getCurrentWorkspaceActionTarget(request.projectId);
+                const key = {
+                    repositoryKey: request.repositoryKey,
+                    canonicalWorktreePath: request.worktreePath,
+                };
+                const group = target && worktreeGroupManifestStore.findGroupByWorktreeKey(
+                    target.workspace.navigationIdentity, key);
+                const member = group?.members.find(candidate => candidate.worktreeKey
+                    && worktreeKeysEqual(candidate.worktreeKey, key));
+                if (target && group && member) {
+                    try {
+                        await worktreeGroupManifestStore.removeMember(
+                            target.workspace.navigationIdentity, group.groupId, member.memberId);
+                    } catch (error) {
+                        logError('Failed to retire a removed worktree group member.', error);
+                    }
+                }
+            }
             await provider.postMessage(
                 settledManagedWorktreeRemovalSettlement(request, outcome));
         },

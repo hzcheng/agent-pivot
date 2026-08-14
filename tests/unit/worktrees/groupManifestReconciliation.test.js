@@ -87,6 +87,51 @@ test('WORKTREE-GROUPS-003 reconciliation is idempotent across repeated snapshots
     assert.deepEqual(second, first);
 });
 
+test('WORKTREE-GROUPS-003 recovery records migrate renamed branches with their original task name', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const content = snapshot([{
+        repositoryKey: '/alpha/.git',
+        rootBindings: [],
+        worktrees: [gitWorktree('/alpha/.git', '/alpha/.worktrees/fix-login', {
+            branchRef: 'refs/heads/hotfix/renamed-by-user',
+        })],
+    }]);
+    const recoveryRecords = [{
+        version: 1,
+        operationId: 'op-1',
+        projectId: 'project',
+        providerId: 'codex',
+        setupCommand: [],
+        plan: {
+            repositoryKey: '/alpha/.git', commandCwd: '/alpha/main',
+            baseRef: 'refs/heads/main', taskName: '修复登录',
+            slug: 'task-a1b2c3', branchName: 'agent-pivot/task-a1b2c3',
+            worktreePath: '/alpha/.worktrees/fix-login',
+        },
+        completedSteps: ['worktree', 'setup'],
+        worktreeKey: {
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+        },
+        row: {
+            kind: 'provisioning', operationId: 'op-1', repositoryKey: '/alpha/.git',
+            taskName: '修复登录', stage: 'creating', completedSteps: [],
+            retryable: false, cancellable: false,
+        },
+    }];
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content, recoveryRecords,
+    });
+    const groups = store.listGroups(WORKSPACE);
+    assert.equal(groups.length, 1,
+        'a renamed managed branch still migrates via its recovery record');
+    assert.equal(groups[0].displayName, '修复登录',
+        'the original task name survives instead of the degraded slug');
+    assert.equal(groups[0].suggestedSlug, 'task-a1b2c3');
+    assert.equal(groups[0].members[0].branchName, 'hotfix/renamed-by-user',
+        'the member records the branch as it actually is');
+});
+
 test('WORKTREE-GROUPS-003 flags members detached when their repository leaves and re-attaches on return', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const withBoth = snapshot([{

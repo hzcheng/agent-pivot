@@ -1,6 +1,7 @@
 'use strict';
 
 import type { WorktreeGroupManifestStore } from './groupManifestStore';
+import type { PersistedWorktreeProvisioningOperation } from './provisioningStore';
 import type { WorktreeSnapshotContent } from './types';
 
 const MANAGED_BRANCH_PREFIX = 'refs/heads/agent-pivot/';
@@ -10,6 +11,13 @@ export interface ReconcileWorktreeGroupManifestOptions {
     /** Stable workspace navigation identity (the manifest bucket, PRD §9). */
     workspaceIdentity: string;
     snapshot: WorktreeSnapshotContent;
+    /**
+     * Provisioning recovery records: the second migration signal (PRD §9).
+     * Worktrees the extension created but whose branch was later renamed no
+     * longer carry the managed prefix, and task names that slugify poorly
+     * (e.g. CJK names) keep their original display name here.
+     */
+    recoveryRecords?: readonly PersistedWorktreeProvisioningOperation[];
     onError?: (message: string, error: unknown) => void;
 }
 
@@ -46,12 +54,22 @@ export async function reconcileWorktreeGroupManifest(
     for (const repository of snapshot.repositories) {
         for (const worktree of repository.worktrees) {
             const branchRef = worktree.branchRef || '';
-            if (worktree.isMain || worktree.isBare
-                || !branchRef.startsWith(MANAGED_BRANCH_PREFIX)) {
+            if (worktree.isMain || worktree.isBare) {
                 continue;
             }
-            const slug = branchRef.slice(MANAGED_BRANCH_PREFIX.length);
-            if (!slug) {
+            const record = (options.recoveryRecords || []).find(candidate =>
+                candidate.plan.repositoryKey === worktree.key.repositoryKey
+                && candidate.plan.worktreePath === worktree.key.canonicalWorktreePath);
+            const managedBranch = branchRef.startsWith(MANAGED_BRANCH_PREFIX)
+                ? branchRef.slice(MANAGED_BRANCH_PREFIX.length)
+                : '';
+            if (!managedBranch && !record) {
+                continue;
+            }
+            const slug = record?.plan.slug || managedBranch;
+            const displayName = record?.plan.taskName || managedBranch;
+            const branchName = branchRef.slice('refs/heads/'.length) || record?.plan.branchName || '';
+            if (!slug || !displayName || !branchName) {
                 continue;
             }
             if (store.findGroupByWorktreeKey(workspaceIdentity, worktree.key)) {
@@ -59,12 +77,12 @@ export async function reconcileWorktreeGroupManifest(
             }
             try {
                 await store.createGroup(workspaceIdentity, {
-                    displayName: slug,
+                    displayName,
                     suggestedSlug: slug,
                     members: [{
                         repositoryKey: worktree.key.repositoryKey,
                         worktreeKey: worktree.key,
-                        branchName: branchRef.slice('refs/heads/'.length),
+                        branchName,
                         path: worktree.key.canonicalWorktreePath,
                         state: 'ready',
                     }],

@@ -119,11 +119,17 @@ export function buildWorktreeGroupProjection(
         }
         groupSessions.sort(compareSessions);
         const readyMembers = group.members.filter(member => member.state === 'ready');
+        // PRD §8: a failed or missing member needs attention just like an
+        // unread session — otherwise a broken group looks healthy.
+        const memberIssue = members.some(member =>
+            member.status === 'failed' || member.status === 'missing');
         groupRows.push({
             kind: 'group',
             groupId: group.groupId,
             displayName: group.displayName,
-            activity: aggregateActivity(groupSessions, groupLive),
+            activity: memberIssue
+                ? 'attention'
+                : aggregateActivity(groupSessions, groupLive),
             sessions: groupSessions,
             members,
             chips: buildChips(members.map(member => member.repositoryLabel), chipUniverse),

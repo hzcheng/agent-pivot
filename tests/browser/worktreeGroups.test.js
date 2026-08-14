@@ -13,6 +13,18 @@ const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
     'utf8'
 );
+const controlsScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectAiSessionControlsScripts.js'),
+    'utf8'
+);
+const workspaceUpdateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewWorkspaceUpdateScripts.js'),
+    'utf8'
+);
+const scrollStateScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewScrollStateScripts.js'),
+    'utf8'
+);
 
 const alphaMainKey = { repositoryKey: '/alpha/.git', canonicalWorktreePath: '/alpha/main' };
 const alphaLoginKey = {
@@ -124,7 +136,7 @@ async function openSurfacePage(html, width) {
     return page;
 }
 
-test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches and no actions', async t => {
+test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches and no management menu', async t => {
     const page = await openSurfacePage(surface({
         worktreeAnchor: {
             entries: [
@@ -150,11 +162,49 @@ test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches a
     assert.deepEqual(tooltip.split('\n'), ['alpha: main', 'beta: 1.0'],
         'the hover tooltip lists one repository per line');
     assert.equal(await anchor.locator('.ai-session-worktree-more').count(), 0,
-        'the anchor is not a managed worktree');
-    assert.equal(await anchor.locator('[data-action="create-ai-session-quick"]').count(), 0);
+        'the anchor is not a managed worktree: no actions menu');
+    const quick = anchor.locator('[data-action="create-ai-session-quick"]');
+    assert.equal(await quick.count(), 1,
+        'session creation stays discoverable on the anchor row');
     assert.equal(
         await anchor.locator('.codex-session-row[data-session-id="s-main"]').count(), 1,
         'main-checkout sessions collect under the anchor');
+});
+
+test('WORKTREE-GROUPS-UI-001 anchor quick-create launches a plain main-checkout session', async t => {
+    const page = await openSurfacePage(surface({
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [alphaMainKey],
+            sessions: [],
+            activity: 'idle',
+        },
+    }), 320);
+    t.after(() => page.close());
+
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.vscode = {
+            postMessage: message => window.__postedMessages.push(message),
+            getState: () => undefined,
+            setState: () => undefined,
+        };
+    });
+    await page.addScriptTag({ content: controlsScript });
+    await page.evaluate(() => {
+        window.__controls = initProjectAiSessionControls({});
+        window.__controls.onTriggerAiSessionAction(
+            document.querySelector(
+            '.ai-session-worktree-anchor [data-action="create-ai-session-quick"]'
+            ),
+            'project-a'
+        );
+    });
+    const messages = await page.evaluate(() => window.__postedMessages);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].type, 'create-ai-session-quick');
+    assert.equal(messages[0].worktreeKey, undefined,
+        'no worktree key: the session starts in the main checkout, like Chats +');
 });
 
 test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a member summary', async t => {
@@ -269,4 +319,67 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
     }));
     assert.ok(layout.documentWidth <= layout.viewportWidth + 1,
         `no horizontal overflow at 170px (document ${layout.documentWidth}px)`);
+});
+
+test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list scroll position', async t => {
+    const sessionHtml = surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow({
+            members: [
+                member(),
+                member({
+                    memberId: 'm-2', repositoryKey: '/beta/.git', repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login', worktreeKey: betaLoginKey,
+                    isPrimary: false,
+                }),
+            ],
+            chips: [{ label: 'a', title: 'alpha' }, { label: 'b', title: 'beta' }],
+        })],
+        activeAiSessions: [liveSession()],
+    });
+    const groupHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${sessionHtml}</div>`
+        + `</div></div>`;
+    const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
+        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${groupHtml}</div></div>
+    </body></html>`);
+    await page.addStyleTag({ content: styles });
+    await page.addStyleTag({ content: `
+        :root {
+            --vscode-font-family: sans-serif;
+            --vscode-foreground: #ddd;
+            --vscode-descriptionForeground: #aaa;
+            --vscode-panel-border: #555;
+        }
+        html, body { margin: 0; }
+        .project { box-sizing: border-box; padding: 4px; }
+        .ai-session-worktree-list { max-height: 40px; overflow-y: auto; }
+    ` });
+    await page.addScriptTag({ content: viewStateScript });
+    await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: workspaceUpdateScript });
+
+    const before = await page.evaluate(() => {
+        const list = document.querySelector('.ai-session-worktree-list');
+        list.scrollTop = 60;
+        return list.scrollTop;
+    });
+    assert.ok(before > 0, 'the worktree list is scrollable in this fixture');
+
+    const applied = await page.evaluate(replacementHtml =>
+        applyWorkspaceUpdate({
+            type: 'workspace-updated',
+            version: 2,
+            currentWorkspaceCount: 1,
+            html: replacementHtml,
+        }), groupHtml);
+    assert.equal(applied, true, 'the authoritative replacement applies');
+
+    const after = await page.evaluate(() =>
+        document.querySelector('.ai-session-worktree-list').scrollTop);
+    assert.equal(after, before,
+        'a refresh must not snap the worktree panel back to the top');
 });

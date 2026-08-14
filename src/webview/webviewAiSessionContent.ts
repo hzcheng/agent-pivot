@@ -234,7 +234,8 @@ function getWorktreeSurfacePanel(
         )
         : '';
     const anchorHtml = project.worktreeAnchor && project.worktreeAnchor.entries.length
-        ? getWorktreeAnchorHtml(project.worktreeAnchor, entries)
+        ? getWorktreeAnchorHtml(
+            project.worktreeAnchor, entries, quickCreateProvider, quickCreateProfile)
         : '';
     const groupRowsHtml = (project.worktreeGroups || []).length
         ? getWorktreeGroupRowsHtml(
@@ -695,6 +696,8 @@ function getWorktreeGroupHtml(
 function getWorktreeAnchorHtml(
     anchor: WorktreeAnchorViewModel,
     entries: readonly WorktreeSessionRenderEntry[],
+    quickCreateProvider: AiSessionProviderId,
+    quickCreateProfile: string,
 ): string {
     const keys = anchor.worktreeKeys || [];
     const matched = entries.filter(entry => keys.some(key =>
@@ -712,6 +715,16 @@ function getWorktreeAnchorHtml(
         : anchor.activity === 'active' ? 'active' : 'idle';
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
     const ariaLabel = `Current, ${inlineSummary}, ${sessionLabel}, ${activity}`;
+    // The anchor intentionally has no management menu, but session creation
+    // must stay discoverable from the Worktree surface (annotation: without
+    // it users could not find how to start a main-checkout session). The
+    // section carries no worktree key, so quick-create launches a plain
+    // main-checkout session, exactly like the Chats + button.
+    const providerLabel = getAiProviderLabel(quickCreateProvider);
+    const quickLabel = quickCreateProfile
+        ? `New ${providerLabel} session with profile ${quickCreateProfile}`
+        : `New ${providerLabel} session`;
+    const quickCreate = `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickLabel)}" data-tooltip="${escapeAttribute(quickLabel)}">${Icons.add}</button>`;
     // The per-repository branch detail lives on the fast hover tooltip; the
     // row itself stays a single compact line (annotation: the inline summary
     // squeezed the "Current" title away).
@@ -723,6 +736,7 @@ function getWorktreeAnchorHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
+            ${quickCreate}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')

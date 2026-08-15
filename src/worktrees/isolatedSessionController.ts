@@ -363,11 +363,24 @@ export class IsolatedSessionController {
     private readonly dismissFlights = new Map<string, Promise<boolean>>();
 
     dismiss(operationId: string, projectId?: string): Promise<boolean> {
+        // Validate the caller BEFORE sharing any in-flight transaction: a
+        // forged projectId must never observe or reuse another scope's
+        // flight (and vice versa).
+        const context = this.contextsByOperation.get(operationId);
+        if (!context || (projectId && context.projectId !== projectId)
+            || !this.contextMatchesWorkspace(
+                context, this.options.getWorkspaceTarget(context.projectId))) {
+            return Promise.resolve(false);
+        }
         const pending = this.dismissFlights.get(operationId);
         if (pending) {
             return pending;
         }
-        const flight = this.dismissExclusive(operationId, projectId)
+        // Defer the transaction body into a microtask so the flight is
+        // registered before its context teardown begins: every validated
+        // concurrent caller shares the same outcome.
+        const flight = Promise.resolve()
+            .then(() => this.dismissExclusive(operationId, context))
             .finally(() => this.dismissFlights.delete(operationId));
         this.dismissFlights.set(operationId, flight);
         return flight;
@@ -375,14 +388,8 @@ export class IsolatedSessionController {
 
     private async dismissExclusive(
         operationId: string,
-        projectId?: string
+        context: IsolatedSessionOperationContext
     ): Promise<boolean> {
-        const context = this.contextsByOperation.get(operationId);
-        if (!context || (projectId && context.projectId !== projectId)
-            || !this.contextMatchesWorkspace(
-                context, this.options.getWorkspaceTarget(context.projectId))) {
-            return false;
-        }
         const recovery = this.provisioning.getRecoveryOperations()
             .find(operation => operation.operationId === operationId);
         const needsTombstone = !!recovery

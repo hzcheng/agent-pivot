@@ -729,6 +729,82 @@ test('WORKTREE-GROUPS-CREATE-001 a completed retry clears the tombstone for that
     assert.ok(!current.persisted.at(-1).some(record => record.tombstone));
 });
 
+test('WORKTREE-GROUPS-CREATE-001 a failed tombstone write never deletes the durable live record first', async () => {
+    // Tombstone-first ordering: when the tombstone bucket write fails, the
+    // live bucket is untouched and the recovery survives the "restart".
+    const { WorktreeProvisioningStore } = require('../../../out/worktrees/provisioningStore');
+    const mementoState = new Map();
+    const memento = {
+        get(key, fallback) { return mementoState.has(key) ? mementoState.get(key) : fallback; },
+        async update(key, value) {
+            if (failTombstoneBucket && key.includes('Tombstones')) {
+                throw new Error('disk full');
+            }
+            mementoState.set(key, JSON.parse(JSON.stringify(value)));
+        },
+    };
+    let failTombstoneBucket = false;
+    const store = new WorktreeProvisioningStore(memento);
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => store.replace(operations),
+        onPersistenceError: () => undefined,
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-o1', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'o1',
+    });
+    failTombstoneBucket = true;
+    assert.equal(await current.controller.dismiss('group-member-o1', 'project'), false);
+    const durable = store.read();
+    assert.equal(durable.length, 1,
+        'the live recovery record survives the failed transition');
+    assert.equal(durable[0].tombstone, undefined);
+    assert.equal(durable[0].operationId, 'group-member-o1');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 single-flight never shares across project scopes', async () => {
+    let releasePersist;
+    let gatePersist = false;
+    const gate = new Promise(resolve => { releasePersist = resolve; });
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => {
+            current.persisted.push(operations);
+            return gatePersist ? gate.then(() => undefined) : Promise.resolve();
+        },
+    });
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    await current.controller.startGroupMember({
+        operationId: 'group-member-o2', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'o2',
+    });
+    gatePersist = true;
+    const legitimate = current.controller.dismiss('group-member-o2', 'project');
+    const forged = await current.controller.dismiss('group-member-o2', 'forged-project');
+    assert.equal(forged, false,
+        'a forged projectId never rides the in-flight transaction');
+    releasePersist();
+    assert.equal(await legitimate, true);
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

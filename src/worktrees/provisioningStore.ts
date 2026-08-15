@@ -176,8 +176,12 @@ export class WorktreeProvisioningStore {
         const tombstoneSnapshot = this.sanitizeRecords(
             records.filter(record => record.tombstone), MAX_TOMBSTONES);
         const operation = async (): Promise<void> => {
-            await this.memento.update(STORAGE_KEY, snapshot);
+            // Tombstone bucket first: if the live write then fails, both
+            // records exist and the read-time tombstone-wins rule converges
+            // safely. The reverse order could delete the only durable
+            // recovery before its replacement protection landed.
             await this.memento.update(TOMBSTONE_STORAGE_KEY, tombstoneSnapshot);
+            await this.memento.update(STORAGE_KEY, snapshot);
         };
         const result = this.writeQueue.then(operation, operation);
         this.writeQueue = result.catch(() => undefined);

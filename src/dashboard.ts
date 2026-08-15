@@ -1556,6 +1556,8 @@ async function initializeDashboard(
         publishRows: () => refreshAiSessionViewsIncrementally(),
         recoveredOperations: worktreeProvisioningStore.read(),
         persistOperations: operations => worktreeProvisioningStore.replace(operations),
+        persistTombstones: records =>
+            worktreeProvisioningStore.appendTombstones(records),
         pruneTombstones: (paths, truncated, startedAt, repositories) =>
             worktreeProvisioningStore.pruneTombstones(
                 paths, truncated, startedAt, repositories),

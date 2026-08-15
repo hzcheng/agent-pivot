@@ -170,6 +170,34 @@ export class WorktreeProvisioningStore {
         return pruned;
     }
 
+    /**
+     * Durably appends tombstones without touching the live bucket. Used by
+     * dismissal transactions: once this resolves, the protection is
+     * committed and a later live-bucket cleanup failure is a safe,
+     * convergent no-op (read-time tombstone-wins).
+     */
+    appendTombstones(
+        records: readonly PersistedWorktreeProvisioningOperation[]
+    ): Promise<void> {
+        const operation = async (): Promise<void> => {
+            const existing = this.parseRecords(
+                this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
+            const merged = existing.slice();
+            for (const record of records) {
+                const sanitized = parseRecord(record, this.getWorktreeDirectory?.());
+                if (sanitized && !merged.some(candidate =>
+                    candidate.operationId === sanitized.operationId)) {
+                    merged.push(sanitized);
+                }
+            }
+            await this.memento.update(
+                TOMBSTONE_STORAGE_KEY, merged.slice(-MAX_TOMBSTONES));
+        };
+        const result = this.writeQueue.then(operation, operation);
+        this.writeQueue = result.then(() => undefined, () => undefined);
+        return result;
+    }
+
     replace(records: readonly PersistedWorktreeProvisioningOperation[]): Promise<void> {
         const snapshot = this.sanitizeRecords(
             records.filter(record => !record.tombstone), MAX_RECORDS);

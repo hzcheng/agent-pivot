@@ -805,6 +805,88 @@ test('WORKTREE-GROUPS-CREATE-001 single-flight never shares across project scope
     assert.equal(await legitimate, true);
 });
 
+test('WORKTREE-GROUPS-CREATE-001 a live-cleanup failure after the tombstone commit still completes the dismiss', async () => {
+    // Once the tombstone is durable, the dismissal is safely committed:
+    // a failing live-bucket cleanup must not roll back and report failure
+    // (the tombstone outranks the stale live record on read).
+    const { WorktreeProvisioningStore } = require('../../../out/worktrees/provisioningStore');
+    const mementoState = new Map();
+    let failLiveWrites = false;
+    const memento = {
+        get(key, fallback) { return mementoState.has(key) ? mementoState.get(key) : fallback; },
+        async update(key, value) {
+            if (failLiveWrites && !key.includes('Tombstones')) {
+                throw new Error('disk full');
+            }
+            mementoState.set(key, JSON.parse(JSON.stringify(value)));
+        },
+    };
+    const store = new WorktreeProvisioningStore(memento);
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => store.replace(operations),
+        persistTombstones: records => store.appendTombstones(records),
+        onPersistenceError: () => undefined,
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-p1', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'p1',
+    });
+    failLiveWrites = true;
+    assert.equal(await current.controller.dismiss('group-member-p1', 'project'), true,
+        'a committed tombstone commits the dismissal');
+    const durable = store.read();
+    assert.equal(durable.length, 1);
+    assert.equal(durable[0].tombstone, true,
+        'the tombstone is the authoritative durable record');
+    assert.equal(current.controller.getRows().length, 0);
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a late same-scope caller joins the in-flight dismiss', async () => {
+    let releasePersist;
+    let gatePersist = false;
+    const gate = new Promise(resolve => { releasePersist = resolve; });
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => {
+            current.persisted.push(operations);
+            return gatePersist ? gate.then(() => undefined) : Promise.resolve();
+        },
+    });
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    await current.controller.startGroupMember({
+        operationId: 'group-member-p2', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'p2',
+    });
+    gatePersist = true;
+    const first = current.controller.dismiss('group-member-p2', 'project');
+    // Let the transaction start (its context teardown happens inside).
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const second = current.controller.dismiss('group-member-p2', 'project');
+    releasePersist();
+    assert.equal(await first, true);
+    assert.equal(await second, true,
+        'a late caller with the same identity shares the flight outcome');
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

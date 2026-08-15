@@ -97,6 +97,13 @@ export interface IsolatedSessionControllerOptions {
         operations: readonly PersistedWorktreeProvisioningOperation[]
     ) => Promise<void>;
     onPersistenceError?: (error: unknown) => void;
+    /**
+     * Durable tombstone-only append (no live-bucket write). Dismissal
+     * transactions commit protection through this before any cleanup.
+     */
+    persistTombstones?: (
+        records: readonly PersistedWorktreeProvisioningOperation[]
+    ) => Promise<void>;
     /** Store-side tombstone prune, driven by pruneTombstones above. */
     pruneTombstones?: (
         existingWorktreePaths: ReadonlySet<string>,
@@ -359,22 +366,39 @@ export class IsolatedSessionController {
         return this.provisioning.cancel(operationId);
     }
 
-    /** Operation-level single-flight: concurrent dismissals share one. */
-    private readonly dismissFlights = new Map<string, Promise<boolean>>();
+    /** Operation-level single-flight, bound to the caller's identity. */
+    private readonly dismissFlights = new Map<string, {
+        projectId: string;
+        navigationIdentity?: string;
+        promise: Promise<boolean>;
+    }>();
 
     dismiss(operationId: string, projectId?: string): Promise<boolean> {
-        // Validate the caller BEFORE sharing any in-flight transaction: a
-        // forged projectId must never observe or reuse another scope's
-        // flight (and vice versa).
+        const pending = this.dismissFlights.get(operationId);
+        if (pending) {
+            // Validate against the flight's captured identity: the
+            // transaction may already have torn its context down, but a
+            // same-scope late caller still joins, and a forged one never
+            // rides the flight.
+            if (projectId && pending.projectId !== projectId) {
+                return Promise.resolve(false);
+            }
+            if (pending.navigationIdentity) {
+                const target = this.options.getWorkspaceTarget(pending.projectId);
+                if (!target || target.workspace.navigationIdentity
+                    !== pending.navigationIdentity) {
+                    return Promise.resolve(false);
+                }
+            }
+            return pending.promise;
+        }
+        // Validate the first caller from the live context BEFORE any
+        // flight exists.
         const context = this.contextsByOperation.get(operationId);
         if (!context || (projectId && context.projectId !== projectId)
             || !this.contextMatchesWorkspace(
                 context, this.options.getWorkspaceTarget(context.projectId))) {
             return Promise.resolve(false);
-        }
-        const pending = this.dismissFlights.get(operationId);
-        if (pending) {
-            return pending;
         }
         // Defer the transaction body into a microtask so the flight is
         // registered before its context teardown begins: every validated
@@ -382,7 +406,11 @@ export class IsolatedSessionController {
         const flight = Promise.resolve()
             .then(() => this.dismissExclusive(operationId, context))
             .finally(() => this.dismissFlights.delete(operationId));
-        this.dismissFlights.set(operationId, flight);
+        this.dismissFlights.set(operationId, {
+            projectId: context.projectId,
+            navigationIdentity: context.navigationIdentity,
+            promise: flight,
+        });
         return flight;
     }
 
@@ -407,40 +435,50 @@ export class IsolatedSessionController {
         // ran must not let reconciliation re-seed the half-initialized
         // worktree as ready: keep a tombstone that blocks seeding without
         // ever restoring a row. The tombstone must be durable BEFORE the
-        // row, context, and manifest member go away — and the context is
-        // dropped first so the live record is excluded from that write:
-        // exactly one durable record exists for this id, never both.
+        // row, context, and manifest member go away.
         if (needsTombstone && recovery) {
             const tombstone = this.buildRecoveryRecord(recovery, context);
             if (tombstone) {
-                this.recoveryTombstones.set(operationId, {
+                const durable = {
                     ...tombstone,
-                    tombstone: true,
+                    tombstone: true as const,
                     tombstonedAt: Date.now(),
-                });
-                this.contextsByOperation.delete(operationId);
-                try {
-                    await this.persistOperations();
-                } catch (error) {
-                    this.recoveryTombstones.delete(operationId);
-                    this.contextsByOperation.set(operationId, context);
-                    this.options.onPersistenceError?.(error);
-                    return false;
+                };
+                if (this.options.persistTombstones) {
+                    try {
+                        // Commit the protection FIRST, on its own bucket.
+                        // Once this resolves, the dismissal is safe to
+                        // commit: a later live-bucket cleanup failure
+                        // converges through read-time tombstone-wins.
+                        await this.options.persistTombstones([durable]);
+                    } catch (error) {
+                        this.options.onPersistenceError?.(error);
+                        return false;
+                    }
+                    this.recoveryTombstones.set(operationId, durable);
+                    this.contextsByOperation.delete(operationId);
+                    // Persist the live-record removal; failure leaves a
+                    // stale live record the tombstone outranks on read.
+                    void this.persistOperations().catch(error =>
+                        this.options.onPersistenceError?.(error));
+                } else {
+                    // Single-write fallback: the context drops first so the
+                    // live record is excluded and the tombstone is the only
+                    // record for this id.
+                    this.recoveryTombstones.set(operationId, durable);
+                    this.contextsByOperation.delete(operationId);
+                    try {
+                        await this.persistOperations();
+                    } catch (error) {
+                        this.recoveryTombstones.delete(operationId);
+                        this.contextsByOperation.set(operationId, context);
+                        this.options.onPersistenceError?.(error);
+                        return false;
+                    }
                 }
             }
         }
         if (!this.provisioning.discard(operationId)) {
-            if (needsTombstone && this.recoveryTombstones.has(operationId)) {
-                // Roll the durable state back too: no tombstone without a
-                // completed dismissal, no row without its context.
-                this.recoveryTombstones.delete(operationId);
-                this.contextsByOperation.set(operationId, context);
-                try {
-                    await this.persistOperations();
-                } catch (error) {
-                    this.options.onPersistenceError?.(error);
-                }
-            }
             return false;
         }
         this.contextsByOperation.delete(operationId);
@@ -575,7 +613,11 @@ export class IsolatedSessionController {
         };
         this.recoveryTombstones.set(operationId, tombstone);
         try {
-            await this.persistOperations();
+            if (this.options.persistTombstones) {
+                await this.options.persistTombstones([tombstone]);
+            } else {
+                await this.persistOperations();
+            }
         } catch (error) {
             this.recoveryTombstones.delete(operationId);
             this.options.onPersistenceError?.(error);
@@ -621,8 +663,8 @@ export class IsolatedSessionController {
             }
         }
         if (removed) {
-            void this.persistOperations().catch(error =>
-                this.options.onPersistenceError?.(error));
+                void this.persistOperations().catch(error =>
+                    this.options.onPersistenceError?.(error));
         }
     }
 

@@ -1200,6 +1200,7 @@ export function getAiSessionWorktreeMenu() {
     <div class="custom-context-menu-separator" role="separator" data-worktree-session-separator></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-branch-create"></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group</div>
+    <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-group-delete" hidden>Remove group worktrees…</div>
     <div class="custom-context-menu-separator" role="separator" data-worktree-remove-separator></div>
     <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-remove">Remove worktree</div>
 </div>`;

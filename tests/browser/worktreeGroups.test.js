@@ -1225,6 +1225,7 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 removes a member through the card settle
         requestId: '<nonce>',
         projectId: 'project-a',
         groupId: 'g-1',
+        mode: 'member',
         memberId: 'm-2',
         baseRevision: 1,
     });
@@ -1482,4 +1483,155 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 the deletion card stays contained at 170
     assert.equal(overflow, false, 'the card never overflows the card column at 170px');
     assert.equal(await card.locator('[data-action="confirm-group-member-deletion"]')
         .isVisible(), true, 'confirm stays reachable at 170px');
+});
+
+test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card and restores focus', async t => {
+    const withoutGroup = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [],
+    });
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const deleteItem = menu.locator('[data-action="worktree-group-delete"]');
+    assert.equal(await deleteItem.isVisible(), true, 'group rows offer group deletion');
+    await deleteItem.evaluate(item => item.click());
+
+    const card = page.locator('.ai-session-worktree-deletion-card');
+    assert.equal(await card.count(), 1, 'the loading card opens');
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.deepEqual({ ...previewRequest, requestId: '<nonce>' }, {
+        type: 'preview-worktree-group-deletion',
+        version: 1,
+        requestId: '<nonce>',
+        projectId: 'project-a',
+        groupId: 'g-1',
+        mode: 'group',
+    });
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                mode: 'group',
+                status: 'ready',
+                members: [
+                    {
+                        memberId: 'm-1', repositoryLabel: 'alpha',
+                        path: '/alpha/.worktrees/fix-login',
+                        branchName: 'agent-pivot/fix-login',
+                        blocker: null, historyCount: 1, isPrimary: true,
+                    },
+                    {
+                        memberId: 'm-2', repositoryLabel: 'beta',
+                        path: '/beta/.worktrees/fix-login-2',
+                        branchName: 'agent-pivot/fix-login-2',
+                        blocker: null, historyCount: 2, isPrimary: false,
+                    },
+                ],
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    assert.match(await card.textContent(), /Remove all 2 worktrees/);
+    assert.match(await card.textContent(), /3 past sessions/);
+    assert.match(await card.textContent(), /alpha \(agent-pivot\/fix-login\)/);
+    assert.match(await card.textContent(), /beta \(agent-pivot\/fix-login-2\)/);
+    // Whole-group deletion never asks for a replacement primary (PRD §6.4).
+    assert.equal(await card.locator('.ai-session-worktree-deletion-replacement').count(), 0);
+
+    await card.locator('[data-action="confirm-group-member-deletion"]')
+        .evaluate(button => button.click());
+    const deleteRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.deepEqual({ ...deleteRequest, requestId: '<nonce>' }, {
+        type: 'delete-worktree-group-member',
+        version: 1,
+        requestId: '<nonce>',
+        projectId: 'project-a',
+        groupId: 'g-1',
+        mode: 'group',
+        baseRevision: 1,
+    });
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-settlement',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'settled',
+                minimumAggregateRevision: 2,
+            },
+        }));
+    }, deleteRequest.requestId);
+    const clearedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withoutGroup()}</div></div></div>`;
+    assert.equal(await applyUpdate(clearedHtml), true);
+    assert.equal(await page.locator('.ai-session-worktree-task-group').count(), 0,
+        'the group row is gone');
+    assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 0,
+        'the card retired with the group');
+    assert.equal(await page.evaluate(() => {
+        const active = document.activeElement;
+        return !!(active && (active.closest('.ai-session-worktree-anchor')
+            || active.getAttribute('data-action') === 'create-isolated-session'
+            || active.classList.contains('ai-session-worktree-header')));
+    }), true, 'focus falls to the next group, the Current anchor, or the New button');
+});
+
+test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members block whole-group deletion with a visible-only alternative', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-group-delete"]')
+        .evaluate(item => item.click());
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                mode: 'group',
+                status: 'ready',
+                members: [{
+                    memberId: 'm-1', repositoryLabel: 'alpha',
+                    path: '/alpha/.worktrees/fix-login',
+                    branchName: 'agent-pivot/fix-login',
+                    blocker: null, historyCount: 0, isPrimary: true,
+                }],
+                detachedCount: 1,
+                wholeGroupBlocked: true,
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    const card = page.locator('.ai-session-worktree-deletion-card');
+    assert.match(await card.textContent(), /outside the workspace/);
+    assert.equal(await card.locator('[data-action="confirm-group-member-deletion"]')
+        .evaluate(button => button.disabled), true,
+        'whole-group deletion stays disabled with detached members');
+    const visibleOnly = card.locator('[data-action="preview-group-visible-deletion"]');
+    assert.equal(await visibleOnly.count(), 1, 'the visible-only alternative is offered');
+    await visibleOnly.evaluate(button => button.click());
+    const switchRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.equal(switchRequest.type, 'preview-worktree-group-deletion');
+    assert.equal(switchRequest.mode, 'visible-only');
 });

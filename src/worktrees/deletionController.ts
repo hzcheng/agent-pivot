@@ -106,7 +106,8 @@ export class WorktreeDeletionController {
         workspaceIdentity: string,
         groupId: string,
         mode: DeletionOperationMode,
-        memberIds?: readonly string[]
+        memberIds?: readonly string[],
+        options?: { replacementPrimaryMemberId?: string }
     ): Promise<BeginDeletionOutcome> {
         return this.withAdmissionLock(workspaceIdentity, groupId, async () => {
             const store = this.options.store;
@@ -137,6 +138,9 @@ export class WorktreeDeletionController {
                 mode,
                 ...(mode === 'group' ? {} : { memberIds: memberIds || [] }),
                 affectedSessions,
+                ...(options?.replacementPrimaryMemberId
+                    ? { replacementPrimaryMemberId: options.replacementPrimaryMemberId }
+                    : {}),
                 nowMs: this.nowMs(),
             });
             return { kind: 'started', journal };

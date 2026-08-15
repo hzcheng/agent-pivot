@@ -307,6 +307,126 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 an orphan claim blocks until explicitly 
     assert.equal(settled.status, 'settled');
 });
 
+test('WORKTREE-GROUPS-GROUP-DELETE-001 group preview gates every visible member and reports detached residue', async () => {
+    const sessions = new Map();
+    const { store, group, deps, posted } = await fixture({ sessions });
+    sessions.set(group.members[0].memberId, [{ provider: 'codex', sessionId: 's1' }]);
+    sessions.set(group.members[1].memberId, [
+        { provider: 'kimi', sessionId: 'k1' },
+        { provider: 'codex', sessionId: 's2' },
+    ]);
+    await handlePreviewWorktreeGroupDeletion({
+        type: 'preview-worktree-group-deletion',
+        version: 1,
+        requestId: 'group-delete-preview-n2-1',
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        mode: 'group',
+    }, deps);
+    const preview = posted[0];
+    assert.equal(preview.status, 'ready');
+    assert.equal(preview.mode, 'group');
+    assert.equal(preview.members.length, 2);
+    assert.equal(preview.members[0].historyCount, 1);
+    assert.equal(preview.members[1].historyCount, 2);
+    assert.equal(preview.members.every(member => member.blocker === null), true);
+    assert.equal(preview.wholeGroupBlocked, undefined);
+    assert.equal(store.listDeletionJournals(WORKSPACE).length, 0);
+});
+
+test('WORKTREE-GROUPS-GROUP-DELETE-001 group deletion removes every member and the group itself', async () => {
+    const { store, group, deps, posted, removed } = await fixture();
+    await handleDeleteWorktreeGroupMember({
+        type: 'delete-worktree-group-member',
+        version: 1,
+        requestId: 'group-delete-n2-1',
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        mode: 'group',
+        baseRevision: group.revision,
+    }, deps);
+    const settled = posted[posted.length - 1];
+    assert.equal(settled.status, 'settled');
+    assert.equal(removed.length, 2);
+    assert.equal(store.listGroups(WORKSPACE).length, 0);
+    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 2);
+    assert.equal(store.listDeletionHistory(WORKSPACE)[0].outcome, 'completed');
+});
+
+test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members block whole-group deletion but allow visible-only', async () => {
+    const { store, group, deps, posted, removed } = await fixture();
+    await store.setRepositoryDetached(WORKSPACE, '/repos/beta/.git', true);
+    const current = store.listGroups(WORKSPACE)[0];
+    // Whole-group deletion is refused with invisible residue.
+    await handleDeleteWorktreeGroupMember({
+        type: 'delete-worktree-group-member',
+        version: 1,
+        requestId: 'group-delete-n2-2',
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        mode: 'group',
+        baseRevision: current.revision,
+    }, deps);
+    let settled = posted[posted.length - 1];
+    assert.equal(settled.status, 'failed');
+    assert.equal(settled.errorCode, 'member-detached');
+    assert.equal(removed.length, 0);
+    // The visible-only action removes just the visible member and keeps
+    // the detached one in the manifest.
+    await handleDeleteWorktreeGroupMember({
+        type: 'delete-worktree-group-member',
+        version: 1,
+        requestId: 'group-delete-n2-3',
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        mode: 'visible-only',
+        baseRevision: current.revision,
+    }, deps);
+    settled = posted[posted.length - 1];
+    assert.equal(settled.status, 'settled');
+    assert.deepEqual(removed, [current.members[0].memberId]);
+    const listed = store.listGroups(WORKSPACE);
+    assert.equal(listed[0].members.length, 1);
+    assert.equal(listed[0].members[0].detached, true);
+    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 1);
+});
+
+test('WORKTREE-GROUPS-GROUP-DELETE-001 partial group failure keeps residue and retries the same operation', async () => {
+    const failRemove = new Set();
+    const { store, group, deps, posted } = await fixture({ failRemove });
+    failRemove.add(group.members[1].memberId);
+    await handleDeleteWorktreeGroupMember({
+        type: 'delete-worktree-group-member',
+        version: 1,
+        requestId: 'group-delete-n2-4',
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        mode: 'group',
+        baseRevision: group.revision,
+    }, deps);
+    let settled = posted[posted.length - 1];
+    assert.equal(settled.status, 'partial');
+    const journal = store.listDeletionJournals(WORKSPACE)[0];
+    assert.equal(journal.targets.filter(target => target.status === 'failed').length, 1);
+    assert.equal(journal.targets.filter(target => target.status === 'deleted').length, 1);
+    const listed = store.listGroups(WORKSPACE);
+    assert.equal(listed[0].members.length, 1);
+    assert.equal(listed[0].members[0].memberId, group.members[1].memberId);
+    failRemove.delete(group.members[1].memberId);
+    await handleRetryWorktreeGroupDeletion({
+        type: 'retry-worktree-group-deletion',
+        version: 1,
+        requestId: 'group-delete-retry-n2-1',
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        operationId: journal.operationId,
+    }, deps);
+    settled = posted[posted.length - 1];
+    assert.equal(settled.status, 'settled');
+    assert.equal(store.listGroups(WORKSPACE).length, 0);
+    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 2);
+});
+
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 malformed messages are ignored without side effects', async () => {
     const { store, group, deps, posted } = await fixture();
     await handleDeleteWorktreeGroupMember({ type: 'delete-worktree-group-member' }, deps);

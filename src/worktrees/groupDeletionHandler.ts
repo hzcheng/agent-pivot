@@ -79,9 +79,7 @@ export async function handlePreviewWorktreeGroupDeletion(
     }
     const group = deps.store.listGroups(navigationIdentity)
         .find(candidate => candidate.groupId === request.groupId);
-    const member = group?.members.find(candidate =>
-        candidate.memberId === request.memberId);
-    if (!group || !member) {
+    if (!group) {
         await deps.postMessage(fail('group-changed'));
         return;
     }
@@ -89,23 +87,73 @@ export async function handlePreviewWorktreeGroupDeletion(
         await deps.postMessage(fail('group-leased'));
         return;
     }
-    if (member.state !== 'ready') {
+    const member = request.mode === 'member'
+        ? group.members.find(candidate => candidate.memberId === request.memberId)
+        : undefined;
+    if (request.mode === 'member' && !member) {
+        await deps.postMessage(fail('group-changed'));
+        return;
+    }
+    if (member && member.state !== 'ready') {
         await deps.postMessage(fail('member-not-ready'));
+        return;
+    }
+    const blockingClaimsFor = (target: typeof member) =>
+        deps.store.listGenerationClaims(navigationIdentity)
+            .filter(claim => claim.state === 'pending' && target.worktreeKey
+                && claim.worktreeKey.repositoryKey === target.worktreeKey.repositoryKey
+                && claim.worktreeKey.canonicalWorktreePath
+                    === target.worktreeKey.canonicalWorktreePath)
+            .map(claim => ({
+                claimId: claim.claimId,
+                ...(claim.creatingProvider ? { provider: claim.creatingProvider } : {}),
+            }));
+    if (request.mode !== 'member') {
+        // Group-level preview (batch 5): every visible member with its own
+        // gate; detached members cannot be deleted, and their presence
+        // blocks the whole-group action (PRD §6.4 双动作).
+        const visible = group.members.filter(candidate => !candidate.detached);
+        const members = [];
+        for (const candidate of visible) {
+            members.push({
+                memberId: candidate.memberId,
+                repositoryLabel: deps.getRepositoryLabel(candidate.repositoryKey),
+                path: candidate.path,
+                branchName: candidate.branchName,
+                blocker: candidate.state === 'ready'
+                    ? await deps.probeMemberBlocker(
+                        navigationIdentity, group.groupId, candidate.memberId)
+                    : 'member-not-ready',
+                historyCount: await deps.countMemberHistorySessions(
+                    navigationIdentity, group.groupId, candidate.memberId),
+                isPrimary: group.primaryMemberId === candidate.memberId,
+            });
+        }
+        const detachedCount = group.members.length - visible.length;
+        const blockingClaims = visible.reduce<ReturnType<typeof blockingClaimsFor>>(
+            (all, candidate) => all.concat(blockingClaimsFor(candidate)), []);
+        await deps.postMessage({
+            type: 'worktree-group-deletion-preview', version: 1,
+            requestId: request.requestId,
+            projectId: request.projectId,
+            groupId: group.groupId,
+            mode: request.mode,
+            status: 'ready',
+            members,
+            ...(detachedCount > 0 ? { detachedCount } : {}),
+            ...(request.mode === 'group' && detachedCount > 0
+                ? { wholeGroupBlocked: true }
+                : {}),
+            ...(blockingClaims.length ? { blockingClaims } : {}),
+            groupRevision: group.revision,
+        } as WorktreeGroupDeletionPreview);
         return;
     }
     const blocker = await deps.probeMemberBlocker(
         navigationIdentity, group.groupId, member.memberId);
     const historyCount = await deps.countMemberHistorySessions(
         navigationIdentity, group.groupId, member.memberId);
-    const blockingClaims = deps.store.listGenerationClaims(navigationIdentity)
-        .filter(claim => claim.state === 'pending' && member.worktreeKey
-            && claim.worktreeKey.repositoryKey === member.worktreeKey.repositoryKey
-            && claim.worktreeKey.canonicalWorktreePath
-                === member.worktreeKey.canonicalWorktreePath)
-        .map(claim => ({
-            claimId: claim.claimId,
-            ...(claim.creatingProvider ? { provider: claim.creatingProvider } : {}),
-        }));
+    const blockingClaims = blockingClaimsFor(member);
     const isPrimary = group.primaryMemberId === member.memberId;
     const survivors = group.members.filter(candidate =>
         candidate.memberId !== member.memberId && candidate.state === 'ready'
@@ -115,6 +163,7 @@ export async function handlePreviewWorktreeGroupDeletion(
         requestId: request.requestId,
         projectId: request.projectId,
         groupId: group.groupId,
+        mode: 'member',
         status: 'ready',
         member: {
             memberId: member.memberId,
@@ -180,9 +229,30 @@ async function executeMemberDeletion(
     if (!group || group.revision !== request.baseRevision) {
         return fail('group-changed');
     }
+    const mode = request.mode || 'member';
+    let memberIds: readonly string[] | undefined;
+    if (mode === 'member') {
+        memberIds = [request.memberId!];
+    } else if (mode === 'visible-only') {
+        // The host re-derives the visible set from the authoritative
+        // manifest — the card's snapshot may be stale.
+        memberIds = group.members
+            .filter(candidate => !candidate.detached)
+            .map(candidate => candidate.memberId);
+        if (memberIds.length === 0) {
+            return fail('member-not-ready');
+        }
+    } else if (group.members.some(candidate => candidate.detached)) {
+        // Whole-group deletion may never leave invisible residue (PRD
+        // §6.4): the visible-only action exists for that case.
+        return fail('member-detached');
+    }
     try {
         const outcome = await deps.controller.beginDeletion(
-            navigationIdentity, request.groupId, 'member', [request.memberId]);
+            navigationIdentity, request.groupId, mode, memberIds,
+            request.replacementPrimaryMemberId
+                ? { replacementPrimaryMemberId: request.replacementPrimaryMemberId }
+                : undefined);
         if (outcome.kind === 'blocked') {
             return fail(outcome.errorCode);
         }

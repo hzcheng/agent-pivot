@@ -92,6 +92,7 @@ export type WorktreeGroupManifestErrorCode =
   | 'group-changed'
   | 'group-leased'
   | 'deletion-blocked'
+  | 'member-detached'
   | 'store-corrupt'
   | 'store-full';
 
@@ -2055,6 +2056,13 @@ function resolveDeletionTargets(
     if (members.length === 0
         || members.some(member => member.state !== 'ready')) {
         throw new WorktreeGroupManifestError('invalid-record');
+    }
+    if (members.some(member => member.detached)) {
+        // Detached members belong to repositories outside the workspace:
+        // their physical deletion can never be verified, so they cannot
+        // join any deletion — and a whole-group deletion that would leave
+        // invisible residue is refused outright (PRD §6.4 双动作).
+        throw new WorktreeGroupManifestError('member-detached');
     }
     return members;
 }

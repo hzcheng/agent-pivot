@@ -482,6 +482,31 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 deleting the primary without replacemen
     assert.equal(store.listGroups(WORKSPACE)[0].primaryMemberId, group.primaryMemberId);
 });
 
+test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members can never join a deletion', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [
+        readyMember('alpha', 'a'),
+        readyMember('beta', 'b'),
+    ]);
+    await store.setRepositoryDetached(WORKSPACE, '/repos/beta/.git', true);
+    // Whole-group deletion refuses to leave invisible residue.
+    await rejectsCode(store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'group', nowMs: 100,
+    }), 'member-detached');
+    // And a visible-only request that names the detached member fails too.
+    await rejectsCode(store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'visible-only',
+        memberIds: [group.members[1].memberId], nowMs: 100,
+    }), 'member-detached');
+    // Visible-only with exactly the visible member works.
+    const journal = await store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'visible-only',
+        memberIds: [group.members[0].memberId], nowMs: 100,
+    });
+    assert.equal(journal.targets.length, 1);
+    assert.equal(journal.targets[0].memberId, group.members[0].memberId);
+});
+
 test('WORKTREE-GROUPS-DELETE-JOURNAL-001 aggregate revision advances on every commit', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const revisions = [store.getAggregateRevision(WORKSPACE)];

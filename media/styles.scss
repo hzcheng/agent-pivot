@@ -4061,6 +4061,42 @@ body.steward-sidebar {
             }
         }
 
+        .ai-session-worktree-deletion-member {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            margin-top: 2px;
+            font-size: 8px;
+
+            .ai-session-worktree-deletion-member-label {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--vscode-foreground);
+            }
+
+            .ai-session-worktree-deletion-member-state {
+                flex: 0 0 auto;
+                color: var(--vscode-descriptionForeground);
+            }
+
+            &[data-deletion-member-blocked="true"] .ai-session-worktree-deletion-member-state {
+                color: var(--vscode-errorForeground);
+            }
+        }
+
+        .ai-session-worktree-deletion-visible-only {
+            margin-top: 3px;
+            padding: 1px 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            color: var(--vscode-foreground);
+            background: var(--vscode-button-secondaryBackground, transparent);
+            font-size: 8px;
+            cursor: pointer;
+        }
+
         .ai-session-worktree-deletion {
             display: flex;
             flex-wrap: wrap;

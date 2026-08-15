@@ -21,7 +21,14 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 preview request accepts only the exact s
     const valid = { ...BASE, type: 'preview-worktree-group-deletion', mode: 'member', memberId: 'm-1' };
     assert.deepEqual(parsePreviewWorktreeGroupDeletionRequest(valid), valid);
     assert.equal(parsePreviewWorktreeGroupDeletionRequest(null), null);
-    assert.equal(parsePreviewWorktreeGroupDeletionRequest({ ...valid, mode: 'group' }), null);
+    // Group-level modes omit memberId entirely (batch 5).
+    const groupMode = { ...BASE, type: 'preview-worktree-group-deletion', mode: 'group' };
+    assert.deepEqual(parsePreviewWorktreeGroupDeletionRequest(groupMode), groupMode);
+    // Group modes never name a member; member mode always does.
+    assert.equal(parsePreviewWorktreeGroupDeletionRequest(
+        { ...valid, mode: 'group' }), null, 'a member id with group mode is malformed');
+    assert.equal(parsePreviewWorktreeGroupDeletionRequest(
+        { ...valid, mode: 'group', memberId: 'm-1' }), null);
     assert.equal(parsePreviewWorktreeGroupDeletionRequest({ ...valid, extra: 1 }), null);
     assert.equal(parsePreviewWorktreeGroupDeletionRequest({ ...valid, requestId: '' }), null);
     assert.equal(parsePreviewWorktreeGroupDeletionRequest({ ...valid, version: 2 }), null);

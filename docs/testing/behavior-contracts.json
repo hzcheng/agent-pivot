@@ -6537,5 +6537,24 @@
       "src/webview/webviewProjectAiSessionControlsScripts.js",
       "src/dashboard.ts"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-GROUP-DELETE-001",
+    "domain": "persistence",
+    "title": "Group-level journaled deletion end to end: per-member gate results in one confirmation card, detached members block whole-group deletion with a visible-only alternative, partial failures keep residue for Retry, and whole-group completion removes the row with ordered focus restoration",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupDeletionHandler.test.js",
+      "tests/unit/worktrees/deletionJournal.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupDeletionProtocol.ts",
+      "src/worktrees/groupDeletionHandler.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js"
+    ]
   }
 ]

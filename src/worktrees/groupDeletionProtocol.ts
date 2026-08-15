@@ -12,7 +12,7 @@
  * journal already support 'group' / 'visible-only' for batch 5.
  */
 
-export type WorktreeGroupDeletionRequestMode = 'member';
+export type WorktreeGroupDeletionRequestMode = 'member' | 'group' | 'visible-only';
 
 export interface PreviewWorktreeGroupDeletionRequest {
     type: 'preview-worktree-group-deletion';
@@ -21,7 +21,8 @@ export interface PreviewWorktreeGroupDeletionRequest {
     projectId: string;
     groupId: string;
     mode: WorktreeGroupDeletionRequestMode;
-    memberId: string;
+    /** Required for mode 'member'; absent for the group-level modes. */
+    memberId?: string;
 }
 
 export interface WorktreeGroupDeletionPreviewMember {
@@ -42,9 +43,20 @@ export interface WorktreeGroupDeletionPreview {
     requestId: string;
     projectId: string;
     groupId: string;
+    mode?: WorktreeGroupDeletionRequestMode;
     status: 'ready' | 'failed';
     errorCode?: string;
+    /** Mode 'member': the single target. */
     member?: WorktreeGroupDeletionPreviewMember;
+    /** Group modes: every visible member with its own gate result. */
+    members?: WorktreeGroupDeletionPreviewMember[];
+    /** Detached members (repository left the workspace) cannot be deleted. */
+    detachedCount?: number;
+    /**
+     * Whole-group deletion is blocked while detached members exist (PRD
+     * §6.4): the card offers the visible-only action instead.
+     */
+    wholeGroupBlocked?: boolean;
     /** Deleting the primary with ready survivors requires a choice. */
     replacementRequired?: boolean;
     replacementCandidates?: { memberId: string; repositoryLabel: string }[];
@@ -60,7 +72,9 @@ export interface DeleteWorktreeGroupMemberRequest {
     requestId: string;
     projectId: string;
     groupId: string;
-    memberId: string;
+    mode?: WorktreeGroupDeletionRequestMode;
+    /** Required for mode 'member' (or a legacy modeless request). */
+    memberId?: string;
     /** The group revision the confirmation card saw; drift fails closed. */
     baseRevision: number;
     /** Decision I: chosen replacement when the deleted member is primary. */
@@ -134,15 +148,20 @@ export function parsePreviewWorktreeGroupDeletionRequest(
         return null;
     }
     const record = value as Record<string, unknown>;
-    if (!hasExactKeys(record, [
+    const baseKeys = [
         'groupId', 'memberId', 'mode', 'projectId', 'requestId', 'type', 'version',
-    ]) || record.type !== 'preview-worktree-group-deletion'
+    ];
+    if ((!hasExactKeys(record, baseKeys)
+            && !hasExactKeys(record, baseKeys.filter(key => key !== 'memberId')))
+        || record.type !== 'preview-worktree-group-deletion'
         || record.version !== 1
         || !isSafeId(record.requestId)
         || !isSafeString(record.projectId)
         || !isSafeId(record.groupId)
-        || record.mode !== 'member'
-        || !isSafeId(record.memberId)) {
+        || !['member', 'group', 'visible-only'].includes(record.mode as string)
+        || (record.mode === 'member' && !isSafeId(record.memberId))
+        || (record.memberId !== undefined && !isSafeId(record.memberId))
+        || (record.mode !== 'member' && record.memberId !== undefined)) {
         return null;
     }
     return record as unknown as PreviewWorktreeGroupDeletionRequest;
@@ -156,16 +175,26 @@ export function parseDeleteWorktreeGroupMemberRequest(
     }
     const record = value as Record<string, unknown>;
     const baseKeys = [
-        'baseRevision', 'groupId', 'memberId', 'projectId', 'requestId', 'type', 'version',
+        'baseRevision', 'groupId', 'memberId', 'mode', 'projectId', 'requestId',
+        'type', 'version',
     ];
     const withReplacement = [...baseKeys, 'replacementPrimaryMemberId'];
-    if ((!hasExactKeys(record, baseKeys) && !hasExactKeys(record, withReplacement))
+    const withoutMember = baseKeys.filter(key => key !== 'memberId');
+    const withoutMemberWithReplacement = [...withoutMember, 'replacementPrimaryMemberId'];
+    const legacyMember = baseKeys.filter(key => key !== 'mode');
+    const legacyMemberWithReplacement = [...legacyMember, 'replacementPrimaryMemberId'];
+    if (![baseKeys, withReplacement, withoutMember, withoutMemberWithReplacement,
+            legacyMember, legacyMemberWithReplacement]
+            .some(expected => hasExactKeys(record, expected))
         || record.type !== 'delete-worktree-group-member'
         || record.version !== 1
         || !isSafeId(record.requestId)
         || !isSafeString(record.projectId)
         || !isSafeId(record.groupId)
-        || !isSafeId(record.memberId)
+        || (record.mode !== undefined
+            && !['member', 'group', 'visible-only'].includes(record.mode as string))
+        || (record.memberId !== undefined && !isSafeId(record.memberId))
+        || ((record.mode || 'member') === 'member' && !isSafeId(record.memberId))
         || typeof record.baseRevision !== 'number'
         || !Number.isSafeInteger(record.baseRevision)
         || record.baseRevision < 1

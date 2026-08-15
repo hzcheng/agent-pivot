@@ -538,6 +538,120 @@ test('WORKTREE-GROUPS-CREATE-001 dismiss fails closed when the tombstone cannot 
     assert.ok(persistenceErrors.length > 0);
 });
 
+test('WORKTREE-GROUPS-CREATE-001 dismiss awaits the tombstone write itself, not the live record', async () => {
+    // Regression: the awaited persist used to exclude the tombstone while
+    // the row was still live, so a failing tombstone write still returned
+    // true after the row was discarded.
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    let failTombstoneWrites = false;
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => {
+            if (failTombstoneWrites && operations.some(record => record.tombstone)) {
+                return Promise.reject(new Error('disk full'));
+            }
+            current.persisted.push(operations);
+            return Promise.resolve();
+        },
+        onPersistenceError: () => undefined,
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-t1', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 't1',
+    });
+    failTombstoneWrites = true;
+    assert.equal(await current.controller.dismiss('group-member-t1', 'project'), false,
+        'a failed tombstone write fails the dismiss');
+    assert.equal(current.controller.getRows().length, 1,
+        'the row survives for another attempt');
+    assert.ok(current.controller.hasOperation('group-member-t1'));
+});
+
+test('WORKTREE-GROUPS-CREATE-001 prune through the controller cannot be resurrected by a queued persist', async () => {
+    const { WorktreeProvisioningStore } = require('../../../out/worktrees/provisioningStore');
+    const mementoState = new Map();
+    const memento = {
+        get(key, fallback) { return mementoState.has(key) ? mementoState.get(key) : fallback; },
+        async update(key, value) { mementoState.set(key, JSON.parse(JSON.stringify(value))); },
+    };
+    const store = new WorktreeProvisioningStore(memento);
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => store.replace(operations),
+        pruneTombstones: (paths, truncated, startedAt, repos) =>
+            store.pruneTombstones(paths, truncated, startedAt, repos),
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-t2', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 't2',
+    });
+    assert.equal(await current.controller.dismiss('group-member-t2', 'project'), true);
+    assert.ok(store.read().some(record => record.tombstone));
+
+    // Prune: the controller drops memory first; a persist triggered right
+    // after captures the clean state and cannot resurrect the record.
+    const prune = current.controller.pruneTombstones(
+        new Set(), false, Date.now() + 60_000, new Set(['/repo/.git']));
+    await current.controller.startGroupMember({
+        operationId: 'group-member-t3', projectId: 'project',
+        navigationIdentity: 'navigation:workspace',
+        plan: { ...plan, branchName: 'agent-pivot/other', worktreePath: '/repo/.worktrees/other' },
+        setupCommand: [], groupId: 'g1', memberId: 't3',
+    });
+    await prune;
+    assert.ok(!store.read().some(record => record.tombstone),
+        'the pruned tombstone stays pruned through interleaved persists');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 concurrent synthetic tombstone writes share the in-flight persist', async () => {
+    let releasePersist;
+    const persistGate = new Promise(resolve => { releasePersist = resolve; });
+    let persistCalls = 0;
+    const current = fixture({
+        persistOperations: operations => {
+            persistCalls += 1;
+            current.persisted.push(operations);
+            return persistGate.then(() => undefined);
+        },
+    });
+    const input = {
+        repositoryKey: '/repo/.git',
+        worktreePath: '/repo/.worktrees/fix-login',
+        branchName: 'agent-pivot/fix-login',
+        taskName: 'Fix login',
+        projectId: 'project',
+        navigationIdentity: 'navigation:workspace',
+    };
+    const first = current.controller.writeSyntheticTombstone(input);
+    const second = current.controller.writeSyntheticTombstone(input);
+    let secondSettled = false;
+    void second.then(() => { secondSettled = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(secondSettled, false,
+        'the concurrent caller waits for the same durable write');
+    releasePersist();
+    assert.equal(await first, true);
+    assert.equal(await second, true);
+    assert.ok(persistCalls >= 1);
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

@@ -97,6 +97,13 @@ export interface IsolatedSessionControllerOptions {
         operations: readonly PersistedWorktreeProvisioningOperation[]
     ) => Promise<void>;
     onPersistenceError?: (error: unknown) => void;
+    /** Store-side tombstone prune, driven by pruneTombstones above. */
+    pruneTombstones?: (
+        existingWorktreePaths: ReadonlySet<string>,
+        snapshotTruncated: boolean,
+        snapshotStartedAt: number,
+        discoveredRepositoryKeys: ReadonlySet<string>
+    ) => Promise<string[]>;
     onSettled?: (outcome: WorktreeProvisioningOutcome) => void;
     /**
      * Awaited on the success path before the settlement publishes: records
@@ -126,6 +133,8 @@ export class IsolatedSessionController {
      * seeding the half-initialized worktree as a ready group.
      */
     private readonly recoveryTombstones = new Map<string, PersistedWorktreeProvisioningOperation>();
+    /** In-flight synthetic tombstone writes, shared by concurrent callers. */
+    private readonly tombstoneWrites = new Map<string, Promise<boolean>>();
 
     constructor(private readonly options: IsolatedSessionControllerOptions) {
         for (const record of options.recoveredOperations || []) {
@@ -384,7 +393,11 @@ export class IsolatedSessionController {
                     tombstonedAt: Date.now(),
                 });
                 try {
-                    await this.persistOperations();
+                    // The row is still live here, so force the tombstone
+                    // into this write — otherwise the awaited persist only
+                    // covers the live record and the tombstone lands
+                    // fire-and-forget after discard.
+                    await this.persistOperations(operationId);
                 } catch (error) {
                     this.recoveryTombstones.delete(operationId);
                     this.options.onPersistenceError?.(error);
@@ -410,6 +423,34 @@ export class IsolatedSessionController {
     }
 
     /**
+     * Prunes tombstones with the store under one ordering rule: the
+     * in-memory copies are dropped FIRST, so a persist captured before the
+     * store write but queued after it cannot resurrect a pruned record.
+     */
+    async pruneTombstones(
+        existingWorktreePaths: ReadonlySet<string>,
+        snapshotTruncated: boolean,
+        snapshotStartedAt: number,
+        discoveredRepositoryKeys: ReadonlySet<string>
+    ): Promise<void> {
+        if (snapshotTruncated || !this.options.pruneTombstones) {
+            return;
+        }
+        for (const [operationId, record] of this.recoveryTombstones) {
+            const keep = (record.tombstonedAt ?? 0) >= snapshotStartedAt
+                || !discoveredRepositoryKeys.has(record.plan.repositoryKey)
+                || existingWorktreePaths.has(
+                    `${record.plan.repositoryKey} ${record.plan.worktreePath}`);
+            if (!keep) {
+                this.recoveryTombstones.delete(operationId);
+            }
+        }
+        await this.options.pruneTombstones(
+            existingWorktreePaths, snapshotTruncated, snapshotStartedAt,
+            discoveredRepositoryKeys);
+    }
+
+    /**
      * Conservatively tombstones a failed member whose recovery record is
      * missing (evicted or corrupt): the manifest path is all the evidence
      * needed to block ready seeding of a possibly half-initialized
@@ -428,6 +469,13 @@ export class IsolatedSessionController {
             .update(`${input.repositoryKey} ${input.worktreePath}`)
             .digest('hex')
             .slice(0, 16)}`;
+        // A concurrent write for the same path shares the in-flight
+        // promise: returning early on the in-memory entry alone would let
+        // the caller proceed before the tombstone is actually durable.
+        const pending = this.tombstoneWrites.get(operationId);
+        if (pending) {
+            return pending;
+        }
         if (!this.recoveryTombstones.has(operationId)
             && this.recoveryTombstones.size >= MAX_PROVISIONING_TOMBSTONES) {
             return false;
@@ -435,6 +483,26 @@ export class IsolatedSessionController {
         if (this.recoveryTombstones.has(operationId)) {
             return true;
         }
+        const write = this.writeSyntheticTombstoneDurable(operationId, input);
+        this.tombstoneWrites.set(operationId, write);
+        try {
+            return await write;
+        } finally {
+            this.tombstoneWrites.delete(operationId);
+        }
+    }
+
+    private async writeSyntheticTombstoneDurable(
+        operationId: string,
+        input: {
+            repositoryKey: string;
+            worktreePath: string;
+            branchName: string;
+            taskName: string;
+            projectId: string;
+            navigationIdentity: string;
+        }
+    ): Promise<boolean> {
         const tombstone: PersistedWorktreeProvisioningOperation = {
             version: 1,
             operationId,
@@ -697,7 +765,7 @@ export class IsolatedSessionController {
         });
     }
 
-    private persistOperations(): Promise<void> {
+    private persistOperations(forceTombstoneId?: string): Promise<void> {
         if (!this.options.persistOperations) {
             return Promise.resolve();
         }
@@ -712,7 +780,8 @@ export class IsolatedSessionController {
             .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
         const liveOperationIds = new Set(records.map(record => record.operationId));
         const tombstones = Array.from(this.recoveryTombstones.values())
-            .filter(record => !liveOperationIds.has(record.operationId));
+            .filter(record => !liveOperationIds.has(record.operationId)
+                || record.operationId === forceTombstoneId);
         return this.options.persistOperations([...records, ...tombstones]);
     }
 

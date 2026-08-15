@@ -1346,21 +1346,17 @@ async function initializeDashboard(
                                     `${worktree.key.repositoryKey} ${worktree.key.canonicalWorktreePath}`);
                             }
                         }
-                        const prunedTombstones = await worktreeProvisioningStore
-                            .pruneTombstones(
+                        // Prune through the controller: it drops in-memory
+                        // copies before the store write, so a queued
+                        // replace can never resurrect a pruned tombstone.
+                        await isolatedSessionController
+                            ?.pruneTombstones(
                                 snapshotPaths,
                                 snapshot.truncatedWorktreeCount > 0,
                                 loadStartedAt,
                                 discoveredRepositories)
                             .catch(error => logError(
                                 'Failed to prune provisioning tombstones.', error));
-                        if (Array.isArray(prunedTombstones) && prunedTombstones.length) {
-                            // Keep the controller's in-memory tombstones in
-                            // sync, or the next persist would resurrect
-                            // them and the capacity would never free.
-                            isolatedSessionController
-                                ?.removeTombstones(prunedTombstones);
-                        }
                     } catch (error) {
                         // Reconciliation is additive bookkeeping; discovery
                         // stays usable when persistence is unavailable.
@@ -1560,6 +1556,9 @@ async function initializeDashboard(
         publishRows: () => refreshAiSessionViewsIncrementally(),
         recoveredOperations: worktreeProvisioningStore.read(),
         persistOperations: operations => worktreeProvisioningStore.replace(operations),
+        pruneTombstones: (paths, truncated, startedAt, repositories) =>
+            worktreeProvisioningStore.pruneTombstones(
+                paths, truncated, startedAt, repositories),
         onPersistenceError: error => logError(
             'Could not persist isolated worktree provisioning recovery state.', error),
         recordProvisionedWorktree: async info => {

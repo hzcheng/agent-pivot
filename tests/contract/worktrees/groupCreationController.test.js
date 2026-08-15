@@ -323,6 +323,72 @@ test('WORKTREE-GROUPS-CREATE-001 confirm rejects forged or duplicate member sets
         'rejected confirms write nothing');
 });
 
+test('WORKTREE-GROUPS-CREATE-001 preview recomputes only the affected repository', async () => {
+    // PRD §6.1 增量重算: changing one repository's base ref must not re-run
+    // git probes for the other rows; typing changes the slug everywhere.
+    const branchProbes = [];
+    const current = fixture({
+        isBranchAvailable: async (cwd, branch) => {
+            branchProbes.push([cwd, branch]);
+            return true;
+        },
+    });
+    const selections = [
+        { repositoryKey: '/alpha/.git' },
+        { repositoryKey: '/beta/.git' },
+    ];
+    await current.controller.preview('project', 'Fix login', selections);
+    const firstRound = branchProbes.length;
+    assert.ok(firstRound > 0);
+    await current.controller.preview('project', 'Fix login', [
+        selections[0],
+        { repositoryKey: '/beta/.git', baseRef: 'refs/heads/release/1.0' },
+    ]);
+    const alphaProbes = branchProbes.slice(firstRound)
+        .filter(probe => probe[0] === '/alpha');
+    assert.deepEqual(alphaProbes, [],
+        'an untouched repository reuses its memoized preview');
+    assert.ok(branchProbes.slice(firstRound).some(probe => probe[0] === '/beta'),
+        'the changed repository recomputes');
+    await current.controller.preview('project', 'Fix logout', selections);
+    assert.ok(branchProbes.slice(firstRound).some(probe => probe[0] === '/alpha'),
+        'a new slug invalidates every row');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a throwing executor degrades the member without rejecting confirm', async () => {
+    const current = fixture({
+        startMemberOperation: async input => {
+            if (input.plan.repositoryKey === '/beta/.git') {
+                throw new Error('executor exploded');
+            }
+            await current.options.manifestStore.updateMember(
+                workspace.navigationIdentity, input.groupId, input.memberId, {
+                    state: 'ready',
+                    worktreeKey: {
+                        repositoryKey: input.plan.repositoryKey,
+                        canonicalWorktreePath: input.plan.worktreePath,
+                    },
+                });
+            return {
+                kind: 'succeeded', operationId: input.operationId,
+                worktreeKey: {}, plan: input.plan,
+            };
+        },
+    });
+    const result = await current.controller.confirm({
+        projectId: 'project',
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(result.kind, 'created',
+        'one member failure never rejects the whole confirm');
+    const group = current.manifestStore.listGroups(workspace.navigationIdentity)[0];
+    assert.equal(group.members.find(member =>
+        member.repositoryKey === '/beta/.git').state, 'failed');
+    assert.equal(group.members.find(member =>
+        member.repositoryKey === '/alpha/.git').state, 'ready');
+});
+
 test('WORKTREE-GROUPS-CREATE-001 retry and dismiss follow the member lifecycle', async () => {
     const current = fixture({
         startMemberOperation: async input => ({

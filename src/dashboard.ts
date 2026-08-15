@@ -2184,6 +2184,8 @@ async function initializeDashboard(
             }
             await provider.postMessage(
                 acceptedWorktreeGroupCreationSettlement(request));
+            // Every accepted request owes exactly one terminal settlement —
+            // the webview keeps its confirm button pending until it lands.
             const result = await worktreeGroupCreationController.confirm({
                 projectId: request.projectId,
                 displayName: request.displayName,
@@ -2191,6 +2193,9 @@ async function initializeDashboard(
                 ...(request.primaryRepositoryKey
                     ? { primaryRepositoryKey: request.primaryRepositoryKey }
                     : {}),
+            }).catch(error => {
+                logError('Failed to confirm the worktree group creation.', error);
+                return { kind: 'failed' as const, errorCode: 'unexpected-error' };
             });
             await provider.postMessage(
                 settledWorktreeGroupCreationSettlement(request, result));
@@ -2203,7 +2208,15 @@ async function initializeDashboard(
             await provider.postMessage(
                 acceptedWorktreeGroupMemberSettlement(request));
             const outcome = await worktreeGroupCreationController.retryMember(
-                request.projectId, request.groupId, request.memberId);
+                request.projectId, request.groupId, request.memberId)
+                .catch(error => {
+                    logError('Failed to retry the worktree group member.', error);
+                    return {
+                        kind: 'failed' as const,
+                        operationId: request.memberId,
+                        errorCode: 'unexpected-error',
+                    };
+                });
             await provider.postMessage(settledWorktreeGroupMemberSettlement(
                 request,
                 outcome.kind === 'succeeded'
@@ -2218,7 +2231,11 @@ async function initializeDashboard(
             await provider.postMessage(
                 acceptedWorktreeGroupMemberSettlement(request));
             const dismissed = await worktreeGroupCreationController.dismissMember(
-                request.projectId, request.groupId, request.memberId);
+                request.projectId, request.groupId, request.memberId)
+                .catch(error => {
+                    logError('Failed to dismiss the worktree group member.', error);
+                    return false;
+                });
             await provider.postMessage(settledWorktreeGroupMemberSettlement(
                 request,
                 dismissed

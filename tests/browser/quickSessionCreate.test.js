@@ -276,8 +276,8 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 the new-worktree button opens the inlin
         type: 'open-worktree-group-form', version: 1,
         projectId: 'project-a',
     }, 'M2 replaces the QuickPick/InputBox sequence with the inline form');
-    assert.equal(await button.isDisabled(), false,
-        'the button is not a pending mutation; the form owns its own state');
+    assert.equal(await button.isDisabled(), true,
+        'only one form instance: the button disables while the form is open');
 
     await page.evaluate(() => {
         window.dispatchEvent(new MessageEvent('message', { data: {

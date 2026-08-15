@@ -3842,6 +3842,30 @@ body.steward-sidebar {
                 gap: 4px;
             }
 
+            .ai-session-group-form-title {
+                margin-bottom: 4px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: .04em;
+                text-transform: uppercase;
+            }
+
+            .ai-session-group-form-tools {
+                display: flex;
+                gap: 8px;
+                margin-top: 4px;
+
+                button {
+                    padding: 0;
+                    border: 0;
+                    background: transparent;
+                    color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+                    font-size: 9px;
+                    cursor: pointer;
+                }
+            }
+
             .ai-session-group-form-name {
                 flex: 1 1 auto;
                 min-width: 0;

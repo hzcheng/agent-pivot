@@ -321,6 +321,58 @@ test('WORKTREE-GROUPS-CREATE-UI-001 branch-from-here seeds the repository and ba
         'other repositories stay unchecked for a seeded form');
 });
 
+test('WORKTREE-GROUPS-CREATE-UI-001 select-all and Clear drive the member checkboxes', async t => {
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+
+    const tools = page.locator('.ai-session-group-form-tools');
+    assert.equal(await tools.count(), 1, 'multi-repo forms offer bulk selection');
+    await tools.locator('[data-group-form-action="select-all"]')
+        .evaluate(button => button.click());
+    assert.equal(await page.locator('[data-group-form-check="/beta/.git"]').isChecked(), true);
+    await tools.locator('[data-group-form-action="select-none"]')
+        .evaluate(button => button.click());
+    assert.equal(await page.locator('[data-group-form-check="/alpha/.git"]').isChecked(), false);
+    await page.waitForTimeout(50);
+    const lastPreview = (await postedMessages(page))
+        .filter(message => message.type === 'preview-worktree-group').at(-1);
+    assert.deepEqual(lastPreview.selections, [],
+        'clearing every repository previews an empty selection');
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 confirm failures render human text and the new button tracks the form', async t => {
+    const page = await openFormPage(t);
+    const createButton = page.locator('[data-action="create-isolated-session"]');
+    await openBootstrappedForm(page);
+    assert.equal(await createButton.isDisabled(), true,
+        'only one form instance: the new button disables while open');
+
+    await page.locator('[data-group-form-name]').fill('Fix login');
+    await page.waitForTimeout(350);
+    await answerPreview(page, okMembers());
+    await page.locator('[data-group-form-action="confirm"]')
+        .evaluate(button => button.click());
+    const confirmRequest = (await postedMessages(page))
+        .find(message => message.type === 'confirm-worktree-group');
+    await postHostMessage(page, {
+        type: 'worktree-group-creation-settlement',
+        version: 1,
+        requestId: confirmRequest.requestId,
+        status: 'failed',
+        errorCode: 'invalid-members',
+    });
+    const error = page.locator('.ai-session-group-form-error');
+    assert.match(await error.textContent(), /no longer valid/,
+        'the form never shows a raw error code');
+    assert.equal(await page.locator('[data-worktree-group-form]').count(), 1,
+        'a failed creation keeps the form open for correction');
+
+    await page.locator('[data-group-form-action="close"]')
+        .evaluate(button => button.click());
+    assert.equal(await createButton.isDisabled(), false,
+        'closing the form re-enables the new button');
+});
+
 test('WORKTREE-GROUPS-CREATE-UI-001 failed member rows offer Retry and Dismiss', async t => {
     const failedGroup = {
         kind: 'group',

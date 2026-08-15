@@ -20,6 +20,7 @@ import type {
 
 const MAX_GROUP_MEMBERS = 16;
 const MAX_LOCAL_BRANCH_OPTIONS = 200;
+const MAX_PREVIEW_MEMO_ENTRIES = 200;
 
 export interface GroupCreationRepositoryOption {
     repositoryKey: string;
@@ -108,6 +109,14 @@ export interface WorktreeGroupCreationControllerOptions {
  * execution time (PRD §6.1 行为 5).
  */
 export class WorktreeGroupCreationController {
+    /**
+     * Per-member preview memo (PRD §6.1 增量重算): a base-ref or checkbox
+     * change recomputes only the affected repository; typing changes the
+     * slug and therefore every row. Availability staleness fails closed at
+     * execution time.
+     */
+    private readonly previewMemo = new Map<string, Promise<GroupCreationPreviewMember>>();
+
     constructor(
         private readonly options: WorktreeGroupCreationControllerOptions
     ) {
@@ -124,11 +133,14 @@ export class WorktreeGroupCreationController {
         const repositories = visibleRepositories(target.workspace, snapshot);
         const activeEditorPath = this.options.getActiveEditorPath();
         const activeRepositoryKey = activeEditorPath
-            ? repositories.find(repository =>
-                activeEditorPath.startsWith(
-                    repositoryCommandCwd(repository) + '/'
-                ) || activeEditorPath === repositoryCommandCwd(repository))
-                ?.repositoryKey
+            ? repositories.find(repository => {
+                const paths = repository.worktrees
+                    .filter(worktree => !worktree.isBare)
+                    .map(worktree => worktree.key.canonicalWorktreePath);
+                return paths.some(candidate =>
+                    activeEditorPath === candidate
+                    || activeEditorPath.startsWith(candidate + '/'));
+            })?.repositoryKey
             : undefined;
         return Promise.all(repositories.map(async (repository, index) => {
             const commandCwd = repositoryCommandCwd(repository);
@@ -189,47 +201,91 @@ export class WorktreeGroupCreationController {
                     preflight: { code: 'repository-unavailable' },
                 };
             }
-            try {
-                const plan = await createWorktreeProvisioningPlan({
-                    repository,
-                    taskName: displayName,
-                    baseRefOverride: selection.baseRef,
-                    worktreeDirectory: this.options.getWorktreeDirectory(),
-                    // Real probes: branch/path collisions surface as visible
-                    // auto-suffixes in the preview (PRD §5.2), and the
-                    // confirmed values are later executed verbatim.
-                    isBranchAvailable: branch =>
-                        this.options.isBranchAvailable(
-                            repositoryCommandCwd(repository), branch),
-                    isPathAvailable: candidatePath =>
-                        this.options.isPathAvailable(candidatePath),
-                });
-                const preflight = await this.options.preflightPlan(plan);
-                return {
-                    repositoryKey: repository.repositoryKey,
-                    label,
-                    baseRef: plan.baseRef,
-                    branchName: plan.branchName,
-                    worktreePath: plan.worktreePath,
-                    setupCommand: this.options
-                        .getSetupCommand(repository.repositoryKey).slice(),
-                    preflight: preflight === 'ok' ? 'ok' as const : { code: preflight },
-                };
-            } catch (error) {
-                const code = error instanceof WorktreeProvisioningPlanError
-                    ? error.code : 'unexpected-error';
-                return {
-                    repositoryKey: repository.repositoryKey,
-                    label,
-                    baseRef: selection.baseRef || repository.baseRef || '',
-                    branchName: '',
-                    worktreePath: '',
-                    setupCommand: [],
-                    preflight: { code },
-                };
-            }
+            const member = await this.previewMember(
+                repository, selection, displayName, slug, label);
+            // Setup resolution is a cheap config read and stays fresh; only
+            // the git-backed plan/preflight work is memoized.
+            member.setupCommand = this.options
+                .getSetupCommand(repository.repositoryKey).slice();
+            return member;
         }));
         return preview;
+    }
+
+    private previewMember(
+        repository: WorktreeRepositorySnapshot,
+        selection: GroupCreationPreviewSelection,
+        displayName: string,
+        slug: string,
+        label: string
+    ): Promise<GroupCreationPreviewMember> {
+        const memoKey = [
+            repository.repositoryKey,
+            selection.baseRef || '',
+            slug,
+        ].join('');
+        const cached = this.previewMemo.get(memoKey);
+        if (cached) {
+            return cached.then(member => ({ ...member, label }));
+        }
+        const computed = this.computePreviewMember(
+            repository, selection, displayName, label);
+        if (this.previewMemo.size >= MAX_PREVIEW_MEMO_ENTRIES) {
+            // Insertion-ordered eviction: the oldest slug's rows go first.
+            const oldest = this.previewMemo.keys().next();
+            if (!oldest.done) {
+                this.previewMemo.delete(oldest.value);
+            }
+        }
+        this.previewMemo.set(memoKey, computed);
+        // Callers attach per-preview fields (setup); never share the object.
+        return computed.then(member => ({ ...member }));
+    }
+
+    private async computePreviewMember(
+        repository: WorktreeRepositorySnapshot,
+        selection: GroupCreationPreviewSelection,
+        displayName: string,
+        label: string
+    ): Promise<GroupCreationPreviewMember> {
+        try {
+            const plan = await createWorktreeProvisioningPlan({
+                repository,
+                taskName: displayName,
+                baseRefOverride: selection.baseRef,
+                worktreeDirectory: this.options.getWorktreeDirectory(),
+                // Real probes: branch/path collisions surface as visible
+                // auto-suffixes in the preview (PRD §5.2), and the
+                // confirmed values are later executed verbatim.
+                isBranchAvailable: branch =>
+                    this.options.isBranchAvailable(
+                        repositoryCommandCwd(repository), branch),
+                isPathAvailable: candidatePath =>
+                    this.options.isPathAvailable(candidatePath),
+            });
+            const preflight = await this.options.preflightPlan(plan);
+            return {
+                repositoryKey: repository.repositoryKey,
+                label,
+                baseRef: plan.baseRef,
+                branchName: plan.branchName,
+                worktreePath: plan.worktreePath,
+                setupCommand: [],
+                preflight: preflight === 'ok' ? 'ok' as const : { code: preflight },
+            };
+        } catch (error) {
+            const code = error instanceof WorktreeProvisioningPlanError
+                ? error.code : 'unexpected-error';
+            return {
+                repositoryKey: repository.repositoryKey,
+                label,
+                baseRef: selection.baseRef || repository.baseRef || '',
+                branchName: '',
+                worktreePath: '',
+                setupCommand: [],
+                preflight: { code },
+            };
+        }
     }
 
     /**
@@ -342,16 +398,34 @@ export class WorktreeGroupCreationController {
         if (!group || !member || member.state !== 'failed') {
             return { kind: 'failed', operationId: memberOperationId(memberId), errorCode: 'retry-unavailable' };
         }
-        await this.options.manifestStore.updateMember(
-            navigationIdentity, groupId, memberId, {
-                state: 'provisioning',
-                // The store treats undefined as "leave unchanged".
-                lastError: '',
-            });
+        try {
+            await this.options.manifestStore.updateMember(
+                navigationIdentity, groupId, memberId, {
+                    state: 'provisioning',
+                    // The store treats undefined as "leave unchanged".
+                    lastError: '',
+                });
+        } catch (_error) {
+            return {
+                kind: 'failed',
+                operationId: memberOperationId(memberId),
+                errorCode: 'manifest-unavailable',
+            };
+        }
         this.options.onDidChange?.();
         const outcome = await this.options.retryMemberOperation(
             memberOperationId(memberId), projectId);
-        await this.settleMemberOutcome(navigationIdentity, groupId, memberId, outcome);
+        try {
+            await this.settleMemberOutcome(navigationIdentity, groupId, memberId, outcome);
+        } catch (_error) {
+            // A manifest write that races a concurrent group mutation must
+            // still produce a terminal settlement for the webview.
+            return {
+                kind: 'failed',
+                operationId: memberOperationId(memberId),
+                errorCode: 'manifest-unavailable',
+            };
+        }
         return outcome;
     }
 
@@ -374,8 +448,12 @@ export class WorktreeGroupCreationController {
             return false;
         }
         this.options.dismissMemberOperation(memberOperationId(memberId), projectId);
-        await this.options.manifestStore.removeMember(
-            navigationIdentity, groupId, memberId);
+        try {
+            await this.options.manifestStore.removeMember(
+                navigationIdentity, groupId, memberId);
+        } catch (_error) {
+            return false;
+        }
         this.options.onDidChange?.();
         return true;
     }
@@ -391,15 +469,26 @@ export class WorktreeGroupCreationController {
             preferredPrimary: boolean;
         }
     ): Promise<void> {
-        const outcome = await this.options.startMemberOperation({
-            operationId: memberOperationId(input.memberId),
-            projectId,
-            plan: input.plan,
-            setupCommand: input.setupCommand,
-            groupId,
-            memberId: input.memberId,
-            preferredPrimary: input.preferredPrimary,
-        });
+        let outcome: WorktreeProvisioningOutcome;
+        try {
+            outcome = await this.options.startMemberOperation({
+                operationId: memberOperationId(input.memberId),
+                projectId,
+                plan: input.plan,
+                setupCommand: input.setupCommand,
+                groupId,
+                memberId: input.memberId,
+                preferredPrimary: input.preferredPrimary,
+            });
+        } catch (error) {
+            // A throwing executor must not reject the confirm's Promise.all:
+            // the member degrades to failed and the settlement still lands.
+            outcome = {
+                kind: 'failed',
+                operationId: memberOperationId(input.memberId),
+                errorCode: (error as { code?: string })?.code || 'unexpected-error',
+            };
+        }
         try {
             await this.settleMemberOutcome(
                 navigationIdentity, groupId, input.memberId, outcome);

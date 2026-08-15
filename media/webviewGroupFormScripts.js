@@ -324,10 +324,12 @@ function initWorktreeGroupForm(options) {
                     ? message.groupId : '';
                 // Confirmed: the next open starts from a clean form, and
                 // focus lands on the new group row once it renders.
+                announce(projectId, 'Worktree group created.');
                 closeForm(projectId, false);
             } else {
                 state.formError = typeof message.errorCode === 'string'
                     ? message.errorCode : 'unexpected-error';
+                announce(projectId, describeFormError(state.formError));
                 renderForm(projectId);
             }
             return true;
@@ -378,6 +380,11 @@ function initWorktreeGroupForm(options) {
                 pending.button.disabled = false;
                 pending.button.removeAttribute('aria-disabled');
             }
+            announce(step.value[0], message.status === 'settled'
+                ? 'Member worktree ready.'
+                : 'Member action failed'
+                    + (typeof message.errorCode === 'string'
+                        ? ': ' + describePreflight(message.errorCode) : '') + '.');
             return true;
         }
         return true;
@@ -392,6 +399,40 @@ function initWorktreeGroupForm(options) {
             case 'allocation-exhausted': return 'no free branch/path suffix';
             case 'repository-unavailable': return 'repository unavailable';
             default: return code || 'unavailable';
+        }
+    }
+
+    // PRD §8: 人话错误，不显示裸错误码.
+    function describeFormError(code) {
+        switch (code) {
+            case 'invalid-task': return 'Enter a group name.';
+            case 'invalid-members': return 'The member set is no longer valid; close and reopen the form.';
+            case 'workspace-unavailable': return 'The workspace is unavailable.';
+            case 'manifest-unavailable': return 'The workspace changed during creation; try again.';
+            case 'store-full': return 'Too many worktree groups; remove some first.';
+            default: return 'Creation failed: ' + (code || 'unexpected error');
+        }
+    }
+
+    function announce(projectId, text) {
+        var projectDiv = getCurrentWorkspaceDiv
+            ? getCurrentWorkspaceDiv(projectId) : null;
+        var liveRegion = projectDiv
+            && projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = text;
+        }
+    }
+
+    // The single-instance rule must be visible: while the form is open the
+    // new-worktree button is disabled (PRD §6.1).
+    function syncCreateButton(projectId, formOpen) {
+        var projectDiv = getCurrentWorkspaceDiv
+            ? getCurrentWorkspaceDiv(projectId) : null;
+        var button = projectDiv
+            && projectDiv.querySelector('[data-action="create-isolated-session"]');
+        if (button) {
+            button.disabled = !!formOpen;
         }
     }
 
@@ -431,7 +472,9 @@ function initWorktreeGroupForm(options) {
             ? '<label class="ai-session-group-form-setup">'
                 + '<input type="checkbox" data-group-form-setup="' + escapeHtml(key) + '"'
                 + (state.setupDisabled[key] ? '' : ' checked') + (checked ? '' : ' disabled') + '>'
-                + '<span>setup: ' + escapeHtml(repository.setupCommand.join(' ')) + '</span></label>'
+                + '<span>' + (state.setupDisabled[key]
+                    ? 'setup disabled for this repository'
+                    : 'setup: ' + escapeHtml(repository.setupCommand.join(' '))) + '</span></label>'
             : '<span class="ai-session-group-form-setup ai-session-group-form-setup-none">no setup configured</span>';
         var primary = checked
             ? '<label class="ai-session-group-form-primary" data-tooltip="Primary worktree for new sessions">'
@@ -482,7 +525,7 @@ function initWorktreeGroupForm(options) {
             : '';
         return '<button type="button" class="ai-session-group-form-confirm"'
             + ' data-group-form-action="confirm"' + (canConfirm ? '' : ' disabled')
-            + '>Create group</button>'
+            + '>Create worktree group</button>'
             + availableButton
             + (state.previewDirty && hasName
                 ? '<span class="ai-session-group-form-pending">previewing\u2026</span>'
@@ -554,16 +597,26 @@ function initWorktreeGroupForm(options) {
         if (!state || !state.open) {
             slot.hidden = true;
             slot.innerHTML = '';
+            syncCreateButton(projectId, false);
             return;
         }
         var focus = captureFormFocus(slot);
         var membersHtml = state.bootstrapping
             ? '<div class="ai-session-group-form-loading">Loading repositories\u2026</div>'
-            : state.repositories.map(function (repository, index) {
-                return memberRowHtml(state, repository, index);
-            }).join('');
+            : (state.repositories.length
+                ? state.repositories.map(function (repository, index) {
+                    return memberRowHtml(state, repository, index);
+                }).join('')
+                : '<div class="ai-session-group-form-loading">No git repository found in this workspace.</div>');
+        var selectionTools = state.repositories.length > 1
+            ? '<div class="ai-session-group-form-tools">'
+                + '<button type="button" data-group-form-action="select-all">Select all</button>'
+                + '<button type="button" data-group-form-action="select-none">Clear</button>'
+                + '</div>'
+            : '';
         slot.innerHTML = '<div class="ai-session-group-form" data-worktree-group-form'
             + ' data-project-id="' + escapeHtml(projectId) + '">'
+            + '<div class="ai-session-group-form-title">New worktree group</div>'
             + '<div class="ai-session-group-form-header">'
             + '<input type="text" class="ai-session-group-form-name"'
             + ' data-group-form-name placeholder="Worktree group name"'
@@ -577,13 +630,15 @@ function initWorktreeGroupForm(options) {
                 : '')
             + (state.formError
                 ? '<div class="ai-session-group-form-error" role="alert">'
-                    + escapeHtml(state.formError) + '</div>'
+                    + escapeHtml(describeFormError(state.formError)) + '</div>'
                 : '')
+            + selectionTools
             + '<div class="ai-session-group-form-members">' + membersHtml + '</div>'
             + '<div class="ai-session-group-form-actions">' + actionsHtml(state) + '</div>'
             + '</div>';
         slot.hidden = false;
         restoreFormFocus(slot, focus);
+        syncCreateButton(projectId, true);
     }
 
     function focusNameInput(projectId) {
@@ -631,6 +686,25 @@ function initWorktreeGroupForm(options) {
                 confirmForm(projectId, false);
             } else if (action === 'confirm-available') {
                 confirmForm(projectId, true);
+            } else if (action === 'select-all' || action === 'select-none') {
+                var state = getState(projectId);
+                if (state) {
+                    var checkAll = action === 'select-all';
+                    state.repositories.forEach(function (repository) {
+                        state.checked[repository.repositoryKey] = checkAll;
+                    });
+                    var remaining = checkedRepositories(state);
+                    if (!remaining.some(function (repository) {
+                        return repository.repositoryKey === state.primaryRepositoryKey;
+                    })) {
+                        state.primaryRepositoryKey = remaining.length
+                            ? remaining[0].repositoryKey : '';
+                    }
+                    schedulePreview(projectId, 0);
+                    // Bulk selection changes every checkbox: the light
+                    // actions patch is not enough here.
+                    renderForm(projectId);
+                }
             }
             return true;
         }

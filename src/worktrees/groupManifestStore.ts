@@ -2,6 +2,7 @@
 
 import { randomBytes } from 'crypto';
 import type { WorktreeKey } from './types';
+import { slugifyTaskName } from './provisioningPlan';
 
 const STORAGE_KEY = 'agentPivot.worktreeGroups.v1';
 const MAX_GROUPS_PER_WORKSPACE = 256;
@@ -169,18 +170,20 @@ export class WorktreeGroupManifestStore {
     renameGroup(
         workspaceIdentity: string,
         groupId: string,
-        displayName: string,
-        suggestedSlug?: string
+        displayName: string
     ): Promise<WorktreeGroup> {
         return this.mutateGroup(workspaceIdentity, groupId, group => {
-            // Renaming regenerates the suggested slug from the new display
-            // name (PRD §5.2): the name, slug, and revision land in one
-            // write so future Add repo/derive naming never follows a stale
-            // slug.
-            group.displayName = requireDisplayName(displayName);
-            if (suggestedSlug !== undefined) {
-                group.suggestedSlug = requireSlug(suggestedSlug);
+            // Renaming regenerates the suggested slug authoritatively (PRD
+            // §5.2): the name, slug, and revision land in one write so
+            // future Add repo/derive naming never follows a stale slug, and
+            // no caller can change the name without the slug.
+            const name = requireDisplayName(displayName);
+            const slug = slugifyTaskName(name);
+            if (!slug) {
+                throw new WorktreeGroupManifestError('invalid-record');
             }
+            group.displayName = name;
+            group.suggestedSlug = slug;
         });
     }
 
@@ -467,6 +470,9 @@ export class WorktreeGroupManifestStore {
 
 /** Invariant 2: one repository contributes at most one member to a group. */
 function assertGroupInvariants(group: WorktreeGroup): void {
+    if (!Number.isSafeInteger(group.revision) || group.revision < 1) {
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
     const repositories = new Set<string>();
     for (const member of group.members) {
         if (repositories.has(member.repositoryKey)) {
@@ -533,24 +539,29 @@ function parseGroup(value: unknown): WorktreeGroup | null {
     if (members.length === 0) {
         return null;
     }
-    const group: WorktreeGroup = {
-        groupId: candidate.groupId as string,
-        displayName: candidate.displayName as string,
-        suggestedSlug: candidate.suggestedSlug as string,
-        primaryMemberId: isSafeText(candidate.primaryMemberId, MAX_ID_LENGTH)
-            ? candidate.primaryMemberId as string
-            : null,
-        members,
-        createdAt: candidate.createdAt as number,
-        // Legacy records predate the revision field: migrate them to 1.
-        revision: parseRevision(candidate.revision),
-    };
     try {
+        const group: WorktreeGroup = {
+            groupId: candidate.groupId as string,
+            displayName: candidate.displayName as string,
+            suggestedSlug: candidate.suggestedSlug as string,
+            primaryMemberId: isSafeText(candidate.primaryMemberId, MAX_ID_LENGTH)
+                ? candidate.primaryMemberId as string
+                : null,
+            members,
+            createdAt: candidate.createdAt as number,
+            // Legacy records predate the revision field: only a *missing*
+            // field migrates to 1; a present-but-corrupt one must not
+            // silently reset the monotonic counter (ABA protection for
+            // preview tokens), so the record is dropped instead.
+            revision: candidate.revision === undefined
+                ? 1
+                : parseRevision(candidate.revision),
+        };
         assertGroupInvariants(group);
+        return group;
     } catch {
         return null;
     }
-    return group;
 }
 
 const MEMBER_STATES: readonly WorktreeGroupMemberState[] = [
@@ -640,17 +651,20 @@ function newId(): string {
 }
 
 function parseRevision(value: unknown): number {
-    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
-        ? value
-        : 1;
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
+    return value;
 }
 
 function bumpRevision(group: WorktreeGroup): void {
-    group.revision = Number.isSafeInteger(group.revision) && group.revision >= 1
-        ? group.revision + 1
-        // A mutation of a record with an unknown revision must still yield a
-        // revision distinct from the creation revision (1).
-        : 2;
+    if (!Number.isSafeInteger(group.revision) || group.revision < 1
+        || group.revision >= Number.MAX_SAFE_INTEGER) {
+        // Refuse the mutation rather than writing an unsafe integer that a
+        // later reload could no longer parse monotonically.
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
+    group.revision += 1;
 }
 
 function isSafeText(value: unknown, maxLength: number): value is string {

@@ -253,7 +253,7 @@ import { WorktreeGroupManifestStore } from './worktrees/groupManifestStore';
 import { reconcileWorktreeGroupManifest } from './worktrees/groupManifestReconciliation';
 import { IsolatedSessionController } from './worktrees/isolatedSessionController';
 import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
-import { normalizeWorktreeDirectory, slugifyTaskName } from './worktrees/provisioningPlan';
+import { normalizeWorktreeDirectory } from './worktrees/provisioningPlan';
 import { GitWorktreeProvisioner } from './worktrees/gitWorktreeProvisioner';
 import {
     WorktreeGroupCreationController,
@@ -2396,17 +2396,11 @@ async function initializeDashboard(
                 await fail('workspace-unavailable');
                 return;
             }
-            const suggestedSlug = slugifyTaskName(request.displayName);
-            if (!suggestedSlug) {
-                await fail('invalid-name');
-                return;
-            }
             try {
                 await worktreeGroupManifestStore.renameGroup(
                     target.workspace.navigationIdentity,
                     request.groupId,
-                    request.displayName.trim(),
-                    suggestedSlug);
+                    request.displayName.trim());
             } catch (error) {
                 logError('Failed to rename the worktree group.', error);
                 void vscode.window.showWarningMessage(
@@ -2418,8 +2412,11 @@ async function initializeDashboard(
             }
             await provider.postMessage(settledWorktreeGroupRenameSettlement(
                 request, { kind: 'settled' }));
+            // The pending editor resolves only through the authoritative
+            // replacement, so delivery must be awaited and a lost or
+            // failed publication falls back to a full refresh.
             await aiSessionDashboardController.refreshNow('worktree-group-renamed', {
-                fallbackToFullRefresh: false,
+                fallbackToFullRefresh: true,
             });
         },
         'set-worktree-group-primary': async (message: unknown) => {

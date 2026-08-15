@@ -63,6 +63,7 @@ test('WORKTREE-GROUPS-RENAME-001 settlements correlate by requestId and groupId'
         type: 'worktree-group-rename-settlement',
         version: 1,
         requestId: 'group-rename-1',
+        projectId: '/repo/main',
         groupId: 'abc123',
         status: 'accepted',
     });
@@ -70,6 +71,7 @@ test('WORKTREE-GROUPS-RENAME-001 settlements correlate by requestId and groupId'
         type: 'worktree-group-rename-settlement',
         version: 1,
         requestId: 'group-rename-1',
+        projectId: '/repo/main',
         groupId: 'abc123',
         status: 'settled',
     });
@@ -80,6 +82,7 @@ test('WORKTREE-GROUPS-RENAME-001 settlements correlate by requestId and groupId'
             type: 'worktree-group-rename-settlement',
             version: 1,
             requestId: 'group-rename-1',
+            projectId: '/repo/main',
             groupId: 'abc123',
             status: 'failed',
             errorCode: 'group-not-found',

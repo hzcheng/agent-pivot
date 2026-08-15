@@ -104,7 +104,11 @@ export function slugifyTaskName(value: string): string {
         .replace(/-{2,}/gu, '-')
         .slice(0, 60)
         .replace(/-+$/gu, '');
-    return slug || `task-${createHash('sha256').update(normalizedTaskName).digest('hex').slice(0, 8)}`;
+    // PRD §5.2: fewer than 3 usable ASCII characters (typical: CJK-only
+    // names) fall back to a deterministic task-<6-char id> suggestion.
+    return slug.length >= 3
+        ? slug
+        : `task-${createHash('sha256').update(normalizedTaskName).digest('hex').slice(0, 6)}`;
 }
 
 function normalizeTaskName(value: string): string {

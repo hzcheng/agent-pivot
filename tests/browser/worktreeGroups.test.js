@@ -351,6 +351,68 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
         `no horizontal overflow at 170px (document ${layout.documentWidth}px)`);
 });
 
+test('WORKTREE-GROUPS-RENAME-001 expanded member details stay contained at 170px', async t => {
+    const longLabel = 'agent-pivot-with-a-very-long-repository-name';
+    const longBranch = 'agent-pivot/fix-login-with-a-very-long-branch-name';
+    const page = await openSurfacePage(surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow({
+            members: [
+                member({
+                    repositoryLabel: longLabel,
+                    branchName: longBranch,
+                }),
+                member({
+                    memberId: 'm-2', repositoryKey: '/beta/.git', repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login', worktreeKey: betaLoginKey,
+                    isPrimary: false,
+                }),
+            ],
+            chips: [{ label: 'a', title: 'alpha' }, { label: 'b', title: 'beta' }],
+        })],
+    }), 170);
+    t.after(() => page.close());
+
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
+        setWorktreeGroupMemberDetailsExpanded(
+            document.querySelector('.ai-session-worktree-group[data-group-id="g-1"]'), true);
+    });
+    const toggle = page.locator('[data-action="toggle-group-member-details"]');
+    assert.match(await toggle.getAttribute('aria-label'), /collapse details/i,
+        'the accessible name follows the toggle state');
+    const detailsId = await toggle.getAttribute('aria-controls');
+    assert.ok(detailsId, 'the toggle points at the details region');
+    assert.equal(
+        await page.locator('.ai-session-worktree-member-details').first().getAttribute('id'),
+        detailsId);
+    const layout = await page.evaluate(() => {
+        const overflow = [];
+        document.querySelectorAll('.ai-session-worktree-member-detail *').forEach(el => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width > 0 && (rect.right > window.innerWidth + 1 || rect.left < -1)) {
+                overflow.push(`${el.className} right=${rect.right.toFixed(1)}`);
+            }
+        });
+        return {
+            overflow,
+            documentWidth: document.documentElement.scrollWidth,
+            viewportWidth: window.innerWidth,
+        };
+    });
+    assert.deepEqual(layout.overflow, [],
+        'long repository/branch/path values ellipsize instead of clipping');
+    assert.ok(layout.documentWidth <= layout.viewportWidth + 1);
+    assert.equal(
+        await page.locator('.ai-session-worktree-member-detail-repo').first()
+            .getAttribute('data-tooltip'),
+        longLabel, 'the full repository label stays reachable via tooltip');
+    assert.equal(
+        await page.locator('.ai-session-worktree-member-detail-branch').first()
+            .getAttribute('data-tooltip'),
+        longBranch, 'the full branch name stays reachable via tooltip');
+});
+
 test('WORKTREE-GROUPS-UI-001 anchor and group sessions never duplicate into the Unmanaged section', async t => {
     const unmanagedKey = {
         repositoryKey: '/beta/.git',
@@ -802,15 +864,23 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
 
     await input.fill('Fix login v2');
     await input.press('Enter');
-    assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
+    const renameMessage = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.match(renameMessage.requestId, /^group-rename-[a-z0-9]+-1$/,
+        'the request id carries a per-document nonce');
+    assert.deepEqual({ ...renameMessage, requestId: '<nonce>' }, {
         type: 'rename-worktree-group',
         version: 1,
-        requestId: 'group-rename-1',
+        requestId: '<nonce>',
         projectId: 'project-a',
         groupId: 'g-1',
         displayName: 'Fix login v2',
     });
-    assert.equal(await input.isDisabled(), true, 'the submitted editor is pending');
+    assert.equal(await input.evaluate(el => el.readOnly), true,
+        'the submitted editor is pending (readonly keeps focus stable)');
+    assert.equal(await page.evaluate(
+        () => document.activeElement
+            && document.activeElement.classList.contains('ai-session-worktree-rename-input')),
+        true, 'readonly keeps the focus on the input');
 
     const postSettlement = status => page.evaluate(statusValue => {
         const request = window.__postedMessages
@@ -820,6 +890,7 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
                 type: 'worktree-group-rename-settlement',
                 version: 1,
                 requestId: request.requestId,
+                projectId: request.projectId,
                 groupId: request.groupId,
                 status: statusValue,
                 ...(statusValue === 'failed' ? { errorCode: 'group-not-found' } : {}),
@@ -827,9 +898,10 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
         }));
     }, status);
     await postSettlement('accepted');
-    assert.equal(await input.isDisabled(), true, 'accepted keeps the pending state');
+    assert.equal(await input.evaluate(el => el.readOnly), true,
+        'accepted keeps the pending state');
     await postSettlement('failed');
-    assert.equal(await input.isDisabled(), false,
+    assert.equal(await input.evaluate(el => el.readOnly), false,
         'a failed settlement re-enables the editor in place (no refresh on failure)');
     assert.match(
         await page.locator('[data-ai-session-live-region]').textContent(),
@@ -837,8 +909,10 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
         'the failure is announced politely');
 
     await input.press('Enter');
-    assert.equal(await input.isDisabled(), true);
+    assert.equal(await input.evaluate(el => el.readOnly), true);
     await postSettlement('settled');
+    assert.equal(await input.evaluate(el => el.readOnly), true,
+        'settled keeps the editor pending until the replacement lands');
     const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
         + ` data-codex-expanded data-workspace-scope-identity="scope:current">${surface({
@@ -853,6 +927,104 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
         await page.locator('.ai-session-worktree-group[data-group-id="g-1"]'
             + ' .ai-session-worktree-title').textContent(),
         'Fix login v2');
+    assert.equal(await page.evaluate(() => {
+        const active = document.activeElement;
+        return active && active.classList.contains('ai-session-worktree-header')
+            && active.closest('.ai-session-worktree-group')
+                ?.getAttribute('data-group-id') === 'g-1';
+    }), true, 'a successful rename parks focus on the renamed group header');
+});
+
+test('WORKTREE-GROUPS-RENAME-001 a stale settlement cannot settle another document\'s request', async t => {
+    // Reloads restart the request serial; a settlement from a previous
+    // document must never correlate with a live request (review: cross-
+    // document settlement mix-up).
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-group-rename"]')
+        .evaluate(item => item.click());
+    const input = page.locator('.ai-session-worktree-rename-input');
+    await input.fill('Fix login v2');
+    await input.press('Enter');
+    assert.equal(await input.evaluate(el => el.readOnly), true);
+
+    // A settlement naming a request this document never issued: ignored.
+    await page.evaluate(() => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-rename-settlement',
+                version: 1,
+                requestId: 'group-rename-1',
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'failed',
+                errorCode: 'group-not-found',
+            },
+        }));
+    });
+    assert.equal(await input.evaluate(el => el.readOnly), true,
+        'a settlement with an unknown request id is ignored');
+
+    // Same request id but a different project: also ignored.
+    await page.evaluate(() => {
+        const request = window.__postedMessages
+            .filter(message => message.type === 'rename-worktree-group').at(-1);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-rename-settlement',
+                version: 1,
+                requestId: request.requestId,
+                projectId: 'project-b',
+                groupId: 'g-1',
+                status: 'failed',
+                errorCode: 'group-not-found',
+            },
+        }));
+    });
+    assert.equal(await input.evaluate(el => el.readOnly), true,
+        'a settlement for another project is ignored');
+
+    // A duplicate terminal settlement after failure must not disturb the
+    // re-enabled editor either.
+    await page.evaluate(() => {
+        const request = window.__postedMessages
+            .filter(message => message.type === 'rename-worktree-group').at(-1);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-rename-settlement',
+                version: 1,
+                requestId: request.requestId,
+                projectId: request.projectId,
+                groupId: request.groupId,
+                status: 'failed',
+                errorCode: 'group-not-found',
+            },
+        }));
+    });
+    assert.equal(await input.evaluate(el => el.readOnly), false,
+        'the correlated failure re-enables the editor');
+    await page.evaluate(() => {
+        const request = window.__postedMessages
+            .filter(message => message.type === 'rename-worktree-group').at(-1);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-rename-settlement',
+                version: 1,
+                requestId: request.requestId,
+                projectId: request.projectId,
+                groupId: request.groupId,
+                status: 'settled',
+            },
+        }));
+    });
+    assert.equal(await page.locator('.ai-session-worktree-rename-input').evaluate(el => el.readOnly),
+        false, 'a duplicate settlement after the terminal one is ignored');
 });
 
 test('WORKTREE-GROUPS-RENAME-001 escape and unchanged input cancel without a message', async t => {

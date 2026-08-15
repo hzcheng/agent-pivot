@@ -143,20 +143,24 @@ export class AiSessionDashboardController<
             if (this.shouldSkipUnchangedMessage(reason)) {
                 this.lastPostedIncrementalMessageSignature = signature;
             }
-            this.options.postMessage(message).then(delivered => {
+            // Await delivery so callers that gate pending UI on the
+            // authoritative replacement can rely on the full-refresh
+            // fallback having actually run when refreshNow resolves.
+            try {
+                const delivered = await this.options.postMessage(message);
                 if (!delivered) {
                     this.lastPostedIncrementalMessageSignature = null;
                     if (fallbackToFullRefresh) {
                         this.options.refresh('ai-session-update-not-delivered');
                     }
                 }
-            }, error => {
+            } catch (error) {
                 this.lastPostedIncrementalMessageSignature = null;
                 this.options.logError('Failed to post AI session update message.', error);
                 if (fallbackToFullRefresh) {
                     this.options.refresh('ai-session-update-post-error');
                 }
-            });
+            }
         } catch (error) {
             this.options.logError('Failed to update AI sessions incrementally.', error);
             if (fallbackToFullRefresh) {

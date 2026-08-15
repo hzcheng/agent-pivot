@@ -389,7 +389,8 @@ test('WORKTREE-GROUPS-CREATE-001 memo keys never collide across concatenation bo
     assert.equal(first.members[0].baseRef, 'refs/heads/a');
     assert.equal(second.members[0].baseRef, 'refs/heads/ab',
         'the second preview must not reuse the first result');
-    assert.equal(second.members[0].branchName, 'agent-pivot/c');
+    assert.match(second.members[0].branchName, /^agent-pivot\/task-[a-f0-9]{6}$/,
+        'a one-character name falls back to a task-<id> slug (PRD §5.2)');
 });
 
 test('WORKTREE-GROUPS-CREATE-001 a throwing executor degrades the member without rejecting confirm', async () => {

@@ -111,6 +111,13 @@ function setWorktreeGroupMemberDetailsExpanded(group, expanded) {
     if (!toggle || !details) return false;
     expanded = expanded !== false;
     toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    // Keep the accessible name honest about what the toggle will do next.
+    var label = expanded
+        ? toggle.getAttribute('data-label-collapse')
+        : toggle.getAttribute('data-label-expand');
+    if (label) {
+        toggle.setAttribute('aria-label', label);
+    }
     group.toggleAttribute('data-member-details-expanded', expanded);
     details.toggleAttribute('hidden', !expanded);
     return true;

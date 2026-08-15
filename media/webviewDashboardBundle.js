@@ -193,6 +193,13 @@ function setWorktreeGroupMemberDetailsExpanded(group, expanded) {
     if (!toggle || !details) return false;
     expanded = expanded !== false;
     toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    // Keep the accessible name honest about what the toggle will do next.
+    var label = expanded
+        ? toggle.getAttribute('data-label-collapse')
+        : toggle.getAttribute('data-label-expand');
+    if (label) {
+        toggle.setAttribute('aria-label', label);
+    }
     group.toggleAttribute('data-member-details-expanded', expanded);
     details.toggleAttribute('hidden', !expanded);
     return true;
@@ -5225,11 +5232,16 @@ function initProjectAiSessionControls(options) {
     // failure because nothing authoritative changed.
     var pendingWorktreeGroupRenameRequests = new Map();
     var worktreeGroupRenameSerial = 0;
+    // A per-document nonce keeps request ids unique across webview reloads:
+    // a late settlement from a previous document can never correlate with a
+    // request issued by this one.
+    var worktreeGroupRenameDocumentNonce = Math.random().toString(36).slice(2, 10);
 
     function nextWorktreeGroupRenameRequestId() {
         worktreeGroupRenameSerial = worktreeGroupRenameSerial >= Number.MAX_SAFE_INTEGER
             ? 1 : worktreeGroupRenameSerial + 1;
-        return 'group-rename-' + worktreeGroupRenameSerial.toString(36);
+        return 'group-rename-' + worktreeGroupRenameDocumentNonce
+            + '-' + worktreeGroupRenameSerial.toString(36);
     }
 
     function findWorktreeGroupSection(projectDiv, groupId) {
@@ -5288,8 +5300,9 @@ function initProjectAiSessionControls(options) {
         input.setAttribute('aria-label', 'Rename worktree group');
         input.setAttribute('aria-describedby', 'ai-session-worktree-rename-hint');
         if (options && options.pending) {
-            input.disabled = true;
+            input.readOnly = true;
             input.setAttribute('aria-disabled', 'true');
+            editor.setAttribute('aria-busy', 'true');
         }
         var hint = document.createElement('span');
         hint.className = 'ai-session-worktree-rename-hint';
@@ -5354,10 +5367,14 @@ function initProjectAiSessionControls(options) {
         pendingWorktreeGroupRenameRequests.set(requestId, {
             projectId: projectId,
             groupId: groupId,
+            awaitingReplacement: false,
         });
         editor.setAttribute('data-rename-pending', 'true');
-        input.disabled = true;
+        // readonly (not disabled) keeps focus stable: disabling the focused
+        // input drops focus to <body> until the replacement arrives.
+        input.readOnly = true;
         input.setAttribute('aria-disabled', 'true');
+        editor.setAttribute('aria-busy', 'true');
         window.vscode.postMessage({
             type: 'rename-worktree-group',
             version: 1,
@@ -5370,27 +5387,36 @@ function initProjectAiSessionControls(options) {
 
     function applyWorktreeGroupRenameSettlement(message) {
         var expectedKeys = message && typeof message.errorCode === 'string'
-            ? ['errorCode', 'groupId', 'requestId', 'status', 'type', 'version']
-            : ['groupId', 'requestId', 'status', 'type', 'version'];
+            ? ['errorCode', 'groupId', 'projectId', 'requestId', 'status', 'type', 'version']
+            : ['groupId', 'projectId', 'requestId', 'status', 'type', 'version'];
         if (!message || message.type !== 'worktree-group-rename-settlement'
             || message.version !== 1
             || Object.keys(message).length !== expectedKeys.length
             || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
             || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
             || typeof message.groupId !== 'string' || !message.groupId
             || !['accepted', 'settled', 'failed'].includes(message.status)
             || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
                 && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
         var pending = pendingWorktreeGroupRenameRequests.get(message.requestId);
-        if (!pending || pending.groupId !== message.groupId) return true;
+        if (!pending || pending.groupId !== message.groupId
+            || pending.projectId !== message.projectId) return true;
         if (message.status === 'accepted') return true;
-        pendingWorktreeGroupRenameRequests.delete(message.requestId);
-        if (message.status === 'settled') {
-            // Success pending resolves through the authoritative replacement:
-            // the refreshed row shows the new name and the capture hook below
-            // stops restoring the submitted editor.
+        if (pending.awaitingReplacement) {
+            // The terminal settled settlement already arrived; any later
+            // settlement for this request is out of order — ignore it.
             return true;
         }
+        if (message.status === 'settled') {
+            // Keep the correlation until the authoritative replacement
+            // actually applies: the restore hook below retires it when the
+            // renamed row lands, and a lost publication is covered by the
+            // host's full-refresh fallback.
+            pending.awaitingReplacement = true;
+            return true;
+        }
+        pendingWorktreeGroupRenameRequests.delete(message.requestId);
         var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
         var section = findWorktreeGroupSection(projectDiv, pending.groupId);
         var editor = section
@@ -5399,7 +5425,8 @@ function initProjectAiSessionControls(options) {
             && editor.querySelector('.ai-session-worktree-rename-input');
         if (editor && input && editor.isConnected) {
             editor.removeAttribute('data-rename-pending');
-            input.disabled = false;
+            editor.removeAttribute('aria-busy');
+            input.readOnly = false;
             input.removeAttribute('aria-disabled');
             input.focus({ preventScroll: true });
         }
@@ -5437,6 +5464,17 @@ function initProjectAiSessionControls(options) {
         var currentName = title ? title.textContent || '' : '';
         if (state.pending && currentName !== state.originalName) {
             // The rename landed: the authoritative row already shows it.
+            // Retire the correlation kept since the settled settlement and
+            // park focus on the renamed group's header.
+            pendingWorktreeGroupRenameRequests.forEach((pending, requestId) => {
+                if (pending.awaitingReplacement && pending.groupId === state.groupId) {
+                    pendingWorktreeGroupRenameRequests.delete(requestId);
+                }
+            });
+            var header = section.querySelector('.ai-session-worktree-header');
+            if (header && typeof header.focus === 'function') {
+                header.focus({ preventScroll: true });
+            }
             return;
         }
         var editor = buildWorktreeGroupRenameEditor(

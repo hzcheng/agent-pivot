@@ -850,18 +850,20 @@ function getWorktreeGroupRowHtml(
     // extend with member-level operations. The toggle state is preserved
     // across authoritative replacements by the view-state script.
     const summaryText = `${group.members.length} worktree${group.members.length === 1 ? '' : 's'} · ${memberNames}`;
-    const memberSummary = `<button type="button" class="ai-session-worktree-member-summary" data-action="toggle-group-member-details" aria-expanded="false" aria-label="Member worktrees of ${escapeAttribute(name)}: ${escapeAttribute(summaryText)}. Expand for details.">`
+    const memberDetailsId = `member-details-${group.groupId}`;
+    const memberSummaryLabel = `Member worktrees of ${name}: ${summaryText}`;
+    const memberSummary = `<button type="button" class="ai-session-worktree-member-summary" data-action="toggle-group-member-details" aria-expanded="false" aria-controls="${escapeAttribute(memberDetailsId)}" aria-label="${escapeAttribute(`${memberSummaryLabel}. Expand for details.`)}" data-label-expand="${escapeAttribute(`${memberSummaryLabel}. Expand for details.`)}" data-label-collapse="${escapeAttribute(`${memberSummaryLabel}. Collapse details.`)}">`
         + `<span class="ai-session-worktree-member-summary-text">${escapeAttribute(summaryText)}</span>`
         + `<span class="ai-session-worktree-member-summary-chevron" aria-hidden="true">${Icons.chevronDown}</span>`
         + `</button>`
-        + `<div class="ai-session-worktree-member-details" hidden>${group.members.map(member => {
+        + `<div class="ai-session-worktree-member-details" id="${escapeAttribute(memberDetailsId)}" hidden>${group.members.map(member => {
             const statusLabel = getMemberDetailStatusLabel(member.status);
             const primaryBadge = member.isPrimary
                 ? '<span class="ai-session-worktree-member-detail-primary">primary</span>'
                 : '';
             return `<div class="ai-session-worktree-member-detail" data-member-id="${escapeAttribute(member.memberId)}" data-member-detail-status="${escapeAttribute(member.status)}">`
-                + `<span class="ai-session-worktree-member-detail-repo">${escapeAttribute(member.repositoryLabel)}${primaryBadge}</span>`
-                + `<span class="ai-session-worktree-member-detail-branch">${escapeAttribute(member.branchName)}</span>`
+                + `<span class="ai-session-worktree-member-detail-repo" data-tooltip="${escapeAttribute(member.repositoryLabel)}">${escapeAttribute(member.repositoryLabel)}</span>${primaryBadge}`
+                + `<span class="ai-session-worktree-member-detail-branch" data-tooltip="${escapeAttribute(member.branchName)}">${escapeAttribute(member.branchName)}</span>`
                 + `<span class="ai-session-worktree-member-detail-path" data-tooltip="${escapeAttribute(member.path)}">${escapeAttribute(member.path)}</span>`
                 + (statusLabel
                     ? `<span class="ai-session-worktree-member-detail-state">${escapeAttribute(statusLabel)}</span>`

@@ -24,6 +24,7 @@ export interface WorktreeGroupRenameSettlement {
     type: 'worktree-group-rename-settlement';
     version: 1;
     requestId: string;
+    projectId: string;
     groupId: string;
     status: WorktreeGroupRenameSettlementStatus;
     errorCode?: string;
@@ -58,6 +59,7 @@ export function acceptedWorktreeGroupRenameSettlement(
     return {
         type: 'worktree-group-rename-settlement', version: 1,
         requestId: request.requestId,
+        projectId: request.projectId,
         groupId: request.groupId,
         status: 'accepted',
     };
@@ -70,6 +72,7 @@ export function settledWorktreeGroupRenameSettlement(
     return {
         type: 'worktree-group-rename-settlement', version: 1,
         requestId: request.requestId,
+        projectId: request.projectId,
         groupId: request.groupId,
         status: outcome.kind,
         ...(outcome.kind === 'failed' ? { errorCode: outcome.errorCode } : {}),

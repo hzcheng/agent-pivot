@@ -27,9 +27,18 @@ function repository(overrides = {}) {
 test('WORKTREE-PROVISIONING-PLAN-001 derives bounded stable slugs', () => {
     assert.equal(slugifyTaskName('  Fix login race condition  '), 'fix-login-race-condition');
     assert.equal(slugifyTaskName('Crème brûlée / OAuth'), 'creme-brulee-oauth');
-    assert.match(slugifyTaskName('---'), /^task-[a-f0-9]{8}$/);
-    assert.match(slugifyTaskName('修复登录'), /^task-[a-f0-9]{8}$/);
+    assert.match(slugifyTaskName('---'), /^task-[a-f0-9]{6}$/);
+    assert.match(slugifyTaskName('修复登录'), /^task-[a-f0-9]{6}$/);
     assert.ok(slugifyTaskName('a'.repeat(200)).length <= 60);
+});
+
+test('WORKTREE-PROVISIONING-PLAN-001 falls back when fewer than 3 ASCII characters survive', () => {
+    // PRD §5.2: an ASCII slug shorter than 3 characters is not a usable
+    // suggestion, so one- and two-character names fall back like CJK names.
+    assert.match(slugifyTaskName('A'), /^task-[a-f0-9]{6}$/);
+    assert.match(slugifyTaskName('ab'), /^task-[a-f0-9]{6}$/);
+    assert.equal(slugifyTaskName('abc'), 'abc');
+    assert.equal(slugifyTaskName('A b c'), 'a-b-c');
 });
 
 test('WORKTREE-PROVISIONING-PLAN-001 allocates one shared suffix for branch and managed path', async () => {

@@ -3845,12 +3845,17 @@ body.steward-sidebar {
             }
 
             .ai-session-worktree-member-detail-repo {
+                max-width: 100%;
+                min-width: 0;
+                overflow: hidden;
                 font-weight: 600;
                 color: var(--vscode-foreground);
+                text-overflow: ellipsis;
+                white-space: nowrap;
             }
 
             .ai-session-worktree-member-detail-primary {
-                margin-left: 4px;
+                flex: 0 0 auto;
                 padding: 0 3px;
                 border: 1px solid var(--vscode-panel-border);
                 border-radius: 3px;
@@ -3860,6 +3865,7 @@ body.steward-sidebar {
             }
 
             .ai-session-worktree-member-detail-branch {
+                max-width: 100%;
                 min-width: 0;
                 overflow: hidden;
                 font-family: var(--vscode-editor-font-family, monospace);

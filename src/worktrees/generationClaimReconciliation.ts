@@ -52,14 +52,14 @@ export function resolveGenerationClaimDisposition(
         return { kind: 'keep' };
     }
     // The binding must describe this very session: same bucket, same
-    // provider (when the claim recorded one), same worktree key when the
-    // binding carries one.
+    // provider (when the claim recorded one), and the same worktree key —
+    // a binding without a key cannot prove anything about this path.
     if (bound.navigationIdentity !== evidence.navigationIdentity
         || (claim.creatingProvider && bound.provider !== claim.creatingProvider)
-        || (bound.worktreeKey
-            && (bound.worktreeKey.repositoryKey !== claim.worktreeKey.repositoryKey
-                || bound.worktreeKey.canonicalWorktreePath
-                    !== claim.worktreeKey.canonicalWorktreePath))) {
+        || !bound.worktreeKey
+        || bound.worktreeKey.repositoryKey !== claim.worktreeKey.repositoryKey
+        || bound.worktreeKey.canonicalWorktreePath
+            !== claim.worktreeKey.canonicalWorktreePath) {
         return { kind: 'keep' };
     }
     // The runtime promoted but the claim promotion crashed or failed:

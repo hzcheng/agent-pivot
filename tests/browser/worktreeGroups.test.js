@@ -874,6 +874,7 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
         projectId: 'project-a',
         groupId: 'g-1',
         displayName: 'Fix login v2',
+        baseRevision: 1,
     });
     assert.equal(await input.evaluate(el => el.readOnly), true,
         'the submitted editor is pending (readonly keeps focus stable)');

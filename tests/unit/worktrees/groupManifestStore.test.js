@@ -467,6 +467,47 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 store enforces the reference invarian
         'a promoted session identity backs at most one claim');
 });
 
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 promotion verifies the creating provider', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    await store.recordRetiredIdentity(WORKSPACE, retiredInput());
+    await store.createGenerationClaim(WORKSPACE, {
+        pendingId: 'p-1',
+        worktreeKey: {
+            repositoryKey: '/repos/alpha/.git',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        },
+        createdAfterRetirementId: 'r-1',
+        createdAtMs: 150,
+        creatingProvider: 'codex',
+    });
+    await assert.rejects(
+        store.promoteGenerationClaim(WORKSPACE, 'p-1', {
+            provider: 'kimi', sessionId: 's-1',
+        }),
+        error => error.code === 'invalid-record',
+        'a Codex pending claim cannot be promoted into a Kimi session');
+    const promoted = await store.promoteGenerationClaim(WORKSPACE, 'p-1', {
+        provider: 'codex', sessionId: 's-1',
+    });
+    assert.equal(promoted.provider, 'codex');
+});
+
+test('WORKTREE-GROUPS-RENAME-001 rename rejects a stale expected revision atomically', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [readyMember('alpha', 'fix-login')]);
+    await assert.rejects(
+        store.renameGroup(WORKSPACE, group.groupId, 'new name', group.revision + 1),
+        error => error.code === 'group-changed',
+        'a rename based on an older revision fails closed');
+    assert.equal(store.listGroups(WORKSPACE)[0].displayName, 'fix login');
+    assert.equal(store.listGroups(WORKSPACE)[0].revision, group.revision,
+        'the rejected rename changes nothing');
+    const renamed = await store.renameGroup(
+        WORKSPACE, group.groupId, 'new name', group.revision);
+    assert.equal(renamed.displayName, 'new name');
+    assert.equal(renamed.revision, group.revision + 1);
+});
+
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation promotes and keeps in one write', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     await store.recordRetiredIdentity(WORKSPACE, retiredInput());
@@ -597,8 +638,8 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
         })],
         [pendingClaim()], 100));
     assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true);
-    assert.deepEqual(store.listRetiredIdentities(WORKSPACE), [],
-        'a duplicate retirement id hides the untrustworthy section');
+    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 2,
+        'retired records stay readable: unresumable marking is fail-closed');
     assert.deepEqual(store.listGenerationClaims(WORKSPACE), []);
     await assert.rejects(
         store.recordRetiredIdentity(WORKSPACE, retiredInput({ retirementId: 'r-new' })),

@@ -16,6 +16,8 @@ export interface RenameWorktreeGroupRequest {
     projectId: string;
     groupId: string;
     displayName: string;
+    /** The group revision the editor saw; staleness fails closed. */
+    baseRevision: number;
 }
 
 export type WorktreeGroupRenameSettlementStatus = 'accepted' | 'settled' | 'failed';
@@ -38,7 +40,9 @@ export function parseRenameWorktreeGroupRequest(
         return null;
     }
     const record = value as Record<string, unknown>;
-    const expectedKeys = ['displayName', 'groupId', 'projectId', 'requestId', 'type', 'version'];
+    const expectedKeys = [
+        'baseRevision', 'displayName', 'groupId', 'projectId', 'requestId', 'type', 'version',
+    ];
     const keys = Object.keys(record).sort();
     if (keys.length !== expectedKeys.length
         || keys.some((key, index) => key !== expectedKeys[index])
@@ -47,7 +51,10 @@ export function parseRenameWorktreeGroupRequest(
         || !isSafeId(record.requestId)
         || !isSafeString(record.projectId)
         || !isSafeId(record.groupId)
-        || !isDisplayName(record.displayName)) {
+        || !isDisplayName(record.displayName)
+        || typeof record.baseRevision !== 'number'
+        || !Number.isSafeInteger(record.baseRevision)
+        || record.baseRevision < 1) {
         return null;
     }
     return record as unknown as RenameWorktreeGroupRequest;

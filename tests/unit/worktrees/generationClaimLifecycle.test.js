@@ -149,8 +149,60 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a corrupt bucket quarantines instead 
     });
     const store = new WorktreeGroupManifestStore(corrupt);
     assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true);
-    assert.deepEqual(store.listRetiredIdentities(WORKSPACE), []);
+    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 2,
+        'retired records stay readable for unresumable marking');
+    assert.deepEqual(store.listGenerationClaims(WORKSPACE), [],
+        'claims are suppressed: no generation proof from corrupt data');
     await assert.rejects(
         store.recordRetiredIdentity(WORKSPACE, retiredInput({ retirementId: 'r-new' })),
         error => error.code === 'store-corrupt');
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 quarantine survives group mutations and reloads', async () => {
+    const group = {
+        groupId: 'g-1',
+        displayName: 'Fix login',
+        suggestedSlug: 'fix-login',
+        primaryMemberId: 'm-1',
+        createdAt: 1,
+        revision: 1,
+        members: [{
+            memberId: 'm-1', repositoryKey: '/repos/alpha/.git',
+            worktreeKey: {
+                repositoryKey: '/repos/alpha/.git',
+                canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+            },
+            branchName: 'agent-pivot/fix-login',
+            path: '/repos/alpha/.worktrees/fix-login', state: 'ready',
+        }],
+    };
+    const state = memento({
+        'agentPivot.worktreeGroups.v1': {
+            [WORKSPACE]: {
+                version: 2,
+                groups: [group],
+                retiredIdentities: [
+                    retiredInput(),
+                    retiredInput({ canonicalWorktreePath: '/repos/alpha/.worktrees/other' }),
+                ],
+                deletionJournal: [],
+                generationClaims: [],
+                lastGenerationCutoffAt: 100,
+            },
+        },
+    });
+    const store = new WorktreeGroupManifestStore(state);
+    assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true);
+    // A plain group mutation must not wash the quarantine away.
+    await store.renameGroup(WORKSPACE, 'g-1', 'renamed');
+    const reloaded = new WorktreeGroupManifestStore(state);
+    assert.equal(reloaded.isRetiredStoreCorrupt(WORKSPACE), true,
+        'the corrupt marker persists across mutations and reloads');
+    assert.equal(reloaded.listRetiredIdentities(WORKSPACE).length, 2,
+        'the retired records are not silently dropped either');
+    // Explicit repair is the only way back.
+    await reloaded.resetCorruptRetiredStore(WORKSPACE);
+    const repaired = new WorktreeGroupManifestStore(state);
+    assert.equal(repaired.isRetiredStoreCorrupt(WORKSPACE), false);
+    assert.deepEqual(repaired.listRetiredIdentities(WORKSPACE), []);
 });

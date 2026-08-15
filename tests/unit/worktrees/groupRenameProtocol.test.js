@@ -16,6 +16,7 @@ function validRequest() {
         projectId: '/repo/main',
         groupId: 'abc123',
         displayName: '修复登录',
+        baseRevision: 3,
     };
 }
 
@@ -55,6 +56,15 @@ test('WORKTREE-GROUPS-RENAME-001 fails closed on malformed, extra-field, or unsa
     assert.equal(parseRenameWorktreeGroupRequest({
         ...validRequest(), groupId: '',
     }), null);
+    assert.equal(parseRenameWorktreeGroupRequest({
+        ...validRequest(), baseRevision: 0,
+    }), null);
+    assert.equal(parseRenameWorktreeGroupRequest({
+        ...validRequest(), baseRevision: '3',
+    }), null);
+    const withoutRevision = validRequest();
+    delete withoutRevision.baseRevision;
+    assert.equal(parseRenameWorktreeGroupRequest(withoutRevision), null);
 });
 
 test('WORKTREE-GROUPS-RENAME-001 settlements correlate by requestId and groupId', () => {

@@ -81,6 +81,7 @@ export type WorktreeGroupManifestErrorCode =
   | 'worktree-key-claimed'
   | 'repository-conflict'
   | 'primary-not-ready'
+  | 'group-changed'
   | 'store-corrupt'
   | 'store-full';
 
@@ -129,10 +130,13 @@ interface WorkspaceAggregate {
     deletionJournal: unknown[];
     generationClaims: GenerationClaim[];
     /**
-     * Set when the persisted blob fails cross-record validation (e.g. a
-     * duplicate retirement id): the retired/claim sections are quarantined
-     * — reads see them as empty, mutations fail closed — because choosing
-     * any record by order would let corruption decide resumability.
+     * Persisted quarantine marker: set when the blob fails cross-record
+     * validation (e.g. a duplicate retirement id). It survives reloads and
+     * unrelated group mutations, claims read as empty, and retired/claim
+     * mutations fail closed — because choosing any record by order would
+     * let corruption decide resumability. Retired records themselves stay
+     * readable: they are historical facts used for unresumable marking,
+     * which is the fail-closed direction.
      */
     corrupt?: boolean;
     /**
@@ -214,9 +218,17 @@ export class WorktreeGroupManifestStore {
     renameGroup(
         workspaceIdentity: string,
         groupId: string,
-        displayName: string
+        displayName: string,
+        expectedRevision?: number
     ): Promise<WorktreeGroup> {
         return this.mutateGroup(workspaceIdentity, groupId, group => {
+            if (expectedRevision !== undefined
+                && group.revision !== expectedRevision) {
+                // The webview edited against an older authoritative state
+                // (a concurrent rename/member change landed meanwhile):
+                // fail closed instead of silently last-write-wins.
+                throw new WorktreeGroupManifestError('group-changed');
+            }
             // Renaming regenerates the suggested slug authoritatively (PRD
             // §5.2): the name, slug, and revision land in one write so
             // future Add repo/derive naming never follows a stale slug, and
@@ -406,9 +418,6 @@ export class WorktreeGroupManifestStore {
 
     listRetiredIdentities(workspaceIdentity: string): RetiredWorktreeIdentity[] {
         const aggregate = this.readAggregate(workspaceIdentity);
-        if (aggregate.corrupt) {
-            return [];
-        }
         return aggregate.retiredIdentities
             .map(cloneRetiredIdentity);
     }
@@ -425,6 +434,23 @@ export class WorktreeGroupManifestStore {
     /** Whether the bucket's retired/claim sections failed validation. */
     isRetiredStoreCorrupt(workspaceIdentity: string): boolean {
         return !!this.readAggregate(workspaceIdentity).corrupt;
+    }
+
+    /**
+     * Explicit repair for a quarantined bucket: drops the retired/claim
+     * sections and the corrupt marker. Deliberately separate from every
+     * automatic path — only a user-facing reset may call this.
+     */
+    resetCorruptRetiredStore(workspaceIdentity: string): Promise<void> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            bucket.retiredIdentities = [];
+            bucket.generationClaims = [];
+            bucket.deletionJournal = [];
+            bucket.corrupt = undefined;
+            await this.writeManifest(manifest);
+        });
     }
 
     private requireHealthyBucket(
@@ -599,6 +625,11 @@ export class WorktreeGroupManifestStore {
             const claim = bucket.generationClaims.find(candidate =>
                 candidate.state === 'pending' && candidate.pendingId === pendingId);
             if (!claim) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            if (claim.creatingProvider && claim.creatingProvider !== session.provider) {
+                // The provider is part of the session's composite identity:
+                // a Codex pending claim must never become a Kimi session.
                 throw new WorktreeGroupManifestError('invalid-record');
             }
             if (bucket.generationClaims.some(candidate =>
@@ -954,6 +985,7 @@ function isAggregateEmpty(aggregate: WorkspaceAggregate): boolean {
         && aggregate.retiredIdentities.length === 0
         && aggregate.deletionJournal.length === 0
         && aggregate.generationClaims.length === 0
+        && !aggregate.corrupt
         && aggregate.lastGenerationCutoffAt === 0;
 }
 
@@ -974,6 +1006,7 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
     const aggregate: WorkspaceAggregate = {
         version: 2,
         groups: Array.isArray(candidate.groups) ? parseGroups(candidate.groups) : [],
+        ...(candidate.corrupt === true ? { corrupt: true } : {}),
         retiredIdentities: Array.isArray(candidate.retiredIdentities)
             ? candidate.retiredIdentities
                 .slice(0, MAX_RETIRED_PER_WORKSPACE)
@@ -1020,12 +1053,12 @@ function sanitizeAggregateCrossInvariants(
     });
     if (duplicateRetirement) {
         // A retirement id must identify exactly one deletion fact. When it
-        // does not, no record may win by array order: quarantine the whole
-        // retired/claim section (reads empty, mutations fail closed) until
-        // the user clears the corrupt state.
+        // does not, no record may win by array order: quarantine the
+        // retired/claim sections (claims read empty, mutations fail
+        // closed). The records themselves stay persisted and readable —
+        // clearing them here would let the next unrelated group mutation
+        // wash the corruption away as if nothing had happened.
         aggregate.corrupt = true;
-        aggregate.retiredIdentities = [];
-        aggregate.generationClaims = [];
         return aggregate;
     }
     const retirementByKey = new Map(

@@ -80,9 +80,9 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 promotion requires the full composite
             new Map([['/tmp/marker-1.done', entry]]))),
             { kind: 'keep' }, label);
     }
-    // A binding without a worktree key still promotes when bucket and
-    // provider match (legacy direct bindings may lack the key).
+    // A binding without a worktree key cannot prove anything about this
+    // path: keep, never promote.
     assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence(
         new Map([['/tmp/marker-1.done', boundEntry({ worktreeKey: undefined })]]))),
-        { kind: 'promote', provider: 'codex', sessionId: 's-found' });
+        { kind: 'keep' }, 'keyless binding');
 });

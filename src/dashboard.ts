@@ -285,11 +285,9 @@ import {
     parseSetWorktreeGroupPrimaryRequest,
     settledWorktreeGroupPrimarySettlement,
 } from './worktrees/groupPrimaryProtocol';
-import {
-    acceptedWorktreeGroupRenameSettlement,
-    parseRenameWorktreeGroupRequest,
-    settledWorktreeGroupRenameSettlement,
-} from './worktrees/groupRenameProtocol';
+import type { WorktreeGroupRenameSettlement } from './worktrees/groupRenameProtocol';
+import { handleRenameWorktreeGroup } from './worktrees/groupRenameHandler';
+import { createSettlementReplayCache } from './worktrees/settlementReplayCache';
 import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
 import {
     acceptedIsolatedSessionSettlement,
@@ -1429,10 +1427,16 @@ async function initializeDashboard(
                 continue;
             }
             const existing = boundByMarkerPath.get(binding.markerPath);
-            // Session identity is the composite {provider, sessionId}:
-            // either half differing makes the marker ambiguous.
+            // Session identity is the composite {provider, sessionId} plus
+            // the owning bucket and worktree key: any half differing makes
+            // the marker ambiguous.
             if (existing && (existing.sessionId !== binding.sessionId
-                || existing.provider !== binding.providerId)) {
+                || existing.provider !== binding.providerId
+                || existing.navigationIdentity !== binding.workspaceNavigationIdentity
+                || (existing.worktreeKey?.canonicalWorktreePath
+                        !== binding.worktreeKey?.canonicalWorktreePath)
+                || (existing.worktreeKey?.repositoryKey
+                        !== binding.worktreeKey?.repositoryKey))) {
                 ambiguous = true;
                 break;
             }
@@ -1574,6 +1578,8 @@ async function initializeDashboard(
         },
         getRetiredWorktreeIdentities: navigationIdentity =>
             worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+        isWorktreeRetiredStoreCorrupt: navigationIdentity =>
+            worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
         createWorktreeGenerationClaim: (navigationIdentity, input) =>
             worktreeGroupManifestStore.createGenerationClaim(navigationIdentity, input),
         removeWorktreeGenerationClaim: (navigationIdentity, claimId) =>
@@ -2229,6 +2235,12 @@ async function initializeDashboard(
         showSponsorOptions,
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
+    // Idempotency cache for group rename settlements (PRD §6.4 protocol
+    // rules): replays re-receive the recorded terminal settlement and are
+    // never re-executed.
+    const worktreeGroupRenameSettlements = createSettlementReplayCache<
+        WorktreeGroupRenameSettlement>();
+
     const isolatedSessionHandlers = {
         'start-isolated-session': async (message: unknown) => {
             const request = parseIsolatedSessionRequest(message);
@@ -2463,47 +2475,19 @@ async function initializeDashboard(
             });
         },
         'rename-worktree-group': async (message: unknown) => {
-            // Group rename (PRD §5.2): the host regenerates the suggested
-            // slug from the new display name and the store writes
-            // displayName + suggestedSlug + revision in one mutation. The
-            // webview keeps the rename input pending until the terminal
-            // settlement and the authoritative replacement arrive.
-            const request = parseRenameWorktreeGroupRequest(message);
-            if (!request) {
-                return;
-            }
-            await provider.postMessage(
-                acceptedWorktreeGroupRenameSettlement(request));
-            const fail = async (errorCode: string) => {
-                await provider.postMessage(settledWorktreeGroupRenameSettlement(
-                    request, { kind: 'failed', errorCode }));
-            };
-            const target = getCurrentWorkspaceActionTarget(request.projectId);
-            if (!target) {
-                await fail('workspace-unavailable');
-                return;
-            }
-            try {
-                await worktreeGroupManifestStore.renameGroup(
-                    target.workspace.navigationIdentity,
-                    request.groupId,
-                    request.displayName.trim());
-            } catch (error) {
-                logError('Failed to rename the worktree group.', error);
-                void vscode.window.showWarningMessage(
-                    'Agent Pivot: could not rename the worktree group. Refresh the dashboard and try again.');
-                const errorCode = (error as { code?: string })?.code || 'rename-failed';
-                await fail(/^[a-z0-9-]{1,64}$/.test(errorCode)
-                    ? errorCode : 'rename-failed');
-                return;
-            }
-            await provider.postMessage(settledWorktreeGroupRenameSettlement(
-                request, { kind: 'settled' }));
-            // The pending editor resolves only through the authoritative
-            // replacement, so delivery must be awaited and a lost or
-            // failed publication falls back to a full refresh.
-            await aiSessionDashboardController.refreshNow('worktree-group-renamed', {
-                fallbackToFullRefresh: true,
+            await handleRenameWorktreeGroup(message, {
+                postMessage: outgoing => provider.postMessage(outgoing),
+                getNavigationIdentity: projectId =>
+                    getCurrentWorkspaceActionTarget(projectId)
+                        ?.workspace.navigationIdentity || null,
+                store: worktreeGroupManifestStore,
+                refreshNow: () => aiSessionDashboardController.refreshNow(
+                    'worktree-group-renamed', { fallbackToFullRefresh: true }),
+                showWarning: warning => {
+                    void vscode.window.showWarningMessage(warning);
+                },
+                logError,
+                replayCache: worktreeGroupRenameSettlements,
             });
         },
         'set-worktree-group-primary': async (message: unknown) => {

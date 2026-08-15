@@ -5352,8 +5352,11 @@ function initProjectAiSessionControls(options) {
         var projectDiv = section.closest('.project');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section.getAttribute('data-group-id') || '';
+        var baseRevision = parseInt(section.getAttribute('data-group-revision') || '', 10);
         var value = (input.value || '').trim();
-        if (!projectId || !groupId) return;
+        if (!projectId || !groupId || !Number.isSafeInteger(baseRevision) || baseRevision < 1) {
+            return;
+        }
         if (!value) {
             announceWorktreeGroupRename(projectId, 'The group name cannot be empty.');
             input.focus({ preventScroll: true });
@@ -5383,6 +5386,7 @@ function initProjectAiSessionControls(options) {
             projectId: projectId,
             groupId: groupId,
             displayName: value,
+            baseRevision: baseRevision,
         });
     }
 

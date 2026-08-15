@@ -66,6 +66,10 @@ export interface SessionControllerCompositionOptions {
     getRetiredWorktreeIdentities?: (
         workspaceNavigationIdentity: string
     ) => readonly RetiredWorktreeIdentity[];
+    /** Quarantine signal for the retired store (PRD §6.4). */
+    isWorktreeRetiredStoreCorrupt?: (
+        workspaceNavigationIdentity: string
+    ) => boolean;
     /** Persists a pending generation claim (PRD §6.4). */
     createWorktreeGenerationClaim?: (
         workspaceNavigationIdentity: string,
@@ -492,6 +496,12 @@ export function createSessionControllerComposition(
             if (!options.getRetiredWorktreeIdentities
                 || !options.createWorktreeGenerationClaim) {
                 return null;
+            }
+            if (options.isWorktreeRetiredStoreCorrupt?.(navigationIdentity)) {
+                // A quarantined retired store cannot prove whether this path
+                // was retired: refuse the creation rather than starting a
+                // session without its generation claim (PRD §6.4).
+                throw new Error('The retired-worktree store is quarantined.');
             }
             const retirement = findLatestRetirementForKey(
                 options.getRetiredWorktreeIdentities(navigationIdentity),

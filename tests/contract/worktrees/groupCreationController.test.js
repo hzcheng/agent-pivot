@@ -589,6 +589,77 @@ test('WORKTREE-GROUPS-CREATE-001 a slower preview never overwrites a newer snaps
         'the slower preview never became the authoritative snapshot');
 });
 
+test('WORKTREE-GROUPS-CREATE-001 a preview token is single-use across replays and races', async () => {
+    const current = fixture();
+    const previewId = await previewIdFor(current);
+    const first = await current.controller.confirm({
+        projectId: 'project',
+        previewId,
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(first.kind, 'created');
+    const replay = await current.controller.confirm({
+        projectId: 'project',
+        previewId,
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(replay.errorCode, 'preview-stale',
+        'a replayed token never provisions twice');
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 1);
+
+    // Concurrent confirms with the same token: exactly one wins.
+    const second = await current.controller.preview('project', 'Fix login', [
+        { repositoryKey: '/alpha/.git' }, { repositoryKey: '/beta/.git' },
+    ]);
+    const [winner, loser] = await Promise.all([
+        current.controller.confirm({
+            projectId: 'project', previewId: second.previewId,
+            displayName: 'Fix login', members: confirmedMembers(),
+        }),
+        current.controller.confirm({
+            projectId: 'project', previewId: second.previewId,
+            displayName: 'Fix login', members: confirmedMembers(),
+        }),
+    ]);
+    const outcomes = [winner, loser].map(outcome => outcome.kind).sort();
+    assert.deepEqual(outcomes, ['created', 'failed'],
+        'concurrent confirms settle exactly once');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a full tombstone bucket refuses the dismiss as store-full', async () => {
+    const current = fixture({
+        startMemberOperation: async input => ({
+            kind: 'partial',
+            operationId: input.operationId,
+            worktreeKey: {
+                repositoryKey: input.plan.repositoryKey,
+                canonicalWorktreePath: input.plan.worktreePath,
+            },
+            errorCode: 'setup-failed',
+            completedSteps: ['worktree'],
+        }),
+        memberDismissNeedsTombstone: () => true,
+        isTombstoneStoreFull: () => true,
+    });
+    const created = await current.controller.confirm({
+        projectId: 'project',
+        previewId: await previewIdFor(current, ['/alpha/.git']),
+        displayName: 'Fix login',
+        members: [confirmedMembers()[0]],
+    });
+    const member = current.manifestStore
+        .listGroups(workspace.navigationIdentity)[0].members[0];
+    const dismissed = await current.controller.dismissMember(
+        'project', created.groupId, member.memberId);
+    assert.equal(dismissed, 'store-full',
+        'the dismiss is refused instead of evicting another protection record');
+    assert.equal(current.manifestStore
+        .listGroups(workspace.navigationIdentity)[0].members.length, 1,
+        'the member stays in the manifest');
+});
+
 test('WORKTREE-GROUPS-CREATE-001 a windows-style editor path matches case-insensitively', async () => {
     const current = fixture({
         getActiveEditorPath: () => 'c:\\BETA\\src\\index.ts',
@@ -649,10 +720,10 @@ test('WORKTREE-GROUPS-CREATE-001 retry and dismiss follow the member lifecycle',
         });
     const dismissed = await current.controller.dismissMember(
         'project', created.groupId, member().memberId);
-    assert.equal(dismissed, true);
+    assert.equal(dismissed, 'dismissed');
     assert.equal(group(), undefined,
         'the group disappears with its last member');
     assert.equal(
         await current.controller.dismissMember('project', created.groupId, 'missing'),
-        false);
+        'unavailable');
 });

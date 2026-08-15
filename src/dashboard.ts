@@ -1338,7 +1338,9 @@ async function initializeDashboard(
                         // from the snapshot, the tombstone has served its
                         // purpose.
                         const snapshotPaths = new Set<string>();
+                        const discoveredRepositories = new Set<string>();
                         for (const repository of snapshot.repositories) {
+                            discoveredRepositories.add(repository.repositoryKey);
                             for (const worktree of repository.worktrees) {
                                 snapshotPaths.add(
                                     `${worktree.key.repositoryKey} ${worktree.key.canonicalWorktreePath}`);
@@ -1348,7 +1350,8 @@ async function initializeDashboard(
                             .pruneTombstones(
                                 snapshotPaths,
                                 snapshot.truncatedWorktreeCount > 0,
-                                loadStartedAt)
+                                loadStartedAt,
+                                discoveredRepositories)
                             .catch(error => logError(
                                 'Failed to prune provisioning tombstones.', error));
                     } catch (error) {
@@ -1640,6 +1643,10 @@ async function initializeDashboard(
             isolatedSessionController!.dismiss(operationId, projectId),
         hasMemberOperation: operationId =>
             isolatedSessionController!.hasOperation(operationId),
+        memberDismissNeedsTombstone: operationId =>
+            isolatedSessionController!.memberDismissNeedsTombstone(operationId),
+        isTombstoneStoreFull: () =>
+            isolatedSessionController!.isTombstoneStoreFull(),
         onDidChange: () => {
             void aiSessionDashboardController.refreshNow(
                 'worktree-group-creation', { fallbackToFullRefresh: false });
@@ -2263,13 +2270,17 @@ async function initializeDashboard(
                 request.projectId, request.groupId, request.memberId)
                 .catch(error => {
                     logError('Failed to dismiss the worktree group member.', error);
-                    return false;
+                    return 'unavailable' as const;
                 });
             await provider.postMessage(settledWorktreeGroupMemberSettlement(
                 request,
-                dismissed
+                dismissed === 'dismissed'
                     ? { kind: 'settled' }
-                    : { kind: 'failed', errorCode: 'dismiss-unavailable' }));
+                    : {
+                        kind: 'failed',
+                        errorCode: dismissed === 'store-full'
+                            ? 'store-full' : 'dismiss-unavailable',
+                    }));
         },
         'remove-managed-worktree': async (message: unknown) => {
             const request = parseManagedWorktreeRemovalRequest(message);

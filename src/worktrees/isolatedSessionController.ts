@@ -22,6 +22,7 @@ import type {
     WorktreeSnapshot,
 } from './types';
 import type { PersistedWorktreeProvisioningOperation } from './provisioningStore';
+import { MAX_PROVISIONING_TOMBSTONES } from './provisioningStore';
 
 export type IsolatedSessionStartOutcome =
   | WorktreeProvisioningOutcome
@@ -357,6 +358,17 @@ export class IsolatedSessionController {
         }
         const recovery = this.provisioning.getRecoveryOperations()
             .find(operation => operation.operationId === operationId);
+        const needsTombstone = !!recovery
+            && recovery.completedSteps.includes('worktree')
+            && !recovery.completedSteps.includes('setup')
+            && context.setupCommand.length > 0;
+        if (needsTombstone
+            && !this.recoveryTombstones.has(operationId)
+            && this.recoveryTombstones.size >= MAX_PROVISIONING_TOMBSTONES) {
+            // Refuse rather than silently evict a protection record; the
+            // user cleans up physical worktrees to free capacity.
+            return false;
+        }
         if (!this.provisioning.discard(operationId)) {
             return false;
         }
@@ -364,10 +376,7 @@ export class IsolatedSessionController {
         // ran must not let reconciliation re-seed the half-initialized
         // worktree as ready: keep a tombstone that blocks seeding without
         // ever restoring a row.
-        if (recovery
-            && recovery.completedSteps.includes('worktree')
-            && !recovery.completedSteps.includes('setup')
-            && context.setupCommand.length > 0) {
+        if (needsTombstone && recovery) {
             const tombstone = this.buildRecoveryRecord(recovery, context);
             if (tombstone) {
                 this.recoveryTombstones.set(operationId, {
@@ -382,6 +391,22 @@ export class IsolatedSessionController {
         }
         this.contextsByOperation.delete(operationId);
         return true;
+    }
+
+    /** True when dismissing this operation would write a tombstone. */
+    memberDismissNeedsTombstone(operationId: string): boolean {
+        const context = this.contextsByOperation.get(operationId);
+        const recovery = this.provisioning.getRecoveryOperations()
+            .find(operation => operation.operationId === operationId);
+        return !!context && !!recovery
+            && recovery.completedSteps.includes('worktree')
+            && !recovery.completedSteps.includes('setup')
+            && context.setupCommand.length > 0;
+    }
+
+    /** True when the tombstone bucket cannot protect another worktree. */
+    isTombstoneStoreFull(): boolean {
+        return this.recoveryTombstones.size >= MAX_PROVISIONING_TOMBSTONES;
     }
 
     /** Whether any live operation (row or context) exists for the id. */

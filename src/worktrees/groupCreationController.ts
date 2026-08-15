@@ -113,6 +113,8 @@ export interface WorktreeGroupCreationControllerOptions {
     ) => Promise<WorktreeProvisioningOutcome>;
     dismissMemberOperation: (operationId: string, projectId?: string) => boolean;
     hasMemberOperation: (operationId: string) => boolean;
+    memberDismissNeedsTombstone?: (operationId: string) => boolean;
+    isTombstoneStoreFull?: () => boolean;
     onDidChange?: () => void;
 }
 
@@ -424,6 +426,10 @@ export class WorktreeGroupCreationController {
             }
         }
         const navigationIdentity = target.workspace.navigationIdentity;
+        // Preview tokens are single-use: consume atomically (synchronously,
+        // before the first manifest await) so a replayed or concurrent
+        // confirm can never provision the same plan twice.
+        this.previewSnapshots.delete(request.projectId);
         let group: WorktreeGroup;
         try {
             group = await this.options.manifestStore.createGroup(navigationIdentity, {
@@ -530,10 +536,10 @@ export class WorktreeGroupCreationController {
         projectId: string,
         groupId: string,
         memberId: string
-    ): Promise<boolean> {
+    ): Promise<'dismissed' | 'unavailable' | 'store-full'> {
         const target = this.options.getWorkspaceTarget(projectId);
         if (!target) {
-            return false;
+            return 'unavailable';
         }
         const navigationIdentity = target.workspace.navigationIdentity;
         const group = this.options.manifestStore
@@ -541,24 +547,31 @@ export class WorktreeGroupCreationController {
             .find(candidate => candidate.groupId === groupId);
         const member = group?.members.find(candidate => candidate.memberId === memberId);
         if (!group || !member || member.state !== 'failed') {
-            return false;
+            return 'unavailable';
         }
         const operationId = memberOperationId(memberId);
         // A live operation that refuses discard (still running) blocks the
         // dismiss; a missing operation (recovery evicted after a reload)
         // never strands the manifest member.
-        if (this.options.hasMemberOperation(operationId)
-            && !this.options.dismissMemberOperation(operationId, projectId)) {
-            return false;
+        if (this.options.hasMemberOperation(operationId)) {
+            // A full tombstone bucket refuses the dismiss instead of
+            // silently evicting another worktree's protection record.
+            if (this.options.memberDismissNeedsTombstone?.(operationId)
+                && this.options.isTombstoneStoreFull?.()) {
+                return 'store-full';
+            }
+            if (!this.options.dismissMemberOperation(operationId, projectId)) {
+                return 'unavailable';
+            }
         }
         try {
             await this.options.manifestStore.removeMember(
                 navigationIdentity, groupId, memberId);
         } catch (_error) {
-            return false;
+            return 'unavailable';
         }
         this.options.onDidChange?.();
-        return true;
+        return 'dismissed';
     }
 
     private async runMember(

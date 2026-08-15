@@ -12,9 +12,11 @@ const TOMBSTONE_STORAGE_KEY = 'agentPivot.worktreeProvisioningTombstones.v1';
 const MAX_RECORDS = 32;
 // Tombstones live in their own bucket with their own (generous) bound so
 // they can never crowd out live recovery records (or be evicted by
-// them). The bound exists for memento health; legitimate churn prunes
-// tombstones long before it is reached.
-const MAX_TOMBSTONES = 1024;
+// them). The bound exists for memento health; dismissals that would
+// exceed it are refused with store-full instead of silently evicting a
+// protection record.
+export const MAX_PROVISIONING_TOMBSTONES = 1024;
+const MAX_TOMBSTONES = MAX_PROVISIONING_TOMBSTONES;
 const MAX_STRING = 32 * 1024;
 
 interface MementoLike {
@@ -119,20 +121,26 @@ export class WorktreeProvisioningStore {
     async pruneTombstones(
         existingWorktreePaths: ReadonlySet<string>,
         snapshotTruncated = false,
-        snapshotStartedAt = Number.MAX_SAFE_INTEGER
+        snapshotStartedAt = Number.MAX_SAFE_INTEGER,
+        discoveredRepositoryKeys?: ReadonlySet<string>
     ): Promise<void> {
         if (snapshotTruncated) {
             return;
         }
         // Read and write inside the same queued operation: reading outside
         // the queue let a prune overwrite a concurrent replace's newer
-        // content. And a tombstone younger than the snapshot's load start
-        // may simply be invisible to that snapshot — never prune it.
+        // content. Keep a tombstone whenever the evidence is not positive:
+        // same-millisecond timestamps stay (conservative equality), and a
+        // repository missing from this snapshot (temporarily removed from
+        // the workspace, unreadable, or skipped by discovery) proves
+        // nothing about its worktrees on disk.
         const operation = async (): Promise<void> => {
             const tombstones = this.parseRecords(
                 this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
             const kept = tombstones.filter(record =>
-                (record.tombstonedAt ?? 0) > snapshotStartedAt
+                (record.tombstonedAt ?? 0) >= snapshotStartedAt
+                || (discoveredRepositoryKeys
+                    && !discoveredRepositoryKeys.has(record.plan.repositoryKey))
                 || existingWorktreePaths.has(
                     `${record.plan.repositoryKey} ${record.plan.worktreePath}`));
             if (kept.length === tombstones.length) {

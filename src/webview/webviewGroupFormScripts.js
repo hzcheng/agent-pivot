@@ -413,6 +413,7 @@ function initWorktreeGroupForm(options) {
             case 'base-ref-unavailable': return 'base ref unavailable';
             case 'allocation-exhausted': return 'no free branch/path suffix';
             case 'repository-unavailable': return 'repository unavailable';
+            case 'store-full': return 'too many dismissed worktrees pending cleanup; remove them from disk first';
             default: return code || 'unavailable';
         }
     }

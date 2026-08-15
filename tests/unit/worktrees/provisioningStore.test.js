@@ -171,6 +171,41 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 a tombstone younger than the snapshot s
         'a snapshot that started after the dismissal prunes normally');
 });
 
+test('WORKTREE-PROVISIONING-RECOVERY-001 prune keeps tombstones for undiscovered repositories and same-ms records', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const invisibleRepo = {
+        ...record('tomb-invisible'),
+        tombstone: true,
+        tombstonedAt: 1000,
+    };
+    invisibleRepo.plan = {
+        ...invisibleRepo.plan,
+        repositoryKey: '/ghost/.git',
+        worktreePath: '/ghost/.agent-pivot/worktrees/fix-login-race',
+    };
+    invisibleRepo.worktreeKey = {
+        repositoryKey: '/ghost/.git',
+        canonicalWorktreePath: '/ghost/.agent-pivot/worktrees/fix-login-race',
+    };
+    invisibleRepo.row = {
+        ...invisibleRepo.row,
+        repositoryKey: '/ghost/.git',
+        proposedPath: '/ghost/.agent-pivot/worktrees/fix-login-race',
+    };
+    const sameMs = { ...record('tomb-same-ms'), tombstone: true, tombstonedAt: 1000 };
+    await store.replace([invisibleRepo, sameMs]);
+    await store.pruneTombstones(
+        new Set(), false, 1000, new Set(['/repo/.git']));
+    assert.deepEqual(store.read().map(entry => entry.operationId).sort(),
+        ['tomb-invisible', 'tomb-same-ms'],
+        'an undiscovered repository and a same-millisecond tombstone both stay');
+    // Positive evidence prunes: the repo was discovered and the path is gone.
+    await store.pruneTombstones(
+        new Set(), false, 2000, new Set(['/ghost/.git', '/repo/.git']));
+    assert.equal(store.read().length, 0);
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
     const valid = record('valid');
     const state = memento([

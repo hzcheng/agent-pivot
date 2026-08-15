@@ -122,6 +122,9 @@ function fixture(overrides = {}) {
             dismissed.push([operationId, projectId]);
             return true;
         },
+        hasMemberOperation: operationId =>
+            dismissed.every(entry => entry[0] !== operationId)
+                && started.every(input => input.operationId !== operationId),
         onDidChange: () => changes.push(1),
         ...overrides,
     };
@@ -143,14 +146,14 @@ function confirmedMembers(overrides = {}) {
             repositoryKey: '/alpha/.git', baseRef: 'refs/heads/main',
             branchName: 'agent-pivot/fix-login',
             worktreePath: '/alpha/.worktrees/fix-login',
-            setupCommand: ['npm', 'ci'],
+            setupEnabled: true,
             ...(overrides.alpha || {}),
         },
         {
             repositoryKey: '/beta/.git', baseRef: 'refs/heads/main',
             branchName: 'agent-pivot/fix-login',
             worktreePath: '/beta/.worktrees/fix-login',
-            setupCommand: ['make', 'setup'],
+            setupEnabled: true,
             ...(overrides.beta || {}),
         },
     ];
@@ -353,6 +356,28 @@ test('WORKTREE-GROUPS-CREATE-001 preview recomputes only the affected repository
     await current.controller.preview('project', 'Fix logout', selections);
     assert.ok(branchProbes.slice(firstRound).some(probe => probe[0] === '/alpha'),
         'a new slug invalidates every row');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 memo keys never collide across concatenation boundaries', async () => {
+    // Regression: base refs/heads/a + name "bc" and refs/heads/ab + name
+    // "c" produced the same concatenated key and reused the wrong plan.
+    const branchProbes = [];
+    const current = fixture({
+        isBranchAvailable: async (cwd, branch) => {
+            branchProbes.push([cwd, branch]);
+            return true;
+        },
+    });
+    const first = await current.controller.preview('project', 'bc', [
+        { repositoryKey: '/alpha/.git', baseRef: 'refs/heads/a' },
+    ]);
+    const second = await current.controller.preview('project', 'c', [
+        { repositoryKey: '/alpha/.git', baseRef: 'refs/heads/ab' },
+    ]);
+    assert.equal(first.members[0].baseRef, 'refs/heads/a');
+    assert.equal(second.members[0].baseRef, 'refs/heads/ab',
+        'the second preview must not reuse the first result');
+    assert.equal(second.members[0].branchName, 'agent-pivot/c');
 });
 
 test('WORKTREE-GROUPS-CREATE-001 a throwing executor degrades the member without rejecting confirm', async () => {

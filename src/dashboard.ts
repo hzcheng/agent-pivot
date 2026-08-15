@@ -1613,6 +1613,8 @@ async function initializeDashboard(
             isolatedSessionController!.retry(operationId, projectId),
         dismissMemberOperation: (operationId, projectId) =>
             isolatedSessionController!.dismiss(operationId, projectId),
+        hasMemberOperation: operationId =>
+            isolatedSessionController!.hasOperation(operationId),
         onDidChange: () => {
             void aiSessionDashboardController.refreshNow(
                 'worktree-group-creation', { fallbackToFullRefresh: false });

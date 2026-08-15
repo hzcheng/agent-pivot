@@ -10,7 +10,6 @@ import type { WorktreeKey } from './types';
 const MAX_GIT_ERROR_LENGTH = 512;
 const PROVISIONING_GIT_TIMEOUT_MS = 60_000;
 const PROVISIONING_GIT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
-const MAX_LOCAL_BRANCHES = 512;
 
 export type GitWorktreeProvisioningErrorCode =
   | 'cancelled'
@@ -101,9 +100,10 @@ export class GitWorktreeProvisioner {
             .split('\n')
             .map(line => line.trim())
             .filter(line => line && isSafeBranchName(line));
+        // PRD §6.1: 不设上限 — the git output itself is already bounded by
+        // the provisioner's 4MB output cap.
         return Array.from(new Set(branches))
-            .sort((left, right) => left.localeCompare(right))
-            .slice(0, MAX_LOCAL_BRANCHES);
+            .sort((left, right) => left.localeCompare(right));
     }
 
     /**

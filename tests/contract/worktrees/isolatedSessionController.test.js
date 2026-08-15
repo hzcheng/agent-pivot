@@ -304,6 +304,7 @@ test('WORKTREE-GROUPS-CREATE-001 group member operations stay out of Unmanaged a
     const outcome = await current.controller.startGroupMember({
         operationId: 'group-member-m1',
         projectId: 'project',
+        navigationIdentity: 'navigation:workspace',
         plan,
         setupCommand: ['npm', 'ci'],
         groupId: 'g1',
@@ -349,7 +350,8 @@ test('WORKTREE-GROUPS-CREATE-001 a failed group member retries its exact confirm
         },
     });
     const failed = await current.controller.startGroupMember({
-        operationId: 'group-member-m2', projectId: 'project', plan,
+        operationId: 'group-member-m2', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
         setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm2',
     });
     assert.equal(failed.kind, 'failed');
@@ -366,6 +368,104 @@ test('WORKTREE-GROUPS-CREATE-001 a failed group member retries its exact confirm
         'a group member retry executes the confirmed plan verbatim');
     assert.equal(attemptedPlans[1].worktreePath, '/repo/.worktrees/fix-login',
         'an execution-time collision never silently re-suffixes the path');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 startGroupMember rejects a mismatched navigation identity', async () => {
+    // A Save Workspace As between confirm and member start must never mix
+    // the manifest bucket and the physical provisioning.
+    const current = fixture();
+    const outcome = await current.controller.startGroupMember({
+        operationId: 'group-member-mismatch',
+        projectId: 'project',
+        navigationIdentity: 'navigation:another-workspace',
+        plan: {
+            repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+            taskName: 'Fix login', slug: 'fix-login',
+            branchName: 'agent-pivot/fix-login',
+            worktreePath: '/repo/.worktrees/fix-login',
+        },
+        setupCommand: [],
+        groupId: 'g1',
+        memberId: 'm9',
+    });
+    assert.equal(outcome.kind, 'failed');
+    assert.equal(outcome.errorCode, 'workspace-unavailable');
+    assert.equal(current.effects.filter(effect => effect[0] === 'create').length, 0,
+        'no physical work happens under a mismatched identity');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 preferredPrimary survives persistence and restore', async () => {
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    let failSetup = true;
+    const current = fixture({
+        runSetup: async () => {
+            if (failSetup) {
+                throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+            }
+        },
+    });
+    const failed = await current.controller.startGroupMember({
+        operationId: 'group-member-m5', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm5',
+        preferredPrimary: true,
+    });
+    assert.equal(failed.kind, 'partial');
+    const persistedRecord = current.persisted.at(-1)
+        .find(record => record.operationId === 'group-member-m5');
+    assert.equal(persistedRecord.preferredPrimary, true,
+        'the confirmed primary choice is persisted with the recovery record');
+
+    // Restore into a fresh controller and retry: the recovered context
+    // still carries the primary preference.
+    const recorded = [];
+    const restored = fixture({
+        recoveredOperations: current.persisted.at(-1),
+        recordProvisionedWorktree: async info => { recorded.push(info); },
+    });
+    const retried = await restored.controller.retry('group-member-m5', 'project');
+    assert.equal(retried.kind, 'succeeded');
+    assert.equal(recorded[0].preferredPrimary, true);
+});
+
+test('WORKTREE-GROUPS-CREATE-001 dismissing a setup-incomplete member keeps a seeding tombstone', async () => {
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-m6', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm6',
+    });
+
+    assert.equal(current.controller.dismiss('group-member-m6', 'project'), true);
+    const persisted = current.persisted.at(-1);
+    const tombstone = persisted.find(record => record.operationId === 'group-member-m6');
+    assert.equal(tombstone.tombstone, true,
+        'the dismissed record persists as a tombstone');
+    assert.equal(tombstone.groupId, 'g1');
+    assert.deepEqual(current.controller.getRows(), [], 'no row survives');
+
+    // The tombstone restores without a row and keeps blocking seeding.
+    const restored = fixture({ recoveredOperations: persisted });
+    assert.deepEqual(restored.controller.getRows(), [],
+        'a tombstone never restores as a retry row');
+    const rePersisted = restored.persisted.at(-1) || [];
+    assert.ok(restored.controller.hasOperation('group-member-m6') === false);
+    void rePersisted;
 });
 
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
@@ -529,8 +629,10 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 dismiss drops a failed row only from it
     assert.equal(current.controller.getRows().length, 1);
     assert.equal(current.controller.dismiss('request-dismiss', 'project'), true);
     assert.deepEqual(current.controller.getRows(), []);
-    assert.equal(current.persisted.at(-1).length, 0,
-        'dismissal clears the persisted recovery record');
+    const remaining = current.persisted.at(-1);
+    assert.equal(remaining.length, 1,
+        'a setup-incomplete worktree keeps a tombstone, never a row');
+    assert.equal(remaining[0].tombstone, true);
 });
 
 test('WORKTREE-PROVISIONING-PROTOCOL-001 rejects retry and cancel from another project scope', async () => {

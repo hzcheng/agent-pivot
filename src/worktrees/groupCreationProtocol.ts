@@ -36,7 +36,12 @@ export interface ConfirmWorktreeGroupRequest {
         baseRef: string;
         branchName: string;
         worktreePath: string;
-        setupCommand: string[];
+        /**
+         * Whether setup runs for this member. The command itself is never
+         * accepted from the webview: the host re-reads the resource-scoped
+         * configuration for the repository at execution time.
+         */
+        setupEnabled: boolean;
     }[];
 }
 
@@ -149,15 +154,13 @@ export function parseConfirmWorktreeGroupRequest(
     for (const candidate of value.members.slice(0, 17)) {
         if (!isRecord(candidate)
             || !sameKeys(candidate, [
-                'baseRef', 'branchName', 'repositoryKey', 'setupCommand', 'worktreePath',
+                'baseRef', 'branchName', 'repositoryKey', 'setupEnabled', 'worktreePath',
             ])
             || !isSafeString(candidate.repositoryKey)
             || !isSafeString(candidate.branchName)
             || !isSafeString(candidate.worktreePath)
             || !isSafeRef(candidate.baseRef)
-            || !Array.isArray(candidate.setupCommand)
-            || candidate.setupCommand.length > 128
-            || !(candidate.setupCommand as unknown[]).every(isSafeString)) {
+            || typeof candidate.setupEnabled !== 'boolean') {
             return null;
         }
         members.push(candidate as unknown as ConfirmWorktreeGroupRequest['members'][number]);

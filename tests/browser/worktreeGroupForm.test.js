@@ -203,8 +203,8 @@ test('WORKTREE-GROUPS-CREATE-UI-001 opens inline, previews, and confirms the exa
         baseRef: 'refs/heads/main',
         branchName: 'agent-pivot/fix-login',
         worktreePath: '/alpha/.worktrees/fix-login',
-        setupCommand: ['npm', 'ci'],
-    }], 'the host receives exactly the previewed values');
+        setupEnabled: true,
+    }], 'the host receives exactly the previewed values, with setup as a toggle only');
     assert.equal(confirmRequest.primaryRepositoryKey, '/alpha/.git');
 
     await postHostMessage(page, {
@@ -371,6 +371,56 @@ test('WORKTREE-GROUPS-CREATE-UI-001 confirm failures render human text and the n
         .evaluate(button => button.click());
     assert.equal(await createButton.isDisabled(), false,
         'closing the form re-enables the new button');
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 the base combobox filters and selects by keyboard', async t => {
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+
+    await page.locator('[data-group-form-base="/alpha/.git"]')
+        .evaluate(button => button.click());
+    const filter = page.locator('[data-group-form-base-filter]');
+    assert.equal(await filter.count(), 1, 'the combobox opens with a filter input');
+    await filter.evaluate(input => input.focus());
+    await page.keyboard.type('rele');
+    const options = page.locator('[data-group-form-base-option]');
+    assert.deepEqual(await options.allTextContents(), ['release/1.0'],
+        'typing filters the local branch list');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(50);
+    const lastPreview = (await postedMessages(page))
+        .filter(message => message.type === 'preview-worktree-group').at(-1);
+    assert.deepEqual(lastPreview.selections, [
+        { repositoryKey: '/alpha/.git', baseRef: 'refs/heads/release/1.0' },
+    ], 'the keyboard selection drives the next preview');
+    assert.equal(await page.locator('[data-group-form-base="/alpha/.git"]').textContent(),
+        'release/1.0 \u25be'.replace('\\u25be', '\u25be'));
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 the form stays usable at the 170px minimum width', async t => {
+    const page = await openFormPage(t);
+    await page.setViewportSize({ width: 170, height: 600 });
+    await openBootstrappedForm(page);
+
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 170,
+        'no horizontal overflow');
+    const form = page.locator('[data-worktree-group-form]');
+    assert.equal(await form.locator('[data-group-form-name]').count(), 1);
+    const widths = await form.evaluate(element => {
+        const contentWidth = element.querySelector('.ai-session-group-form-member')
+            .getBoundingClientRect().width;
+        const base = element.querySelector('[data-group-form-base]')
+            .getBoundingClientRect().width;
+        const confirm = element.querySelector('[data-group-form-action="confirm"]')
+            .getBoundingClientRect();
+        return { contentWidth, base, confirmWidth: confirm.width, confirmRight: confirm.right };
+    });
+    assert.ok(widths.contentWidth > 0);
+    assert.ok(widths.base >= widths.contentWidth - 10,
+        `the base combobox spans the stacked member row content box (${widths.base} of ${widths.contentWidth})`);
+    assert.ok(widths.confirmWidth > 0 && widths.confirmRight <= 170,
+        'the confirm action stays fully inside the viewport');
 });
 
 test('WORKTREE-GROUPS-CREATE-UI-001 failed member rows offer Retry and Dismiss', async t => {

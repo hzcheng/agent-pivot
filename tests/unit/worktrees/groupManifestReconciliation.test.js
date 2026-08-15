@@ -342,6 +342,51 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 a snapshot refresh racing g
     assert.equal(store.listGroups(WORKSPACE)[0].members[0].state, 'ready');
 });
 
+test('WORKTREE-GROUPS-003 a dismissed setup-incomplete tombstone still blocks ready seeding', async () => {
+    // Dismiss deletes the member and the row, but the tombstone record
+    // keeps reconciliation from presenting a half-initialized worktree
+    // (worktree created, setup never ran) as a ready group.
+    const store = new WorktreeGroupManifestStore(memento());
+    const content = snapshot([{
+        repositoryKey: '/alpha/.git',
+        rootBindings: [],
+        worktrees: [gitWorktree('/alpha/.git', '/alpha/.worktrees/fix-login', {
+            branchRef: 'refs/heads/agent-pivot/fix-login',
+        })],
+    }]);
+    const tombstone = {
+        version: 1,
+        operationId: 'op-tombstone',
+        projectId: 'project',
+        workspaceNavigationIdentity: WORKSPACE,
+        tombstone: true,
+        providerId: 'codex',
+        setupCommand: ['npm', 'ci'],
+        plan: {
+            repositoryKey: '/alpha/.git', commandCwd: '/alpha',
+            baseRef: 'refs/heads/main', taskName: 'Fix login', slug: 'fix-login',
+            branchName: 'agent-pivot/fix-login',
+            worktreePath: '/alpha/.worktrees/fix-login',
+        },
+        completedSteps: ['worktree'],
+        worktreeKey: {
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+        },
+        row: {
+            kind: 'provisioning', operationId: 'op-tombstone', repositoryKey: '/alpha/.git',
+            taskName: 'Fix login', stage: 'failed', completedSteps: ['worktree'],
+            retryable: true, cancellable: false,
+        },
+    };
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        recoveryRecords: [tombstone],
+    });
+    assert.deepEqual(store.listGroups(WORKSPACE), [],
+        'a half-initialized worktree is never seeded ready after dismissal');
+});
+
 test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seeding until retried', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const content = snapshot([{

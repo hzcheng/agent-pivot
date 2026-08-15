@@ -3921,11 +3921,71 @@ body.steward-sidebar {
 
             .ai-session-group-form-base {
                 max-width: 140px;
+                padding: 1px 6px;
                 background: var(--vscode-dropdown-background, var(--vscode-input-background));
                 color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
                 border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+                border-radius: 3px;
                 font: inherit;
                 font-size: 9px;
+                cursor: pointer;
+                text-align: left;
+            }
+
+            .ai-session-group-form-base-combobox {
+                position: relative;
+                display: inline-block;
+
+                .ai-session-group-form-base-filter {
+                    width: 140px;
+                    padding: 1px 6px;
+                    background: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground, var(--vscode-foreground));
+                    border: 1px solid var(--vscode-focusBorder);
+                    border-radius: 3px;
+                    font: inherit;
+                    font-size: 9px;
+                }
+
+                .ai-session-group-form-base-listbox {
+                    position: absolute;
+                    z-index: 5;
+                    top: 100%;
+                    left: 0;
+                    min-width: 160px;
+                    max-height: 180px;
+                    overflow-y: auto;
+                    margin: 2px 0 0;
+                    padding: 2px 0;
+                    list-style: none;
+                    background: var(--vscode-menu-background, var(--vscode-editor-background));
+                    border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+                    border-radius: 4px;
+                    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, .3));
+
+                    li {
+                        padding: 2px 8px;
+                        font-size: 9px;
+                        cursor: pointer;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+
+                        &[data-active] {
+                            background: var(--vscode-list-activeSelectionBackground,
+                                var(--vscode-list-hoverBackground));
+                        }
+
+                        &[aria-selected="true"] {
+                            font-weight: 600;
+                        }
+                    }
+
+                    .ai-session-group-form-base-empty {
+                        color: var(--vscode-descriptionForeground);
+                        cursor: default;
+                    }
+                }
             }
 
             .ai-session-group-form-primary,
@@ -6152,6 +6212,52 @@ body.steward-sidebar .project .ai-session-attention-indicator {
 @media (max-width: 280px) {
     body.steward-sidebar {
         overflow-x: hidden;
+
+        // The creation form stacks every control on its own line so the
+        // combobox, setup toggle, and actions stay usable at the 170px
+        // minimum sidebar width.
+        .ai-session-group-form {
+            margin: 2px 2px 4px;
+            padding: 4px;
+
+            .ai-session-group-form-member {
+                display: block;
+
+                > * {
+                    margin-top: 4px;
+                }
+
+                .ai-session-group-form-check,
+                .ai-session-group-form-primary,
+                .ai-session-group-form-setup {
+                    display: flex;
+                }
+
+                .ai-session-group-form-base,
+                .ai-session-group-form-base-filter {
+                    width: 100%;
+                    max-width: 100%;
+                    box-sizing: border-box;
+                }
+
+                .ai-session-group-form-base-combobox {
+                    display: block;
+                }
+
+                .ai-session-group-form-base-listbox {
+                    min-width: 0;
+                    width: 100%;
+                }
+            }
+
+            .ai-session-group-form-actions {
+                flex-wrap: wrap;
+
+                button {
+                    flex: 1 1 auto;
+                }
+            }
+        }
 
         .project {
             min-width: 0;

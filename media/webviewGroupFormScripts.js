@@ -43,6 +43,7 @@ function initWorktreeGroupForm(options) {
                 previewDirty: false,
                 previewRequestId: '',
                 previewTimer: 0,
+                baseDropdown: null,
                 confirming: false,
                 confirmRequestId: '',
                 formError: '',
@@ -276,9 +277,9 @@ function initWorktreeGroupForm(options) {
                 baseRef: preview.baseRef,
                 branchName: preview.branchName,
                 worktreePath: preview.worktreePath,
-                setupCommand: state.setupDisabled[repository.repositoryKey]
-                    ? []
-                    : (repository.setupCommand || []),
+                // The host re-reads the configured command per repository;
+                // the webview only carries the user's toggle.
+                setupEnabled: !state.setupDisabled[repository.repositoryKey],
             });
         }
         var primaryAvailable = members.some(function (member) {
@@ -326,6 +327,10 @@ function initWorktreeGroupForm(options) {
                 // focus lands on the new group row once it renders.
                 announce(projectId, 'Worktree group created.');
                 closeForm(projectId, false);
+                // The group row usually rendered before this settlement
+                // arrived; try the focus immediately instead of waiting
+                // for a replacement that may never come.
+                reconcileDom();
             } else {
                 state.formError = typeof message.errorCode === 'string'
                     ? message.errorCode : 'unexpected-error';
@@ -452,17 +457,14 @@ function initWorktreeGroupForm(options) {
                     refs.push(ref);
                 }
             });
-        var optionsHtml = refs.map(function (ref) {
-            var selected = (state.baseRefOverrides[key] || repository.defaultBaseRef) === ref;
-            return '<option value="' + escapeHtml(ref) + '"'
-                + (selected ? ' selected' : '') + '>'
-                + escapeHtml(shortRefName(ref)) + '</option>';
-        }).join('');
+        var selectedRef = state.baseRefOverrides[key] || repository.defaultBaseRef;
+        var baseHtml = baseComboboxHtml(state, key, repository, refs, selectedRef, checked);
         var multiRepo = state.repositories.length > 1;
         var preflight = preview && preview.preflight !== 'ok'
             ? '<span class="ai-session-group-form-preflight" role="alert" id="group-form-preflight-'
                 + index + '">' + escapeHtml(describePreflight(preview.preflight.code)) + '</span>'
             : '';
+        var preflightId = preflight ? 'group-form-preflight-' + index : '';
         var plan = preview && preview.preflight === 'ok'
             ? '<span class="ai-session-group-form-plan">'
                 + escapeHtml(preview.worktreePath) + ' \u2190 '
@@ -488,16 +490,55 @@ function initWorktreeGroupForm(options) {
             + (multiRepo
                 ? '<label class="ai-session-group-form-check">'
                     + '<input type="checkbox" data-group-form-check="' + escapeHtml(key) + '"'
-                    + (checked ? ' checked' : '') + '>'
+                    + (checked ? ' checked' : '')
+                    + (preflightId ? ' aria-describedby="' + preflightId + '"' : '') + '>'
                     + '<span>' + escapeHtml(repository.label) + '</span></label>'
                 : '<span class="ai-session-group-form-check ai-session-group-form-single">'
                     + escapeHtml(repository.label) + '</span>')
-            + '<select class="ai-session-group-form-base" data-group-form-base="'
-                + escapeHtml(key) + '" aria-label="Base branch for '
-                + escapeHtml(repository.label) + '"' + (checked ? '' : ' disabled') + '>'
-                + optionsHtml + '</select>'
+            + baseHtml
             + primary + setup + plan + preflight
             + '</div>';
+    }
+
+    // Searchable base-branch combobox (PRD §6.1): a text input filters the
+    // local branch list; ArrowUp/Down + Enter choose, Esc closes.
+    function baseComboboxHtml(state, key, repository, refs, selectedRef, checked) {
+        var label = repository.label;
+        var open = state.baseDropdown && state.baseDropdown.repositoryKey === key;
+        if (!open) {
+            return '<button type="button" class="ai-session-group-form-base"'
+                + ' data-group-form-base="' + escapeHtml(key) + '"'
+                + ' role="combobox" aria-expanded="false"'
+                + ' aria-label="Base branch for ' + escapeHtml(label) + '"'
+                + (checked ? '' : ' disabled') + '>'
+                + escapeHtml(shortRefName(selectedRef)) + ' \u25be</button>';
+        }
+        var filter = state.baseDropdown.filter || '';
+        var filtered = refs.filter(function (ref) {
+            return shortRefName(ref).toLowerCase().indexOf(filter.toLowerCase()) >= 0;
+        });
+        var activeIndex = Math.min(state.baseDropdown.activeIndex, filtered.length - 1);
+        var optionsHtml = filtered.map(function (ref, position) {
+            return '<li role="option" id="group-form-base-option-' + position + '"'
+                + ' data-group-form-base-option="' + escapeHtml(ref) + '"'
+                + ' aria-selected="' + (ref === selectedRef) + '"'
+                + (position === activeIndex ? ' data-active' : '') + '>'
+                + escapeHtml(shortRefName(ref)) + '</li>';
+        }).join('');
+        return '<span class="ai-session-group-form-base-combobox">'
+            + '<input type="text" class="ai-session-group-form-base-filter"'
+            + ' data-group-form-base-filter="' + escapeHtml(key) + '"'
+            + ' role="combobox" aria-expanded="true"'
+            + ' aria-controls="group-form-base-listbox"'
+            + (activeIndex >= 0
+                ? ' aria-activedescendant="group-form-base-option-' + activeIndex + '"'
+                : '')
+            + ' aria-label="Search base branch for ' + escapeHtml(label) + '"'
+            + ' value="' + escapeHtml(filter) + '">'
+            + '<ul role="listbox" id="group-form-base-listbox"'
+            + ' class="ai-session-group-form-base-listbox">'
+            + (optionsHtml || '<li class="ai-session-group-form-base-empty">no matching branch</li>')
+            + '</ul></span>';
     }
 
     function formSlot(projectId) {
@@ -552,6 +593,7 @@ function initWorktreeGroupForm(options) {
         }
         var attributes = [
             'data-group-form-name',
+            'data-group-form-base-filter',
             'data-group-form-base',
             'data-group-form-check',
             'data-group-form-setup',
@@ -562,11 +604,13 @@ function initWorktreeGroupForm(options) {
             var attribute = attributes[index];
             var value = active.getAttribute && active.getAttribute(attribute);
             if (value !== null && value !== undefined) {
+                var isTextInput = attribute === 'data-group-form-name'
+                    || attribute === 'data-group-form-base-filter';
                 return {
                     selector: '[' + attribute + (value ? '="' + CSS.escape(value) + '"' : '') + ']',
-                    selectionStart: attribute === 'data-group-form-name'
+                    selectionStart: isTextInput
                         ? active.selectionStart : null,
-                    selectionEnd: attribute === 'data-group-form-name'
+                    selectionEnd: isTextInput
                         ? active.selectionEnd : null,
                 };
             }
@@ -676,6 +720,45 @@ function initWorktreeGroupForm(options) {
     }
 
     function onClick(target, projectDiv, projectId) {
+        var state = getState(projectId);
+        var baseToggle = target.closest
+            ? target.closest('[data-group-form-base]') : null;
+        if (baseToggle) {
+            if (state) {
+                var toggleKey = baseToggle.getAttribute('data-group-form-base');
+                state.baseDropdown = state.baseDropdown
+                    && state.baseDropdown.repositoryKey === toggleKey
+                    ? null
+                    : { repositoryKey: toggleKey, filter: '', activeIndex: 0 };
+                renderForm(projectId);
+                if (state.baseDropdown) {
+                    var filterInput = formSlot(projectId)
+                        && formSlot(projectId).querySelector('[data-group-form-base-filter]');
+                    if (filterInput) {
+                        filterInput.focus();
+                    }
+                }
+            }
+            return true;
+        }
+        var baseOption = target.closest
+            ? target.closest('[data-group-form-base-option]') : null;
+        if (baseOption) {
+            if (state && state.baseDropdown) {
+                state.baseRefOverrides[state.baseDropdown.repositoryKey] =
+                    baseOption.getAttribute('data-group-form-base-option');
+                state.baseDropdown = null;
+                schedulePreview(projectId, 0);
+                renderForm(projectId);
+            }
+            return true;
+        }
+        if (state && state.baseDropdown
+            && !(target.closest && target.closest('.ai-session-group-form-base-combobox'))) {
+            state.baseDropdown = null;
+            renderForm(projectId);
+            // Fall through: the click may still hit another form control.
+        }
         var formAction = target.closest
             ? target.closest('[data-group-form-action]') : null;
         if (formAction) {
@@ -687,7 +770,6 @@ function initWorktreeGroupForm(options) {
             } else if (action === 'confirm-available') {
                 confirmForm(projectId, true);
             } else if (action === 'select-all' || action === 'select-none') {
-                var state = getState(projectId);
                 if (state) {
                     var checkAll = action === 'select-all';
                     state.repositories.forEach(function (repository) {
@@ -723,6 +805,19 @@ function initWorktreeGroupForm(options) {
     }
 
     function onInput(target) {
+        var filterInput = target.closest
+            ? target.closest('[data-group-form-base-filter]') : null;
+        if (filterInput) {
+            var filterForm = filterInput.closest('[data-worktree-group-form]');
+            var filterProjectId = filterForm && filterForm.getAttribute('data-project-id');
+            var filterState = filterProjectId && getState(filterProjectId);
+            if (filterState && filterState.baseDropdown) {
+                filterState.baseDropdown.filter = filterInput.value;
+                filterState.baseDropdown.activeIndex = 0;
+                renderForm(filterProjectId);
+            }
+            return true;
+        }
         var nameInput = target.closest
             ? target.closest('[data-group-form-name]') : null;
         if (!nameInput) {
@@ -765,13 +860,6 @@ function initWorktreeGroupForm(options) {
             schedulePreview(projectId, 0);
             return true;
         }
-        var base = target.closest('[data-group-form-base]');
-        if (base) {
-            state.baseRefOverrides[base.getAttribute('data-group-form-base')] =
-                base.value;
-            schedulePreview(projectId, 0);
-            return true;
-        }
         var setup = target.closest('[data-group-form-setup]');
         if (setup) {
             state.setupDisabled[setup.getAttribute('data-group-form-setup')] =
@@ -796,6 +884,51 @@ function initWorktreeGroupForm(options) {
             return false;
         }
         var projectId = form.getAttribute('data-project-id');
+        var state = projectId && getState(projectId);
+        if (state && state.baseDropdown
+            && event.target.hasAttribute('data-group-form-base-filter')) {
+            var dropdown = state.baseDropdown;
+            if (event.key === 'Escape') {
+                state.baseDropdown = null;
+                renderForm(projectId);
+                return true;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp'
+                || event.key === 'Enter') {
+                var repository = state.repositories.find(function (candidate) {
+                    return candidate.repositoryKey === dropdown.repositoryKey;
+                });
+                var refs = repository
+                    ? [repository.defaultBaseRef]
+                        .concat((repository.localBranches || []).map(function (branch) {
+                            return 'refs/heads/' + branch;
+                        }))
+                        .filter(function (ref, position, all) {
+                            return ref && all.indexOf(ref) === position;
+                        })
+                    : [];
+                var filtered = refs.filter(function (ref) {
+                    return shortRefName(ref).toLowerCase()
+                        .indexOf((dropdown.filter || '').toLowerCase()) >= 0;
+                });
+                if (event.key === 'Enter') {
+                    var chosen = filtered[Math.min(dropdown.activeIndex, filtered.length - 1)];
+                    if (chosen) {
+                        state.baseRefOverrides[dropdown.repositoryKey] = chosen;
+                    }
+                    state.baseDropdown = null;
+                    schedulePreview(projectId, 0);
+                    renderForm(projectId);
+                } else {
+                    var delta = event.key === 'ArrowDown' ? 1 : -1;
+                    dropdown.activeIndex = Math.max(0, Math.min(
+                        filtered.length - 1, dropdown.activeIndex + delta));
+                    renderForm(projectId);
+                }
+                event.preventDefault();
+                return true;
+            }
+        }
         if (event.key === 'Escape') {
             closeForm(projectId, true);
             return true;

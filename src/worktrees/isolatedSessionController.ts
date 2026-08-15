@@ -14,6 +14,7 @@ import {
     WorktreeProvisioningController,
     WorktreeProvisioningOutcome,
 } from './provisioningController';
+import type { WorktreeProvisioningRecoveryOperation } from './provisioningController';
 import type {
     ProvisioningWorktreeRow,
     WorktreeKey,
@@ -117,9 +118,19 @@ export class IsolatedSessionController {
     private readonly provisioning: WorktreeProvisioningController;
     private readonly preparing = new Set<string>();
     private readonly contextsByOperation = new Map<string, IsolatedSessionOperationContext>();
+    /**
+     * Dismissed intents whose physical worktree exists but whose setup
+     * never ran. They restore no row; they only keep reconciliation from
+     * seeding the half-initialized worktree as a ready group.
+     */
+    private readonly recoveryTombstones = new Map<string, PersistedWorktreeProvisioningOperation>();
 
     constructor(private readonly options: IsolatedSessionControllerOptions) {
         for (const record of options.recoveredOperations || []) {
+            if (record.tombstone) {
+                this.recoveryTombstones.set(record.operationId, record);
+                continue;
+            }
             const repository = options.getWorktreeSnapshot()?.repositories.find(candidate =>
                 candidate.repositoryKey === record.plan.repositoryKey);
             this.contextsByOperation.set(record.operationId, {
@@ -130,6 +141,7 @@ export class IsolatedSessionController {
                 ...(record.groupId && record.memberId
                     ? { groupId: record.groupId, memberId: record.memberId }
                     : {}),
+                ...(record.preferredPrimary ? { preferredPrimary: true } : {}),
                 repository,
                 taskName: record.plan.taskName,
                 providerId: record.providerId,
@@ -189,7 +201,9 @@ export class IsolatedSessionController {
                 });
             },
         });
-        this.provisioning.restore((options.recoveredOperations || []).map(record => ({
+        this.provisioning.restore((options.recoveredOperations || [])
+            .filter(record => !record.tombstone)
+            .map(record => ({
             operationId: record.operationId,
             plan: record.plan,
             completedSteps: record.completedSteps,
@@ -341,11 +355,38 @@ export class IsolatedSessionController {
                 context, this.options.getWorkspaceTarget(context.projectId))) {
             return false;
         }
+        const recovery = this.provisioning.getRecoveryOperations()
+            .find(operation => operation.operationId === operationId);
         if (!this.provisioning.discard(operationId)) {
             return false;
         }
+        // Dismissing an intent whose worktree exists but whose setup never
+        // ran must not let reconciliation re-seed the half-initialized
+        // worktree as ready: keep a tombstone that blocks seeding without
+        // ever restoring a row.
+        if (recovery
+            && recovery.completedSteps.includes('worktree')
+            && !recovery.completedSteps.includes('setup')
+            && context.setupCommand.length > 0) {
+            const tombstone = this.buildRecoveryRecord(recovery, context);
+            if (tombstone) {
+                this.recoveryTombstones.set(operationId, {
+                    ...tombstone,
+                    tombstone: true,
+                });
+                // discard's publish already persisted without the tombstone.
+                void this.persistOperations().catch(error =>
+                    this.options.onPersistenceError?.(error));
+            }
+        }
         this.contextsByOperation.delete(operationId);
         return true;
+    }
+
+    /** Whether any live operation (row or context) exists for the id. */
+    hasOperation(operationId: string): boolean {
+        return this.contextsByOperation.has(operationId)
+            || this.provisioning.getRows().some(row => row.operationId === operationId);
     }
 
     getRows(): ProvisioningWorktreeRow[] {
@@ -397,6 +438,12 @@ export class IsolatedSessionController {
     async startGroupMember(input: {
         operationId: string;
         projectId: string;
+        /**
+         * The navigation identity the group confirm captured. Verified
+         * strictly: a mid-flight Save Workspace As must never write the
+         * manifest and the physical provisioning into different buckets.
+         */
+        navigationIdentity: string;
         plan: WorktreeProvisioningPlan;
         setupCommand: readonly string[];
         groupId: string;
@@ -417,9 +464,12 @@ export class IsolatedSessionController {
         if (!target || !repository) {
             return { kind: 'failed', operationId, errorCode: 'workspace-unavailable' };
         }
+        if (target.workspace.navigationIdentity !== input.navigationIdentity) {
+            return { kind: 'failed', operationId, errorCode: 'workspace-unavailable' };
+        }
         this.contextsByOperation.set(operationId, {
             projectId: input.projectId,
-            navigationIdentity: target.workspace.navigationIdentity,
+            navigationIdentity: input.navigationIdentity,
             groupId: input.groupId,
             memberId: input.memberId,
             ...(input.preferredPrimary ? { preferredPrimary: true } : {}),
@@ -543,29 +593,42 @@ export class IsolatedSessionController {
                 if (!context) {
                     return null;
                 }
-                const record: PersistedWorktreeProvisioningOperation = {
-                    version: 1 as const,
-                    operationId: operation.operationId,
-                    projectId: context.projectId,
-                    providerId: context.providerId,
-                    ...(context.profile ? { profile: { ...context.profile } } : {}),
-                    setupCommand: context.setupCommand.slice(),
-                    plan: operation.plan,
-                    completedSteps: operation.completedSteps,
-                    ...(operation.worktreeKey ? { worktreeKey: operation.worktreeKey } : {}),
-                    row: operation.row,
-                };
-                if (context.navigationIdentity) {
-                    record.workspaceNavigationIdentity = context.navigationIdentity;
-                }
-                if (context.groupId && context.memberId) {
-                    record.groupId = context.groupId;
-                    record.memberId = context.memberId;
-                }
-                return record;
+                return this.buildRecoveryRecord(operation, context);
             })
             .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
-        return this.options.persistOperations(records);
+        const liveOperationIds = new Set(records.map(record => record.operationId));
+        const tombstones = Array.from(this.recoveryTombstones.values())
+            .filter(record => !liveOperationIds.has(record.operationId));
+        return this.options.persistOperations([...records, ...tombstones]);
+    }
+
+    private buildRecoveryRecord(
+        operation: WorktreeProvisioningRecoveryOperation,
+        context: IsolatedSessionOperationContext
+    ): PersistedWorktreeProvisioningOperation {
+        const record: PersistedWorktreeProvisioningOperation = {
+            version: 1 as const,
+            operationId: operation.operationId,
+            projectId: context.projectId,
+            providerId: context.providerId,
+            ...(context.profile ? { profile: { ...context.profile } } : {}),
+            setupCommand: context.setupCommand.slice(),
+            plan: operation.plan,
+            completedSteps: operation.completedSteps,
+            ...(operation.worktreeKey ? { worktreeKey: operation.worktreeKey } : {}),
+            row: operation.row,
+        };
+        if (context.navigationIdentity) {
+            record.workspaceNavigationIdentity = context.navigationIdentity;
+        }
+        if (context.groupId && context.memberId) {
+            record.groupId = context.groupId;
+            record.memberId = context.memberId;
+        }
+        if (context.preferredPrimary) {
+            record.preferredPrimary = true;
+        }
+        return record;
     }
 }
 

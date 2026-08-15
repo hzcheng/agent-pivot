@@ -19,7 +19,6 @@ import type {
 } from './types';
 
 const MAX_GROUP_MEMBERS = 16;
-const MAX_LOCAL_BRANCH_OPTIONS = 200;
 const MAX_PREVIEW_MEMO_ENTRIES = 200;
 
 export interface GroupCreationRepositoryOption {
@@ -61,8 +60,12 @@ export interface GroupCreationConfirmedMember {
     baseRef: string;
     branchName: string;
     worktreePath: string;
-    /** Empty array means "no setup for this member" (disabled or unset). */
-    setupCommand: string[];
+    /**
+     * Whether setup runs for this member. The host resolves the command
+     * from the repository's resource-scoped configuration at execution
+     * time; the webview never supplies argv.
+     */
+    setupEnabled: boolean;
 }
 
 export type GroupCreationConfirmResult =
@@ -88,6 +91,8 @@ export interface WorktreeGroupCreationControllerOptions {
     startMemberOperation: (input: {
         operationId: string;
         projectId: string;
+        /** The identity confirm captured; startGroupMember must verify it. */
+        navigationIdentity: string;
         plan: WorktreeProvisioningPlan;
         setupCommand: readonly string[];
         groupId: string;
@@ -99,6 +104,7 @@ export interface WorktreeGroupCreationControllerOptions {
         projectId?: string
     ) => Promise<WorktreeProvisioningOutcome>;
     dismissMemberOperation: (operationId: string, projectId?: string) => boolean;
+    hasMemberOperation: (operationId: string) => boolean;
     onDidChange?: () => void;
 }
 
@@ -146,8 +152,7 @@ export class WorktreeGroupCreationController {
             const commandCwd = repositoryCommandCwd(repository);
             let localBranches: string[] = [];
             try {
-                localBranches = (await this.options.listLocalBranches(commandCwd))
-                    .slice(0, MAX_LOCAL_BRANCH_OPTIONS);
+                localBranches = await this.options.listLocalBranches(commandCwd);
             } catch (_error) {
                 // A repository that cannot list branches still appears; its
                 // preflight reports the concrete blocker.
@@ -202,7 +207,8 @@ export class WorktreeGroupCreationController {
                 };
             }
             const member = await this.previewMember(
-                repository, selection, displayName, slug, label);
+                repository, selection, displayName, slug, label,
+                snapshot.revision ?? 0);
             // Setup resolution is a cheap config read and stays fresh; only
             // the git-backed plan/preflight work is memoized.
             member.setupCommand = this.options
@@ -217,13 +223,18 @@ export class WorktreeGroupCreationController {
         selection: GroupCreationPreviewSelection,
         displayName: string,
         slug: string,
-        label: string
+        label: string,
+        snapshotRevision: number | string
     ): Promise<GroupCreationPreviewMember> {
-        const memoKey = [
+        // Unambiguous serialization (plain concatenation collides), and the
+        // entry expires with the snapshot revision or a directory change.
+        const memoKey = JSON.stringify([
             repository.repositoryKey,
             selection.baseRef || '',
             slug,
-        ].join('');
+            snapshotRevision,
+            this.options.getWorktreeDirectory(),
+        ]);
         const cached = this.previewMemo.get(memoKey);
         if (cached) {
             return cached.then(member => ({ ...member, label }));
@@ -373,7 +384,11 @@ export class WorktreeGroupCreationController {
                     branchName: confirmed.branchName,
                     worktreePath: confirmed.worktreePath,
                 },
-                setupCommand: confirmed.setupCommand,
+                // The setup argv is always host-resolved from configuration
+                // (never taken from the request).
+                setupCommand: confirmed.setupEnabled
+                    ? this.options.getSetupCommand(confirmed.repositoryKey).slice()
+                    : [],
                 preferredPrimary: confirmed === confirmedPrimary,
             });
         }));
@@ -447,7 +462,14 @@ export class WorktreeGroupCreationController {
         if (!group || !member || member.state !== 'failed') {
             return false;
         }
-        this.options.dismissMemberOperation(memberOperationId(memberId), projectId);
+        const operationId = memberOperationId(memberId);
+        // A live operation that refuses discard (still running) blocks the
+        // dismiss; a missing operation (recovery evicted after a reload)
+        // never strands the manifest member.
+        if (this.options.hasMemberOperation(operationId)
+            && !this.options.dismissMemberOperation(operationId, projectId)) {
+            return false;
+        }
         try {
             await this.options.manifestStore.removeMember(
                 navigationIdentity, groupId, memberId);
@@ -474,6 +496,7 @@ export class WorktreeGroupCreationController {
             outcome = await this.options.startMemberOperation({
                 operationId: memberOperationId(input.memberId),
                 projectId,
+                navigationIdentity,
                 plan: input.plan,
                 setupCommand: input.setupCommand,
                 groupId,

@@ -24,7 +24,7 @@ const confirmRequest = {
         baseRef: 'refs/heads/main',
         branchName: 'agent-pivot/fix-login',
         worktreePath: '/alpha/.worktrees/fix-login',
-        setupCommand: ['npm', 'ci'],
+        setupEnabled: true,
     }],
 };
 
@@ -63,8 +63,12 @@ test('WORKTREE-GROUPS-CREATE-001 parses only exact bounded form requests', () =>
     }), null, 'an empty member set is rejected');
     assert.equal(parseConfirmWorktreeGroupRequest({
         ...confirmRequest,
-        members: [{ ...confirmRequest.members[0], setupCommand: ['npm', 7] }],
-    }), null, 'non-string setup argv is rejected');
+        members: [{ ...confirmRequest.members[0], setupEnabled: 'yes' }],
+    }), null, 'a non-boolean setupEnabled is rejected');
+    assert.equal(parseConfirmWorktreeGroupRequest({
+        ...confirmRequest,
+        members: [{ ...confirmRequest.members[0], setupCommand: ['rm', '-rf', '/'] }],
+    }), null, 'webview-supplied setup argv is rejected outright');
     assert.equal(parseConfirmWorktreeGroupRequest({
         ...confirmRequest,
         members: [{ ...confirmRequest.members[0], baseRef: '-x' }],

@@ -38,6 +38,14 @@ export interface PersistedWorktreeProvisioningOperation {
      */
     groupId?: string;
     memberId?: string;
+    /** The confirmed primary choice, applied once the member is ready. */
+    preferredPrimary?: boolean;
+    /**
+     * Dismissed intents whose physical worktree exists but whose setup
+     * never completed. Tombstones never restore as rows; they only keep
+     * reconciliation from seeding a half-initialized worktree as ready.
+     */
+    tombstone?: boolean;
     providerId: 'codex' | 'kimi' | 'claude';
     profile?: ProvisioningSessionProfile;
     setupCommand: string[];
@@ -110,12 +118,21 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
     const memberId = value.memberId === undefined
         ? undefined
         : (safeId(value.memberId) ? value.memberId : null);
+    const preferredPrimary = value.preferredPrimary === undefined
+        ? undefined
+        : (value.preferredPrimary === true ? true : null);
+    const tombstone = value.tombstone === undefined
+        ? undefined
+        : (value.tombstone === true ? true : null);
     const setupCommand = normalizeWorktreeSetupCommand(value.setupCommand);
     if (!plan || !row || !completedSteps || (value.worktreeKey !== undefined && !worktreeKey)
         || (value.profile !== undefined && !profile)
         || workspaceNavigationIdentity === null
         || groupId === null || memberId === null
+        || preferredPrimary === null
+        || tombstone === null
         || (groupId === undefined) !== (memberId === undefined)
+        || (preferredPrimary === true && groupId === undefined)
         || row.operationId !== value.operationId || row.repositoryKey !== plan.repositoryKey
         || row.taskName !== plan.taskName || row.proposedPath !== plan.worktreePath
         || row.completedSteps.join('\0') !== completedSteps.join('\0')
@@ -134,6 +151,8 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
         projectId: value.projectId,
         ...(workspaceNavigationIdentity ? { workspaceNavigationIdentity } : {}),
         ...(groupId && memberId ? { groupId, memberId } : {}),
+        ...(preferredPrimary ? { preferredPrimary: true } : {}),
+        ...(tombstone ? { tombstone: true } : {}),
         providerId: value.providerId as 'codex' | 'kimi' | 'claude',
         ...(profile ? { profile } : {}),
         setupCommand,

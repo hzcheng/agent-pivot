@@ -1635,3 +1635,89 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members block whole-group deleti
     assert.equal(switchRequest.type, 'preview-worktree-group-deletion');
     assert.equal(switchRequest.mode, 'visible-only');
 });
+
+test('WORKTREE-GROUPS-DERIVE-001 derives a group through the prefilled inline form', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const deriveItem = menu.locator('[data-action="worktree-group-derive"]');
+    assert.equal(await deriveItem.isVisible(), true, 'group rows offer derive');
+    await deriveItem.evaluate(item => item.click());
+
+    const openRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.deepEqual(openRequest, {
+        type: 'open-worktree-group-form',
+        version: 1,
+        projectId: 'project-a',
+        sourceGroupId: 'g-1',
+    }, 'the derive entry binds the source group');
+
+    await page.evaluate(() => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-form-state',
+                version: 1,
+                projectId: 'project-a',
+                derive: {
+                    sourceGroupId: 'g-1',
+                    sourceName: 'fix-login',
+                    suggestedName: 'fix-login-2',
+                    checkedRepositories: ['/alpha/.git'],
+                    baseOverrides: {
+                        '/alpha/.git': 'refs/heads/agent-pivot/fix-login',
+                    },
+                    skipped: [{
+                        repositoryLabel: 'beta',
+                        reason: 'repository not in workspace',
+                    }],
+                },
+                repositories: [
+                    {
+                        repositoryKey: '/alpha/.git',
+                        label: 'alpha',
+                        defaultBaseRef: 'refs/heads/main',
+                        localBranches: ['main', 'agent-pivot/fix-login'],
+                        defaultChecked: false,
+                        setupCommand: [],
+                    },
+                    {
+                        repositoryKey: '/beta/.git',
+                        label: 'beta',
+                        defaultBaseRef: 'refs/heads/main',
+                        localBranches: ['main'],
+                        defaultChecked: true,
+                        setupCommand: [],
+                    },
+                ],
+            },
+        }));
+    });
+    const form = page.locator('[data-worktree-group-form]');
+    assert.equal(await form.count(), 1, 'the derive form opens inline');
+    assert.match(await form.locator('.ai-session-group-form-title').textContent(),
+        /Derive from fix-login/);
+    assert.equal(await page.locator('[data-group-form-name]').inputValue(), 'fix-login-2',
+        'the default name is the source name with -2');
+    assert.equal(
+        await form.locator('[data-group-form-check="\/alpha\/.git"]').isChecked(), true,
+        'source member repositories are prechecked');
+    assert.equal(
+        await form.locator('[data-group-form-check="\/beta\/.git"]').isChecked(), false,
+        'skipped repositories stay unchecked');
+    assert.match(await form.textContent(), /beta \(repository not in workspace\)/,
+        'skipped members are noted with their reason');
+    // The preview binds the source group for revision drift detection.
+    const previewRequest = await page.evaluate(() => window.__postedMessages
+        .filter(message => message.type === 'preview-worktree-group').at(-1));
+    assert.equal(previewRequest.sourceGroupId, 'g-1');
+    assert.deepEqual(previewRequest.selections, [{
+        repositoryKey: '/alpha/.git',
+        baseRef: 'refs/heads/agent-pivot/fix-login',
+    }], 'the base ref is overridden to the source branch');
+});

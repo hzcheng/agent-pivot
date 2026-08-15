@@ -797,6 +797,8 @@ function initProjectAiSessionControls(options) {
         branchItem.hidden = !menu.__context.canBranchCreate || !hasWorktreeTarget;
         var renameItem = menu.querySelector('[data-action="worktree-group-rename"]');
         renameItem.hidden = !menu.__context.groupId;
+        var deriveItem = menu.querySelector('[data-action="worktree-group-derive"]');
+        deriveItem.hidden = !menu.__context.groupId;
         var groupDeleteItem = menu.querySelector('[data-action="worktree-group-delete"]');
         groupDeleteItem.hidden = !menu.__context.groupId;
         var sessionSeparator = menu.querySelector('[data-worktree-session-separator]');
@@ -881,6 +883,12 @@ function initProjectAiSessionControls(options) {
             }
         } else if (action === 'worktree-group-rename' && context.groupId) {
             startWorktreeGroupRename(context.projectId, context.groupId);
+        } else if (action === 'worktree-group-derive' && context.groupId) {
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, {
+                    sourceGroupId: context.groupId,
+                });
+            }
         } else if (action === 'worktree-group-delete' && context.groupId) {
             startWorktreeGroupMemberDeletion(context.projectId, context.groupId, '', {
                 mode: 'group',

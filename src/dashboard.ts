@@ -2438,6 +2438,12 @@ async function initializeDashboard(
             }
             const repositories = await worktreeGroupCreationController
                 .listRepositoryOptions(request.projectId);
+            // Derive (PRD §6.2): prefill name, selection, and base refs
+            // from the source group; the group itself is never modified.
+            const derive = request.sourceGroupId
+                ? await worktreeGroupCreationController.deriveFormContext(
+                    request.projectId, request.sourceGroupId)
+                : null;
             // Branch-from-here (PRD §6.1): resolve the seed worktree's
             // branch so the form can prefill the base-ref override.
             const seedWorktree = request.seedRepositoryKey
@@ -2453,6 +2459,7 @@ async function initializeDashboard(
                 type: 'worktree-group-form-state',
                 version: 1,
                 projectId: request.projectId,
+                ...(derive ? { derive } : {}),
                 ...(request.seedRepositoryKey && seedWorktree?.branchRef
                     ? {
                         seed: {
@@ -2470,7 +2477,8 @@ async function initializeDashboard(
                 return;
             }
             const preview = await worktreeGroupCreationController.preview(
-                request.projectId, request.displayName, request.selections);
+                request.projectId, request.displayName, request.selections,
+                request.sourceGroupId);
             await provider.postMessage({
                 type: 'worktree-group-preview',
                 version: 1,

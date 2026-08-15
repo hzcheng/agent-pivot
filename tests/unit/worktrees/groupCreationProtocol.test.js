@@ -42,6 +42,38 @@ test('WORKTREE-GROUPS-CREATE-001 parses only exact bounded form requests', () =>
         seedRepositoryKey: '/alpha/.git',
     }), null, 'a half seed is rejected');
 
+});
+
+test('WORKTREE-GROUPS-DERIVE-001 derive requests bind the source group end to end', () => {
+    assert.deepEqual(parseOpenWorktreeGroupFormRequest({
+        type: 'open-worktree-group-form', version: 1, projectId: 'project',
+        sourceGroupId: 'group-1',
+    }), {
+        type: 'open-worktree-group-form', version: 1, projectId: 'project',
+        sourceGroupId: 'group-1',
+    });
+    assert.equal(parseOpenWorktreeGroupFormRequest({
+        type: 'open-worktree-group-form', version: 1, projectId: 'project',
+        sourceGroupId: 'bad id!',
+    }), null);
+    assert.deepEqual(parsePreviewWorktreeGroupRequest({
+        type: 'preview-worktree-group', version: 1,
+        requestId: 'preview-1', projectId: 'project', displayName: 'X',
+        selections: [{ repositoryKey: '/alpha/.git' }],
+        sourceGroupId: 'group-1',
+    }), {
+        type: 'preview-worktree-group', version: 1,
+        requestId: 'preview-1', projectId: 'project', displayName: 'X',
+        selections: [{ repositoryKey: '/alpha/.git' }],
+        sourceGroupId: 'group-1',
+    });
+    assert.equal(parsePreviewWorktreeGroupRequest({
+        type: 'preview-worktree-group', version: 1,
+        requestId: 'preview-1', projectId: 'project', displayName: 'X',
+        selections: [{ repositoryKey: '/alpha/.git' }],
+        sourceGroupId: 42,
+    }), null);
+
     assert.deepEqual(parsePreviewWorktreeGroupRequest({
         type: 'preview-worktree-group', version: 1,
         requestId: 'preview-1', projectId: 'project', displayName: '',

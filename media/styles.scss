@@ -4200,6 +4200,13 @@ body.steward-sidebar {
                 gap: 4px;
             }
 
+            .ai-session-group-form-derive-skipped {
+                margin-bottom: 4px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+                line-height: 1.4;
+            }
+
             .ai-session-group-form-title {
                 margin-bottom: 4px;
                 color: var(--vscode-descriptionForeground);

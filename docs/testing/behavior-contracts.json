@@ -6556,5 +6556,24 @@
       "src/webview/webviewAiSessionContent.ts",
       "src/webview/webviewProjectAiSessionControlsScripts.js"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-DERIVE-001",
+    "domain": "persistence",
+    "title": "Deriving a group reuses the inline creation form with source-prefilled name, selection and branch bases, ref-verified candidate eligibility, and a source-revision-bound preview token that fails closed on drift",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/groupDerive.test.js",
+      "tests/unit/worktrees/groupCreationProtocol.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupCreationController.ts",
+      "src/worktrees/groupCreationProtocol.ts",
+      "src/webview/webviewGroupFormScripts.js",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/dashboard.ts"
+    ]
   }
 ]

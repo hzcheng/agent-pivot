@@ -155,6 +155,12 @@ export class WorktreeGroupCreationController {
         /** Normalized display name and derived slug this preview computed. */
         displayName: string;
         slug: string;
+        /**
+         * Derive binding (PRD §6.2): the source group and the revision the
+         * bases were taken from. A source that drifted since rejects the
+         * confirm with group-changed.
+         */
+        derive?: { sourceGroupId: string; sourceRevision: number };
         /** repositoryKey → the exact previewed plan and setup argv. */
         members: Map<string, {
             baseRef: string;
@@ -211,10 +217,102 @@ export class WorktreeGroupCreationController {
         }));
     }
 
+    /**
+     * Derive form context (PRD §6.2): prefill the creation form from a
+     * source group — name `源名-2`, the source member repositories
+     * prechecked, and each base ref overridden to the source member's
+     * branch. Candidate eligibility (decision F): the manifest branchName
+     * is never trusted without a refs check — ready members verify their
+     * branch, failed/planned/provisioning members re-verify from refs, and
+     * detached members (repository outside the workspace) are skipped with
+     * a note. The source group itself is never modified.
+     */
+    async deriveFormContext(
+        projectId: string,
+        sourceGroupId: string
+    ): Promise<{
+        sourceGroupId: string;
+        sourceName: string;
+        suggestedName: string;
+        checkedRepositories: string[];
+        baseOverrides: Record<string, string>;
+        skipped: { repositoryLabel: string; reason: string }[];
+    } | null> {
+        const target = this.options.getWorkspaceTarget(projectId);
+        const snapshot = this.options.getWorktreeSnapshot();
+        if (!target || !snapshot) {
+            return null;
+        }
+        const groups = this.options.manifestStore
+            .listGroups(target.workspace.navigationIdentity);
+        const source = groups.find(candidate => candidate.groupId === sourceGroupId);
+        if (!source) {
+            return null;
+        }
+        const repositories = visibleRepositories(target.workspace, snapshot);
+        const checkedRepositories: string[] = [];
+        const baseOverrides: Record<string, string> = {};
+        const skipped: { repositoryLabel: string; reason: string }[] = [];
+        for (const member of source.members) {
+            const repository = repositories.find(candidate =>
+                candidate.repositoryKey === member.repositoryKey);
+            const label = repository
+                ? repositoryLabel(repository)
+                : fallbackLabel(member.repositoryKey);
+            if (member.detached || !repository) {
+                skipped.push({
+                    repositoryLabel: label,
+                    reason: 'repository not in workspace',
+                });
+                continue;
+            }
+            // Re-verify the source branch from refs (decision F): manifest
+            // state — including failed/planned/provisioning/missing — is
+            // never proof the branch still exists.
+            const shortBranch = member.branchName;
+            const fullRef = `refs/heads/${shortBranch}`;
+            let localBranches: string[] = [];
+            const commandCwd = repositoryCommandCwd(repository);
+            try {
+                localBranches = commandCwd
+                    ? await this.options.listLocalBranches(commandCwd)
+                    : [];
+            } catch (_error) {
+                localBranches = [];
+            }
+            const branchExists = localBranches.includes(shortBranch)
+                || repository.worktrees.some(worktree => worktree.branchRef === fullRef);
+            if (!branchExists) {
+                skipped.push({
+                    repositoryLabel: label,
+                    reason: 'source branch no longer exists',
+                });
+                continue;
+            }
+            checkedRepositories.push(repository.repositoryKey);
+            baseOverrides[repository.repositoryKey] = fullRef;
+        }
+        // Default name `源名-2`, disambiguated against existing groups.
+        const takenNames = new Set(groups.map(group => group.displayName));
+        let suggestedName = `${source.displayName}-2`;
+        for (let suffix = 3; takenNames.has(suggestedName); suffix += 1) {
+            suggestedName = `${source.displayName}-${suffix}`;
+        }
+        return {
+            sourceGroupId: source.groupId,
+            sourceName: source.displayName,
+            suggestedName,
+            checkedRepositories,
+            baseOverrides,
+            skipped,
+        };
+    }
+
     async preview(
         projectId: string,
         displayName: string,
-        selections: readonly GroupCreationPreviewSelection[]
+        selections: readonly GroupCreationPreviewSelection[],
+        sourceGroupId?: string
     ): Promise<GroupCreationPreview> {
         const target = this.options.getWorkspaceTarget(projectId);
         const snapshot = this.options.getWorktreeSnapshot();
@@ -267,10 +365,25 @@ export class WorktreeGroupCreationController {
         // The authoritative snapshot a confirm must reference: the full
         // previewed identity, plan, and setup argv (PRD §6.1: Host 仅执行
         // 最终预览集合，逐项一致).
+        const deriveSource = sourceGroupId && target
+            ? this.options.manifestStore
+                .listGroups(target.workspace.navigationIdentity)
+                .find(candidate => candidate.groupId === sourceGroupId)
+            : undefined;
         this.previewSnapshots.set(projectId, {
             previewId,
             displayName: preview.displayName,
             slug,
+            ...(sourceGroupId
+                ? {
+                    derive: {
+                        sourceGroupId,
+                        // A vanished source can never match: the confirm
+                        // fails closed with group-changed.
+                        sourceRevision: deriveSource ? deriveSource.revision : -1,
+                    },
+                }
+                : {}),
             members: new Map(preview.members.map(member => [
                 member.repositoryKey,
                 {
@@ -387,6 +500,18 @@ export class WorktreeGroupCreationController {
         const previewSnapshot = this.previewSnapshots.get(request.projectId);
         if (!previewSnapshot || previewSnapshot.previewId !== request.previewId) {
             return { kind: 'failed', errorCode: 'preview-stale' };
+        }
+        if (previewSnapshot.derive && target) {
+            // Derive binding (decision G): the source group must be exactly
+            // the revision the bases were previewed from — a rename, member
+            // change, or merge meanwhile makes this confirm group-changed.
+            const source = this.options.manifestStore
+                .listGroups(target.workspace.navigationIdentity)
+                .find(candidate =>
+                    candidate.groupId === previewSnapshot.derive!.sourceGroupId);
+            if (!source || source.revision !== previewSnapshot.derive.sourceRevision) {
+                return { kind: 'failed', errorCode: 'group-changed' };
+            }
         }
         const displayName = request.displayName.trim();
         const slug = slugifyTaskName(displayName);
@@ -694,4 +819,15 @@ function repositoryCommandCwd(repository: WorktreeRepositorySnapshot): string {
 function repositoryLabel(repository: WorktreeRepositorySnapshot): string {
     const cwd = repositoryCommandCwd(repository).replace(/[\\/]+$/u, '');
     return cwd.split(/[\\/]/u).pop() || repository.repositoryKey;
+}
+
+function fallbackLabel(repositoryKey: string): string {
+    const segments = repositoryKey.replace(/[\\/]+$/u, '').split(/[\\/]/u).filter(Boolean);
+    let name = segments[segments.length - 1] || 'repository';
+    if (name === '.git' && segments.length > 1) {
+        name = segments[segments.length - 2];
+    } else if (name.endsWith('.git')) {
+        name = name.slice(0, -'.git'.length);
+    }
+    return name || 'repository';
 }

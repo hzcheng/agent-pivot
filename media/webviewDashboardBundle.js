@@ -3327,6 +3327,7 @@ function initWorktreeGroupForm(options) {
                 formError: '',
                 pendingFocusGroupId: '',
                 pendingMemberRequests: {},
+                derive: null,
             };
             statesByProject.set(projectId, state);
         }
@@ -3371,6 +3372,9 @@ function initWorktreeGroupForm(options) {
         if (seed && seed.repositoryKey && seed.worktreePath) {
             message.seedRepositoryKey = seed.repositoryKey;
             message.seedWorktreePath = seed.worktreePath;
+        }
+        if (seed && seed.sourceGroupId) {
+            message.sourceGroupId = seed.sourceGroupId;
         }
         window.vscode.postMessage(message);
         focusNameInput(projectId);
@@ -3417,6 +3421,41 @@ function initWorktreeGroupForm(options) {
             state.repositories.forEach(function (repository) {
                 state.checked[repository.repositoryKey] = !!repository.defaultChecked;
             });
+        }
+        if (message.derive && typeof message.derive === 'object'
+            && typeof message.derive.sourceGroupId === 'string') {
+            // Derive mode (PRD §6.2): precheck the source group's member
+            // repositories, override each base ref to the source branch,
+            // and prefill the default name 源名-2 (until the user types).
+            state.derive = {
+                sourceGroupId: message.derive.sourceGroupId,
+                sourceName: typeof message.derive.sourceName === 'string'
+                    ? message.derive.sourceName : '',
+                skipped: Array.isArray(message.derive.skipped)
+                    ? message.derive.skipped.filter(function (entry) {
+                        return entry && typeof entry.repositoryLabel === 'string'
+                            && typeof entry.reason === 'string';
+                    })
+                    : [],
+            };
+            var deriveChecked = Array.isArray(message.derive.checkedRepositories)
+                ? message.derive.checkedRepositories : [];
+            state.repositories.forEach(function (repository) {
+                state.checked[repository.repositoryKey] =
+                    deriveChecked.indexOf(repository.repositoryKey) >= 0;
+            });
+            if (message.derive.baseOverrides
+                && typeof message.derive.baseOverrides === 'object') {
+                Object.keys(message.derive.baseOverrides).forEach(function (repositoryKey) {
+                    if (typeof message.derive.baseOverrides[repositoryKey] === 'string') {
+                        state.baseRefOverrides[repositoryKey] =
+                            message.derive.baseOverrides[repositoryKey];
+                    }
+                });
+            }
+            if (!state.name.trim() && typeof message.derive.suggestedName === 'string') {
+                state.name = message.derive.suggestedName;
+            }
         }
         if (message.seed && typeof message.seed.repositoryKey === 'string'
             && typeof message.seed.baseRef === 'string') {
@@ -3471,6 +3510,7 @@ function initWorktreeGroupForm(options) {
             requestId: requestId,
             projectId: projectId,
             displayName: state.name,
+            ...(state.derive ? { sourceGroupId: state.derive.sourceGroupId } : {}),
             selections: checkedRepositories(state).map(function (repository) {
                 var override = state.baseRefOverrides[repository.repositoryKey];
                 return override
@@ -3965,7 +4005,19 @@ function initWorktreeGroupForm(options) {
             : '';
         slot.innerHTML = '<div class="ai-session-group-form" data-worktree-group-form'
             + ' data-project-id="' + escapeHtml(projectId) + '">'
-            + '<div class="ai-session-group-form-title">New worktree group</div>'
+            + '<div class="ai-session-group-form-title">'
+            + (state.derive
+                ? 'Derive from ' + escapeHtml(state.derive.sourceName || 'group')
+                : 'New worktree group')
+            + '</div>'
+            + (state.derive && state.derive.skipped.length
+                ? '<div class="ai-session-group-form-derive-skipped" role="note">'
+                    + 'Skipped: ' + state.derive.skipped.map(function (entry) {
+                        return escapeHtml(entry.repositoryLabel)
+                            + ' (' + escapeHtml(entry.reason) + ')';
+                    }).join('; ')
+                    + '</div>'
+                : '')
             + '<div class="ai-session-group-form-header">'
             + '<input type="text" class="ai-session-group-form-name"'
             + ' data-group-form-name placeholder="Worktree group name"'
@@ -5076,6 +5128,8 @@ function initProjectAiSessionControls(options) {
         branchItem.hidden = !menu.__context.canBranchCreate || !hasWorktreeTarget;
         var renameItem = menu.querySelector('[data-action="worktree-group-rename"]');
         renameItem.hidden = !menu.__context.groupId;
+        var deriveItem = menu.querySelector('[data-action="worktree-group-derive"]');
+        deriveItem.hidden = !menu.__context.groupId;
         var groupDeleteItem = menu.querySelector('[data-action="worktree-group-delete"]');
         groupDeleteItem.hidden = !menu.__context.groupId;
         var sessionSeparator = menu.querySelector('[data-worktree-session-separator]');
@@ -5160,6 +5214,12 @@ function initProjectAiSessionControls(options) {
             }
         } else if (action === 'worktree-group-rename' && context.groupId) {
             startWorktreeGroupRename(context.projectId, context.groupId);
+        } else if (action === 'worktree-group-derive' && context.groupId) {
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, {
+                    sourceGroupId: context.groupId,
+                });
+            }
         } else if (action === 'worktree-group-delete' && context.groupId) {
             startWorktreeGroupMemberDeletion(context.projectId, context.groupId, '', {
                 mode: 'group',

@@ -13,6 +13,8 @@ export interface OpenWorktreeGroupFormRequest {
     /** Branch-from-here entry (PRD §6.1): precheck + prefill this repo. */
     seedRepositoryKey?: string;
     seedWorktreePath?: string;
+    /** Derive entry (PRD §6.2): prefill from this source group. */
+    sourceGroupId?: string;
 }
 
 export interface PreviewWorktreeGroupRequest {
@@ -22,6 +24,8 @@ export interface PreviewWorktreeGroupRequest {
     projectId: string;
     displayName: string;
     selections: { repositoryKey: string; baseRef?: string }[];
+    /** Derive previews bind the source group the bases were taken from. */
+    sourceGroupId?: string;
 }
 
 export interface ConfirmWorktreeGroupRequest {
@@ -84,12 +88,16 @@ export function parseOpenWorktreeGroupFormRequest(
     }
     const hasSeed = value.seedRepositoryKey !== undefined
         || value.seedWorktreePath !== undefined;
-    const expected = hasSeed
-        ? ['projectId', 'seedRepositoryKey', 'seedWorktreePath', 'type', 'version']
-        : ['projectId', 'type', 'version'];
+    const hasSource = value.sourceGroupId !== undefined;
+    const expected = [
+        'projectId', 'type', 'version',
+        ...(hasSeed ? ['seedRepositoryKey', 'seedWorktreePath'] : []),
+        ...(hasSource ? ['sourceGroupId'] : []),
+    ].sort();
     if (!sameKeys(value, expected)
         || (hasSeed && (!isSafeString(value.seedRepositoryKey)
-            || !isSafeString(value.seedWorktreePath)))) {
+            || !isSafeString(value.seedWorktreePath)))
+        || (hasSource && !isSafeId(value.sourceGroupId))) {
         return null;
     }
     return value as unknown as OpenWorktreeGroupFormRequest;
@@ -106,7 +114,11 @@ export function parsePreviewWorktreeGroupRequest(
         || !Array.isArray(value.selections)) {
         return null;
     }
-    if (!sameKeys(value, ['displayName', 'projectId', 'requestId', 'selections', 'type', 'version'])) {
+    const hasSource = value.sourceGroupId !== undefined;
+    if (!sameKeys(value, [
+        'displayName', 'projectId', 'requestId', 'selections', 'type', 'version',
+        ...(hasSource ? ['sourceGroupId'] : []),
+    ].sort()) || (hasSource && !isSafeId(value.sourceGroupId))) {
         return null;
     }
     const selections: PreviewWorktreeGroupRequest['selections'] = [];
@@ -130,6 +142,7 @@ export function parsePreviewWorktreeGroupRequest(
         projectId: value.projectId,
         displayName: value.displayName,
         selections,
+        ...(hasSource ? { sourceGroupId: value.sourceGroupId as string } : {}),
     };
 }
 

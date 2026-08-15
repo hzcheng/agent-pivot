@@ -1,6 +1,7 @@
 'use strict';
 
 import type { OpenWorkspace } from '../workspaces/types';
+import { isWorkspaceHostPathContained } from '../workspaces/sessionAssignment';
 import {
     createWorktreeProvisioningPlan,
     slugifyTaskName,
@@ -134,6 +135,9 @@ export class WorktreeGroupCreationController {
     /** Latest authoritative preview snapshot per project (nonce → setups). */
     private readonly previewSnapshots = new Map<string, {
         previewId: string;
+        /** Normalized display name and derived slug this preview computed. */
+        displayName: string;
+        slug: string;
         /** repositoryKey → the exact previewed plan and setup argv. */
         members: Map<string, {
             baseRef: string;
@@ -160,14 +164,11 @@ export class WorktreeGroupCreationController {
         const activeEditorPath = this.options.getActiveEditorPath();
         const activeRepositoryKey = activeEditorPath
             ? repositories.find(repository => {
-                const editorPath = normalizePathForMatch(activeEditorPath);
                 return repository.worktrees
                     .filter(worktree => !worktree.isBare)
-                    .map(worktree =>
-                        normalizePathForMatch(worktree.key.canonicalWorktreePath))
-                    .some(worktreePath =>
-                        editorPath === worktreePath
-                        || editorPath.startsWith(worktreePath + '/'));
+                    .some(worktree =>
+                        isWorkspaceHostPathContained(
+                            worktree.key.canonicalWorktreePath, activeEditorPath));
             })?.repositoryKey
             : undefined;
         return Promise.all(repositories.map(async (repository, index) => {
@@ -203,6 +204,7 @@ export class WorktreeGroupCreationController {
         const slug = slugifyTaskName(displayName);
         this.previewCounter += 1;
         const previewId = `preview-${this.previewCounter.toString(36)}`;
+        const previewSerial = this.previewCounter;
         const preview: GroupCreationPreview = {
             displayName: displayName.trim(),
             slug,
@@ -240,11 +242,18 @@ export class WorktreeGroupCreationController {
                 .getSetupCommand(repository.repositoryKey).slice();
             return member;
         }));
+        // Compare-and-set by serial: a slow preview must never overwrite a
+        // newer snapshot the webview is already displaying.
+        if (previewSerial !== this.previewCounter) {
+            return preview;
+        }
         // The authoritative snapshot a confirm must reference: the full
-        // previewed plan and setup argv per repository (PRD §6.1: Host 仅
-        // 执行最终预览集合，逐项一致).
+        // previewed identity, plan, and setup argv (PRD §6.1: Host 仅执行
+        // 最终预览集合，逐项一致).
         this.previewSnapshots.set(projectId, {
             previewId,
+            displayName: preview.displayName,
+            slug,
             members: new Map(preview.members.map(member => [
                 member.repositoryKey,
                 {
@@ -366,6 +375,12 @@ export class WorktreeGroupCreationController {
         const slug = slugifyTaskName(displayName);
         if (!displayName || !slug) {
             return { kind: 'failed', errorCode: 'invalid-task' };
+        }
+        // The group identity is part of the bound preview: a forged label
+        // would desync the manifest name and merge hints from the branches.
+        if (previewSnapshot.displayName !== displayName
+            || previewSnapshot.slug !== slug) {
+            return { kind: 'failed', errorCode: 'preview-stale' };
         }
         const members = request.members.slice(0, MAX_GROUP_MEMBERS);
         if (members.length === 0 || members.length !== request.members.length) {
@@ -633,9 +648,4 @@ function repositoryCommandCwd(repository: WorktreeRepositorySnapshot): string {
 function repositoryLabel(repository: WorktreeRepositorySnapshot): string {
     const cwd = repositoryCommandCwd(repository).replace(/[\\/]+$/u, '');
     return cwd.split(/[\\/]/u).pop() || repository.repositoryKey;
-}
-
-/** Slash-normalized compare so Windows paths (C:\repo\…) match too. */
-function normalizePathForMatch(value: string): string {
-    return value.replace(/\\/g, '/').replace(/\/+$/u, '');
 }

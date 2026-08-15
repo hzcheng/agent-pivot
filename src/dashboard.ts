@@ -1297,6 +1297,7 @@ async function initializeDashboard(
     const worktreeSnapshotCoordinator = ownResource(() =>
         new WorktreeSnapshotCoordinator({
             load: async () => {
+                const loadStartedAt = Date.now();
                 const workspace = getCurrentOpenWorkspace();
                 const snapshot = await gitWorktreeDiscovery.discover({
                     workspaceRoots: workspace?.roots || [],
@@ -1346,7 +1347,8 @@ async function initializeDashboard(
                         await worktreeProvisioningStore
                             .pruneTombstones(
                                 snapshotPaths,
-                                snapshot.truncatedWorktreeCount > 0)
+                                snapshot.truncatedWorktreeCount > 0,
+                                loadStartedAt)
                             .catch(error => logError(
                                 'Failed to prune provisioning tombstones.', error));
                     } catch (error) {

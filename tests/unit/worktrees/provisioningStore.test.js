@@ -136,6 +136,41 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 pruneTombstones never prunes against a 
         'an untruncated snapshot prunes normally');
 });
 
+test('WORKTREE-PROVISIONING-RECOVERY-001 a concurrent prune never overwrites a newer replace', async () => {
+    // Regression: prune read the bucket outside the write queue, so
+    // replace([A, B]) racing prune(keep B) persisted an empty bucket.
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const a = { ...record('tomb-a'), tombstone: true };
+    const b = { ...record('tomb-b'), tombstone: true };
+    await store.replace([a]);
+    const replacement = store.replace([a, b]);
+    const prune = store.pruneTombstones(new Set([
+        '/repo/.git /repo/.agent-pivot/worktrees/fix-login-race',
+    ]));
+    await Promise.all([replacement, prune]);
+    assert.deepEqual(store.read().map(entry => entry.operationId).sort(),
+        ['tomb-a', 'tomb-b'],
+        'the queued prune reads the post-replace state');
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 a tombstone younger than the snapshot survives its prune', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const fresh = {
+        ...record('tomb-fresh'),
+        tombstone: true,
+        tombstonedAt: 2000,
+    };
+    await store.replace([fresh]);
+    await store.pruneTombstones(new Set(), false, 1000);
+    assert.equal(store.read().length, 1,
+        'the snapshot may predate the worktree; the tombstone stays');
+    await store.pruneTombstones(new Set(), false, 3000);
+    assert.equal(store.read().length, 0,
+        'a snapshot that started after the dismissal prunes normally');
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
     const valid = record('valid');
     const state = memento([

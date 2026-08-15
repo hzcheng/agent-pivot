@@ -390,6 +390,25 @@ test('WORKTREE-GROUPS-CREATE-UI-001 confirm failures render human text and the n
         'closing the form re-enables the new button');
 });
 
+test('WORKTREE-GROUPS-CREATE-UI-001 an empty setup command in the preview is authoritative', async t => {
+    // Config changed to empty after bootstrap: the form must show "no
+    // setup configured", never the stale bootstrap command.
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+    await page.locator('[data-group-form-name]').fill('Fix login');
+    await page.waitForTimeout(350);
+    await answerPreview(page, [{
+        ...okMembers()[0],
+        setupCommand: [],
+    }]);
+    const alphaRow = page.locator('[data-group-form-member="/alpha/.git"]');
+    const setup = alphaRow.locator('.ai-session-group-form-setup-none');
+    assert.equal(await setup.count(), 1);
+    assert.match(await setup.textContent(), /no setup configured/);
+    assert.equal(await alphaRow.locator('[data-group-form-setup]').count(), 0,
+        'the stale bootstrap command is gone');
+});
+
 test('WORKTREE-GROUPS-CREATE-UI-001 the base combobox filters and selects by keyboard', async t => {
     const page = await openFormPage(t);
     await openBootstrappedForm(page);

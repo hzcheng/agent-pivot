@@ -373,6 +373,7 @@ export class IsolatedSessionController {
                 this.recoveryTombstones.set(operationId, {
                     ...tombstone,
                     tombstone: true,
+                    tombstonedAt: Date.now(),
                 });
                 // discard's publish already persisted without the tombstone.
                 void this.persistOperations().catch(error =>

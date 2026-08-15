@@ -52,6 +52,8 @@ export interface PersistedWorktreeProvisioningOperation {
      * reconciliation from seeding a half-initialized worktree as ready.
      */
     tombstone?: boolean;
+    /** When the tombstone was written (ms epoch); prunes respect recency. */
+    tombstonedAt?: number;
     providerId: 'codex' | 'kimi' | 'claude';
     profile?: ProvisioningSessionProfile;
     setupCommand: string[];
@@ -116,20 +118,26 @@ export class WorktreeProvisioningStore {
      */
     async pruneTombstones(
         existingWorktreePaths: ReadonlySet<string>,
-        snapshotTruncated = false
+        snapshotTruncated = false,
+        snapshotStartedAt = Number.MAX_SAFE_INTEGER
     ): Promise<void> {
         if (snapshotTruncated) {
             return;
         }
-        const tombstones = this.parseRecords(
-            this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
-        const kept = tombstones.filter(record =>
-            existingWorktreePaths.has(
-                `${record.plan.repositoryKey} ${record.plan.worktreePath}`));
-        if (kept.length === tombstones.length) {
-            return;
-        }
+        // Read and write inside the same queued operation: reading outside
+        // the queue let a prune overwrite a concurrent replace's newer
+        // content. And a tombstone younger than the snapshot's load start
+        // may simply be invisible to that snapshot — never prune it.
         const operation = async (): Promise<void> => {
+            const tombstones = this.parseRecords(
+                this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
+            const kept = tombstones.filter(record =>
+                (record.tombstonedAt ?? 0) > snapshotStartedAt
+                || existingWorktreePaths.has(
+                    `${record.plan.repositoryKey} ${record.plan.worktreePath}`));
+            if (kept.length === tombstones.length) {
+                return;
+            }
             await this.memento.update(TOMBSTONE_STORAGE_KEY, kept);
         };
         const result = this.writeQueue.then(operation, operation);
@@ -181,6 +189,11 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
     const tombstone = value.tombstone === undefined
         ? undefined
         : (value.tombstone === true ? true : null);
+    const tombstonedAt = value.tombstonedAt === undefined
+        ? undefined
+        : (typeof value.tombstonedAt === 'number'
+            && Number.isSafeInteger(value.tombstonedAt) && value.tombstonedAt >= 0
+            ? value.tombstonedAt : null);
     const setupCommand = normalizeWorktreeSetupCommand(value.setupCommand);
     if (!plan || !row || !completedSteps || (value.worktreeKey !== undefined && !worktreeKey)
         || (value.profile !== undefined && !profile)
@@ -188,6 +201,8 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
         || groupId === null || memberId === null
         || preferredPrimary === null
         || tombstone === null
+        || tombstonedAt === null
+        || (tombstonedAt !== undefined && tombstone !== true)
         || (groupId === undefined) !== (memberId === undefined)
         || (preferredPrimary === true && groupId === undefined)
         || row.operationId !== value.operationId || row.repositoryKey !== plan.repositoryKey
@@ -210,6 +225,7 @@ function parseRecord(value: unknown, worktreeDirectory?: string): PersistedWorkt
         ...(groupId && memberId ? { groupId, memberId } : {}),
         ...(preferredPrimary ? { preferredPrimary: true } : {}),
         ...(tombstone ? { tombstone: true } : {}),
+        ...(tombstonedAt !== undefined ? { tombstonedAt } : {}),
         providerId: value.providerId as 'codex' | 'kimi' | 'claude',
         ...(profile ? { profile } : {}),
         setupCommand,

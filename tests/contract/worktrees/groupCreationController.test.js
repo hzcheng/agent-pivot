@@ -522,6 +522,83 @@ test('WORKTREE-GROUPS-CREATE-001 execution uses the frozen preview argv', async 
         'the executed argv is the one the user reviewed');
 });
 
+test('WORKTREE-GROUPS-CREATE-001 a forged display name under a valid previewId is rejected', async () => {
+    const current = fixture();
+    const previewId = await previewIdFor(current);
+    const rejected = await current.controller.confirm({
+        projectId: 'project',
+        previewId,
+        displayName: 'Forged label',
+        members: confirmedMembers(),
+    });
+    assert.deepEqual(rejected, { kind: 'failed', errorCode: 'preview-stale' });
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 0,
+        'a forged identity writes nothing');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a slower preview never overwrites a newer snapshot', async () => {
+    // Compare-and-set by serial: preview A starts first but finishes after
+    // preview B; the host snapshot must stay B's.
+    let gate;
+    const gatePromise = new Promise(resolve => { gate = resolve; });
+    let preflightCalls = 0;
+    const current = fixture({
+        preflightPlan: async plan => {
+            preflightCalls += 1;
+            if (preflightCalls === 1) {
+                await gatePromise;
+            }
+            return 'ok';
+        },
+    });
+    const slow = current.controller.preview('project', 'Fix login', [
+        { repositoryKey: '/alpha/.git' },
+    ]);
+    const fast = await current.controller.preview('project', 'Fix logout', [
+        { repositoryKey: '/alpha/.git' },
+    ]);
+    gate();
+    const slowResult = await slow;
+
+    // The fast preview is the live snapshot; confirming against it works.
+    const accepted = await current.controller.confirm({
+        projectId: 'project',
+        previewId: fast.previewId,
+        displayName: 'Fix logout',
+        members: [{
+            repositoryKey: '/alpha/.git', baseRef: 'refs/heads/main',
+            branchName: 'agent-pivot/fix-logout',
+            worktreePath: '/alpha/.worktrees/fix-logout',
+            setupEnabled: true,
+        }],
+    });
+    assert.equal(accepted.kind, 'created',
+        'the newest preview snapshot confirms');
+    const stale = await current.controller.confirm({
+        projectId: 'project',
+        previewId: slowResult.previewId,
+        displayName: 'Fix login',
+        members: [{
+            repositoryKey: '/alpha/.git', baseRef: 'refs/heads/main',
+            branchName: 'agent-pivot/fix-login',
+            worktreePath: '/alpha/.worktrees/fix-login',
+            setupEnabled: true,
+        }],
+    });
+    assert.equal(stale.errorCode, 'preview-stale',
+        'the slower preview never became the authoritative snapshot');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a windows-style editor path matches case-insensitively', async () => {
+    const current = fixture({
+        getActiveEditorPath: () => 'c:\\BETA\\src\\index.ts',
+    });
+    current.snapshot.repositories[1].worktrees[0].key.canonicalWorktreePath = 'C:\\beta';
+    const options = await current.controller.listRepositoryOptions('project');
+    assert.deepEqual(options.map(option => option.defaultChecked), [false, true],
+        'windows paths match case-insensitively');
+});
+
 test('WORKTREE-GROUPS-CREATE-001 a windows-style editor path still picks its repository', async () => {
     const current = fixture({
         getActiveEditorPath: () => 'C:\\beta\\src\\index.ts',

@@ -484,9 +484,9 @@ function initWorktreeGroupForm(options) {
             : '';
         // Display the setup command from the authoritative preview (config
         // is re-resolved per preview); the bootstrap value is only a
-        // pre-first-preview placeholder.
+        // pre-first-preview placeholder. An empty array is authoritative
+        // too: a config change to empty must not resurrect the old command.
         var setupCommand = preview && Array.isArray(preview.setupCommand)
-            && preview.setupCommand.length
             ? preview.setupCommand
             : repository.setupCommand;
         var setup = setupCommand && setupCommand.length

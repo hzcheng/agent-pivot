@@ -628,15 +628,12 @@ export class WorktreeGroupManifestStore {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
             const bucket = this.getBucket(manifest, workspaceIdentity);
-            const promotedIdentities = new Set(bucket.generationClaims
-                .filter(claim => claim.state === 'promoted')
-                .map(claim => `${claim.provider}::${claim.sessionId}`));
-            const outcome = { promoted: 0, discarded: 0, kept: 0 };
-            const nextClaims: GenerationClaim[] = [];
-            let changed = false;
+            // Resolve everything first, then apply: two pending claims
+            // resolving onto the same session identity must BOTH stay
+            // pending — picking the first by array order would be a guess.
+            const resolutions = new Map<string, GenerationClaimResolution>();
             for (const claim of bucket.generationClaims) {
                 if (claim.state !== 'pending') {
-                    nextClaims.push(claim);
                     continue;
                 }
                 let resolution: GenerationClaimResolution;
@@ -646,17 +643,43 @@ export class WorktreeGroupManifestStore {
                     resolution = { kind: 'keep' };
                 }
                 if (resolution?.kind === 'promote'
-                    && isSafeText(resolution.provider, MAX_ID_LENGTH)
-                    && isSafeText(resolution.sessionId, MAX_ID_LENGTH)) {
-                    const identity =
-                        `${resolution.provider}::${resolution.sessionId}`;
-                    if (promotedIdentities.has(identity)) {
-                        // Ambiguous promotion target: keep, never guess.
+                    && (!isSafeText(resolution.provider, MAX_ID_LENGTH)
+                        || !isSafeText(resolution.sessionId, MAX_ID_LENGTH))) {
+                    resolution = { kind: 'keep' };
+                }
+                resolutions.set(claim.claimId, resolution || { kind: 'keep' });
+            }
+            const claimedIdentities = new Map<string, number>();
+            for (const claim of bucket.generationClaims) {
+                if (claim.state === 'promoted') {
+                    claimedIdentities.set(`${claim.provider}::${claim.sessionId}`, 1);
+                }
+            }
+            for (const claim of bucket.generationClaims) {
+                const resolution = resolutions.get(claim.claimId);
+                if (claim.state === 'pending' && resolution?.kind === 'promote') {
+                    const identity = `${resolution.provider}::${resolution.sessionId}`;
+                    claimedIdentities.set(identity, (claimedIdentities.get(identity) || 0) + 1);
+                }
+            }
+            const outcome = { promoted: 0, discarded: 0, kept: 0 };
+            const nextClaims: GenerationClaim[] = [];
+            let changed = false;
+            for (const claim of bucket.generationClaims) {
+                const resolution = resolutions.get(claim.claimId);
+                if (claim.state !== 'pending' || !resolution) {
+                    nextClaims.push(claim);
+                    continue;
+                }
+                if (resolution.kind === 'promote') {
+                    const identity = `${resolution.provider}::${resolution.sessionId}`;
+                    if (claimedIdentities.get(identity) !== 1) {
+                        // Ambiguous or already-taken target: keep every
+                        // claimant pending, never guess.
                         nextClaims.push(claim);
                         outcome.kept += 1;
                         continue;
                     }
-                    promotedIdentities.add(identity);
                     nextClaims.push({
                         claimId: claim.claimId,
                         worktreeKey: claim.worktreeKey,
@@ -670,7 +693,7 @@ export class WorktreeGroupManifestStore {
                     changed = true;
                     continue;
                 }
-                if (resolution?.kind === 'discard') {
+                if (resolution.kind === 'discard') {
                     outcome.discarded += 1;
                     changed = true;
                     continue;
@@ -921,7 +944,7 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
     if (candidate.version !== 2) {
         return null;
     }
-    return {
+    const aggregate: WorkspaceAggregate = {
         version: 2,
         groups: Array.isArray(candidate.groups) ? parseGroups(candidate.groups) : [],
         retiredIdentities: Array.isArray(candidate.retiredIdentities)
@@ -947,6 +970,64 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
             ? candidate.lastGenerationCutoffAt
             : 0,
     };
+    return sanitizeAggregateCrossInvariants(aggregate);
+}
+
+/**
+ * Persisted blobs can predate the write-side invariants or be corrupt:
+ * enforce the cross-record rules the lookup/reconcile logic relies on,
+ * failing closed — a dropped claim only ever pushes sessions toward the
+ * retired generation, and a dropped duplicate retirement cannot fabricate
+ * a deletion fact.
+ */
+function sanitizeAggregateCrossInvariants(
+    aggregate: WorkspaceAggregate
+): WorkspaceAggregate {
+    const seenRetirementIds = new Set<string>();
+    aggregate.retiredIdentities = aggregate.retiredIdentities.filter(record => {
+        if (seenRetirementIds.has(record.retirementId)) {
+            return false;
+        }
+        seenRetirementIds.add(record.retirementId);
+        return true;
+    });
+    const retirementByKey = new Map(
+        aggregate.retiredIdentities.map(record => [record.retirementId, record]));
+    const seenClaimIds = new Set<string>();
+    const seenPendingIds = new Set<string>();
+    const seenPromotedIdentities = new Set<string>();
+    aggregate.generationClaims = aggregate.generationClaims.filter(claim => {
+        if (seenClaimIds.has(claim.claimId)) {
+            return false;
+        }
+        const basis = retirementByKey.get(claim.createdAfterRetirementId);
+        if (!basis
+            || basis.repositoryKey !== claim.worktreeKey.repositoryKey
+            || basis.canonicalWorktreePath !== claim.worktreeKey.canonicalWorktreePath) {
+            return false;
+        }
+        if (claim.state === 'pending') {
+            if (!claim.pendingId || seenPendingIds.has(claim.pendingId)) {
+                return false;
+            }
+            seenPendingIds.add(claim.pendingId);
+        } else {
+            const identity = `${claim.provider}::${claim.sessionId}`;
+            if (seenPromotedIdentities.has(identity)) {
+                return false;
+            }
+            seenPromotedIdentities.add(identity);
+        }
+        seenClaimIds.add(claim.claimId);
+        return true;
+    });
+    // The cutoff high-water mark must cover every surviving retirement; a
+    // lower stored value is repaired upward, never downward.
+    for (const record of aggregate.retiredIdentities) {
+        aggregate.lastGenerationCutoffAt = Math.max(
+            aggregate.lastGenerationCutoffAt, record.generationCutoffAt);
+    }
+    return aggregate;
 }
 
 function parseRetiredIdentity(value: unknown): RetiredWorktreeIdentity | null {

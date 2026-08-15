@@ -525,8 +525,10 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation keeps ambiguous promot
     const outcome = await store.reconcileGenerationClaims(WORKSPACE, () => ({
         kind: 'promote', provider: 'codex', sessionId: 's-same',
     }));
-    assert.deepEqual(outcome, { promoted: 1, discarded: 0, kept: 1 },
-        'two claims may never promote onto the same session identity');
+    assert.deepEqual(outcome, { promoted: 0, discarded: 0, kept: 2 },
+        'two claims onto the same session identity are both kept — never an order-based guess');
+    assert.equal(store.listGenerationClaims(WORKSPACE)
+        .filter(claim => claim.state === 'pending').length, 2);
 });
 
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 the byte cap measures UTF-8 bytes, not code units', async () => {
@@ -553,6 +555,96 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 the byte cap measures UTF-8 bytes, no
         }),
         error => error.code === 'store-full',
         'multibyte content cannot smuggle past the byte cap');
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated against cross-record invariants', async () => {
+    const retiredRecord = over => ({
+        retirementId: 'r-1',
+        repositoryKey: '/repos/alpha/.git',
+        canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        branchName: 'agent-pivot/fix-login',
+        deletedAt: 200,
+        generationCutoffAt: 100,
+        affectedSessions: [],
+        ...(over || {}),
+    });
+    const pendingClaim = over => ({
+        claimId: 'c-1',
+        worktreeKey: {
+            repositoryKey: '/repos/alpha/.git',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        },
+        createdAfterRetirementId: 'r-1',
+        createdAtMs: 150,
+        state: 'pending',
+        pendingId: 'p-1',
+        ...(over || {}),
+    });
+    const seeded = (records, claims, cutoff) => memento({
+        'agentPivot.worktreeGroups.v1': {
+            [WORKSPACE]: {
+                version: 2,
+                groups: [],
+                retiredIdentities: records,
+                deletionJournal: [],
+                generationClaims: claims,
+                lastGenerationCutoffAt: cutoff,
+            },
+        },
+    });
+
+    // Duplicate retirement ids: the later record is dropped.
+    let store = new WorktreeGroupManifestStore(seeded(
+        [retiredRecord(), retiredRecord({
+            canonicalWorktreePath: '/repos/alpha/.worktrees/dup',
+        })],
+        [], 100));
+    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 1);
+
+    // Claims with a missing or key-mismatched basis are dropped.
+    store = new WorktreeGroupManifestStore(seeded(
+        [retiredRecord()],
+        [
+            pendingClaim({ claimId: 'c-missing', createdAfterRetirementId: 'r-gone' }),
+            pendingClaim({
+                claimId: 'c-foreign',
+                worktreeKey: {
+                    repositoryKey: '/repos/beta/.git',
+                    canonicalWorktreePath: '/repos/beta/.worktrees/x',
+                },
+            }),
+            pendingClaim(),
+        ],
+        100));
+    assert.deepEqual(
+        store.listGenerationClaims(WORKSPACE).map(claim => claim.claimId),
+        ['c-1']);
+
+    // Duplicate pending ids / promoted identities: later duplicates drop.
+    store = new WorktreeGroupManifestStore(seeded(
+        [retiredRecord()],
+        [
+            pendingClaim(),
+            pendingClaim({ claimId: 'c-2', pendingId: 'p-1' }),
+            {
+                claimId: 'c-3', createdAfterRetirementId: 'r-1', createdAtMs: 150,
+                state: 'promoted', provider: 'codex', sessionId: 's-1',
+                worktreeKey: pendingClaim().worktreeKey,
+            },
+            {
+                claimId: 'c-4', createdAfterRetirementId: 'r-1', createdAtMs: 160,
+                state: 'promoted', provider: 'codex', sessionId: 's-1',
+                worktreeKey: pendingClaim().worktreeKey,
+            },
+        ],
+        100));
+    assert.deepEqual(
+        store.listGenerationClaims(WORKSPACE).map(claim => claim.claimId).sort(),
+        ['c-1', 'c-3']);
+
+    // A stored high-water mark below the records' cutoffs is repaired up.
+    store = new WorktreeGroupManifestStore(seeded([retiredRecord()], [], 5));
+    assert.equal(store.nextGenerationCutoff(WORKSPACE, 1), 101);
 });
 
 test('WORKTREE-GROUPS-RENAME-001 starts revision at 1 and migrates legacy records', async () => {

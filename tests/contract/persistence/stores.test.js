@@ -417,8 +417,8 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 listAll enumerates durable bindings f
     const noKeys = makeState({});
     const storeWithoutKeys = new AiSessionTerminalBindingStore(
         noKeys.memento, undefined, () => NOW);
-    assert.deepEqual(storeWithoutKeys.listAll(), [],
-        'a memento without keys() degrades to no bindings');
+    assert.equal(storeWithoutKeys.listAll(), null,
+        'a memento without keys() reports "could not tell", never an empty list');
 });
 
 test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-PERSISTENCE-001 preserves workspace-bound records and rejects missing or oversized fields', async () => {

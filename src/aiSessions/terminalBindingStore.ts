@@ -117,12 +117,17 @@ export default class AiSessionTerminalBindingStore {
      * Every durable binding record, for claim reconciliation (PRD §6.4):
      * the marker path links a pending generation claim to the session its
      * terminal eventually bound to, even across a crash between runtime
-     * promotion and claim promotion.
+     * promotion and claim promotion. Returns null when enumeration itself
+     * fails — an empty list must only ever mean "no bindings", never
+     * "could not tell".
      */
-    listAll(): AiSessionTerminalBinding[] {
+    listAll(): AiSessionTerminalBinding[] | null {
         try {
             const keys = typeof this.state?.keys === 'function'
-                ? this.state.keys() : [];
+                ? this.state.keys() : null;
+            if (!keys) {
+                return null;
+            }
             const records: AiSessionTerminalBinding[] = [];
             for (const key of keys) {
                 const isCurrent = key.startsWith(AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX);
@@ -146,7 +151,7 @@ export default class AiSessionTerminalBindingStore {
             return records;
         } catch (error) {
             this.reportErrorOnce(error);
-            return [];
+            return null;
         }
     }
 

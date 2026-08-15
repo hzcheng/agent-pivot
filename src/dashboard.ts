@@ -238,7 +238,10 @@ import {
     AiSessionPresentationTransaction,
     WorkspaceSessionHydrationController,
 } from './workspaces/sessionHydrationController';
-import { isWorkspaceHostPathContained } from './workspaces/sessionAssignment';
+import {
+    isWorkspaceHostPathContained,
+    normalizeWorkspaceHostPath,
+} from './workspaces/sessionAssignment';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
 import { GitWorktreeDiscovery } from './worktrees/gitWorktreeDiscovery';
@@ -288,6 +291,8 @@ import {
     parseRenameWorktreeGroupRequest,
     settledWorktreeGroupRenameSettlement,
 } from './worktrees/groupRenameProtocol';
+import type { GenerationClaim } from './worktrees/retiredWorktrees';
+import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
 import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
@@ -1405,12 +1410,23 @@ async function initializeDashboard(
         if (!pendingClaims.length) {
             return;
         }
-        const pendingRuntimes = await aiSessionRuntimeCoordinator.getPendingForPromotion()
-            .catch(() => []);
-        const livePendingIds = new Set(pendingRuntimes
-            .map(runtime => runtime.identity.pendingId)
-            .filter((pendingId): pendingId is string => !!pendingId));
+        // Evidence enumeration must never degrade to an empty set: a
+        // failed read is not proof of absence.
+        let livePendingIds: Set<string>;
+        try {
+            livePendingIds = new Set(
+                (await aiSessionRuntimeCoordinator.getPendingForPromotion())
+                    .map(runtime => runtime.identity.pendingId)
+                    .filter((pendingId): pendingId is string => !!pendingId));
+        } catch (error) {
+            logError('Failed to enumerate pending runtimes for claim reconciliation.', error);
+            return;
+        }
         const bindings = aiSessionTerminalBindingStore.listAll();
+        if (!bindings) {
+            logError('Failed to enumerate terminal bindings for claim reconciliation.', null);
+            return;
+        }
         const pendingBindingIds = new Set(bindings
             .filter((binding): binding is typeof binding & { pendingId: string } =>
                 binding.state === 'pending')
@@ -1425,55 +1441,56 @@ async function initializeDashboard(
                 });
             }
         }
-        await worktreeGroupManifestStore.reconcileGenerationClaims(identity, claim => {
-            if (claim.pendingId && (livePendingIds.has(claim.pendingId)
-                || pendingBindingIds.has(claim.pendingId))) {
-                // The normal promotion flow owns this claim.
-                return { kind: 'keep' as const };
-            }
-            if (claim.launchMarkerPath) {
-                const bound = boundByMarkerPath.get(claim.launchMarkerPath);
-                if (bound) {
-                    return {
-                        kind: 'promote' as const,
-                        provider: bound.provider,
-                        sessionId: bound.sessionId,
-                    };
-                }
-                if (existsSync(claim.launchMarkerPath)) {
-                    // The launch completed but no binding survived: the
-                    // outcome is unknowable, so keep blocking deletion.
-                    return { kind: 'keep' as const };
-                }
-            }
-            // No runtime, no binding, no completed marker: discard only
-            // when the provider also shows no session activity on the path.
-            const providerId = claim.creatingProvider;
-            if (providerId && isAiSessionProviderId(providerId)) {
-                const result = aiSessionReadCoordinator.getProviderResult(providerId, {
-                    forceRefresh: false,
-                    candidatePaths: [claim.worktreeKey.canonicalWorktreePath],
-                    reason: 'claim-reconcile',
-                });
-                if (!result?.available) {
-                    return { kind: 'keep' as const };
-                }
-                const pathPrefix = `${claim.worktreeKey.canonicalWorktreePath}/`;
-                const hasLaterActivity = result.sessions.some(session => {
-                    const cwd = getProviderAiSessionComparableCwd(
-                        providerId, session, aiSessionProviders);
-                    const activityAt = Date.parse(session.createdAt || session.updatedAt || '');
-                    return !!cwd
-                        && (cwd === claim.worktreeKey.canonicalWorktreePath
-                            || cwd.startsWith(pathPrefix))
-                        && Number.isFinite(activityAt)
-                        && activityAt >= claim.createdAtMs;
-                });
-                if (hasLaterActivity) {
-                    return { kind: 'keep' as const };
-                }
-            }
-            return { kind: 'discard' as const };
+        await worktreeGroupManifestStore.reconcileGenerationClaims(identity, claim =>
+            resolveGenerationClaimDisposition(claim, {
+                livePendingIds,
+                pendingBindingIds,
+                boundSessionByMarkerPath: boundByMarkerPath,
+                markerExists: markerPath => {
+                    try {
+                        return existsSync(markerPath);
+                    } catch {
+                        return true;
+                    }
+                },
+                isCreationInFlight: pendingId =>
+                    aiSessionCreationController.isClaimCreationInFlight(pendingId),
+                hasProviderActivityOnPath: currentClaim =>
+                    detectProviderActivityForClaim(currentClaim),
+            }));
+    };
+    // Authoritative negative evidence for claim discard: forced refresh,
+    // unbounded, and any unavailability or truncation means 'unknown'.
+    const detectProviderActivityForClaim = (
+        claim: GenerationClaim
+    ): boolean | 'unknown' => {
+        const providerId = claim.creatingProvider;
+        if (!providerId || !isAiSessionProviderId(providerId)) {
+            return 'unknown';
+        }
+        let result;
+        try {
+            result = aiSessionReadCoordinator.getProviderResult(providerId, {
+                forceRefresh: true,
+                candidatePaths: [claim.worktreeKey.canonicalWorktreePath],
+                maxFiles: 0,
+                reason: 'claim-reconcile',
+            });
+        } catch {
+            return 'unknown';
+        }
+        if (!result?.available || result.parsedFiles < result.scannedFiles) {
+            return 'unknown';
+        }
+        const claimPath = normalizeWorkspaceHostPath(claim.worktreeKey.canonicalWorktreePath);
+        return result.sessions.some(session => {
+            const cwd = normalizeWorkspaceHostPath(getProviderAiSessionComparableCwd(
+                providerId, session, aiSessionProviders));
+            const activityAt = Date.parse(session.createdAt || session.updatedAt || '');
+            return !!claimPath && !!cwd
+                && isWorkspaceHostPathContained(claimPath, cwd)
+                && Number.isFinite(activityAt)
+                && activityAt >= claim.createdAtMs;
         });
     };
     const workspacePendingSessionPromotionController =

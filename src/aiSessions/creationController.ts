@@ -148,10 +148,21 @@ export type AiSessionCreationControllerOptions = AiSessionCreationRuntimeControl
 export class AiSessionCreationController {
     private creating = false;
     private readonly options: AiSessionCreationControllerOptions;
+    /**
+     * Creations between the durable claim write and the runtime start
+     * (PRD §6.4): claim reconciliation must treat these as in-flight,
+     * because every crash evidence channel is empty by definition here.
+     */
+    private readonly inFlightClaimCreations = new Set<string>();
 
     constructor(options: AiSessionCreationControllerOptions) {
         validateControllerOptions(options);
         this.options = options;
+    }
+
+    /** Whether a claim-bearing creation currently owns this pending id. */
+    isClaimCreationInFlight(pendingId: string): boolean {
+        return this.inFlightClaimCreations.has(pendingId);
     }
 
     /**
@@ -439,55 +450,65 @@ export class AiSessionCreationController {
         // failure rejects the creation outright.
         let generationClaimId: string | null = null;
         if (directoryScope.worktreeKey && options.prepareGenerationClaim) {
+            // Claim reconciliation must see this creation as in-flight
+            // until the runtime start settles: inside the window every
+            // crash evidence channel is empty by definition.
+            this.inFlightClaimCreations.add(pendingId);
+        }
+        let result: AiSessionRuntimeActionResult<vscode.Terminal>;
+        try {
+            if (directoryScope.worktreeKey && options.prepareGenerationClaim) {
+                try {
+                    generationClaimId = await options.prepareGenerationClaim({
+                        navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                        worktreeKey: { ...directoryScope.worktreeKey },
+                        pendingId,
+                        provider: providerId,
+                        launchMarkerPath: markerPath,
+                    });
+                } catch (error) {
+                    options.logRuntimeFailure?.('create-generation-claim', error, 'vscode');
+                    if (options.showErrorMessage) {
+                        await options.showErrorMessage(
+                            'Could not record the worktree session claim; the session was not started.');
+                    } else {
+                        await options.showWarningMessage(
+                            'Could not record the worktree session claim; the session was not started.');
+                    }
+                    options.refresh();
+                    return false;
+                }
+            }
             try {
-                generationClaimId = await options.prepareGenerationClaim({
-                    navigationIdentity: directoryScope.workspaceNavigationIdentity,
-                    worktreeKey: { ...directoryScope.worktreeKey },
-                    pendingId,
-                    provider: providerId,
-                    launchMarkerPath: markerPath,
-                });
+                result = await coordinator.create(request);
             } catch (error) {
-                options.logRuntimeFailure?.('create-generation-claim', error, 'vscode');
+                if (generationClaimId && options.discardGenerationClaim) {
+                    await options.discardGenerationClaim({
+                        navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                        claimId: generationClaimId,
+                    }).catch(() => undefined);
+                }
+                options.logRuntimeFailure?.('create-runtime', error, 'tmux');
                 if (options.showErrorMessage) {
-                    await options.showErrorMessage(
-                        'Could not record the worktree session claim; the session was not started.');
+                    await options.showErrorMessage('Could not start the AI session runtime.');
                 } else {
-                    await options.showWarningMessage(
-                        'Could not record the worktree session claim; the session was not started.');
+                    await options.showWarningMessage('Could not start the AI session runtime.');
                 }
                 options.refresh();
                 return false;
             }
-        }
-        let result: AiSessionRuntimeActionResult<vscode.Terminal>;
-        try {
-            result = await coordinator.create(request);
-        } catch (error) {
-            if (generationClaimId && options.discardGenerationClaim) {
+            if (result.status !== 'started' && generationClaimId
+                && options.discardGenerationClaim) {
                 await options.discardGenerationClaim({
                     navigationIdentity: directoryScope.workspaceNavigationIdentity,
                     claimId: generationClaimId,
                 }).catch(() => undefined);
             }
-            options.logRuntimeFailure?.('create-runtime', error, 'tmux');
-            if (options.showErrorMessage) {
-                await options.showErrorMessage('Could not start the AI session runtime.');
-            } else {
-                await options.showWarningMessage('Could not start the AI session runtime.');
+            if (result.status === 'cancelled' || result.status === 'settings') {
+                return false;
             }
-            options.refresh();
-            return false;
-        }
-        if (result.status !== 'started' && generationClaimId
-            && options.discardGenerationClaim) {
-            await options.discardGenerationClaim({
-                navigationIdentity: directoryScope.workspaceNavigationIdentity,
-                claimId: generationClaimId,
-            }).catch(() => undefined);
-        }
-        if (result.status === 'cancelled' || result.status === 'settings') {
-            return false;
+        } finally {
+            this.inFlightClaimCreations.delete(pendingId);
         }
         if (result.status === 'conflict') {
             options.refresh();

@@ -1,6 +1,6 @@
 # Worktree Tasks M3 实现前评审与实施方案
 
-日期：2026-08-15（v5，第四轮外部评审修订版，回写 PRD v6 前的最终稿）
+日期：2026-08-15（v5.1，第五轮评审确认稿；两条实现约束已并入决策 E/J）
 
 状态：M1/M2 已交付；本文档是 M3（组级与 member 级操作）的实现前评审，确认后回写 PRD v6，然后按批次实现
 
@@ -72,7 +72,7 @@ abandonDeletion：放弃 partial intent = 释放预占 + 清错误标记，不�
 
 **截断语义（v5 修正表述）**：单 record 明细超限时，**精确 session 身份确实丢失**；provider 聚合计数仅作诊断，**不参与世代判定**。未保留精确身份且无法提供匹配 generation claim / 可靠 creation time 的 session，一律按旧世代 fail-closed（决策 E 规则 3 兜底，不会错放）。
 
-**journal 归档**：终态后移出 active journal；可选进入**诊断环（最近 8 条）**——非权威、不参与恢复或对账、只存摘要与 error code、不复制 `affectedSessions`、始终受 aggregate 字节上限约束。
+**journal 归档**：终态后移出 active journal，成功写入则进入**诊断环（最近 8 条）**；容量不足时可丢弃诊断摘要，不影响权威事务。诊断环非权威、不参与恢复或对账、只存摘要与 error code、不复制 `affectedSessions`、始终受 aggregate 字节上限约束。
 
 **重启对账规则**（fail-closed）：
 
@@ -120,6 +120,18 @@ retiredWorktreeIdentity:
 
 1. **generation claim 携带相对引用**：Agent Pivot 在 retired path 上创建 session 时，在创建入口（pending 创建时）写入 `createdAfterRetirementId` = 该 WorktreeKey **当时最新**的 retirementId；sessionId 确认后**原子晋升**为 `{provider, sessionId}` 级持久记录。
 2. **claim 独立持久化，不依赖 runtime binding 寿命**：terminal binding 有显式 `remove()`（已核实 `terminalBindingStore.ts`），claim 存于独立的持久化 store（aggregate 的 generationClaims 节），在 binding 清理后继续存在，直到对应历史 session 被权威确认删除（随 retired 清理规则或历史归档释放）。
+
+**pending claim 即持久化 admission marker（v5.1 确认约束，批 2/批 3 实现约束）**：New session 与 deletion 跨存储（claim aggregate vs terminal binding/provider session），顺序必须定死，保证无论谁先取得 mutex 都不漏过对方：
+
+1. mutex 键为 `{navigationIdentity, groupId}`，不是裸 groupId。
+2. New session 持锁检查 journal 后，**先持久化** `{pendingId, worktreeKey, createdAfterRetirementId, state: 'pending'}`。
+3. pending claim 一旦提交**即算 deletion blocker**（beginDeletion 的 blocker 复检必须命中）；提交后才能释放 mutex 并创建 binding/terminal。
+4. claim 写入失败或 `store-full` → 在任何 terminal/provider 副作用前拒绝创建。
+5. 启动失败 → 补偿删除 pending claim。
+6. 崩溃恢复：claim + binding/runtime 存在 → 继续关联并晋升；能权威确认 session 从未产生 → 清理 claim；binding/provider 状态不确定 → **保留 claim 并阻断删除**。
+7. sessionId 出现后，在 aggregate 内将 pending claim **原子晋升**为 `{provider, sessionId}` claim。
+
+故障注入测试：claim 写入后、binding 写入前崩溃；provider session 出现后、claim 晋升前崩溃。
 3. **新世代判定**：session 对 retired R 算新世代，当且仅当其 claim 引用同一 WorktreeKey 上 `generationCutoffAt ≥ R.generationCutoffAt` 的某个 retirement（即创建于 R 或 R 之后的某轮重建期）。
 
 **世代判定规则（完整，`updatedAt` 不作依据）**：
@@ -129,7 +141,7 @@ retiredWorktreeIdentity:
 3. **延迟发现、无 claim**：用**稳定 creation time** ≤ R.`generationCutoffAt` → 旧世代；creation time 无效 / 缺失 / 明显时钟漂移 → **fail-closed 旧世代**。
 4. **删除 journal 活跃期间禁该组新 session**（决策 J），世代边界内不产生新 session。
 
-**时间域（v5 定案）**：`generationCutoffAt` 为持久化 **UTC epoch milliseconds**，经注入的 `nowMs()` 获取；写入 `max(nowMs(), previousCutoffAt + 1)` 防系统时钟回拨（per-aggregate 单调护栏）；provider creation time 在采集时归一化到同一 epoch。进程单调时钟不持久化、不跨重启、不与 epoch 混用。
+**时间域（v5 定案）**：`generationCutoffAt` 为持久化 **UTC epoch milliseconds**，经注入的 `nowMs()` 获取；写入 `max(nowMs(), lastGenerationCutoffAt + 1)` 防系统时钟回拨。`lastGenerationCutoffAt` 是 aggregate 内的**持久化高水位**（v5.1 确认约束）：每次 `beginDeletion` 原子更新；retired 清理时**不回退、不删除**（不能只从现存 retired records 求最大值——记录清理后高水位会丢失）；迁移默认 `0`；校验为安全整数。provider creation time 在采集时归一化到同一 epoch。进程单调时钟不持久化、不跨重启、不与 epoch 混用。
 
 **creation time 模型贯通（批 2 范围）**：`CodexSession` 等历史模型当前仅 `updatedAt`（已核实 `models.ts`，hydration 也只投影 `updatedAt`）。批 2 包含：各 provider 稳定 creation time 的采集（支持则填 `createdAt`）、模型与 hydration 投影贯通、不支持 provider 的降级路径（无 creation time → 走规则 3 的 fail-closed）及测试。
 
@@ -247,7 +259,9 @@ whole-group 删除后的焦点恢复目标：下一组行 → Current 锚点行 
 - retired 容量：按冻结快照预占；明细超限降级（计数仅诊断）；aggregate 字节上限；超限零副作用 `store-full`。
 - retired 清理：provider 不可用 / 扫描截断 → 保留；三类引用皆空才清理；清理释放关联 generation claims。
 - TOCTOU：mutex 覆盖不到的途径由执行期逐 member 复检兜底按 partial。
-- partial journal：Retry 重开同一 operation；abandon 释放预占、清错误、不动 member；终态归档入诊断环（非权威、摘要only、8 条上限、字节约束）。
+- partial journal：Retry 重开同一 operation；abandon 释放预占、清错误、不动 member；终态归档入诊断环（成功写入则进入、容量不足可丢弃、非权威、摘要 only、8 条上限）。
+- **持久化高水位**：清空全部 retired → 系统时钟回拨 → 再次删除，新 cutoff 仍严格递增（`lastGenerationCutoffAt` 不回退）。
+- **pending claim 故障注入**：claim 写入后、binding 写入前崩溃；provider session 出现后、claim 晋升前崩溃——两路恢复语义（晋升 / 清理 / 保留并阻断删除）全覆盖。
 - primary：operationally-ready 候选有 / 无；locked 可作 replacement primary；locked 作删除目标被阻断；最后一个 member 组消失；whole-group 不要求选 primary。
 - 脱离 member 双动作；whole-group 在脱离 member 存在时阻断。
 - discovery 截断 / 仓库不可见 → 保留 `deleting` + lease 持续。

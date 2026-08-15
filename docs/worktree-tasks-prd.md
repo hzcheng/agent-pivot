@@ -1,8 +1,8 @@
 # Worktree Tasks（多项目 Workspace 任务化 Worktree）PRD
 
-日期：2026-08-14（v5，M2 实现前评审修订版）
+日期：2026-08-15（v6，M3 实现前评审定稿）
 
-状态：M1 已交付；M2 语义经实现前评审闭环（配置 scope、执行期碰撞、创建中呈现、in-flight 对账），可进入 M2 实现
+状态：M1/M2 已交付；M3 语义经五轮实现前评审闭环（删除 journal 事务、retired 历史身份、session 世代模型、mutation lease 与 admission mutex、revision 体系），可进入 M3 实现；M3 的工程化实施约束（存储边界、容量、故障注入矩阵）详见 `docs/worktree-tasks-m3-plan.md`
 
 ## 0. 核心产品承诺
 
@@ -60,11 +60,12 @@ Agent Pivot 的 Worktree tab（`feat/worktree-model`）当前把 workspace 内**
 ## 4. 核心概念与实体模型
 
 ```
-Group:  groupId, displayName（可改，允许重复）, primaryMemberId, suggestedSlug
+Group:  groupId, displayName（可改，允许重复）, primaryMemberId, suggestedSlug, revision
 Member: memberId, repositoryKey, worktreeKey?, branchName, path, state
 ```
 
 - **groupId 是唯一身份。** 显示名只是展示；member 的 branchName/path 可以各不相同（外部已建的不同名 worktree 也可并入），分组关系只由 manifest 表达（承诺 1）。
+- **revision 是持久化单调序号**：创建时为 1；rename、member 状态变化、primary 变更、member 增删、merge 每次成功写入递增。一切"预览后确认"的 mutation（M2 创建、M3 全部操作）把 group revision 绑进确认 token；确认时 revision 漂移即 fail-closed 要求重新预览——禁止用内容 fingerprint 替代（fingerprint 有 ABA 问题）。
 - **不变式一：同一 workspace manifest 内，一个 WorktreeKey 至多属于一个组**（作用域论证见 §9）。
 - **不变式二：同一组内，一个 repositoryKey 至多一个 member。** 一个仓库在同一个工作集里出现两个 worktree 没有合理场景；这条不变式使 Merge 冲突（§6.5）与 Add repo（§6.3）都有确定语义。
 - **worktreeKey 仅在物理 worktree 创建成功后存在**；planned/provisioning/failed 状态下为计划值缺位（生命周期见 §4.2）。
@@ -106,8 +107,8 @@ ready → deleting → deleted（从 manifest 移除）
 - **planned**：已写入 manifest 的创建意图；`branchName`/`path` 是计划值，`worktreeKey` 缺位。
 - **failed**：物理创建未完成的 member 留在组内（§8），支持 Retry / Dismiss。**Dismiss 只删除失败意图（member 记录），永不触碰任何已存在的物理目录。**
 - **"仅创建可用 N/M"被跳过的仓库：不成为 member，不留任何记录。** 跳过是用户确认时的显式排除，不是"尝试过但失败"；事后想补建走 Add repo（§6.3）。
-- **deleting**：执行期失败时 member 回到 ready 并带失败标记 + Retry（§6.4）；成功后从 manifest 移除。
-- **primary 约束**：primary 必须指向 ready member。primary member 创建失败、被 Dismiss、脱离或 missing 时，组行提示重新选择 primary；**组内无 ready member 时禁用 New session**。
+- **deleting 是持久化状态，删除是带 journal 的事务**（§6.4）：副作用前冻结 intent 与身份快照，逐 member checkpoint，重启后对账收敛；执行期失败时 member 回到 ready 并带失败标记 + Retry（Retry 重用 journal 冻结的原目标身份）；成功后从 manifest 移除并写入 retired identity。
+- **primary 约束**：primary 必须指向 **operationally-ready** member（`state=ready` + 仓库当前可见 + worktree 非 bare + health ∉ {missing, prunable}——locked 不排除，locked worktree 仍存在且可用于 session——+ 映射后的 workspace paths 可用）。primary member 创建失败、被 Dismiss、脱离或 missing 时，组行提示重新选择 primary；**组内无 operationally-ready member 时禁用 New session**。移除 primary 时：存在其他 operationally-ready member → 删除前要求选择新 primary；无候选 → 允许 primary 为空；whole-group 删除不要求选择新 primary。
 - **空组即消失**：最后一个 member 被删除或 Dismiss 后，group 的 manifest 记录随即移除，Worktree tab 不保留空组；其历史 session 只留在 Chats（§6.4）。
 
 ## 5. 关键设计决策（已确认）
@@ -127,6 +128,7 @@ ready → deleting → deleted（从 manifest 移除）
 - **slug 的职责收敛为三件事**：创建时为各 member 建议默认分支名/路径名；发现层把同 slug 的无主 worktree 聚成"建议组"供用户勾选确认；manifest 丢失后辅助重新组织。slug 不要求全局唯一——两个仓库完全可能各有一个互不相关的 `fix-login`，它们不因此被合并（承诺 3）。
 - **建议 slug 生成规则**：从显示名提取 ASCII 字母数字片段转 kebab-case；不足 3 个字符时（典型：纯中文名）回落 `task-<6 位短 id>`；目标仓库内分支名/路径冲突时自动追加短后缀并在预览中可见。member 间的分支名/路径**可以不同**（外部并入、历史后缀），不靠名称一致维持分组。
 - **manifest 丢失（状态重置、换机器）= 重新组织，不是恢复。** 保证的是物理 worktree 毫发无损；丢失的信息（显示名、primary、创建时间、分组结构）不可还原，由用户通过 Adopt / Merge 重新组织（§6.5）。文案禁止承诺"恢复原分组"（承诺 5）。
+- **重命名即重新生成 suggestedSlug。** 重命名只改显示名会让未来 Add repo / 派生仍按旧 slug 命名。重命名时按 §5.2 规则从新显示名重新生成 suggestedSlug（纯中文回落 `task-<id>`）；displayName、suggestedSlug、group revision 必须**同一次 manifest 写入**。slug 非权威身份，重新生成只影响未来 member 的默认命名与建议组聚类，既有 member 的分支/路径不动。
 
 ### 5.3 基准行降级为锚点（见 §4 Current 锚点行）
 
@@ -177,31 +179,59 @@ ready → deleting → deleted（从 manifest 移除）
 
 ### 6.2 从组派生组（stacked）
 
-组行 ⋯ → "从此组派生"：每个 member 仓库从源组对应的分支拉新 worktree；源组不含的仓库若被勾选，回落到该仓库的基准。创建预览照常渲染（默认勾选源组的 member 仓库集合）。
+组行 ⋯ → "从此组派生"：**复用内联创建表单的 derive 模式**（§6.1 形态，含实时预览、预检门禁、一次性 preview token、argv 冻结）——每个 member 仓库从源组对应的分支拉新 worktree；源组不含的仓库若被勾选，回落到该仓库的基准。默认勾选源组的 member 仓库集合；名称默认 `源名-2`（追加短后缀，§14 开放问题 1 闭环），预览照常渲染、就地可改。derive 是**创建新组**（`createGroup`），不向源组添加 member。
+
+**derive 候选资格**：
+
+| 源组 member 状态 | 资格 |
+| --- | --- |
+| visible + repository 可解析 | 可参与 |
+| detached（仓库移出 workspace） | 显示但不可选，注明原因 |
+| failed / planned / provisioning | 不信任 manifest 的 branchName，从对应 repository refs 重新验证后才可作为基准 |
+| missing 但 branch ref 仍权威存在 | 预检通过后可参与 |
 
 ### 6.3 向组中添加仓库
 
-组行 ⋯ → "向组中添加仓库"：列出组尚未包含的 workspace 仓库（不变式二保证每仓库至多一个候选），按该仓库基准 + 建议 slug 生成默认分支/路径，补建物理 worktree，写入 manifest（含成员唯一性校验）。
+组行 ⋯ → "向组中添加仓库"：**复用内联创建表单的 add-repo 模式**——列出组尚未包含的 workspace 仓库（不变式二保证每仓库至多一个候选），slug 锁定为组的 suggestedSlug，按该仓库记忆基准生成默认分支/路径，预检、补建物理 worktree、原子写入 manifest（`addPlannedMembers`，含成员唯一性校验）。**默认勾选**：活跃编辑器所在仓库未入组 → 只默认勾选它；否则默认不选（跨仓库是少数，默认全选 = 静默多建）；清单内保留"全选"；零选择时确认按钮禁用。确认走与创建相同的一次性 preview token + 冻结管线，token 绑定组 revision，组在预览后被改动则确认 fail-closed 要求重新预览。
 
 **对已有 session 的 scope 影响**：
 
 - 默认只影响**之后新建**的 session；
-- 正在运行的 session scope 不变，组行内显示提示"运行中的会话尚未包含新加入的仓库"；
+- 正在运行的 session scope 不变；**"运行中的会话尚未包含新加入的仓库"是派生值而非事件标记**：逐 active/pending session 比较"组当前 ready member 经 rootBindings 映射后的 writable paths 集合"与该 runtime 持久化的 `writableRootHostPaths`，有新路径不在实际 scope 内即提示；组行内联汇总注记呈现（§14 开放问题 2 闭环），不逐卡片打徽标；
+- 新 member 到达 ready 后才进入期望 scope；member 被移除时重新比较；M1 的 `legacyScope` 与本提示分开表达；
 - session 重启/恢复时按其所属组的**当前 member 集合重建 scope**（自然升级，无需额外入口）。
 
 ### 6.4 删除：预检门禁 + 可恢复的逐成员执行（承诺 4）
 
-**组级**：组行 ⋯ → "移除组中的 worktree"。确认框逐条列出每个 member 的物理路径与检查结果（活跃 session、未提交改动、锁定等，复用现有 `isActive` 与 clean-check 语义）、受影响的历史 session 数量，并注明"仅删除 worktree 目录，保留本地分支"。
+**确认形态：webview 内联确认卡**（与创建表单同族、单实例互斥），不是原生 modal——要承载逐 member 列表、双动作与计数，且键盘操作 / 焦点恢复 / ARIA 关联随本流程交付。
 
-- **预检门禁**：任一可见 member 被阻断 → 不开始执行，确认框逐条标明原因，用户处理后整体重试。
+**组级**：组行 ⋯ → "移除组中的 worktree"。确认卡逐条列出每个 member 的物理路径与检查结果（活跃 session、未提交改动、锁定等，复用现有 `isActive` 与 clean-check 语义）、受影响的历史 session 数量，并注明"仅删除 worktree 目录，保留本地分支"。
+
+- **预检门禁**：任一可见 member 被阻断 → 不开始执行，确认卡逐条标明原因，用户处理后整体重试。
 - **执行阶段不承诺原子性**：预检全过后，逐 member 执行仍可能因竞态、权限、进程占用部分失败。**已删除的不回滚**；未删除的 member 保留在 manifest（状态回 ready + 失败标记），组行提供 member 级 Retry，残余状态完整可见。
-- **脱离 member（仓库已移出 workspace）在确认框中显示为"不可操作"**，并拆成两个语义明确的动作：
+- **脱离 member（仓库已移出 workspace）在确认卡中显示为"不可操作"**，并拆成两个语义明确的动作：
   - **"移除当前可见 worktree"**：只删可见 member，组及脱离 member 保留在 manifest；
   - **"删除整个组"**：存在脱离 member 时阻断，提示先恢复仓库可见性——不允许一个叫"删除整个组"的操作留下不可见残余。
 
-**member 级**：member 详情行提供 **"从组中移除此 worktree"**（Add repo 之后反悔的逆操作）：同样执行活跃 session / clean 检查；删除目录、保留分支；移除的是 primary 时先要求选择新 primary；移除的是最后一个 member 时组随之消失（§4.2）。
+**member 级**：member 详情行提供 **"从组中移除此 worktree"**（Add repo 之后反悔的逆操作）：同样执行活跃 session / clean 检查；删除目录、保留分支；移除的是 primary 时按 §4.2 的 operationally-ready 规则处理；移除的是最后一个 member 时组随之消失（§4.2）。
 
-**删除后历史 session 的规则**：历史 session 保留在 Chats，标记"**工作目录已删除，无法直接恢复**"，不阻断删除；确认框显示受影响的历史 session 数量。第一版不提供重建 worktree 以恢复 session 的能力，UI 不得暗示其仍可恢复。
+**删除事务模型（journal）**：`git worktree remove` 的原子性不构成业务事务——`manifest 标记删除 → 物理删除 → manifest 移除 member → retired 写入 → 刷新`之间进程可能在任意边界退出。
+
+- **单一 aggregate**：deletion journal 与 retired identities 与 manifest 同属一个持久化 aggregate（同一 `globalState` key、按 `navigationIdentity` 分桶的版本化 blob），跨三者的事务由一次原子写入提交，无跨 key 两阶段窗口。
+- **beginDeletion（副作用前全部完成）**：取得 admission mutex（见下）→ 逐 member 最终复检 blocker → 冻结受影响 session 清单与 `generationCutoffAt` → 生成每个目标 member 的 `retirementId` → 按冻结快照预占 retired 容量（不足即 `store-full`，零物理副作用）→ member 置 `deleting` → journal 落盘（operationId、操作模式 group/member/visible-only、目标快照、原 primary、关联 preview token）。
+- **逐 member checkpoint**：每成功删除一个 member 立即在同一 aggregate 内完成"retired 写入 + manifest 移除 + journal 推进"；失败 member 恢复 ready + 失败标记，journal 进入 partial（仅保留该 member 的冻结快照）。**Retry 重开同一 operation**，不重推断目标、不重快照；用户可放弃 partial intent（释放预占、清错误标记，不触碰仍存在的 member）。journal 终态后归档。
+- **重启对账（fail-closed，绝不猜测成功）**：member 路径确定不存在 → 用 journal 冻结信息完成移除；worktree 仍正常存在 → 恢复 ready + `deletion-interrupted` + 可 Retry；discovery 截断 / 仓库脱离 / 状态未知 → **保留 deleting** 并持续阻断该组 mutation，直到获得确定快照。
+
+**mutation lease 与 admission mutex**：
+
+- 某组存在 active deletion journal 时，阻断该组的 Add repo、Adopt（作为目标）、Merge（作为 source 或 target）、再次删除、primary 变更、新 session、rename；只放行 deletion Retry、放弃 partial intent 与查看操作。这保证"删除整个组"的确认不被并发 mutation 落空。Merge 同时校验 source 与 target 两组（按稳定 groupId 顺序）。
+- **admission mutex**：deletion admission 与 New session admission 共用按 `{navigationIdentity, groupId}` 的 Host mutex。deletion 从最终 blocker 复检持锁到 journal 落盘；New session 在创建任何 pending binding / terminal 副作用前取同一把锁并在锁内复查 active journal 与持久化 generation claim（见下）；锁关闭"journal 写入前新 session 溜进来"的竞态窗口。执行期逐 member 复检作为纵深防御保留。
+
+**删除后历史 session 的规则（retired identity + 世代模型）**：历史 session 保留在 Chats，标记"**工作目录已删除，无法直接恢复**"，不阻断删除；确认卡显示受影响的历史 session 数量。第一版不提供重建 worktree 以恢复 session 的能力，UI 不得暗示其仍可恢复。
+
+- **retired identity 是持久化的历史事实**（`retirementId`、repositoryKey、canonicalWorktreePath、branchName 快照、`deletedAt`、`generationCutoffAt`、来源 group/member、删除时冻结的受影响 session 清单），不是当前文件系统状态；M1 的 manifest path fallback 在 member 移除后由它接管，workspace root 之外的历史 session 不从 Chats 消失。retired **只能由有 journal 的成功删除产生**——绝不把普通 missing/prunable member 推断为 retired。
+- **世代模型**：同一路径可被重建并产生新世代 session。Agent Pivot 在 retired path 上创建 session 时写入持久化 **generation claim**（`createdAfterRetirementId`，pending 创建时产生、sessionId 确认后在 aggregate 内原子晋升、独立于 terminal binding 寿命存续）；**pending claim 一旦提交即算 deletion blocker**，其写入失败即在任何副作用前拒绝创建（完整时序与崩溃恢复见实施文档）。判定顺序：journal 冻结清单 → 匹配 claim → 稳定 creation time（≤ cutoff 为旧世代）→ 无可靠依据一律按旧世代 fail-closed；可变的 `updatedAt` 不作依据。`generationCutoffAt` 为 UTC epoch ms，写入 `max(now, lastGenerationCutoffAt + 1)`；`lastGenerationCutoffAt` 是 aggregate 内的持久化高水位，retired 清理不回退。
+- **retired 清理（容量出口）**：仅当所有 provider 历史源 available、扫描无截断无错误、且 active / pending / history 三类引用皆空时允许清理单条记录；"没查到"不等于"没有"。容量写满时新的删除在副作用前以 `store-full` 拒绝。
 
 ### 6.5 重新组织：Adopt 与 Merge（用户确认制）
 
@@ -218,6 +248,7 @@ ready → deleting → deleted（从 manifest 移除）
 - source 组的 manifest 记录删除；
 - **冲突阻断**：两组在同一 repositoryKey 各有 member 时（违反不变式二的潜在冲突）阻断，提示先通过 member 级移除（§6.4）解决；
 - 两组 session 的 cwd 不变，投影归入目标组。
+- **原子性与领域边界**：Adopt（多个无主 WorktreeKey 进新组/现有组）与 Merge 都是"先完整校验（容量 / repository 冲突 / WorktreeKey 占用 / primary / 双方 revision / lease）、再一次 aggregate 写入"的原语；Merge token 同时绑定 source 与 target 的 revision。Merge 只能整体移动 source 全部 member，与 Unmanaged 勾选 Adopt 不混为同一动作。
 
 ## 7. 自洽性规则
 
@@ -244,6 +275,8 @@ ready → deleting → deleted（从 manifest 移除）
 ## 9. 迁移与存储
 
 **存储位置与 workspace 归属**：manifest 存于 `globalState`，按现有 **`navigationIdentity`**（`src/workspaces/identity.ts`；对保存的多根 workspace 即 `.code-workspace` 文件身份）分桶。**禁止**按 `scopeIdentity`（由当前 root 集合计算）分桶——增删一个仓库就会改变它，会直接违反"仓库移除后保留、加回后自动归位"的承诺。仓库增删不改变 manifest 的 workspace 归属。
+
+**单一 aggregate（M3 起）**：每个 bucket 是一个版本化 blob，内含 `groups`（含 per-group 单调 `revision`）、`deletionJournal`、`retiredIdentities`、`generationClaims` 四节及 workspace 级 `aggregateRevision` / `lastGenerationCutoffAt` 高水位。跨节事务（如删除 checkpoint = retired 写入 + manifest 移除 + journal 推进）必须一次原子写入完成；aggregate 有序列化字节上限与各类记录数上限，超限在副作用前 fail-closed。webview mutation 的 settlement 绑定提交后的 `aggregateRevision`：webview 只在应用了同 identity 且基于不低于该 revision 的 aggregate 的 authoritative replacement 后才清除 pending；publication coordinator 串行化投影并丢弃基于旧 aggregate 的迟到结果。
 
 **唯一性作用域**：不变式一（WorktreeKey 至多一组）限定在**同一 workspace manifest 内**。同一物理 worktree 被两个不同的 `.code-workspace` 打开时，在各 workspace 的 manifest 中独立成组、各自展示——这是已知且可接受的规则（组不做跨 workspace，§3），写入行为契约。
 
@@ -277,6 +310,8 @@ WORKTREES | CHATS                          [collapse-all] [new]
 - **组行排序**：聚合状态（attention → active → idle）→ 最近活动时间。
 - **Unmanaged 不藏信息**：参与全局 attention 聚合与排序；内含需要关注的 session 时显示计数徽标并自动展开（或提供等价的一眼可见手段）。
 - 组行 ⋯ 菜单：New session（快速 / 各 provider）、从此组派生、向组中添加仓库、重命名、移除组中的 worktree；member 详情行：从组中移除此 worktree、Retry / Dismiss（failed 时）。文案遵循 §4.1。
+- **member 摘要行可展开（M3）**：次要摘要（`3 worktrees · …`）展开为 member 详情列表——各 member 的路径、分支、状态与 member 级操作（§6.4 的移除、Retry/Dismiss）；展开/收起沿用现有折叠机制与 collapse-all，170px 最小宽度下不横向溢出。
+- **删除确认卡（M3）**：§6.4 的内联确认卡在列表顶部就地展开（与创建表单同族、单实例互斥），逐 member 列出路径 / 检查结果 / 历史 session 计数与脱离 member 双动作；Esc 或收起放弃且无副作用；键盘操作、焦点恢复、ARIA 错误关联随流程交付。
 - collapse-all 按钮作用于组行与锚点行，沿用现有实现。
 - **可访问性是核心流程的一部分**：创建表单、可搜索下拉、多选、错误提示、删除确认的键盘操作 / 焦点恢复 / ARIA 名称与错误关联随 M1/M2/M3 的核心流程交付（§12），不推迟到打磨期。
 
@@ -288,7 +323,7 @@ WORKTREES | CHATS                          [collapse-all] [new]
 | 聚合视图模型 | `snapshotCoordinator` / webview 投影 | WorktreeSnapshot → 组行投影：manifest 分组（权威，含脱离 member 归位）+ slug 建议组 + Current 锚点（实际分支 + 仓库标签）+ Unmanaged（参与 attention）；纯函数、可测 |
 | 多仓库 provisioning | `provisioningPlan` / `provisioningController` / `gitWorktreeProvisioner` + 新增组级编排器 | 确认即写 manifest（planned members，store 已支持零 ready 组）→ 并行 per-member provisioning → 逐 member finalize 状态机；预检（路径/分支/无提交）；**per-repo setup 要求 `worktreeSetupCommand` 注册 scope 为 `machine-overridable`**（原 `machine` 不支持 folder 覆盖）；恢复记录带 groupId 关联回既有组；执行期碰撞 fail-closed（§8）；Retry/Dismiss 复用现有 settlement 协议形态 |
 | 组 session 启动与 **scope 收紧（M1）** | `isolatedSessionController` / `sessionScope` | cwd = primary ready member；`writableRootHostPaths` 与 provider additional dirs 只含 ready member 路径（**收紧现有 workspace-roots 填充**，承诺 2，须入行为契约）；resume 按当前 member 重建；存量运行中 session 标 "Legacy workspace scope" |
-| 组级/member 级删除 | `managedWorktreeRemovalController` / `removalProtocol` | 预检门禁（逐 member `isActive` + clean-check，任一阻断不开始）+ 逐成员执行（承认 `partial`，不回滚，残余 + Retry）；脱离 member 双动作；历史 session 计数与标记 |
+| 组级/member 级删除 | `managedWorktreeRemovalController` / `removalProtocol` + 新增删除 journal（manifest aggregate 内） | 预检门禁（逐 member `isActive` + clean-check，任一阻断不开始）+ 逐成员执行（承认 `partial`，不回滚，残余 + Retry）；journal 副作用前冻结快照 + 容量预占 + 重启对账（§6.4）；脱离 member 双动作；retired identity 与世代模型接管历史 session 标记；mutation lease + admission mutex |
 | 组 → 组 Merge | manifest store + 投影 | M1 交付迁移建议合并的最小版本；M3 交付任意 Adopt/Merge；冲突阻断（不变式二） |
 | Webview UI | `webviewContent.ts` / `media/` | 锚点行、组行、member 摘要/详情行、创建预览表单（完整副作用 + 预检 + "仅创建可用成员"；基准下拉数据源为 `git for-each-ref` 本地分支 + 记忆基准，§6.1）、Adopt / Merge 勾选界面、a11y |
 
@@ -316,6 +351,9 @@ session 归属的 cwd 匹配机制不变；聚合投影把物理 worktree 归到
 - 清空 manifest 后重启：物理 worktree 无损，以建议组呈现，可 Adopt / Merge 重新组织（承诺 5）。
 - 生命周期：failed member 可 Retry/Dismiss，Dismiss 不触碰物理目录；无 ready member 的组禁用 New session；最后一个 member 移除后组消失且不残留 manifest 记录。
 - Merge：组 → 组冲突（同 repositoryKey）阻断；member 转移后 source manifest 删除；session cwd 不变。
+- **删除事务（M3）**：预检任一失败 → 零物理副作用；删除在 journal 写入后 / 部分 checkpoint 后 / manifest 移除前等边界崩溃，重启后按对账规则收敛（不存在→完成移除；仍存在→ready+interrupted 可 Retry；未知→保留 deleting 并持续 lease）；partial 删除的 Retry 重用 journal 冻结身份；retired 容量不足在副作用前 `store-full`。
+- **历史身份与世代（M3）**：member 移除后历史 session 仍在 Chats（含 workspace root 之外），能查看对话、旧世代不能恢复；同一路径重建后的新世代 session 凭 generation claim 正确判新；连续两轮删除/重建各自归属正确；无任何可靠依据的 session 一律按旧世代 fail-closed。
+- **并发与一致性（M3）**：active deletion journal 期间该组的 Add repo / Adopt / Merge / primary / rename / 新 session / 再次删除全部阻断；New session 与 deletion admission 共用 `{navigationIdentity, groupId}` mutex；settlement 绑定 `aggregateRevision`，webview 只在应用了基于不低于该 revision 的 aggregate 的 replacement 后清除 pending。
 
 **产品价值**：
 
@@ -332,7 +370,7 @@ session 归属的 cwd 匹配机制不变；聚合投影把物理 worktree 归到
 
 ## 14. 开放问题
 
-1. 派生组时新组的显示名/建议 slug 默认值（`X-2`？）——实现时取最简单方案（追加短后缀）并在预览中可见。
-2. "运行中的会话尚未包含新加入的仓库"提示的呈现形式（组行内联注记 vs session 卡片徽标）——M3 视觉稿定。
+1. ~~派生组时新组的显示名/建议 slug 默认值~~——**已定（v6）**：追加短后缀（`源名-2`），预览中可见，§6.2。
+2. ~~"运行中的会话尚未包含新加入的仓库"提示的呈现形式~~——**已定（v6）**：组行内联汇总注记 + 运行时 scope 差异派生，§6.3。
 3. "Legacy workspace scope" 标记的具体呈现与是否提供"重启以启用隔离"的快捷动作——M1 实现时定，倾向提供。
 4. 组行 hover 详情的信息层级（member 列表、创建时间）——M4 视觉稿定。

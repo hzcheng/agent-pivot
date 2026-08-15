@@ -118,14 +118,19 @@ export class WorktreeProvisioningStore {
      * prunes against a truncated snapshot — a worktree missing only
      * because discovery hit its cap would lose its protection.
      */
+    /**
+     * Prunes tombstones with only positive evidence and returns the pruned
+     * operation ids so the controller can drop its in-memory copies —
+     * otherwise the next persist would resurrect them.
+     */
     async pruneTombstones(
         existingWorktreePaths: ReadonlySet<string>,
         snapshotTruncated = false,
         snapshotStartedAt = Number.MAX_SAFE_INTEGER,
         discoveredRepositoryKeys?: ReadonlySet<string>
-    ): Promise<void> {
+    ): Promise<string[]> {
         if (snapshotTruncated) {
-            return;
+            return [];
         }
         // Read and write inside the same queued operation: reading outside
         // the queue let a prune overwrite a concurrent replace's newer
@@ -134,6 +139,7 @@ export class WorktreeProvisioningStore {
         // repository missing from this snapshot (temporarily removed from
         // the workspace, unreadable, or skipped by discovery) proves
         // nothing about its worktrees on disk.
+        let pruned: string[] = [];
         const operation = async (): Promise<void> => {
             const tombstones = this.parseRecords(
                 this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
@@ -143,14 +149,19 @@ export class WorktreeProvisioningStore {
                     && !discoveredRepositoryKeys.has(record.plan.repositoryKey))
                 || existingWorktreePaths.has(
                     `${record.plan.repositoryKey} ${record.plan.worktreePath}`));
+            const keptIds = new Set(kept.map(record => record.operationId));
+            pruned = tombstones
+                .filter(record => !keptIds.has(record.operationId))
+                .map(record => record.operationId);
             if (kept.length === tombstones.length) {
                 return;
             }
             await this.memento.update(TOMBSTONE_STORAGE_KEY, kept);
         };
         const result = this.writeQueue.then(operation, operation);
-        this.writeQueue = result.catch(() => undefined);
+        this.writeQueue = result.then(() => undefined, () => undefined);
         await result;
+        return pruned;
     }
 
     replace(records: readonly PersistedWorktreeProvisioningOperation[]): Promise<void> {

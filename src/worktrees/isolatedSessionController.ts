@@ -1,6 +1,7 @@
 'use strict';
 
 import type * as vscode from 'vscode';
+import { createHash } from 'crypto';
 import type { AiSessionProviderId } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
 import { assignPathToWorkspaceWorktree } from '../workspaces/worktreeSessionAssignment';
@@ -349,7 +350,7 @@ export class IsolatedSessionController {
         return this.provisioning.cancel(operationId);
     }
 
-    dismiss(operationId: string, projectId?: string): boolean {
+    async dismiss(operationId: string, projectId?: string): Promise<boolean> {
         const context = this.contextsByOperation.get(operationId);
         if (!context || (projectId && context.projectId !== projectId)
             || !this.contextMatchesWorkspace(
@@ -369,13 +370,11 @@ export class IsolatedSessionController {
             // user cleans up physical worktrees to free capacity.
             return false;
         }
-        if (!this.provisioning.discard(operationId)) {
-            return false;
-        }
         // Dismissing an intent whose worktree exists but whose setup never
         // ran must not let reconciliation re-seed the half-initialized
         // worktree as ready: keep a tombstone that blocks seeding without
-        // ever restoring a row.
+        // ever restoring a row. The tombstone must be durable BEFORE the
+        // row, context, and manifest member go away.
         if (needsTombstone && recovery) {
             const tombstone = this.buildRecoveryRecord(recovery, context);
             if (tombstone) {
@@ -384,12 +383,101 @@ export class IsolatedSessionController {
                     tombstone: true,
                     tombstonedAt: Date.now(),
                 });
-                // discard's publish already persisted without the tombstone.
-                void this.persistOperations().catch(error =>
-                    this.options.onPersistenceError?.(error));
+                try {
+                    await this.persistOperations();
+                } catch (error) {
+                    this.recoveryTombstones.delete(operationId);
+                    this.options.onPersistenceError?.(error);
+                    return false;
+                }
             }
         }
+        if (!this.provisioning.discard(operationId)) {
+            return false;
+        }
         this.contextsByOperation.delete(operationId);
+        return true;
+    }
+
+    /**
+     * Drops in-memory tombstones pruned by the store (physical worktree
+     * gone), so the next persist never resurrects them and capacity frees.
+     */
+    removeTombstones(operationIds: readonly string[]): void {
+        for (const operationId of operationIds) {
+            this.recoveryTombstones.delete(operationId);
+        }
+    }
+
+    /**
+     * Conservatively tombstones a failed member whose recovery record is
+     * missing (evicted or corrupt): the manifest path is all the evidence
+     * needed to block ready seeding of a possibly half-initialized
+     * worktree. Returns false when the tombstone bucket is full or the
+     * write fails — the caller must keep the manifest member.
+     */
+    async writeSyntheticTombstone(input: {
+        repositoryKey: string;
+        worktreePath: string;
+        branchName: string;
+        taskName: string;
+        projectId: string;
+        navigationIdentity: string;
+    }): Promise<boolean> {
+        const operationId = `tombstone-${createHash('sha1')
+            .update(`${input.repositoryKey} ${input.worktreePath}`)
+            .digest('hex')
+            .slice(0, 16)}`;
+        if (!this.recoveryTombstones.has(operationId)
+            && this.recoveryTombstones.size >= MAX_PROVISIONING_TOMBSTONES) {
+            return false;
+        }
+        if (this.recoveryTombstones.has(operationId)) {
+            return true;
+        }
+        const tombstone: PersistedWorktreeProvisioningOperation = {
+            version: 1,
+            operationId,
+            projectId: input.projectId,
+            workspaceNavigationIdentity: input.navigationIdentity,
+            tombstone: true,
+            tombstonedAt: Date.now(),
+            providerId: 'codex',
+            setupCommand: ['setup-incomplete'],
+            plan: {
+                repositoryKey: input.repositoryKey,
+                commandCwd: input.worktreePath,
+                baseRef: 'refs/heads/main',
+                taskName: input.taskName,
+                slug: input.taskName,
+                branchName: input.branchName,
+                worktreePath: input.worktreePath,
+            },
+            completedSteps: ['worktree'],
+            worktreeKey: {
+                repositoryKey: input.repositoryKey,
+                canonicalWorktreePath: input.worktreePath,
+            },
+            row: {
+                kind: 'provisioning',
+                operationId,
+                repositoryKey: input.repositoryKey,
+                taskName: input.taskName,
+                proposedPath: input.worktreePath,
+                stage: 'failed',
+                completedSteps: ['worktree'],
+                retryable: false,
+                cancellable: false,
+            },
+        };
+        this.recoveryTombstones.set(operationId, tombstone);
+        try {
+            await this.persistOperations();
+        } catch (error) {
+            this.recoveryTombstones.delete(operationId);
+            this.options.onPersistenceError?.(error);
+            return false;
+        }
         return true;
     }
 

@@ -1346,7 +1346,7 @@ async function initializeDashboard(
                                     `${worktree.key.repositoryKey} ${worktree.key.canonicalWorktreePath}`);
                             }
                         }
-                        await worktreeProvisioningStore
+                        const prunedTombstones = await worktreeProvisioningStore
                             .pruneTombstones(
                                 snapshotPaths,
                                 snapshot.truncatedWorktreeCount > 0,
@@ -1354,6 +1354,13 @@ async function initializeDashboard(
                                 discoveredRepositories)
                             .catch(error => logError(
                                 'Failed to prune provisioning tombstones.', error));
+                        if (Array.isArray(prunedTombstones) && prunedTombstones.length) {
+                            // Keep the controller's in-memory tombstones in
+                            // sync, or the next persist would resurrect
+                            // them and the capacity would never free.
+                            isolatedSessionController
+                                ?.removeTombstones(prunedTombstones);
+                        }
                     } catch (error) {
                         // Reconciliation is additive bookkeeping; discovery
                         // stays usable when persistence is unavailable.
@@ -1647,6 +1654,8 @@ async function initializeDashboard(
             isolatedSessionController!.memberDismissNeedsTombstone(operationId),
         isTombstoneStoreFull: () =>
             isolatedSessionController!.isTombstoneStoreFull(),
+        writeSyntheticTombstone: input =>
+            isolatedSessionController!.writeSyntheticTombstone(input),
         onDidChange: () => {
             void aiSessionDashboardController.refreshNow(
                 'worktree-group-creation', { fallbackToFullRefresh: false });
@@ -2157,7 +2166,7 @@ async function initializeDashboard(
                 return;
             }
             await provider.postMessage(acceptedIsolatedSessionSettlement(request));
-            const accepted = isolatedSessionController!.dismiss(
+            const accepted = await isolatedSessionController!.dismiss(
                 request.operationId, request.projectId);
             await provider.postMessage(cancelledMutationSettlement(request, accepted));
         },

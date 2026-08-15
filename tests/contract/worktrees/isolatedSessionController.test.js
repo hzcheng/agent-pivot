@@ -263,7 +263,7 @@ test('WORKTREE-GROUPS-003 recovery rows and operations stay locked to their star
             (await current.controller.retry(operationId, 'project')).errorCode,
             'workspace-unavailable');
         assert.equal(current.controller.cancel(operationId, 'project'), false);
-        assert.equal(current.controller.dismiss(operationId, 'project'), false);
+        assert.equal(await current.controller.dismiss(operationId, 'project'), false);
     }
     assert.equal(current.controller.getRows().length, 2,
         'blocked operations leave the recovery records intact');
@@ -451,7 +451,7 @@ test('WORKTREE-GROUPS-CREATE-001 dismissing a setup-incomplete member keeps a se
         setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm6',
     });
 
-    assert.equal(current.controller.dismiss('group-member-m6', 'project'), true);
+    assert.equal(await current.controller.dismiss('group-member-m6', 'project'), true);
     const persisted = current.persisted.at(-1);
     const tombstone = persisted.find(record => record.operationId === 'group-member-m6');
     assert.equal(tombstone.tombstone, true,
@@ -466,6 +466,76 @@ test('WORKTREE-GROUPS-CREATE-001 dismissing a setup-incomplete member keeps a se
     const rePersisted = restored.persisted.at(-1) || [];
     assert.ok(restored.controller.hasOperation('group-member-m6') === false);
     void rePersisted;
+});
+
+test('WORKTREE-GROUPS-CREATE-001 pruned tombstones are never resurrected by the next persist', async () => {
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-m7', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm7',
+    });
+    assert.equal(await current.controller.dismiss('group-member-m7', 'project'), true);
+    assert.ok(current.persisted.at(-1).some(record => record.tombstone));
+
+    // The store prunes the tombstone (physical worktree gone) and the
+    // controller drops its in-memory copy.
+    current.controller.removeTombstones(['group-member-m7']);
+    assert.equal(current.controller.isTombstoneStoreFull(), false);
+    // Any later persist must not bring it back.
+    await current.controller.startGroupMember({
+        operationId: 'group-member-m8', projectId: 'project',
+        navigationIdentity: 'navigation:workspace',
+        plan: { ...plan, branchName: 'agent-pivot/other', worktreePath: '/repo/.worktrees/other' },
+        setupCommand: [], groupId: 'g1', memberId: 'm8',
+    });
+    assert.ok(!current.persisted.at(-1).some(record => record.tombstone),
+        'the pruned tombstone stays pruned');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 dismiss fails closed when the tombstone cannot persist', async () => {
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    let persistFails = false;
+    const persistenceErrors = [];
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => {
+            if (persistFails) {
+                return Promise.reject(new Error('disk full'));
+            }
+            current.persisted.push(operations);
+            return Promise.resolve();
+        },
+        onPersistenceError: error => persistenceErrors.push(error),
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-m9', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm9',
+    });
+    persistFails = true;
+    assert.equal(await current.controller.dismiss('group-member-m9', 'project'), false,
+        'the dismiss reports failure instead of losing the protection');
+    assert.equal(current.controller.getRows().length, 1,
+        'the failed row survives for another attempt');
+    assert.ok(persistenceErrors.length > 0);
 });
 
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
@@ -624,10 +694,10 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 dismiss drops a failed row only from it
     await current.controller.start('request-dismiss', 'project');
     assert.equal(current.controller.getRows()[0].stage, 'failed');
 
-    assert.equal(current.controller.dismiss('request-dismiss', 'forged-project'), false,
+    assert.equal(await current.controller.dismiss('request-dismiss', 'forged-project'), false,
         'another project cannot dismiss the row');
     assert.equal(current.controller.getRows().length, 1);
-    assert.equal(current.controller.dismiss('request-dismiss', 'project'), true);
+    assert.equal(await current.controller.dismiss('request-dismiss', 'project'), true);
     assert.deepEqual(current.controller.getRows(), []);
     const remaining = current.persisted.at(-1);
     assert.equal(remaining.length, 1,

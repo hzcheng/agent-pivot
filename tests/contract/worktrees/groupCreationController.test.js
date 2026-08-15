@@ -660,6 +660,56 @@ test('WORKTREE-GROUPS-CREATE-001 a full tombstone bucket refuses the dismiss as 
         'the member stays in the manifest');
 });
 
+test('WORKTREE-GROUPS-CREATE-001 dismissing a member without a recovery record writes a synthetic tombstone', async () => {
+    const tombstones = [];
+    const current = fixture({
+        hasMemberOperation: () => false,
+        writeSyntheticTombstone: async input => {
+            tombstones.push(input);
+            return true;
+        },
+        isTombstoneStoreFull: () => false,
+    });
+    const created = await current.controller.confirm({
+        projectId: 'project',
+        previewId: await previewIdFor(current, ['/alpha/.git']),
+        displayName: 'Fix login',
+        members: [confirmedMembers()[0]],
+    });
+    const group = current.manifestStore.listGroups(workspace.navigationIdentity)[0];
+    await current.manifestStore.updateMember(
+        workspace.navigationIdentity, group.groupId, group.members[0].memberId, {
+            state: 'failed', lastError: 'setup-failed',
+        });
+
+    const dismissed = await current.controller.dismissMember(
+        'project', group.groupId, group.members[0].memberId);
+    assert.equal(dismissed, 'dismissed');
+    assert.equal(tombstones.length, 1,
+        'a missing recovery record still leaves a seeding tombstone');
+    assert.equal(tombstones[0].worktreePath, '/alpha/.worktrees/fix-login');
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 0);
+
+    // And when the tombstone write itself fails, the member stays.
+    const second = await current.controller.confirm({
+        projectId: 'project',
+        previewId: await previewIdFor(current, ['/alpha/.git']),
+        displayName: 'Fix login',
+        members: [confirmedMembers()[0]],
+    });
+    const group2 = current.manifestStore.listGroups(workspace.navigationIdentity)[0];
+    await current.manifestStore.updateMember(
+        workspace.navigationIdentity, group2.groupId, group2.members[0].memberId, {
+            state: 'failed', lastError: 'setup-failed',
+        });
+    current.options.writeSyntheticTombstone = async () => false;
+    assert.equal(
+        await current.controller.dismissMember('project', group2.groupId, group2.members[0].memberId),
+        'unavailable');
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 1,
+        'the member is never removed without protection');
+});
+
 test('WORKTREE-GROUPS-CREATE-001 a windows-style editor path matches case-insensitively', async () => {
     const current = fixture({
         getActiveEditorPath: () => 'c:\\BETA\\src\\index.ts',

@@ -111,10 +111,25 @@ export interface WorktreeGroupCreationControllerOptions {
         operationId: string,
         projectId?: string
     ) => Promise<WorktreeProvisioningOutcome>;
-    dismissMemberOperation: (operationId: string, projectId?: string) => boolean;
+    dismissMemberOperation: (
+        operationId: string,
+        projectId?: string
+    ) => Promise<boolean>;
     hasMemberOperation: (operationId: string) => boolean;
     memberDismissNeedsTombstone?: (operationId: string) => boolean;
     isTombstoneStoreFull?: () => boolean;
+    /**
+     * Conservatively tombstones a failed member whose recovery record is
+     * missing, before its manifest record goes away.
+     */
+    writeSyntheticTombstone?: (input: {
+        repositoryKey: string;
+        worktreePath: string;
+        branchName: string;
+        taskName: string;
+        projectId: string;
+        navigationIdentity: string;
+    }) => Promise<boolean>;
     onDidChange?: () => void;
 }
 
@@ -550,9 +565,8 @@ export class WorktreeGroupCreationController {
             return 'unavailable';
         }
         const operationId = memberOperationId(memberId);
-        // A live operation that refuses discard (still running) blocks the
-        // dismiss; a missing operation (recovery evicted after a reload)
-        // never strands the manifest member.
+        // A live operation that refuses discard (still running, or its
+        // tombstone could not be persisted) blocks the dismiss.
         if (this.options.hasMemberOperation(operationId)) {
             // A full tombstone bucket refuses the dismiss instead of
             // silently evicting another worktree's protection record.
@@ -560,7 +574,26 @@ export class WorktreeGroupCreationController {
                 && this.options.isTombstoneStoreFull?.()) {
                 return 'store-full';
             }
-            if (!this.options.dismissMemberOperation(operationId, projectId)) {
+            if (!(await this.options.dismissMemberOperation(operationId, projectId))) {
+                return 'unavailable';
+            }
+        } else if (this.options.writeSyntheticTombstone) {
+            // The recovery record is gone (evicted or corrupt): without a
+            // tombstone, removing the manifest member would let
+            // reconciliation seed the possibly half-initialized worktree
+            // as ready.
+            if (this.options.isTombstoneStoreFull?.()) {
+                return 'store-full';
+            }
+            const tombstoned = await this.options.writeSyntheticTombstone({
+                repositoryKey: member.repositoryKey,
+                worktreePath: member.path,
+                branchName: member.branchName,
+                taskName: group.displayName,
+                projectId,
+                navigationIdentity,
+            });
+            if (!tombstoned) {
                 return 'unavailable';
             }
         }

@@ -116,6 +116,23 @@ export interface AiSessionCreationControllerCommonOptions {
         error: unknown,
         backend: 'vscode' | 'tmux'
     ) => void;
+    /**
+     * PRD §6.4 generation claim: when the target worktree path carries a
+     * retired identity, the creation must persist a pending claim before
+     * any terminal/provider side effect. Returns the claim id, or null when
+     * the path has no retired record (no claim needed). Throwing rejects
+     * the creation before side effects (e.g. store-full).
+     */
+    prepareGenerationClaim?: (input: {
+        navigationIdentity: string;
+        worktreeKey: WorktreeKey;
+        pendingId: string;
+    }) => Promise<string | null>;
+    /** Compensating delete when the creation never reaches 'started'. */
+    discardGenerationClaim?: (input: {
+        navigationIdentity: string;
+        claimId: string;
+    }) => Promise<void>;
 }
 
 export interface AiSessionCreationRuntimeControllerOptions extends AiSessionCreationControllerCommonOptions {
@@ -415,10 +432,40 @@ export class AiSessionCreationController {
                 )),
             directoryScope,
         };
+        // PRD §6.4: on a retired path the pending generation claim must be
+        // durable before any terminal/provider side effect; a claim write
+        // failure rejects the creation outright.
+        let generationClaimId: string | null = null;
+        if (directoryScope.worktreeKey && options.prepareGenerationClaim) {
+            try {
+                generationClaimId = await options.prepareGenerationClaim({
+                    navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                    worktreeKey: { ...directoryScope.worktreeKey },
+                    pendingId,
+                });
+            } catch (error) {
+                options.logRuntimeFailure?.('create-generation-claim', error, 'vscode');
+                if (options.showErrorMessage) {
+                    await options.showErrorMessage(
+                        'Could not record the worktree session claim; the session was not started.');
+                } else {
+                    await options.showWarningMessage(
+                        'Could not record the worktree session claim; the session was not started.');
+                }
+                options.refresh();
+                return false;
+            }
+        }
         let result: AiSessionRuntimeActionResult<vscode.Terminal>;
         try {
             result = await coordinator.create(request);
         } catch (error) {
+            if (generationClaimId && options.discardGenerationClaim) {
+                await options.discardGenerationClaim({
+                    navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                    claimId: generationClaimId,
+                }).catch(() => undefined);
+            }
             options.logRuntimeFailure?.('create-runtime', error, 'tmux');
             if (options.showErrorMessage) {
                 await options.showErrorMessage('Could not start the AI session runtime.');
@@ -427,6 +474,13 @@ export class AiSessionCreationController {
             }
             options.refresh();
             return false;
+        }
+        if (result.status !== 'started' && generationClaimId
+            && options.discardGenerationClaim) {
+            await options.discardGenerationClaim({
+                navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                claimId: generationClaimId,
+            }).catch(() => undefined);
         }
         if (result.status === 'cancelled' || result.status === 'settings') {
             return false;

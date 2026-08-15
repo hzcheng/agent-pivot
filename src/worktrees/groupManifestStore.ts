@@ -3,11 +3,20 @@
 import { randomBytes } from 'crypto';
 import type { WorktreeKey } from './types';
 import { slugifyTaskName } from './provisioningPlan';
+import type {
+    GenerationClaim,
+    RetiredAffectedSession,
+    RetiredWorktreeIdentity,
+} from './retiredWorktrees';
 
 const STORAGE_KEY = 'agentPivot.worktreeGroups.v1';
 const MAX_GROUPS_PER_WORKSPACE = 256;
 const MAX_WORKSPACE_BUCKETS = 512;
 const MAX_MEMBERS_PER_GROUP = 64;
+const MAX_RETIRED_PER_WORKSPACE = 256;
+const MAX_AFFECTED_SESSIONS_PER_RECORD = 256;
+const MAX_GENERATION_CLAIMS_PER_WORKSPACE = 1024;
+const MAX_AGGREGATE_SERIALIZED_BYTES = 1024 * 1024;
 const MAX_ID_LENGTH = 128;
 const MAX_DISPLAY_NAME_LENGTH = 200;
 const MAX_SLUG_LENGTH = 200;
@@ -99,8 +108,31 @@ export interface NewWorktreeGroup {
     members: NewWorktreeGroupMember[];
 }
 
-type WorkspaceBucket = WorktreeGroup[];
-type ManifestShape = Record<string, WorkspaceBucket>;
+/**
+ * Aggregate v2 (PRD §9): each workspace bucket is one versioned blob
+ * holding groups plus the deletion-related sections, so multi-section
+ * transactions (deletion checkpoint = retired write + member removal +
+ * journal advance) commit in a single memento update. v1 buckets (bare
+ * group arrays) migrate structurally on read; no data is ever inferred
+ * into the new sections.
+ */
+interface WorkspaceAggregate {
+    version: 2;
+    groups: WorktreeGroup[];
+    retiredIdentities: RetiredWorktreeIdentity[];
+    /** Reserved for the deletion journal (batch 3); parsed tolerantly. */
+    deletionJournal: unknown[];
+    generationClaims: GenerationClaim[];
+    /**
+     * Persistent high-water mark for generation cutoffs: bumped atomically
+     * by every deletion begin, never regresses — not even when retired
+     * records are cleaned up — so a system clock rollback cannot make a new
+     * cutoff sort before an older one.
+     */
+    lastGenerationCutoffAt: number;
+}
+
+type ManifestShape = Record<string, WorkspaceAggregate>;
 
 /**
  * Authoritative record of which physical worktrees form one work group
@@ -118,14 +150,14 @@ export class WorktreeGroupManifestStore {
     }
 
     listGroups(workspaceIdentity: string): WorktreeGroup[] {
-        return this.readBucket(workspaceIdentity).map(cloneGroup);
+        return this.readAggregate(workspaceIdentity).groups.map(cloneGroup);
     }
 
     findGroupByWorktreeKey(
         workspaceIdentity: string,
         key: WorktreeKey
     ): WorktreeGroup | null {
-        const found = this.readBucket(workspaceIdentity).find(group =>
+        const found = this.readAggregate(workspaceIdentity).groups.find(group =>
             group.members.some(member => member.worktreeKey
                 && worktreeKeyEquals(member.worktreeKey, key)));
         return found ? cloneGroup(found) : null;
@@ -135,7 +167,7 @@ export class WorktreeGroupManifestStore {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
             const bucket = this.getBucket(manifest, workspaceIdentity);
-            if (bucket.length >= MAX_GROUPS_PER_WORKSPACE) {
+            if (bucket.groups.length >= MAX_GROUPS_PER_WORKSPACE) {
                 throw new WorktreeGroupManifestError('store-full');
             }
             const group: WorktreeGroup = {
@@ -151,7 +183,7 @@ export class WorktreeGroupManifestStore {
                 revision: 1,
             };
             assertGroupInvariants(group);
-            assertWorktreeKeysUnclaimed(bucket, group.members, null);
+            assertWorktreeKeysUnclaimed(bucket.groups, group.members, null);
             const requested = typeof input.primaryMemberIndex === 'number'
                 ? group.members[input.primaryMemberIndex]
                 : undefined;
@@ -161,7 +193,7 @@ export class WorktreeGroupManifestStore {
             group.primaryMemberId = requested?.memberId
                 || group.members.find(member => member.state === 'ready')?.memberId
                 || null;
-            bucket.push(group);
+            bucket.groups.push(group);
             await this.writeManifest(manifest);
             return cloneGroup(group);
         });
@@ -220,7 +252,7 @@ export class WorktreeGroupManifestStore {
                 ...sanitizeMember(input),
             };
             assertWorktreeKeysUnclaimed(
-                this.getBucket(manifest, workspaceIdentity), [member], group.groupId);
+                this.getBucket(manifest, workspaceIdentity).groups, [member], group.groupId);
             group.members.push(member);
             bumpRevision(group);
             assertGroupInvariants(group);
@@ -248,7 +280,7 @@ export class WorktreeGroupManifestStore {
             }
             if (patch.worktreeKey !== undefined) {
                 assertWorktreeKeysUnclaimed(
-                    this.getBucket(manifest, workspaceIdentity),
+                    this.getBucket(manifest, workspaceIdentity).groups,
                     [{ ...member, worktreeKey: patch.worktreeKey }],
                     group.groupId);
                 member.worktreeKey = Object.freeze({ ...patch.worktreeKey });
@@ -297,7 +329,8 @@ export class WorktreeGroupManifestStore {
             }
             if (group.members.length === 0) {
                 // Empty groups disappear with their last member (PRD §4.2).
-                bucket.splice(bucket.findIndex(candidate => candidate.groupId === groupId), 1);
+                bucket.groups.splice(
+                    bucket.groups.findIndex(candidate => candidate.groupId === groupId), 1);
                 await this.writeManifest(manifest);
                 return null;
             }
@@ -312,11 +345,11 @@ export class WorktreeGroupManifestStore {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
             const bucket = this.getBucket(manifest, workspaceIdentity);
-            const index = bucket.findIndex(candidate => candidate.groupId === groupId);
+            const index = bucket.groups.findIndex(candidate => candidate.groupId === groupId);
             if (index < 0) {
                 throw new WorktreeGroupManifestError('group-not-found');
             }
-            bucket.splice(index, 1);
+            bucket.groups.splice(index, 1);
             await this.writeManifest(manifest);
         });
     }
@@ -350,9 +383,220 @@ export class WorktreeGroupManifestStore {
             target.members.push(...source.members);
             bumpRevision(target);
             assertGroupInvariants(target);
-            bucket.splice(bucket.findIndex(candidate => candidate.groupId === source.groupId), 1);
+            bucket.groups.splice(
+                bucket.groups.findIndex(candidate => candidate.groupId === source.groupId), 1);
             await this.writeManifest(manifest);
             return cloneGroup(target);
+        });
+    }
+
+    // ---------- Retired identities & generation claims (PRD §6.4) ----------
+
+    listRetiredIdentities(workspaceIdentity: string): RetiredWorktreeIdentity[] {
+        return this.readAggregate(workspaceIdentity).retiredIdentities
+            .map(cloneRetiredIdentity);
+    }
+
+    listGenerationClaims(workspaceIdentity: string): GenerationClaim[] {
+        return this.readAggregate(workspaceIdentity).generationClaims
+            .map(cloneGenerationClaim);
+    }
+
+    /**
+     * Records a retired worktree identity. Only the journaled deletion flow
+     * may call this (never reconciliation guesses). Bumps the persistent
+     * cutoff high-water mark in the same write.
+     */
+    recordRetiredIdentity(
+        workspaceIdentity: string,
+        input: Omit<RetiredWorktreeIdentity, 'affectedSessions' | 'truncated'> & {
+            affectedSessions: readonly RetiredAffectedSession[];
+        }
+    ): Promise<RetiredWorktreeIdentity> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            if (bucket.retiredIdentities.length >= MAX_RETIRED_PER_WORKSPACE) {
+                throw new WorktreeGroupManifestError('store-full');
+            }
+            const seen = new Set<string>();
+            const affectedSessions: RetiredAffectedSession[] = [];
+            let truncated = false;
+            for (const entry of input.affectedSessions) {
+                const provider = requireShortText(entry?.provider, MAX_ID_LENGTH, 'invalid-record');
+                const sessionId = requireShortText(
+                    entry?.sessionId, MAX_ID_LENGTH, 'invalid-record');
+                const key = `${provider}::${sessionId}`;
+                if (seen.has(key)) {
+                    continue;
+                }
+                seen.add(key);
+                if (affectedSessions.length >= MAX_AFFECTED_SESSIONS_PER_RECORD) {
+                    // The detail is lost; the generation rules fail closed
+                    // for any session without precise identity (PRD §6.4).
+                    truncated = true;
+                    continue;
+                }
+                affectedSessions.push({ provider, sessionId });
+            }
+            const record: RetiredWorktreeIdentity = {
+                retirementId: requireShortText(
+                    input.retirementId, MAX_ID_LENGTH, 'invalid-record'),
+                repositoryKey: requirePath(input.repositoryKey),
+                canonicalWorktreePath: requirePath(input.canonicalWorktreePath),
+                branchName: requireBranchName(input.branchName),
+                deletedAt: requireTimestamp(input.deletedAt),
+                generationCutoffAt: requireTimestamp(input.generationCutoffAt),
+                ...(input.origin
+                    ? {
+                        origin: {
+                            groupId: requireShortText(
+                                input.origin.groupId, MAX_ID_LENGTH, 'invalid-record'),
+                            memberId: requireShortText(
+                                input.origin.memberId, MAX_ID_LENGTH, 'invalid-record'),
+                            displayName: requireDisplayName(input.origin.displayName),
+                        },
+                    }
+                    : {}),
+                affectedSessions,
+                ...(truncated ? { truncated: true } : {}),
+            };
+            bucket.retiredIdentities.push(record);
+            bucket.lastGenerationCutoffAt = Math.max(
+                bucket.lastGenerationCutoffAt, record.generationCutoffAt);
+            await this.writeManifest(manifest);
+            return cloneRetiredIdentity(record);
+        });
+    }
+
+    /**
+     * The next generation cutoff: monotonic per workspace bucket even under
+     * system clock rollback, persisted as a high-water mark that retired
+     * record cleanup never regresses.
+     */
+    nextGenerationCutoff(workspaceIdentity: string, nowMs: number): number {
+        if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+            throw new WorktreeGroupManifestError('invalid-record');
+        }
+        const bucket = this.readAggregate(workspaceIdentity);
+        return Math.max(nowMs, bucket.lastGenerationCutoffAt + 1);
+    }
+
+    /**
+     * Persists a pending generation claim before any terminal/provider side
+     * effect of a session creation on a retired path (PRD §6.4). The claim
+     * references the latest retirement of the key at creation time.
+     */
+    createGenerationClaim(
+        workspaceIdentity: string,
+        input: {
+            pendingId: string;
+            worktreeKey: WorktreeKey;
+            createdAfterRetirementId: string;
+            createdAtMs: number;
+        }
+    ): Promise<GenerationClaim> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const basis = bucket.retiredIdentities.find(record =>
+                record.retirementId === input.createdAfterRetirementId);
+            if (!basis) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            if (bucket.generationClaims.length >= MAX_GENERATION_CLAIMS_PER_WORKSPACE) {
+                throw new WorktreeGroupManifestError('store-full');
+            }
+            const claim: GenerationClaim = {
+                claimId: newId(),
+                worktreeKey: Object.freeze({
+                    repositoryKey: requirePath(input.worktreeKey.repositoryKey),
+                    canonicalWorktreePath: requirePath(input.worktreeKey.canonicalWorktreePath),
+                }),
+                createdAfterRetirementId: basis.retirementId,
+                createdAtMs: requireTimestamp(input.createdAtMs),
+                state: 'pending',
+                pendingId: requireShortText(input.pendingId, MAX_ID_LENGTH, 'invalid-record'),
+            };
+            bucket.generationClaims.push(claim);
+            await this.writeManifest(manifest);
+            return cloneGenerationClaim(claim);
+        });
+    }
+
+    /** Atomically promotes a pending claim once the session id is known. */
+    promoteGenerationClaim(
+        workspaceIdentity: string,
+        pendingId: string,
+        session: { provider: string; sessionId: string }
+    ): Promise<GenerationClaim> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const claim = bucket.generationClaims.find(candidate =>
+                candidate.state === 'pending' && candidate.pendingId === pendingId);
+            if (!claim) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            const promoted: GenerationClaim = {
+                claimId: claim.claimId,
+                worktreeKey: claim.worktreeKey,
+                createdAfterRetirementId: claim.createdAfterRetirementId,
+                createdAtMs: claim.createdAtMs,
+                state: 'promoted',
+                provider: requireShortText(session.provider, MAX_ID_LENGTH, 'invalid-record'),
+                sessionId: requireShortText(session.sessionId, MAX_ID_LENGTH, 'invalid-record'),
+            };
+            bucket.generationClaims.splice(
+                bucket.generationClaims.findIndex(candidate =>
+                    candidate.claimId === claim.claimId),
+                1,
+                promoted);
+            await this.writeManifest(manifest);
+            return cloneGenerationClaim(promoted);
+        });
+    }
+
+    /** Compensating delete for failed starts and authoritative cleanup. */
+    removeGenerationClaim(workspaceIdentity: string, claimId: string): Promise<boolean> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const index = bucket.generationClaims.findIndex(candidate =>
+                candidate.claimId === claimId);
+            if (index < 0) {
+                return false;
+            }
+            bucket.generationClaims.splice(index, 1);
+            await this.writeManifest(manifest);
+            return true;
+        });
+    }
+
+    /**
+     * Removes a retired record and releases the generation claims that
+     * reference it (PRD §6.4 capacity escape hatch). Callers must prove
+     * first that no active/pending/history session references the record —
+     * the store cannot judge that. The cutoff high-water mark never
+     * regresses when records are removed.
+     */
+    removeRetiredIdentity(
+        workspaceIdentity: string,
+        retirementId: string
+    ): Promise<boolean> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const index = bucket.retiredIdentities.findIndex(record =>
+                record.retirementId === retirementId);
+            if (index < 0) {
+                return false;
+            }
+            bucket.retiredIdentities.splice(index, 1);
+            bucket.generationClaims = bucket.generationClaims.filter(claim =>
+                claim.createdAfterRetirementId !== retirementId);
+            await this.writeManifest(manifest);
+            return true;
         });
     }
 
@@ -366,7 +610,7 @@ export class WorktreeGroupManifestStore {
             const manifest = this.readManifest();
             const bucket = this.getBucket(manifest, workspaceIdentity);
             let changed = false;
-            for (const group of bucket) {
+            for (const group of bucket.groups) {
                 let groupChanged = false;
                 for (const member of group.members) {
                     if (member.repositoryKey === repositoryKey && !!member.detached !== detached) {
@@ -407,6 +651,7 @@ export class WorktreeGroupManifestStore {
         groupId: string
     ): WorktreeGroup {
         const group = this.getBucket(manifest, workspaceIdentity)
+            .groups
             .find(candidate => candidate.groupId === groupId);
         if (!group) {
             throw new WorktreeGroupManifestError('group-not-found');
@@ -414,20 +659,20 @@ export class WorktreeGroupManifestStore {
         return group;
     }
 
-    private getBucket(manifest: ManifestShape, workspaceIdentity: string): WorkspaceBucket {
+    private getBucket(manifest: ManifestShape, workspaceIdentity: string): WorkspaceAggregate {
         const key = requireWorkspaceIdentity(workspaceIdentity);
         if (!manifest[key]) {
             if (Object.keys(manifest).length >= MAX_WORKSPACE_BUCKETS) {
                 throw new WorktreeGroupManifestError('store-full');
             }
-            manifest[key] = [];
+            manifest[key] = emptyAggregate();
         }
         return manifest[key];
     }
 
-    private readBucket(workspaceIdentity: string): WorktreeGroup[] {
+    private readAggregate(workspaceIdentity: string): WorkspaceAggregate {
         const key = requireWorkspaceIdentity(workspaceIdentity);
-        return this.readManifest()[key] || [];
+        return this.readManifest()[key] || emptyAggregate();
     }
 
     private readManifest(): ManifestShape {
@@ -438,14 +683,18 @@ export class WorktreeGroupManifestStore {
         const manifest: ManifestShape = {};
         for (const [bucketKey, bucket] of Object.entries(stored as Record<string, unknown>)
             .slice(0, MAX_WORKSPACE_BUCKETS)) {
-            if (!isSafeText(bucketKey, MAX_ID_LENGTH) || !Array.isArray(bucket)) {
+            if (!isSafeText(bucketKey, MAX_ID_LENGTH)) {
                 continue;
             }
-            const groups = bucket.slice(0, MAX_GROUPS_PER_WORKSPACE)
-                .map(parseGroup)
-                .filter((group): group is WorktreeGroup => !!group);
-            if (groups.length > 0) {
-                manifest[bucketKey] = groups;
+            // v1 buckets are bare group arrays; v2 buckets are aggregates.
+            // The migration is structural only: the new sections start
+            // empty and nothing is ever inferred into them (PRD §6.4:
+            // retired facts come from journaled deletions alone).
+            const aggregate = Array.isArray(bucket)
+                ? { ...emptyAggregate(), groups: parseGroups(bucket) }
+                : parseAggregate(bucket);
+            if (aggregate && !isAggregateEmpty(aggregate)) {
+                manifest[bucketKey] = aggregate;
             }
         }
         return manifest;
@@ -454,9 +703,12 @@ export class WorktreeGroupManifestStore {
     private writeManifest(manifest: ManifestShape): Promise<void> {
         const persisted: ManifestShape = {};
         for (const [bucketKey, bucket] of Object.entries(manifest)) {
-            if (bucket.length > 0) {
+            if (!isAggregateEmpty(bucket)) {
                 persisted[bucketKey] = bucket;
             }
+        }
+        if (JSON.stringify(persisted).length > MAX_AGGREGATE_SERIALIZED_BYTES) {
+            throw new WorktreeGroupManifestError('store-full');
         }
         return Promise.resolve(this.memento.update(STORAGE_KEY, persisted));
     }
@@ -494,7 +746,7 @@ function assertGroupInvariants(group: WorktreeGroup): void {
 
 /** Invariant 1: within a workspace bucket a WorktreeKey belongs to ≤ 1 group. */
 function assertWorktreeKeysUnclaimed(
-    bucket: WorkspaceBucket,
+    bucket: readonly WorktreeGroup[],
     members: readonly WorktreeGroupMember[],
     owningGroupId: string | null
 ): void {
@@ -517,6 +769,176 @@ function assertWorktreeKeysUnclaimed(
 function worktreeKeyEquals(left: WorktreeKey, right: WorktreeKey): boolean {
     return left.repositoryKey === right.repositoryKey
         && left.canonicalWorktreePath === right.canonicalWorktreePath;
+}
+
+function emptyAggregate(): WorkspaceAggregate {
+    return {
+        version: 2,
+        groups: [],
+        retiredIdentities: [],
+        deletionJournal: [],
+        generationClaims: [],
+        lastGenerationCutoffAt: 0,
+    };
+}
+
+function isAggregateEmpty(aggregate: WorkspaceAggregate): boolean {
+    return aggregate.groups.length === 0
+        && aggregate.retiredIdentities.length === 0
+        && aggregate.deletionJournal.length === 0
+        && aggregate.generationClaims.length === 0
+        && aggregate.lastGenerationCutoffAt === 0;
+}
+
+function parseGroups(bucket: unknown[]): WorktreeGroup[] {
+    return bucket.slice(0, MAX_GROUPS_PER_WORKSPACE)
+        .map(parseGroup)
+        .filter((group): group is WorktreeGroup => !!group);
+}
+
+function parseAggregate(value: unknown): WorkspaceAggregate | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (candidate.version !== 2) {
+        return null;
+    }
+    return {
+        version: 2,
+        groups: Array.isArray(candidate.groups) ? parseGroups(candidate.groups) : [],
+        retiredIdentities: Array.isArray(candidate.retiredIdentities)
+            ? candidate.retiredIdentities
+                .slice(0, MAX_RETIRED_PER_WORKSPACE)
+                .map(parseRetiredIdentity)
+                .filter((record): record is RetiredWorktreeIdentity => !!record)
+            : [],
+        // The deletion journal arrives with batch 3; tolerate and drop
+        // anything unreadable rather than failing the whole bucket.
+        deletionJournal: Array.isArray(candidate.deletionJournal)
+            ? candidate.deletionJournal.slice(0, MAX_RETIRED_PER_WORKSPACE)
+            : [],
+        generationClaims: Array.isArray(candidate.generationClaims)
+            ? candidate.generationClaims
+                .slice(0, MAX_GENERATION_CLAIMS_PER_WORKSPACE)
+                .map(parseGenerationClaim)
+                .filter((claim): claim is GenerationClaim => !!claim)
+            : [],
+        lastGenerationCutoffAt: typeof candidate.lastGenerationCutoffAt === 'number'
+            && Number.isSafeInteger(candidate.lastGenerationCutoffAt)
+            && candidate.lastGenerationCutoffAt >= 0
+            ? candidate.lastGenerationCutoffAt
+            : 0,
+    };
+}
+
+function parseRetiredIdentity(value: unknown): RetiredWorktreeIdentity | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (!isSafeText(candidate.retirementId, MAX_ID_LENGTH)
+        || !isSafeText(candidate.repositoryKey, MAX_PATH_LENGTH)
+        || !isSafeText(candidate.canonicalWorktreePath, MAX_PATH_LENGTH)
+        || !isSafeText(candidate.branchName, MAX_BRANCH_LENGTH)
+        || !Number.isSafeInteger(candidate.deletedAt)
+        || !Number.isSafeInteger(candidate.generationCutoffAt)
+        || (candidate.generationCutoffAt as number) < 0) {
+        return null;
+    }
+    const affectedSessions: RetiredAffectedSession[] = [];
+    const seenSessions = new Set<string>();
+    if (Array.isArray(candidate.affectedSessions)) {
+        for (const entry of candidate.affectedSessions
+            .slice(0, MAX_AFFECTED_SESSIONS_PER_RECORD)) {
+            if (!entry || typeof entry !== 'object') {
+                continue;
+            }
+            const { provider, sessionId } = entry as Record<string, unknown>;
+            if (!isSafeText(provider, MAX_ID_LENGTH)
+                || !isSafeText(sessionId, MAX_ID_LENGTH)) {
+                continue;
+            }
+            const key = `${provider}::${sessionId}`;
+            if (seenSessions.has(key)) {
+                continue;
+            }
+            seenSessions.add(key);
+            affectedSessions.push({
+                provider: provider as string,
+                sessionId: sessionId as string,
+            });
+        }
+    }
+    let origin: RetiredWorktreeIdentity['origin'];
+    if (candidate.origin && typeof candidate.origin === 'object'
+        && !Array.isArray(candidate.origin)) {
+        const raw = candidate.origin as Record<string, unknown>;
+        if (isSafeText(raw.groupId, MAX_ID_LENGTH)
+            && isSafeText(raw.memberId, MAX_ID_LENGTH)
+            && isSafeText(raw.displayName, MAX_DISPLAY_NAME_LENGTH)) {
+            origin = {
+                groupId: raw.groupId as string,
+                memberId: raw.memberId as string,
+                displayName: raw.displayName as string,
+            };
+        }
+    }
+    return {
+        retirementId: candidate.retirementId as string,
+        repositoryKey: candidate.repositoryKey as string,
+        canonicalWorktreePath: candidate.canonicalWorktreePath as string,
+        branchName: candidate.branchName as string,
+        deletedAt: candidate.deletedAt as number,
+        generationCutoffAt: candidate.generationCutoffAt as number,
+        ...(origin ? { origin } : {}),
+        affectedSessions,
+        ...(candidate.truncated === true ? { truncated: true } : {}),
+    };
+}
+
+function parseGenerationClaim(value: unknown): GenerationClaim | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (!isSafeText(candidate.claimId, MAX_ID_LENGTH)
+        || !isSafeText(candidate.createdAfterRetirementId, MAX_ID_LENGTH)
+        || !Number.isSafeInteger(candidate.createdAtMs)
+        || (candidate.state !== 'pending' && candidate.state !== 'promoted')) {
+        return null;
+    }
+    const key = candidate.worktreeKey as Record<string, unknown>;
+    if (!key || typeof key !== 'object'
+        || !isSafeText(key.repositoryKey, MAX_PATH_LENGTH)
+        || !isSafeText(key.canonicalWorktreePath, MAX_PATH_LENGTH)) {
+        return null;
+    }
+    if (candidate.state === 'pending'
+        && !isSafeText(candidate.pendingId, MAX_ID_LENGTH)) {
+        return null;
+    }
+    if (candidate.state === 'promoted'
+        && (!isSafeText(candidate.provider, MAX_ID_LENGTH)
+            || !isSafeText(candidate.sessionId, MAX_ID_LENGTH))) {
+        return null;
+    }
+    return {
+        claimId: candidate.claimId as string,
+        worktreeKey: Object.freeze({
+            repositoryKey: key.repositoryKey as string,
+            canonicalWorktreePath: key.canonicalWorktreePath as string,
+        }),
+        createdAfterRetirementId: candidate.createdAfterRetirementId as string,
+        createdAtMs: candidate.createdAtMs as number,
+        state: candidate.state,
+        ...(candidate.state === 'pending'
+            ? { pendingId: candidate.pendingId as string }
+            : {
+                provider: candidate.provider as string,
+                sessionId: candidate.sessionId as string,
+            }),
+    };
 }
 
 function parseGroup(value: unknown): WorktreeGroup | null {
@@ -648,6 +1070,28 @@ function cloneGroup(group: WorktreeGroup): WorktreeGroup {
 
 function newId(): string {
     return randomBytes(16).toString('hex');
+}
+
+function requireTimestamp(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
+    return value;
+}
+
+function cloneRetiredIdentity(record: RetiredWorktreeIdentity): RetiredWorktreeIdentity {
+    return {
+        ...record,
+        ...(record.origin ? { origin: { ...record.origin } } : {}),
+        affectedSessions: record.affectedSessions.map(entry => ({ ...entry })),
+    };
+}
+
+function cloneGenerationClaim(claim: GenerationClaim): GenerationClaim {
+    return {
+        ...claim,
+        worktreeKey: { ...claim.worktreeKey },
+    };
 }
 
 function parseRevision(value: unknown): number {

@@ -497,6 +497,7 @@ export default class ClaudeSessionService {
 
         let cwd: string = this.readSessionCwd(sessionFile, sessionId);
         let updatedAt: string = new Date(stat.mtimeMs).toISOString();
+        let createdAt: string = null;
         let customTitle: string = null;
         let aiTitle: string = null;
         let promptTitle: string = null;
@@ -524,6 +525,11 @@ export default class ClaudeSessionService {
                 }
                 if (event.timestamp && !isNaN(Date.parse(event.timestamp))) {
                     updatedAt = event.timestamp;
+                    if (!createdAt) {
+                        // The first valid event timestamp is the stable
+                        // creation time; updatedAt keeps floating.
+                        createdAt = event.timestamp;
+                    }
                 }
                 if (event.customTitle) {
                     customTitle = event.customTitle;
@@ -548,6 +554,7 @@ export default class ClaudeSessionService {
             id: sessionId,
             name: this.trimTitle(customTitle || aiTitle || promptTitle) || sessionId,
             updatedAt,
+            ...(createdAt ? { createdAt } : {}),
             cwd,
             workDir: cwd,
             provider: 'claude',

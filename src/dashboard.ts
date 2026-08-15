@@ -1403,6 +1403,19 @@ async function initializeDashboard(
             syncActiveRuntime: () => activeAiSessionTerminalHighlighter.sync(),
             evaluateExecution: () => evaluateAiSessionLifecycleTick(),
             scheduleRefresh: () => refreshAiSessionViewsIncrementally(),
+            onSessionPromoted: async ({ navigationIdentity, pendingId, provider, sessionId }) => {
+                // PRD §6.4: promote the pending generation claim recorded at
+                // creation time; sessions without a retired path have no
+                // claim and the missing-claim rejection is expected.
+                try {
+                    await worktreeGroupManifestStore.promoteGenerationClaim(
+                        navigationIdentity, pendingId, { provider, sessionId });
+                } catch (error) {
+                    if ((error as { code?: string })?.code !== 'invalid-record') {
+                        throw error;
+                    }
+                }
+            },
             logDiagnostic: logAiSessionDiagnostic,
         });
     let isolatedSessionController: IsolatedSessionController | undefined;
@@ -1446,6 +1459,10 @@ async function initializeDashboard(
             isolatedSessionController?.getVisibleRows(navigationIdentity) || [],
         getWorktreeGroups: navigationIdentity =>
             worktreeGroupManifestStore.listGroups(navigationIdentity),
+        getRetiredWorktreeIdentities: navigationIdentity =>
+            worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+        getGenerationClaims: navigationIdentity =>
+            worktreeGroupManifestStore.listGenerationClaims(navigationIdentity),
         onDidReadSessions: (workspace, sessionResults, reason) => {
             void workspacePendingSessionPromotionController.promote(
                 workspace,
@@ -1491,6 +1508,12 @@ async function initializeDashboard(
             return !!group && group.members.some(member =>
                 member.state === 'planned' || member.state === 'provisioning');
         },
+        getRetiredWorktreeIdentities: navigationIdentity =>
+            worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+        createWorktreeGenerationClaim: (navigationIdentity, input) =>
+            worktreeGroupManifestStore.createGenerationClaim(navigationIdentity, input),
+        removeWorktreeGenerationClaim: (navigationIdentity, claimId) =>
+            worktreeGroupManifestStore.removeGenerationClaim(navigationIdentity, claimId),
         getRegisteredAiSessionProvider,
         getRegisteredAiSessionProviders,
         getAiSessionRuntimeById,

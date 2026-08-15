@@ -111,10 +111,35 @@ function createHarness(overrides = {}) {
         syncActiveRuntime: () => effects.push('sync'),
         evaluateExecution: () => effects.push('evaluate'),
         scheduleRefresh: reason => effects.push(`refresh:${reason}`),
+        ...(overrides.onSessionPromoted
+            ? { onSessionPromoted: overrides.onSessionPromoted }
+            : {}),
         logDiagnostic: event => diagnostics.push(event),
     });
     return { controller, aliases, effects, diagnostics };
 }
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 promotions surface the session identity for claim promotion', async () => {
+    const promotedIdentities = [];
+    const harness = createHarness({
+        runtimeCoordinator: {
+            getPendingForPromotion: async () => [pendingRuntime()],
+            promotePending: async () => [finalRuntime()],
+        },
+        onSessionPromoted: input => {
+            promotedIdentities.push(input);
+        },
+    });
+
+    await harness.controller.promote(WORKSPACE, sessionResults(), 'test');
+
+    assert.deepEqual(promotedIdentities, [{
+        navigationIdentity: WORKSPACE.navigationIdentity,
+        pendingId: 'pending-codex',
+        provider: 'codex',
+        sessionId: SESSION.id,
+    }], 'the promotion hook carries the authoritative session identity');
+});
 
 test('PERSIST-AI-SESSION-PROJECT-HYDRATION-PROMOTION-001 shares single-flight work and drains the latest queued generation', async () => {
     let release;

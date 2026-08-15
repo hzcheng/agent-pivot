@@ -240,6 +240,171 @@ test('WORKTREE-GROUPS-001 serializes concurrent writes without losing groups', a
     assert.deepEqual(ids, [one.groupId, two.groupId].sort());
 });
 
+function retiredInput(overrides) {
+    return {
+        retirementId: 'r-1',
+        repositoryKey: '/repos/alpha/.git',
+        canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        branchName: 'agent-pivot/fix-login',
+        deletedAt: 200,
+        generationCutoffAt: 100,
+        affectedSessions: [{ provider: 'codex', sessionId: 's-1' }],
+        ...(overrides || {}),
+    };
+}
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 v1 buckets migrate structurally with empty new sections', async () => {
+    // The legacy format stores bare group arrays per bucket; the v2
+    // aggregate must carry them over untouched and start every new section
+    // empty — nothing is inferred into retired identities or claims.
+    const store = new WorktreeGroupManifestStore(memento());
+    const created = await createGroup(store, [readyMember('alpha', 'fix-login')]);
+
+    const reloaded = new WorktreeGroupManifestStore(memento({
+        'agentPivot.worktreeGroups.v1': {
+            [WORKSPACE]: [{
+                groupId: created.groupId,
+                displayName: created.displayName,
+                suggestedSlug: created.suggestedSlug,
+                primaryMemberId: created.primaryMemberId,
+                members: created.members,
+                createdAt: created.createdAt,
+                revision: created.revision,
+            }],
+        },
+    }));
+    assert.equal(reloaded.listGroups(WORKSPACE).length, 1,
+        'legacy group arrays still load');
+    assert.deepEqual(reloaded.listRetiredIdentities(WORKSPACE), []);
+    assert.deepEqual(reloaded.listGenerationClaims(WORKSPACE), []);
+    assert.equal(reloaded.nextGenerationCutoff(WORKSPACE, 5), 5);
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired records round-trip with claims and cutoffs', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const record = await store.recordRetiredIdentity(WORKSPACE, retiredInput({
+        origin: { groupId: 'g-1', memberId: 'm-1', displayName: 'Fix login' },
+        affectedSessions: [
+            { provider: 'codex', sessionId: 's-1' },
+            { provider: 'codex', sessionId: 's-1' },
+            { provider: 'kimi', sessionId: 's-2' },
+        ],
+    }));
+    assert.equal(record.affectedSessions.length, 2, 'affected sessions dedupe');
+    const listed = store.listRetiredIdentities(WORKSPACE);
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].retirementId, 'r-1');
+    assert.equal(listed[0].origin.displayName, 'Fix login');
+    assert.equal(store.nextGenerationCutoff(WORKSPACE, 1), 101,
+        'the cutoff high-water mark moved with the record');
+
+    const claim = await store.createGenerationClaim(WORKSPACE, {
+        pendingId: 'p-1',
+        worktreeKey: {
+            repositoryKey: '/repos/alpha/.git',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        },
+        createdAfterRetirementId: 'r-1',
+        createdAtMs: 150,
+    });
+    assert.equal(claim.state, 'pending');
+    const promoted = await store.promoteGenerationClaim(
+        WORKSPACE, 'p-1', { provider: 'codex', sessionId: 's-9' });
+    assert.equal(promoted.state, 'promoted');
+    assert.equal(promoted.sessionId, 's-9');
+
+    // Full round-trip through the persisted shape.
+    const reloaded = new WorktreeGroupManifestStore(memento({
+        'agentPivot.worktreeGroups.v1': JSON.parse(JSON.stringify({
+            [WORKSPACE]: {
+                version: 2,
+                groups: [],
+                retiredIdentities: store.listRetiredIdentities(WORKSPACE),
+                deletionJournal: [],
+                generationClaims: store.listGenerationClaims(WORKSPACE),
+                lastGenerationCutoffAt: 100,
+            },
+        })),
+    }));
+    assert.equal(reloaded.listRetiredIdentities(WORKSPACE).length, 1);
+    assert.equal(reloaded.listGenerationClaims(WORKSPACE)[0].state, 'promoted');
+    assert.equal(reloaded.nextGenerationCutoff(WORKSPACE, 1), 101);
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 claims require a known retirement basis', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    await assert.rejects(
+        store.createGenerationClaim(WORKSPACE, {
+            pendingId: 'p-1',
+            worktreeKey: {
+                repositoryKey: '/repos/alpha/.git',
+                canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+            },
+            createdAfterRetirementId: 'r-missing',
+            createdAtMs: 150,
+        }),
+        error => error.code === 'invalid-record');
+    await assert.rejects(
+        store.promoteGenerationClaim(WORKSPACE, 'p-unknown', {
+            provider: 'codex', sessionId: 's-1',
+        }),
+        error => error.code === 'invalid-record');
+    assert.equal(await store.removeGenerationClaim(WORKSPACE, 'c-missing'), false);
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired cleanup releases claims and never regresses the cutoff', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    await store.recordRetiredIdentity(WORKSPACE, retiredInput());
+    const claim = await store.createGenerationClaim(WORKSPACE, {
+        pendingId: 'p-1',
+        worktreeKey: {
+            repositoryKey: '/repos/alpha/.git',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        },
+        createdAfterRetirementId: 'r-1',
+        createdAtMs: 150,
+    });
+    assert.equal(await store.removeRetiredIdentity(WORKSPACE, 'r-1'), true);
+    assert.deepEqual(store.listRetiredIdentities(WORKSPACE), []);
+    assert.deepEqual(store.listGenerationClaims(WORKSPACE), [],
+        'claims referencing the removed retirement are released');
+    void claim;
+    // Even with every retired record gone, a rolled-back clock must not
+    // reuse an older cutoff.
+    assert.equal(store.nextGenerationCutoff(WORKSPACE, 10), 101);
+    await store.recordRetiredIdentity(WORKSPACE, retiredInput({
+        retirementId: 'r-2', generationCutoffAt: 101,
+    }));
+    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 1);
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired capacity fails closed and truncation is explicit', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const manySessions = Array.from({ length: 300 }, (_, index) => ({
+        provider: 'codex', sessionId: `s-${index}`,
+    }));
+    const record = await store.recordRetiredIdentity(WORKSPACE, retiredInput({
+        affectedSessions: manySessions,
+    }));
+    assert.equal(record.affectedSessions.length, 256);
+    assert.equal(record.truncated, true,
+        'detail truncation is explicit; the generation rules fail closed for the rest');
+
+    for (let index = 0; index < 255; index++) {
+        await store.recordRetiredIdentity(WORKSPACE, retiredInput({
+            retirementId: `r-fill-${index}`,
+            canonicalWorktreePath: `/repos/alpha/.worktrees/fill-${index}`,
+        }));
+    }
+    await assert.rejects(
+        store.recordRetiredIdentity(WORKSPACE, retiredInput({
+            retirementId: 'r-overflow',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/overflow',
+        })),
+        error => error.code === 'store-full',
+        'the 257th retired record is refused instead of evicting silently');
+});
+
 test('WORKTREE-GROUPS-RENAME-001 starts revision at 1 and migrates legacy records', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const created = await createGroup(store, [readyMember('alpha', 'fix-login')]);

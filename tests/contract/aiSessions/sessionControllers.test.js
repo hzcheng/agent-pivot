@@ -342,6 +342,82 @@ test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the gi
     assert.deepEqual(fixture.effects, [['refresh']]);
 });
 
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a session on a retired path persists its claim before side effects', async () => {
+    const order = [];
+    const discarded = [];
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async input => {
+            order.push(['claim', input.pendingId]);
+            return 'claim-1';
+        },
+        discardGenerationClaim: async input => {
+            discarded.push(input.claimId);
+        },
+        runtimeCoordinator: {
+            create: async request => {
+                order.push(['create', request.identity.pendingId]);
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    }), true);
+    assert.deepEqual(order, [['claim', 'pending-quick'], ['create', 'pending-quick']],
+        'the pending claim is durable before the runtime is created');
+    assert.deepEqual(discarded, [], 'a started session keeps its pending claim');
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a claim write failure rejects creation before any side effect', async () => {
+    let creates = 0;
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => {
+            throw new Error('store-full');
+        },
+        runtimeCoordinator: {
+            create: async () => {
+                creates += 1;
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    });
+    assert.equal(creates, 0, 'no terminal/provider side effect happened');
+    assert.ok(fixture.effects.some(effect => effect[0] === 'error'));
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a non-started creation discards its pending claim', async () => {
+    const discarded = [];
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => 'claim-1',
+        discardGenerationClaim: async input => {
+            discarded.push([input.navigationIdentity, input.claimId]);
+        },
+        runtimeCoordinator: {
+            create: async () => ({ status: 'cancelled' }),
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    });
+    assert.deepEqual(discarded, [['navigation:fixture', 'claim-1']],
+        'the compensating delete releases the pending claim');
+});
+
 test('WORKTREE-SESSION-CREATE-TARGET-001 quick-create carries an explicit worktree through scope resolution', async () => {
     const key = {
         repositoryKey: '/work/.git',

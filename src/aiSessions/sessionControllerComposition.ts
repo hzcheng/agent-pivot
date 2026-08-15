@@ -27,6 +27,8 @@ import {
 } from './worktreeCreationTarget';
 import type { AiSessionCreationScopeTarget } from './worktreeCreationTarget';
 import type { WorktreeKey } from '../worktrees/types';
+import type { RetiredWorktreeIdentity } from '../worktrees/retiredWorktrees';
+import { findLatestRetirementForKey } from '../worktrees/retiredWorktrees';
 import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
 import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
 import type { AiSessionReadCoordinator } from './readCoordinator';
@@ -60,6 +62,25 @@ export interface SessionControllerCompositionOptions {
         workspaceNavigationIdentity: string,
         key: WorktreeKey
     ) => boolean;
+    /** Retired identities for generation-claim creation (PRD §6.4). */
+    getRetiredWorktreeIdentities?: (
+        workspaceNavigationIdentity: string
+    ) => readonly RetiredWorktreeIdentity[];
+    /** Persists a pending generation claim (PRD §6.4). */
+    createWorktreeGenerationClaim?: (
+        workspaceNavigationIdentity: string,
+        input: {
+            pendingId: string;
+            worktreeKey: WorktreeKey;
+            createdAfterRetirementId: string;
+            createdAtMs: number;
+        }
+    ) => Promise<{ claimId: string }>;
+    /** Compensating delete for a pending generation claim (PRD §6.4). */
+    removeWorktreeGenerationClaim?: (
+        workspaceNavigationIdentity: string,
+        claimId: string
+    ) => Promise<boolean>;
     getActiveEditorUri: () => vscode.Uri | undefined;
     isWorkspaceTrusted: () => boolean;
     getRegisteredAiSessionProvider: (providerId: AiSessionProviderId) => AiSessionProvider;
@@ -463,6 +484,28 @@ export function createSessionControllerComposition(
             projectId,
             message,
         }),
+        prepareGenerationClaim: async ({ navigationIdentity, worktreeKey, pendingId }) => {
+            if (!options.getRetiredWorktreeIdentities
+                || !options.createWorktreeGenerationClaim) {
+                return null;
+            }
+            const retirement = findLatestRetirementForKey(
+                options.getRetiredWorktreeIdentities(navigationIdentity),
+                worktreeKey);
+            if (!retirement) {
+                return null;
+            }
+            const claim = await options.createWorktreeGenerationClaim(navigationIdentity, {
+                pendingId,
+                worktreeKey: { ...worktreeKey },
+                createdAfterRetirementId: retirement.retirementId,
+                createdAtMs: nowMs(),
+            });
+            return claim.claimId;
+        },
+        discardGenerationClaim: async ({ navigationIdentity, claimId }) => {
+            await options.removeWorktreeGenerationClaim?.(navigationIdentity, claimId);
+        },
         nowMs,
     });
     const aiSessionArchiveController = factories.createArchiveController({

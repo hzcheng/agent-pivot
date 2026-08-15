@@ -4290,6 +4290,34 @@
     ]
   },
   {
+    "id": "WORKTREE-GROUPS-HISTORY-IDENTITY-001",
+    "domain": "persistence",
+    "title": "Retired worktree identities persist in the group aggregate with a monotonic cutoff high-water mark, generation claims persist independently of terminal bindings and promote atomically, and history sessions derive their pre/post-deletion generation fail-closed",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/retiredWorktrees.test.js",
+      "tests/unit/worktrees/groupManifestStore.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/aiSessions/projectHydrationPromotion.test.js",
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/retiredWorktrees.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/sessionHydrationController.ts",
+      "src/workspaces/pendingSessionPromotionController.ts",
+      "src/aiSessions/creationController.ts",
+      "src/aiSessions/sessionControllerComposition.ts",
+      "src/services/codexSessionService.ts",
+      "src/services/claudeSessionService.ts",
+      "src/models.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "WORKTREE-GROUPS-RENAME-001",
     "domain": "session",
     "title": "Group rename writes displayName, regenerated suggestedSlug, and a monotonic revision in one store mutation, drives the inline editor through the accepted/settled/failed settlement lifecycle, and the expandable member summary survives authoritative replacements",

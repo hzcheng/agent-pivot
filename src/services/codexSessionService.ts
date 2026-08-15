@@ -110,6 +110,9 @@ export default class CodexSessionService {
                     this.getSessionFileUpdatedAt(entry.id, sessionFiles),
                     previous?.updatedAt
                 ),
+                // The rollout's session_meta timestamp is the stable
+                // creation time; updatedAt floats with activity.
+                createdAt: meta?.timestamp || previous?.createdAt,
                 cwd: meta?.cwd,
             };
 
@@ -432,6 +435,7 @@ export default class CodexSessionService {
                     meta.timestamp,
                     this.getSessionFileUpdatedAt(sessionId, sessionFiles)
                 ),
+                createdAt: meta.timestamp || previous?.createdAt,
                 cwd: previous?.cwd || meta.cwd,
             });
         }

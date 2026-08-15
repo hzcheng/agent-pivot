@@ -423,6 +423,118 @@ test('WORKTREE-GROUPS-002 deleted worktrees keep history identity through the ma
     assert.equal(byId['outside-root'].worktreeUnavailable, true);
 });
 
+function retiredFixture(overrides) {
+    return {
+        retirementId: 'r-1',
+        repositoryKey: '/external/repo/.git',
+        canonicalWorktreePath: '/managed/deleted',
+        branchName: 'agent-pivot/topic',
+        deletedAt: Date.parse('2026-08-01T00:00:00Z'),
+        generationCutoffAt: Date.parse('2026-08-01T00:00:00Z'),
+        origin: { groupId: 'g-1', memberId: 'm-2', displayName: 'Topic' },
+        affectedSessions: [],
+        ...(overrides || {}),
+    };
+}
+
+function hydrateWithRetired(sessions, retired, claims) {
+    const controller = new WorkspaceSessionHydrationController({
+        providers: [{ id: 'codex', label: 'Codex', terminalCwdFields: ['cwd'] }],
+        readCoordinator: {
+            getResults: () => ({
+                codex: {
+                    available: true, scannedFiles: sessions.length,
+                    parsedFiles: sessions.length,
+                    sessions,
+                },
+            }),
+        },
+        incrementalScanMaxFiles: 10,
+        getRefreshReason: () => 'retired-derivation',
+        getSessionComparableCwd: (_provider, session) => session.cwd,
+        getPinnedSessions: () => new Set(),
+        getAliases: () => ({}),
+        getProviderSelection: () => undefined,
+        getExpanded: () => true,
+        getWorktreeGroups: () => [],
+        getRetiredWorktreeIdentities: () => retired,
+        getGenerationClaims: () => claims || [],
+        getProjectionSnapshot: () => ({
+            revision: 1,
+            worktreeSnapshot: {
+                revision: 4,
+                repositories: [],
+                truncatedWorktreeCount: 0,
+            },
+            activeRuntimes: [], pendingRuntimes: [], executionSnapshot: {},
+            focusedIdentity: null, attentionAggregate: null,
+        }),
+    });
+    const hydrated = controller.hydrate(WORKSPACE);
+    return Object.fromEntries(
+        hydrated.sessionsByProvider.codex.map(session => [session.id, session]));
+}
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired identities keep pre-deletion history after member removal', () => {
+    // The manifest member is gone (deletion removed it); the retired record
+    // alone must keep the history session visible and unresumable —
+    // including sessions whose path sits outside the workspace roots.
+    const byId = hydrateWithRetired([
+        {
+            id: 'frozen', name: 'Frozen', cwd: '/managed/deleted/lib',
+            createdAt: '2026-07-01T00:00:00Z',
+        },
+        {
+            id: 'by-creation-time', name: 'ByTime', cwd: '/managed/deleted',
+            createdAt: '2026-07-20T00:00:00Z',
+        },
+        {
+            id: 'no-evidence', name: 'NoEvidence', cwd: '/managed/deleted/tools',
+        },
+    ], [retiredFixture({
+        affectedSessions: [{ provider: 'codex', sessionId: 'frozen' }],
+    })]);
+    for (const id of ['frozen', 'by-creation-time', 'no-evidence']) {
+        assert.deepEqual(byId[id].worktreeKey, {
+            repositoryKey: '/external/repo/.git',
+            canonicalWorktreePath: '/managed/deleted',
+        }, `${id} keeps the retired worktree identity`);
+        assert.equal(byId[id].worktreeUnavailable, true,
+            `${id} cannot resume into the deleted directory`);
+    }
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 current-generation sessions are not claimed by a retired record', () => {
+    const claimed = {
+        claimId: 'c-1',
+        worktreeKey: {
+            repositoryKey: '/external/repo/.git',
+            canonicalWorktreePath: '/managed/deleted',
+        },
+        createdAfterRetirementId: 'r-1',
+        createdAtMs: Date.parse('2026-08-02T00:00:00Z'),
+        state: 'promoted',
+        provider: 'codex',
+        sessionId: 'rebuilt',
+    };
+    const byId = hydrateWithRetired([
+        // Created after the cutoff with an explicit claim.
+        {
+            id: 'rebuilt', name: 'Rebuilt', cwd: '/managed/deleted/lib',
+            createdAt: '2026-08-02T00:00:00Z',
+        },
+        // Created after the cutoff with a stable creation time only.
+        {
+            id: 'after-cutoff', name: 'AfterCutoff', cwd: '/managed/deleted/lib',
+            createdAt: '2026-08-03T00:00:00Z',
+        },
+    ], [retiredFixture()], [claimed]);
+    assert.equal(byId['rebuilt'], undefined,
+        'a claimed current-generation session follows normal assignment, not the retired record');
+    assert.equal(byId['after-cutoff'], undefined,
+        'a stable post-cutoff creation time escapes the retired generation');
+});
+
 test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 hydration consumes the captured presentation without recomputing it', () => {
     const identity = {
         provider: 'codex',

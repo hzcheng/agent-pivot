@@ -23,6 +23,10 @@ import type { WorkspaceActiveSessionPresentation } from './activeSessionPresenta
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type {
+    GenerationClaim,
+    RetiredWorktreeIdentity,
+} from '../worktrees/retiredWorktrees';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label' | 'terminalCwdFields'>;
 
@@ -139,6 +143,14 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getWorktreeGroups?: (
         workspaceNavigationIdentity: string
     ) => readonly WorktreeGroup[];
+    /** Retired worktree identities for the hydrated workspace (PRD §6.4). */
+    getRetiredWorktreeIdentities?: (
+        workspaceNavigationIdentity: string
+    ) => readonly RetiredWorktreeIdentity[];
+    /** Generation claims for the hydrated workspace (PRD §6.4). */
+    getGenerationClaims?: (
+        workspaceNavigationIdentity: string
+    ) => readonly GenerationClaim[];
     onDidReadSessions?: (
         workspace: OpenWorkspace,
         sessionResults: Record<AiSessionProviderId, AiSessionReadResult>,
@@ -213,6 +225,10 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             provisioningWorktrees:
                 this.options.getProvisioningWorktrees?.(workspace.navigationIdentity) || [],
             worktreeGroups: this.options.getWorktreeGroups?.(workspace.navigationIdentity) || [],
+            retiredWorktreeIdentities:
+                this.options.getRetiredWorktreeIdentities?.(workspace.navigationIdentity) || [],
+            generationClaims:
+                this.options.getGenerationClaims?.(workspace.navigationIdentity) || [],
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
             selectedSurface: this.options.getSelectedSurface?.(workspace.scopeIdentity),

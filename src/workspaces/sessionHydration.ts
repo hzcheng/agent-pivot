@@ -19,7 +19,11 @@ import type {
 } from '../aiSessions/types';
 import type { AiSessionProviderSelection } from '../aiSessions/providerSelection';
 import { getAiSessionKey, prepareAiSessionsForDisplay } from '../aiSessions/sessionHelpers';
-import { assignPathToWorkspaceRoot } from './sessionAssignment';
+import {
+    assignPathToWorkspaceRoot,
+    isWorkspaceHostPathContained,
+    normalizeWorkspaceHostPath,
+} from './sessionAssignment';
 import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 export { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 import {
@@ -33,6 +37,14 @@ import {
 } from './sessionAttention';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type {
+    GenerationClaim,
+    RetiredWorktreeIdentity,
+} from '../worktrees/retiredWorktrees';
+import {
+    findLatestRetirementForPath,
+    judgeSessionGeneration,
+} from '../worktrees/retiredWorktrees';
 import {
     findGroupMemberWorktreeKeyForPath,
     manifestClaimsWorktreeKey,
@@ -52,6 +64,10 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
     /** Authoritative worktree group manifest bucket for this workspace. */
     worktreeGroups?: readonly WorktreeGroup[];
+    /** Retired worktree identities for this workspace bucket (PRD §6.4). */
+    retiredWorktreeIdentities?: readonly RetiredWorktreeIdentity[];
+    /** Generation claims for this workspace bucket (PRD §6.4). */
+    generationClaims?: readonly GenerationClaim[];
     providers: readonly HydrationProvider[];
     sessionResults: Record<AiSessionProviderId, AiSessionReadResult>;
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;
@@ -155,7 +171,9 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
             input.workspace,
             input.worktreeSnapshot,
             input.getSessionComparableCwd,
-            input.worktreeGroups
+            input.worktreeGroups,
+            input.retiredWorktreeIdentities,
+            input.generationClaims
         );
         const assignmentBySessionId = new Map(assigned.map(item => [item.session.id, item]));
         sessionsByProvider[provider.id] = prepareAiSessionsForDisplay(
@@ -223,6 +241,8 @@ function assignHistorySessions(
     worktreeSnapshot: WorktreeSnapshot | null | undefined,
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string,
     worktreeGroups?: readonly WorktreeGroup[],
+    retiredIdentities?: readonly RetiredWorktreeIdentity[],
+    generationClaims?: readonly GenerationClaim[],
 ): AssignedHistory[] {
     const seen = new Set<string>();
     const assigned: AssignedHistory[] = [];
@@ -239,22 +259,58 @@ function assignHistorySessions(
         const manifestKey = worktree
             ? null
             : findGroupMemberWorktreeKeyForPath(worktreeGroups || [], cwd);
-        const root = worktree?.root || (manifestKey ? null : assignPathToWorkspaceRoot(cwd, workspace.roots));
-        const worktreeUnavailable = !!manifestKey
+        // Retired identity fallback (PRD §6.4): once a journaled deletion
+        // removes the manifest member, the retired record keeps the history
+        // identity — but only for the pre-deletion generation. Sessions of
+        // a later generation (explicit claim, or a stable creation time
+        // past the cutoff) are not claimed by the retired record.
+        const retired = worktree || manifestKey
+            ? null
+            : findLatestRetirementForPath(
+                retiredIdentities || [],
+                cwd,
+                normalizeWorkspaceHostPath,
+                isWorkspaceHostPathContained);
+        const retiredGeneration = retired
+            ? judgeSessionGeneration(retired, {
+                provider: providerId,
+                sessionId: session.id,
+                createdAtMs: parseSessionCreatedAtMs(session),
+            }, generationClaims || [], retiredIdentities || [])
+            : null;
+        const retiredKey = retired && retiredGeneration === 'retired'
+            ? {
+                repositoryKey: retired.repositoryKey,
+                canonicalWorktreePath: retired.canonicalWorktreePath,
+            }
+            : null;
+        const root = worktree?.root
+            || (manifestKey || retiredKey ? null : assignPathToWorkspaceRoot(cwd, workspace.roots));
+        const worktreeUnavailable = !!manifestKey || !!retiredKey
             || !!worktree && (worktree.worktree.health === 'missing'
                 || worktree.worktree.health === 'prunable');
-        if (worktree || manifestKey || root) {
+        if (worktree || manifestKey || retiredKey || root) {
             assigned.push({
                 session: { ...session },
                 root,
                 ...(worktree
                     ? { worktreeKey: { ...worktree.worktree.key } }
-                    : manifestKey ? { worktreeKey: manifestKey } : {}),
+                    : manifestKey
+                        ? { worktreeKey: manifestKey }
+                        : retiredKey ? { worktreeKey: retiredKey } : {}),
                 ...(worktreeUnavailable ? { worktreeUnavailable: true } : {}),
             });
         }
     }
     return assigned;
+}
+
+function parseSessionCreatedAtMs(session: CodexSession): number | undefined {
+    if (!session.createdAt) {
+        return undefined;
+    }
+    const parsed = Date.parse(session.createdAt);
+    return Number.isNaN(parsed) ? undefined : parsed;
 }
 
 function buildActiveSessions<TTerminal>(input: {

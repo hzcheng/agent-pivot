@@ -150,6 +150,26 @@ test('SESSION-CODEX-SESSION-ACTIVITY-TIMESTAMP-001 uses the session JSONL mtime 
     assert.equal(service.getSessions(true).sessions[0].updatedAt, secondActivityAt.toISOString());
 });
 
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 Codex exposes the stable creation time apart from activity', t => {
+    const root = makeTempDirectory(t, 'provider-codex-created-');
+    const sessionsDir = path.join(root, 'sessions', '2026', '07', '14');
+    const sessionId = '88888888-8888-4888-8888-888888888888';
+    setEnvironment(t, 'CODEX_HOME', root);
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sessionFile = writeCodexSessionMetaFile(sessionsDir, sessionId, {
+        id: sessionId, session_id: sessionId, cwd: '/work/app',
+        timestamp: '2026-07-14T01:00:00.000Z', source: 'vscode',
+    });
+    const laterActivity = new Date('2026-07-15T03:00:00.000Z');
+    fs.utimesSync(sessionFile, laterActivity, laterActivity);
+
+    const session = new CodexSessionService().getSessions(true).sessions[0];
+    assert.equal(session.createdAt, '2026-07-14T01:00:00.000Z',
+        'createdAt is the rollout session_meta timestamp');
+    assert.equal(session.updatedAt, laterActivity.toISOString(),
+        'updatedAt still floats with file activity');
+});
+
 test('PERSIST-CODEX-SESSION-META-CACHE-001 reuses unchanged metadata and index reads, then invalidates each by signature', t => {
     const root = makeTempDirectory(t, 'provider-codex-meta-cache-');
     const sessionsDir = path.join(root, 'sessions', '2026', '07', '16');
@@ -226,6 +246,47 @@ test('SESSION-KIMI-NESTED-SUBAGENT-BOUNDARY-001 discovers only UUID directories 
     assert.equal(result.available, true);
     assert.deepEqual(result.sessions.map(session => session.id), [sessionId]);
     assert.equal(result.scannedFiles, 1);
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 Claude derives createdAt from the first event and Kimi stays degradable', t => {
+    const root = makeTempDirectory(t, 'provider-claude-created-');
+    const sessionId = '99999999-9999-4999-8999-999999999999';
+    setEnvironment(t, 'CLAUDE_HOME', root);
+    const sessionDir = path.join(root, 'projects', '-work-app');
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionDir, `${sessionId}.jsonl`), [
+        JSON.stringify({ type: 'system', sessionId }),
+        JSON.stringify({
+            type: 'user', sessionId, cwd: '/work/app',
+            timestamp: '2026-07-10T08:00:00.000Z',
+            message: { role: 'user', content: 'hello' },
+        }),
+        JSON.stringify({
+            type: 'assistant', sessionId,
+            timestamp: '2026-07-10T09:00:00.000Z',
+            message: { role: 'assistant', content: 'hi' },
+        }),
+        '',
+    ].join('\n'), 'utf8');
+
+    const claude = new ClaudeSessionService().getSessions({ candidatePaths: ['/work/app'] });
+    assert.equal(claude.sessions[0].createdAt, '2026-07-10T08:00:00.000Z',
+        'the first valid event timestamp is the stable creation time');
+    assert.equal(claude.sessions[0].updatedAt, '2026-07-10T09:00:00.000Z');
+
+    const kimiRoot = makeTempDirectory(t, 'provider-kimi-created-');
+    const kimiWorkDir = '/work/app';
+    setEnvironment(t, 'KIMI_SHARE_DIR', kimiRoot);
+    fs.writeFileSync(path.join(kimiRoot, 'kimi.json'),
+        JSON.stringify({ work_dirs: [{ path: kimiWorkDir }] }), 'utf8');
+    const hash = crypto.createHash('md5').update(kimiWorkDir, 'utf8').digest('hex');
+    const kimiSessionDir = path.join(kimiRoot, 'sessions', hash, sessionId);
+    fs.mkdirSync(kimiSessionDir, { recursive: true });
+    fs.writeFileSync(path.join(kimiSessionDir, 'wire.jsonl'), '{}\n', 'utf8');
+    fs.writeFileSync(path.join(kimiSessionDir, 'state.json'), '{}', 'utf8');
+    const kimi = new KimiSessionService().getSessions({ candidatePaths: [kimiWorkDir] });
+    assert.equal(kimi.sessions[0].createdAt, undefined,
+        'Kimi exposes no stable creation time: generation judgment fails closed');
 });
 
 test('SESSION-CLAUDE-SESSION-001 finds cwd in the middle of a large top-level file and excludes nested subagents', t => {

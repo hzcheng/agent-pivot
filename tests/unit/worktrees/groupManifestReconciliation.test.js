@@ -271,6 +271,77 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 in-flight members without a
     assert.equal(group.members[1].state, 'failed');
 });
 
+test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 a snapshot refresh racing group creation never seeds a duplicate', async () => {
+    // Regression: the member claims its path from the planned state, before
+    // any worktreeKey exists. Seeding the physical worktree mid-provisioning
+    // produced a duplicate ready group and the finalize write then failed
+    // with worktree-key-claimed — the user saw a failed member and an
+    // unavailable primary.
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await store.createGroup(WORKSPACE, {
+        displayName: 'fix-login',
+        suggestedSlug: 'fix-login',
+        members: [{
+            repositoryKey: '/alpha/.git',
+            branchName: 'agent-pivot/fix-login',
+            path: '/alpha/.worktrees/fix-login',
+            state: 'provisioning',
+        }],
+    });
+    const memberId = group.members[0].memberId;
+    const content = snapshot([{
+        repositoryKey: '/alpha/.git',
+        rootBindings: [],
+        worktrees: [gitWorktree('/alpha/.git', '/alpha/.worktrees/fix-login', {
+            branchRef: 'refs/heads/agent-pivot/fix-login',
+        })],
+    }]);
+    const groupRecord = {
+        version: 1,
+        operationId: `group-member-${memberId}`,
+        projectId: 'project',
+        workspaceNavigationIdentity: WORKSPACE,
+        groupId: group.groupId,
+        memberId,
+        providerId: 'codex',
+        setupCommand: [],
+        plan: {
+            repositoryKey: '/alpha/.git', commandCwd: '/alpha',
+            baseRef: 'refs/heads/main', taskName: 'fix-login', slug: 'fix-login',
+            branchName: 'agent-pivot/fix-login',
+            worktreePath: '/alpha/.worktrees/fix-login',
+        },
+        completedSteps: ['worktree'],
+        worktreeKey: {
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+        },
+        row: {
+            kind: 'provisioning', operationId: `group-member-${memberId}`,
+            repositoryKey: '/alpha/.git', taskName: 'fix-login',
+            proposedPath: '/alpha/.worktrees/fix-login',
+            stage: 'creating', completedSteps: ['worktree'],
+            retryable: false, cancellable: true,
+        },
+    };
+    await reconcileWorktreeGroupManifest({
+        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        recoveryRecords: [groupRecord],
+        activeGroupMemberIds: [memberId],
+    });
+    const groups = store.listGroups(WORKSPACE);
+    assert.equal(groups.length, 1, 'no duplicate group for the claimed path');
+    // And the finalize write now lands.
+    await store.updateMember(WORKSPACE, group.groupId, memberId, {
+        state: 'ready',
+        worktreeKey: {
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+        },
+    });
+    assert.equal(store.listGroups(WORKSPACE)[0].members[0].state, 'ready');
+});
+
 test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seeding until retried', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const content = snapshot([{

@@ -49,9 +49,16 @@ export async function reconcileWorktreeGroupManifest(
     const visibleRepositories = new Set(
         snapshot.repositories.map(repository => repository.repositoryKey));
     const manifestRepositories = new Set<string>();
+    // Members claim their worktree by path from the moment they are
+    // planned — before any worktreeKey exists. Seeding must honor that
+    // claim: a snapshot refresh racing an in-flight group creation would
+    // otherwise seed a duplicate group for the same physical worktree and
+    // the finalize write would fail with worktree-key-claimed.
+    const claimedMemberPaths = new Set<string>();
     for (const group of store.listGroups(workspaceIdentity)) {
         for (const member of group.members) {
             manifestRepositories.add(member.repositoryKey);
+            claimedMemberPaths.add(memberPathClaim(member.repositoryKey, member.path));
             if ((member.state === 'provisioning' || member.state === 'planned')
                 && !activeMemberIds.has(member.memberId)) {
                 // The process exited mid-creation: an in-flight member must
@@ -81,6 +88,10 @@ export async function reconcileWorktreeGroupManifest(
             if (worktree.isMain || worktree.isBare) {
                 continue;
             }
+            if (claimedMemberPaths.has(memberPathClaim(
+                worktree.key.repositoryKey, worktree.key.canonicalWorktreePath))) {
+                continue;
+            }
             const matchedRecord = (options.recoveryRecords || []).find(candidate =>
                 candidate.plan.repositoryKey === worktree.key.repositoryKey
                 && candidate.plan.worktreePath === worktree.key.canonicalWorktreePath);
@@ -102,15 +113,19 @@ export async function reconcileWorktreeGroupManifest(
                 && matchedRecord.workspaceNavigationIdentity !== workspaceIdentity
                 ? undefined
                 : matchedRecord;
+            // A group member's recovery record is owned by the group
+            // creation lifecycle, never a seeding source; the managed
+            // branch prefix remains an independent signal.
+            const seedRecord = record?.groupId ? undefined : record;
             const managedBranch = branchRef.startsWith(MANAGED_BRANCH_PREFIX)
                 ? branchRef.slice(MANAGED_BRANCH_PREFIX.length)
                 : '';
-            if (!managedBranch && !record) {
+            if (!managedBranch && !seedRecord) {
                 continue;
             }
-            const slug = record?.plan.slug || managedBranch;
-            const displayName = record?.plan.taskName || managedBranch;
-            const branchName = branchRef.slice('refs/heads/'.length) || record?.plan.branchName || '';
+            const slug = seedRecord?.plan.slug || managedBranch;
+            const displayName = seedRecord?.plan.taskName || managedBranch;
+            const branchName = branchRef.slice('refs/heads/'.length) || seedRecord?.plan.branchName || '';
             if (!slug || !displayName || !branchName) {
                 continue;
             }
@@ -145,4 +160,8 @@ function isCompleteRecoveryRecord(record: PersistedWorktreeProvisioningOperation
     // Setup only counts when the operation actually had one to run.
     return record.setupCommand.length === 0
         || record.completedSteps.includes('setup');
+}
+
+function memberPathClaim(repositoryKey: string, worktreePath: string): string {
+    return `${repositoryKey}${worktreePath}`;
 }

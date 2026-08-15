@@ -63,6 +63,7 @@ function fixture(overrides = {}) {
     const publications = [];
     const settlements = [];
     const persisted = [];
+    const tombstones = [];
     const firstRepository = repository();
     const snapshot = {
         revision: 1,
@@ -112,11 +113,27 @@ function fixture(overrides = {}) {
         publishRows: (revision, rows) => publications.push({ revision, rows }),
         onSettled: outcome => settlements.push(outcome),
         persistOperations: operations => { persisted.push(operations); return Promise.resolve(); },
+        persistTombstones: records => {
+            for (const record of records) {
+                if (!tombstones.some(entry => entry.operationId === record.operationId)) {
+                    tombstones.push(record);
+                }
+            }
+            return Promise.resolve();
+        },
+        deleteTombstones: ids => {
+            for (const id of ids) {
+                const index = tombstones.findIndex(entry => entry.operationId === id);
+                if (index >= 0) tombstones.splice(index, 1);
+            }
+            return Promise.resolve();
+        },
         provisioner,
         ...overrides,
     });
     return {
-        controller, effects, publications, settlements, persisted, snapshot, target, provisioner,
+        controller, effects, publications, settlements, persisted, tombstones,
+        snapshot, target, provisioner,
     };
 }
 
@@ -452,20 +469,18 @@ test('WORKTREE-GROUPS-CREATE-001 dismissing a setup-incomplete member keeps a se
     });
 
     assert.equal(await current.controller.dismiss('group-member-m6', 'project'), true);
-    const persisted = current.persisted.at(-1);
-    const tombstone = persisted.find(record => record.operationId === 'group-member-m6');
+    const tombstone = current.tombstones
+        .find(record => record.operationId === 'group-member-m6');
     assert.equal(tombstone.tombstone, true,
         'the dismissed record persists as a tombstone');
     assert.equal(tombstone.groupId, 'g1');
     assert.deepEqual(current.controller.getRows(), [], 'no row survives');
 
     // The tombstone restores without a row and keeps blocking seeding.
-    const restored = fixture({ recoveredOperations: persisted });
+    const restored = fixture({ recoveredOperations: current.tombstones });
     assert.deepEqual(restored.controller.getRows(), [],
         'a tombstone never restores as a retry row');
-    const rePersisted = restored.persisted.at(-1) || [];
     assert.ok(restored.controller.hasOperation('group-member-m6') === false);
-    void rePersisted;
 });
 
 test('WORKTREE-GROUPS-CREATE-001 pruned tombstones are never resurrected by the next persist', async () => {
@@ -486,7 +501,7 @@ test('WORKTREE-GROUPS-CREATE-001 pruned tombstones are never resurrected by the 
         setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'm7',
     });
     assert.equal(await current.controller.dismiss('group-member-m7', 'project'), true);
-    assert.ok(current.persisted.at(-1).some(record => record.tombstone));
+    assert.ok(current.tombstones.length > 0);
 
     // The store prunes the tombstone (physical worktree gone) and the
     // controller drops its in-memory copy.
@@ -499,7 +514,7 @@ test('WORKTREE-GROUPS-CREATE-001 pruned tombstones are never resurrected by the 
         plan: { ...plan, branchName: 'agent-pivot/other', worktreePath: '/repo/.worktrees/other' },
         setupCommand: [], groupId: 'g1', memberId: 'm8',
     });
-    assert.ok(!current.persisted.at(-1).some(record => record.tombstone),
+    assert.equal(current.tombstones.length, 0,
         'the pruned tombstone stays pruned');
 });
 
@@ -516,11 +531,15 @@ test('WORKTREE-GROUPS-CREATE-001 dismiss fails closed when the tombstone cannot 
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => {
+        persistTombstones: records => {
             if (persistFails) {
                 return Promise.reject(new Error('disk full'));
             }
-            current.persisted.push(operations);
+            for (const record of records) {
+                if (!current.tombstones.some(entry => entry.operationId === record.operationId)) {
+                    current.tombstones.push(record);
+                }
+            }
             return Promise.resolve();
         },
         onPersistenceError: error => persistenceErrors.push(error),
@@ -553,13 +572,9 @@ test('WORKTREE-GROUPS-CREATE-001 dismiss awaits the tombstone write itself, not 
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => {
-            if (failTombstoneWrites && operations.some(record => record.tombstone)) {
-                return Promise.reject(new Error('disk full'));
-            }
-            current.persisted.push(operations);
-            return Promise.resolve();
-        },
+        persistTombstones: () => failTombstoneWrites
+            ? Promise.reject(new Error('disk full'))
+            : Promise.resolve(),
         onPersistenceError: () => undefined,
     });
     await current.controller.startGroupMember({
@@ -593,7 +608,9 @@ test('WORKTREE-GROUPS-CREATE-001 prune through the controller cannot be resurrec
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => store.replace(operations),
+        persistOperations: operations => store.replaceLive(operations),
+        persistTombstones: records => store.appendTombstones(records),
+        deleteTombstones: ids => store.deleteTombstones(ids),
         pruneTombstones: (paths, truncated, startedAt, repos) =>
             store.pruneTombstones(paths, truncated, startedAt, repos),
     });
@@ -625,9 +642,13 @@ test('WORKTREE-GROUPS-CREATE-001 concurrent synthetic tombstone writes share the
     const persistGate = new Promise(resolve => { releasePersist = resolve; });
     let persistCalls = 0;
     const current = fixture({
-        persistOperations: operations => {
+        persistTombstones: records => {
             persistCalls += 1;
-            current.persisted.push(operations);
+            for (const record of records) {
+                if (!current.tombstones.some(entry => entry.operationId === record.operationId)) {
+                    current.tombstones.push(record);
+                }
+            }
             return persistGate.then(() => undefined);
         },
     });
@@ -664,11 +685,15 @@ test('WORKTREE-GROUPS-CREATE-001 concurrent dismisses share one flight and one o
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => {
+        persistTombstones: records => {
             if (failPersists) {
                 return Promise.reject(new Error('disk full'));
             }
-            current.persisted.push(operations);
+            for (const record of records) {
+                if (!current.tombstones.some(entry => entry.operationId === record.operationId)) {
+                    current.tombstones.push(record);
+                }
+            }
             return Promise.resolve();
         },
         onPersistenceError: () => undefined,
@@ -693,11 +718,9 @@ test('WORKTREE-GROUPS-CREATE-001 concurrent dismisses share one flight and one o
         current.controller.dismiss('group-member-c1', 'project'),
     ]);
     assert.deepEqual([third, fourth], [true, true]);
-    const tombstones = current.persisted.at(-1).filter(record => record.tombstone);
-    assert.equal(tombstones.length, 1, 'exactly one durable tombstone');
+    assert.equal(current.tombstones.length, 1, 'exactly one durable tombstone');
     assert.equal(current.persisted.at(-1)
-        .filter(record => !record.tombstone
-            && record.operationId === 'group-member-c1').length, 0,
+        .filter(record => record.operationId === 'group-member-c1').length, 0,
         'no same-id live record accompanies the tombstone');
 });
 
@@ -719,14 +742,14 @@ test('WORKTREE-GROUPS-CREATE-001 a completed retry clears the tombstone for that
         setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'c2',
     });
     assert.equal(await current.controller.dismiss('group-member-c2', 'project'), true);
-    assert.ok(current.persisted.at(-1).some(record => record.tombstone));
+    assert.ok(current.tombstones.length > 0);
 
     // The worktree later provisions fully (e.g. retried): its tombstone
     // must stop claiming setup-incomplete and stop occupying capacity.
     current.controller.removeTombstonesForWorktree(
         '/repo/.git', '/repo/.worktrees/fix-login');
     await new Promise(resolve => setImmediate(resolve));
-    assert.ok(!current.persisted.at(-1).some(record => record.tombstone));
+    assert.equal(current.tombstones.length, 0);
 });
 
 test('WORKTREE-GROUPS-CREATE-001 a failed tombstone write never deletes the durable live record first', async () => {
@@ -755,7 +778,9 @@ test('WORKTREE-GROUPS-CREATE-001 a failed tombstone write never deletes the dura
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => store.replace(operations),
+        persistOperations: operations => store.replaceLive(operations),
+        persistTombstones: records => store.appendTombstones(records),
+        deleteTombstones: ids => store.deleteTombstones(ids),
         onPersistenceError: () => undefined,
     });
     await current.controller.startGroupMember({
@@ -780,8 +805,12 @@ test('WORKTREE-GROUPS-CREATE-001 single-flight never shares across project scope
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => {
-            current.persisted.push(operations);
+        persistTombstones: records => {
+            for (const record of records) {
+                if (!current.tombstones.some(entry => entry.operationId === record.operationId)) {
+                    current.tombstones.push(record);
+                }
+            }
             return gatePersist ? gate.then(() => undefined) : Promise.resolve();
         },
     });
@@ -832,7 +861,7 @@ test('WORKTREE-GROUPS-CREATE-001 a live-cleanup failure after the tombstone comm
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => store.replace(operations),
+        persistOperations: operations => store.replaceLive(operations),
         persistTombstones: records => store.appendTombstones(records),
         onPersistenceError: () => undefined,
     });
@@ -859,8 +888,12 @@ test('WORKTREE-GROUPS-CREATE-001 a late same-scope caller joins the in-flight di
         runSetup: async () => {
             throw Object.assign(new Error('setup'), { code: 'setup-failed' });
         },
-        persistOperations: operations => {
-            current.persisted.push(operations);
+        persistTombstones: records => {
+            for (const record of records) {
+                if (!current.tombstones.some(entry => entry.operationId === record.operationId)) {
+                    current.tombstones.push(record);
+                }
+            }
             return gatePersist ? gate.then(() => undefined) : Promise.resolve();
         },
     });
@@ -885,6 +918,46 @@ test('WORKTREE-GROUPS-CREATE-001 a late same-scope caller joins the in-flight di
     assert.equal(await first, true);
     assert.equal(await second, true,
         'a late caller with the same identity shares the flight outcome');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 retry and dismiss never interleave on one operation', async () => {
+    let releaseTombstone;
+    let gateTombstone = false;
+    const gate = new Promise(resolve => { releaseTombstone = resolve; });
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistTombstones: records => {
+            for (const record of records) {
+                if (!current.tombstones.some(entry => entry.operationId === record.operationId)) {
+                    current.tombstones.push(record);
+                }
+            }
+            return gateTombstone ? gate.then(() => undefined) : Promise.resolve();
+        },
+    });
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    await current.controller.startGroupMember({
+        operationId: 'group-member-x1', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'x1',
+    });
+    gateTombstone = true;
+    const dismiss = current.controller.dismiss('group-member-x1', 'project');
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const retry = await current.controller.retry('group-member-x1', 'project');
+    assert.equal(retry.errorCode, 'retry-unavailable',
+        'retry cannot start while the dismissal commits');
+    releaseTombstone();
+    assert.equal(await dismiss, true);
+    assert.equal(current.controller.getRows().length, 0);
 });
 
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
@@ -1048,10 +1121,9 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 dismiss drops a failed row only from it
     assert.equal(current.controller.getRows().length, 1);
     assert.equal(await current.controller.dismiss('request-dismiss', 'project'), true);
     assert.deepEqual(current.controller.getRows(), []);
-    const remaining = current.persisted.at(-1);
-    assert.equal(remaining.length, 1,
+    assert.equal(current.tombstones.length, 1,
         'a setup-incomplete worktree keeps a tombstone, never a row');
-    assert.equal(remaining[0].tombstone, true);
+    assert.equal(current.tombstones[0].tombstone, true);
 });
 
 test('WORKTREE-PROVISIONING-PROTOCOL-001 rejects retry and cancel from another project scope', async () => {

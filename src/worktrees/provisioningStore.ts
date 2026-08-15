@@ -190,29 +190,50 @@ export class WorktreeProvisioningStore {
                     merged.push(sanitized);
                 }
             }
-            await this.memento.update(
-                TOMBSTONE_STORAGE_KEY, merged.slice(-MAX_TOMBSTONES));
+            if (merged.length > MAX_TOMBSTONES) {
+                // Fail closed: never evict a protection record silently.
+                const error = new Error('tombstone store is full');
+                (error as Error & { code?: string }).code = 'store-full';
+                throw error;
+            }
+            await this.memento.update(TOMBSTONE_STORAGE_KEY, merged);
         };
         const result = this.writeQueue.then(operation, operation);
         this.writeQueue = result.then(() => undefined, () => undefined);
         return result;
     }
 
-    replace(records: readonly PersistedWorktreeProvisioningOperation[]): Promise<void> {
+    /**
+     * Replaces the live bucket only. The tombstone bucket is managed
+     * exclusively by appendTombstones / pruneTombstones / deleteTombstones,
+     * so a live cleanup captured earlier can never clobber a protection
+     * record committed after the capture.
+     */
+    replaceLive(records: readonly PersistedWorktreeProvisioningOperation[]): Promise<void> {
         const snapshot = this.sanitizeRecords(
             records.filter(record => !record.tombstone), MAX_RECORDS);
-        const tombstoneSnapshot = this.sanitizeRecords(
-            records.filter(record => record.tombstone), MAX_TOMBSTONES);
         const operation = async (): Promise<void> => {
-            // Tombstone bucket first: if the live write then fails, both
-            // records exist and the read-time tombstone-wins rule converges
-            // safely. The reverse order could delete the only durable
-            // recovery before its replacement protection landed.
-            await this.memento.update(TOMBSTONE_STORAGE_KEY, tombstoneSnapshot);
             await this.memento.update(STORAGE_KEY, snapshot);
         };
         const result = this.writeQueue.then(operation, operation);
         this.writeQueue = result.catch(() => undefined);
+        return result;
+    }
+
+    /** Removes tombstones by operation id (capacity frees, member ready). */
+    deleteTombstones(operationIds: readonly string[]): Promise<void> {
+        const ids = new Set(operationIds);
+        const operation = async (): Promise<void> => {
+            const existing = this.parseRecords(
+                this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
+            const kept = existing.filter(record => !ids.has(record.operationId));
+            if (kept.length === existing.length) {
+                return;
+            }
+            await this.memento.update(TOMBSTONE_STORAGE_KEY, kept);
+        };
+        const result = this.writeQueue.then(operation, operation);
+        this.writeQueue = result.then(() => undefined, () => undefined);
         return result;
     }
 }

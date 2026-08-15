@@ -53,7 +53,7 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 round-trips defensive bounded operation
     const store = new WorktreeProvisioningStore(state);
     const input = record();
 
-    await store.replace([input]);
+    await store.replaceLive([input]);
     input.completedSteps.push('setup');
     input.setupCommand.push('--mutated');
     const restored = store.read();
@@ -67,7 +67,7 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 round-trips the starting navigation ide
     const state = memento();
     const store = new WorktreeProvisioningStore(state);
     const bound = { ...record('bound'), workspaceNavigationIdentity: 'navigation:workspace' };
-    await store.replace([bound]);
+    await store.replaceLive([bound]);
     const restored = store.read();
     assert.equal(restored.length, 1);
     assert.equal(restored[0].workspaceNavigationIdentity, 'navigation:workspace');
@@ -86,16 +86,16 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 tombstones have their own bounded bucke
         ...record(`tombstone-${index}`),
         tombstone: true,
     }));
-    await store.replace(tombstones);
+    await store.appendTombstones(tombstones);
     const restored = store.read();
     assert.equal(restored.length, 40,
         'tombstones are not evicted by the 32-record live cap');
     assert.ok(restored.every(entry => entry.tombstone === true));
 
     const live = Array.from({ length: 33 }, (_unused, index) => record(`live-${index}`));
-    await store.replace([...restored.slice(0, 5), ...live]);
+    await store.replaceLive(live);
     const after = store.read();
-    assert.equal(after.filter(entry => entry.tombstone).length, 5,
+    assert.equal(after.filter(entry => entry.tombstone).length, 40,
         'live records never crowd out tombstones');
     assert.equal(after.filter(entry => !entry.tombstone).length, 32,
         'live records keep their own cap');
@@ -115,7 +115,7 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 pruneTombstones drops entries whose wor
     };
     gone.row = { ...gone.row, proposedPath: '/repo/.agent-pivot/worktrees/gone' };
     const kept = { ...record('tombstone-kept'), tombstone: true };
-    await store.replace([gone, kept]);
+    await store.appendTombstones([gone, kept]);
     await store.pruneTombstones(new Set([
         '/repo/.git /repo/.agent-pivot/worktrees/fix-login-race',
     ]));
@@ -127,7 +127,7 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 pruneTombstones drops entries whose wor
 test('WORKTREE-PROVISIONING-RECOVERY-001 pruneTombstones never prunes against a truncated snapshot', async () => {
     const state = memento();
     const store = new WorktreeProvisioningStore(state);
-    await store.replace([{ ...record('tombstone-truncated'), tombstone: true }]);
+    await store.appendTombstones([{ ...record('tombstone-truncated'), tombstone: true }]);
     await store.pruneTombstones(new Set(), true);
     assert.equal(store.read().length, 1,
         'a worktree missing only because discovery hit its cap keeps its tombstone');
@@ -143,8 +143,8 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 a concurrent prune never overwrites a n
     const store = new WorktreeProvisioningStore(state);
     const a = { ...record('tomb-a'), tombstone: true };
     const b = { ...record('tomb-b'), tombstone: true };
-    await store.replace([a]);
-    const replacement = store.replace([a, b]);
+    await store.appendTombstones([a]);
+    const replacement = store.appendTombstones([b]);
     const prune = store.pruneTombstones(new Set([
         '/repo/.git /repo/.agent-pivot/worktrees/fix-login-race',
     ]));
@@ -162,7 +162,7 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 a tombstone younger than the snapshot s
         tombstone: true,
         tombstonedAt: 2000,
     };
-    await store.replace([fresh]);
+    await store.appendTombstones([fresh]);
     await store.pruneTombstones(new Set(), false, 1000);
     assert.equal(store.read().length, 1,
         'the snapshot may predate the worktree; the tombstone stays');
@@ -194,7 +194,7 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 prune keeps tombstones for undiscovered
         proposedPath: '/ghost/.agent-pivot/worktrees/fix-login-race',
     };
     const sameMs = { ...record('tomb-same-ms'), tombstone: true, tombstonedAt: 1000 };
-    await store.replace([invisibleRepo, sameMs]);
+    await store.appendTombstones([invisibleRepo, sameMs]);
     await store.pruneTombstones(
         new Set(), false, 1000, new Set(['/repo/.git']));
     assert.deepEqual(store.read().map(entry => entry.operationId).sort(),
@@ -212,11 +212,44 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 a tombstone wins over a same-id live re
     const state = memento();
     const store = new WorktreeProvisioningStore(state);
     const live = record('dup-1');
-    await store.replace([live, { ...record('dup-1'), tombstone: true }]);
+    await store.replaceLive([live]);
+    await store.appendTombstones([{ ...record('dup-1'), tombstone: true }]);
     const restored = store.read();
     assert.equal(restored.length, 1);
     assert.equal(restored[0].tombstone, true,
         'the tombstone is the authoritative record for the id');
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 replaceLive never touches the tombstone bucket', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    await store.appendTombstones([
+        { ...record('tomb-a'), tombstone: true },
+        { ...record('tomb-b'), tombstone: true },
+    ]);
+    // A live cleanup captured before the appends must not clobber them.
+    await store.replaceLive([record('live-only')]);
+    const tombstones = store.read().filter(entry => entry.tombstone);
+    assert.deepEqual(tombstones.map(entry => entry.operationId).sort(),
+        ['tomb-a', 'tomb-b'],
+        'committed protection survives any live-bucket write');
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 appendTombstones rejects overflow instead of evicting', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const { MAX_PROVISIONING_TOMBSTONES } = require('../../../out/worktrees/provisioningStore');
+    const bulk = Array.from({ length: MAX_PROVISIONING_TOMBSTONES }, (_unused, index) => ({
+        ...record(`tomb-bulk-${index}`),
+        tombstone: true,
+    }));
+    await store.appendTombstones(bulk);
+    await assert.rejects(
+        store.appendTombstones([{ ...record('tomb-overflow'), tombstone: true }]),
+        error => error.code === 'store-full');
+    assert.equal(store.read().filter(entry => entry.tombstone).length,
+        MAX_PROVISIONING_TOMBSTONES,
+        'every existing protection record survives the rejected append');
 });
 
 test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
@@ -254,8 +287,8 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 serializes replacements', async () => {
         state.state.set('agentPivot.worktreeProvisioning.v1', value);
     };
     const store = new WorktreeProvisioningStore(state);
-    const first = store.replace([record('first')]);
-    const second = store.replace([record('second')]);
+    const first = store.replaceLive([record('first')]);
+    const second = store.replaceLive([record('second')]);
     for (let index = 0; index < 10 && !releaseFirst; index += 1) await Promise.resolve();
     assert.equal(writes.length, 1);
     releaseFirst();

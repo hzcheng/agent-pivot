@@ -1555,9 +1555,11 @@ async function initializeDashboard(
             worktreeSetupRunner.run(command, worktreeKey.canonicalWorktreePath, isCancelled),
         publishRows: () => refreshAiSessionViewsIncrementally(),
         recoveredOperations: worktreeProvisioningStore.read(),
-        persistOperations: operations => worktreeProvisioningStore.replace(operations),
+        persistOperations: operations => worktreeProvisioningStore.replaceLive(operations),
         persistTombstones: records =>
             worktreeProvisioningStore.appendTombstones(records),
+        deleteTombstones: operationIds =>
+            worktreeProvisioningStore.deleteTombstones(operationIds),
         pruneTombstones: (paths, truncated, startedAt, repositories) =>
             worktreeProvisioningStore.pruneTombstones(
                 paths, truncated, startedAt, repositories),

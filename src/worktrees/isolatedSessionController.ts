@@ -104,6 +104,8 @@ export interface IsolatedSessionControllerOptions {
     persistTombstones?: (
         records: readonly PersistedWorktreeProvisioningOperation[]
     ) => Promise<void>;
+    /** Store-side tombstone deletion (member ready / prune sync). */
+    deleteTombstones?: (operationIds: readonly string[]) => Promise<void>;
     /** Store-side tombstone prune, driven by pruneTombstones above. */
     pruneTombstones?: (
         existingWorktreePaths: ReadonlySet<string>,
@@ -321,9 +323,26 @@ export class IsolatedSessionController {
         if (!row || !context || (projectId && context.projectId !== projectId)) {
             return { kind: 'failed', operationId, errorCode: 'retry-unavailable' };
         }
+        if (this.operationMutations.has(operationId)) {
+            // A dismiss or another mutation owns the operation right now.
+            return { kind: 'failed', operationId, errorCode: 'retry-unavailable' };
+        }
         if (!this.options.isWorkspaceTrusted()) {
             return { kind: 'failed', operationId, errorCode: 'workspace-untrusted' };
         }
+        this.operationMutations.add(operationId);
+        try {
+            return await this.retryLocked(operationId, row, context);
+        } finally {
+            this.operationMutations.delete(operationId);
+        }
+    }
+
+    private async retryLocked(
+        operationId: string,
+        row: ProvisioningWorktreeRow,
+        context: IsolatedSessionOperationContext
+    ): Promise<WorktreeProvisioningOutcome> {
         const target = this.options.getWorkspaceTarget(context.projectId);
         if (!this.contextMatchesWorkspace(context, target)) {
             return { kind: 'failed', operationId, errorCode: 'workspace-unavailable' };
@@ -363,6 +382,9 @@ export class IsolatedSessionController {
                 context, this.options.getWorkspaceTarget(context.projectId))) {
             return false;
         }
+        if (this.operationMutations.has(operationId)) {
+            return false;
+        }
         return this.provisioning.cancel(operationId);
     }
 
@@ -372,6 +394,11 @@ export class IsolatedSessionController {
         navigationIdentity?: string;
         promise: Promise<boolean>;
     }>();
+    /**
+     * Cross-operation mutation lock: retry, dismiss, and cancel for one
+     * operation never interleave (PRD §8 事务一致性).
+     */
+    private readonly operationMutations = new Set<string>();
 
     dismiss(operationId: string, projectId?: string): Promise<boolean> {
         const pending = this.dismissFlights.get(operationId);
@@ -391,6 +418,10 @@ export class IsolatedSessionController {
                 }
             }
             return pending.promise;
+        }
+        if (this.operationMutations.has(operationId)) {
+            // A retry or another mutation owns the operation right now.
+            return Promise.resolve(false);
         }
         // Validate the first caller from the live context BEFORE any
         // flight exists.
@@ -415,6 +446,21 @@ export class IsolatedSessionController {
     }
 
     private async dismissExclusive(
+        operationId: string,
+        context: IsolatedSessionOperationContext
+    ): Promise<boolean> {
+        if (this.operationMutations.has(operationId)) {
+            return false;
+        }
+        this.operationMutations.add(operationId);
+        try {
+            return await this.dismissExclusiveLocked(operationId, context);
+        } finally {
+            this.operationMutations.delete(operationId);
+        }
+    }
+
+    private async dismissExclusiveLocked(
         operationId: string,
         context: IsolatedSessionOperationContext
     ): Promise<boolean> {
@@ -492,6 +538,10 @@ export class IsolatedSessionController {
     removeTombstones(operationIds: readonly string[]): void {
         for (const operationId of operationIds) {
             this.recoveryTombstones.delete(operationId);
+        }
+        if (operationIds.length) {
+            void this.options.deleteTombstones?.(operationIds).catch(error =>
+                this.options.onPersistenceError?.(error));
         }
     }
 
@@ -654,17 +704,17 @@ export class IsolatedSessionController {
      * occupying capacity once the worktree is fully provisioned.
      */
     removeTombstonesForWorktree(repositoryKey: string, worktreePath: string): void {
-        let removed = false;
+        const removedIds: string[] = [];
         for (const [operationId, record] of this.recoveryTombstones) {
             if (record.plan.repositoryKey === repositoryKey
                 && record.plan.worktreePath === worktreePath) {
                 this.recoveryTombstones.delete(operationId);
-                removed = true;
+                removedIds.push(operationId);
             }
         }
-        if (removed) {
-                void this.persistOperations().catch(error =>
-                    this.options.onPersistenceError?.(error));
+        if (removedIds.length) {
+            void this.options.deleteTombstones?.(removedIds).catch(error =>
+                this.options.onPersistenceError?.(error));
         }
     }
 
@@ -875,10 +925,7 @@ export class IsolatedSessionController {
                 return this.buildRecoveryRecord(operation, context);
             })
             .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
-        const liveOperationIds = new Set(records.map(record => record.operationId));
-        const tombstones = Array.from(this.recoveryTombstones.values())
-            .filter(record => !liveOperationIds.has(record.operationId));
-        return this.options.persistOperations([...records, ...tombstones]);
+        return this.options.persistOperations(records);
     }
 
     private buildRecoveryRecord(

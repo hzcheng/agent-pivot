@@ -887,8 +887,15 @@ export class WorktreeGroupManifestStore {
             const aggregate = Array.isArray(bucket)
                 ? { ...emptyAggregate(), groups: parseGroups(bucket) }
                 : parseAggregate(bucket);
-            if (aggregate && !isAggregateEmpty(aggregate)) {
-                manifest[bucketKey] = aggregate;
+            if (aggregate) {
+                if (!isAggregateEmpty(aggregate)) {
+                    manifest[bucketKey] = aggregate;
+                }
+            } else {
+                // An unreadable aggregate shape is structural damage: keep
+                // the bucket alive as quarantined instead of dropping it
+                // into a false "healthy and empty" state.
+                manifest[bucketKey] = { ...emptyAggregate(), corrupt: true };
             }
         }
         return manifest;
@@ -1003,6 +1010,14 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
     if (candidate.version !== 2) {
         return null;
     }
+    // A section present but unreadable is structural damage, not an empty
+    // section: quarantine rather than fail open on "no retired records".
+    const sectionDamaged = (candidate.retiredIdentities !== undefined
+            && !Array.isArray(candidate.retiredIdentities))
+        || (candidate.generationClaims !== undefined
+            && !Array.isArray(candidate.generationClaims))
+        || (candidate.deletionJournal !== undefined
+            && !Array.isArray(candidate.deletionJournal));
     const rawRetired = Array.isArray(candidate.retiredIdentities)
         ? candidate.retiredIdentities : [];
     const rawClaims = Array.isArray(candidate.generationClaims)
@@ -1018,7 +1033,8 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
     // A pending claim may be the only deletion blocker for a live session,
     // so no claim or retired record may ever be dropped silently: any parse
     // failure or overflow quarantines the bucket instead.
-    const dropped = retiredIdentities.length !== rawRetired.length
+    const dropped = sectionDamaged
+        || retiredIdentities.length !== rawRetired.length
         || generationClaims.length !== rawClaims.length;
     const aggregate: WorkspaceAggregate = {
         version: 2,

@@ -17,6 +17,9 @@ test('WORKTREE-GROUPS-RENAME-001 replays receive the recorded settlement and evi
         cache.remember('r-3', Promise.resolve({ status: 'settled' }));
         assert.equal(cache.get('r-1'), undefined,
             'the oldest entry is evicted past the bound');
+        assert.equal(cache.isExpired('r-1'), true,
+            'an evicted id becomes a tombstone: replays fail closed');
+        assert.equal(cache.isExpired('r-3'), false);
         return cache.get('r-3');
     }).then(value => {
         assert.deepEqual(value, { status: 'settled' });

@@ -437,7 +437,7 @@ function retiredFixture(overrides) {
     };
 }
 
-function hydrateWithRetired(sessions, retired, claims) {
+function hydrateWithRetired(sessions, retired, claims, corrupt) {
     const controller = new WorkspaceSessionHydrationController({
         providers: [{ id: 'codex', label: 'Codex', terminalCwdFields: ['cwd'] }],
         readCoordinator: {
@@ -459,6 +459,7 @@ function hydrateWithRetired(sessions, retired, claims) {
         getWorktreeGroups: () => [],
         getRetiredWorktreeIdentities: () => retired,
         getGenerationClaims: () => claims || [],
+        isRetiredStoreCorrupt: () => !!corrupt,
         getProjectionSnapshot: () => ({
             revision: 1,
             worktreeSnapshot: {
@@ -502,6 +503,26 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired identities keep pre-deletion 
         assert.equal(byId[id].worktreeUnavailable, true,
             `${id} cannot resume into the deleted directory`);
     }
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a quarantined store marks unplaceable sessions unresumable', () => {
+    // corrupt=true with no readable retired records: a session inside a
+    // workspace root (but not on it) might belong to a deleted worktree we
+    // can no longer see — unknown means unresumable.
+    const byId = hydrateWithRetired([
+        { id: 'in-root-subdir', name: 'Sub', cwd: '/work/a/deleted-worktree' },
+        { id: 'on-root', name: 'Root', cwd: '/work/a' },
+    ], [], [], true);
+    assert.equal(byId['in-root-subdir'].worktreeUnavailable, true,
+        'unknown placement during quarantine fails closed');
+    assert.equal(byId['on-root'].worktreeUnavailable, undefined,
+        'main-checkout sessions keep their normal semantics');
+
+    const healthy = hydrateWithRetired([
+        { id: 'in-root-subdir', name: 'Sub', cwd: '/work/a/deleted-worktree' },
+    ], [], [], false);
+    assert.equal(healthy['in-root-subdir'].worktreeUnavailable, undefined,
+        'a healthy store does not over-mark');
 });
 
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 current-generation sessions are not claimed by a retired record', () => {

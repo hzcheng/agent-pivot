@@ -378,6 +378,30 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired cleanup releases claims and n
     assert.equal(store.listRetiredIdentities(WORKSPACE).length, 1);
 });
 
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 structural damage quarantines instead of reading as empty', async () => {
+    // Non-array sections, a wrong aggregate version, and a non-object
+    // bucket must all surface as quarantined — never as a healthy empty
+    // store (which would let deleted worktrees' sessions resume blindly).
+    const shapes = [
+        {
+            version: 2, groups: [], retiredIdentities: 'oops',
+            deletionJournal: [], generationClaims: [], lastGenerationCutoffAt: 0,
+        },
+        {
+            version: 3, groups: [], retiredIdentities: [],
+            deletionJournal: [], generationClaims: [], lastGenerationCutoffAt: 0,
+        },
+        'not-an-aggregate',
+    ];
+    for (const shape of shapes) {
+        const store = new WorktreeGroupManifestStore(memento({
+            'agentPivot.worktreeGroups.v1': { [WORKSPACE]: shape },
+        }));
+        assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true,
+            `shape ${JSON.stringify(shape).slice(0, 40)} is quarantined`);
+    }
+});
+
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired capacity fails closed and truncation is explicit', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const manySessions = Array.from({ length: 300 }, (_, index) => ({

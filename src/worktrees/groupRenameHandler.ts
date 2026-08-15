@@ -44,6 +44,13 @@ export async function handleRenameWorktreeGroup(
         await deps.postMessage(await replayed);
         return;
     }
+    if (deps.replayCache.isExpired(request.requestId)) {
+        // The settlement aged out of the bounded cache: re-executing could
+        // flip an old outcome, so expired replays fail closed.
+        await deps.postMessage(settledWorktreeGroupRenameSettlement(
+            request, { kind: 'failed', errorCode: 'request-expired' }));
+        return;
+    }
     const terminal = executeRenameWorktreeGroup(request, deps);
     deps.replayCache.remember(request.requestId, terminal);
     await deps.postMessage(await terminal);

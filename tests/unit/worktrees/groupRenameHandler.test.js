@@ -108,6 +108,29 @@ test('WORKTREE-GROUPS-RENAME-001 concurrent replays single-flight to one termina
         'the mutation ran exactly once');
 });
 
+test('WORKTREE-GROUPS-RENAME-001 an expired replay is refused, never re-executed', async () => {
+    const { store, group, posted, deps } = await fixture();
+    const tinyCache = createSettlementReplayCache(1);
+    deps.replayCache = tinyCache;
+
+    // First request fails (workspace gone), then ages out of the cache.
+    deps.getNavigationIdentity = () => null;
+    await handleRenameWorktreeGroup(renameRequest(group), deps);
+    assert.equal(posted.at(-1).status, 'failed');
+    await handleRenameWorktreeGroup(renameRequest(group, {
+        requestId: 'group-rename-n1-2',
+    }), deps);
+    assert.equal(tinyCache.isExpired('group-rename-n1-1'), true);
+
+    // The workspace is back; the expired replay must not suddenly apply.
+    deps.getNavigationIdentity = () => WORKSPACE;
+    await handleRenameWorktreeGroup(renameRequest(group), deps);
+    assert.equal(posted.at(-1).status, 'failed');
+    assert.equal(posted.at(-1).errorCode, 'request-expired');
+    assert.equal(store.listGroups(WORKSPACE)[0].displayName, 'fix login',
+        'the expired replay did not execute the rename');
+});
+
 test('WORKTREE-GROUPS-RENAME-001 a stale base revision fails closed', async () => {
     const { store, group, posted, deps } = await fixture();
 

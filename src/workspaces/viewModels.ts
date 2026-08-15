@@ -16,6 +16,7 @@ import { worktreeKeysEqual } from '../worktrees/types';
 import { isWorkspaceHostPathContained } from './sessionAssignment';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
 import { buildWorktreeGroupProjection } from './worktreeGroupProjection';
+import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
 
 export interface BuildWorkspaceAiSessionViewModelInput {
     workspace: OpenWorkspace;
@@ -37,6 +38,8 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
     /** Authoritative manifest bucket for this workspace (PRD §5.2). */
     worktreeGroups?: readonly WorktreeGroup[];
+    /** Active deletion journals for this workspace bucket (PRD §6.4). */
+    deletionJournals?: readonly DeletionJournalEntry[];
 }
 
 export function buildWorkspaceAiSessionViewModel(
@@ -61,6 +64,7 @@ export function buildWorkspaceAiSessionViewModel(
         workspace: input.workspace,
         snapshot: input.worktreeSnapshot,
         groups: input.worktreeGroups || [],
+        deletionJournals: input.deletionJournals || [],
         sessions: allSessions,
         activeSessions,
     });

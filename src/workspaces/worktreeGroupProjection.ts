@@ -24,6 +24,7 @@ import {
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
+import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
 
 /**
  * Manifest fallback for history identity (PRD §6.4): a session whose
@@ -72,6 +73,8 @@ export interface WorktreeGroupProjectionInput {
     snapshot: WorktreeSnapshot | null | undefined;
     /** Authoritative manifest bucket for this workspace (PRD §5.2). */
     groups: readonly WorktreeGroup[];
+    /** Active deletion journals for this workspace (PRD §6.4 lease UI). */
+    deletionJournals?: readonly DeletionJournalEntry[];
     sessions: readonly AiSessionViewModel[];
     activeSessions: readonly ActiveAiSessionViewModel[];
 }
@@ -198,6 +201,8 @@ export function buildWorktreeGroupProjection(
             // 组行只显示可见 member).
             continue;
         }
+        const journal = (input.deletionJournals || []).find(entry =>
+            entry.groupId === group.groupId);
         groupRows.push({
             kind: 'group',
             groupId: group.groupId,
@@ -211,7 +216,20 @@ export function buildWorktreeGroupProjection(
             chips: buildChips(members.map(member => member.repositoryLabel), chipUniverse),
             hasDetachedMembers: group.members.some(member => !!member.detached),
             needsPrimarySelection: !primaryReady && hasReadyMember,
-            canCreateSession: primaryReady && !hasInFlightMember,
+            // A leased group cannot start sessions (decision J); the host
+            // enforces it too — the row just does not offer the action.
+            canCreateSession: primaryReady && !hasInFlightMember && !journal,
+            ...(journal
+                ? {
+                    deletion: {
+                        operationId: journal.operationId,
+                        pendingCount: journal.targets.filter(target =>
+                            target.status === 'pending').length,
+                        failedCount: journal.targets.filter(target =>
+                            target.status === 'failed').length,
+                    },
+                }
+                : {}),
             mergeCandidateGroupIds: [],
         });
     }
@@ -281,6 +299,9 @@ function memberStatus(
 ): WorktreeGroupMemberStatus {
     if (member.detached) {
         return 'detached';
+    }
+    if (member.state === 'deleting') {
+        return 'deleting';
     }
     if (member.state === 'failed') {
         return 'failed';

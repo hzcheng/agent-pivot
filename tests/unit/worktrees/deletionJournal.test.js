@@ -435,6 +435,53 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 group mode rejects an explicit subset a
     }), 'member-not-found');
 });
 
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 deleting the primary can atomically name a replacement', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [
+        readyMember('alpha', 'a'),
+        readyMember('beta', 'b'),
+    ]);
+    const primary = group.primaryMemberId;
+    const other = group.members.find(member => member.memberId !== primary);
+    // A replacement that is itself a deletion target is rejected.
+    await rejectsCode(store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'member', memberIds: [primary],
+        replacementPrimaryMemberId: primary, nowMs: 100,
+    }), 'primary-not-ready');
+    // A replacement while the primary survives is rejected.
+    await rejectsCode(store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'member', memberIds: [other.memberId],
+        replacementPrimaryMemberId: primary, nowMs: 100,
+    }), 'invalid-record');
+    const journal = await store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'member', memberIds: [primary],
+        replacementPrimaryMemberId: other.memberId, nowMs: 100,
+    });
+    assert.equal(journal.originalPrimaryMemberId, primary);
+    const listed = store.listGroups(WORKSPACE);
+    assert.equal(listed[0].primaryMemberId, other.memberId);
+    await store.checkpointDeletedMember(
+        WORKSPACE, journal.operationId, primary, 110);
+    assert.equal(store.listGroups(WORKSPACE)[0].primaryMemberId, other.memberId);
+});
+
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 deleting the primary without replacement clears it', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [
+        readyMember('alpha', 'a'),
+        readyMember('beta', 'b'),
+    ]);
+    const journal = await store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'member',
+        memberIds: [group.primaryMemberId], nowMs: 100,
+    });
+    assert.equal(store.listGroups(WORKSPACE)[0].primaryMemberId, null);
+    // Failing the deletion restores the original primary.
+    await store.failDeletionMember(
+        WORKSPACE, journal.operationId, group.primaryMemberId, 'git-timeout');
+    assert.equal(store.listGroups(WORKSPACE)[0].primaryMemberId, group.primaryMemberId);
+});
+
 test('WORKTREE-GROUPS-DELETE-JOURNAL-001 aggregate revision advances on every commit', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const revisions = [store.getAggregateRevision(WORKSPACE)];

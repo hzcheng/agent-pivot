@@ -31,6 +31,15 @@ export const chevronDown = `
 </svg>
 `;
 
+export const trash = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 7h16"></path>
+    <path d="M9 7V5.4c0-.8.6-1.4 1.4-1.4h3.2c.8 0 1.4.6 1.4 1.4V7"></path>
+    <path d="M6.5 7l.8 12.1c.05 1 .9 1.9 1.9 1.9h5.6c1 0 1.85-.9 1.9-1.9L17.5 7"></path>
+    <path d="M10 11v6M14 11v6"></path>
+</svg>
+`;
+
 export const gitBranchAdd = `
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
     <circle cx="6" cy="5" r="2.1"></circle>

@@ -912,6 +912,12 @@ export class WorktreeGroupManifestStore {
             memberIds?: readonly string[];
             /** Frozen old-generation membership, keyed by memberId. */
             affectedSessions?: Readonly<Record<string, readonly RetiredAffectedSession[]>>;
+            /**
+             * Decision I: deleting the primary while other ready members
+             * remain requires the caller to choose the replacement; it
+             * lands in the same write as the deletion marks.
+             */
+            replacementPrimaryMemberId?: string;
             nowMs: number;
         }
     ): Promise<DeletionJournalEntry> {
@@ -983,7 +989,25 @@ export class WorktreeGroupManifestStore {
             // and fail to parse on reload.
             if (group.primaryMemberId
                 && members.some(member => member.memberId === group.primaryMemberId)) {
-                group.primaryMemberId = null;
+                if (input.replacementPrimaryMemberId !== undefined) {
+                    const replacement = group.members.find(candidate =>
+                        candidate.memberId === input.replacementPrimaryMemberId);
+                    if (!replacement || replacement.state !== 'ready'
+                        || members.some(member =>
+                            member.memberId === replacement.memberId)) {
+                        // The replacement must be a ready member that is
+                        // not itself being deleted.
+                        throw new WorktreeGroupManifestError('primary-not-ready');
+                    }
+                    group.primaryMemberId = replacement.memberId;
+                } else {
+                    group.primaryMemberId = null;
+                }
+            } else if (input.replacementPrimaryMemberId !== undefined) {
+                // A replacement for a primary that is not being deleted
+                // would smuggle an unvalidated primary change into the
+                // deletion write.
+                throw new WorktreeGroupManifestError('invalid-record');
             }
             bucket.deletionJournal.push(entry);
             bucket.lastGenerationCutoffAt = generationCutoffAt;

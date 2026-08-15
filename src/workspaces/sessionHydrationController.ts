@@ -23,6 +23,7 @@ import type { WorkspaceActiveSessionPresentation } from './activeSessionPresenta
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
 import type {
     GenerationClaim,
     RetiredWorktreeIdentity,
@@ -143,6 +144,10 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getWorktreeGroups?: (
         workspaceNavigationIdentity: string
     ) => readonly WorktreeGroup[];
+    /** Active deletion journals for the hydrated workspace (PRD §6.4). */
+    getDeletionJournals?: (
+        workspaceNavigationIdentity: string
+    ) => readonly DeletionJournalEntry[];
     /** Retired worktree identities for the hydrated workspace (PRD §6.4). */
     getRetiredWorktreeIdentities?: (
         workspaceNavigationIdentity: string
@@ -227,6 +232,8 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             provisioningWorktrees:
                 this.options.getProvisioningWorktrees?.(workspace.navigationIdentity) || [],
             worktreeGroups: this.options.getWorktreeGroups?.(workspace.navigationIdentity) || [],
+            deletionJournals:
+                this.options.getDeletionJournals?.(workspace.navigationIdentity) || [],
             retiredWorktreeIdentities:
                 this.options.getRetiredWorktreeIdentities?.(workspace.navigationIdentity) || [],
             generationClaims:

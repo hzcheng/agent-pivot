@@ -861,6 +861,12 @@ function getWorktreeGroupRowHtml(
             const primaryBadge = member.isPrimary
                 ? '<span class="ai-session-worktree-member-detail-primary">primary</span>'
                 : '';
+            // M3 batch 4 (PRD §6.4): the member-level inverse of Add repo —
+            // remove one worktree from the group through the journaled
+            // deletion confirmation card. Only ready members are removable.
+            const removeAction = member.status === 'ready'
+                ? `<button type="button" class="ai-session-worktree-member-remove" data-action="preview-group-member-deletion" data-group-id="${escapeAttribute(group.groupId)}" data-member-id="${escapeAttribute(member.memberId)}" aria-label="Remove the ${escapeAttribute(member.repositoryLabel)} worktree from ${escapeAttribute(name)} (keeps the local branch)" data-tooltip="Remove this worktree from the group…">${Icons.trash}</button>`
+                : '';
             return `<div class="ai-session-worktree-member-detail" data-member-id="${escapeAttribute(member.memberId)}" data-member-detail-status="${escapeAttribute(member.status)}">`
                 + `<span class="ai-session-worktree-member-detail-repo" data-tooltip="${escapeAttribute(member.repositoryLabel)}">${escapeAttribute(member.repositoryLabel)}</span>${primaryBadge}`
                 + `<span class="ai-session-worktree-member-detail-branch" data-tooltip="${escapeAttribute(member.branchName)}">${escapeAttribute(member.branchName)}</span>`
@@ -868,6 +874,7 @@ function getWorktreeGroupRowHtml(
                 + (statusLabel
                     ? `<span class="ai-session-worktree-member-detail-state">${escapeAttribute(statusLabel)}</span>`
                     : '')
+                + removeAction
                 + `</div>`;
         }).join('\n')}</div>`;
     // M2: in-flight and failed members render as actionable rows so the
@@ -893,6 +900,20 @@ function getWorktreeGroupRowHtml(
     const primaryAttributes = primary?.worktreeKey
         ? ` data-worktree-repository-key="${escapeAttribute(primary.worktreeKey.repositoryKey)}" data-worktree-path="${escapeAttribute(primary.worktreeKey.canonicalWorktreePath)}"`
         : '';
+    // M3 batch 4 (PRD §6.4): an active deletion journal surfaces inside
+    // the group row — in-progress state, or the partial-failure banner
+    // with the only two actions the lease allows: Retry and abandon.
+    const deletionNotice = group.deletion
+        ? (group.deletion.failedCount > 0
+            ? `<div class="ai-session-worktree-deletion" data-operation-id="${escapeAttribute(group.deletion.operationId)}" role="alert">`
+                + `<span class="ai-session-worktree-deletion-text">Deletion incomplete — ${group.deletion.failedCount} worktree${group.deletion.failedCount === 1 ? '' : 's'} could not be removed; the rest was deleted.</span>`
+                + `<button type="button" class="ai-session-worktree-deletion-retry" data-action="retry-group-deletion" data-group-id="${escapeAttribute(group.groupId)}" data-operation-id="${escapeAttribute(group.deletion.operationId)}" aria-label="Retry the failed worktree deletion for ${escapeAttribute(name)}">Retry</button>`
+                + `<button type="button" class="ai-session-worktree-deletion-abandon" data-action="abandon-group-deletion" data-group-id="${escapeAttribute(group.groupId)}" data-operation-id="${escapeAttribute(group.deletion.operationId)}" aria-label="Keep the remaining worktrees of ${escapeAttribute(name)} and stop deleting">Keep remaining</button>`
+                + `</div>`
+            : `<div class="ai-session-worktree-deletion" data-operation-id="${escapeAttribute(group.deletion.operationId)}" role="status">`
+                + `<span class="ai-session-worktree-deletion-text">Deletion in progress…</span>`
+                + `</div>`)
+        : '';
     return `<section class="ai-session-worktree-group ai-session-worktree-task-group" data-group-id="${escapeAttribute(group.groupId)}" data-group-revision="${group.revision}" data-worktree-activity="${group.activity}"${primaryAttributes} style="order: ${groupOrder}">
         <div class="ai-session-worktree-toolbar">
             <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
@@ -906,7 +927,7 @@ function getWorktreeGroupRowHtml(
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')
-            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${memberStatusRows}${primaryPicker}</div>
+            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${memberStatusRows}${deletionNotice}${primaryPicker}</div>
     </section>`;
 }
 
@@ -915,6 +936,7 @@ function getMemberDetailStatusLabel(status: WorktreeGroupMemberStatus): string {
     switch (status) {
         case 'pending': return 'creating';
         case 'failed': return 'creation failed';
+        case 'deleting': return 'deleting';
         case 'missing': return 'missing on disk';
         case 'detached': return 'repository not in workspace';
         default: return '';
@@ -1094,8 +1116,8 @@ function getActiveAiSessionRow(
         : `<button type="button" class="codex-session-pin ${model.pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" title="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
     var conflict = model.conflict === true;
     var terminalAction = conflict ? '' : model.backend === 'tmux'
-        ? `<button type="button" class="ai-session-close-terminal ai-session-stop-session" data-action="stop-ai-session-runtime" title="Stop Session… Terminates the AI task running in tmux." aria-label="Stop Session">${Icons.remove}</button>`
-        : `<button type="button" class="ai-session-close-terminal" data-action="close-ai-session-terminal" title="Close Terminal…" aria-label="Close Terminal">${Icons.remove}</button>`;
+        ? `<button type="button" class="ai-session-close-terminal ai-session-stop-session" data-action="stop-ai-session-runtime" title="Stop Session… Terminates the AI task running in tmux." aria-label="Stop Session">${Icons.trash}</button>`
+        : `<button type="button" class="ai-session-close-terminal" data-action="close-ai-session-terminal" title="Close Terminal…" aria-label="Close Terminal">${Icons.trash}</button>`;
     var pendingAttributes = model.pending
         ? ` data-session-pending data-pending-id="${escapeAttribute(model.pendingId || '')}" data-pending-created-at="${escapeAttribute(model.createdAt || '')}"`
         : ` data-session-active data-session-id="${sessionId}"`;

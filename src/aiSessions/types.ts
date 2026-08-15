@@ -74,6 +74,7 @@ export type WorktreeGroupMemberStatus =
   | 'pending'
   | 'failed'
   | 'missing'
+  | 'deleting'
   | 'detached';
 
 export interface WorktreeGroupMemberViewModel {
@@ -114,6 +115,15 @@ export interface WorktreeGroupRowViewModel {
     needsPrimarySelection: boolean;
     /** At least one ready member exists, so sessions can be launched. */
     canCreateSession: boolean;
+    /**
+     * An active deletion journal leases this group (PRD §6.4): the row
+     * shows the operation state and offers Retry/abandon for failures.
+     */
+    deletion?: {
+        operationId: string;
+        pendingCount: number;
+        failedCount: number;
+    };
     /** Other visible groups sharing this group's suggested slug (merge hint). */
     mergeCandidateGroupIds: string[];
 }

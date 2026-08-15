@@ -37,6 +37,7 @@ import {
 } from './sessionAttention';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
 import type {
     GenerationClaim,
     RetiredWorktreeIdentity,
@@ -64,6 +65,8 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
     /** Authoritative worktree group manifest bucket for this workspace. */
     worktreeGroups?: readonly WorktreeGroup[];
+    /** Active deletion journals for this workspace bucket (PRD §6.4). */
+    deletionJournals?: readonly DeletionJournalEntry[];
     /** Retired worktree identities for this workspace bucket (PRD §6.4). */
     retiredWorktreeIdentities?: readonly RetiredWorktreeIdentity[];
     /** Generation claims for this workspace bucket (PRD §6.4). */
@@ -241,6 +244,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         worktreeSnapshot: input.worktreeSnapshot,
         provisioningWorktrees: input.provisioningWorktrees,
         worktreeGroups: input.worktreeGroups,
+        deletionJournals: input.deletionJournals,
     });
 }
 

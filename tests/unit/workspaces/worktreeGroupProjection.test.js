@@ -136,6 +136,51 @@ test('WORKTREE-GROUPS-RENAME-001 projects the manifest revision onto the group r
     assert.equal(groups[0].revision, 7);
 });
 
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 an active deletion journal leases the group row', () => {
+    const journal = {
+        operationId: 'op-1',
+        groupId: 'g-1',
+        mode: 'member',
+        originalPrimaryMemberId: null,
+        generationCutoffAt: 100,
+        startedAt: 90,
+        targets: [{
+            memberId: 'm-alpha',
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+            branchName: 'agent-pivot/fix-login',
+            retirementId: 'r-1',
+            affectedSessions: [],
+            status: 'pending',
+        }],
+    };
+    const leased = project({
+        groups: [group({ members: [member('/alpha/.git', 'fix-login', {
+            memberId: 'm-alpha', state: 'deleting',
+        })] })],
+        deletionJournals: [journal],
+    });
+    assert.equal(leased.groups[0].canCreateSession, false);
+    assert.equal(leased.groups[0].members[0].status, 'deleting');
+    assert.deepEqual(leased.groups[0].deletion, {
+        operationId: 'op-1', pendingCount: 1, failedCount: 0,
+    });
+    const failed = project({
+        groups: [group()],
+        deletionJournals: [{
+            ...journal,
+            targets: [{ ...journal.targets[0], status: 'failed', errorCode: 'git-timeout' }],
+        }],
+    });
+    assert.deepEqual(failed.groups[0].deletion, {
+        operationId: 'op-1', pendingCount: 0, failedCount: 1,
+    });
+    // Without a journal the row is unaffected.
+    const plain = project({ groups: [group()] });
+    assert.equal(plain.groups[0].deletion, undefined);
+    assert.equal(plain.groups[0].canCreateSession, true);
+});
+
 test('WORKTREE-GROUPS-002 aggregates sessions across members and derives activity', () => {
     const alphaKey = member('/alpha/.git', 'fix-login').worktreeKey;
     const betaKey = member('/beta/.git', 'fix-login').worktreeKey;

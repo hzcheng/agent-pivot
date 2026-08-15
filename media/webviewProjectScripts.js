@@ -610,6 +610,16 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'worktree-group-deletion-preview') {
+            aiSessionControls.applyWorktreeGroupDeletionPreview(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-deletion-settlement') {
+            aiSessionControls.applyWorktreeGroupDeletionSettlement(message);
+            return;
+        }
+
         if (message && message.type === 'worktree-group-form-state') {
             worktreeGroupForm.applyFormState(message);
             return;

@@ -3925,6 +3925,180 @@ body.steward-sidebar {
             }
         }
 
+        // M3 batch 4: inline member deletion confirmation card and the
+        // deletion journal banner (PRD §6.4).
+        .ai-session-worktree-deletion-card {
+            margin: 3px 0 2px;
+            padding: 5px 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+
+            &:focus {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            &[aria-busy="true"] {
+                opacity: 0.75;
+            }
+
+            .ai-session-worktree-deletion-card-title {
+                color: var(--vscode-foreground);
+                font-size: 9px;
+                font-weight: 600;
+            }
+
+            .ai-session-worktree-deletion-card-path {
+                margin-top: 1px;
+                color: var(--vscode-descriptionForeground);
+                font-family: var(--vscode-editor-font-family, monospace);
+                font-size: 8px;
+                overflow-wrap: anywhere;
+            }
+
+            .ai-session-worktree-deletion-card-detail {
+                margin-top: 2px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+                line-height: 1.4;
+            }
+
+            .ai-session-worktree-deletion-card-error {
+                margin-top: 2px;
+                color: var(--vscode-errorForeground);
+                font-size: 8px;
+                line-height: 1.4;
+            }
+
+            .ai-session-worktree-deletion-replacements {
+                display: grid;
+                gap: 2px;
+                margin-top: 3px;
+            }
+
+            .ai-session-worktree-deletion-replacement-option {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                color: var(--vscode-foreground);
+                font-size: 9px;
+                cursor: pointer;
+            }
+
+            .ai-session-worktree-deletion-claims {
+                margin-top: 3px;
+            }
+
+            .ai-session-worktree-deletion-discard-claim {
+                margin-top: 2px;
+                padding: 1px 6px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 4px;
+                color: var(--vscode-foreground);
+                background: var(--vscode-button-secondaryBackground, transparent);
+                font-size: 8px;
+                cursor: pointer;
+            }
+
+            .ai-session-worktree-deletion-card-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 4px;
+                margin-top: 4px;
+
+                button {
+                    padding: 2px 8px;
+                    border: 1px solid var(--vscode-panel-border);
+                    border-radius: 4px;
+                    font-size: 8px;
+                    cursor: pointer;
+                }
+
+                .ai-session-worktree-deletion-cancel {
+                    color: var(--vscode-foreground);
+                    background: var(--vscode-button-secondaryBackground, transparent);
+                }
+
+                .ai-session-worktree-deletion-confirm {
+                    color: var(--vscode-button-foreground);
+                    background: var(--vscode-button-background);
+                    border-color: var(--vscode-button-border, transparent);
+
+                    &:disabled {
+                        opacity: 0.5;
+                        cursor: default;
+                    }
+                }
+            }
+        }
+
+        .ai-session-worktree-member-details .ai-session-worktree-member-remove {
+            flex: 0 0 auto;
+            align-self: center;
+            display: inline-grid;
+            width: 14px;
+            height: 14px;
+            place-items: center;
+            padding: 0;
+            border: 0;
+            color: var(--vscode-descriptionForeground);
+            background: transparent;
+            cursor: pointer;
+            opacity: 0.55;
+
+            &:hover,
+            &:focus-visible {
+                color: var(--vscode-errorForeground);
+                opacity: 1;
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            svg {
+                width: 11px;
+                height: 11px;
+            }
+        }
+
+        .ai-session-worktree-deletion {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            margin-top: 3px;
+            padding: 3px 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+
+            &[role="alert"] {
+                border-color: var(--vscode-errorForeground);
+            }
+
+            .ai-session-worktree-deletion-text {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
+
+            button {
+                padding: 1px 6px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 4px;
+                color: var(--vscode-foreground);
+                background: var(--vscode-button-secondaryBackground, transparent);
+                font-size: 8px;
+                cursor: pointer;
+
+                &:disabled {
+                    opacity: 0.5;
+                    cursor: default;
+                }
+            }
+        }
+
+
         .ai-session-worktree-member-row {
             display: flex;
             align-items: center;

@@ -6513,5 +6513,29 @@
       "src/worktrees/managedWorktreeRemovalController.ts",
       "src/dashboard.ts"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-MEMBER-DELETE-001",
+    "domain": "persistence",
+    "title": "Member-level journaled deletion end to end: inline confirmation card with blocker preview, history counts and primary replacement, exactly-once settlements with aggregate revision binding, Retry/abandon of partial journals, orphan claim discard, and focus restoration",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupDeletionProtocol.test.js",
+      "tests/unit/worktrees/groupDeletionHandler.test.js",
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/contract/worktrees/journaledDeletion.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupDeletionProtocol.ts",
+      "src/worktrees/groupDeletionHandler.ts",
+      "src/worktrees/deletionController.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/dashboard.ts"
+    ]
   }
 ]

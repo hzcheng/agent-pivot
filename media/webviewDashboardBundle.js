@@ -622,6 +622,10 @@ function captureAiSessionViewState(projectDiv) {
             && typeof window.__agentPivotWorktreeGroupRename.capture === 'function'
             ? window.__agentPivotWorktreeGroupRename.capture(projectDiv)
             : null,
+        groupDeletion: window.__agentPivotWorktreeGroupDeletion
+            && typeof window.__agentPivotWorktreeGroupDeletion.capture === 'function'
+            ? window.__agentPivotWorktreeGroupDeletion.capture(projectDiv)
+            : null,
         worktreeKeys: Array.from(new Set(Array.from(projectDiv.querySelectorAll(
             '.ai-session-worktree-group'
         )).map(getAiSessionWorktreeGroupKey))),
@@ -679,6 +683,11 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
         && window.__agentPivotWorktreeGroupRename
         && typeof window.__agentPivotWorktreeGroupRename.restore === 'function') {
         window.__agentPivotWorktreeGroupRename.restore(projectDiv, viewState.groupRename);
+    }
+    if (viewState.groupDeletion
+        && window.__agentPivotWorktreeGroupDeletion
+        && typeof window.__agentPivotWorktreeGroupDeletion.restore === 'function') {
+        window.__agentPivotWorktreeGroupDeletion.restore(projectDiv, viewState.groupDeletion);
     }
     var currentWorktreeKeys = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
         '.ai-session-worktree-group'
@@ -4631,6 +4640,51 @@ function initProjectAiSessionControls(options) {
             }
             return true;
         }
+        var memberRemoveAction = target.closest(
+            '[data-action="preview-group-member-deletion"][data-group-id][data-member-id]'
+        );
+        if (memberRemoveAction) {
+            startWorktreeGroupMemberDeletion(
+                projectId,
+                memberRemoveAction.getAttribute('data-group-id'),
+                memberRemoveAction.getAttribute('data-member-id')
+            );
+            return true;
+        }
+        var deletionCancel = target.closest('[data-action="cancel-group-member-deletion"]');
+        if (deletionCancel) {
+            cancelWorktreeGroupDeletionCard(projectDiv);
+            return true;
+        }
+        var deletionConfirm = target.closest('[data-action="confirm-group-member-deletion"]');
+        if (deletionConfirm) {
+            if (!deletionConfirm.disabled) {
+                confirmWorktreeGroupMemberDeletion(
+                    deletionConfirm.closest('.ai-session-worktree-deletion-card'));
+            }
+            return true;
+        }
+        var deletionRetry = target.closest(
+            '[data-action="retry-group-deletion"][data-operation-id]'
+        );
+        if (deletionRetry) {
+            submitWorktreeGroupDeletionOperation(deletionRetry, 'retry');
+            return true;
+        }
+        var deletionAbandon = target.closest(
+            '[data-action="abandon-group-deletion"][data-operation-id]'
+        );
+        if (deletionAbandon) {
+            submitWorktreeGroupDeletionOperation(deletionAbandon, 'abandon');
+            return true;
+        }
+        var claimDiscard = target.closest(
+            '[data-action="discard-generation-claim"][data-claim-id]'
+        );
+        if (claimDiscard) {
+            submitWorktreeGroupClaimDiscard(claimDiscard);
+            return true;
+        }
         var surfaceAction = target.closest(
             '[data-action="select-ai-session-surface"][data-surface]'
         );
@@ -5529,6 +5583,559 @@ function initProjectAiSessionControls(options) {
         restore: restoreWorktreeGroupRenameEditor,
     };
 
+    // ---------- Worktree group member deletion (M3 batch 4; PRD §6.4) ----------
+    // The confirmation card is local transient state, like the rename
+    // editor: an unsubmitted card is captured/restored across authoritative
+    // replacements (re-previewing so its data can never go stale), and a
+    // submitted card stays pending until the correlated settlement plus
+    // the authoritative replacement retires it — a settled deletion
+    // removes the member row, a partial one replaces it with the
+    // Retry/abandon banner, both observed in the replacement DOM.
+    var pendingWorktreeGroupDeletionRequests = new Map();
+    var pendingWorktreeGroupDeletionPreviews = new Map();
+    var worktreeGroupDeletionSerial = 0;
+    var worktreeGroupDeletionDocumentNonce = Math.random().toString(36).slice(2, 10);
+
+    function nextWorktreeGroupDeletionRequestId(prefix) {
+        worktreeGroupDeletionSerial = worktreeGroupDeletionSerial >= Number.MAX_SAFE_INTEGER
+            ? 1 : worktreeGroupDeletionSerial + 1;
+        return prefix + '-' + worktreeGroupDeletionDocumentNonce
+            + '-' + worktreeGroupDeletionSerial.toString(36);
+    }
+
+    function findWorktreeGroupDeletionCard(projectDiv) {
+        if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+        return projectDiv.querySelector('.ai-session-worktree-deletion-card');
+    }
+
+    function announceWorktreeGroupDeletion(projectId, text) {
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var liveRegion = projectDiv
+            && projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = text;
+        }
+    }
+
+    function cancelWorktreeGroupDeletionCard(projectDiv, options) {
+        var card = findWorktreeGroupDeletionCard(projectDiv);
+        if (!card || card.getAttribute('data-deletion-pending') === 'true') return false;
+        var section = card.closest('.ai-session-worktree-group');
+        var memberId = card.getAttribute('data-member-id') || '';
+        card.remove();
+        if (!(options && options.keepFocus) && section) {
+            var origin = memberId
+                && section.querySelector('[data-action="preview-group-member-deletion"]'
+                    + '[data-member-id="' + CSS.escape(memberId) + '"]');
+            var focusTarget = origin
+                || section.querySelector('.ai-session-worktree-header');
+            if (focusTarget && typeof focusTarget.focus === 'function') {
+                focusTarget.focus({ preventScroll: true });
+            }
+        }
+        return true;
+    }
+
+    function buildWorktreeGroupDeletionCardShell(section, memberId) {
+        var card = document.createElement('div');
+        card.className = 'ai-session-worktree-deletion-card';
+        card.setAttribute('data-member-id', memberId);
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-label', 'Confirm worktree removal');
+        card.tabIndex = -1;
+        var list = section.querySelector('.ai-session-worktree-session-list');
+        (list || section).appendChild(card);
+        card.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelWorktreeGroupDeletionCard(section.closest('.project'));
+            }
+        });
+        return card;
+    }
+
+    function renderWorktreeGroupDeletionCardLoading(section, memberId) {
+        var card = buildWorktreeGroupDeletionCardShell(section, memberId);
+        card.setAttribute('data-deletion-phase', 'loading');
+        var text = document.createElement('div');
+        text.className = 'ai-session-worktree-deletion-card-text';
+        text.textContent = 'Checking the worktree…';
+        card.appendChild(text);
+        return card;
+    }
+
+    function describeDeletionBlocker(errorCode) {
+        switch (errorCode) {
+            case 'worktree-active': return 'an AI session is running in this worktree';
+            case 'worktree-open': return 'the worktree is open in a workspace window';
+            case 'worktree-provisioning': return 'the worktree is still being created';
+            case 'worktree-not-removable': return 'the worktree is not in a removable state';
+            case 'worktree-status-failed': return 'the worktree state could not be verified';
+            case 'worktree-identity-changed': return 'the worktree branch changed unexpectedly';
+            case 'uncommitted-changes': return 'the worktree has uncommitted changes';
+            case 'deletion-blocked': return 'a session is being created in this worktree';
+            case 'group-leased': return 'another deletion is in progress for this group';
+            case 'group-changed': return 'the group changed; review the deletion again';
+            case 'member-not-ready': return 'the member is not in a removable state';
+            case 'store-full': return 'the local store is full';
+            case 'store-corrupt': return 'the local store needs attention';
+            default: return errorCode;
+        }
+    }
+
+    function updateWorktreeGroupDeletionConfirmState(card) {
+        var confirm = card.querySelector('[data-action="confirm-group-member-deletion"]');
+        if (!confirm) return;
+        var blocked = card.getAttribute('data-deletion-blocked') === 'true';
+        var needsReplacement = card.getAttribute('data-replacement-required') === 'true';
+        var chosen = needsReplacement
+            ? !!card.querySelector('.ai-session-worktree-deletion-replacement:checked')
+            : true;
+        confirm.disabled = blocked || !chosen;
+    }
+
+    function renderWorktreeGroupDeletionCard(section, preview) {
+        var memberId = preview.member && preview.member.memberId || '';
+        var card = buildWorktreeGroupDeletionCardShell(section, memberId);
+        card.setAttribute('data-deletion-phase', 'ready');
+        card.setAttribute('data-base-revision', String(preview.groupRevision || 0));
+        var member = preview.member;
+        var lines = document.createElement('div');
+        lines.className = 'ai-session-worktree-deletion-card-text';
+        var title = document.createElement('div');
+        title.className = 'ai-session-worktree-deletion-card-title';
+        title.textContent = 'Remove ' + (member.repositoryLabel || 'worktree')
+            + ' (' + member.branchName + ') from this group?';
+        lines.appendChild(title);
+        var pathLine = document.createElement('div');
+        pathLine.className = 'ai-session-worktree-deletion-card-path';
+        pathLine.textContent = member.path;
+        lines.appendChild(pathLine);
+        var detail = document.createElement('div');
+        detail.className = 'ai-session-worktree-deletion-card-detail';
+        detail.textContent = 'Only the worktree directory is deleted; the local branch is kept.'
+            + (member.historyCount > 0
+                ? ' ' + member.historyCount + ' past session'
+                    + (member.historyCount === 1 ? '' : 's')
+                    + ' will stay in Chats but cannot be resumed.'
+                : '');
+        lines.appendChild(detail);
+        card.appendChild(lines);
+        if (member.blocker) {
+            card.setAttribute('data-deletion-blocked', 'true');
+            var blockerLine = document.createElement('div');
+            blockerLine.className = 'ai-session-worktree-deletion-card-error';
+            blockerLine.setAttribute('role', 'alert');
+            blockerLine.textContent = 'Cannot remove: '
+                + describeDeletionBlocker(member.blocker) + '.';
+            card.appendChild(blockerLine);
+        }
+        if (preview.replacementRequired
+            && Array.isArray(preview.replacementCandidates)
+            && preview.replacementCandidates.length) {
+            card.setAttribute('data-replacement-required', 'true');
+            var picker = document.createElement('div');
+            picker.className = 'ai-session-worktree-deletion-replacements';
+            picker.setAttribute('role', 'radiogroup');
+            picker.setAttribute('aria-label', 'Choose the new primary worktree');
+            var pickerHint = document.createElement('div');
+            pickerHint.className = 'ai-session-worktree-deletion-card-detail';
+            pickerHint.textContent = 'This is the primary worktree — choose its replacement:';
+            picker.appendChild(pickerHint);
+            preview.replacementCandidates.forEach(candidate => {
+                var option = document.createElement('label');
+                option.className = 'ai-session-worktree-deletion-replacement-option';
+                var radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.className = 'ai-session-worktree-deletion-replacement';
+                radio.name = 'deletion-primary-replacement';
+                radio.value = candidate.memberId;
+                radio.addEventListener('change', () =>
+                    updateWorktreeGroupDeletionConfirmState(card));
+                option.appendChild(radio);
+                option.appendChild(document.createTextNode(candidate.repositoryLabel));
+                picker.appendChild(option);
+            });
+            card.appendChild(picker);
+        }
+        if (Array.isArray(preview.blockingClaims) && preview.blockingClaims.length) {
+            card.setAttribute('data-deletion-blocked', 'true');
+            var claimsBox = document.createElement('div');
+            claimsBox.className = 'ai-session-worktree-deletion-claims';
+            var claimsText = document.createElement('div');
+            claimsText.className = 'ai-session-worktree-deletion-card-error';
+            claimsText.setAttribute('role', 'alert');
+            claimsText.textContent = 'A session start on this worktree never completed.'
+                + ' Discard the unfinished start to allow the deletion.';
+            claimsBox.appendChild(claimsText);
+            preview.blockingClaims.forEach(claim => {
+                var discard = document.createElement('button');
+                discard.type = 'button';
+                discard.className = 'ai-session-worktree-deletion-discard-claim';
+                discard.setAttribute('data-action', 'discard-generation-claim');
+                discard.setAttribute('data-claim-id', claim.claimId);
+                discard.textContent = 'Discard unfinished '
+                    + (claim.provider || 'session') + ' start';
+                claimsBox.appendChild(discard);
+            });
+            card.appendChild(claimsBox);
+        }
+        var actions = document.createElement('div');
+        actions.className = 'ai-session-worktree-deletion-card-actions';
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'ai-session-worktree-deletion-cancel';
+        cancel.setAttribute('data-action', 'cancel-group-member-deletion');
+        cancel.textContent = 'Cancel';
+        var confirm = document.createElement('button');
+        confirm.type = 'button';
+        confirm.className = 'ai-session-worktree-deletion-confirm';
+        confirm.setAttribute('data-action', 'confirm-group-member-deletion');
+        confirm.textContent = 'Remove worktree';
+        actions.appendChild(cancel);
+        actions.appendChild(confirm);
+        card.appendChild(actions);
+        updateWorktreeGroupDeletionConfirmState(card);
+        return card;
+    }
+
+    function startWorktreeGroupMemberDeletion(projectId, groupId, memberId) {
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var section = findWorktreeGroupSection(projectDiv, groupId);
+        if (!section || !memberId) return;
+        var existing = findWorktreeGroupDeletionCard(projectDiv);
+        if (existing) {
+            if (existing.getAttribute('data-deletion-pending') === 'true') return;
+            cancelWorktreeGroupDeletionCard(projectDiv, { keepFocus: true });
+        }
+        var requestId = nextWorktreeGroupDeletionRequestId('group-delete-preview');
+        pendingWorktreeGroupDeletionPreviews.set(requestId, {
+            projectId: projectId, groupId: groupId, memberId: memberId,
+        });
+        renderWorktreeGroupDeletionCardLoading(section, memberId);
+        window.vscode.postMessage({
+            type: 'preview-worktree-group-deletion',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            mode: 'member',
+            memberId: memberId,
+        });
+    }
+
+    function applyWorktreeGroupDeletionPreview(message) {
+        if (!message || message.type !== 'worktree-group-deletion-preview'
+            || message.version !== 1
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || (message.status !== 'ready' && message.status !== 'failed')) return false;
+        var pending = pendingWorktreeGroupDeletionPreviews.get(message.requestId);
+        if (!pending || pending.groupId !== message.groupId
+            || pending.projectId !== message.projectId) return true;
+        pendingWorktreeGroupDeletionPreviews.delete(message.requestId);
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var section = findWorktreeGroupSection(projectDiv, pending.groupId);
+        var card = findWorktreeGroupDeletionCard(projectDiv);
+        if (!section || !card
+            || card.getAttribute('data-member-id') !== pending.memberId
+            || card.getAttribute('data-deletion-phase') !== 'loading'
+            || card.getAttribute('data-deletion-pending') === 'true') return true;
+        card.remove();
+        if (message.status !== 'ready' || !message.member) {
+            announceWorktreeGroupDeletion(pending.projectId,
+                'Could not prepare the deletion: '
+                + describeDeletionBlocker(message.errorCode || 'deletion-failed') + '.');
+            return true;
+        }
+        renderWorktreeGroupDeletionCard(section, message);
+        var cardNow = findWorktreeGroupDeletionCard(projectDiv);
+        if (cardNow) {
+            cardNow.focus({ preventScroll: true });
+        }
+        return true;
+    }
+
+    function confirmWorktreeGroupMemberDeletion(card) {
+        if (!card || card.getAttribute('data-deletion-pending') === 'true') return;
+        var section = card.closest('.ai-session-worktree-group');
+        var projectDiv = card.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = section && section.getAttribute('data-group-id');
+        var memberId = card.getAttribute('data-member-id') || '';
+        var baseRevision = parseInt(card.getAttribute('data-base-revision') || '', 10);
+        if (!projectId || !groupId || !memberId
+            || !Number.isSafeInteger(baseRevision) || baseRevision < 1) return;
+        var replacement = card.querySelector(
+            '.ai-session-worktree-deletion-replacement:checked');
+        var requestId = nextWorktreeGroupDeletionRequestId('group-delete');
+        pendingWorktreeGroupDeletionRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+            awaitingReplacement: false,
+        });
+        card.setAttribute('data-deletion-pending', 'true');
+        card.setAttribute('data-deletion-request-id', requestId);
+        card.setAttribute('aria-busy', 'true');
+        card.querySelectorAll('button, input').forEach(control => {
+            control.disabled = true;
+        });
+        card.focus({ preventScroll: true });
+        window.vscode.postMessage({
+            type: 'delete-worktree-group-member',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+            baseRevision: baseRevision,
+            ...(replacement ? { replacementPrimaryMemberId: replacement.value } : {}),
+        });
+    }
+
+    function setWorktreeGroupDeletionBannerPending(banner, pending) {
+        if (!banner) return;
+        if (pending) {
+            banner.setAttribute('aria-busy', 'true');
+            banner.querySelectorAll('button').forEach(button => {
+                button.disabled = true;
+            });
+        } else {
+            banner.removeAttribute('aria-busy');
+            banner.querySelectorAll('button').forEach(button => {
+                button.disabled = false;
+            });
+        }
+    }
+
+    function submitWorktreeGroupDeletionOperation(button, kind) {
+        var banner = button && button.closest('.ai-session-worktree-deletion');
+        var section = button && button.closest('.ai-session-worktree-group');
+        var projectDiv = button && button.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = button.getAttribute('data-group-id') || '';
+        var operationId = button.getAttribute('data-operation-id') || '';
+        if (!projectId || !groupId || !operationId || button.disabled) return;
+        var requestId = nextWorktreeGroupDeletionRequestId('group-delete-' + kind);
+        pendingWorktreeGroupDeletionRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+            memberId: '',
+            banner: true,
+            awaitingReplacement: false,
+        });
+        if (banner) {
+            banner.setAttribute('data-deletion-request-id', requestId);
+        }
+        setWorktreeGroupDeletionBannerPending(banner, true);
+        window.vscode.postMessage({
+            type: kind === 'retry'
+                ? 'retry-worktree-group-deletion'
+                : 'abandon-worktree-group-deletion',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            operationId: operationId,
+        });
+    }
+
+    function submitWorktreeGroupClaimDiscard(button) {
+        var card = button && button.closest('.ai-session-worktree-deletion-card');
+        var section = button && button.closest('.ai-session-worktree-group');
+        var projectDiv = button && button.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = section && section.getAttribute('data-group-id') || '';
+        var claimId = button.getAttribute('data-claim-id') || '';
+        var memberId = card && card.getAttribute('data-member-id') || '';
+        if (!projectId || !groupId || !claimId || button.disabled) return;
+        var requestId = nextWorktreeGroupDeletionRequestId('group-claim-discard');
+        pendingWorktreeGroupDeletionRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+            claimDiscard: true,
+            awaitingReplacement: false,
+        });
+        button.disabled = true;
+        window.vscode.postMessage({
+            type: 'discard-worktree-generation-claim',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            claimId: claimId,
+        });
+    }
+
+    function applyWorktreeGroupDeletionSettlement(message) {
+        var baseKeys = ['groupId', 'projectId', 'requestId', 'status', 'type', 'version'];
+        var withError = baseKeys.concat(['errorCode']);
+        var withRevision = baseKeys.concat(['minimumAggregateRevision']);
+        var withBoth = baseKeys.concat(['errorCode', 'minimumAggregateRevision']);
+        var keys = message && typeof message === 'object'
+            ? Object.keys(message).sort() : [];
+        var matchesShape = [baseKeys, withError, withRevision, withBoth]
+            .some(expected => {
+                var sorted = expected.slice().sort();
+                return keys.length === sorted.length
+                    && keys.every((key, index) => key === sorted[index]);
+            });
+        if (!message || message.type !== 'worktree-group-deletion-settlement'
+            || message.version !== 1 || !matchesShape
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || !['accepted', 'settled', 'partial', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))
+            || (Object.prototype.hasOwnProperty.call(message, 'minimumAggregateRevision')
+                && (!Number.isSafeInteger(message.minimumAggregateRevision)
+                    || message.minimumAggregateRevision < 0))) return false;
+        var pending = pendingWorktreeGroupDeletionRequests.get(message.requestId);
+        if (!pending || pending.groupId !== message.groupId
+            || pending.projectId !== message.projectId) return true;
+        if (message.status === 'accepted') return true;
+        if (pending.awaitingReplacement) {
+            return true;
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        if (message.status === 'failed') {
+            pendingWorktreeGroupDeletionRequests.delete(message.requestId);
+            if (pending.banner) {
+                var section = findWorktreeGroupSection(projectDiv, pending.groupId);
+                setWorktreeGroupDeletionBannerPending(section
+                    && section.querySelector('.ai-session-worktree-deletion'), false);
+            } else if (pending.claimDiscard) {
+                var card = findWorktreeGroupDeletionCard(projectDiv);
+                var discardButton = card && card.querySelector(
+                    '[data-action="discard-generation-claim"]');
+                if (discardButton) {
+                    discardButton.disabled = false;
+                }
+            } else {
+                var card = findWorktreeGroupDeletionCard(projectDiv);
+                if (card && card.isConnected) {
+                    card.removeAttribute('data-deletion-pending');
+                    card.removeAttribute('aria-busy');
+                    card.querySelectorAll('button, input').forEach(control => {
+                        control.disabled = false;
+                    });
+                    updateWorktreeGroupDeletionConfirmState(card);
+                }
+            }
+            announceWorktreeGroupDeletion(pending.projectId,
+                'Deletion failed: '
+                + describeDeletionBlocker(message.errorCode || 'deletion-failed') + '.');
+            return true;
+        }
+        if (pending.claimDiscard) {
+            // The claim is gone: re-run the preview so the card reflects
+            // the now-unblocked deletion instead of trusting local edits.
+            pendingWorktreeGroupDeletionRequests.delete(message.requestId);
+            if (pending.memberId) {
+                startWorktreeGroupMemberDeletion(
+                    pending.projectId, pending.groupId, pending.memberId);
+            }
+            return true;
+        }
+        // settled / partial: keep the correlation until the authoritative
+        // replacement lands (member row gone, or the Retry/abandon banner
+        // visible) — the restore hook retires it.
+        pending.awaitingReplacement = true;
+        return true;
+    }
+
+    function captureWorktreeGroupDeletionCard(projectDiv) {
+        var card = findWorktreeGroupDeletionCard(projectDiv);
+        if (!card) return null;
+        var section = card.closest('.ai-session-worktree-group');
+        var groupId = section && section.getAttribute('data-group-id');
+        if (!groupId) return null;
+        return {
+            groupId: groupId,
+            memberId: card.getAttribute('data-member-id') || '',
+            phase: card.getAttribute('data-deletion-phase') || 'loading',
+            pending: card.getAttribute('data-deletion-pending') === 'true',
+            requestId: card.getAttribute('data-deletion-request-id') || '',
+        };
+    }
+
+    function restoreWorktreeGroupDeletionCard(projectDiv, state) {
+        if (!projectDiv || !state || !state.groupId) return;
+        var section = findWorktreeGroupSection(projectDiv, state.groupId);
+        if (state.pending) {
+            // Retire the pending correlation from the authoritative DOM:
+            // the member row is gone (settled) or the deletion banner
+            // took over (partial) — or the whole group disappeared.
+            var memberGone = !section || !section.querySelector(
+                '.ai-session-worktree-member-detail[data-member-id="'
+                + CSS.escape(state.memberId) + '"]');
+            var banner = section && section.querySelector('.ai-session-worktree-deletion');
+            if (memberGone || banner) {
+                if (state.requestId) {
+                    pendingWorktreeGroupDeletionRequests.delete(state.requestId);
+                }
+                pendingWorktreeGroupDeletionRequests.forEach((entry, requestId) => {
+                    if (entry.awaitingReplacement && entry.groupId === state.groupId) {
+                        pendingWorktreeGroupDeletionRequests.delete(requestId);
+                    }
+                });
+                if (!section) {
+                    // The whole group left with its last member: park
+                    // focus on the next group header, else the Current
+                    // anchor, else the New button (PRD §6.4 focus rule).
+                    var nextHeader = projectDiv.querySelector(
+                        '.ai-session-worktree-group .ai-session-worktree-header');
+                    var anchor = projectDiv.querySelector(
+                        '.ai-session-worktree-anchor .ai-session-worktree-header');
+                    var createButton = projectDiv.querySelector(
+                        '[data-action="create-isolated-session"]');
+                    var focusTarget = nextHeader || anchor || createButton;
+                    if (focusTarget && typeof focusTarget.focus === 'function') {
+                        focusTarget.focus({ preventScroll: true });
+                    }
+                } else {
+                    var header = section.querySelector('.ai-session-worktree-header');
+                    if (header && typeof header.focus === 'function' && !banner) {
+                        header.focus({ preventScroll: true });
+                    } else if (banner && typeof banner.focus === 'function') {
+                        banner.tabIndex = -1;
+                        banner.focus({ preventScroll: true });
+                    }
+                }
+                return;
+            }
+            // Still executing: keep the pending card visible.
+            if (section
+                && !section.querySelector('.ai-session-worktree-deletion-card')) {
+                var card = renderWorktreeGroupDeletionCardLoading(section, state.memberId);
+                card.setAttribute('data-deletion-pending', 'true');
+                card.setAttribute('aria-busy', 'true');
+                if (state.requestId) {
+                    card.setAttribute('data-deletion-request-id', state.requestId);
+                }
+                var text = card.querySelector('.ai-session-worktree-deletion-card-text');
+                if (text) {
+                    text.textContent = 'Removing the worktree…';
+                }
+            }
+            return;
+        }
+        // Unsubmitted card: re-preview so the card never acts on stale
+        // preview data after an authoritative replacement.
+        startWorktreeGroupMemberDeletion(
+            projectDiv.getAttribute('data-id'), state.groupId, state.memberId);
+    }
+
+    window.__agentPivotWorktreeGroupDeletion = {
+        capture: captureWorktreeGroupDeletionCard,
+        restore: restoreWorktreeGroupDeletionCard,
+    };
+
     function describeProvisioningError(errorCode) {
         switch (errorCode) {
             case 'repository-has-no-commits':
@@ -6095,6 +6702,8 @@ function initProjectAiSessionControls(options) {
         applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
         applySetGroupPrimarySettlement: applySetGroupPrimarySettlement,
         applyWorktreeGroupRenameSettlement: applyWorktreeGroupRenameSettlement,
+        applyWorktreeGroupDeletionPreview: applyWorktreeGroupDeletionPreview,
+        applyWorktreeGroupDeletionSettlement: applyWorktreeGroupDeletionSettlement,
         setWorktreeGroupForm: setWorktreeGroupForm,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
@@ -6731,6 +7340,16 @@ function initProjects() {
 
         if (message && message.type === 'worktree-group-rename-settlement') {
             aiSessionControls.applyWorktreeGroupRenameSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-deletion-preview') {
+            aiSessionControls.applyWorktreeGroupDeletionPreview(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-deletion-settlement') {
+            aiSessionControls.applyWorktreeGroupDeletionSettlement(message);
             return;
         }
 

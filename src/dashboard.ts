@@ -294,6 +294,16 @@ import {
 import type { WorktreeGroupRenameSettlement } from './worktrees/groupRenameProtocol';
 import { handleRenameWorktreeGroup } from './worktrees/groupRenameHandler';
 import { createSettlementReplayCache } from './worktrees/settlementReplayCache';
+import {
+    handleAbandonWorktreeGroupDeletion,
+    handleDeleteWorktreeGroupMember,
+    handleDiscardWorktreeGenerationClaim,
+    handlePreviewWorktreeGroupDeletion,
+    handleRetryWorktreeGroupDeletion,
+    WorktreeGroupDeletionHandlerDeps,
+} from './worktrees/groupDeletionHandler';
+import type { WorktreeGroupDeletionSettlement } from './worktrees/groupDeletionProtocol';
+import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
 import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
 import {
     acceptedIsolatedSessionSettlement,
@@ -1533,6 +1543,8 @@ async function initializeDashboard(
             isolatedSessionController?.getVisibleRows(navigationIdentity) || [],
         getWorktreeGroups: navigationIdentity =>
             worktreeGroupManifestStore.listGroups(navigationIdentity),
+        getDeletionJournals: navigationIdentity =>
+            worktreeGroupManifestStore.listDeletionJournals(navigationIdentity),
         getRetiredWorktreeIdentities: navigationIdentity =>
             worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
         getGenerationClaims: navigationIdentity =>
@@ -2036,41 +2048,45 @@ async function initializeDashboard(
             }
         },
     });
+    // Freeze the old-generation membership (PRD §6.4): every session whose
+    // working directory lies inside the worktree. Providers that are
+    // unavailable contribute nothing; their sessions still fail closed to
+    // the retired generation through the creation-time/unknown rules, so
+    // an incomplete snapshot never mislabels an old session as current.
+    const snapshotMemberAffectedSessions = async (member: {
+        worktreeKey?: { repositoryKey: string; canonicalWorktreePath: string };
+        path: string;
+    }) => {
+        const memberPath = normalizeWorkspaceHostPath(
+            member.worktreeKey?.canonicalWorktreePath || member.path);
+        if (!memberPath) {
+            return [];
+        }
+        const results = aiSessionReadCoordinator.getResults({
+            candidatePaths: [member.path],
+            reason: 'worktree-deletion-snapshot',
+        });
+        const frozen: { provider: string; sessionId: string }[] = [];
+        for (const [providerId, result] of Object.entries(results)) {
+            if (!result.available) {
+                continue;
+            }
+            for (const session of result.sessions) {
+                const cwd = normalizeWorkspaceHostPath(session.cwd || '');
+                if (cwd && isWorkspaceHostPathContained(memberPath, cwd)) {
+                    frozen.push({ provider: providerId, sessionId: session.id });
+                }
+            }
+        }
+        return frozen;
+    };
     worktreeDeletionController = new WorktreeDeletionController({
         store: worktreeGroupManifestStore,
         recheckBlocker: (_group, member) => member.worktreeKey
             ? managedWorktreeRemovalController.getRemovalBlocker(member.worktreeKey)
             : Promise.resolve<string | null>('worktree-not-removable'),
-        snapshotAffectedSessions: async (_group, member) => {
-            // Freeze the old-generation membership (PRD §6.4): every
-            // session whose working directory lies inside the worktree.
-            // Providers that are unavailable contribute nothing; their
-            // sessions still fail closed to the retired generation through
-            // the creation-time/unknown rules, so an incomplete snapshot
-            // never mislabels an old session as current.
-            const memberPath = normalizeWorkspaceHostPath(
-                member.worktreeKey?.canonicalWorktreePath || member.path);
-            if (!memberPath) {
-                return [];
-            }
-            const results = aiSessionReadCoordinator.getResults({
-                candidatePaths: [member.path],
-                reason: 'worktree-deletion-snapshot',
-            });
-            const frozen: { provider: string; sessionId: string }[] = [];
-            for (const [providerId, result] of Object.entries(results)) {
-                if (!result.available) {
-                    continue;
-                }
-                for (const session of result.sessions) {
-                    const cwd = normalizeWorkspaceHostPath(session.cwd || '');
-                    if (cwd && isWorkspaceHostPathContained(memberPath, cwd)) {
-                        frozen.push({ provider: providerId, sessionId: session.id });
-                    }
-                }
-            }
-            return frozen;
-        },
+        snapshotAffectedSessions: (_group, member) =>
+            snapshotMemberAffectedSessions(member),
         removeWorktree: target => {
             if (!target.worktreeKey) {
                 return Promise.resolve({
@@ -2338,6 +2354,41 @@ async function initializeDashboard(
     // never re-executed.
     const worktreeGroupRenameSettlements = createSettlementReplayCache<
         WorktreeGroupRenameSettlement>();
+    const worktreeGroupDeletionSettlements = createSettlementReplayCache<
+        WorktreeGroupDeletionSettlement>();
+    const worktreeGroupDeletionHandlerDeps: WorktreeGroupDeletionHandlerDeps = {
+        postMessage: outgoing => provider.postMessage(outgoing),
+        getNavigationIdentity: projectId =>
+            getCurrentWorkspaceActionTarget(projectId)
+                ?.workspace.navigationIdentity || null,
+        store: worktreeGroupManifestStore,
+        controller: worktreeDeletionController,
+        probeMemberBlocker: async (navigationIdentity, groupId, memberId) => {
+            const member = worktreeGroupManifestStore.listGroups(navigationIdentity)
+                .find(candidate => candidate.groupId === groupId)
+                ?.members.find(candidate => candidate.memberId === memberId);
+            if (!member) {
+                return 'member-not-found';
+            }
+            return member.worktreeKey
+                ? managedWorktreeRemovalController.getRemovalBlocker(member.worktreeKey)
+                : 'worktree-not-removable';
+        },
+        countMemberHistorySessions: async (navigationIdentity, groupId, memberId) => {
+            const member = worktreeGroupManifestStore.listGroups(navigationIdentity)
+                .find(candidate => candidate.groupId === groupId)
+                ?.members.find(candidate => candidate.memberId === memberId);
+            if (!member) {
+                return 0;
+            }
+            return (await snapshotMemberAffectedSessions(member)).length;
+        },
+        getRepositoryLabel: fallbackRepositoryLabel,
+        refreshNow: () => aiSessionDashboardController.refreshNow(
+            'worktree-group-deletion', { fallbackToFullRefresh: true }),
+        logError,
+        replayCache: worktreeGroupDeletionSettlements,
+    };
 
     const isolatedSessionHandlers = {
         'start-isolated-session': async (message: unknown) => {
@@ -2587,6 +2638,26 @@ async function initializeDashboard(
                 logError,
                 replayCache: worktreeGroupRenameSettlements,
             });
+        },
+        'preview-worktree-group-deletion': async (message: unknown) => {
+            await handlePreviewWorktreeGroupDeletion(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'delete-worktree-group-member': async (message: unknown) => {
+            await handleDeleteWorktreeGroupMember(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'retry-worktree-group-deletion': async (message: unknown) => {
+            await handleRetryWorktreeGroupDeletion(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'abandon-worktree-group-deletion': async (message: unknown) => {
+            await handleAbandonWorktreeGroupDeletion(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'discard-worktree-generation-claim': async (message: unknown) => {
+            await handleDiscardWorktreeGenerationClaim(
+                message, worktreeGroupDeletionHandlerDeps);
         },
         'set-worktree-group-primary': async (message: unknown) => {
             const request = parseSetWorktreeGroupPrimaryRequest(message);

@@ -1130,3 +1130,356 @@ test('WORKTREE-GROUPS-RENAME-001 a group without a ready primary still offers re
     assert.equal(
         await menu.locator('[data-action="worktree-remove"]').isHidden(), true);
 });
+
+function twoMemberGroup(overrides) {
+    return groupRow({
+        primaryMemberId: undefined,
+        members: [
+            member(),
+            member({
+                memberId: 'm-2',
+                repositoryKey: '/beta/.git',
+                repositoryLabel: 'beta',
+                branchName: 'agent-pivot/fix-login-2',
+                path: '/beta/.worktrees/fix-login-2',
+                isPrimary: false,
+                worktreeKey: betaLoginKey,
+            }),
+        ],
+        ...(overrides || {}),
+    });
+}
+
+async function expandMemberDetails(page, groupId) {
+    await page.locator(
+        `.ai-session-worktree-group[data-group-id="${groupId}"]`
+        + ' [data-action="toggle-group-member-details"]'
+    ).evaluate(button => button.click());
+}
+
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 removes a member through the card settlement lifecycle', async t => {
+    const withoutMember = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup({ members: [member()] })],
+    });
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
+
+    await expandMemberDetails(page, 'g-1');
+    const removeButton = page.locator(
+        '[data-action="preview-group-member-deletion"][data-member-id="m-2"]');
+    assert.equal(await removeButton.count(), 1, 'ready members offer removal');
+    await removeButton.evaluate(button => button.click());
+
+    const card = page.locator('.ai-session-worktree-deletion-card');
+    assert.equal(await card.count(), 1, 'the loading card opens');
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.match(previewRequest.requestId, /^group-delete-preview-[a-z0-9]+-1$/,
+        'preview request ids carry the per-document nonce');
+    assert.deepEqual({ ...previewRequest, requestId: '<nonce>' }, {
+        type: 'preview-worktree-group-deletion',
+        version: 1,
+        requestId: '<nonce>',
+        projectId: 'project-a',
+        groupId: 'g-1',
+        mode: 'member',
+        memberId: 'm-2',
+    });
+
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'ready',
+                member: {
+                    memberId: 'm-2',
+                    repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login-2',
+                    branchName: 'agent-pivot/fix-login-2',
+                    blocker: null,
+                    historyCount: 2,
+                    isPrimary: false,
+                },
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    assert.match(await card.textContent(), /beta/);
+    assert.match(await card.textContent(), /2 past sessions/);
+    assert.match(await card.textContent(), /local branch is kept/);
+    const confirm = card.locator('[data-action="confirm-group-member-deletion"]');
+    assert.equal(await confirm.evaluate(button => button.disabled), false);
+
+    await confirm.evaluate(button => button.click());
+    const deleteRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.deepEqual({ ...deleteRequest, requestId: '<nonce>' }, {
+        type: 'delete-worktree-group-member',
+        version: 1,
+        requestId: '<nonce>',
+        projectId: 'project-a',
+        groupId: 'g-1',
+        memberId: 'm-2',
+        baseRevision: 1,
+    });
+    assert.equal(await card.getAttribute('aria-busy'), 'true',
+        'the submitted card is pending');
+
+    const postSettlement = status => page.evaluate(({ requestId, statusValue }) => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-settlement',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: statusValue,
+                ...(statusValue === 'failed' ? { errorCode: 'worktree-active' } : {}),
+                ...(statusValue === 'settled' || statusValue === 'partial'
+                    ? { minimumAggregateRevision: 3 }
+                    : {}),
+            },
+        }));
+    }, { requestId: deleteRequest.requestId, statusValue: status });
+    await postSettlement('accepted');
+    assert.equal(await card.count(), 1, 'accepted keeps the card pending');
+    await postSettlement('settled');
+    assert.equal(await card.count(), 1,
+        'settled keeps the card until the authoritative replacement');
+    const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withoutMember()}</div></div></div>`;
+    assert.equal(await applyUpdate(renamedHtml), true);
+    assert.equal(await card.count(), 0,
+        'the replacement with the member gone retires the card');
+    assert.equal(await page.evaluate(() => {
+        const active = document.activeElement;
+        return active && active.classList.contains('ai-session-worktree-header');
+    }), true, 'focus parks on the group header after the deletion');
+});
+
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 a blocked preview disables confirm and cancel restores focus', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    await expandMemberDetails(page, 'g-1');
+    await page.locator('[data-action="preview-group-member-deletion"][data-member-id="m-2"]')
+        .evaluate(button => button.click());
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'ready',
+                member: {
+                    memberId: 'm-2',
+                    repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login-2',
+                    branchName: 'agent-pivot/fix-login-2',
+                    blocker: 'worktree-active',
+                    historyCount: 0,
+                    isPrimary: false,
+                },
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    const card = page.locator('.ai-session-worktree-deletion-card');
+    assert.match(await card.textContent(), /an AI session is running/);
+    assert.equal(await card.locator(
+        '[data-action="confirm-group-member-deletion"]').evaluate(button => button.disabled),
+        true, 'a blocked member cannot be confirmed');
+    await card.locator('[data-action="cancel-group-member-deletion"]')
+        .evaluate(button => button.click());
+    assert.equal(await card.count(), 0, 'cancel removes the card');
+    assert.equal(await page.evaluate(() => {
+        const active = document.activeElement;
+        return active && active.getAttribute('data-action') === 'preview-group-member-deletion'
+            && active.getAttribute('data-member-id') === 'm-2';
+    }), true, 'focus returns to the remove button');
+});
+
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 deleting the primary requires a replacement choice', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    await expandMemberDetails(page, 'g-1');
+    await page.locator('[data-action="preview-group-member-deletion"][data-member-id="m-1"]')
+        .evaluate(button => button.click());
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'ready',
+                member: {
+                    memberId: 'm-1',
+                    repositoryLabel: 'alpha',
+                    path: '/alpha/.worktrees/fix-login',
+                    branchName: 'agent-pivot/fix-login',
+                    blocker: null,
+                    historyCount: 0,
+                    isPrimary: true,
+                },
+                replacementRequired: true,
+                replacementCandidates: [{ memberId: 'm-2', repositoryLabel: 'beta' }],
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    const card = page.locator('.ai-session-worktree-deletion-card');
+    const confirm = card.locator('[data-action="confirm-group-member-deletion"]');
+    assert.equal(await confirm.evaluate(button => button.disabled), true,
+        'confirm stays disabled until a replacement is chosen');
+    await card.locator('.ai-session-worktree-deletion-replacement')
+        .evaluate(radio => radio.click());
+    assert.equal(await confirm.evaluate(button => button.disabled), false);
+    await confirm.evaluate(button => button.click());
+    const deleteRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.equal(deleteRequest.replacementPrimaryMemberId, 'm-2');
+});
+
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 a partial settlement surfaces the Retry banner', async t => {
+    const failedJournal = {
+        operationId: 'op-1',
+        pendingCount: 0,
+        failedCount: 1,
+    };
+    const withBanner = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup({ deletion: failedJournal })],
+    });
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
+    await expandMemberDetails(page, 'g-1');
+    await page.locator('[data-action="preview-group-member-deletion"][data-member-id="m-2"]')
+        .evaluate(button => button.click());
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'ready',
+                member: {
+                    memberId: 'm-2',
+                    repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login-2',
+                    branchName: 'agent-pivot/fix-login-2',
+                    blocker: null,
+                    historyCount: 0,
+                    isPrimary: false,
+                },
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    await page.locator('[data-action="confirm-group-member-deletion"]')
+        .evaluate(button => button.click());
+    const deleteRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-settlement',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'partial',
+                minimumAggregateRevision: 2,
+            },
+        }));
+    }, deleteRequest.requestId);
+    const bannerHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withBanner()}</div></div></div>`;
+    assert.equal(await applyUpdate(bannerHtml), true);
+    assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 0,
+        'the card retires when the banner takes over');
+    const banner = page.locator('.ai-session-worktree-deletion[data-operation-id="op-1"]');
+    assert.equal(await banner.count(), 1, 'the Retry banner is visible');
+    await banner.locator('[data-action="retry-group-deletion"]')
+        .evaluate(button => button.click());
+    const retryRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.deepEqual({ ...retryRequest, requestId: '<nonce>' }, {
+        type: 'retry-worktree-group-deletion',
+        version: 1,
+        requestId: '<nonce>',
+        projectId: 'project-a',
+        groupId: 'g-1',
+        operationId: 'op-1',
+    });
+    assert.equal(await banner.locator('[data-action="retry-group-deletion"]')
+        .evaluate(button => button.disabled), true,
+        'the banner is pending while the retry runs');
+});
+
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 the deletion card stays contained at 170px', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml, undefined);
+    await page.setViewportSize({ width: 170, height: 900 });
+    await expandMemberDetails(page, 'g-1');
+    await page.locator('[data-action="preview-group-member-deletion"][data-member-id="m-2"]')
+        .evaluate(button => button.click());
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'ready',
+                member: {
+                    memberId: 'm-2',
+                    repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login-2',
+                    branchName: 'agent-pivot/fix-login-2',
+                    blocker: null,
+                    historyCount: 12,
+                    isPrimary: false,
+                },
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    const card = page.locator('.ai-session-worktree-deletion-card');
+    assert.equal(await card.count(), 1);
+    const overflow = await page.evaluate(() => {
+        const cardEl = document.querySelector('.ai-session-worktree-deletion-card');
+        const project = cardEl.closest('.project');
+        return cardEl.getBoundingClientRect().right
+            > project.getBoundingClientRect().right + 1;
+    });
+    assert.equal(overflow, false, 'the card never overflows the card column at 170px');
+    assert.equal(await card.locator('[data-action="confirm-group-member-deletion"]')
+        .isVisible(), true, 'confirm stays reachable at 170px');
+});

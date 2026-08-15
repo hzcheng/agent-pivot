@@ -304,6 +304,7 @@ import {
 } from './worktrees/groupDeletionHandler';
 import type { WorktreeGroupDeletionSettlement } from './worktrees/groupDeletionProtocol';
 import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
+import { handleAdoptWorktrees } from './worktrees/groupAdoptHandler';
 import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
 import {
     acceptedIsolatedSessionSettlement,
@@ -2621,9 +2622,14 @@ async function initializeDashboard(
             if (!source) {
                 return;
             }
-            const candidates = groups.filter(group =>
-                group.groupId !== source.groupId
-                && group.suggestedSlug === source.suggestedSlug);
+            // M3 batch 8 (PRD §6.5): merge is no longer slug-gated — any
+            // other group is a candidate; same-slug groups sort first as
+            // the migration-era hint.
+            const candidates = groups
+                .filter(group => group.groupId !== source.groupId)
+                .sort((left, right) =>
+                    Number(right.suggestedSlug === source.suggestedSlug)
+                    - Number(left.suggestedSlug === source.suggestedSlug));
             if (candidates.length === 0) {
                 return;
             }
@@ -2639,15 +2645,25 @@ async function initializeDashboard(
             if (!chosen) {
                 return;
             }
+            // Double revision binding (decision G): the revisions captured
+            // when the dialog opened must still hold at the write.
+            const expectedRevisions = {
+                targetRevision: chosen.groupId
+                    ? groups.find(group => group.groupId === chosen.groupId)?.revision ?? -1
+                    : -1,
+                sourceRevision: source.revision,
+            };
             try {
                 await worktreeGroupManifestStore.mergeGroups(
-                    bucket, chosen.groupId, source.groupId);
+                    bucket, chosen.groupId, source.groupId, expectedRevisions);
             } catch (error) {
                 const code = (error as { code?: string })?.code || 'merge-failed';
                 void vscode.window.showWarningMessage(
                     code === 'repository-conflict'
                         ? 'These groups cannot be merged: both contain a worktree of the same repository. Remove one of them first.'
-                        : 'The groups could not be merged. Try again.');
+                        : code === 'group-changed'
+                            ? 'A group changed while the merge was open. Review and try again.'
+                            : 'The groups could not be merged. Try again.');
                 return;
             }
             void aiSessionDashboardController.refreshNow('worktree-groups-merged', {
@@ -2689,6 +2705,19 @@ async function initializeDashboard(
         'discard-worktree-generation-claim': async (message: unknown) => {
             await handleDiscardWorktreeGenerationClaim(
                 message, worktreeGroupDeletionHandlerDeps);
+        },
+        'adopt-worktrees': async (message: unknown) => {
+            await handleAdoptWorktrees(message, {
+                postMessage: outgoing => provider.postMessage(outgoing),
+                getNavigationIdentity: projectId =>
+                    getCurrentWorkspaceActionTarget(projectId)
+                        ?.workspace.navigationIdentity || null,
+                store: worktreeGroupManifestStore,
+                getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+                refreshNow: () => aiSessionDashboardController.refreshNow(
+                    'worktrees-adopted', { fallbackToFullRefresh: true }),
+                logError,
+            });
         },
         'set-worktree-group-primary': async (message: unknown) => {
             const request = parseSetWorktreeGroupPrimaryRequest(message);

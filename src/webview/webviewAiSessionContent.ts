@@ -80,6 +80,15 @@ export interface AiSessionSurfaceViewModel {
     worktreeAnchor?: WorktreeAnchorViewModel;
     /** Manifest-backed worktree group rows (authoritative grouping). */
     worktreeGroups?: WorktreeGroupRowViewModel[];
+    /** Adopt suggestions: unmanaged worktrees clustered by task slug (PRD §6.5). */
+    worktreeAdoptSuggestions?: {
+        slug: string;
+        members: {
+            worktreeKey: WorktreeKey;
+            branchName: string;
+            repositoryLabel: string;
+        }[];
+    }[];
     worktreeSnapshotRevision?: number;
     worktreeRepositoryCount?: number;
     bareWorktreeCount?: number;
@@ -122,6 +131,19 @@ export function getWorkspaceAiSessionSurface(card: WorkspaceCardViewModel): AiSe
         ...(aiSessions.worktreeAnchor ? { worktreeAnchor: aiSessions.worktreeAnchor } : {}),
         ...(aiSessions.worktreeGroups
             ? { worktreeGroups: aiSessions.worktreeGroups.slice() }
+            : {}),
+        ...(aiSessions.worktreeAdoptSuggestions
+            ? {
+                worktreeAdoptSuggestions: aiSessions.worktreeAdoptSuggestions
+                    .map(suggestion => ({
+                        slug: suggestion.slug,
+                        members: suggestion.members.map(member => ({
+                            worktreeKey: { ...member.worktreeKey },
+                            branchName: member.branchName,
+                            repositoryLabel: member.repositoryLabel,
+                        })),
+                    })),
+            }
             : {}),
         worktreeSnapshotRevision: aiSessions.worktreeSnapshotRevision,
         worktreeRepositoryCount: aiSessions.worktreeRepositoryCount,
@@ -272,9 +294,27 @@ function getWorktreeSurfacePanel(
     const truncated = (project.truncatedWorktreeCount || 0) > 0
         ? `<div class="ai-session-worktree-truncated" role="status">${project.truncatedWorktreeCount} more worktrees not shown</div>`
         : '';
+    // Adopt suggestions (PRD §6.5): unmanaged worktrees clustered by task
+    // slug are OFFERED as groups — adopting is always an explicit action.
+    const adoptSuggestions = (project.worktreeAdoptSuggestions || [])
+        .map(suggestion => {
+            const members = suggestion.members.map(member => ({
+                repositoryKey: member.worktreeKey.repositoryKey,
+                canonicalWorktreePath: member.worktreeKey.canonicalWorktreePath,
+                branchName: member.branchName,
+                repositoryLabel: member.repositoryLabel,
+            }));
+            const label = suggestion.members.length === 1
+                ? `Adopt “${suggestion.slug}” as a group…`
+                : `Adopt ${suggestion.members.length} worktrees as “${suggestion.slug}”…`;
+            return `<div class="ai-session-worktree-adopt-suggestion" data-adopt-slug="${escapeAttribute(suggestion.slug)}" data-adopt-members="${escapeAttribute(JSON.stringify(members))}">`
+                + `<button type="button" class="ai-session-worktree-adopt" data-action="adopt-worktree-cluster" data-adopt-slug="${escapeAttribute(suggestion.slug)}" aria-label="${escapeAttribute(label)}">${Icons.gitBranchAdd}<span>${escapeAttribute(label)}</span></button>`
+                + `</div>`;
+        })
+        .join('\n');
     return `<div id="ai-session-worktree-${projectId}" class="ai-session-surface-panel ai-session-worktree-surface" role="tabpanel" data-ai-session-surface-panel="worktree" aria-labelledby="ai-session-surface-worktree-tab-${projectId}"${selectedSurface === 'worktree' ? '' : ' hidden'}>
         <div class="ai-session-group-form-slot" data-worktree-group-form-slot hidden></div>
-        <div class="ai-session-worktree-list">${anchorHtml}${groupRowsHtml}${provisioningRows}${groups}${empty}${truncated}</div>
+        <div class="ai-session-worktree-list">${anchorHtml}${groupRowsHtml}${adoptSuggestions}${provisioningRows}${groups}${empty}${truncated}</div>
     </div>`;
 }
 

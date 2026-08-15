@@ -419,6 +419,23 @@ export class WorktreeGroupManifestStore {
         });
     }
 
+    /**
+     * Adopt (PRD §6.5): attach EXISTING unmanaged worktrees to a group as
+     * ready members — no provisioning, no physical changes. Every member
+     * must be ready with a physical identity; the same validate-then-write
+     * rules as addPlannedMembers apply (lease, uniqueness, capacity).
+     */
+    adoptReadyMembers(
+        workspaceIdentity: string,
+        groupId: string,
+        inputs: readonly NewWorktreeGroupMember[]
+    ): Promise<WorktreeGroup> {
+        if (inputs.some(input => input.state !== 'ready' || !input.worktreeKey)) {
+            return Promise.reject(new WorktreeGroupManifestError('invalid-record'));
+        }
+        return this.addPlannedMembers(workspaceIdentity, groupId, inputs);
+    }
+
     /** Dismiss a failed intent or record a removed worktree. Never touches disk. */
     removeMember(
         workspaceIdentity: string,
@@ -482,7 +499,8 @@ export class WorktreeGroupManifestStore {
     mergeGroups(
         workspaceIdentity: string,
         targetGroupId: string,
-        sourceGroupId: string
+        sourceGroupId: string,
+        expected?: { targetRevision: number; sourceRevision: number }
     ): Promise<WorktreeGroup> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
@@ -495,6 +513,13 @@ export class WorktreeGroupManifestStore {
             if (!target || !source) {
                 throw new WorktreeGroupManifestError('group-not-found');
             }
+            // Double revision binding (decision G): a merge confirmed
+            // against stale revisions fails closed.
+            if (expected
+                && (target.revision !== expected.targetRevision
+                    || source.revision !== expected.sourceRevision)) {
+                throw new WorktreeGroupManifestError('group-changed');
+            }
             if (target.groupId === source.groupId) {
                 throw new WorktreeGroupManifestError('invalid-record');
             }
@@ -506,6 +531,14 @@ export class WorktreeGroupManifestStore {
                 throw new WorktreeGroupManifestError('store-full');
             }
             target.members.push(...source.members);
+            if (!target.primaryMemberId && source.primaryMemberId
+                && source.members.some(member =>
+                    member.memberId === source.primaryMemberId
+                    && member.state === 'ready')) {
+                // The survivor had no primary: adopt the source's ready
+                // primary instead of leaving the merged group headless.
+                target.primaryMemberId = source.primaryMemberId;
+            }
             bumpRevision(target);
             assertGroupInvariants(target);
             bucket.groups.splice(

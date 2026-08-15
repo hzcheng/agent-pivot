@@ -359,6 +359,15 @@ export interface WorkspaceAiSessionViewModel {
     worktreeGroups?: WorktreeGroupRowViewModel[];
     /** Provisioning + unclaimed ready rows (rendered as the Unmanaged section). */
     worktrees: WorktreeRowViewModel[];
+    /** Adopt suggestions: unmanaged worktrees clustered by task slug (PRD §6.5). */
+    worktreeAdoptSuggestions?: {
+        slug: string;
+        members: {
+            worktreeKey: WorktreeKey;
+            branchName: string;
+            repositoryLabel: string;
+        }[];
+    }[];
     worktreeRepositoryCount?: number;
     bareWorktreeCount?: number;
     unmanagedSessions: AiSessionViewModel[];

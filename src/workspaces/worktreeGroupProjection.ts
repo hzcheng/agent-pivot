@@ -84,6 +84,22 @@ export interface WorktreeGroupProjection {
     groups: WorktreeGroupRowViewModel[];
     /** Unclaimed linked worktrees (the Unmanaged section). */
     unmanaged: ReadyWorktreeRow[];
+    /**
+     * Adopt suggestions (PRD §6.5): unmanaged ready worktrees clustered by
+     * their task slug. Every cluster — even a single worktree — follows
+     * the same Adopt path.
+     */
+    adoptSuggestions: WorktreeAdoptSuggestion[];
+}
+
+export interface WorktreeAdoptSuggestion {
+    /** The shared task slug derived from the agent-pivot branch names. */
+    slug: string;
+    members: {
+        worktreeKey: WorktreeKey;
+        branchName: string;
+        repositoryLabel: string;
+    }[];
 }
 
 const ACTIVITY_ORDER: Record<WorktreeActivity, number> = {
@@ -240,17 +256,12 @@ export function buildWorktreeGroupProjection(
         });
     }
 
-    // Merge hints are the only use of slugs in the projection: groups that
-    // share a suggested slug are offered to merge, never merged silently.
-    const groupsBySlug = new Map<string, string[]>();
-    for (const group of input.groups) {
-        const bucket = groupsBySlug.get(group.suggestedSlug) || [];
-        bucket.push(group.groupId);
-        groupsBySlug.set(group.suggestedSlug, bucket);
-    }
+    // PRD §6.5 (M3 batch 8): merge is offered between ANY two visible
+    // groups — the slug no longer gates the affordance; the host confirms
+    // survivor and primary explicitly.
     for (const row of groupRows) {
-        const group = input.groups.find(candidate => candidate.groupId === row.groupId)!;
-        row.mergeCandidateGroupIds = (groupsBySlug.get(group.suggestedSlug) || [])
+        row.mergeCandidateGroupIds = groupRows
+            .map(candidate => candidate.groupId)
             .filter(candidateId => candidateId !== row.groupId);
     }
 
@@ -284,7 +295,37 @@ export function buildWorktreeGroupProjection(
         }
     }
 
-    return { anchor, groups: groupRows, unmanaged };
+    // Adopt suggestions (PRD §6.5): cluster unmanaged ready worktrees by
+    // the task slug in their agent-pivot branch name. Slugs only SUGGEST —
+    // nothing is ever grouped silently.
+    const suggestionsBySlug = new Map<string, WorktreeAdoptSuggestion['members']>();
+    for (const row of unmanaged) {
+        const slug = adoptSlugOf(row.git.branchRef);
+        if (!slug || row.git.health !== 'normal') {
+            continue;
+        }
+        const members = suggestionsBySlug.get(slug) || [];
+        members.push({
+            worktreeKey: { ...row.git.key },
+            branchName: shortBranchName(row.git),
+            repositoryLabel: repositoryLabels.get(row.git.key.repositoryKey)
+                || fallbackRepositoryLabel(row.git.key.repositoryKey),
+        });
+        suggestionsBySlug.set(slug, members);
+    }
+    const adoptSuggestions: WorktreeAdoptSuggestion[] = [];
+    for (const [slug, members] of suggestionsBySlug) {
+        adoptSuggestions.push({ slug, members });
+    }
+
+    return { anchor, groups: groupRows, unmanaged, adoptSuggestions };
+}
+
+/** The task slug of an agent-pivot branch, when it follows the convention. */
+function adoptSlugOf(branchRef: string | null | undefined): string | null {
+    const short = branchRef?.replace(/^refs\/heads\//u, '') || '';
+    const match = /^agent-pivot\/(.+)$/u.exec(short);
+    return match ? match[1] : null;
 }
 
 function visibleRepositories(

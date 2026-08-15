@@ -1834,3 +1834,130 @@ test('WORKTREE-GROUPS-ADD-REPO-001 the scope-outdated note renders on the group 
     assert.match(await note.textContent(), /2 sessions cannot write the new worktree/);
     assert.match(await note.textContent(), /restart to pick it up/);
 });
+
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 adopts a cluster through the card settlement lifecycle', async t => {
+    const suggestions = [{
+        slug: 'fix-login',
+        members: [
+            {
+                worktreeKey: alphaLoginKey,
+                branchName: 'agent-pivot/fix-login',
+                repositoryLabel: 'alpha',
+            },
+            {
+                worktreeKey: betaLoginKey,
+                branchName: 'agent-pivot/fix-login',
+                repositoryLabel: 'beta',
+            },
+        ],
+    }];
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+        worktreeAdoptSuggestions: suggestions,
+    });
+    const withoutSuggestion = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup(), groupRow({
+            groupId: 'g-2', displayName: 'fix-login', revision: 1,
+        })],
+        worktreeAdoptSuggestions: [],
+    });
+    const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
+
+    const bar = page.locator('.ai-session-worktree-adopt-suggestion[data-adopt-slug="fix-login"]');
+    assert.equal(await bar.count(), 1, 'the suggestion bar renders');
+    assert.match(await bar.textContent(), /Adopt 2 worktrees as “fix-login”/);
+    await bar.locator('[data-action="adopt-worktree-cluster"]')
+        .evaluate(button => button.click());
+    const card = page.locator('.ai-session-worktree-adopt-card');
+    assert.equal(await card.count(), 1, 'the adopt card opens');
+    assert.equal(await card.locator('.ai-session-worktree-adopt-member-check').count(), 2);
+    assert.equal(await card.locator('.ai-session-worktree-adopt-name').inputValue(),
+        'fix-login', 'the name defaults to the slug');
+    // Existing groups are offered as adopt targets.
+    assert.match(await card.locator('.ai-session-worktree-adopt-target').textContent(),
+        /Add to: fix-login/);
+    await card.locator('[data-action="confirm-worktree-adopt"]')
+        .evaluate(button => button.click());
+    const adoptRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.match(adoptRequest.requestId, /^adopt-[a-z0-9]+-1$/);
+    assert.deepEqual({ ...adoptRequest, requestId: '<nonce>' }, {
+        type: 'adopt-worktrees',
+        version: 1,
+        requestId: '<nonce>',
+        projectId: 'project-a',
+        members: [
+            {
+                repositoryKey: '/alpha/.git',
+                canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+            },
+            {
+                repositoryKey: '/beta/.git',
+                canonicalWorktreePath: '/beta/.worktrees/fix-login',
+            },
+        ],
+        displayName: 'fix-login',
+    });
+    assert.equal(await card.getAttribute('aria-busy'), 'true', 'the card is pending');
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-adopt-settlement',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                status: 'settled',
+                groupId: 'g-2',
+            },
+        }));
+    }, adoptRequest.requestId);
+    assert.equal(await card.count(), 1, 'settled keeps the card until the replacement');
+    const adoptedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withoutSuggestion()}</div></div></div>`;
+    assert.equal(await applyUpdate(adoptedHtml), true);
+    assert.equal(await page.locator('.ai-session-worktree-adopt-card').count(), 0,
+        'the replacement with the suggestion gone retires the card');
+    assert.equal(await page.locator('.ai-session-worktree-adopt-suggestion').count(), 0);
+});
+
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 a failed adopt re-enables the card in place', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [],
+        worktreeAdoptSuggestions: [{
+            slug: 'solo',
+            members: [{
+                worktreeKey: alphaLoginKey,
+                branchName: 'agent-pivot/solo',
+                repositoryLabel: 'alpha',
+            }],
+        }],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    await page.locator('[data-action="adopt-worktree-cluster"]')
+        .evaluate(button => button.click());
+    const card = page.locator('.ai-session-worktree-adopt-card');
+    await card.locator('[data-action="confirm-worktree-adopt"]')
+        .evaluate(button => button.click());
+    const adoptRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-adopt-settlement',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                status: 'failed',
+                errorCode: 'worktree-key-claimed',
+            },
+        }));
+    }, adoptRequest.requestId);
+    assert.equal(await card.locator('[data-action="confirm-worktree-adopt"]')
+        .evaluate(button => button.disabled), false,
+        'the card is re-enabled after a failed settlement');
+    assert.match(
+        await page.locator('[data-ai-session-live-region]').textContent(),
+        /could not adopt/i);
+});

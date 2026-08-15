@@ -417,6 +417,23 @@ function initProjectAiSessionControls(options) {
             submitWorktreeGroupClaimDiscard(claimDiscard);
             return true;
         }
+        var adoptCluster = target.closest('[data-action="adopt-worktree-cluster"]');
+        if (adoptCluster) {
+            startWorktreeAdopt(adoptCluster);
+            return true;
+        }
+        var adoptCancel = target.closest('[data-action="cancel-worktree-adopt"]');
+        if (adoptCancel) {
+            cancelWorktreeAdoptCard(projectDiv);
+            return true;
+        }
+        var adoptConfirm = target.closest('[data-action="confirm-worktree-adopt"]');
+        if (adoptConfirm) {
+            if (!adoptConfirm.disabled) {
+                confirmWorktreeAdopt(adoptConfirm.closest('.ai-session-worktree-adopt-card'));
+            }
+            return true;
+        }
         var surfaceAction = target.closest(
             '[data-action="select-ai-session-surface"][data-surface]'
         );
@@ -2016,6 +2033,286 @@ function initProjectAiSessionControls(options) {
         restore: restoreWorktreeGroupDeletionCard,
     };
 
+    // ---------- Worktree adopt (M3 batch 8; PRD §6.5) ----------
+    // The adopt card is local transient state like the deletion card: the
+    // host re-validates every selected key against the live snapshot and
+    // manifest, so stale card data can never adopt a claimed or vanished
+    // worktree. A submitted card stays pending until the settlement and
+    // the authoritative replacement (suggestion bar gone) retire it.
+    var pendingWorktreeAdoptRequests = new Map();
+    var worktreeAdoptSerial = 0;
+    var worktreeAdoptDocumentNonce = Math.random().toString(36).slice(2, 10);
+
+    function nextWorktreeAdoptRequestId() {
+        worktreeAdoptSerial = worktreeAdoptSerial >= Number.MAX_SAFE_INTEGER
+            ? 1 : worktreeAdoptSerial + 1;
+        return 'adopt-' + worktreeAdoptDocumentNonce
+            + '-' + worktreeAdoptSerial.toString(36);
+    }
+
+    function findWorktreeAdoptCard(projectDiv) {
+        if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+        return projectDiv.querySelector('.ai-session-worktree-adopt-card');
+    }
+
+    function cancelWorktreeAdoptCard(projectDiv) {
+        var card = findWorktreeAdoptCard(projectDiv);
+        if (!card || card.getAttribute('data-adopt-pending') === 'true') return false;
+        var slug = card.getAttribute('data-adopt-slug') || '';
+        card.remove();
+        var origin = projectDiv && projectDiv.querySelector(
+            '[data-action="adopt-worktree-cluster"][data-adopt-slug="' + CSS.escape(slug) + '"]');
+        if (origin && typeof origin.focus === 'function') {
+            origin.focus({ preventScroll: true });
+        }
+        return true;
+    }
+
+    function startWorktreeAdopt(button) {
+        var suggestion = button.closest('.ai-session-worktree-adopt-suggestion');
+        var projectDiv = button.closest('.project');
+        if (!suggestion || !projectDiv) return;
+        var existing = findWorktreeAdoptCard(projectDiv);
+        if (existing) {
+            if (existing.getAttribute('data-adopt-pending') === 'true') return;
+            cancelWorktreeAdoptCard(projectDiv);
+        }
+        var members = [];
+        try {
+            members = JSON.parse(suggestion.getAttribute('data-adopt-members') || '[]');
+        } catch (_error) {
+            return;
+        }
+        if (!Array.isArray(members) || !members.length) return;
+        var slug = suggestion.getAttribute('data-adopt-slug') || '';
+        var card = document.createElement('div');
+        card.className = 'ai-session-worktree-adopt-card ai-session-worktree-deletion-card';
+        card.setAttribute('data-adopt-slug', slug);
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-label', 'Adopt worktrees as a group');
+        card.tabIndex = -1;
+        var title = document.createElement('div');
+        title.className = 'ai-session-worktree-deletion-card-title';
+        title.textContent = 'Adopt ' + members.length + ' worktree'
+            + (members.length === 1 ? '' : 's') + ' as a group';
+        card.appendChild(title);
+        members.forEach(member => {
+            var option = document.createElement('label');
+            option.className = 'ai-session-worktree-adopt-member';
+            var check = document.createElement('input');
+            check.type = 'checkbox';
+            check.className = 'ai-session-worktree-adopt-member-check';
+            check.checked = true;
+            check.setAttribute('data-repository-key', member.repositoryKey);
+            check.setAttribute('data-worktree-path', member.canonicalWorktreePath);
+            option.appendChild(check);
+            option.appendChild(document.createTextNode(
+                member.repositoryLabel + ' (' + member.branchName + ')'));
+            card.appendChild(option);
+        });
+        var nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'ai-session-worktree-adopt-name';
+        nameInput.maxLength = 200;
+        nameInput.value = slug;
+        nameInput.setAttribute('aria-label', 'Group name');
+        card.appendChild(nameInput);
+        var select = document.createElement('select');
+        select.className = 'ai-session-worktree-adopt-target';
+        select.setAttribute('aria-label', 'Adopt into');
+        var newOption = document.createElement('option');
+        newOption.value = '';
+        newOption.textContent = 'New group';
+        select.appendChild(newOption);
+        projectDiv.querySelectorAll('.ai-session-worktree-task-group').forEach(section => {
+            var groupId = section.getAttribute('data-group-id');
+            var name = section.querySelector('.ai-session-worktree-title');
+            if (!groupId) return;
+            var option = document.createElement('option');
+            option.value = groupId;
+            option.textContent = 'Add to: ' + (name ? name.textContent : groupId);
+            select.appendChild(option);
+        });
+        card.appendChild(select);
+        var actions = document.createElement('div');
+        actions.className = 'ai-session-worktree-deletion-card-actions';
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.setAttribute('data-action', 'cancel-worktree-adopt');
+        cancel.className = 'ai-session-worktree-deletion-cancel';
+        cancel.textContent = 'Cancel';
+        var confirm = document.createElement('button');
+        confirm.type = 'button';
+        confirm.setAttribute('data-action', 'confirm-worktree-adopt');
+        confirm.className = 'ai-session-worktree-deletion-confirm';
+        confirm.textContent = 'Adopt';
+        actions.appendChild(cancel);
+        actions.appendChild(confirm);
+        card.appendChild(actions);
+        card.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelWorktreeAdoptCard(projectDiv);
+            }
+        });
+        suggestion.insertAdjacentElement('afterend', card);
+        nameInput.focus({ preventScroll: true });
+        if (typeof nameInput.select === 'function') {
+            nameInput.select();
+        }
+    }
+
+    function confirmWorktreeAdopt(card) {
+        if (!card || card.getAttribute('data-adopt-pending') === 'true') return;
+        var projectDiv = card.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        if (!projectId) return;
+        var members = [];
+        card.querySelectorAll('.ai-session-worktree-adopt-member-check:checked')
+            .forEach(check => {
+                members.push({
+                    repositoryKey: check.getAttribute('data-repository-key'),
+                    canonicalWorktreePath: check.getAttribute('data-worktree-path'),
+                });
+            });
+        if (!members.length) return;
+        var target = card.querySelector('.ai-session-worktree-adopt-target');
+        var nameInput = card.querySelector('.ai-session-worktree-adopt-name');
+        var targetGroupId = target && target.value || '';
+        var displayName = nameInput && nameInput.value.trim() || '';
+        if (!targetGroupId && !displayName) return;
+        var requestId = nextWorktreeAdoptRequestId();
+        pendingWorktreeAdoptRequests.set(requestId, {
+            projectId: projectId,
+            slug: card.getAttribute('data-adopt-slug') || '',
+            awaitingReplacement: false,
+        });
+        card.setAttribute('data-adopt-pending', 'true');
+        card.setAttribute('data-adopt-request-id', requestId);
+        card.setAttribute('aria-busy', 'true');
+        card.querySelectorAll('button, input, select').forEach(control => {
+            control.disabled = true;
+        });
+        window.vscode.postMessage({
+            type: 'adopt-worktrees',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            members: members,
+            ...(targetGroupId
+                ? { targetGroupId: targetGroupId }
+                : { displayName: displayName }),
+        });
+    }
+
+    function applyWorktreeAdoptSettlement(message) {
+        var baseKeys = ['projectId', 'requestId', 'status', 'type', 'version'];
+        var withError = baseKeys.concat(['errorCode']);
+        var withGroup = baseKeys.concat(['groupId']);
+        var keys = message && typeof message === 'object'
+            ? Object.keys(message).sort() : [];
+        var matchesShape = [baseKeys, withError, withGroup]
+            .map(expected => expected.slice().sort())
+            .some(expected => keys.length === expected.length
+                && keys.every((key, index) => key === expected[index]));
+        if (!message || message.type !== 'worktree-adopt-settlement'
+            || message.version !== 1 || !matchesShape
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
+            || !['accepted', 'settled', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingWorktreeAdoptRequests.get(message.requestId);
+        if (!pending || pending.projectId !== message.projectId) return true;
+        if (message.status === 'accepted') return true;
+        if (pending.awaitingReplacement) return true;
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        if (message.status === 'failed') {
+            pendingWorktreeAdoptRequests.delete(message.requestId);
+            var card = findWorktreeAdoptCard(projectDiv);
+            if (card && card.isConnected) {
+                card.removeAttribute('data-adopt-pending');
+                card.removeAttribute('aria-busy');
+                card.querySelectorAll('button, input, select').forEach(control => {
+                    control.disabled = false;
+                });
+            }
+            announceWorktreeGroupDeletion(pending.projectId,
+                'Could not adopt the worktrees: '
+                + describeDeletionBlocker(message.errorCode || 'adopt-failed') + '.');
+            return true;
+        }
+        pending.awaitingReplacement = true;
+        return true;
+    }
+
+    function captureWorktreeAdoptCard(projectDiv) {
+        var card = findWorktreeAdoptCard(projectDiv);
+        if (!card) return null;
+        return {
+            slug: card.getAttribute('data-adopt-slug') || '',
+            pending: card.getAttribute('data-adopt-pending') === 'true',
+            requestId: card.getAttribute('data-adopt-request-id') || '',
+        };
+    }
+
+    function restoreWorktreeAdoptCard(projectDiv, state) {
+        if (!projectDiv || !state || !state.slug) return;
+        var bar = projectDiv.querySelector(
+            '.ai-session-worktree-adopt-suggestion[data-adopt-slug="'
+            + CSS.escape(state.slug) + '"]');
+        if (state.pending) {
+            if (!bar) {
+                // The suggestion is gone: the adoption landed. Retire the
+                // correlation and park focus on the group list.
+                if (state.requestId) {
+                    pendingWorktreeAdoptRequests.delete(state.requestId);
+                }
+                pendingWorktreeAdoptRequests.forEach((entry, requestId) => {
+                    if (entry.awaitingReplacement) {
+                        pendingWorktreeAdoptRequests.delete(requestId);
+                    }
+                });
+                var header = projectDiv.querySelector(
+                    '.ai-session-worktree-task-group .ai-session-worktree-header');
+                if (header && typeof header.focus === 'function') {
+                    header.focus({ preventScroll: true });
+                }
+                return;
+            }
+            if (!findWorktreeAdoptCard(projectDiv)) {
+                var button = bar.querySelector('[data-action="adopt-worktree-cluster"]');
+                if (button) {
+                    startWorktreeAdopt(button);
+                    var card = findWorktreeAdoptCard(projectDiv);
+                    if (card) {
+                        card.setAttribute('data-adopt-pending', 'true');
+                        card.setAttribute('aria-busy', 'true');
+                        if (state.requestId) {
+                            card.setAttribute('data-adopt-request-id', state.requestId);
+                        }
+                        card.querySelectorAll('button, input, select').forEach(control => {
+                            control.disabled = true;
+                        });
+                    }
+                }
+            }
+            return;
+        }
+        if (bar && !findWorktreeAdoptCard(projectDiv)) {
+            var origin = bar.querySelector('[data-action="adopt-worktree-cluster"]');
+            if (origin) {
+                startWorktreeAdopt(origin);
+            }
+        }
+    }
+
+    window.__agentPivotWorktreeAdopt = {
+        capture: captureWorktreeAdoptCard,
+        restore: restoreWorktreeAdoptCard,
+    };
+
     function describeProvisioningError(errorCode) {
         switch (errorCode) {
             case 'repository-has-no-commits':
@@ -2584,6 +2881,7 @@ function initProjectAiSessionControls(options) {
         applyWorktreeGroupRenameSettlement: applyWorktreeGroupRenameSettlement,
         applyWorktreeGroupDeletionPreview: applyWorktreeGroupDeletionPreview,
         applyWorktreeGroupDeletionSettlement: applyWorktreeGroupDeletionSettlement,
+        applyWorktreeAdoptSettlement: applyWorktreeAdoptSettlement,
         setWorktreeGroupForm: setWorktreeGroupForm,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,

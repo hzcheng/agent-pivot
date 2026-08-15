@@ -109,6 +109,7 @@ export function buildWorkspaceAiSessionViewModel(
             ...provisioningRows,
             ...groupProjection.unmanaged,
         ],
+        worktreeAdoptSuggestions: groupProjection.adoptSuggestions,
         ...(input.worktreeSnapshot ? {
             worktreeRepositoryCount: input.worktreeSnapshot.repositories.length,
             bareWorktreeCount: input.worktreeSnapshot.repositories.reduce(

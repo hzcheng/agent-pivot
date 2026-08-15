@@ -620,6 +620,11 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'worktree-adopt-settlement') {
+            aiSessionControls.applyWorktreeAdoptSettlement(message);
+            return;
+        }
+
         if (message && message.type === 'worktree-group-form-state') {
             worktreeGroupForm.applyFormState(message);
             return;

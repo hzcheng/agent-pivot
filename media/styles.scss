@@ -4086,6 +4086,62 @@ body.steward-sidebar {
             }
         }
 
+        .ai-session-worktree-adopt-suggestion {
+            margin-top: 3px;
+
+            .ai-session-worktree-adopt {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                width: 100%;
+                padding: 3px 6px;
+                border: 1px dashed var(--vscode-panel-border);
+                border-radius: 5px;
+                color: var(--vscode-descriptionForeground);
+                background: transparent;
+                font-size: 8px;
+                cursor: pointer;
+                text-align: left;
+
+                &:hover,
+                &:focus-visible {
+                    color: var(--vscode-foreground);
+                    border-color: var(--vscode-focusBorder);
+                    outline: none;
+                }
+
+                svg {
+                    width: 11px;
+                    height: 11px;
+                    flex: 0 0 auto;
+                }
+            }
+        }
+
+        .ai-session-worktree-adopt-card {
+            .ai-session-worktree-adopt-member {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                margin-top: 2px;
+                color: var(--vscode-foreground);
+                font-size: 9px;
+                cursor: pointer;
+            }
+
+            .ai-session-worktree-adopt-name,
+            .ai-session-worktree-adopt-target {
+                box-sizing: border-box;
+                width: 100%;
+                margin-top: 3px;
+                padding: 2px 4px;
+                border: 1px solid var(--vscode-input-border, transparent);
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                font-size: 9px;
+            }
+        }
+
         .ai-session-worktree-scope-outdated {
             margin-top: 3px;
             padding: 2px 6px;

@@ -335,7 +335,7 @@ test('WORKTREE-GROUPS-002 WORKTREE-GROUPS-CREATE-001 in-flight members disable s
         'a settled-failed member stays visible without blocking the group (PRD §8)');
 });
 
-test('WORKTREE-GROUPS-002 merge hints follow shared suggested slugs without merging silently', () => {
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 merge is offered between any two groups (slug no longer gates)', () => {
     const { groups } = project({
         groups: [
             group(),
@@ -350,10 +350,41 @@ test('WORKTREE-GROUPS-002 merge hints follow shared suggested slugs without merg
         ],
     });
     const byId = Object.fromEntries(groups.map(row => [row.groupId, row]));
-    assert.deepEqual(byId['g-1'].mergeCandidateGroupIds, ['g-2']);
-    assert.deepEqual(byId['g-2'].mergeCandidateGroupIds, ['g-1']);
-    assert.deepEqual(byId['g-3'].mergeCandidateGroupIds, []);
+    // Batch 8 (PRD §6.5): every other group is a merge candidate.
+    assert.deepEqual(byId['g-1'].mergeCandidateGroupIds.sort(), ['g-2', 'g-3']);
+    assert.deepEqual(byId['g-2'].mergeCandidateGroupIds.sort(), ['g-1', 'g-3']);
+    assert.deepEqual(byId['g-3'].mergeCandidateGroupIds.sort(), ['g-1', 'g-2']);
     assert.equal(groups.length, 3, 'merge candidates stay separate rows');
+});
+
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 adopt suggestions cluster unmanaged worktrees by slug', () => {
+    const { adoptSuggestions } = project();
+    // The fixture snapshot has agent-pivot/fix-login unmanaged worktrees in
+    // both repositories plus a solo worktree on a non-conventional branch.
+    const fixLogin = adoptSuggestions.find(suggestion => suggestion.slug === 'fix-login');
+    assert.ok(fixLogin, 'the shared slug clusters both unmanaged worktrees');
+    assert.equal(fixLogin.members.length, 2);
+    assert.deepEqual(fixLogin.members.map(member => member.branchName).sort(),
+        ['agent-pivot/fix-login', 'agent-pivot/fix-login']);
+    assert.equal(fixLogin.members[0].worktreeKey.canonicalWorktreePath.includes('fix-login'),
+        true);
+    // The solo worktree on agent-pivot/solo forms its own single-member
+    // suggestion (the same Adopt path); nothing clusters by guesswork.
+    const solo = adoptSuggestions.find(suggestion => suggestion.slug === 'solo');
+    assert.ok(solo && solo.members.length === 1);
+    assert.equal(adoptSuggestions.length, 2);
+});
+
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 a single unmanaged worktree follows the same adopt path', () => {
+    const { adoptSuggestions } = project({
+        snapshot: {
+            ...SNAPSHOT,
+            repositories: [SNAPSHOT.repositories[0]],
+        },
+    });
+    assert.equal(adoptSuggestions.length, 1);
+    assert.equal(adoptSuggestions[0].slug, 'fix-login');
+    assert.equal(adoptSuggestions[0].members.length, 1);
 });
 
 test('WORKTREE-GROUPS-002 colliding display names get a stable branch discriminator', () => {

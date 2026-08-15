@@ -6598,5 +6598,26 @@
       "src/webview/webviewGroupFormScripts.js",
       "src/dashboard.ts"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-ADOPT-MERGE-001",
+    "domain": "persistence",
+    "title": "Adopt clusters unmanaged worktrees by slug with host-side revalidation against snapshot and manifest before one aggregate write; merge works between any two groups with double revision binding, double lease validation, and primary fallback for a headless survivor",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupAdoptMerge.test.js",
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupAdoptProtocol.ts",
+      "src/worktrees/groupAdoptHandler.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/dashboard.ts"
+    ]
   }
 ]

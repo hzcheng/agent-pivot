@@ -3328,6 +3328,7 @@ function initWorktreeGroupForm(options) {
                 pendingFocusGroupId: '',
                 pendingMemberRequests: {},
                 derive: null,
+                addRepo: null,
             };
             statesByProject.set(projectId, state);
         }
@@ -3375,6 +3376,9 @@ function initWorktreeGroupForm(options) {
         }
         if (seed && seed.sourceGroupId) {
             message.sourceGroupId = seed.sourceGroupId;
+        }
+        if (seed && seed.targetGroupId) {
+            message.targetGroupId = seed.targetGroupId;
         }
         window.vscode.postMessage(message);
         focusNameInput(projectId);
@@ -3457,6 +3461,17 @@ function initWorktreeGroupForm(options) {
                 state.name = message.derive.suggestedName;
             }
         }
+        if (message.addRepo && typeof message.addRepo === 'object'
+            && typeof message.addRepo.groupId === 'string'
+            && typeof message.addRepo.displayName === 'string') {
+            // Add-repo mode (PRD §6.3): the group name and slug are locked;
+            // the form only picks the repositories to add.
+            state.addRepo = {
+                groupId: message.addRepo.groupId,
+                displayName: message.addRepo.displayName,
+            };
+            state.name = message.addRepo.displayName;
+        }
         if (message.seed && typeof message.seed.repositoryKey === 'string'
             && typeof message.seed.baseRef === 'string') {
             // Branch-from-here: check only the seeded repository and prefill
@@ -3511,6 +3526,7 @@ function initWorktreeGroupForm(options) {
             projectId: projectId,
             displayName: state.name,
             ...(state.derive ? { sourceGroupId: state.derive.sourceGroupId } : {}),
+            ...(state.addRepo ? { targetGroupId: state.addRepo.groupId } : {}),
             selections: checkedRepositories(state).map(function (repository) {
                 var override = state.baseRefOverrides[repository.repositoryKey];
                 return override
@@ -3618,6 +3634,9 @@ function initWorktreeGroupForm(options) {
             displayName: state.name,
             members: members,
         };
+        if (state.addRepo) {
+            message.targetGroupId = state.addRepo.groupId;
+        }
         if (primaryAvailable) {
             message.primaryRepositoryKey = state.primaryRepositoryKey;
         }
@@ -4006,9 +4025,11 @@ function initWorktreeGroupForm(options) {
         slot.innerHTML = '<div class="ai-session-group-form" data-worktree-group-form'
             + ' data-project-id="' + escapeHtml(projectId) + '">'
             + '<div class="ai-session-group-form-title">'
-            + (state.derive
-                ? 'Derive from ' + escapeHtml(state.derive.sourceName || 'group')
-                : 'New worktree group')
+            + (state.addRepo
+                ? 'Add repositories to ' + escapeHtml(state.addRepo.displayName)
+                : state.derive
+                    ? 'Derive from ' + escapeHtml(state.derive.sourceName || 'group')
+                    : 'New worktree group')
             + '</div>'
             + (state.derive && state.derive.skipped.length
                 ? '<div class="ai-session-group-form-derive-skipped" role="note">'
@@ -4022,6 +4043,8 @@ function initWorktreeGroupForm(options) {
             + '<input type="text" class="ai-session-group-form-name"'
             + ' data-group-form-name placeholder="Worktree group name"'
             + ' aria-label="Worktree group name" value="' + escapeHtml(state.name) + '"'
+            // Add-repo mode locks the group name (PRD §6.3: slug 锁定).
+            + (state.addRepo ? ' readonly aria-readonly="true"' : '')
             + ((state.preview && state.preview.formError === 'invalid-task') || state.formError
                 ? ' aria-invalid="true" aria-describedby="group-form-name-error group-form-error"'
                 : '') + '>'
@@ -5130,6 +5153,8 @@ function initProjectAiSessionControls(options) {
         renameItem.hidden = !menu.__context.groupId;
         var deriveItem = menu.querySelector('[data-action="worktree-group-derive"]');
         deriveItem.hidden = !menu.__context.groupId;
+        var addRepoItem = menu.querySelector('[data-action="worktree-group-add-repo"]');
+        addRepoItem.hidden = !menu.__context.groupId;
         var groupDeleteItem = menu.querySelector('[data-action="worktree-group-delete"]');
         groupDeleteItem.hidden = !menu.__context.groupId;
         var sessionSeparator = menu.querySelector('[data-worktree-session-separator]');
@@ -5218,6 +5243,12 @@ function initProjectAiSessionControls(options) {
             if (worktreeGroupForm) {
                 worktreeGroupForm.openForm(context.projectId, {
                     sourceGroupId: context.groupId,
+                });
+            }
+        } else if (action === 'worktree-group-add-repo' && context.groupId) {
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, {
+                    targetGroupId: context.groupId,
                 });
             }
         } else if (action === 'worktree-group-delete' && context.groupId) {

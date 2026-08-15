@@ -149,3 +149,55 @@ test('WORKTREE-GROUPS-CREATE-001 correlates creation and member settlements', ()
         status: 'failed', errorCode: 'dismiss-unavailable',
     });
 });
+
+test('WORKTREE-GROUPS-ADD-REPO-001 add-repo requests bind the target group end to end', () => {
+    const { parseOpenWorktreeGroupFormRequest: parseOpen } = require('../../../out/worktrees/groupCreationProtocol');
+    assert.deepEqual(parseOpen({
+        type: 'open-worktree-group-form', version: 1, projectId: 'project',
+        targetGroupId: 'group-1',
+    }), {
+        type: 'open-worktree-group-form', version: 1, projectId: 'project',
+        targetGroupId: 'group-1',
+    });
+    // Derive and add-repo are mutually exclusive entries.
+    assert.equal(parseOpen({
+        type: 'open-worktree-group-form', version: 1, projectId: 'project',
+        sourceGroupId: 'group-1', targetGroupId: 'group-2',
+    }), null);
+    assert.equal(parseOpen({
+        type: 'open-worktree-group-form', version: 1, projectId: 'project',
+        targetGroupId: 'bad id!',
+    }), null);
+    assert.deepEqual(parsePreviewWorktreeGroupRequest({
+        type: 'preview-worktree-group', version: 1,
+        requestId: 'preview-1', projectId: 'project', displayName: 'X',
+        selections: [{ repositoryKey: '/alpha/.git' }],
+        targetGroupId: 'group-1',
+    }), {
+        type: 'preview-worktree-group', version: 1,
+        requestId: 'preview-1', projectId: 'project', displayName: 'X',
+        selections: [{ repositoryKey: '/alpha/.git' }],
+        targetGroupId: 'group-1',
+    });
+    assert.deepEqual(parseConfirmWorktreeGroupRequest({
+        type: 'confirm-worktree-group', version: 1,
+        requestId: 'confirm-1', projectId: 'project', previewId: 'preview-1',
+        displayName: 'X',
+        members: [{
+            repositoryKey: '/alpha/.git', baseRef: 'refs/heads/main',
+            branchName: 'agent-pivot/x', worktreePath: '/alpha/.worktrees/x',
+            setupEnabled: false,
+        }],
+        targetGroupId: 'group-1',
+    }, undefined), {
+        type: 'confirm-worktree-group', version: 1,
+        requestId: 'confirm-1', projectId: 'project', previewId: 'preview-1',
+        displayName: 'X',
+        members: [{
+            repositoryKey: '/alpha/.git', baseRef: 'refs/heads/main',
+            branchName: 'agent-pivot/x', worktreePath: '/alpha/.worktrees/x',
+            setupEnabled: false,
+        }],
+        targetGroupId: 'group-1',
+    });
+});

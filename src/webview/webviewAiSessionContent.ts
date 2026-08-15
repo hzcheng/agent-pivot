@@ -914,6 +914,13 @@ function getWorktreeGroupRowHtml(
                 + `<span class="ai-session-worktree-deletion-text">Deletion in progress…</span>`
                 + `</div>`)
         : '';
+    // PRD §6.3: sessions started before the group grew keep their old
+    // writable scope until restarted — say so inline, never silently.
+    const scopeOutdatedNote = group.scopeOutdatedSessions
+        ? `<div class="ai-session-worktree-scope-outdated" role="note">${escapeAttribute(
+            `${group.scopeOutdatedSessions} session${group.scopeOutdatedSessions === 1 ? '' : 's'} cannot write the new worktree yet — restart to pick it up.`
+        )}</div>`
+        : '';
     return `<section class="ai-session-worktree-group ai-session-worktree-task-group" data-group-id="${escapeAttribute(group.groupId)}" data-group-revision="${group.revision}" data-worktree-activity="${group.activity}"${primaryAttributes} style="order: ${groupOrder}">
         <div class="ai-session-worktree-toolbar">
             <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}">
@@ -927,7 +934,7 @@ function getWorktreeGroupRowHtml(
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')
-            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${memberStatusRows}${deletionNotice}${primaryPicker}</div>
+            : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${memberStatusRows}${deletionNotice}${scopeOutdatedNote}${primaryPicker}</div>
     </section>`;
 }
 
@@ -1201,6 +1208,7 @@ export function getAiSessionWorktreeMenu() {
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-branch-create"></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-derive" hidden>Derive from this group…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-add-repo" hidden>Add repository to group…</div>
     <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-group-delete" hidden>Remove group worktrees…</div>
     <div class="custom-context-menu-separator" role="separator" data-worktree-remove-separator></div>
     <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-remove">Remove worktree</div>

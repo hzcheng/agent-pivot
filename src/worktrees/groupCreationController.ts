@@ -161,6 +161,11 @@ export class WorktreeGroupCreationController {
          * confirm with group-changed.
          */
         derive?: { sourceGroupId: string; sourceRevision: number };
+        /**
+         * Add-repo binding (PRD §6.3): the target group, its revision, and
+         * its locked slug at preview time. Drift fails the confirm closed.
+         */
+        addRepo?: { targetGroupId: string; targetRevision: number; slug: string };
         /** repositoryKey → the exact previewed plan and setup argv. */
         members: Map<string, {
             baseRef: string;
@@ -308,15 +313,71 @@ export class WorktreeGroupCreationController {
         };
     }
 
+    /**
+     * Add-repo form options (PRD §6.3): only repositories not already in
+     * the group are listed; the default check marks the active editor's
+     * repository when it is eligible, and nothing otherwise — never the
+     * first repository, so a quick Enter never silently adds a repo the
+     * user did not look at.
+     */
+    async listAddRepoOptions(
+        projectId: string,
+        targetGroupId: string
+    ): Promise<{
+        group: { groupId: string; displayName: string; revision: number };
+        options: GroupCreationRepositoryOption[];
+    } | null> {
+        const target = this.options.getWorkspaceTarget(projectId);
+        const snapshot = this.options.getWorktreeSnapshot();
+        if (!target || !snapshot) {
+            return null;
+        }
+        const group = this.options.manifestStore
+            .listGroups(target.workspace.navigationIdentity)
+            .find(candidate => candidate.groupId === targetGroupId);
+        if (!group) {
+            return null;
+        }
+        const memberRepositories = new Set(group.members.map(member => member.repositoryKey));
+        const all = await this.listRepositoryOptions(projectId);
+        const eligible = all.filter(option => !memberRepositories.has(option.repositoryKey));
+        const activeEditorPath = this.options.getActiveEditorPath();
+        const activeRepositoryKey = activeEditorPath
+            ? visibleRepositories(target.workspace, snapshot).find(repository =>
+                repository.worktrees
+                    .filter(worktree => !worktree.isBare)
+                    .some(worktree =>
+                        isWorkspaceHostPathContained(
+                            worktree.key.canonicalWorktreePath, activeEditorPath)))
+                ?.repositoryKey
+            : undefined;
+        const activeEligible = activeRepositoryKey
+            && !memberRepositories.has(activeRepositoryKey)
+            ? activeRepositoryKey
+            : undefined;
+        return {
+            group: {
+                groupId: group.groupId,
+                displayName: group.displayName,
+                revision: group.revision,
+            },
+            options: eligible.map(option => ({
+                ...option,
+                defaultChecked: option.repositoryKey === activeEligible,
+            })),
+        };
+    }
+
     async preview(
         projectId: string,
         displayName: string,
         selections: readonly GroupCreationPreviewSelection[],
-        sourceGroupId?: string
+        sourceGroupId?: string,
+        targetGroupId?: string
     ): Promise<GroupCreationPreview> {
         const target = this.options.getWorkspaceTarget(projectId);
         const snapshot = this.options.getWorktreeSnapshot();
-        const slug = slugifyTaskName(displayName);
+        let slug = slugifyTaskName(displayName);
         this.previewCounter += 1;
         const previewId = `preview-${this.previewCounter.toString(36)}`;
         const previewSerial = this.previewCounter;
@@ -326,11 +387,24 @@ export class WorktreeGroupCreationController {
             previewId,
             members: [],
         };
-        if (!slug) {
-            return { ...preview, formError: 'invalid-task' };
-        }
         if (!target || !snapshot) {
             return preview;
+        }
+        const addRepoTargetEarly = targetGroupId
+            ? this.options.manifestStore
+                .listGroups(target.workspace.navigationIdentity)
+                .find(candidate => candidate.groupId === targetGroupId)
+            : undefined;
+        if (addRepoTargetEarly) {
+            // Add repo (PRD §6.3): the group's identity is authoritative —
+            // the slug stays locked to the group's suggestedSlug and member
+            // branches derive from it, never from a forged form name.
+            preview.displayName = addRepoTargetEarly.displayName;
+            preview.slug = addRepoTargetEarly.suggestedSlug;
+            slug = addRepoTargetEarly.suggestedSlug;
+        }
+        if (!slug) {
+            return { ...preview, formError: 'invalid-task' };
         }
         const repositories = visibleRepositories(target.workspace, snapshot);
         preview.members = await Promise.all(selections.map(async selection => {
@@ -349,7 +423,7 @@ export class WorktreeGroupCreationController {
                 };
             }
             const member = await this.previewMember(
-                repository, selection, displayName, slug, label,
+                repository, selection, preview.displayName, preview.slug, label,
                 snapshot.revision ?? 0);
             // Setup resolution is a cheap config read and stays fresh; only
             // the git-backed plan/preflight work is memoized.
@@ -370,10 +444,24 @@ export class WorktreeGroupCreationController {
                 .listGroups(target.workspace.navigationIdentity)
                 .find(candidate => candidate.groupId === sourceGroupId)
             : undefined;
+        const addRepoTarget = targetGroupId && target
+            ? this.options.manifestStore
+                .listGroups(target.workspace.navigationIdentity)
+                .find(candidate => candidate.groupId === targetGroupId)
+            : undefined;
         this.previewSnapshots.set(projectId, {
             previewId,
             displayName: preview.displayName,
-            slug,
+            slug: preview.slug,
+            ...(targetGroupId
+                ? {
+                    addRepo: {
+                        targetGroupId,
+                        targetRevision: addRepoTarget ? addRepoTarget.revision : -1,
+                        slug: addRepoTarget ? addRepoTarget.suggestedSlug : '',
+                    },
+                }
+                : {}),
             ...(sourceGroupId
                 ? {
                     derive: {
@@ -488,6 +576,7 @@ export class WorktreeGroupCreationController {
         displayName: string;
         members: readonly GroupCreationConfirmedMember[];
         primaryRepositoryKey?: string;
+        targetGroupId?: string;
     }): Promise<GroupCreationConfirmResult> {
         const target = this.options.getWorkspaceTarget(request.projectId);
         const snapshot = this.options.getWorktreeSnapshot();
@@ -501,6 +590,12 @@ export class WorktreeGroupCreationController {
         if (!previewSnapshot || previewSnapshot.previewId !== request.previewId) {
             return { kind: 'failed', errorCode: 'preview-stale' };
         }
+        // The confirmed target must be the group the preview bound: a
+        // forged or dropped targetGroupId under a valid previewId is stale.
+        if ((request.targetGroupId ?? null)
+            !== (previewSnapshot.addRepo?.targetGroupId ?? null)) {
+            return { kind: 'failed', errorCode: 'preview-stale' };
+        }
         if (previewSnapshot.derive && target) {
             // Derive binding (decision G): the source group must be exactly
             // the revision the bases were previewed from — a rename, member
@@ -510,6 +605,19 @@ export class WorktreeGroupCreationController {
                 .find(candidate =>
                     candidate.groupId === previewSnapshot.derive!.sourceGroupId);
             if (!source || source.revision !== previewSnapshot.derive.sourceRevision) {
+                return { kind: 'failed', errorCode: 'group-changed' };
+            }
+        }
+        if (previewSnapshot.addRepo && target) {
+            // Add-repo binding (PRD §6.3): the target group must be exactly
+            // the previewed revision with the locked slug.
+            const targetGroup = this.options.manifestStore
+                .listGroups(target.workspace.navigationIdentity)
+                .find(candidate =>
+                    candidate.groupId === previewSnapshot.addRepo!.targetGroupId);
+            if (!targetGroup
+                || targetGroup.revision !== previewSnapshot.addRepo.targetRevision
+                || targetGroup.suggestedSlug !== previewSnapshot.addRepo.slug) {
                 return { kind: 'failed', errorCode: 'group-changed' };
             }
         }
@@ -571,21 +679,38 @@ export class WorktreeGroupCreationController {
         // confirm can never provision the same plan twice.
         this.previewSnapshots.delete(request.projectId);
         let group: WorktreeGroup;
+        let newMembers: WorktreeGroup['members'];
         try {
-            group = await this.options.manifestStore.createGroup(navigationIdentity, {
-                displayName,
-                suggestedSlug: slug,
-                // Members start in provisioning (not planned): any member
-                // reconciliation sees as provisioning without a live
-                // operation crashed mid-creation and self-heals to
-                // failed/interrupted (PRD §9 in-flight 对账).
-                members: members.map(member => ({
-                    repositoryKey: member.repositoryKey,
-                    branchName: member.branchName,
-                    path: member.worktreePath,
-                    state: 'provisioning' as const,
-                })),
-            });
+            if (previewSnapshot.addRepo) {
+                // Add repo (PRD §6.3): members join the existing group in
+                // one aggregate write (decision F: validate-all-then-write).
+                group = await this.options.manifestStore.addPlannedMembers(
+                    navigationIdentity,
+                    previewSnapshot.addRepo.targetGroupId,
+                    members.map(member => ({
+                        repositoryKey: member.repositoryKey,
+                        branchName: member.branchName,
+                        path: member.worktreePath,
+                        state: 'provisioning' as const,
+                    })));
+                newMembers = group.members.slice(-members.length);
+            } else {
+                group = await this.options.manifestStore.createGroup(navigationIdentity, {
+                    displayName,
+                    suggestedSlug: slug,
+                    // Members start in provisioning (not planned): any member
+                    // reconciliation sees as provisioning without a live
+                    // operation crashed mid-creation and self-heals to
+                    // failed/interrupted (PRD §9 in-flight 对账).
+                    members: members.map(member => ({
+                        repositoryKey: member.repositoryKey,
+                        branchName: member.branchName,
+                        path: member.worktreePath,
+                        state: 'provisioning' as const,
+                    })),
+                });
+                newMembers = group.members;
+            }
         } catch (error) {
             return {
                 kind: 'failed',
@@ -595,7 +720,11 @@ export class WorktreeGroupCreationController {
         this.options.onDidChange?.();
         const confirmedPrimary = members.find(member =>
             member.repositoryKey === request.primaryRepositoryKey);
-        await Promise.all(group.members.map(async member => {
+        // Add repo never switches the primary — unless the group has no
+        // primary at all, in which case the first new member takes it once
+        // it becomes ready (PRD §6.3).
+        const addRepoNeedsPrimary = !!previewSnapshot.addRepo && !group.primaryMemberId;
+        await Promise.all(newMembers.map(async (member, index) => {
             const confirmed = members.find(candidate =>
                 candidate.repositoryKey === member.repositoryKey)!;
             const previewed = previewSnapshot.members.get(confirmed.repositoryKey)!;
@@ -616,7 +745,9 @@ export class WorktreeGroupCreationController {
                 setupCommand: confirmed.setupEnabled
                     ? previewed.setupCommand.slice()
                     : [],
-                preferredPrimary: confirmed === confirmedPrimary,
+                preferredPrimary: previewSnapshot.addRepo
+                    ? addRepoNeedsPrimary && index === 0
+                    : confirmed === confirmedPrimary,
             });
         }));
         return { kind: 'created', groupId: group.groupId };

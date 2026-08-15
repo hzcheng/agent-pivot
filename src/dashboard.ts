@@ -2436,8 +2436,20 @@ async function initializeDashboard(
             if (!request) {
                 return;
             }
-            const repositories = await worktreeGroupCreationController
-                .listRepositoryOptions(request.projectId);
+            // Add repo (PRD §6.3): the form lists only repositories not
+            // already in the group, locks the group name, and prechecks
+            // only the active editor's repository when eligible.
+            const addRepo = request.targetGroupId
+                ? await worktreeGroupCreationController.listAddRepoOptions(
+                    request.projectId, request.targetGroupId)
+                : null;
+            if (request.targetGroupId && !addRepo) {
+                return;
+            }
+            const repositories = addRepo
+                ? addRepo.options
+                : await worktreeGroupCreationController
+                    .listRepositoryOptions(request.projectId);
             // Derive (PRD §6.2): prefill name, selection, and base refs
             // from the source group; the group itself is never modified.
             const derive = request.sourceGroupId
@@ -2459,6 +2471,14 @@ async function initializeDashboard(
                 type: 'worktree-group-form-state',
                 version: 1,
                 projectId: request.projectId,
+                ...(addRepo
+                    ? {
+                        addRepo: {
+                            groupId: addRepo.group.groupId,
+                            displayName: addRepo.group.displayName,
+                        },
+                    }
+                    : {}),
                 ...(derive ? { derive } : {}),
                 ...(request.seedRepositoryKey && seedWorktree?.branchRef
                     ? {
@@ -2478,7 +2498,7 @@ async function initializeDashboard(
             }
             const preview = await worktreeGroupCreationController.preview(
                 request.projectId, request.displayName, request.selections,
-                request.sourceGroupId);
+                request.sourceGroupId, request.targetGroupId);
             await provider.postMessage({
                 type: 'worktree-group-preview',
                 version: 1,
@@ -2506,6 +2526,9 @@ async function initializeDashboard(
                 members: request.members,
                 ...(request.primaryRepositoryKey
                     ? { primaryRepositoryKey: request.primaryRepositoryKey }
+                    : {}),
+                ...(request.targetGroupId
+                    ? { targetGroupId: request.targetGroupId }
                     : {}),
             }).catch(error => {
                 logError('Failed to confirm the worktree group creation.', error);

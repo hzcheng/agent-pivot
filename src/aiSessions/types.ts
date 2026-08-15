@@ -116,6 +116,11 @@ export interface WorktreeGroupRowViewModel {
     /** At least one ready member exists, so sessions can be launched. */
     canCreateSession: boolean;
     /**
+     * Live sessions whose persisted writable scope no longer covers the
+     * group's expected scope (PRD §6.3): the row annotates them.
+     */
+    scopeOutdatedSessions?: number;
+    /**
      * An active deletion journal leases this group (PRD §6.4): the row
      * shows the operation state and offers Retry/abandon for failures.
      */
@@ -200,6 +205,12 @@ export interface ActiveAiSessionViewModel {
      * still include non-member main checkouts until it is restarted.
      */
     legacyScope?: boolean;
+    /**
+     * The group gained a member after this session started (PRD §6.3): the
+     * persisted writable roots no longer cover the expected group scope.
+     * Restart the session to pick the new worktree up.
+     */
+    scopeOutdated?: boolean;
 }
 
 export interface AiSessionReadResult {

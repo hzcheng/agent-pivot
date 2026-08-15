@@ -374,6 +374,51 @@ export class WorktreeGroupManifestStore {
         });
     }
 
+    /**
+     * Add repo (PRD §6.3, decision F): attach several new members to an
+     * existing group in one aggregate write — full validation (capacity,
+     * repository uniqueness, WorktreeKey occupancy, lease) first, no
+     * partial application.
+     */
+    addPlannedMembers(
+        workspaceIdentity: string,
+        groupId: string,
+        inputs: readonly NewWorktreeGroupMember[]
+    ): Promise<WorktreeGroup> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            assertGroupNotLeased(bucket, groupId);
+            const group = bucket.groups.find(candidate => candidate.groupId === groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
+            if (!inputs.length) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            if (group.members.length + inputs.length > MAX_MEMBERS_PER_GROUP) {
+                throw new WorktreeGroupManifestError('store-full');
+            }
+            const members = inputs.map(input => ({
+                memberId: newId(),
+                ...sanitizeMember(input),
+            }));
+            const existingRepositories = new Set(
+                group.members.map(member => member.repositoryKey));
+            if (members.some(member => existingRepositories.has(member.repositoryKey))) {
+                // Invariant 2: one repository contributes at most one
+                // member to a group.
+                throw new WorktreeGroupManifestError('repository-conflict');
+            }
+            assertWorktreeKeysUnclaimed(bucket.groups, members, group.groupId);
+            group.members.push(...members);
+            bumpRevision(group);
+            assertGroupInvariants(group);
+            await this.commitBucket(manifest, bucket);
+            return cloneGroup(group);
+        });
+    }
+
     /** Dismiss a failed intent or record a removed worktree. Never touches disk. */
     removeMember(
         workspaceIdentity: string,

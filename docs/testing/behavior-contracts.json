@@ -6575,5 +6575,28 @@
       "src/webview/webviewAiSessionContent.ts",
       "src/dashboard.ts"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-ADD-REPO-001",
+    "domain": "persistence",
+    "title": "Add repo reuses the inline creation form with a locked group slug, eligible-repository filtering, active-editor default check, and revision-bound preview tokens; scope-outdated judgment annotates group rows fail-safe (ready members only, mapped bindings, cross-platform comparison)",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/groupAddRepo.test.js",
+      "tests/unit/worktrees/groupCreationProtocol.test.js",
+      "tests/unit/workspaces/sessionScopeOutdated.test.js",
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupCreationController.ts",
+      "src/worktrees/groupCreationProtocol.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewGroupFormScripts.js",
+      "src/dashboard.ts"
+    ]
   }
 ]

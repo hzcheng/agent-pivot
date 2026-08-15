@@ -136,6 +136,34 @@ test('WORKTREE-GROUPS-RENAME-001 projects the manifest revision onto the group r
     assert.equal(groups[0].revision, 7);
 });
 
+test('WORKTREE-GROUPS-ADD-REPO-001 scope-outdated live sessions annotate the group row', () => {
+    const alphaKey = member('/alpha/.git', 'fix-login').worktreeKey;
+    const { groups } = project({
+        groups: [group()],
+        activeSessions: [
+            {
+                key: 'codex:s-1', provider: 'codex', sessionId: 's-1',
+                name: 'One', executionState: 'running', focused: false,
+                needsAttention: false, pending: false, backend: 'vscode',
+                attached: true, worktreeKey: alphaKey, scopeOutdated: true,
+            },
+        ],
+    });
+    assert.equal(groups[0].scopeOutdatedSessions, 1);
+    const current = project({
+        groups: [group()],
+        activeSessions: [
+            {
+                key: 'codex:s-2', provider: 'codex', sessionId: 's-2',
+                name: 'Two', executionState: 'running', focused: false,
+                needsAttention: false, pending: false, backend: 'vscode',
+                attached: true, worktreeKey: alphaKey,
+            },
+        ],
+    });
+    assert.equal(current.groups[0].scopeOutdatedSessions, undefined);
+});
+
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 an active deletion journal leases the group row', () => {
     const journal = {
         operationId: 'op-1',

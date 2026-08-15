@@ -203,6 +203,9 @@ export function buildWorktreeGroupProjection(
         }
         const journal = (input.deletionJournals || []).find(entry =>
             entry.groupId === group.groupId);
+        // PRD §6.3: the group outgrew a live session's persisted writable
+        // scope — annotate the row so the user restarts the session.
+        const scopeOutdatedCount = groupLive.filter(session => session.scopeOutdated).length;
         groupRows.push({
             kind: 'group',
             groupId: group.groupId,
@@ -219,6 +222,9 @@ export function buildWorktreeGroupProjection(
             // A leased group cannot start sessions (decision J); the host
             // enforces it too — the row just does not offer the action.
             canCreateSession: primaryReady && !hasInFlightMember && !journal,
+            ...(scopeOutdatedCount
+                ? { scopeOutdatedSessions: scopeOutdatedCount }
+                : {}),
             ...(journal
                 ? {
                     deletion: {

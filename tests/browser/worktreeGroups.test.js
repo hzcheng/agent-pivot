@@ -1721,3 +1721,116 @@ test('WORKTREE-GROUPS-DERIVE-001 derives a group through the prefilled inline fo
         baseRef: 'refs/heads/agent-pivot/fix-login',
     }], 'the base ref is overridden to the source branch');
 });
+
+test('WORKTREE-GROUPS-ADD-REPO-001 adds a repository through the locked-name inline form', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const addRepoItem = menu.locator('[data-action="worktree-group-add-repo"]');
+    assert.equal(await addRepoItem.isVisible(), true, 'group rows offer add-repo');
+    await addRepoItem.evaluate(item => item.click());
+
+    const openRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.deepEqual(openRequest, {
+        type: 'open-worktree-group-form',
+        version: 1,
+        projectId: 'project-a',
+        targetGroupId: 'g-1',
+    });
+
+    await page.evaluate(() => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-form-state',
+                version: 1,
+                projectId: 'project-a',
+                addRepo: { groupId: 'g-1', displayName: 'fix-login' },
+                repositories: [
+                    {
+                        repositoryKey: '/gamma/.git',
+                        label: 'gamma',
+                        defaultBaseRef: 'refs/heads/main',
+                        localBranches: ['main'],
+                        defaultChecked: true,
+                        setupCommand: [],
+                    },
+                    {
+                        repositoryKey: '/delta/.git',
+                        label: 'delta',
+                        defaultBaseRef: 'refs/heads/main',
+                        localBranches: ['main'],
+                        defaultChecked: false,
+                        setupCommand: [],
+                    },
+                ],
+            },
+        }));
+    });
+    const form = page.locator('[data-worktree-group-form]');
+    assert.equal(await form.count(), 1, 'the add-repo form opens inline');
+    assert.match(await form.locator('.ai-session-group-form-title').textContent(),
+        /Add repositories to fix-login/);
+    const nameInput = page.locator('[data-group-form-name]');
+    assert.equal(await nameInput.inputValue(), 'fix-login');
+    assert.equal(await nameInput.evaluate(input => input.readOnly), true,
+        'the group name is locked');
+    assert.equal(await form.locator('[data-group-form-check]').count(), 2,
+        'only eligible repositories are listed');
+    assert.equal(
+        await form.locator('[data-group-form-check="\\/gamma\\/.git"]').isChecked(), true,
+        'the active editor repository is prechecked');
+    assert.equal(
+        await form.locator('[data-group-form-check="\\/delta\\/.git"]').isChecked(), false,
+        'other eligible repositories stay unchecked');
+    const previewRequest = await page.evaluate(() => window.__postedMessages
+        .filter(message => message.type === 'preview-worktree-group').at(-1));
+    assert.equal(previewRequest.targetGroupId, 'g-1',
+        'the preview binds the target group');
+    // Confirm echoes the bound target.
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                previewId: 'preview-host-1',
+                slug: 'fix-login',
+                members: [{
+                    repositoryKey: '/gamma/.git', label: 'gamma',
+                    baseRef: 'refs/heads/main',
+                    branchName: 'agent-pivot/fix-login',
+                    worktreePath: '/gamma/.worktrees/fix-login',
+                    setupCommand: [],
+                    preflight: 'ok',
+                }],
+            },
+        }));
+    }, previewRequest.requestId);
+    const confirm = form.locator('[data-group-form-action="confirm"]');
+    assert.equal(await confirm.isEnabled(), true);
+    await confirm.evaluate(button => button.click());
+    const confirmRequest = await page.evaluate(() => window.__postedMessages
+        .filter(message => message.type === 'confirm-worktree-group').at(-1));
+    assert.equal(confirmRequest.targetGroupId, 'g-1');
+    assert.equal(confirmRequest.displayName, 'fix-login',
+        'the locked name is confirmed, not a user edit');
+});
+
+test('WORKTREE-GROUPS-ADD-REPO-001 the scope-outdated note renders on the group row', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup({ scopeOutdatedSessions: 2 })],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    const note = page.locator('.ai-session-worktree-scope-outdated');
+    assert.equal(await note.count(), 1);
+    assert.match(await note.textContent(), /2 sessions cannot write the new worktree/);
+    assert.match(await note.textContent(), /restart to pick it up/);
+});

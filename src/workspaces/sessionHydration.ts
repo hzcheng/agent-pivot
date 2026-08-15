@@ -21,6 +21,7 @@ import type { AiSessionProviderSelection } from '../aiSessions/providerSelection
 import { getAiSessionKey, prepareAiSessionsForDisplay } from '../aiSessions/sessionHelpers';
 import {
     assignPathToWorkspaceRoot,
+    getWorkspaceHostPathComparisonKey,
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
@@ -37,6 +38,8 @@ import {
 } from './sessionAttention';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type { WorktreeKey } from '../worktrees/types';
+import { mapWorktreeBoundHostPaths } from './sessionScope';
 import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
 import type {
     GenerationClaim,
@@ -338,6 +341,72 @@ function parseSessionCreatedAtMs(session: CodexSession): number | undefined {
     return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+/**
+ * Scope-outdated judgment (PRD §6.3 决策 D): a live group session's
+ * persisted writable roots no longer cover the group's expected scope.
+ * The expected scope maps every ready, non-detached member's visible
+ * repository bindings into its worktree; comparison is normalized and
+ * case/path-separator safe. Unknown persisted scope means no hint —
+ * never a guess.
+ */
+export function isGroupSessionScopeOutdated(
+    runtime: {
+        identity: {
+            worktreeKey?: WorktreeKey;
+            isolatedRoots?: boolean;
+            writableRootHostPaths?: readonly string[];
+        };
+    },
+    groups: readonly WorktreeGroup[],
+    snapshot: WorktreeSnapshot | null | undefined,
+    workspace: OpenWorkspace
+): boolean {
+    const key = runtime.identity.worktreeKey;
+    if (!key || !runtime.identity.isolatedRoots) {
+        // Pre-isolation runtimes carry the legacy marker instead (PRD §5.5).
+        return false;
+    }
+    const group = groups.find(candidate => candidate.members.some(member =>
+        member.worktreeKey
+        && member.worktreeKey.repositoryKey === key.repositoryKey
+        && member.worktreeKey.canonicalWorktreePath === key.canonicalWorktreePath));
+    if (!group || !snapshot) {
+        return false;
+    }
+    const persisted = runtime.identity.writableRootHostPaths;
+    if (!persisted || persisted.length === 0) {
+        return false;
+    }
+    // Cross-platform comparison keys (Windows case/separator-insensitive).
+    const persistedSet = new Set(persisted.map(getWorkspaceHostPathComparisonKey));
+    for (const member of group.members) {
+        // New members enter the expected scope only once ready (PRD §6.3).
+        if (member.state !== 'ready' || member.detached || !member.worktreeKey) {
+            continue;
+        }
+        const repository = snapshot.repositories.find(candidate =>
+            candidate.repositoryKey === member.repositoryKey);
+        if (!repository) {
+            continue;
+        }
+        let mapped: string[];
+        try {
+            mapped = mapWorktreeBoundHostPaths(
+                member.worktreeKey.canonicalWorktreePath,
+                repository.rootBindings,
+                workspace.roots);
+        } catch {
+            continue;
+        }
+        for (const candidatePath of mapped) {
+            if (!persistedSet.has(getWorkspaceHostPathComparisonKey(candidatePath))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 function buildActiveSessions<TTerminal>(input: {
     input: HydrateWorkspaceAiSessionsInput<TTerminal>;
     sessionsByProvider: Partial<Record<AiSessionProviderId, AiSessionViewModel[]>>;
@@ -403,6 +472,13 @@ function buildActiveSessions<TTerminal>(input: {
                 ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
                     ? { legacyScope: true }
                     : {}),
+                ...(isGroupSessionScopeOutdated(
+                    runtime,
+                    input.input.worktreeGroups || [],
+                    input.input.worktreeSnapshot,
+                    input.input.workspace)
+                    ? { scopeOutdated: true }
+                    : {}),
                 activityMs: finiteNumber(runtime.runStartedAtMs),
                 sourceOrder,
             };
@@ -451,6 +527,13 @@ function buildActiveSessions<TTerminal>(input: {
                 : manifestKey ? { worktreeKey: manifestKey } : {}),
             ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
                 ? { legacyScope: true }
+                : {}),
+            ...(isGroupSessionScopeOutdated(
+                runtime,
+                input.input.worktreeGroups || [],
+                input.input.worktreeSnapshot,
+                input.input.workspace)
+                ? { scopeOutdated: true }
                 : {}),
             activityMs: timestamp(runtime.createdAt),
             sourceOrder: active.length + sourceOrder,

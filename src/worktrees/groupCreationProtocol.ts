@@ -15,6 +15,8 @@ export interface OpenWorktreeGroupFormRequest {
     seedWorktreePath?: string;
     /** Derive entry (PRD §6.2): prefill from this source group. */
     sourceGroupId?: string;
+    /** Add-repo entry (PRD §6.3): add members to this existing group. */
+    targetGroupId?: string;
 }
 
 export interface PreviewWorktreeGroupRequest {
@@ -26,6 +28,8 @@ export interface PreviewWorktreeGroupRequest {
     selections: { repositoryKey: string; baseRef?: string }[];
     /** Derive previews bind the source group the bases were taken from. */
     sourceGroupId?: string;
+    /** Add-repo previews bind the target group and its locked slug. */
+    targetGroupId?: string;
 }
 
 export interface ConfirmWorktreeGroupRequest {
@@ -37,6 +41,8 @@ export interface ConfirmWorktreeGroupRequest {
     previewId: string;
     displayName: string;
     primaryRepositoryKey?: string;
+    /** Add-repo confirm: the existing group these members join. */
+    targetGroupId?: string;
     members: {
         repositoryKey: string;
         baseRef: string;
@@ -89,15 +95,19 @@ export function parseOpenWorktreeGroupFormRequest(
     const hasSeed = value.seedRepositoryKey !== undefined
         || value.seedWorktreePath !== undefined;
     const hasSource = value.sourceGroupId !== undefined;
+    const hasTarget = value.targetGroupId !== undefined;
     const expected = [
         'projectId', 'type', 'version',
         ...(hasSeed ? ['seedRepositoryKey', 'seedWorktreePath'] : []),
         ...(hasSource ? ['sourceGroupId'] : []),
+        ...(hasTarget ? ['targetGroupId'] : []),
     ].sort();
     if (!sameKeys(value, expected)
         || (hasSeed && (!isSafeString(value.seedRepositoryKey)
             || !isSafeString(value.seedWorktreePath)))
-        || (hasSource && !isSafeId(value.sourceGroupId))) {
+        || (hasSource && !isSafeId(value.sourceGroupId))
+        || (hasTarget && !isSafeId(value.targetGroupId))
+        || (hasSource && hasTarget)) {
         return null;
     }
     return value as unknown as OpenWorktreeGroupFormRequest;
@@ -115,10 +125,14 @@ export function parsePreviewWorktreeGroupRequest(
         return null;
     }
     const hasSource = value.sourceGroupId !== undefined;
+    const hasTarget = value.targetGroupId !== undefined;
     if (!sameKeys(value, [
         'displayName', 'projectId', 'requestId', 'selections', 'type', 'version',
         ...(hasSource ? ['sourceGroupId'] : []),
-    ].sort()) || (hasSource && !isSafeId(value.sourceGroupId))) {
+        ...(hasTarget ? ['targetGroupId'] : []),
+    ].sort()) || (hasSource && !isSafeId(value.sourceGroupId))
+        || (hasTarget && !isSafeId(value.targetGroupId))
+        || (hasSource && hasTarget)) {
         return null;
     }
     const selections: PreviewWorktreeGroupRequest['selections'] = [];
@@ -143,6 +157,7 @@ export function parsePreviewWorktreeGroupRequest(
         displayName: value.displayName,
         selections,
         ...(hasSource ? { sourceGroupId: value.sourceGroupId as string } : {}),
+        ...(hasTarget ? { targetGroupId: value.targetGroupId as string } : {}),
     };
 }
 
@@ -159,11 +174,15 @@ export function parseConfirmWorktreeGroupRequest(
         return null;
     }
     const hasPrimary = value.primaryRepositoryKey !== undefined;
-    const expected = hasPrimary
-        ? ['displayName', 'members', 'previewId', 'primaryRepositoryKey', 'projectId', 'requestId', 'type', 'version']
-        : ['displayName', 'members', 'previewId', 'projectId', 'requestId', 'type', 'version'];
+    const hasTarget = value.targetGroupId !== undefined;
+    const expected = [
+        'displayName', 'members', 'previewId', 'projectId', 'requestId', 'type', 'version',
+        ...(hasPrimary ? ['primaryRepositoryKey'] : []),
+        ...(hasTarget ? ['targetGroupId'] : []),
+    ].sort();
     if (!sameKeys(value, expected)
-        || (hasPrimary && !isSafeString(value.primaryRepositoryKey))) {
+        || (hasPrimary && !isSafeString(value.primaryRepositoryKey))
+        || (hasTarget && !isSafeId(value.targetGroupId))) {
         return null;
     }
     const members: ConfirmWorktreeGroupRequest['members'] = [];
@@ -191,6 +210,7 @@ export function parseConfirmWorktreeGroupRequest(
         previewId: value.previewId,
         displayName: value.displayName,
         ...(hasPrimary ? { primaryRepositoryKey: value.primaryRepositoryKey as string } : {}),
+        ...(hasTarget ? { targetGroupId: value.targetGroupId as string } : {}),
         members,
     };
 }

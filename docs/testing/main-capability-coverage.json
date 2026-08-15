@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "7a02f84406b83b8aca31e67788df525f5a759dd3",
+        "head": "527f0cbed5bd233e8169cf861a2ed043f655cac5",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -368,7 +368,9 @@
             "e80e6906bc418ef3435d305f0d7dd7d526761c66",
             "78d7fb39d6846645789492f2f8d07452c55d1256",
             "e2c4a15537eabcf0659a5381d5189dba398762ad",
-            "815fb52441e556cd16ea032f6f036737410279a4"
+            "815fb52441e556cd16ea032f6f036737410279a4",
+            "65238a9c146da64b2827ec795f1d2a1c310edc9e",
+            "1eabfe76b33df31f74f8179e049a1ea2a546769d"
         ]
     },
     "capabilities": [
@@ -526,14 +528,16 @@
                 "ececb08b09d4d0f3e1fbe32073c151d23046429d",
                 "14dabc20bfefc61be5fc8dbbe7f80bddd4673880",
                 "5f1aee35f65d74b9375af261ab9007bf66947f65",
-                "7a02f84406b83b8aca31e67788df525f5a759dd3"
+                "7a02f84406b83b8aca31e67788df525f5a759dd3",
+                "527f0cbed5bd233e8169cf861a2ed043f655cac5"
             ],
             "behaviors": [
                 "PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001",
                 "WORKTREE-DISCOVERY-001",
                 "WORKTREE-SNAPSHOT-001",
                 "SESSION-WORKTREE-ASSIGNMENT-001",
-                "WORKTREE-PRESENTATION-001"
+                "WORKTREE-PRESENTATION-001",
+                "WORKTREE-GROUPS-DELETE-JOURNAL-001"
             ],
             "prGates": [
                 "test:deterministic:run"

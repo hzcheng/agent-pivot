@@ -128,7 +128,7 @@ retiredWorktreeIdentity:
 3. pending claim 一旦提交**即算 deletion blocker**（beginDeletion 的 blocker 复检必须命中）；提交后才能释放 mutex 并创建 binding/terminal。
 4. claim 写入失败或 `store-full` → 在任何 terminal/provider 副作用前拒绝创建。
 5. 启动失败 → 补偿删除 pending claim。
-6. 崩溃恢复：claim + binding/runtime 存在 → 继续关联并晋升；能权威确认 session 从未产生 → 清理 claim；binding/provider 状态不确定 → **保留 claim 并阻断删除**。
+6. 崩溃恢复：claim + binding/runtime 存在 → 继续关联并晋升；binding/marker 证据可链接 → reconcile 晋升；其余一律保留。**（批 2 评审修正）reconcile 永不自动 discard**：marker 文件会随 terminal 关闭清理、provider 清单无法权威证伪"从未启动"，缺席证据不等于没有；claim 只经三条权威路径释放——进程内补偿删除、晋升、retired 记录清理。孤儿 pending claim 不会卡死删除：批 3 的 deletion blocker 只认有佐证（live runtime/binding/marker）的 pending claim。
 7. sessionId 出现后，在 aggregate 内将 pending claim **原子晋升**为 `{provider, sessionId}` claim。
 
 故障注入测试：claim 写入后、binding 写入前崩溃；provider session 出现后、claim 晋升前崩溃。

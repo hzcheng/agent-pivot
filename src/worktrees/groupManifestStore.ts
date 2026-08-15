@@ -993,11 +993,24 @@ function sanitizeAggregateCrossInvariants(
     });
     const retirementByKey = new Map(
         aggregate.retiredIdentities.map(record => [record.retirementId, record]));
-    const seenClaimIds = new Set<string>();
-    const seenPendingIds = new Set<string>();
-    const seenPromotedIdentities = new Set<string>();
+    // Claims only ever *prove* the current generation, so a corrupt
+    // conflict must drop EVERY conflicting claim: keeping the first would
+    // let array order decide whether a stale session may resume.
+    const claimIds = new Map<string, number>();
+    const pendingIds = new Map<string, number>();
+    const promotedIdentities = new Map<string, number>();
+    for (const claim of aggregate.generationClaims) {
+        claimIds.set(claim.claimId, (claimIds.get(claim.claimId) || 0) + 1);
+        if (claim.state === 'pending' && claim.pendingId) {
+            pendingIds.set(claim.pendingId, (pendingIds.get(claim.pendingId) || 0) + 1);
+        }
+        if (claim.state === 'promoted') {
+            const identity = `${claim.provider}::${claim.sessionId}`;
+            promotedIdentities.set(identity, (promotedIdentities.get(identity) || 0) + 1);
+        }
+    }
     aggregate.generationClaims = aggregate.generationClaims.filter(claim => {
-        if (seenClaimIds.has(claim.claimId)) {
+        if ((claimIds.get(claim.claimId) || 0) !== 1) {
             return false;
         }
         const basis = retirementByKey.get(claim.createdAfterRetirementId);
@@ -1007,18 +1020,15 @@ function sanitizeAggregateCrossInvariants(
             return false;
         }
         if (claim.state === 'pending') {
-            if (!claim.pendingId || seenPendingIds.has(claim.pendingId)) {
+            if (!claim.pendingId || (pendingIds.get(claim.pendingId) || 0) !== 1) {
                 return false;
             }
-            seenPendingIds.add(claim.pendingId);
         } else {
             const identity = `${claim.provider}::${claim.sessionId}`;
-            if (seenPromotedIdentities.has(identity)) {
+            if ((promotedIdentities.get(identity) || 0) !== 1) {
                 return false;
             }
-            seenPromotedIdentities.add(identity);
         }
-        seenClaimIds.add(claim.claimId);
         return true;
     });
     // The cutoff high-water mark must cover every surviving retirement; a

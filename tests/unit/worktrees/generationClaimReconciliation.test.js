@@ -23,84 +23,44 @@ function pendingClaim(overrides) {
     };
 }
 
-function evidence(overrides) {
-    return {
-        livePendingIds: new Set(),
-        pendingBindingIds: new Set(),
-        boundSessionByMarkerPath: new Map(),
-        markerExists: () => false,
-        hasProviderActivityOnPath: () => false,
-        isCreationInFlight: () => false,
-        ...(overrides || {}),
-    };
-}
-
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 in-flight creations are never discarded', () => {
-    // The claim window (claim persisted, runtime not started) shows zero
-    // evidence by definition; only the in-flight mark distinguishes it
-    // from a crashed creation.
-    const disposition = resolveGenerationClaimDisposition(
-        pendingClaim(), evidence({ isCreationInFlight: () => true }));
-    assert.deepEqual(disposition, { kind: 'keep' });
-});
-
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 failed evidence enumeration keeps every claim', () => {
-    for (const broken of [
-        { livePendingIds: null },
-        { pendingBindingIds: null },
-        { boundSessionByMarkerPath: null },
-    ]) {
-        assert.deepEqual(
-            resolveGenerationClaimDisposition(pendingClaim(), evidence(broken)),
-            { kind: 'keep' });
-    }
-});
-
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 live pending runtimes and bindings own their claims', () => {
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence({
-        livePendingIds: new Set(['p-1']),
-    })), { kind: 'keep' });
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence({
-        pendingBindingIds: new Set(['p-1']),
-    })), { kind: 'keep' });
-});
-
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a bound marker re-attaches the session after a crash', () => {
-    const disposition = resolveGenerationClaimDisposition(pendingClaim(), evidence({
+    const disposition = resolveGenerationClaimDisposition(pendingClaim(), {
         boundSessionByMarkerPath: new Map([[
             '/tmp/marker-1.done', { provider: 'codex', sessionId: 's-found' },
         ]]),
-    }));
+    });
     assert.deepEqual(disposition, {
         kind: 'promote', provider: 'codex', sessionId: 's-found',
     });
 });
 
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a completed marker without a binding keeps the claim', () => {
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence({
-        markerExists: () => true,
-    })), { kind: 'keep' });
-});
-
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 legacy claims without recovery fields are kept', () => {
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 absence of evidence is never a reason to discard', () => {
+    // Markers are cleaned up when terminals close and provider inventories
+    // cannot prove a negative, so reconciliation never discards: empty
+    // evidence, failed enumeration, and legacy claims all keep.
+    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), {
+        boundSessionByMarkerPath: new Map(),
+    }), { kind: 'keep' }, 'no binding found: keep');
+    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), {
+        boundSessionByMarkerPath: null,
+    }), { kind: 'keep' }, 'enumeration failed or ambiguous: keep');
     assert.deepEqual(resolveGenerationClaimDisposition(
         pendingClaim({ launchMarkerPath: undefined }),
-        evidence()), { kind: 'keep' },
-        'no marker path: cannot prove the launch never happened');
+        { boundSessionByMarkerPath: new Map() },
+    ), { kind: 'keep' }, 'legacy claim without a marker path: keep');
     assert.deepEqual(resolveGenerationClaimDisposition(
-        pendingClaim({ creatingProvider: undefined }),
-        evidence()), { kind: 'keep' },
-        'no provider: cannot scan authoritatively');
+        pendingClaim({ state: 'promoted', provider: 'codex', sessionId: 's-1' }),
+        { boundSessionByMarkerPath: new Map() },
+    ), { kind: 'keep' }, 'already-promoted claims are left alone');
 });
 
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 discard requires authoritative negative evidence', () => {
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence({
-        hasProviderActivityOnPath: () => 'unknown',
-    })), { kind: 'keep' }, 'an unreadable or truncated provider scan keeps the claim');
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence({
-        hasProviderActivityOnPath: () => true,
-    })), { kind: 'keep' }, 'provider activity on the path keeps the claim');
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence()),
-        { kind: 'discard' },
-        'no runtime, no binding, no marker, authoritative silence → discard');
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a stale snapshot can only delay, never mis-promote', () => {
+    // The marker link is a durable fact: when the snapshot predates the
+    // binding, the claim simply waits for the next tick.
+    const claim = pendingClaim();
+    assert.deepEqual(resolveGenerationClaimDisposition(claim, {
+        boundSessionByMarkerPath: new Map([[
+            '/tmp/other-marker.done', { provider: 'codex', sessionId: 's-other' },
+        ]]),
+    }), { kind: 'keep' }, 'a different marker never attaches');
 });

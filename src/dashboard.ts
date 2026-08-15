@@ -240,7 +240,6 @@ import {
 } from './workspaces/sessionHydrationController';
 import {
     isWorkspaceHostPathContained,
-    normalizeWorkspaceHostPath,
 } from './workspaces/sessionAssignment';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
@@ -291,7 +290,6 @@ import {
     parseRenameWorktreeGroupRequest,
     settledWorktreeGroupRenameSettlement,
 } from './worktrees/groupRenameProtocol';
-import type { GenerationClaim } from './worktrees/retiredWorktrees';
 import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
 import {
     acceptedIsolatedSessionSettlement,
@@ -1400,9 +1398,12 @@ async function initializeDashboard(
     // claim promotion are separate writes, so a crash (or a transient
     // memento failure) between them strands a pending claim whose runtime
     // no longer exists. This idempotent pass re-attaches the session id
-    // from the durable terminal binding (same unique launch marker path),
-    // discards claims whose launch provably never happened, and keeps
-    // everything uncertain — kept claims block deletion (fail-closed).
+    // from the durable terminal binding (same unique launch marker path).
+    // It never discards: no post-hoc channel can authoritatively prove a
+    // launch never happened (markers are cleaned up on terminal close and
+    // provider inventories cannot prove a negative), so claims are released
+    // only by the in-process compensating delete, by promotion, or by
+    // explicit retired-record cleanup.
     const reconcilePendingGenerationClaims = async (workspace: OpenWorkspace) => {
         const identity = workspace.navigationIdentity;
         const pendingClaims = worktreeGroupManifestStore.listGenerationClaims(identity)
@@ -1410,88 +1411,38 @@ async function initializeDashboard(
         if (!pendingClaims.length) {
             return;
         }
-        // Evidence enumeration must never degrade to an empty set: a
-        // failed read is not proof of absence.
-        let livePendingIds: Set<string>;
-        try {
-            livePendingIds = new Set(
-                (await aiSessionRuntimeCoordinator.getPendingForPromotion())
-                    .map(runtime => runtime.identity.pendingId)
-                    .filter((pendingId): pendingId is string => !!pendingId));
-        } catch (error) {
-            logError('Failed to enumerate pending runtimes for claim reconciliation.', error);
-            return;
-        }
         const bindings = aiSessionTerminalBindingStore.listAll();
         if (!bindings) {
-            logError('Failed to enumerate terminal bindings for claim reconciliation.', null);
+            // Enumeration failed: absence of evidence is not evidence.
             return;
         }
-        const pendingBindingIds = new Set(bindings
-            .filter((binding): binding is typeof binding & { pendingId: string } =>
-                binding.state === 'pending')
-            .map(binding => binding.pendingId));
         const boundByMarkerPath = new Map<string, { provider: string; sessionId: string }>();
+        let ambiguous = false;
         for (const binding of bindings) {
-            if ((binding.state === 'bound' || binding.state === 'released')
-                && binding.markerPath) {
-                boundByMarkerPath.set(binding.markerPath, {
-                    provider: binding.providerId,
-                    sessionId: binding.sessionId,
-                });
+            if ((binding.state !== 'bound' && binding.state !== 'released')
+                || !binding.markerPath) {
+                continue;
             }
+            const existing = boundByMarkerPath.get(binding.markerPath);
+            if (existing && existing.sessionId !== binding.sessionId) {
+                // Two durable bindings claim the same marker: nothing is
+                // provable this round.
+                ambiguous = true;
+                break;
+            }
+            boundByMarkerPath.set(binding.markerPath, {
+                provider: binding.providerId,
+                sessionId: binding.sessionId,
+            });
+        }
+        if (ambiguous) {
+            logError('Ambiguous terminal bindings skipped during claim reconciliation.', null);
+            return;
         }
         await worktreeGroupManifestStore.reconcileGenerationClaims(identity, claim =>
             resolveGenerationClaimDisposition(claim, {
-                livePendingIds,
-                pendingBindingIds,
                 boundSessionByMarkerPath: boundByMarkerPath,
-                markerExists: markerPath => {
-                    try {
-                        return existsSync(markerPath);
-                    } catch {
-                        return true;
-                    }
-                },
-                isCreationInFlight: pendingId =>
-                    aiSessionCreationController.isClaimCreationInFlight(pendingId),
-                hasProviderActivityOnPath: currentClaim =>
-                    detectProviderActivityForClaim(currentClaim),
             }));
-    };
-    // Authoritative negative evidence for claim discard: forced refresh,
-    // unbounded, and any unavailability or truncation means 'unknown'.
-    const detectProviderActivityForClaim = (
-        claim: GenerationClaim
-    ): boolean | 'unknown' => {
-        const providerId = claim.creatingProvider;
-        if (!providerId || !isAiSessionProviderId(providerId)) {
-            return 'unknown';
-        }
-        let result;
-        try {
-            result = aiSessionReadCoordinator.getProviderResult(providerId, {
-                forceRefresh: true,
-                candidatePaths: [claim.worktreeKey.canonicalWorktreePath],
-                maxFiles: 0,
-                reason: 'claim-reconcile',
-            });
-        } catch {
-            return 'unknown';
-        }
-        if (!result?.available || result.parsedFiles < result.scannedFiles) {
-            return 'unknown';
-        }
-        const claimPath = normalizeWorkspaceHostPath(claim.worktreeKey.canonicalWorktreePath);
-        return result.sessions.some(session => {
-            const cwd = normalizeWorkspaceHostPath(getProviderAiSessionComparableCwd(
-                providerId, session, aiSessionProviders));
-            const activityAt = Date.parse(session.createdAt || session.updatedAt || '');
-            return !!claimPath && !!cwd
-                && isWorkspaceHostPathContained(claimPath, cwd)
-                && Number.isFinite(activityAt)
-                && activityAt >= claim.createdAtMs;
-        });
     };
     const workspacePendingSessionPromotionController =
         new WorkspacePendingSessionPromotionController<vscode.Terminal>({

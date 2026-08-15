@@ -605,9 +605,12 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
     store = new WorktreeGroupManifestStore(seeded(
         [retiredRecord()],
         [
-            pendingClaim({ claimId: 'c-missing', createdAfterRetirementId: 'r-gone' }),
             pendingClaim({
-                claimId: 'c-foreign',
+                claimId: 'c-missing', pendingId: 'p-missing',
+                createdAfterRetirementId: 'r-gone',
+            }),
+            pendingClaim({
+                claimId: 'c-foreign', pendingId: 'p-foreign',
                 worktreeKey: {
                     repositoryKey: '/repos/beta/.git',
                     canonicalWorktreePath: '/repos/beta/.worktrees/x',
@@ -620,27 +623,38 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
         store.listGenerationClaims(WORKSPACE).map(claim => claim.claimId),
         ['c-1']);
 
-    // Duplicate pending ids / promoted identities: later duplicates drop.
+    // Duplicate pending ids / promoted identities: EVERY conflicting claim
+    // is dropped — keeping the first would let array order decide whether
+    // a stale session may resume.
     store = new WorktreeGroupManifestStore(seeded(
         [retiredRecord()],
         [
             pendingClaim(),
             pendingClaim({ claimId: 'c-2', pendingId: 'p-1' }),
+        ],
+        100));
+    assert.deepEqual(store.listGenerationClaims(WORKSPACE), [],
+        'duplicate pending ids drop both claims');
+
+    store = new WorktreeGroupManifestStore(seeded(
+        [retiredRecord(), retiredRecord({
+            retirementId: 'r-2', generationCutoffAt: 300, deletedAt: 400,
+        })],
+        [
             {
                 claimId: 'c-3', createdAfterRetirementId: 'r-1', createdAtMs: 150,
                 state: 'promoted', provider: 'codex', sessionId: 's-1',
                 worktreeKey: pendingClaim().worktreeKey,
             },
             {
-                claimId: 'c-4', createdAfterRetirementId: 'r-1', createdAtMs: 160,
+                claimId: 'c-4', createdAfterRetirementId: 'r-2', createdAtMs: 350,
                 state: 'promoted', provider: 'codex', sessionId: 's-1',
                 worktreeKey: pendingClaim().worktreeKey,
             },
         ],
-        100));
-    assert.deepEqual(
-        store.listGenerationClaims(WORKSPACE).map(claim => claim.claimId).sort(),
-        ['c-1', 'c-3']);
+        300));
+    assert.deepEqual(store.listGenerationClaims(WORKSPACE), [],
+        'duplicate promoted identities drop both claims, regardless of order');
 
     // A stored high-water mark below the records' cutoffs is repaired up.
     store = new WorktreeGroupManifestStore(seeded([retiredRecord()], [], 5));

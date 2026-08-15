@@ -1416,7 +1416,12 @@ async function initializeDashboard(
             // Enumeration failed: absence of evidence is not evidence.
             return;
         }
-        const boundByMarkerPath = new Map<string, { provider: string; sessionId: string }>();
+        const boundByMarkerPath = new Map<string, {
+            provider: string;
+            sessionId: string;
+            navigationIdentity: string;
+            worktreeKey?: import('./worktrees/types').WorktreeKey;
+        }>();
         let ambiguous = false;
         for (const binding of bindings) {
             if ((binding.state !== 'bound' && binding.state !== 'released')
@@ -1424,15 +1429,18 @@ async function initializeDashboard(
                 continue;
             }
             const existing = boundByMarkerPath.get(binding.markerPath);
-            if (existing && existing.sessionId !== binding.sessionId) {
-                // Two durable bindings claim the same marker: nothing is
-                // provable this round.
+            // Session identity is the composite {provider, sessionId}:
+            // either half differing makes the marker ambiguous.
+            if (existing && (existing.sessionId !== binding.sessionId
+                || existing.provider !== binding.providerId)) {
                 ambiguous = true;
                 break;
             }
             boundByMarkerPath.set(binding.markerPath, {
                 provider: binding.providerId,
                 sessionId: binding.sessionId,
+                navigationIdentity: binding.workspaceNavigationIdentity,
+                ...(binding.worktreeKey ? { worktreeKey: binding.worktreeKey } : {}),
             });
         }
         if (ambiguous) {
@@ -1441,6 +1449,7 @@ async function initializeDashboard(
         }
         await worktreeGroupManifestStore.reconcileGenerationClaims(identity, claim =>
             resolveGenerationClaimDisposition(claim, {
+                navigationIdentity: identity,
                 boundSessionByMarkerPath: boundByMarkerPath,
             }));
     };

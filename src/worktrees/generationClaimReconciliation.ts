@@ -1,6 +1,7 @@
 'use strict';
 
 import type { GenerationClaim } from './retiredWorktrees';
+import type { WorktreeKey } from './types';
 
 /**
  * Disposition resolver for pending generation claims (PRD §6.4).
@@ -24,12 +25,19 @@ export type GenerationClaimDisposition =
     | { kind: 'promote'; provider: string; sessionId: string };
 
 export interface GenerationClaimEvidence {
+    /** The bucket being reconciled; bindings must belong to it. */
+    navigationIdentity: string;
     /**
      * Bound/released durable terminal bindings by their unique launch
      * marker path. null = enumeration failed or ambiguous (duplicate
      * marker paths): nothing is provable, every claim is kept.
      */
-    boundSessionByMarkerPath: ReadonlyMap<string, { provider: string; sessionId: string }> | null;
+    boundSessionByMarkerPath: ReadonlyMap<string, {
+        provider: string;
+        sessionId: string;
+        navigationIdentity: string;
+        worktreeKey?: WorktreeKey;
+    }> | null;
 }
 
 export function resolveGenerationClaimDisposition(
@@ -41,6 +49,17 @@ export function resolveGenerationClaimDisposition(
     }
     const bound = evidence.boundSessionByMarkerPath?.get(claim.launchMarkerPath);
     if (!bound) {
+        return { kind: 'keep' };
+    }
+    // The binding must describe this very session: same bucket, same
+    // provider (when the claim recorded one), same worktree key when the
+    // binding carries one.
+    if (bound.navigationIdentity !== evidence.navigationIdentity
+        || (claim.creatingProvider && bound.provider !== claim.creatingProvider)
+        || (bound.worktreeKey
+            && (bound.worktreeKey.repositoryKey !== claim.worktreeKey.repositoryKey
+                || bound.worktreeKey.canonicalWorktreePath
+                    !== claim.worktreeKey.canonicalWorktreePath))) {
         return { kind: 'keep' };
     }
     // The runtime promoted but the claim promotion crashed or failed:

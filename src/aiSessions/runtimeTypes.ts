@@ -371,6 +371,31 @@ export interface AiSessionRuntimeSnapshot<TTerminal = unknown> {
     tmux?: AiSessionTmuxLocator;
 }
 
+/**
+ * Creation conclusions for generation-claim safety (PRD §6.4): a claim may
+ * be discarded only when the runtime layer *proves* the provider launch
+ * never happened. Timeouts, post-launch failures, and uncertain recovery
+ * must keep the claim. The tag is a property (not a wrapper class) so
+ * upstream `instanceof`/category checks keep working.
+ */
+const PROVEN_NOT_STARTED_TAG = '__agentPivotCreateProvenNotStarted';
+
+export function markCreateErrorProvenNotStarted<T>(error: T): T {
+    if (error && typeof error === 'object') {
+        try {
+            (error as Record<string, unknown>)[PROVEN_NOT_STARTED_TAG] = true;
+        } catch {
+            // Non-extensible errors simply cannot carry the tag.
+        }
+    }
+    return error;
+}
+
+export function isCreateErrorProvenNotStarted(error: unknown): boolean {
+    return !!error && typeof error === 'object'
+        && (error as Record<string, unknown>)[PROVEN_NOT_STARTED_TAG] === true;
+}
+
 export class AiSessionRuntimeConflictError extends Error {
     readonly conflicts: AiSessionRuntimeSnapshot[];
 

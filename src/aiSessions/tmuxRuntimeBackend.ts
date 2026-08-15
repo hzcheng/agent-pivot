@@ -31,6 +31,7 @@ import {
     getAiSessionRuntimeIdentityPersistenceFields,
     isValidAiSessionPromotionDisplayName,
     isValidAiSessionRuntimeIdentity,
+    markCreateErrorProvenNotStarted,
     TmuxRuntimeUnavailableError,
 } from './runtimeTypes';
 import {
@@ -1060,6 +1061,10 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         if (!recovered) {
             if (isProvenNoCreate(error) && !await this.locatorIsOccupied(locator)) {
                 await this.dependencies.runtimeStore.removeAmbiguous(request.identity);
+                // The create command itself failed and nothing occupies the
+                // target: the provider launch provably never happened, so
+                // the caller may discard the generation claim (PRD §6.4).
+                markCreateErrorProvenNotStarted(error);
             }
             throw error;
         }

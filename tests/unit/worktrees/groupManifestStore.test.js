@@ -467,10 +467,10 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 store enforces the reference invarian
         'a promoted session identity backs at most one claim');
 });
 
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation promotes, discards, and keeps in one write', async () => {
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation promotes and keeps in one write', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     await store.recordRetiredIdentity(WORKSPACE, retiredInput());
-    for (const pendingId of ['p-promote', 'p-discard', 'p-keep', 'p-throw']) {
+    for (const pendingId of ['p-promote', 'p-keep', 'p-throw']) {
         await store.createGenerationClaim(WORKSPACE, {
             pendingId,
             worktreeKey: {
@@ -485,27 +485,23 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation promotes, discards, an
         if (claim.pendingId === 'p-promote') {
             return { kind: 'promote', provider: 'codex', sessionId: 's-found' };
         }
-        if (claim.pendingId === 'p-discard') {
-            return { kind: 'discard' };
-        }
         if (claim.pendingId === 'p-throw') {
             throw new Error('resolver exploded');
         }
         return { kind: 'keep' };
     });
-    assert.deepEqual(outcome, { promoted: 1, discarded: 1, kept: 2 },
+    assert.deepEqual(outcome, { promoted: 1, kept: 2 },
         'a resolver failure keeps the claim (fail-closed)');
     const claims = store.listGenerationClaims(WORKSPACE);
     const byPending = id => claims.find(claim =>
         claim.pendingId === id || claim.sessionId === id);
     assert.equal(byPending('s-found').state, 'promoted');
-    assert.equal(byPending('p-discard'), undefined);
     assert.equal(byPending('p-keep').state, 'pending');
     assert.equal(byPending('p-throw').state, 'pending');
 
     // A second pass is a no-op: reconciliation is idempotent.
     const again = await store.reconcileGenerationClaims(WORKSPACE, () => ({ kind: 'keep' }));
-    assert.deepEqual(again, { promoted: 0, discarded: 0, kept: 2 });
+    assert.deepEqual(again, { promoted: 0, kept: 2 });
 });
 
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation keeps ambiguous promotion targets', async () => {
@@ -525,7 +521,7 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation keeps ambiguous promot
     const outcome = await store.reconcileGenerationClaims(WORKSPACE, () => ({
         kind: 'promote', provider: 'codex', sessionId: 's-same',
     }));
-    assert.deepEqual(outcome, { promoted: 0, discarded: 0, kept: 2 },
+    assert.deepEqual(outcome, { promoted: 0, kept: 2 },
         'two claims onto the same session identity are both kept — never an order-based guess');
     assert.equal(store.listGenerationClaims(WORKSPACE)
         .filter(claim => claim.state === 'pending').length, 2);
@@ -593,13 +589,21 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
         },
     });
 
-    // Duplicate retirement ids: the later record is dropped.
+    // Duplicate retirement ids quarantine the whole retired/claim section:
+    // no record may win by array order.
     let store = new WorktreeGroupManifestStore(seeded(
         [retiredRecord(), retiredRecord({
             canonicalWorktreePath: '/repos/alpha/.worktrees/dup',
         })],
-        [], 100));
-    assert.equal(store.listRetiredIdentities(WORKSPACE).length, 1);
+        [pendingClaim()], 100));
+    assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true);
+    assert.deepEqual(store.listRetiredIdentities(WORKSPACE), [],
+        'a duplicate retirement id hides the untrustworthy section');
+    assert.deepEqual(store.listGenerationClaims(WORKSPACE), []);
+    await assert.rejects(
+        store.recordRetiredIdentity(WORKSPACE, retiredInput({ retirementId: 'r-new' })),
+        error => error.code === 'store-corrupt',
+        'mutations fail closed while the section is quarantined');
 
     // Claims with a missing or key-mismatched basis are dropped.
     store = new WorktreeGroupManifestStore(seeded(

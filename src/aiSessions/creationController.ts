@@ -9,6 +9,7 @@ import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
 import {
     cloneAiSessionDirectoryScope,
+    isCreateErrorProvenNotStarted,
     isValidAiSessionRuntimeIdentityId,
 } from './runtimeTypes';
 import type {
@@ -464,7 +465,12 @@ export class AiSessionCreationController {
         try {
             result = await coordinator.create(request);
         } catch (error) {
-            if (generationClaimId && options.discardGenerationClaim) {
+            // PRD §6.4: only a proven-not-started failure may discard the
+            // claim. Timeouts, post-launch failures, and uncertain recovery
+            // keep it — claim reconciliation can still re-attach the
+            // session, and a kept claim blocks deletion (fail-closed).
+            if (generationClaimId && options.discardGenerationClaim
+                && isCreateErrorProvenNotStarted(error)) {
                 await options.discardGenerationClaim({
                     navigationIdentity: directoryScope.workspaceNavigationIdentity,
                     claimId: generationClaimId,
@@ -479,8 +485,10 @@ export class AiSessionCreationController {
             options.refresh();
             return false;
         }
-        if (result.status !== 'started' && generationClaimId
-            && options.discardGenerationClaim) {
+        // Cancelled/settings outcomes happen before any launch side effect;
+        // conflict/blocked mean the runtime state is unclear → keep.
+        if ((result.status === 'cancelled' || result.status === 'settings')
+            && generationClaimId && options.discardGenerationClaim) {
             await options.discardGenerationClaim({
                 navigationIdentity: directoryScope.workspaceNavigationIdentity,
                 claimId: generationClaimId,

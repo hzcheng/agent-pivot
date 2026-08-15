@@ -81,6 +81,7 @@ export type WorktreeGroupManifestErrorCode =
   | 'worktree-key-claimed'
   | 'repository-conflict'
   | 'primary-not-ready'
+  | 'store-corrupt'
   | 'store-full';
 
 export class WorktreeGroupManifestError extends Error {
@@ -93,8 +94,7 @@ export class WorktreeGroupManifestError extends Error {
 
 export type GenerationClaimResolution =
     | { kind: 'keep' }
-    | { kind: 'promote'; provider: string; sessionId: string }
-    | { kind: 'discard' };
+    | { kind: 'promote'; provider: string; sessionId: string };
 
 export interface NewWorktreeGroupMember {
     repositoryKey: string;
@@ -128,6 +128,13 @@ interface WorkspaceAggregate {
     /** Reserved for the deletion journal (batch 3); parsed tolerantly. */
     deletionJournal: unknown[];
     generationClaims: GenerationClaim[];
+    /**
+     * Set when the persisted blob fails cross-record validation (e.g. a
+     * duplicate retirement id): the retired/claim sections are quarantined
+     * — reads see them as empty, mutations fail closed — because choosing
+     * any record by order would let corruption decide resumability.
+     */
+    corrupt?: boolean;
     /**
      * Persistent high-water mark for generation cutoffs: bumped atomically
      * by every deletion begin, never regresses — not even when retired
@@ -398,13 +405,37 @@ export class WorktreeGroupManifestStore {
     // ---------- Retired identities & generation claims (PRD §6.4) ----------
 
     listRetiredIdentities(workspaceIdentity: string): RetiredWorktreeIdentity[] {
-        return this.readAggregate(workspaceIdentity).retiredIdentities
+        const aggregate = this.readAggregate(workspaceIdentity);
+        if (aggregate.corrupt) {
+            return [];
+        }
+        return aggregate.retiredIdentities
             .map(cloneRetiredIdentity);
     }
 
     listGenerationClaims(workspaceIdentity: string): GenerationClaim[] {
-        return this.readAggregate(workspaceIdentity).generationClaims
+        const aggregate = this.readAggregate(workspaceIdentity);
+        if (aggregate.corrupt) {
+            return [];
+        }
+        return aggregate.generationClaims
             .map(cloneGenerationClaim);
+    }
+
+    /** Whether the bucket's retired/claim sections failed validation. */
+    isRetiredStoreCorrupt(workspaceIdentity: string): boolean {
+        return !!this.readAggregate(workspaceIdentity).corrupt;
+    }
+
+    private requireHealthyBucket(
+        manifest: ManifestShape,
+        workspaceIdentity: string
+    ): WorkspaceAggregate {
+        const bucket = this.getBucket(manifest, workspaceIdentity);
+        if (bucket.corrupt) {
+            throw new WorktreeGroupManifestError('store-corrupt');
+        }
+        return bucket;
     }
 
     /**
@@ -420,7 +451,7 @@ export class WorktreeGroupManifestStore {
     ): Promise<RetiredWorktreeIdentity> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
             if (bucket.retiredIdentities.length >= MAX_RETIRED_PER_WORKSPACE) {
                 throw new WorktreeGroupManifestError('store-full');
             }
@@ -512,7 +543,7 @@ export class WorktreeGroupManifestStore {
     ): Promise<GenerationClaim> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
             const basis = bucket.retiredIdentities.find(record =>
                 record.retirementId === input.createdAfterRetirementId);
             if (!basis
@@ -564,7 +595,7 @@ export class WorktreeGroupManifestStore {
     ): Promise<GenerationClaim> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
             const claim = bucket.generationClaims.find(candidate =>
                 candidate.state === 'pending' && candidate.pendingId === pendingId);
             if (!claim) {
@@ -600,7 +631,7 @@ export class WorktreeGroupManifestStore {
     removeGenerationClaim(workspaceIdentity: string, claimId: string): Promise<boolean> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
             const index = bucket.generationClaims.findIndex(candidate =>
                 candidate.claimId === claimId);
             if (index < 0) {
@@ -617,17 +648,18 @@ export class WorktreeGroupManifestStore {
      * runtime promotion and the claim promotion are separate writes, so a
      * crash between them leaves a pending claim whose runtime is gone. The
      * resolver classifies each pending claim from durable evidence; every
-     * resolution is validated and applied in one aggregate write. Doubt
-     * always resolves to 'keep' — a kept claim blocks deletion (fail-closed)
-     * and can be released later by explicit retired-record cleanup.
+     * resolution is validated and applied in one aggregate write. There is
+     * no discard here by design: absence of evidence is not proof a launch
+     * never happened, so claims leave only through promotion, the exact
+     * in-process compensating delete, or explicit retired-record cleanup.
      */
     reconcileGenerationClaims(
         workspaceIdentity: string,
         resolve: (claim: GenerationClaim) => GenerationClaimResolution
-    ): Promise<{ promoted: number; discarded: number; kept: number }> {
+    ): Promise<{ promoted: number; kept: number }> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
             // Resolve everything first, then apply: two pending claims
             // resolving onto the same session identity must BOTH stay
             // pending — picking the first by array order would be a guess.
@@ -662,7 +694,7 @@ export class WorktreeGroupManifestStore {
                     claimedIdentities.set(identity, (claimedIdentities.get(identity) || 0) + 1);
                 }
             }
-            const outcome = { promoted: 0, discarded: 0, kept: 0 };
+            const outcome = { promoted: 0, kept: 0 };
             const nextClaims: GenerationClaim[] = [];
             let changed = false;
             for (const claim of bucket.generationClaims) {
@@ -693,11 +725,6 @@ export class WorktreeGroupManifestStore {
                     changed = true;
                     continue;
                 }
-                if (resolution.kind === 'discard') {
-                    outcome.discarded += 1;
-                    changed = true;
-                    continue;
-                }
                 nextClaims.push(claim);
                 outcome.kept += 1;
             }
@@ -722,7 +749,7 @@ export class WorktreeGroupManifestStore {
     ): Promise<boolean> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
             const index = bucket.retiredIdentities.findIndex(record =>
                 record.retirementId === retirementId);
             if (index < 0) {
@@ -984,13 +1011,23 @@ function sanitizeAggregateCrossInvariants(
     aggregate: WorkspaceAggregate
 ): WorkspaceAggregate {
     const seenRetirementIds = new Set<string>();
-    aggregate.retiredIdentities = aggregate.retiredIdentities.filter(record => {
+    const duplicateRetirement = aggregate.retiredIdentities.some(record => {
         if (seenRetirementIds.has(record.retirementId)) {
-            return false;
+            return true;
         }
         seenRetirementIds.add(record.retirementId);
-        return true;
+        return false;
     });
+    if (duplicateRetirement) {
+        // A retirement id must identify exactly one deletion fact. When it
+        // does not, no record may win by array order: quarantine the whole
+        // retired/claim section (reads empty, mutations fail closed) until
+        // the user clears the corrupt state.
+        aggregate.corrupt = true;
+        aggregate.retiredIdentities = [];
+        aggregate.generationClaims = [];
+        return aggregate;
+    }
     const retirementByKey = new Map(
         aggregate.retiredIdentities.map(record => [record.retirementId, record]));
     // Claims only ever *prove* the current generation, so a corrupt

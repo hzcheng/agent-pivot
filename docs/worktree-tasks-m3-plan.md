@@ -121,17 +121,22 @@ retiredWorktreeIdentity:
 1. **generation claim 携带相对引用**：Agent Pivot 在 retired path 上创建 session 时，在创建入口（pending 创建时）写入 `createdAfterRetirementId` = 该 WorktreeKey **当时最新**的 retirementId；sessionId 确认后**原子晋升**为 `{provider, sessionId}` 级持久记录。
 2. **claim 独立持久化，不依赖 runtime binding 寿命**：terminal binding 有显式 `remove()`（已核实 `terminalBindingStore.ts`），claim 存于独立的持久化 store（aggregate 的 generationClaims 节），在 binding 清理后继续存在，直到对应历史 session 被权威确认删除（随 retired 清理规则或历史归档释放）。
 
-**pending claim 即持久化 admission marker（v5.1 确认约束，批 2/批 3 实现约束）**：New session 与 deletion 跨存储（claim aggregate vs terminal binding/provider session），顺序必须定死，保证无论谁先取得 mutex 都不漏过对方：
+**pending claim 即持久化 admission marker（v5.2 定案，批 2 评审四轮收口）**：三条领域不变量，任何实现与它们冲突时以这三条为准：
+
+1. **pending claim 从持久化成功起始终阻断 deletion**，直到以下三者之一：晋升（promoted）、证明未启动（proven-not-started）、用户显式处理。不存在"无佐证就不阻断"的例外——那会重新打开 New session 与 deletion 的 admission 竞态。
+2. **只有 `proven-not-started` 才能删除 claim**：runtime 层以结构化结论标记（tmux：create 命令自身失败且目标未被占用；direct：terminal 创建失败；用户取消/settings 等 launch 前结果）。超时、启动后异常、恢复不确定一律保留。
+3. **reconciliation 在 Store 层只有 keep/promote**；任何持久化身份冲突（重复 retirementId/claimId/pendingId/promoted identity、重复 marker 绑定）进入**隔离**（bucket 标记 corrupt、retired/claim 段读空、变更 fail-closed），不按数组顺序猜测。
+
+操作约束：
 
 1. mutex 键为 `{navigationIdentity, groupId}`，不是裸 groupId。
 2. New session 持锁检查 journal 后，**先持久化** `{pendingId, worktreeKey, createdAfterRetirementId, state: 'pending'}`。
 3. pending claim 一旦提交**即算 deletion blocker**（beginDeletion 的 blocker 复检必须命中）；提交后才能释放 mutex 并创建 binding/terminal。
 4. claim 写入失败或 `store-full` → 在任何 terminal/provider 副作用前拒绝创建。
-5. 启动失败 → 补偿删除 pending claim。
-6. 崩溃恢复：claim + binding/runtime 存在 → 继续关联并晋升；binding/marker 证据可链接 → reconcile 晋升；其余一律保留。**（批 2 评审修正）reconcile 永不自动 discard**：marker 文件会随 terminal 关闭清理、provider 清单无法权威证伪"从未启动"，缺席证据不等于没有；claim 只经三条权威路径释放——进程内补偿删除、晋升、retired 记录清理。孤儿 pending claim 不会卡死删除：批 3 的 deletion blocker 只认有佐证（live runtime/binding/marker）的 pending claim。
-7. sessionId 出现后，在 aggregate 内将 pending claim **原子晋升**为 `{provider, sessionId}` claim。
+5. 崩溃恢复：claim + binding/runtime 存在 → 继续关联并晋升；binding/marker 证据可链接（同 bucket、同 provider、同 worktreeKey）→ reconcile 晋升；其余一律保留。保留的 claim 持续阻断删除，用户经删除确认卡的显式处理出口释放（批 4 提供 UI）。
+6. sessionId 出现后，在 aggregate 内将 pending claim **原子晋升**为 `{provider, sessionId}` claim。
 
-故障注入测试：claim 写入后、binding 写入前崩溃；provider session 出现后、claim 晋升前崩溃。
+状态机测试锁定全部相位：claim 写入前后、launch 前后、异常（proven/ambiguous）、崩溃、删除抢锁（`generationClaimLifecycle.test.js`）。
 3. **新世代判定**：session 对 retired R 算新世代，当且仅当其 claim 引用同一 WorktreeKey 上 `generationCutoffAt ≥ R.generationCutoffAt` 的某个 retirement（即创建于 R 或 R 之后的某轮重建期）。
 
 **世代判定规则（完整，`updatedAt` 不作依据）**：

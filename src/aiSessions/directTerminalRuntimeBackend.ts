@@ -25,6 +25,7 @@ import {
     cloneAiSessionDirectoryScope,
     cloneAiSessionRuntimeIdentity,
     isValidAiSessionPromotionDisplayName,
+    markCreateErrorProvenNotStarted,
 } from './runtimeTypes';
 
 interface DirectTerminalEntry<TTerminal> {
@@ -222,13 +223,20 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             throw new Error('Multiple Direct Terminal runtimes use this pending ID.');
         }
 
-        const created = this.terminalService.createTerminal({
-            name: input.terminalName,
-            cwd: input.identity.cwd || undefined,
-            cwdFailureMessage: 'Failed to create the AI session terminal with cwd.',
-            cwdWarningMessage: 'Could not open the AI session terminal at the project directory. Starting without a working directory.',
-            logError: () => undefined,
-        });
+        let created: { terminal: TTerminal; cwdAccepted: boolean };
+        try {
+            created = this.terminalService.createTerminal({
+                name: input.terminalName,
+                cwd: input.identity.cwd || undefined,
+                cwdFailureMessage: 'Failed to create the AI session terminal with cwd.',
+                cwdWarningMessage: 'Could not open the AI session terminal at the project directory. Starting without a working directory.',
+                logError: () => undefined,
+            });
+        } catch (error) {
+            // The terminal itself was never created: the provider launch
+            // provably never happened (PRD §6.4 claim discard rule).
+            throw markCreateErrorProvenNotStarted(error);
+        }
         const dispatched = materializeCreateRequest(input);
         const pending: DirectPendingTerminalEntry<TTerminal> = {
             provider: dispatched.identity.provider,

@@ -6,13 +6,15 @@ const {
     resolveGenerationClaimDisposition,
 } = require('../../../out/worktrees/generationClaimReconciliation');
 
+const KEY = {
+    repositoryKey: '/alpha/.git',
+    canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+};
+
 function pendingClaim(overrides) {
     return {
         claimId: 'c-1',
-        worktreeKey: {
-            repositoryKey: '/alpha/.git',
-            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
-        },
+        worktreeKey: KEY,
         createdAfterRetirementId: 'r-1',
         createdAtMs: 150,
         state: 'pending',
@@ -23,44 +25,64 @@ function pendingClaim(overrides) {
     };
 }
 
+function boundEntry(overrides) {
+    return {
+        provider: 'codex',
+        sessionId: 's-found',
+        navigationIdentity: 'nav-1',
+        worktreeKey: KEY,
+        ...(overrides || {}),
+    };
+}
+
+function evidence(map, overrides) {
+    return {
+        navigationIdentity: 'nav-1',
+        boundSessionByMarkerPath: map,
+        ...(overrides || {}),
+    };
+}
+
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a bound marker re-attaches the session after a crash', () => {
-    const disposition = resolveGenerationClaimDisposition(pendingClaim(), {
-        boundSessionByMarkerPath: new Map([[
-            '/tmp/marker-1.done', { provider: 'codex', sessionId: 's-found' },
-        ]]),
-    });
+    const disposition = resolveGenerationClaimDisposition(pendingClaim(), evidence(
+        new Map([['/tmp/marker-1.done', boundEntry()]])));
     assert.deepEqual(disposition, {
         kind: 'promote', provider: 'codex', sessionId: 's-found',
     });
 });
 
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 absence of evidence is never a reason to discard', () => {
-    // Markers are cleaned up when terminals close and provider inventories
-    // cannot prove a negative, so reconciliation never discards: empty
-    // evidence, failed enumeration, and legacy claims all keep.
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), {
-        boundSessionByMarkerPath: new Map(),
-    }), { kind: 'keep' }, 'no binding found: keep');
-    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), {
-        boundSessionByMarkerPath: null,
-    }), { kind: 'keep' }, 'enumeration failed or ambiguous: keep');
+    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(),
+        evidence(new Map())), { kind: 'keep' }, 'no binding found: keep');
+    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(),
+        evidence(null)), { kind: 'keep' }, 'enumeration failed or ambiguous: keep');
     assert.deepEqual(resolveGenerationClaimDisposition(
         pendingClaim({ launchMarkerPath: undefined }),
-        { boundSessionByMarkerPath: new Map() },
-    ), { kind: 'keep' }, 'legacy claim without a marker path: keep');
+        evidence(new Map())), { kind: 'keep' }, 'legacy claim without a marker path: keep');
     assert.deepEqual(resolveGenerationClaimDisposition(
         pendingClaim({ state: 'promoted', provider: 'codex', sessionId: 's-1' }),
-        { boundSessionByMarkerPath: new Map() },
-    ), { kind: 'keep' }, 'already-promoted claims are left alone');
+        evidence(new Map())), { kind: 'keep' }, 'already-promoted claims are left alone');
 });
 
-test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a stale snapshot can only delay, never mis-promote', () => {
-    // The marker link is a durable fact: when the snapshot predates the
-    // binding, the claim simply waits for the next tick.
-    const claim = pendingClaim();
-    assert.deepEqual(resolveGenerationClaimDisposition(claim, {
-        boundSessionByMarkerPath: new Map([[
-            '/tmp/other-marker.done', { provider: 'codex', sessionId: 's-other' },
-        ]]),
-    }), { kind: 'keep' }, 'a different marker never attaches');
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 promotion requires the full composite identity to match', () => {
+    const mismatches = [
+        ['another bucket', boundEntry({ navigationIdentity: 'nav-2' })],
+        ['another provider', boundEntry({ provider: 'kimi' })],
+        ['another worktree key', boundEntry({
+            worktreeKey: {
+                repositoryKey: '/beta/.git',
+                canonicalWorktreePath: '/beta/.worktrees/fix-login',
+            },
+        })],
+    ];
+    for (const [label, entry] of mismatches) {
+        assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence(
+            new Map([['/tmp/marker-1.done', entry]]))),
+            { kind: 'keep' }, label);
+    }
+    // A binding without a worktree key still promotes when bucket and
+    // provider match (legacy direct bindings may lack the key).
+    assert.deepEqual(resolveGenerationClaimDisposition(pendingClaim(), evidence(
+        new Map([['/tmp/marker-1.done', boundEntry({ worktreeKey: undefined })]]))),
+        { kind: 'promote', provider: 'codex', sessionId: 's-found' });
 });

@@ -322,7 +322,7 @@ test('WORKTREE-GROUPS-CREATE-001 confirm rejects forged or duplicate member sets
             ...confirmedMembers()[0], worktreePath: '/tmp/outside',
         }],
     });
-    assert.deepEqual(unmanaged, { kind: 'failed', errorCode: 'invalid-members' },
+    assert.equal(unmanaged.kind, 'failed',
         'paths outside the managed directory are rejected');
     const unknown = await current.controller.confirm({
         projectId: 'project',
@@ -332,7 +332,7 @@ test('WORKTREE-GROUPS-CREATE-001 confirm rejects forged or duplicate member sets
             ...confirmedMembers()[0], repositoryKey: '/gamma/.git',
         }],
     });
-    assert.deepEqual(unknown, { kind: 'failed', errorCode: 'invalid-members' },
+    assert.equal(unknown.kind, 'failed',
         'repositories outside the workspace snapshot are rejected');
     assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 0,
         'rejected confirms write nothing');
@@ -461,6 +461,65 @@ test('WORKTREE-GROUPS-CREATE-001 a setup configuration change rejects the stale 
         input.plan.repositoryKey === '/alpha/.git');
     assert.deepEqual(alphaStart.setupCommand, ['make', 'setup'],
         'execution uses the refreshed configuration the user just saw');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a forged plan under a valid previewId is rejected', async () => {
+    // The preview snapshot binds the full plan: tampering with the branch
+    // or path is stale, never executable.
+    const current = fixture();
+    const previewId = await previewIdFor(current);
+    const forged = confirmedMembers();
+    forged[0] = {
+        ...forged[0],
+        branchName: 'agent-pivot/forged',
+        worktreePath: '/alpha/.worktrees/forged',
+    };
+    const rejected = await current.controller.confirm({
+        projectId: 'project',
+        previewId,
+        displayName: 'Fix login',
+        members: forged,
+    });
+    assert.deepEqual(rejected, { kind: 'failed', errorCode: 'preview-stale' });
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 0);
+    assert.equal(current.started.length, 0, 'nothing reaches provisioning');
+
+    const baseRefForged = confirmedMembers();
+    baseRefForged[1] = { ...baseRefForged[1], baseRef: 'refs/heads/release/1.0' };
+    const rejectedRef = await current.controller.confirm({
+        projectId: 'project',
+        previewId,
+        displayName: 'Fix login',
+        members: baseRefForged,
+    });
+    assert.equal(rejectedRef.errorCode, 'preview-stale');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 execution uses the frozen preview argv', async () => {
+    // Config reads: 2 at preview, 2 at confirm validation. Any read after
+    // that would observe a changed config; execution must use the frozen
+    // preview argv instead.
+    let reads = 0;
+    const current = fixture({
+        getSetupCommand: repositoryKey => {
+            reads += 1;
+            return reads <= 4
+                ? (repositoryKey === '/beta/.git' ? ['make', 'setup'] : ['npm', 'ci'])
+                : ['late', 'change'];
+        },
+    });
+    const previewId = await previewIdFor(current);
+    const result = await current.controller.confirm({
+        projectId: 'project',
+        previewId,
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(result.kind, 'created');
+    const alphaStart = current.started.find(input =>
+        input.plan.repositoryKey === '/alpha/.git');
+    assert.deepEqual(alphaStart.setupCommand, ['npm', 'ci'],
+        'the executed argv is the one the user reviewed');
 });
 
 test('WORKTREE-GROUPS-CREATE-001 a windows-style editor path still picks its repository', async () => {

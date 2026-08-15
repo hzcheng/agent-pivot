@@ -1344,7 +1344,9 @@ async function initializeDashboard(
                             }
                         }
                         await worktreeProvisioningStore
-                            .pruneTombstones(snapshotPaths)
+                            .pruneTombstones(
+                                snapshotPaths,
+                                snapshot.truncatedWorktreeCount > 0)
                             .catch(error => logError(
                                 'Failed to prune provisioning tombstones.', error));
                     } catch (error) {

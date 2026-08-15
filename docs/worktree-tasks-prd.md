@@ -271,7 +271,7 @@ WORKTREES | CHATS                          [collapse-all] [new]
 ▸ Unmanaged (n)  ● 2                        ← 无主 worktree；参与 attention 聚合
 ```
 
-- **创建中的组行**（M2）：确认后组行立即出现在列表中，member 逐行显示 provisioning 进度 / failed + Retry / Dismiss；全部 member 就绪前组行禁用 New session（§4.2 primary 约束）。创建表单本身固定在列表顶部，收起不丢失输入（§6.1）。
+- **创建中的组行**（M2）：确认后组行立即出现在列表中，member 逐行显示 provisioning 进度 / failed + Retry / Dismiss；**任一 member 仍在 planned/provisioning 时禁用 New session**——此时建 session 的 scope 会静默缺少该仓库。**已结算为 failed 的 member 不阻塞**（§8）：其仓库不进入 scope，member 行内可见并可 Retry/Dismiss。创建表单本身固定在列表顶部，收起不丢失输入（§6.1）。
 - **member chips 规则**：单仓库 workspace 不显示；多仓库 workspace 下所有组行显示（单 member 组显示 1 个 chip——承担"这组在哪个仓库"的消歧职能）；取**最短唯一前缀**（`agent-pivot`/`agent-platform` → `ag`/`p` 之类的首字母碰撞由前缀消歧，不接受"首字母→两字母"的退化规则）；每个 chip 与 `+N` 折叠提供完整 accessible name（hover tooltip 对键盘与屏幕阅读器不可用，不能作为唯一载体）；超过 4 个折叠为 `+N`。
 - **同名消歧**：显示名重复（尤其同仓库）时，组行稳定显示分支/路径短名（如 `修复登录 · agent-pivot/fix-login-2`）；**不依赖会变化的状态或被推迟的时间信息承担身份消歧**。
 - **组行排序**：聚合状态（attention → active → idle）→ 最近活动时间。

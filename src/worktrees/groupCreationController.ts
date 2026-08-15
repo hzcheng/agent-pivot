@@ -134,7 +134,13 @@ export class WorktreeGroupCreationController {
     /** Latest authoritative preview snapshot per project (nonce → setups). */
     private readonly previewSnapshots = new Map<string, {
         previewId: string;
-        setups: Map<string, string>;
+        /** repositoryKey → the exact previewed plan and setup argv. */
+        members: Map<string, {
+            baseRef: string;
+            branchName: string;
+            worktreePath: string;
+            setupCommand: string[];
+        }>;
     }>();
 
     constructor(
@@ -234,13 +240,19 @@ export class WorktreeGroupCreationController {
                 .getSetupCommand(repository.repositoryKey).slice();
             return member;
         }));
-        // The authoritative snapshot a confirm must reference: the setup
-        // command resolved for each previewed repository right now.
+        // The authoritative snapshot a confirm must reference: the full
+        // previewed plan and setup argv per repository (PRD §6.1: Host 仅
+        // 执行最终预览集合，逐项一致).
         this.previewSnapshots.set(projectId, {
             previewId,
-            setups: new Map(preview.members.map(member => [
+            members: new Map(preview.members.map(member => [
                 member.repositoryKey,
-                JSON.stringify(member.setupCommand),
+                {
+                    baseRef: member.baseRef,
+                    branchName: member.branchName,
+                    worktreePath: member.worktreePath,
+                    setupCommand: member.setupCommand.slice(),
+                },
             ])),
         });
         return preview;
@@ -368,10 +380,21 @@ export class WorktreeGroupCreationController {
                 return { kind: 'failed', errorCode: 'invalid-members' };
             }
             seenRepositories.add(member.repositoryKey);
-            const previewedSetup = previewSnapshot.setups.get(member.repositoryKey);
+            const previewed = previewSnapshot.members.get(member.repositoryKey);
+            if (!previewed) {
+                return { kind: 'failed', errorCode: 'preview-stale' };
+            }
+            // Every confirmed field must equal the previewed value exactly:
+            // a forged branch or path under a valid previewId is stale, not
+            // executable.
+            if (previewed.baseRef !== member.baseRef
+                || previewed.branchName !== member.branchName
+                || previewed.worktreePath !== member.worktreePath) {
+                return { kind: 'failed', errorCode: 'preview-stale' };
+            }
             const currentSetup = JSON.stringify(
                 this.options.getSetupCommand(member.repositoryKey).slice());
-            if (previewedSetup === undefined || previewedSetup !== currentSetup) {
+            if (JSON.stringify(previewed.setupCommand) !== currentSetup) {
                 return { kind: 'failed', errorCode: 'preview-stale' };
             }
             const commandCwd = repositoryCommandCwd(repository);
@@ -414,6 +437,7 @@ export class WorktreeGroupCreationController {
         await Promise.all(group.members.map(async member => {
             const confirmed = members.find(candidate =>
                 candidate.repositoryKey === member.repositoryKey)!;
+            const previewed = previewSnapshot.members.get(confirmed.repositoryKey)!;
             await this.runMember(request.projectId, navigationIdentity, group.groupId, {
                 memberId: member.memberId,
                 plan: {
@@ -426,10 +450,10 @@ export class WorktreeGroupCreationController {
                     branchName: confirmed.branchName,
                     worktreePath: confirmed.worktreePath,
                 },
-                // The setup argv is always host-resolved from configuration
-                // (never taken from the request).
+                // Execute the frozen preview argv — exactly what the user
+                // reviewed — never a config value re-read later.
                 setupCommand: confirmed.setupEnabled
-                    ? this.options.getSetupCommand(confirmed.repositoryKey).slice()
+                    ? previewed.setupCommand.slice()
                     : [],
                 preferredPrimary: confirmed === confirmedPrimary,
             });

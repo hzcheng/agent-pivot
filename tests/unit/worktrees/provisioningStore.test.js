@@ -124,6 +124,18 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 pruneTombstones drops entries whose wor
         'only the tombstone with a surviving worktree stays');
 });
 
+test('WORKTREE-PROVISIONING-RECOVERY-001 pruneTombstones never prunes against a truncated snapshot', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    await store.replace([{ ...record('tombstone-truncated'), tombstone: true }]);
+    await store.pruneTombstones(new Set(), true);
+    assert.equal(store.read().length, 1,
+        'a worktree missing only because discovery hit its cap keeps its tombstone');
+    await store.pruneTombstones(new Set(), false);
+    assert.equal(store.read().length, 0,
+        'an untruncated snapshot prunes normally');
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
     const valid = record('valid');
     const state = memento([

@@ -10,9 +10,11 @@ import { isManagedWorktreePath } from './provisioningPlan';
 const STORAGE_KEY = 'agentPivot.worktreeProvisioning.v1';
 const TOMBSTONE_STORAGE_KEY = 'agentPivot.worktreeProvisioningTombstones.v1';
 const MAX_RECORDS = 32;
-// Tombstones live in their own bucket with their own bound so they can
-// never crowd out live recovery records (or be evicted by them).
-const MAX_TOMBSTONES = 128;
+// Tombstones live in their own bucket with their own (generous) bound so
+// they can never crowd out live recovery records (or be evicted by
+// them). The bound exists for memento health; legitimate churn prunes
+// tombstones long before it is reached.
+const MAX_TOMBSTONES = 1024;
 const MAX_STRING = 32 * 1024;
 
 interface MementoLike {
@@ -108,11 +110,17 @@ export class WorktreeProvisioningStore {
 
     /**
      * Drops tombstones whose physical worktree no longer appears in the
-     * snapshot: nothing is left to protect from ready seeding.
+     * snapshot: nothing is left to protect from ready seeding. Never
+     * prunes against a truncated snapshot — a worktree missing only
+     * because discovery hit its cap would lose its protection.
      */
     async pruneTombstones(
-        existingWorktreePaths: ReadonlySet<string>
+        existingWorktreePaths: ReadonlySet<string>,
+        snapshotTruncated = false
     ): Promise<void> {
+        if (snapshotTruncated) {
+            return;
+        }
         const tombstones = this.parseRecords(
             this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
         const kept = tombstones.filter(record =>

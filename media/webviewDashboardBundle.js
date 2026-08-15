@@ -3686,13 +3686,20 @@ function initWorktreeGroupForm(options) {
                 + escapeHtml(preview.worktreePath) + ' \u2190 '
                 + escapeHtml(preview.branchName) + '</span>'
             : '';
-        var setup = repository.setupCommand && repository.setupCommand.length
+        // Display the setup command from the authoritative preview (config
+        // is re-resolved per preview); the bootstrap value is only a
+        // pre-first-preview placeholder.
+        var setupCommand = preview && Array.isArray(preview.setupCommand)
+            && preview.setupCommand.length
+            ? preview.setupCommand
+            : repository.setupCommand;
+        var setup = setupCommand && setupCommand.length
             ? '<label class="ai-session-group-form-setup">'
                 + '<input type="checkbox" data-group-form-setup="' + escapeHtml(key) + '"'
                 + (state.setupDisabled[key] ? '' : ' checked') + (checked ? '' : ' disabled') + '>'
                 + '<span>' + (state.setupDisabled[key]
                     ? 'setup disabled for this repository'
-                    : 'setup: ' + escapeHtml(repository.setupCommand.join(' '))) + '</span></label>'
+                    : 'setup: ' + escapeHtml(setupCommand.join(' '))) + '</span></label>'
             : '<span class="ai-session-group-form-setup ai-session-group-form-setup-none">no setup configured</span>';
         var primary = checked
             ? '<label class="ai-session-group-form-primary" data-tooltip="Primary worktree for new sessions">'
@@ -3750,6 +3757,10 @@ function initWorktreeGroupForm(options) {
             + ' data-group-form-base-filter="' + escapeHtml(key) + '"'
             + ' role="combobox" aria-expanded="true"'
             + ' aria-controls="group-form-base-listbox"'
+            + (preflightId
+                ? ' aria-invalid="true" aria-errormessage="' + preflightId + '"'
+                    + ' aria-describedby="' + preflightId + '"'
+                : '')
             + (activeIndex >= 0
                 ? ' aria-activedescendant="group-form-base-option-' + activeIndex + '"'
                 : '')

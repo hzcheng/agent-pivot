@@ -254,6 +254,13 @@ test('WORKTREE-GROUPS-CREATE-UI-001 preflight failures gate confirm and offer th
     assert.match(await betaBase.getAttribute('aria-errormessage') || '',
         /group-form-preflight-/,
         'the preflight error is referenced from the member control');
+    // The expanded filter input keeps the association (a11y review).
+    await betaBase.evaluate(button => button.click());
+    const filterInput = page.locator('[data-group-form-base-filter="/beta/.git"]');
+    assert.equal(await filterInput.getAttribute('aria-invalid'), 'true');
+    assert.match(await filterInput.getAttribute('aria-errormessage') || '',
+        /group-form-preflight-/);
+    await page.keyboard.press('Escape');
     const available = form.locator('[data-group-form-action="confirm-available"]');
     assert.match(await available.textContent(), /available 1\/2/);
 

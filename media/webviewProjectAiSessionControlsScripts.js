@@ -1100,6 +1100,7 @@ function initProjectAiSessionControls(options) {
             awaitingReplacement: false,
         });
         editor.setAttribute('data-rename-pending', 'true');
+        editor.setAttribute('data-rename-request-id', requestId);
         // readonly (not disabled) keeps focus stable: disabling the focused
         // input drops focus to <body> until the replacement arrives.
         input.readOnly = true;
@@ -1183,6 +1184,7 @@ function initProjectAiSessionControls(options) {
             value: input.value || '',
             originalName: editor.getAttribute('data-rename-original-name') || '',
             pending: editor.getAttribute('data-rename-pending') === 'true',
+            requestId: editor.getAttribute('data-rename-request-id') || '',
         };
     }
 
@@ -1194,8 +1196,13 @@ function initProjectAiSessionControls(options) {
         var currentName = title ? title.textContent || '' : '';
         if (state.pending && currentName !== state.originalName) {
             // The rename landed: the authoritative row already shows it.
-            // Retire the correlation kept since the settled settlement and
-            // park focus on the renamed group's header.
+            // Retire the correlation — exactly by request id when known, so
+            // even a replacement that races ahead of the settled settlement
+            // cannot leak the pending entry — and park focus on the renamed
+            // group's header.
+            if (state.requestId) {
+                pendingWorktreeGroupRenameRequests.delete(state.requestId);
+            }
             pendingWorktreeGroupRenameRequests.forEach((pending, requestId) => {
                 if (pending.awaitingReplacement && pending.groupId === state.groupId) {
                     pendingWorktreeGroupRenameRequests.delete(requestId);
@@ -1212,6 +1219,9 @@ function initProjectAiSessionControls(options) {
             state.value,
             { pending: state.pending, skipFocus: true }
         );
+        if (editor && state.pending && state.requestId) {
+            editor.setAttribute('data-rename-request-id', state.requestId);
+        }
         if (editor && !state.pending) {
             var input = editor.querySelector('.ai-session-worktree-rename-input');
             if (input) {

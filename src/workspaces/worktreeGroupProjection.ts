@@ -202,6 +202,7 @@ export function buildWorktreeGroupProjection(
             kind: 'group',
             groupId: group.groupId,
             displayName: group.displayName,
+            revision: group.revision,
             activity: memberIssue
                 ? 'attention'
                 : aggregateActivity(groupSessions, groupLive),

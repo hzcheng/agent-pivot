@@ -88,6 +88,7 @@ function group(overrides) {
         primaryMemberId: 'm-alpha',
         members: [member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' })],
         createdAt: 100,
+        revision: 3,
         ...(overrides || {}),
     };
 }
@@ -128,6 +129,11 @@ test('WORKTREE-GROUPS-002 groups manifest worktrees into one row and leaves the 
     assert.deepEqual(unmanaged.map(row => row.git.key.canonicalWorktreePath),
         ['/beta/.worktrees/solo'],
         'main checkouts and claimed worktrees never appear as unmanaged rows');
+});
+
+test('WORKTREE-GROUPS-RENAME-001 projects the manifest revision onto the group row', () => {
+    const { groups } = project({ groups: [group({ revision: 7 })] });
+    assert.equal(groups[0].revision, 7);
 });
 
 test('WORKTREE-GROUPS-002 aggregates sessions across members and derives activity', () => {

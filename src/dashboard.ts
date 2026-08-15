@@ -253,7 +253,7 @@ import { WorktreeGroupManifestStore } from './worktrees/groupManifestStore';
 import { reconcileWorktreeGroupManifest } from './worktrees/groupManifestReconciliation';
 import { IsolatedSessionController } from './worktrees/isolatedSessionController';
 import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
-import { normalizeWorktreeDirectory } from './worktrees/provisioningPlan';
+import { normalizeWorktreeDirectory, slugifyTaskName } from './worktrees/provisioningPlan';
 import { GitWorktreeProvisioner } from './worktrees/gitWorktreeProvisioner';
 import {
     WorktreeGroupCreationController,
@@ -283,6 +283,11 @@ import {
     parseSetWorktreeGroupPrimaryRequest,
     settledWorktreeGroupPrimarySettlement,
 } from './worktrees/groupPrimaryProtocol';
+import {
+    acceptedWorktreeGroupRenameSettlement,
+    parseRenameWorktreeGroupRequest,
+    settledWorktreeGroupRenameSettlement,
+} from './worktrees/groupRenameProtocol';
 import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
@@ -2367,6 +2372,53 @@ async function initializeDashboard(
                 return;
             }
             void aiSessionDashboardController.refreshNow('worktree-groups-merged', {
+                fallbackToFullRefresh: false,
+            });
+        },
+        'rename-worktree-group': async (message: unknown) => {
+            // Group rename (PRD §5.2): the host regenerates the suggested
+            // slug from the new display name and the store writes
+            // displayName + suggestedSlug + revision in one mutation. The
+            // webview keeps the rename input pending until the terminal
+            // settlement and the authoritative replacement arrive.
+            const request = parseRenameWorktreeGroupRequest(message);
+            if (!request) {
+                return;
+            }
+            await provider.postMessage(
+                acceptedWorktreeGroupRenameSettlement(request));
+            const fail = async (errorCode: string) => {
+                await provider.postMessage(settledWorktreeGroupRenameSettlement(
+                    request, { kind: 'failed', errorCode }));
+            };
+            const target = getCurrentWorkspaceActionTarget(request.projectId);
+            if (!target) {
+                await fail('workspace-unavailable');
+                return;
+            }
+            const suggestedSlug = slugifyTaskName(request.displayName);
+            if (!suggestedSlug) {
+                await fail('invalid-name');
+                return;
+            }
+            try {
+                await worktreeGroupManifestStore.renameGroup(
+                    target.workspace.navigationIdentity,
+                    request.groupId,
+                    request.displayName.trim(),
+                    suggestedSlug);
+            } catch (error) {
+                logError('Failed to rename the worktree group.', error);
+                void vscode.window.showWarningMessage(
+                    'Agent Pivot: could not rename the worktree group. Refresh the dashboard and try again.');
+                const errorCode = (error as { code?: string })?.code || 'rename-failed';
+                await fail(/^[a-z0-9-]{1,64}$/.test(errorCode)
+                    ? errorCode : 'rename-failed');
+                return;
+            }
+            await provider.postMessage(settledWorktreeGroupRenameSettlement(
+                request, { kind: 'settled' }));
+            await aiSessionDashboardController.refreshNow('worktree-group-renamed', {
                 fallbackToFullRefresh: false,
             });
         },

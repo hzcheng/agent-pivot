@@ -239,3 +239,89 @@ test('WORKTREE-GROUPS-001 serializes concurrent writes without losing groups', a
     const ids = store.listGroups(WORKSPACE).map(group => group.groupId).sort();
     assert.deepEqual(ids, [one.groupId, two.groupId].sort());
 });
+
+test('WORKTREE-GROUPS-RENAME-001 starts revision at 1 and migrates legacy records', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const created = await createGroup(store, [readyMember('alpha', 'fix-login')]);
+    assert.equal(created.revision, 1);
+
+    const legacyState = memento({
+        'agentPivot.worktreeGroups.v1': {
+            [WORKSPACE]: [{
+                groupId: 'legacy',
+                displayName: 'legacy group',
+                suggestedSlug: 'legacy-group',
+                primaryMemberId: 'm1',
+                createdAt: 1,
+                members: [{
+                    memberId: 'm1', repositoryKey: '/repos/alpha/.git',
+                    worktreeKey: {
+                        repositoryKey: '/repos/alpha/.git',
+                        canonicalWorktreePath: '/repos/alpha/.worktrees/legacy',
+                    },
+                    branchName: 'agent-pivot/legacy',
+                    path: '/repos/alpha/.worktrees/legacy', state: 'ready',
+                }],
+            }],
+        },
+    });
+    const legacyStore = new WorktreeGroupManifestStore(legacyState);
+    assert.equal(legacyStore.listGroups(WORKSPACE)[0].revision, 1);
+    const renamed = await legacyStore.renameGroup(WORKSPACE, 'legacy', 'new name', 'new-name');
+    assert.equal(renamed.revision, 2);
+});
+
+test('WORKTREE-GROUPS-RENAME-001 increments the revision on every successful mutation', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [
+        plannedMember('alpha', 'fix-login'),
+        readyMember('beta', 'fix-login'),
+    ]);
+    let revision = group.revision;
+    const readyBeta = group.members.find(member => member.state === 'ready');
+
+    const renamed = await store.renameGroup(WORKSPACE, group.groupId, 'renamed', 'renamed');
+    assert.equal(renamed.revision, ++revision);
+    const reprimary = await store.setPrimaryMember(WORKSPACE, group.groupId, readyBeta.memberId);
+    assert.equal(reprimary.revision, ++revision);
+    const updated = await store.updateMember(
+        WORKSPACE, group.groupId, reprimary.members[0].memberId, { lastError: 'x' });
+    assert.equal(updated.revision, ++revision);
+    const added = await store.addMember(
+        WORKSPACE, group.groupId, plannedMember('gamma', 'fix-login'));
+    assert.equal(added.revision, ++revision);
+    const detached = await store.setRepositoryDetached(WORKSPACE, '/repos/alpha/.git', true);
+    assert.equal(detached, undefined);
+    assert.equal(store.listGroups(WORKSPACE)[0].revision, ++revision);
+    const removedGamma = added.members.find(member => member.repositoryKey.includes('gamma'));
+    const afterRemove = await store.removeMember(WORKSPACE, group.groupId, removedGamma.memberId);
+    assert.equal(afterRemove.revision, ++revision);
+
+    const other = await store.createGroup(WORKSPACE, {
+        displayName: 'other', suggestedSlug: 'other', members: [readyMember('delta', 'other')],
+    });
+    const merged = await store.mergeGroups(WORKSPACE, group.groupId, other.groupId);
+    assert.equal(merged.revision, revision + 1);
+});
+
+test('WORKTREE-GROUPS-RENAME-001 rename writes the name, slug, and revision in one mutation', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [readyMember('alpha', 'fix-login')]);
+    const renamed = await store.renameGroup(WORKSPACE, group.groupId, '修复登录', 'task-abc123');
+    assert.equal(renamed.displayName, '修复登录');
+    assert.equal(renamed.suggestedSlug, 'task-abc123');
+    assert.equal(renamed.revision, group.revision + 1);
+    const persisted = store.listGroups(WORKSPACE)[0];
+    assert.equal(persisted.displayName, '修复登录');
+    assert.equal(persisted.suggestedSlug, 'task-abc123');
+    assert.equal(persisted.revision, renamed.revision);
+
+    // A failed rename (invalid name) must not move the revision.
+    await assert.rejects(
+        store.renameGroup(WORKSPACE, group.groupId, '', 'whatever'),
+        error => error.code === 'invalid-record');
+    await assert.rejects(
+        store.renameGroup(WORKSPACE, group.groupId, 'ok', ''),
+        error => error.code === 'invalid-record');
+    assert.equal(store.listGroups(WORKSPACE)[0].revision, renamed.revision);
+});

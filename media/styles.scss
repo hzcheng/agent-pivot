@@ -3601,6 +3601,12 @@ body.steward-sidebar {
             align-items: stretch;
         }
 
+        // `hidden` must beat the flex display while the rename editor owns
+        // the row (M3).
+        .ai-session-worktree-toolbar[hidden] {
+            display: none;
+        }
+
         .ai-session-worktree-toolbar .ai-session-worktree-header {
             width: auto;
             min-width: 0;
@@ -3771,10 +3777,146 @@ body.steward-sidebar {
             white-space: nowrap;
         }
 
+        // M3: the member summary is a toggle button that expands per-member
+        // details (PRD §10); it must still read as a quiet note by default.
         .ai-session-worktree-member-summary {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            width: 100%;
+            box-sizing: border-box;
             padding: 2px 7px 1px;
+            border: none;
+            background: none;
             color: var(--vscode-descriptionForeground);
             font-size: 8px;
+            font-family: inherit;
+            text-align: left;
+            cursor: pointer;
+
+            &:hover,
+            &:focus-visible {
+                color: var(--vscode-foreground);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: -1px;
+            }
+
+            .ai-session-worktree-member-summary-text {
+                flex: 1 1 auto;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-member-summary-chevron {
+                flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                transform: rotate(0deg);
+                transition: transform $defaultTransition;
+
+                svg {
+                    width: 9px;
+                    height: 9px;
+                }
+            }
+        }
+
+        .ai-session-worktree-group[data-member-details-expanded]
+            .ai-session-worktree-member-summary-chevron {
+            transform: rotate(180deg);
+        }
+
+        .ai-session-worktree-member-details {
+            padding: 0 7px 2px;
+
+            .ai-session-worktree-member-detail {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: baseline;
+                gap: 1px 6px;
+                padding: 1px 0;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+            }
+
+            .ai-session-worktree-member-detail-repo {
+                font-weight: 600;
+                color: var(--vscode-foreground);
+            }
+
+            .ai-session-worktree-member-detail-primary {
+                margin-left: 4px;
+                padding: 0 3px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 3px;
+                font-size: 7px;
+                letter-spacing: 0.02em;
+                text-transform: uppercase;
+            }
+
+            .ai-session-worktree-member-detail-branch {
+                min-width: 0;
+                overflow: hidden;
+                font-family: var(--vscode-editor-font-family, monospace);
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-member-detail-path {
+                flex-basis: 100%;
+                min-width: 0;
+                overflow: hidden;
+                font-family: var(--vscode-editor-font-family, monospace);
+                opacity: 0.8;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-member-detail-state {
+                color: var(--vscode-descriptionForeground);
+            }
+
+            [data-member-detail-status="failed"] .ai-session-worktree-member-detail-state,
+            [data-member-detail-status="missing"] .ai-session-worktree-member-detail-state {
+                color: var(--vscode-errorForeground);
+            }
+        }
+
+        // M3: inline group rename editor (PRD §10); the toolbar hides while
+        // it is open so the row keeps its vertical rhythm.
+        .ai-session-worktree-rename-editor {
+            padding: 2px 4px 1px;
+
+            .ai-session-worktree-rename-input {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 2px 4px;
+                border: 1px solid var(--vscode-input-border, transparent);
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                font-size: 10px;
+
+                &:focus {
+                    border-color: var(--vscode-focusBorder);
+                    outline: none;
+                }
+
+                &:disabled {
+                    opacity: 0.6;
+                }
+            }
+
+            .ai-session-worktree-rename-hint {
+                display: block;
+                padding-top: 1px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+            }
         }
 
         .ai-session-worktree-member-row {

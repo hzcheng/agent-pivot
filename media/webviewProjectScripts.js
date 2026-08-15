@@ -605,6 +605,11 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'worktree-group-rename-settlement') {
+            aiSessionControls.applyWorktreeGroupRenameSettlement(message);
+            return;
+        }
+
         if (message && message.type === 'worktree-group-form-state') {
             worktreeGroupForm.applyFormState(message);
             return;

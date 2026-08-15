@@ -101,6 +101,8 @@ export interface WorktreeGroupRowViewModel {
     kind: 'group';
     groupId: string;
     displayName: string;
+    /** Persistent monotonic manifest revision (PRD §4); tokens bind to it. */
+    revision: number;
     /** Stable branch short name shown when group display names collide. */
     discriminator?: string;
     activity: WorktreeActivity;

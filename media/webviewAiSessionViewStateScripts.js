@@ -92,6 +92,30 @@ function readAiSessionWorktreeCollapseState(vscodeApi) {
         : {};
 }
 
+function readAiSessionMemberDetailsState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    return state.aiSessionExpandedGroupMembers
+        && typeof state.aiSessionExpandedGroupMembers === 'object'
+        && !Array.isArray(state.aiSessionExpandedGroupMembers)
+        ? Object.assign({}, state.aiSessionExpandedGroupMembers)
+        : {};
+}
+
+// M3: the member summary toggles per-member details (PRD §10). Expansion is
+// transient view state — preserved across reloads and authoritative
+// replacements exactly like the group collapse state.
+function setWorktreeGroupMemberDetailsExpanded(group, expanded) {
+    if (!group) return false;
+    var toggle = group.querySelector('[data-action="toggle-group-member-details"]');
+    var details = group.querySelector('.ai-session-worktree-member-details');
+    if (!toggle || !details) return false;
+    expanded = expanded !== false;
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    group.toggleAttribute('data-member-details-expanded', expanded);
+    details.toggleAttribute('hidden', !expanded);
+    return true;
+}
+
 function getAiSessionWorktreeGroupKey(group) {
     // Reserved identities first: the anchor and manifest groups must never
     // collide with each other or with unmanaged rows on an empty
@@ -119,7 +143,14 @@ function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
     projects[projectId] = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
         '.ai-session-worktree-group[data-worktree-collapsed]'
     )).map(getAiSessionWorktreeGroupKey)));
-    vscodeApi.setState(Object.assign({}, state, { aiSessionCollapsedWorktrees: projects }));
+    var memberDetails = readAiSessionMemberDetailsState(vscodeApi);
+    memberDetails[projectId] = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group[data-member-details-expanded]'
+    )).map(getAiSessionWorktreeGroupKey)));
+    vscodeApi.setState(Object.assign({}, state, {
+        aiSessionCollapsedWorktrees: projects,
+        aiSessionExpandedGroupMembers: memberDetails,
+    }));
     syncAiSessionWorktreeCollapseAllButton(projectDiv);
 }
 
@@ -187,6 +218,14 @@ function restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi) {
             group.querySelector('.ai-session-worktree-header'),
             !collapsed.has(getAiSessionWorktreeGroupKey(group))
         );
+    });
+    var memberDetails = readAiSessionMemberDetailsState(vscodeApi);
+    var expandedMembers = new Set(
+        Array.isArray(memberDetails[projectId]) ? memberDetails[projectId] : []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]').forEach(group => {
+        if (expandedMembers.has(getAiSessionWorktreeGroupKey(group))) {
+            setWorktreeGroupMemberDetailsExpanded(group, true);
+        }
     });
     syncAiSessionWorktreeCollapseAllButton(projectDiv);
 }
@@ -487,6 +526,13 @@ function captureAiSessionViewState(projectDiv) {
         collapsedWorktrees: Array.from(projectDiv.querySelectorAll(
             '.ai-session-worktree-group[data-worktree-collapsed]'
         )).map(getAiSessionWorktreeGroupKey),
+        expandedMemberDetails: Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-member-details-expanded]'
+        )).map(getAiSessionWorktreeGroupKey),
+        groupRename: window.__agentPivotWorktreeGroupRename
+            && typeof window.__agentPivotWorktreeGroupRename.capture === 'function'
+            ? window.__agentPivotWorktreeGroupRename.capture(projectDiv)
+            : null,
         worktreeKeys: Array.from(new Set(Array.from(projectDiv.querySelectorAll(
             '.ai-session-worktree-group'
         )).map(getAiSessionWorktreeGroupKey))),
@@ -534,6 +580,17 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
             !collapsed.has(key)
         );
     });
+    var expandedMemberDetails = new Set(viewState.expandedMemberDetails || []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]').forEach(group => {
+        if (expandedMemberDetails.has(getAiSessionWorktreeGroupKey(group))) {
+            setWorktreeGroupMemberDetailsExpanded(group, true);
+        }
+    });
+    if (viewState.groupRename
+        && window.__agentPivotWorktreeGroupRename
+        && typeof window.__agentPivotWorktreeGroupRename.restore === 'function') {
+        window.__agentPivotWorktreeGroupRename.restore(projectDiv, viewState.groupRename);
+    }
     var currentWorktreeKeys = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
         '.ai-session-worktree-group'
     )).map(getAiSessionWorktreeGroupKey)));

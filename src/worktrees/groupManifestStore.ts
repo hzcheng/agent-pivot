@@ -55,6 +55,13 @@ export interface WorktreeGroup {
     primaryMemberId: string | null;
     members: WorktreeGroupMember[];
     createdAt: number;
+    /**
+     * Persistent monotonic revision (PRD §4): 1 at creation, incremented by
+     * every successful mutation. Preview/confirm tokens bind to it; a content
+     * fingerprint must never substitute (ABA: name A → B → A must still
+     * invalidate earlier tokens).
+     */
+    revision: number;
 }
 
 export type WorktreeGroupManifestErrorCode =
@@ -140,6 +147,7 @@ export class WorktreeGroupManifestStore {
                     ...sanitizeMember(member),
                 })),
                 createdAt: Date.now(),
+                revision: 1,
             };
             assertGroupInvariants(group);
             assertWorktreeKeysUnclaimed(bucket, group.members, null);
@@ -161,10 +169,18 @@ export class WorktreeGroupManifestStore {
     renameGroup(
         workspaceIdentity: string,
         groupId: string,
-        displayName: string
+        displayName: string,
+        suggestedSlug?: string
     ): Promise<WorktreeGroup> {
         return this.mutateGroup(workspaceIdentity, groupId, group => {
+            // Renaming regenerates the suggested slug from the new display
+            // name (PRD §5.2): the name, slug, and revision land in one
+            // write so future Add repo/derive naming never follows a stale
+            // slug.
             group.displayName = requireDisplayName(displayName);
+            if (suggestedSlug !== undefined) {
+                group.suggestedSlug = requireSlug(suggestedSlug);
+            }
         });
     }
 
@@ -203,6 +219,7 @@ export class WorktreeGroupManifestStore {
             assertWorktreeKeysUnclaimed(
                 this.getBucket(manifest, workspaceIdentity), [member], group.groupId);
             group.members.push(member);
+            bumpRevision(group);
             assertGroupInvariants(group);
             await this.writeManifest(manifest);
             return cloneGroup(group);
@@ -250,6 +267,7 @@ export class WorktreeGroupManifestStore {
             if (group.primaryMemberId === member.memberId && member.state !== 'ready') {
                 group.primaryMemberId = null;
             }
+            bumpRevision(group);
             assertGroupInvariants(group);
             await this.writeManifest(manifest);
             return cloneGroup(group);
@@ -280,6 +298,7 @@ export class WorktreeGroupManifestStore {
                 await this.writeManifest(manifest);
                 return null;
             }
+            bumpRevision(group);
             assertGroupInvariants(group);
             await this.writeManifest(manifest);
             return cloneGroup(group);
@@ -326,6 +345,7 @@ export class WorktreeGroupManifestStore {
                 throw new WorktreeGroupManifestError('store-full');
             }
             target.members.push(...source.members);
+            bumpRevision(target);
             assertGroupInvariants(target);
             bucket.splice(bucket.findIndex(candidate => candidate.groupId === source.groupId), 1);
             await this.writeManifest(manifest);
@@ -344,11 +364,16 @@ export class WorktreeGroupManifestStore {
             const bucket = this.getBucket(manifest, workspaceIdentity);
             let changed = false;
             for (const group of bucket) {
+                let groupChanged = false;
                 for (const member of group.members) {
                     if (member.repositoryKey === repositoryKey && !!member.detached !== detached) {
                         member.detached = detached || undefined;
                         changed = true;
+                        groupChanged = true;
                     }
+                }
+                if (groupChanged) {
+                    bumpRevision(group);
                 }
             }
             if (changed) {
@@ -366,6 +391,7 @@ export class WorktreeGroupManifestStore {
             const manifest = this.readManifest();
             const group = this.requireGroup(manifest, workspaceIdentity, groupId);
             mutate(group);
+            bumpRevision(group);
             assertGroupInvariants(group);
             await this.writeManifest(manifest);
             return cloneGroup(group);
@@ -516,6 +542,8 @@ function parseGroup(value: unknown): WorktreeGroup | null {
             : null,
         members,
         createdAt: candidate.createdAt as number,
+        // Legacy records predate the revision field: migrate them to 1.
+        revision: parseRevision(candidate.revision),
     };
     try {
         assertGroupInvariants(group);
@@ -609,6 +637,20 @@ function cloneGroup(group: WorktreeGroup): WorktreeGroup {
 
 function newId(): string {
     return randomBytes(16).toString('hex');
+}
+
+function parseRevision(value: unknown): number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1
+        ? value
+        : 1;
+}
+
+function bumpRevision(group: WorktreeGroup): void {
+    group.revision = Number.isSafeInteger(group.revision) && group.revision >= 1
+        ? group.revision + 1
+        // A mutation of a record with an unknown revision must still yield a
+        // revision distinct from the creation revision (1).
+        : 2;
 }
 
 function isSafeText(value: unknown, maxLength: number): value is string {

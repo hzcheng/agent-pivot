@@ -348,6 +348,19 @@ function initProjectAiSessionControls(options) {
             writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
             return true;
         }
+        var memberDetailsToggle = target.closest('[data-action="toggle-group-member-details"]');
+        if (memberDetailsToggle) {
+            var memberDetailsSection = memberDetailsToggle.closest('.ai-session-worktree-group');
+            if (memberDetailsSection
+                && typeof setWorktreeGroupMemberDetailsExpanded === 'function') {
+                setWorktreeGroupMemberDetailsExpanded(
+                    memberDetailsSection,
+                    memberDetailsToggle.getAttribute('aria-expanded') !== 'true'
+                );
+                writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+            }
+            return true;
+        }
         var surfaceAction = target.closest(
             '[data-action="select-ai-session-surface"][data-surface]'
         );
@@ -695,12 +708,18 @@ function initProjectAiSessionControls(options) {
             window.__agentPivotContextMenus.closeContextMenus();
         }
         if (wasOpen) return true;
-        var group = button.closest('.ai-session-worktree-group[data-worktree-repository-key]');
+        // Group rows always carry the menu (M3: group-level actions such as
+        // rename must stay reachable even without a ready primary); the
+        // worktree-targeted items below hide themselves when the row has no
+        // usable primary worktree.
+        var group = button.closest('.ai-session-worktree-group');
         if (!group) return false;
         menu.__context = {
             projectId: projectId,
-            repositoryKey: group.getAttribute('data-worktree-repository-key'),
-            worktreePath: group.getAttribute('data-worktree-path'),
+            repositoryKey: group.getAttribute('data-worktree-repository-key') || '',
+            worktreePath: group.getAttribute('data-worktree-path') || '',
+            groupId: button.getAttribute('data-group-id')
+                || group.getAttribute('data-group-id') || '',
             quickProvider: button.getAttribute('data-quick-provider') || '',
             canResume: button.getAttribute('data-can-resume') === 'true',
             canRemove: button.getAttribute('data-can-remove') === 'true',
@@ -708,18 +727,30 @@ function initProjectAiSessionControls(options) {
                 && button.getAttribute('data-worktree-head-kind') === 'branch',
         };
         menu.__originButton = button;
+        var hasWorktreeTarget = !!(menu.__context.repositoryKey && menu.__context.worktreePath);
         var quickItem = menu.querySelector('[data-action="worktree-quick-create"]');
         quickItem.textContent = button.getAttribute('data-quick-label')
             || ('New session in ' + (button.getAttribute('data-worktree-name') || 'worktree'));
-        quickItem.hidden = !menu.__context.canResume;
+        quickItem.hidden = !menu.__context.canResume || !hasWorktreeTarget;
+        menu.querySelectorAll('[data-action="worktree-provider-create"]').forEach(item => {
+            item.hidden = !menu.__context.canResume || !hasWorktreeTarget;
+        });
         var branchItem = menu.querySelector('[data-action="worktree-branch-create"]');
         branchItem.textContent = 'New worktree from '
             + (button.getAttribute('data-worktree-name') || 'this branch');
-        branchItem.hidden = !menu.__context.canBranchCreate;
+        branchItem.hidden = !menu.__context.canBranchCreate || !hasWorktreeTarget;
+        var renameItem = menu.querySelector('[data-action="worktree-group-rename"]');
+        renameItem.hidden = !menu.__context.groupId;
+        var sessionSeparator = menu.querySelector('[data-worktree-session-separator]');
+        if (sessionSeparator) {
+            sessionSeparator.hidden = quickItem.hidden && branchItem.hidden;
+        }
         var removeItem = menu.querySelector('[data-action="worktree-remove"]');
-        removeItem.hidden = !menu.__context.canRemove;
+        removeItem.hidden = !menu.__context.canRemove || !hasWorktreeTarget;
         var removeSeparator = menu.querySelector('[data-worktree-remove-separator]');
-        if (removeSeparator) removeSeparator.hidden = !menu.__context.canRemove;
+        if (removeSeparator) {
+            removeSeparator.hidden = removeItem.hidden && renameItem.hidden;
+        }
 
         button.setAttribute('aria-expanded', 'true');
         menu.style.visibility = 'hidden';
@@ -790,6 +821,8 @@ function initProjectAiSessionControls(options) {
                     worktreePath: context.worktreePath,
                 });
             }
+        } else if (action === 'worktree-group-rename' && context.groupId) {
+            startWorktreeGroupRename(context.projectId, context.groupId);
         } else if (action === 'worktree-remove' && context.canRemove) {
             var projectDiv = document.querySelector(
                 '.project[data-id="' + CSS.escape(context.projectId) + '"]'
@@ -919,6 +952,250 @@ function initProjectAiSessionControls(options) {
         }
         return true;
     }
+
+    // ---------- Worktree group rename (M3; PRD §5.2) ----------
+    // The editor is local transient state: an unrelated authoritative
+    // replacement captures and restores it (view-state script); a submitted
+    // editor stays pending until the rename lands in the authoritative HTML
+    // (the restored editor is skipped once the group's name changed), and a
+    // failed settlement re-enables it in place — the host never refreshes on
+    // failure because nothing authoritative changed.
+    var pendingWorktreeGroupRenameRequests = new Map();
+    var worktreeGroupRenameSerial = 0;
+
+    function nextWorktreeGroupRenameRequestId() {
+        worktreeGroupRenameSerial = worktreeGroupRenameSerial >= Number.MAX_SAFE_INTEGER
+            ? 1 : worktreeGroupRenameSerial + 1;
+        return 'group-rename-' + worktreeGroupRenameSerial.toString(36);
+    }
+
+    function findWorktreeGroupSection(projectDiv, groupId) {
+        if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return null;
+        var sections = projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]');
+        for (var index = 0; index < sections.length; index++) {
+            if (sections[index].getAttribute('data-group-id') === groupId) {
+                return sections[index];
+            }
+        }
+        return null;
+    }
+
+    function announceWorktreeGroupRename(projectId, text) {
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var liveRegion = projectDiv
+            && projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = text;
+        }
+    }
+
+    function cancelWorktreeGroupRename(projectDiv, options) {
+        var editor = projectDiv
+            && projectDiv.querySelector('.ai-session-worktree-rename-editor');
+        if (!editor || editor.getAttribute('data-rename-pending') === 'true') return false;
+        var section = editor.closest('.ai-session-worktree-group');
+        var toolbar = section && section.querySelector('.ai-session-worktree-toolbar');
+        editor.remove();
+        if (toolbar) toolbar.hidden = false;
+        if (section && !(options && options.keepFocus)) {
+            var header = section.querySelector('.ai-session-worktree-header');
+            if (header && typeof header.focus === 'function') {
+                header.focus({ preventScroll: true });
+            }
+        }
+        return true;
+    }
+
+    function buildWorktreeGroupRenameEditor(section, initialValue, options) {
+        var toolbar = section.querySelector('.ai-session-worktree-toolbar');
+        var title = section.querySelector('.ai-session-worktree-title');
+        if (!toolbar || !title) return null;
+        var groupId = section.getAttribute('data-group-id') || '';
+        var editor = document.createElement('div');
+        editor.className = 'ai-session-worktree-rename-editor';
+        editor.setAttribute('data-rename-original-name', title.textContent || '');
+        if (options && options.pending) {
+            editor.setAttribute('data-rename-pending', 'true');
+        }
+        var input = document.createElement('input');
+        input.className = 'ai-session-worktree-rename-input';
+        input.type = 'text';
+        input.maxLength = 200;
+        input.value = initialValue;
+        input.setAttribute('aria-label', 'Rename worktree group');
+        input.setAttribute('aria-describedby', 'ai-session-worktree-rename-hint');
+        if (options && options.pending) {
+            input.disabled = true;
+            input.setAttribute('aria-disabled', 'true');
+        }
+        var hint = document.createElement('span');
+        hint.className = 'ai-session-worktree-rename-hint';
+        hint.id = 'ai-session-worktree-rename-hint';
+        hint.textContent = 'Enter to rename · Esc to cancel';
+        editor.appendChild(input);
+        editor.appendChild(hint);
+        toolbar.hidden = true;
+        section.insertBefore(editor, toolbar.nextSibling);
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopPropagation();
+                submitWorktreeGroupRenameEditor(section, editor, input);
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelWorktreeGroupRename(section.closest('.project'));
+            }
+        });
+        if (!options || !options.skipFocus) {
+            input.focus({ preventScroll: true });
+            if (typeof input.select === 'function' && !(options && options.pending)) {
+                input.select();
+            }
+        }
+        return editor;
+    }
+
+    function startWorktreeGroupRename(projectId, groupId) {
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var section = findWorktreeGroupSection(projectDiv, groupId);
+        if (!section) return;
+        // One editor per workspace card: a fresh rename supersedes an
+        // unsubmitted editor; a submitted one keeps ownership until settled.
+        var existing = projectDiv.querySelector('.ai-session-worktree-rename-editor');
+        if (existing) {
+            if (existing.getAttribute('data-rename-pending') === 'true') return;
+            cancelWorktreeGroupRename(projectDiv, { keepFocus: true });
+        }
+        var title = section.querySelector('.ai-session-worktree-title');
+        buildWorktreeGroupRenameEditor(section, title ? title.textContent || '' : '');
+    }
+
+    function submitWorktreeGroupRenameEditor(section, editor, input) {
+        if (editor.getAttribute('data-rename-pending') === 'true') return;
+        var projectDiv = section.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = section.getAttribute('data-group-id') || '';
+        var value = (input.value || '').trim();
+        if (!projectId || !groupId) return;
+        if (!value) {
+            announceWorktreeGroupRename(projectId, 'The group name cannot be empty.');
+            input.focus({ preventScroll: true });
+            return;
+        }
+        if (value === editor.getAttribute('data-rename-original-name')) {
+            cancelWorktreeGroupRename(projectDiv);
+            return;
+        }
+        var requestId = nextWorktreeGroupRenameRequestId();
+        pendingWorktreeGroupRenameRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+        });
+        editor.setAttribute('data-rename-pending', 'true');
+        input.disabled = true;
+        input.setAttribute('aria-disabled', 'true');
+        window.vscode.postMessage({
+            type: 'rename-worktree-group',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            displayName: value,
+        });
+    }
+
+    function applyWorktreeGroupRenameSettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'groupId', 'requestId', 'status', 'type', 'version']
+            : ['groupId', 'requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'worktree-group-rename-settlement'
+            || message.version !== 1
+            || Object.keys(message).length !== expectedKeys.length
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || !['accepted', 'settled', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingWorktreeGroupRenameRequests.get(message.requestId);
+        if (!pending || pending.groupId !== message.groupId) return true;
+        if (message.status === 'accepted') return true;
+        pendingWorktreeGroupRenameRequests.delete(message.requestId);
+        if (message.status === 'settled') {
+            // Success pending resolves through the authoritative replacement:
+            // the refreshed row shows the new name and the capture hook below
+            // stops restoring the submitted editor.
+            return true;
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var section = findWorktreeGroupSection(projectDiv, pending.groupId);
+        var editor = section
+            && section.querySelector('.ai-session-worktree-rename-editor');
+        var input = editor
+            && editor.querySelector('.ai-session-worktree-rename-input');
+        if (editor && input && editor.isConnected) {
+            editor.removeAttribute('data-rename-pending');
+            input.disabled = false;
+            input.removeAttribute('aria-disabled');
+            input.focus({ preventScroll: true });
+        }
+        announceWorktreeGroupRename(
+            pending.projectId,
+            'Could not rename the worktree group; try again.'
+        );
+        return true;
+    }
+
+    // View-state hooks: an unsubmitted editor survives authoritative
+    // replacements; a submitted one is restored only while the authoritative
+    // name still equals the original (i.e. the rename has not landed yet).
+    function captureWorktreeGroupRenameEditor(projectDiv) {
+        if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+        var editor = projectDiv.querySelector('.ai-session-worktree-rename-editor');
+        if (!editor) return null;
+        var section = editor.closest('.ai-session-worktree-group');
+        var groupId = section && section.getAttribute('data-group-id');
+        var input = editor.querySelector('.ai-session-worktree-rename-input');
+        if (!groupId || !input) return null;
+        return {
+            groupId: groupId,
+            value: input.value || '',
+            originalName: editor.getAttribute('data-rename-original-name') || '',
+            pending: editor.getAttribute('data-rename-pending') === 'true',
+        };
+    }
+
+    function restoreWorktreeGroupRenameEditor(projectDiv, state) {
+        if (!projectDiv || !state || !state.groupId) return;
+        var section = findWorktreeGroupSection(projectDiv, state.groupId);
+        if (!section) return;
+        var title = section.querySelector('.ai-session-worktree-title');
+        var currentName = title ? title.textContent || '' : '';
+        if (state.pending && currentName !== state.originalName) {
+            // The rename landed: the authoritative row already shows it.
+            return;
+        }
+        var editor = buildWorktreeGroupRenameEditor(
+            section,
+            state.value,
+            { pending: state.pending, skipFocus: true }
+        );
+        if (editor && !state.pending) {
+            var input = editor.querySelector('.ai-session-worktree-rename-input');
+            if (input) {
+                input.focus({ preventScroll: true });
+                if (typeof input.setSelectionRange === 'function') {
+                    input.setSelectionRange(input.value.length, input.value.length);
+                }
+            }
+        }
+    }
+
+    window.__agentPivotWorktreeGroupRename = {
+        capture: captureWorktreeGroupRenameEditor,
+        restore: restoreWorktreeGroupRenameEditor,
+    };
 
     function describeProvisioningError(errorCode) {
         switch (errorCode) {
@@ -1485,6 +1762,7 @@ function initProjectAiSessionControls(options) {
         applyIsolatedSessionSettlement: applyIsolatedSessionSettlement,
         applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
         applySetGroupPrimarySettlement: applySetGroupPrimarySettlement,
+        applyWorktreeGroupRenameSettlement: applyWorktreeGroupRenameSettlement,
         setWorktreeGroupForm: setWorktreeGroupForm,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,

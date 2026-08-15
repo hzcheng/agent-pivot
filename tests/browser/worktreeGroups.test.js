@@ -7,6 +7,7 @@ const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 
 const { getAiSessionsDiv } = require('../../out/webview/webviewAiSessionContent');
+const { getAiSessionWorktreeMenu } = require('../../out/webview/webviewAiSessionContent');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 const viewStateScript = fs.readFileSync(
@@ -83,6 +84,7 @@ function groupRow(overrides) {
         kind: 'group',
         groupId: 'g-1',
         displayName: 'fix-login',
+        revision: 1,
         activity: 'active',
         sessions: [],
         members: [member()],
@@ -463,8 +465,9 @@ test('WORKTREE-GROUPS-UI-001 an unavailable primary disables creation and offers
     const row = page.locator('.ai-session-worktree-task-group');
     assert.equal(await row.locator('[data-action="create-ai-session-quick"]').count(), 0,
         'quick create must not silently use a non-primary member');
-    assert.equal(await row.locator('.ai-session-worktree-more').count(), 0,
-        'the actions menu is disabled while the primary is unavailable');
+    assert.equal(await row.locator('.ai-session-worktree-more').count(), 1,
+        'M3: the group menu stays reachable (rename) while worktree-targeted '
+        + 'items hide without a usable primary');
     const picker = row.locator('.ai-session-worktree-primary-picker');
     assert.equal(await picker.count(), 1);
     assert.match(await picker.textContent(), /primary/i);
@@ -658,4 +661,265 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
         document.querySelector('.ai-session-worktree-list').scrollTop);
     assert.equal(after, before,
         'a refresh must not snap the worktree panel back to the top');
+});
+
+async function openGroupActionsPage(t, sessionHtml, replacementHtml) {
+    const groupHtml = () =>
+        `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${sessionHtml()}</div>`
+        + `</div></div>`;
+    const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
+        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${groupHtml()}</div></div>
+        ${getAiSessionWorktreeMenu()}
+    </body></html>`);
+    await page.addStyleTag({ content: styles });
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.__writtenState = {};
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+        window.vscode = {
+            getState: () => window.__writtenState,
+            setState(value) { window.__writtenState = value; },
+            postMessage: message => window.__postedMessages.push(message),
+        };
+    });
+    await page.addScriptTag({ content: viewStateScript });
+    await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: workspaceUpdateScript });
+    await page.addScriptTag({ content: todoGroupScript });
+    await page.addScriptTag({ content: projectCollapseScript });
+    await page.addScriptTag({ content: todoControlScript });
+    await page.addScriptTag({ content: projectContextMenuScript });
+    await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: groupFormScript });
+    await page.addScriptTag({ content: controlsScript });
+    await page.addScriptTag({ content: projectScript });
+    await page.evaluate(() => {
+        initProjects();
+        window.__postedMessages.length = 0;
+    });
+    const applyUpdate = html => page.evaluate(replacementHtml =>
+        applyWorkspaceUpdate({
+            type: 'workspace-updated',
+            version: 2,
+            currentWorkspaceCount: 1,
+            html: replacementHtml,
+        }), html);
+    const replacement = () => groupHtml().replace(
+        sessionHtml(), (replacementHtml || sessionHtml)());
+    return { page, applyUpdate, replacement };
+}
+
+test('WORKTREE-GROUPS-RENAME-001 member summary expands into per-member details and survives updates', async t => {
+    const twoMemberGroup = () => groupRow({
+        members: [
+            member(),
+            member({
+                memberId: 'm-2', repositoryKey: '/beta/.git', repositoryLabel: 'beta',
+                branchName: 'agent-pivot/fix-login-beta',
+                path: '/beta/.worktrees/fix-login', worktreeKey: betaLoginKey,
+                isPrimary: false,
+            }),
+        ],
+        chips: [{ label: 'a', title: 'alpha' }, { label: 'b', title: 'beta' }],
+    });
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const { page, applyUpdate, replacement } = await openGroupActionsPage(t, sessionHtml);
+
+    const toggle = page.locator('[data-action="toggle-group-member-details"]');
+    assert.equal(await toggle.count(), 1);
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    const details = page.locator('.ai-session-worktree-member-details');
+    assert.equal(await details.count(), 1);
+    assert.equal(await details.first().isHidden(), true,
+        'member details start collapsed');
+
+    await toggle.evaluate(button => button.click());
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await details.first().isVisible(), true);
+    const detailRows = page.locator('.ai-session-worktree-member-detail');
+    assert.equal(await detailRows.count(), 2);
+    const firstDetail = await detailRows.first().textContent();
+    assert.ok(firstDetail.includes('alpha'));
+    assert.ok(firstDetail.includes('agent-pivot/fix-login'));
+    assert.ok(firstDetail.includes('/alpha/.worktrees/fix-login'));
+    assert.equal(
+        await detailRows.first().locator('.ai-session-worktree-member-detail-primary').count(),
+        1, 'the primary member carries a badge');
+    assert.equal(
+        await detailRows.nth(1).locator('.ai-session-worktree-member-detail-primary').count(),
+        0);
+
+    const applied = await applyUpdate(replacement());
+    assert.equal(applied, true);
+    assert.equal(
+        await page.locator('[data-action="toggle-group-member-details"]')
+            .getAttribute('aria-expanded'),
+        'true', 'the expansion survives the authoritative replacement');
+    assert.equal(
+        await page.locator('.ai-session-worktree-member-details').first().isVisible(), true);
+    const persisted = await page.evaluate(() => window.__writtenState);
+    assert.deepEqual(
+        persisted.aiSessionExpandedGroupMembers['project-a'],
+        [JSON.stringify(['group', 'g-1'])],
+        'the expansion persists by stable group key');
+});
+
+test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement lifecycle', async t => {
+    const renamedGroup = () => groupRow({ displayName: 'Fix login v2', revision: 2 });
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow()],
+    });
+    const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const renameItem = menu.locator('[data-action="worktree-group-rename"]');
+    assert.equal(await renameItem.isVisible(), true, 'group rows offer rename');
+    assert.equal(
+        await menu.locator('[data-action="worktree-quick-create"]').isVisible(), true,
+        'a ready primary keeps the worktree session actions');
+
+    await renameItem.evaluate(item => item.click());
+    const input = page.locator('.ai-session-worktree-rename-input');
+    assert.equal(await input.count(), 1);
+    assert.equal(await input.inputValue(), 'fix-login');
+    assert.equal(await page.locator(
+        '.ai-session-worktree-group[data-group-id="g-1"] .ai-session-worktree-toolbar')
+        .first().isHidden(), true, 'the toolbar hides while renaming');
+    assert.equal(await page.evaluate(
+        () => document.activeElement
+            && document.activeElement.classList.contains('ai-session-worktree-rename-input')),
+        true, 'the rename input takes focus');
+
+    await input.fill('Fix login v2');
+    await input.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
+        type: 'rename-worktree-group',
+        version: 1,
+        requestId: 'group-rename-1',
+        projectId: 'project-a',
+        groupId: 'g-1',
+        displayName: 'Fix login v2',
+    });
+    assert.equal(await input.isDisabled(), true, 'the submitted editor is pending');
+
+    const postSettlement = status => page.evaluate(statusValue => {
+        const request = window.__postedMessages
+            .filter(message => message.type === 'rename-worktree-group').at(-1);
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-rename-settlement',
+                version: 1,
+                requestId: request.requestId,
+                groupId: request.groupId,
+                status: statusValue,
+                ...(statusValue === 'failed' ? { errorCode: 'group-not-found' } : {}),
+            },
+        }));
+    }, status);
+    await postSettlement('accepted');
+    assert.equal(await input.isDisabled(), true, 'accepted keeps the pending state');
+    await postSettlement('failed');
+    assert.equal(await input.isDisabled(), false,
+        'a failed settlement re-enables the editor in place (no refresh on failure)');
+    assert.match(
+        await page.locator('[data-ai-session-live-region]').textContent(),
+        /could not rename/i,
+        'the failure is announced politely');
+
+    await input.press('Enter');
+    assert.equal(await input.isDisabled(), true);
+    await postSettlement('settled');
+    const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${surface({
+            selectedSurface: 'worktree',
+            worktreeGroups: [renamedGroup()],
+        })}</div></div></div>`;
+    const applied = await applyUpdate(renamedHtml);
+    assert.equal(applied, true);
+    assert.equal(await page.locator('.ai-session-worktree-rename-input').count(), 0,
+        'the authoritative replacement resolves the pending editor');
+    assert.equal(
+        await page.locator('.ai-session-worktree-group[data-group-id="g-1"]'
+            + ' .ai-session-worktree-title').textContent(),
+        'Fix login v2');
+});
+
+test('WORKTREE-GROUPS-RENAME-001 escape and unchanged input cancel without a message', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow()],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-group-rename"]')
+        .evaluate(item => item.click());
+    const input = page.locator('.ai-session-worktree-rename-input');
+    await input.fill('a different name');
+    await input.press('Escape');
+    assert.equal(await input.count(), 0, 'Escape abandons the edit');
+    assert.equal(await page.locator(
+        '.ai-session-worktree-group[data-group-id="g-1"] .ai-session-worktree-toolbar')
+        .first().isVisible(), true, 'the toolbar returns');
+    assert.equal(await page.evaluate(
+        () => window.__postedMessages
+            .filter(message => message.type === 'rename-worktree-group').length),
+        0, 'no mutation was submitted');
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-group-rename"]')
+        .evaluate(item => item.click());
+    await page.locator('.ai-session-worktree-rename-input').press('Enter');
+    assert.equal(await page.locator('.ai-session-worktree-rename-input').count(), 0,
+        'an unchanged name closes the editor without submitting');
+    assert.equal(await page.evaluate(
+        () => window.__postedMessages
+            .filter(message => message.type === 'rename-worktree-group').length),
+        0);
+});
+
+test('WORKTREE-GROUPS-RENAME-001 a group without a ready primary still offers rename only', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow({
+            canCreateSession: false,
+            needsPrimarySelection: true,
+            members: [member({
+                status: 'missing', isPrimary: true,
+                path: '/alpha/.worktrees/gone',
+                worktreeKey: undefined,
+            })],
+        })],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+
+    const more = page.locator('.ai-session-worktree-more[data-group-id="g-1"]');
+    assert.equal(await more.count(), 1,
+        'the group menu stays reachable without a ready primary');
+    await more.evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    assert.equal(
+        await menu.locator('[data-action="worktree-group-rename"]').isVisible(), true);
+    assert.equal(
+        await menu.locator('[data-action="worktree-quick-create"]').isHidden(), true,
+        'session actions hide without a usable primary worktree');
+    assert.equal(
+        await menu.locator('[data-action="worktree-provider-create"]').first().isHidden(), true);
+    assert.equal(
+        await menu.locator('[data-action="worktree-branch-create"]').isHidden(), true);
+    assert.equal(
+        await menu.locator('[data-action="worktree-remove"]').isHidden(), true);
 });

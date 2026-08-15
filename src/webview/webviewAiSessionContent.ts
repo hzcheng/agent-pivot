@@ -12,6 +12,7 @@ import type {
     AiSessionViewModel,
     ReadyWorktreeRow,
     WorktreeAnchorViewModel,
+    WorktreeGroupMemberStatus,
     WorktreeGroupRowViewModel,
     WorktreeRowViewModel,
 } from '../aiSessions/types';
@@ -812,21 +813,21 @@ function getWorktreeGroupRowHtml(
     const quickCreate = group.canCreateSession && primary?.worktreeKey
         ? `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickLabel)}" data-tooltip="${escapeAttribute(quickLabel)}">${Icons.add}</button>`
         : '';
-    // Until the full group menu lands (M3), group rows keep the existing
-    // worktree operations — quick create, derive, remove — acting on the
-    // primary member, so migration never removes capabilities (review I4).
+    // M3: the group menu hosts group-level actions (rename now; derive,
+    // add-repo, and group removal land in later M3 batches) and keeps the
+    // existing worktree operations acting on the primary member while one
+    // is ready, so migration never removes capabilities (review I4).
     const moreLabel = `Actions for ${name}`;
-    const more = group.canCreateSession && primary?.worktreeKey
-        ? `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
-            data-worktree-name="${escapeAttribute(name)}"
-            data-worktree-head-kind="branch"
-            data-can-resume="true"
-            data-can-remove="true"
-            data-can-branch-create="true"
-            data-quick-provider="${escapeAttribute(quickCreateProvider)}"
-            data-quick-label="${escapeAttribute(quickLabel)}"
-            data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`
-        : '';
+    const more = `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
+        data-group-id="${escapeAttribute(group.groupId)}"
+        data-worktree-name="${escapeAttribute(name)}"
+        data-worktree-head-kind="branch"
+        data-can-resume="${group.canCreateSession && primary?.worktreeKey ? 'true' : 'false'}"
+        data-can-remove="${group.canCreateSession && primary?.worktreeKey ? 'true' : 'false'}"
+        data-can-branch-create="${group.canCreateSession && primary?.worktreeKey ? 'true' : 'false'}"
+        data-quick-provider="${escapeAttribute(quickCreateProvider)}"
+        data-quick-label="${escapeAttribute(quickLabel)}"
+        data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`;
     const merge = group.mergeCandidateGroupIds.length
         ? `<button type="button" class="ai-session-worktree-merge" data-action="merge-worktree-groups" data-group-id="${escapeAttribute(group.groupId)}" aria-label="Merge ${escapeAttribute(name)} with another group" data-tooltip="Merge with another group…">${Icons.foldAll}</button>`
         : '';
@@ -844,7 +845,29 @@ function getWorktreeGroupRowHtml(
                 .join('')
             + `</div>`
         : '';
-    const memberSummary = `<div class="ai-session-worktree-member-summary" role="note">${group.members.length} worktree${group.members.length === 1 ? '' : 's'} · ${escapeAttribute(memberNames)}</div>`;
+    // PRD §10 (M3): the member summary expands into per-member details —
+    // repository, branch, path, status, primary badge — which later batches
+    // extend with member-level operations. The toggle state is preserved
+    // across authoritative replacements by the view-state script.
+    const summaryText = `${group.members.length} worktree${group.members.length === 1 ? '' : 's'} · ${memberNames}`;
+    const memberSummary = `<button type="button" class="ai-session-worktree-member-summary" data-action="toggle-group-member-details" aria-expanded="false" aria-label="Member worktrees of ${escapeAttribute(name)}: ${escapeAttribute(summaryText)}. Expand for details.">`
+        + `<span class="ai-session-worktree-member-summary-text">${escapeAttribute(summaryText)}</span>`
+        + `<span class="ai-session-worktree-member-summary-chevron" aria-hidden="true">${Icons.chevronDown}</span>`
+        + `</button>`
+        + `<div class="ai-session-worktree-member-details" hidden>${group.members.map(member => {
+            const statusLabel = getMemberDetailStatusLabel(member.status);
+            const primaryBadge = member.isPrimary
+                ? '<span class="ai-session-worktree-member-detail-primary">primary</span>'
+                : '';
+            return `<div class="ai-session-worktree-member-detail" data-member-id="${escapeAttribute(member.memberId)}" data-member-detail-status="${escapeAttribute(member.status)}">`
+                + `<span class="ai-session-worktree-member-detail-repo">${escapeAttribute(member.repositoryLabel)}${primaryBadge}</span>`
+                + `<span class="ai-session-worktree-member-detail-branch">${escapeAttribute(member.branchName)}</span>`
+                + `<span class="ai-session-worktree-member-detail-path" data-tooltip="${escapeAttribute(member.path)}">${escapeAttribute(member.path)}</span>`
+                + (statusLabel
+                    ? `<span class="ai-session-worktree-member-detail-state">${escapeAttribute(statusLabel)}</span>`
+                    : '')
+                + `</div>`;
+        }).join('\n')}</div>`;
     // M2: in-flight and failed members render as actionable rows so the
     // member state machine (provisioning / failed → Retry / Dismiss) is
     // visible inside the group row (PRD §4.2, §8).
@@ -883,6 +906,17 @@ function getWorktreeGroupRowHtml(
             ? matched.map(entry => entry.html).join('\n')
             : '<div class="ai-session-worktree-empty">(no active sessions)</div>'}${memberSummary}${memberStatusRows}${primaryPicker}</div>
     </section>`;
+}
+
+/** Human-readable member detail status (empty for ready members). */
+function getMemberDetailStatusLabel(status: WorktreeGroupMemberStatus): string {
+    switch (status) {
+        case 'pending': return 'creating';
+        case 'failed': return 'creation failed';
+        case 'missing': return 'missing on disk';
+        case 'detached': return 'repository not in workspace';
+        default: return '';
+    }
 }
 
 /** Human-readable member creation errors (PRD §8: 人话错误，不显示裸错误码). */
@@ -1139,8 +1173,9 @@ export function getAiSessionWorktreeMenu() {
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="codex">New Codex session</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="kimi">New Kimi session</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="claude">New Claude session</div>
-    <div class="custom-context-menu-separator" role="separator"></div>
+    <div class="custom-context-menu-separator" role="separator" data-worktree-session-separator></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-branch-create"></div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group</div>
     <div class="custom-context-menu-separator" role="separator" data-worktree-remove-separator></div>
     <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-remove">Remove worktree</div>
 </div>`;

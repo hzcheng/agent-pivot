@@ -1064,6 +1064,40 @@ test('WORKTREE-GROUPS-RENAME-001 escape and unchanged input cancel without a mes
         0);
 });
 
+test('WORKTREE-GROUPS-RENAME-001 the editor freezes the base revision it opened with', async t => {
+    // Open the editor at revision 1; a concurrent mutation advances the
+    // group to revision 2 and the replacement restores the editor — the
+    // submit must still carry revision 1 so the host fails closed.
+    const rev1Html = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow()],
+    });
+    const { page, applyUpdate } = await openGroupActionsPage(t, rev1Html);
+
+    await page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-group-rename"]')
+        .evaluate(item => item.click());
+    const input = page.locator('.ai-session-worktree-rename-input');
+    await input.fill('Fix login v2');
+
+    const rev2Html = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${surface({
+            selectedSurface: 'worktree',
+            worktreeGroups: [groupRow({ revision: 2 })],
+        })}</div></div></div>`;
+    const applied = await applyUpdate(rev2Html);
+    assert.equal(applied, true);
+    assert.equal(await page.locator('.ai-session-worktree-rename-input').count(), 1,
+        'the unsubmitted editor survives the replacement');
+
+    await page.locator('.ai-session-worktree-rename-input').press('Enter');
+    const renameMessage = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.equal(renameMessage.baseRevision, 1,
+        'the frozen revision travels with the restored editor');
+});
+
 test('WORKTREE-GROUPS-RENAME-001 a group without a ready primary still offers rename only', async t => {
     const sessionHtml = () => surface({
         selectedSurface: 'worktree',

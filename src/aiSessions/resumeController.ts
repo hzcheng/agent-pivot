@@ -131,6 +131,14 @@ export class AiSessionResumeController<
         }
 
         const session = target.session;
+        if (session.worktreeUnavailable) {
+            // The session's worktree is gone — or the retired store cannot
+            // prove either way (quarantined): resume fails closed (PRD §6.4).
+            this.options.showWarningMessage(
+                'This session’s worktree was deleted, so it cannot be resumed. '
+                + 'View the conversation instead.');
+            return;
+        }
         const directoryScope = await this.options.resolveWorkspaceDirectoryScope(
             target.workspace, session, providerId, explicitRootId
         );

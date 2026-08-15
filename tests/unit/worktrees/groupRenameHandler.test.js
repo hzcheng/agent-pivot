@@ -91,6 +91,23 @@ test('WORKTREE-GROUPS-RENAME-001 a replayed request is settled from the cache, n
         'no second mutation, no second revision bump');
 });
 
+test('WORKTREE-GROUPS-RENAME-001 concurrent replays single-flight to one terminal settlement', async () => {
+    const { store, group, posted, deps } = await fixture();
+
+    // Two identical requests in flight at once: the second must not run
+    // the mutation again nor produce its own terminal settlement.
+    await Promise.all([
+        handleRenameWorktreeGroup(renameRequest(group), deps),
+        handleRenameWorktreeGroup(renameRequest(group), deps),
+    ]);
+    const statuses = posted.map(message => message.status);
+    assert.deepEqual(statuses.filter(status => status === 'accepted').length, 1);
+    assert.deepEqual(statuses.filter(status => status === 'settled').length, 2,
+        'both callers receive the same terminal settlement');
+    assert.equal(store.listGroups(WORKSPACE)[0].revision, 2,
+        'the mutation ran exactly once');
+});
+
 test('WORKTREE-GROUPS-RENAME-001 a stale base revision fails closed', async () => {
     const { store, group, posted, deps } = await fixture();
 

@@ -9,15 +9,16 @@ const {
 test('WORKTREE-GROUPS-RENAME-001 replays receive the recorded settlement and eviction is bounded', () => {
     const cache = createSettlementReplayCache(2);
     assert.equal(cache.get('r-1'), undefined);
-    cache.remember('r-1', { status: 'settled' });
-    assert.deepEqual(cache.get('r-1'), { status: 'settled' },
-        'a replayed request id re-receives its terminal settlement');
-    cache.remember('r-1', { status: 'failed' });
-    assert.deepEqual(cache.get('r-1'), { status: 'failed' },
-        're-remembering replaces the entry');
-    cache.remember('r-2', { status: 'settled' });
-    cache.remember('r-3', { status: 'settled' });
-    assert.equal(cache.get('r-1'), undefined,
-        'the oldest entry is evicted past the bound');
-    assert.deepEqual(cache.get('r-3'), { status: 'settled' });
+    cache.remember('r-1', Promise.resolve({ status: 'settled' }));
+    return cache.get('r-1').then(value => {
+        assert.deepEqual(value, { status: 'settled' },
+            'a replayed request id re-receives its terminal settlement');
+        cache.remember('r-2', Promise.resolve({ status: 'settled' }));
+        cache.remember('r-3', Promise.resolve({ status: 'settled' }));
+        assert.equal(cache.get('r-1'), undefined,
+            'the oldest entry is evicted past the bound');
+        return cache.get('r-3');
+    }).then(value => {
+        assert.deepEqual(value, { status: 'settled' });
+    });
 });

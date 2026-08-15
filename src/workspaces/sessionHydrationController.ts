@@ -151,6 +151,8 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getGenerationClaims?: (
         workspaceNavigationIdentity: string
     ) => readonly GenerationClaim[];
+    /** Quarantine signal for the retired store (PRD §6.4). */
+    isRetiredStoreCorrupt?: (workspaceNavigationIdentity: string) => boolean;
     onDidReadSessions?: (
         workspace: OpenWorkspace,
         sessionResults: Record<AiSessionProviderId, AiSessionReadResult>,
@@ -230,6 +232,8 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             generationClaims:
                 this.options.getGenerationClaims?.(workspace.navigationIdentity) || [],
             nowMs: () => this.nowMs(),
+            retiredStoreCorrupt:
+                this.options.isRetiredStoreCorrupt?.(workspace.navigationIdentity) || false,
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
             selectedSurface: this.options.getSelectedSurface?.(workspace.scopeIdentity),

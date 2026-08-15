@@ -4,6 +4,7 @@ import type { WorktreeGroupManifestStore } from './groupManifestStore';
 import {
     acceptedWorktreeGroupRenameSettlement,
     parseRenameWorktreeGroupRequest,
+    RenameWorktreeGroupRequest,
     settledWorktreeGroupRenameSettlement,
     WorktreeGroupRenameSettlement,
 } from './groupRenameProtocol';
@@ -36,23 +37,31 @@ export async function handleRenameWorktreeGroup(
     if (!request) {
         return;
     }
+    // Single-flight per request id: a replay — even a concurrent one —
+    // awaits and re-receives the first execution's terminal settlement.
     const replayed = deps.replayCache.get(request.requestId);
     if (replayed) {
-        await deps.postMessage(replayed);
+        await deps.postMessage(await replayed);
         return;
     }
+    const terminal = executeRenameWorktreeGroup(request, deps);
+    deps.replayCache.remember(request.requestId, terminal);
+    await deps.postMessage(await terminal);
+}
+
+async function executeRenameWorktreeGroup(
+    request: RenameWorktreeGroupRequest,
+    deps: RenameWorktreeGroupHandlerDeps
+): Promise<WorktreeGroupRenameSettlement> {
     await deps.postMessage(acceptedWorktreeGroupRenameSettlement(request));
-    const settle = async (
+    const settle = (
         outcome: { kind: 'settled' } | { kind: 'failed'; errorCode: string }
     ) => {
-        const settlement = settledWorktreeGroupRenameSettlement(request, outcome);
-        deps.replayCache.remember(request.requestId, settlement);
-        await deps.postMessage(settlement);
+        return settledWorktreeGroupRenameSettlement(request, outcome);
     };
     const navigationIdentity = deps.getNavigationIdentity(request.projectId);
     if (!navigationIdentity) {
-        await settle({ kind: 'failed', errorCode: 'workspace-unavailable' });
-        return;
+        return settle({ kind: 'failed', errorCode: 'workspace-unavailable' });
     }
     try {
         await deps.store.renameGroup(
@@ -65,15 +74,14 @@ export async function handleRenameWorktreeGroup(
         deps.showWarning(
             'Agent Pivot: could not rename the worktree group. Refresh the dashboard and try again.');
         const errorCode = (error as { code?: string })?.code || 'rename-failed';
-        await settle({
+        return settle({
             kind: 'failed',
             errorCode: /^[a-z0-9-]{1,64}$/.test(errorCode) ? errorCode : 'rename-failed',
         });
-        return;
     }
-    await settle({ kind: 'settled' });
     // The pending editor resolves only through the authoritative
     // replacement, so delivery must be awaited and a full-refresh fallback
     // covers a lost or failed publication.
     await deps.refreshNow();
+    return settle({ kind: 'settled' });
 }

@@ -1531,6 +1531,8 @@ async function initializeDashboard(
             worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
         getGenerationClaims: navigationIdentity =>
             worktreeGroupManifestStore.listGenerationClaims(navigationIdentity),
+        isRetiredStoreCorrupt: navigationIdentity =>
+            worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
         onDidReadSessions: (workspace, sessionResults, reason) => {
             void workspacePendingSessionPromotionController.promote(
                 workspace,

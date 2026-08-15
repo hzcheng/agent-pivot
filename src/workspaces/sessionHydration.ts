@@ -68,6 +68,12 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     retiredWorktreeIdentities?: readonly RetiredWorktreeIdentity[];
     /** Generation claims for this workspace bucket (PRD §6.4). */
     generationClaims?: readonly GenerationClaim[];
+    /**
+     * Quarantine signal for the retired store (PRD §6.4): while set, every
+     * session that cannot be positively placed is unknown — and unknown
+     * means unresumable.
+     */
+    retiredStoreCorrupt?: boolean;
     /** Authoritative clock for generation judgment (clock-drift fail-closed). */
     nowMs?: () => number;
     providers: readonly HydrationProvider[];
@@ -176,7 +182,8 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
             input.worktreeGroups,
             input.retiredWorktreeIdentities,
             input.generationClaims,
-            input.nowMs
+            input.nowMs,
+            input.retiredStoreCorrupt
         );
         const assignmentBySessionId = new Map(assigned.map(item => [item.session.id, item]));
         sessionsByProvider[provider.id] = prepareAiSessionsForDisplay(
@@ -247,6 +254,7 @@ function assignHistorySessions(
     retiredIdentities?: readonly RetiredWorktreeIdentity[],
     generationClaims?: readonly GenerationClaim[],
     nowMs?: () => number,
+    retiredStoreCorrupt?: boolean,
 ): AssignedHistory[] {
     const seen = new Set<string>();
     const assigned: AssignedHistory[] = [];
@@ -291,7 +299,15 @@ function assignHistorySessions(
             : null;
         const root = worktree?.root
             || (manifestKey || retiredKey ? null : assignPathToWorkspaceRoot(cwd, workspace.roots));
-        const worktreeUnavailable = !!manifestKey || !!retiredKey
+        // While the retired store is quarantined, a root-fallback session
+        // might actually belong to a deleted worktree we can no longer see:
+        // unknown means unresumable. Sessions sitting directly on a
+        // workspace root (the Current anchor's domain) are unaffected.
+        const corruptUnknown = !!retiredStoreCorrupt && !worktree && !manifestKey
+            && !retiredKey && !!root
+            && normalizeWorkspaceHostPath(root.hostPath)
+                !== normalizeWorkspaceHostPath(cwd);
+        const worktreeUnavailable = !!manifestKey || !!retiredKey || corruptUnknown
             || !!worktree && (worktree.worktree.health === 'missing'
                 || worktree.worktree.health === 'prunable');
         if (worktree || manifestKey || retiredKey || root) {

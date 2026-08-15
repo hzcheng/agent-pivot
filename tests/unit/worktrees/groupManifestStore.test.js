@@ -646,7 +646,9 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
         error => error.code === 'store-corrupt',
         'mutations fail closed while the section is quarantined');
 
-    // Claims with a missing or key-mismatched basis are dropped.
+    // Claims with a missing or key-mismatched basis quarantine the bucket:
+    // a pending claim may be the only deletion blocker for a live session,
+    // so nothing is dropped — the whole section is marked corrupt.
     store = new WorktreeGroupManifestStore(seeded(
         [retiredRecord()],
         [
@@ -664,13 +666,12 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
             pendingClaim(),
         ],
         100));
-    assert.deepEqual(
-        store.listGenerationClaims(WORKSPACE).map(claim => claim.claimId),
-        ['c-1']);
+    assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true);
+    assert.deepEqual(store.listGenerationClaims(WORKSPACE), [],
+        'claims are suppressed while quarantined');
 
-    // Duplicate pending ids / promoted identities: EVERY conflicting claim
-    // is dropped — keeping the first would let array order decide whether
-    // a stale session may resume.
+    // Duplicate pending ids / promoted identities quarantine as well —
+    // never an order-based choice.
     store = new WorktreeGroupManifestStore(seeded(
         [retiredRecord()],
         [
@@ -678,8 +679,8 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
             pendingClaim({ claimId: 'c-2', pendingId: 'p-1' }),
         ],
         100));
-    assert.deepEqual(store.listGenerationClaims(WORKSPACE), [],
-        'duplicate pending ids drop both claims');
+    assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true,
+        'duplicate pending ids quarantine the bucket');
 
     store = new WorktreeGroupManifestStore(seeded(
         [retiredRecord(), retiredRecord({
@@ -698,8 +699,8 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 persisted blobs are re-validated agai
             },
         ],
         300));
-    assert.deepEqual(store.listGenerationClaims(WORKSPACE), [],
-        'duplicate promoted identities drop both claims, regardless of order');
+    assert.equal(store.isRetiredStoreCorrupt(WORKSPACE), true,
+        'duplicate promoted identities quarantine the bucket, regardless of order');
 
     // A stored high-water mark below the records' cutoffs is repaired up.
     store = new WorktreeGroupManifestStore(seeded([retiredRecord()], [], 5));

@@ -1003,27 +1003,34 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
     if (candidate.version !== 2) {
         return null;
     }
+    const rawRetired = Array.isArray(candidate.retiredIdentities)
+        ? candidate.retiredIdentities : [];
+    const rawClaims = Array.isArray(candidate.generationClaims)
+        ? candidate.generationClaims : [];
+    const retiredIdentities = rawRetired
+        .slice(0, MAX_RETIRED_PER_WORKSPACE)
+        .map(parseRetiredIdentity)
+        .filter((record): record is RetiredWorktreeIdentity => !!record);
+    const generationClaims = rawClaims
+        .slice(0, MAX_GENERATION_CLAIMS_PER_WORKSPACE)
+        .map(parseGenerationClaim)
+        .filter((claim): claim is GenerationClaim => !!claim);
+    // A pending claim may be the only deletion blocker for a live session,
+    // so no claim or retired record may ever be dropped silently: any parse
+    // failure or overflow quarantines the bucket instead.
+    const dropped = retiredIdentities.length !== rawRetired.length
+        || generationClaims.length !== rawClaims.length;
     const aggregate: WorkspaceAggregate = {
         version: 2,
         groups: Array.isArray(candidate.groups) ? parseGroups(candidate.groups) : [],
-        ...(candidate.corrupt === true ? { corrupt: true } : {}),
-        retiredIdentities: Array.isArray(candidate.retiredIdentities)
-            ? candidate.retiredIdentities
-                .slice(0, MAX_RETIRED_PER_WORKSPACE)
-                .map(parseRetiredIdentity)
-                .filter((record): record is RetiredWorktreeIdentity => !!record)
-            : [],
+        ...(candidate.corrupt === true || dropped ? { corrupt: true } : {}),
+        retiredIdentities,
         // The deletion journal arrives with batch 3; tolerate and drop
         // anything unreadable rather than failing the whole bucket.
         deletionJournal: Array.isArray(candidate.deletionJournal)
             ? candidate.deletionJournal.slice(0, MAX_RETIRED_PER_WORKSPACE)
             : [],
-        generationClaims: Array.isArray(candidate.generationClaims)
-            ? candidate.generationClaims
-                .slice(0, MAX_GENERATION_CLAIMS_PER_WORKSPACE)
-                .map(parseGenerationClaim)
-                .filter((claim): claim is GenerationClaim => !!claim)
-            : [],
+        generationClaims,
         lastGenerationCutoffAt: typeof candidate.lastGenerationCutoffAt === 'number'
             && Number.isSafeInteger(candidate.lastGenerationCutoffAt)
             && candidate.lastGenerationCutoffAt >= 0
@@ -1061,14 +1068,15 @@ function sanitizeAggregateCrossInvariants(
         aggregate.corrupt = true;
         return aggregate;
     }
-    const retirementByKey = new Map(
-        aggregate.retiredIdentities.map(record => [record.retirementId, record]));
-    // Claims only ever *prove* the current generation, so a corrupt
-    // conflict must drop EVERY conflicting claim: keeping the first would
-    // let array order decide whether a stale session may resume.
+    // Any claim-level conflict quarantines the bucket: a pending claim may
+    // be the only deletion blocker for a live session, and a promoted claim
+    // is a generation proof — neither may be dropped nor chosen by order.
     const claimIds = new Map<string, number>();
     const pendingIds = new Map<string, number>();
     const promotedIdentities = new Map<string, number>();
+    const retirementIds = new Set(
+        aggregate.retiredIdentities.map(record => record.retirementId));
+    let claimConflict = false;
     for (const claim of aggregate.generationClaims) {
         claimIds.set(claim.claimId, (claimIds.get(claim.claimId) || 0) + 1);
         if (claim.state === 'pending' && claim.pendingId) {
@@ -1078,29 +1086,35 @@ function sanitizeAggregateCrossInvariants(
             const identity = `${claim.provider}::${claim.sessionId}`;
             promotedIdentities.set(identity, (promotedIdentities.get(identity) || 0) + 1);
         }
+        const basis = claim.createdAfterRetirementId;
+        const basisRecord = aggregate.retiredIdentities.find(record =>
+            record.retirementId === basis);
+        if (!retirementIds.has(basis)
+            || basisRecord!.repositoryKey !== claim.worktreeKey.repositoryKey
+            || basisRecord!.canonicalWorktreePath
+                !== claim.worktreeKey.canonicalWorktreePath) {
+            claimConflict = true;
+        }
     }
-    aggregate.generationClaims = aggregate.generationClaims.filter(claim => {
-        if ((claimIds.get(claim.claimId) || 0) !== 1) {
-            return false;
+    for (const count of claimIds.values()) {
+        if (count !== 1) {
+            claimConflict = true;
         }
-        const basis = retirementByKey.get(claim.createdAfterRetirementId);
-        if (!basis
-            || basis.repositoryKey !== claim.worktreeKey.repositoryKey
-            || basis.canonicalWorktreePath !== claim.worktreeKey.canonicalWorktreePath) {
-            return false;
+    }
+    for (const count of pendingIds.values()) {
+        if (count !== 1) {
+            claimConflict = true;
         }
-        if (claim.state === 'pending') {
-            if (!claim.pendingId || (pendingIds.get(claim.pendingId) || 0) !== 1) {
-                return false;
-            }
-        } else {
-            const identity = `${claim.provider}::${claim.sessionId}`;
-            if ((promotedIdentities.get(identity) || 0) !== 1) {
-                return false;
-            }
+    }
+    for (const count of promotedIdentities.values()) {
+        if (count !== 1) {
+            claimConflict = true;
         }
-        return true;
-    });
+    }
+    if (claimConflict) {
+        aggregate.corrupt = true;
+        return aggregate;
+    }
     // The cutoff high-water mark must cover every surviving retirement; a
     // lower stored value is repaired upward, never downward.
     for (const record of aggregate.retiredIdentities) {

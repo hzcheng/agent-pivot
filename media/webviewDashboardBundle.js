@@ -5289,6 +5289,14 @@ function initProjectAiSessionControls(options) {
         var editor = document.createElement('div');
         editor.className = 'ai-session-worktree-rename-editor';
         editor.setAttribute('data-rename-original-name', title.textContent || '');
+        // Freeze the base revision when the editor opens: a replacement
+        // that advances the group meanwhile must not let this edit post a
+        // newer revision than the user ever saw — the host rejects stale
+        // bases with group-changed.
+        var baseRevision = options && options.baseRevision !== undefined
+            ? options.baseRevision
+            : parseInt(section.getAttribute('data-group-revision') || '', 10);
+        editor.setAttribute('data-rename-base-revision', String(baseRevision));
         if (options && options.pending) {
             editor.setAttribute('data-rename-pending', 'true');
         }
@@ -5352,7 +5360,8 @@ function initProjectAiSessionControls(options) {
         var projectDiv = section.closest('.project');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section.getAttribute('data-group-id') || '';
-        var baseRevision = parseInt(section.getAttribute('data-group-revision') || '', 10);
+        var baseRevision = parseInt(
+            editor.getAttribute('data-rename-base-revision') || '', 10);
         var value = (input.value || '').trim();
         if (!projectId || !groupId || !Number.isSafeInteger(baseRevision) || baseRevision < 1) {
             return;
@@ -5459,6 +5468,7 @@ function initProjectAiSessionControls(options) {
             originalName: editor.getAttribute('data-rename-original-name') || '',
             pending: editor.getAttribute('data-rename-pending') === 'true',
             requestId: editor.getAttribute('data-rename-request-id') || '',
+            baseRevision: editor.getAttribute('data-rename-base-revision') || '',
         };
     }
 
@@ -5466,6 +5476,9 @@ function initProjectAiSessionControls(options) {
         if (!projectDiv || !state || !state.groupId) return;
         var section = findWorktreeGroupSection(projectDiv, state.groupId);
         if (!section) return;
+        // The replacement pipeline restores view state in two passes;
+        // building the editor must be idempotent.
+        if (section.querySelector('.ai-session-worktree-rename-editor')) return;
         var title = section.querySelector('.ai-session-worktree-title');
         var currentName = title ? title.textContent || '' : '';
         if (state.pending && currentName !== state.originalName) {
@@ -5491,7 +5504,11 @@ function initProjectAiSessionControls(options) {
         var editor = buildWorktreeGroupRenameEditor(
             section,
             state.value,
-            { pending: state.pending, skipFocus: true }
+            {
+                pending: state.pending,
+                skipFocus: true,
+                baseRevision: state.baseRevision,
+            }
         );
         if (editor && state.pending && state.requestId) {
             editor.setAttribute('data-rename-request-id', state.requestId);

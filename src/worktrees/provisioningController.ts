@@ -68,6 +68,7 @@ export interface WorktreeProvisioningRecoveryOperation {
 
 export class WorktreeProvisioningController {
     private readonly operations = new Map<string, ProvisioningOperation>();
+    private readonly discardClaims = new Set<string>();
     private revision = 0;
 
     constructor(private readonly options: WorktreeProvisioningControllerOptions) {
@@ -97,7 +98,7 @@ export class WorktreeProvisioningController {
     ): Promise<WorktreeProvisioningOutcome> {
         const operation = this.operations.get(operationId);
         if (!operation || operation.running || operation.row.stage !== 'failed'
-            || !operation.row.retryable
+            || !operation.row.retryable || this.discardClaims.has(operationId)
             || (replacementPlan && operation.completedSteps.includes('worktree'))) {
             return Promise.resolve({ kind: 'failed', operationId, errorCode: 'retry-unavailable' });
         }
@@ -110,12 +111,35 @@ export class WorktreeProvisioningController {
         return Promise.resolve().then(() => this.run(operation));
     }
 
-    /** Drops a settled-failed row; running or in-flight operations cannot be discarded. */
-    discard(operationId: string): boolean {
+    /**
+     * Atomically claims the right to discard a settled-failed operation.
+     * The claimant may then persist tombstones and mutate contexts before
+     * calling discard(); a running or retried operation can never be
+     * claimed, so a failed claim changes nothing.
+     */
+    claimDiscard(operationId: string): boolean {
         const operation = this.operations.get(operationId);
-        if (!operation || operation.running || operation.row.stage !== 'failed') {
+        if (!operation || operation.running || operation.row.stage !== 'failed'
+            || this.discardClaims.has(operationId)) {
             return false;
         }
+        this.discardClaims.add(operationId);
+        return true;
+    }
+
+    /** Releases a discard claim without discarding (rollback path). */
+    releaseDiscard(operationId: string): void {
+        this.discardClaims.delete(operationId);
+    }
+
+    /** Drops a settled-failed row; requires a prior claimDiscard. */
+    discard(operationId: string): boolean {
+        const operation = this.operations.get(operationId);
+        if (!operation || operation.running || operation.row.stage !== 'failed'
+            || !this.discardClaims.has(operationId)) {
+            return false;
+        }
+        this.discardClaims.delete(operationId);
         this.operations.delete(operationId);
         this.publish();
         return true;
@@ -123,7 +147,8 @@ export class WorktreeProvisioningController {
 
     cancel(operationId: string): boolean {
         const operation = this.operations.get(operationId);
-        if (!operation || !operation.row.cancellable || operation.row.stage === 'failed') {
+        if (!operation || !operation.row.cancellable || operation.row.stage === 'failed'
+            || this.discardClaims.has(operationId)) {
             return false;
         }
         operation.cancelled = true;

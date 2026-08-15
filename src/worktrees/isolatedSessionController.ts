@@ -464,6 +464,12 @@ export class IsolatedSessionController {
         operationId: string,
         context: IsolatedSessionOperationContext
     ): Promise<boolean> {
+        // Claim the discard BEFORE any persistence or memory change: a
+        // still-running operation can never be claimed, so a refused
+        // dismissal provably changed nothing.
+        if (!this.provisioning.claimDiscard(operationId)) {
+            return false;
+        }
         const recovery = this.provisioning.getRecoveryOperations()
             .find(operation => operation.operationId === operationId);
         const needsTombstone = !!recovery
@@ -475,6 +481,7 @@ export class IsolatedSessionController {
             && this.recoveryTombstones.size >= MAX_PROVISIONING_TOMBSTONES) {
             // Refuse rather than silently evict a protection record; the
             // user cleans up physical worktrees to free capacity.
+            this.provisioning.releaseDiscard(operationId);
             return false;
         }
         // Dismissing an intent whose worktree exists but whose setup never
@@ -498,6 +505,7 @@ export class IsolatedSessionController {
                         // converges through read-time tombstone-wins.
                         await this.options.persistTombstones([durable]);
                     } catch (error) {
+                        this.provisioning.releaseDiscard(operationId);
                         this.options.onPersistenceError?.(error);
                         return false;
                     }
@@ -518,6 +526,7 @@ export class IsolatedSessionController {
                     } catch (error) {
                         this.recoveryTombstones.delete(operationId);
                         this.contextsByOperation.set(operationId, context);
+                        this.provisioning.releaseDiscard(operationId);
                         this.options.onPersistenceError?.(error);
                         return false;
                     }
@@ -525,6 +534,7 @@ export class IsolatedSessionController {
             }
         }
         if (!this.provisioning.discard(operationId)) {
+            this.provisioning.releaseDiscard(operationId);
             return false;
         }
         this.contextsByOperation.delete(operationId);

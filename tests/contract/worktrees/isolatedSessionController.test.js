@@ -960,6 +960,46 @@ test('WORKTREE-GROUPS-CREATE-001 retry and dismiss never interleave on one opera
     assert.equal(current.controller.getRows().length, 0);
 });
 
+test('WORKTREE-GROUPS-CREATE-001 dismiss during initial provisioning changes nothing', async () => {
+    // The claim-first protocol: while the operation is running, dismiss
+    // must fail before any tombstone write or context teardown, and the
+    // later finalize still records the ready member.
+    const recorded = [];
+    let releaseSetup;
+    const setupGate = new Promise(resolve => { releaseSetup = resolve; });
+    const current = fixture({
+        runSetup: () => setupGate,
+        recordProvisionedWorktree: async info => { recorded.push(info); },
+    });
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const start = current.controller.startGroupMember({
+        operationId: 'group-member-r1', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'r1',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+
+    const dismissed = await current.controller.dismiss('group-member-r1', 'project');
+    assert.equal(dismissed, false, 'a running operation cannot be dismissed');
+    assert.equal(current.tombstones.length, 0,
+        'no tombstone was committed');
+    assert.ok(current.controller.hasOperation('group-member-r1'),
+        'the operation context is intact');
+
+    releaseSetup();
+    const outcome = await start;
+    assert.equal(outcome.kind, 'succeeded');
+    assert.equal(recorded.length, 1,
+        'the finalize hook still records the member');
+    assert.equal(recorded[0].memberId, 'r1');
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

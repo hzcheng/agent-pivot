@@ -146,6 +146,11 @@ test('WORKTREE-PROVISIONING-STATE-001 discard drops only settled-failed rows', a
     await current.controller.start('operation-dismiss', plan);
     assert.equal(current.controller.getRows()[0].stage, 'failed');
 
+    assert.equal(current.controller.discard('operation-dismiss'), false,
+        'discard requires an atomic claim first');
+    assert.equal(current.controller.claimDiscard('operation-dismiss'), true);
+    assert.equal(current.controller.claimDiscard('operation-dismiss'), false,
+        'a second claim is refused while the first is held');
     assert.equal(current.controller.discard('operation-dismiss'), true);
     assert.deepEqual(current.controller.getRows(), []);
     assert.equal(current.controller.discard('operation-dismiss'), false,

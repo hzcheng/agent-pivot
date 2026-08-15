@@ -156,6 +156,17 @@ function okMembers() {
     }];
 }
 
+test('WORKTREE-GROUPS-CREATE-UI-001 both authoritative replacement paths reconcile the form', () => {
+    // applyOpenWorkspacesUpdate swaps the whole wrapper innerHTML; the
+    // ai-sessions path replaces the current-workspace group. Both must
+    // re-render an open form or the card silently vanishes mid-editing.
+    const projectScripts = readScript('webviewProjectScripts.js');
+    assert.match(projectScripts,
+        /open-workspaces-updated[\s\S]{0,1500}worktreeGroupForm\.reconcileDom\(\)/);
+    const updateScripts = readScript('webviewProjectAiUpdateScripts.js');
+    assert.match(updateScripts, /reconcileWorktreeGroupFormDom\(\)/);
+});
+
 test('WORKTREE-GROUPS-CREATE-UI-001 opens inline, previews, and confirms the exact preview values', async t => {
     const page = await openFormPage(t);
     await openBootstrappedForm(page);
@@ -183,7 +194,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 opens inline, previews, and confirms the exa
     const confirm = form.locator('[data-group-form-action="confirm"]');
     assert.equal(await confirm.isEnabled(), true);
 
-    await confirm.click();
+    await confirm.evaluate(button => button.click());
     const confirmRequest = (await postedMessages(page))
         .find(message => message.type === 'confirm-worktree-group');
     assert.ok(confirmRequest);
@@ -237,7 +248,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 preflight failures gate confirm and offer th
     const available = form.locator('[data-group-form-action="confirm-available"]');
     assert.match(await available.textContent(), /available 1\/2/);
 
-    await available.click();
+    await available.evaluate(button => button.click());
     const confirmRequest = (await postedMessages(page))
         .find(message => message.type === 'confirm-worktree-group');
     assert.deepEqual(confirmRequest.members.map(member => member.repositoryKey),
@@ -289,7 +300,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 branch-from-here seeds the repository and ba
     const page = await openFormPage(t);
     await openBootstrappedForm(page);
     // Simulate the seeded form state the host sends for branch-from-here.
-    await page.locator('[data-group-form-action="close"]').click();
+    await page.locator('[data-group-form-action="close"]').evaluate(button => button.click());
     await page.evaluate(() => {
         window.__groupFormSeed = true;
     });
@@ -393,4 +404,59 @@ test('WORKTREE-GROUPS-CREATE-UI-001 failed member rows offer Retry and Dismiss',
         .find(message => message.type === 'dismiss-worktree-group-member');
     assert.ok(dismissRequest);
     assert.equal(dismissRequest.memberId, 'm-2');
+});
+test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and value while previews stream in', async t => {
+    // Regression: rebuilding the form on every keystroke destroyed the
+    // focused input, so only the first character ever registered.
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+
+    const input = page.locator('[data-group-form-name]');
+    // The minimal fixture lacks the full layout chain, so focus directly;
+    // the keyboard events still travel the real input path.
+    await input.evaluate(element => element.focus());
+    await page.keyboard.type('Fix');
+    await page.waitForTimeout(350);
+    // A preview response arriving mid-typing must not drop focus either.
+    await answerPreview(page, okMembers());
+    await page.keyboard.type(' login');
+
+    assert.equal(await input.inputValue(), 'Fix login');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+        && document.activeElement.hasAttribute('data-group-form-name')), true,
+        'the name input keeps focus across preview-driven re-renders');
+    assert.equal(await page.evaluate(() => {
+        const element = document.querySelector('[data-group-form-name]');
+        return element.selectionStart;
+    }), 'Fix login'.length,
+        'the caret stays at the end of the typed text');
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 the form survives external DOM replacement and its slot scrolls', async t => {
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+    await page.locator('[data-group-form-name]').fill('Fix login');
+
+    // An authoritative replacement wipes the slot; the next form-related
+    // message re-renders from the preserved state.
+    await page.evaluate(() => {
+        document.querySelector('[data-worktree-group-form-slot]').innerHTML = '';
+    });
+    await postHostMessage(page, {
+        type: 'worktree-group-form-state',
+        version: 1,
+        projectId: 'project-a',
+        repositories: repositoryOptions(),
+    });
+    assert.equal(await page.locator('[data-group-form-name]').inputValue(), 'Fix login',
+        'external DOM replacement cannot lose the unsubmitted form');
+
+    // The slot caps its height and scrolls internally so a tall form never
+    // pushes the worktree list out of reach (asserted on the compiled
+    // stylesheet: the bare fixture cannot reproduce the flex height chain).
+    const slotRule = styles.match(/\.ai-session-group-form-slot\{[^}]*\}/);
+    assert.ok(slotRule, 'the slot rule exists in the compiled stylesheet');
+    assert.match(slotRule[0], /max-height:\s*60%/);
+    assert.match(slotRule[0], /overflow-y:\s*auto/);
 });

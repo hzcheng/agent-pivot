@@ -3817,6 +3817,17 @@ body.steward-sidebar {
             }
         }
 
+        // The slot is a flex item of the surface panel: cap its height and
+        // scroll internally so a tall form never pushes the worktree list
+        // out of reach (the list keeps its own scroll below).
+        .ai-session-group-form-slot {
+            flex: 0 1 auto;
+            min-height: 0;
+            max-height: 60%;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
         .ai-session-group-form {
             margin: 2px 4px 6px;
             padding: 6px;

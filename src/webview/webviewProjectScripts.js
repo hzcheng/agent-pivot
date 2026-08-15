@@ -531,6 +531,9 @@ function initProjects() {
             })) {
                 return;
             }
+            // applyOpenWorkspacesUpdate replaces the whole wrapper,
+            // including the form slot: re-render any open creation form.
+            worktreeGroupForm.reconcileDom();
             updateStickyGroupHeaderOffset();
             if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
                 openTabSplit.syncResizer();

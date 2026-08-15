@@ -3378,7 +3378,9 @@ function initWorktreeGroupForm(options) {
             state.previewTimer = 0;
             sendPreviewRequest(projectId);
         }, debounceMs === undefined ? PREVIEW_DEBOUNCE_MS : debounceMs);
-        renderForm(projectId);
+        // Never rebuild the form on a keystroke: innerHTML replacement
+        // destroys the focused input mid-typing. Patch only the actions row.
+        syncActionsDom(projectId);
     }
 
     function sendPreviewRequest(projectId) {
@@ -3659,19 +3661,13 @@ function initWorktreeGroupForm(options) {
             + '</div>';
     }
 
-    function renderForm(projectId) {
-        var state = getState(projectId);
+    function formSlot(projectId) {
         var projectDiv = getCurrentWorkspaceDiv
             ? getCurrentWorkspaceDiv(projectId) : null;
-        var slot = projectDiv && projectDiv.querySelector('[data-worktree-group-form-slot]');
-        if (!slot) {
-            return;
-        }
-        if (!state || !state.open) {
-            slot.hidden = true;
-            slot.innerHTML = '';
-            return;
-        }
+        return projectDiv && projectDiv.querySelector('[data-worktree-group-form-slot]');
+    }
+
+    function actionsHtml(state) {
         var checked = checkedRepositories(state);
         var failures = hasPreflightFailures(state);
         var availableCount = availableMembers(state).length;
@@ -3681,11 +3677,6 @@ function initWorktreeGroupForm(options) {
             && checked.length > 0 && !failures && hasName;
         var canConfirmAvailable = !state.confirming && !state.previewDirty
             && !!state.preview && failures && availableCount > 0 && hasName;
-        var membersHtml = state.bootstrapping
-            ? '<div class="ai-session-group-form-loading">Loading repositories\u2026</div>'
-            : state.repositories.map(function (repository, index) {
-                return memberRowHtml(state, repository, index);
-            }).join('');
         var availableButton = failures
             ? '<button type="button" class="ai-session-group-form-available"'
                 + ' data-group-form-action="confirm-available"'
@@ -3693,6 +3684,88 @@ function initWorktreeGroupForm(options) {
                 + '>Create only the available ' + availableCount + '/'
                 + checked.length + ' members</button>'
             : '';
+        return '<button type="button" class="ai-session-group-form-confirm"'
+            + ' data-group-form-action="confirm"' + (canConfirm ? '' : ' disabled')
+            + '>Create group</button>'
+            + availableButton
+            + (state.previewDirty && hasName
+                ? '<span class="ai-session-group-form-pending">previewing\u2026</span>'
+                : '');
+    }
+
+    // Light patch for keystroke-driven state changes: the confirm button
+    // and the pending indicator follow the dirty flag without touching the
+    // rest of the form (a full rebuild would drop input focus).
+    function syncActionsDom(projectId) {
+        var state = getState(projectId);
+        var slot = formSlot(projectId);
+        var actions = slot && slot.querySelector('.ai-session-group-form-actions');
+        if (!state || !state.open || !actions) {
+            return;
+        }
+        actions.innerHTML = actionsHtml(state);
+    }
+
+    function captureFormFocus(slot) {
+        var active = document.activeElement;
+        if (!active || !slot.contains(active)) {
+            return null;
+        }
+        var attributes = [
+            'data-group-form-name',
+            'data-group-form-base',
+            'data-group-form-check',
+            'data-group-form-setup',
+            'data-group-form-primary',
+            'data-group-form-action',
+        ];
+        for (var index = 0; index < attributes.length; index++) {
+            var attribute = attributes[index];
+            var value = active.getAttribute && active.getAttribute(attribute);
+            if (value !== null && value !== undefined) {
+                return {
+                    selector: '[' + attribute + (value ? '="' + CSS.escape(value) + '"' : '') + ']',
+                    selectionStart: attribute === 'data-group-form-name'
+                        ? active.selectionStart : null,
+                    selectionEnd: attribute === 'data-group-form-name'
+                        ? active.selectionEnd : null,
+                };
+            }
+        }
+        return null;
+    }
+
+    function restoreFormFocus(slot, capture) {
+        if (!capture) {
+            return;
+        }
+        var element = slot.querySelector(capture.selector);
+        if (!element) {
+            return;
+        }
+        element.focus();
+        if (capture.selectionStart !== null && element.setSelectionRange) {
+            element.setSelectionRange(capture.selectionStart, capture.selectionEnd);
+        }
+    }
+
+    function renderForm(projectId) {
+        var state = getState(projectId);
+        var slot = formSlot(projectId);
+        if (!slot) {
+            return;
+        }
+        if (!state || !state.open) {
+            slot.hidden = true;
+            slot.innerHTML = '';
+            return;
+        }
+        var focus = captureFormFocus(slot);
+        var membersHtml = state.bootstrapping
+            ? '<div class="ai-session-group-form-loading">Loading repositories\u2026</div>'
+            : state.repositories.map(function (repository, index) {
+                return memberRowHtml(state, repository, index);
+            }).join('');
         slot.innerHTML = '<div class="ai-session-group-form" data-worktree-group-form'
             + ' data-project-id="' + escapeHtml(projectId) + '">'
             + '<div class="ai-session-group-form-header">'
@@ -3711,17 +3784,10 @@ function initWorktreeGroupForm(options) {
                     + escapeHtml(state.formError) + '</div>'
                 : '')
             + '<div class="ai-session-group-form-members">' + membersHtml + '</div>'
-            + '<div class="ai-session-group-form-actions">'
-            + '<button type="button" class="ai-session-group-form-confirm"'
-            + ' data-group-form-action="confirm"' + (canConfirm ? '' : ' disabled')
-            + '>Create group</button>'
-            + availableButton
-            + (state.previewDirty && hasName
-                ? '<span class="ai-session-group-form-pending">previewing\u2026</span>'
-                : '')
-            + '</div>'
+            + '<div class="ai-session-group-form-actions">' + actionsHtml(state) + '</div>'
             + '</div>';
         slot.hidden = false;
+        restoreFormFocus(slot, focus);
     }
 
     function focusNameInput(projectId) {
@@ -5947,6 +6013,9 @@ function initProjects() {
             })) {
                 return;
             }
+            // applyOpenWorkspacesUpdate replaces the whole wrapper,
+            // including the form slot: re-render any open creation form.
+            worktreeGroupForm.reconcileDom();
             updateStickyGroupHeaderOffset();
             if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
                 openTabSplit.syncResizer();

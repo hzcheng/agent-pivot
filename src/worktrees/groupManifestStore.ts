@@ -4,6 +4,13 @@ import { randomBytes } from 'crypto';
 import type { WorktreeKey } from './types';
 import { slugifyTaskName } from './provisioningPlan';
 import type {
+    DeletionDiagnosticEntry,
+    DeletionJournalEntry,
+    DeletionJournalTarget,
+    DeletionOperationMode,
+} from './deletionJournal';
+import { MAX_DELETION_HISTORY_ENTRIES } from './deletionJournal';
+import type {
     GenerationClaim,
     RetiredAffectedSession,
     RetiredWorktreeIdentity,
@@ -78,10 +85,13 @@ export type WorktreeGroupManifestErrorCode =
   | 'invalid-record'
   | 'group-not-found'
   | 'member-not-found'
+  | 'operation-not-found'
   | 'worktree-key-claimed'
   | 'repository-conflict'
   | 'primary-not-ready'
   | 'group-changed'
+  | 'group-leased'
+  | 'deletion-blocked'
   | 'store-corrupt'
   | 'store-full';
 
@@ -126,8 +136,16 @@ interface WorkspaceAggregate {
     version: 2;
     groups: WorktreeGroup[];
     retiredIdentities: RetiredWorktreeIdentity[];
-    /** Reserved for the deletion journal (batch 3); parsed tolerantly. */
-    deletionJournal: unknown[];
+    /**
+     * Active journaled deletions (PRD §6.4). An entry present here leases
+     * its group: only Retry / abandon / view may touch it until the
+     * operation reaches a terminal state and is archived into
+     * `deletionHistory`. Parsed strictly — an unreadable entry quarantines
+     * the bucket, because a deletion in flight must never be forgotten.
+     */
+    deletionJournal: DeletionJournalEntry[];
+    /** Bounded non-authoritative diagnostic ring of finished deletions. */
+    deletionHistory: DeletionDiagnosticEntry[];
     generationClaims: GenerationClaim[];
     /**
      * Persisted quarantine marker: set when the blob fails cross-record
@@ -146,6 +164,13 @@ interface WorkspaceAggregate {
      * cutoff sort before an older one.
      */
     lastGenerationCutoffAt: number;
+    /**
+     * Workspace-level monotonic revision, bumped by every aggregate
+     * commit. Settlements bind the revision their mutation produced and
+     * the webview clears pending state only after applying an
+     * authoritative replacement at or beyond it (decision J).
+     */
+    aggregateRevision: number;
 }
 
 type ManifestShape = Record<string, WorkspaceAggregate>;
@@ -210,7 +235,7 @@ export class WorktreeGroupManifestStore {
                 || group.members.find(member => member.state === 'ready')?.memberId
                 || null;
             bucket.groups.push(group);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGroup(group);
         });
     }
@@ -267,7 +292,12 @@ export class WorktreeGroupManifestStore {
     ): Promise<WorktreeGroup> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const group = this.requireGroup(manifest, workspaceIdentity, groupId);
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            assertGroupNotLeased(bucket, groupId);
+            const group = bucket.groups.find(candidate => candidate.groupId === groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
             if (group.members.length >= MAX_MEMBERS_PER_GROUP) {
                 throw new WorktreeGroupManifestError('store-full');
             }
@@ -276,11 +306,11 @@ export class WorktreeGroupManifestStore {
                 ...sanitizeMember(input),
             };
             assertWorktreeKeysUnclaimed(
-                this.getBucket(manifest, workspaceIdentity).groups, [member], group.groupId);
+                bucket.groups, [member], group.groupId);
             group.members.push(member);
             bumpRevision(group);
             assertGroupInvariants(group);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGroup(group);
         });
     }
@@ -294,17 +324,27 @@ export class WorktreeGroupManifestStore {
     ): Promise<WorktreeGroup> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const group = this.requireGroup(manifest, workspaceIdentity, groupId);
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const group = bucket.groups.find(candidate => candidate.groupId === groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
             const member = group.members.find(candidate => candidate.memberId === memberId);
             if (!member) {
                 throw new WorktreeGroupManifestError('member-not-found');
+            }
+            if (isJournalTarget(bucket, groupId, memberId)) {
+                // A member owned by an active deletion journal may change
+                // only through the deletion primitives — a generic patch
+                // could orphan the journal's frozen identity snapshot.
+                throw new WorktreeGroupManifestError('group-leased');
             }
             if (patch.state !== undefined) {
                 member.state = patch.state;
             }
             if (patch.worktreeKey !== undefined) {
                 assertWorktreeKeysUnclaimed(
-                    this.getBucket(manifest, workspaceIdentity).groups,
+                    bucket.groups,
                     [{ ...member, worktreeKey: patch.worktreeKey }],
                     group.groupId);
                 member.worktreeKey = Object.freeze({ ...patch.worktreeKey });
@@ -328,7 +368,7 @@ export class WorktreeGroupManifestStore {
             }
             bumpRevision(group);
             assertGroupInvariants(group);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGroup(group);
         });
     }
@@ -342,10 +382,18 @@ export class WorktreeGroupManifestStore {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
             const bucket = this.getBucket(manifest, workspaceIdentity);
-            const group = this.requireGroup(manifest, workspaceIdentity, groupId);
+            const group = bucket.groups.find(candidate => candidate.groupId === groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
             const index = group.members.findIndex(candidate => candidate.memberId === memberId);
             if (index < 0) {
                 throw new WorktreeGroupManifestError('member-not-found');
+            }
+            if (isJournalTarget(bucket, groupId, memberId)) {
+                // Dismissing a member mid-deletion would orphan the
+                // journal; finish or abandon the operation first.
+                throw new WorktreeGroupManifestError('group-leased');
             }
             group.members.splice(index, 1);
             if (group.primaryMemberId === memberId) {
@@ -355,12 +403,12 @@ export class WorktreeGroupManifestStore {
                 // Empty groups disappear with their last member (PRD §4.2).
                 bucket.groups.splice(
                     bucket.groups.findIndex(candidate => candidate.groupId === groupId), 1);
-                await this.writeManifest(manifest);
+                await this.commitBucket(manifest, bucket);
                 return null;
             }
             bumpRevision(group);
             assertGroupInvariants(group);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGroup(group);
         });
     }
@@ -373,8 +421,9 @@ export class WorktreeGroupManifestStore {
             if (index < 0) {
                 throw new WorktreeGroupManifestError('group-not-found');
             }
+            assertGroupNotLeased(bucket, groupId);
             bucket.groups.splice(index, 1);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
         });
     }
 
@@ -392,8 +441,14 @@ export class WorktreeGroupManifestStore {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
             const bucket = this.getBucket(manifest, workspaceIdentity);
-            const target = this.requireGroup(manifest, workspaceIdentity, targetGroupId);
-            const source = this.requireGroup(manifest, workspaceIdentity, sourceGroupId);
+            // Merge validates BOTH groups under the lease rule (decision J).
+            assertGroupNotLeased(bucket, targetGroupId);
+            assertGroupNotLeased(bucket, sourceGroupId);
+            const target = bucket.groups.find(candidate => candidate.groupId === targetGroupId);
+            const source = bucket.groups.find(candidate => candidate.groupId === sourceGroupId);
+            if (!target || !source) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
             if (target.groupId === source.groupId) {
                 throw new WorktreeGroupManifestError('invalid-record');
             }
@@ -409,7 +464,7 @@ export class WorktreeGroupManifestStore {
             assertGroupInvariants(target);
             bucket.groups.splice(
                 bucket.groups.findIndex(candidate => candidate.groupId === source.groupId), 1);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGroup(target);
         });
     }
@@ -448,8 +503,20 @@ export class WorktreeGroupManifestStore {
             bucket.retiredIdentities = [];
             bucket.generationClaims = [];
             bucket.deletionJournal = [];
+            bucket.deletionHistory = [];
             bucket.corrupt = undefined;
-            await this.writeManifest(manifest);
+            // Members stuck in `deleting` belong to journals this reset
+            // just dropped; leaving them would violate the journal
+            // invariant on the next read and immediately re-quarantine.
+            for (const group of bucket.groups) {
+                for (const member of group.members) {
+                    if (member.state === 'deleting') {
+                        member.state = 'ready';
+                        member.lastError = 'deletion-interrupted';
+                    }
+                }
+            }
+            await this.commitBucket(manifest, bucket);
         });
     }
 
@@ -533,7 +600,7 @@ export class WorktreeGroupManifestStore {
             bucket.retiredIdentities.push(record);
             bucket.lastGenerationCutoffAt = Math.max(
                 bucket.lastGenerationCutoffAt, record.generationCutoffAt);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneRetiredIdentity(record);
         });
     }
@@ -608,7 +675,7 @@ export class WorktreeGroupManifestStore {
                     : {}),
             };
             bucket.generationClaims.push(claim);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGenerationClaim(claim);
         });
     }
@@ -653,7 +720,7 @@ export class WorktreeGroupManifestStore {
                     candidate.claimId === claim.claimId),
                 1,
                 promoted);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGenerationClaim(promoted);
         });
     }
@@ -669,7 +736,7 @@ export class WorktreeGroupManifestStore {
                 return false;
             }
             bucket.generationClaims.splice(index, 1);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return true;
         });
     }
@@ -761,7 +828,7 @@ export class WorktreeGroupManifestStore {
             }
             if (changed) {
                 bucket.generationClaims = nextClaims;
-                await this.writeManifest(manifest);
+                await this.commitBucket(manifest, bucket);
             }
             return outcome;
         });
@@ -789,8 +856,360 @@ export class WorktreeGroupManifestStore {
             bucket.retiredIdentities.splice(index, 1);
             bucket.generationClaims = bucket.generationClaims.filter(claim =>
                 claim.createdAfterRetirementId !== retirementId);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return true;
+        });
+    }
+
+    // ---------- Deletion journal (PRD §6.4, decision B/F/J) ----------
+
+    /** Active journaled deletions of the bucket (cloned). */
+    listDeletionJournals(workspaceIdentity: string): DeletionJournalEntry[] {
+        return this.readAggregate(workspaceIdentity)
+            .deletionJournal.map(cloneDeletionJournalEntry);
+    }
+
+    /** Diagnostic ring of finished deletions (cloned; non-authoritative). */
+    listDeletionHistory(workspaceIdentity: string): DeletionDiagnosticEntry[] {
+        return this.readAggregate(workspaceIdentity)
+            .deletionHistory.map(entry => ({ ...entry }));
+    }
+
+    /**
+     * Whether the group is leased by an active deletion journal (decision
+     * J). A quarantined bucket reports leased: corruption means we cannot
+     * prove no deletion is in flight, so admission fails closed.
+     */
+    isGroupDeletionLeased(workspaceIdentity: string, groupId: string): boolean {
+        const aggregate = this.readAggregate(workspaceIdentity);
+        if (aggregate.corrupt) {
+            return true;
+        }
+        return aggregate.deletionJournal.some(entry => entry.groupId === groupId);
+    }
+
+    /** The current aggregate revision of the bucket (0 when absent). */
+    getAggregateRevision(workspaceIdentity: string): number {
+        return this.readAggregate(workspaceIdentity).aggregateRevision;
+    }
+
+    /**
+     * Opens a journaled deletion (PRD §6.4). EVERYTHING the transaction
+     * needs is frozen before this call returns and before any physical
+     * side effect: target identities, affected sessions, retirement ids,
+     * the generation cutoff, and the capacity pre-reservation. The host
+     * performs blocker rechecks under the admission mutex and passes the
+     * frozen affected-session lists in; the store validates structure,
+     * lease, pending-claim blockers, and capacity, then marks the targets
+     * `deleting` and persists the journal in one aggregate write.
+     */
+    beginDeletion(
+        workspaceIdentity: string,
+        input: {
+            groupId: string;
+            mode: DeletionOperationMode;
+            /** For 'member' / 'visible-only': the exact members to delete. */
+            memberIds?: readonly string[];
+            /** Frozen old-generation membership, keyed by memberId. */
+            affectedSessions?: Readonly<Record<string, readonly RetiredAffectedSession[]>>;
+            nowMs: number;
+        }
+    ): Promise<DeletionJournalEntry> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
+            const group = bucket.groups.find(candidate => candidate.groupId === input.groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
+            assertGroupNotLeased(bucket, group.groupId);
+            const nowMs = requireTimestamp(input.nowMs);
+            const members = resolveDeletionTargets(group, input.mode, input.memberIds);
+            // Invariant 1: a pending generation claim ALWAYS blocks the
+            // deletion of its worktree — a session creation committed its
+            // admission marker and may be starting right now.
+            for (const member of members) {
+                if (!member.worktreeKey) {
+                    continue;
+                }
+                const blocked = bucket.generationClaims.some(claim =>
+                    claim.state === 'pending'
+                    && claim.worktreeKey.repositoryKey === member.worktreeKey!.repositoryKey
+                    && claim.worktreeKey.canonicalWorktreePath
+                        === member.worktreeKey!.canonicalWorktreePath);
+                if (blocked) {
+                    throw new WorktreeGroupManifestError('deletion-blocked');
+                }
+            }
+            const generationCutoffAt = Math.max(nowMs, bucket.lastGenerationCutoffAt + 1);
+            const targets: DeletionJournalTarget[] = members.map(member => {
+                const frozen = freezeAffectedSessions(input.affectedSessions?.[member.memberId]);
+                return {
+                    memberId: member.memberId,
+                    repositoryKey: member.repositoryKey,
+                    canonicalWorktreePath: member.worktreeKey?.canonicalWorktreePath
+                        || member.path,
+                    branchName: member.branchName,
+                    ...(member.worktreeKey
+                        ? { worktreeKey: Object.freeze({ ...member.worktreeKey }) }
+                        : {}),
+                    retirementId: newId(),
+                    affectedSessions: frozen.affectedSessions,
+                    ...(frozen.truncated ? { truncated: true } : {}),
+                    status: 'pending' as const,
+                };
+            });
+            const entry: DeletionJournalEntry = {
+                operationId: newId(),
+                groupId: group.groupId,
+                mode: input.mode,
+                originalPrimaryMemberId: group.primaryMemberId,
+                generationCutoffAt,
+                targets,
+                startedAt: nowMs,
+            };
+            // Capacity pre-reservation: the eventual retired records are
+            // written from the frozen snapshots, so simulate the full final
+            // blob now; if it does not fit, fail BEFORE any side effect.
+            // (The in-memory mutations below are only persisted by
+            // commitBucket — throwing here leaves the store untouched.)
+            for (const member of members) {
+                member.state = 'deleting';
+                member.lastError = undefined;
+            }
+            // A primary entering deletion stops being the primary (the
+            // journal keeps the original for restore-on-failure); the
+            // on-disk group would otherwise violate the primary invariant
+            // and fail to parse on reload.
+            if (group.primaryMemberId
+                && members.some(member => member.memberId === group.primaryMemberId)) {
+                group.primaryMemberId = null;
+            }
+            bucket.deletionJournal.push(entry);
+            bucket.lastGenerationCutoffAt = generationCutoffAt;
+            assertDeletionCapacity(
+                manifest, workspaceIdentity, bucket, entry, group.displayName, nowMs);
+            bumpRevision(group);
+            assertGroupInvariants(group);
+            await this.commitBucket(manifest, bucket);
+            return cloneDeletionJournalEntry(entry);
+        });
+    }
+
+    /**
+     * A target's physical worktree is gone: write the retired identity
+     * from the journal's frozen data, remove the manifest member, and
+     * advance the journal — all in one aggregate write. Never re-queries
+     * the live world for identity decisions.
+     */
+    checkpointDeletedMember(
+        workspaceIdentity: string,
+        operationId: string,
+        memberId: string,
+        deletedAtMs: number
+    ): Promise<{ completed: boolean }> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
+            const journal = requireJournal(bucket, operationId);
+            const target = requireJournalTarget(journal, memberId);
+            if (target.status !== 'pending') {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            const group = bucket.groups.find(candidate => candidate.groupId === journal.groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
+            const member = group.members.find(candidate => candidate.memberId === memberId);
+            if (!member || member.state !== 'deleting') {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            if (bucket.retiredIdentities.length >= MAX_RETIRED_PER_WORKSPACE) {
+                // Pre-reserved at beginDeletion; reaching this means the
+                // reservation was bypassed — fail closed.
+                throw new WorktreeGroupManifestError('store-full');
+            }
+            const deletedAt = requireTimestamp(deletedAtMs);
+            bucket.retiredIdentities.push({
+                retirementId: target.retirementId,
+                repositoryKey: target.repositoryKey,
+                canonicalWorktreePath: target.canonicalWorktreePath,
+                branchName: target.branchName,
+                deletedAt,
+                generationCutoffAt: journal.generationCutoffAt,
+                origin: {
+                    groupId: group.groupId,
+                    memberId: member.memberId,
+                    displayName: group.displayName,
+                },
+                affectedSessions: target.affectedSessions.map(session => ({ ...session })),
+                ...(target.truncated ? { truncated: true } : {}),
+            });
+            group.members.splice(group.members.indexOf(member), 1);
+            if (group.primaryMemberId === memberId) {
+                group.primaryMemberId = null;
+            }
+            target.status = 'deleted';
+            target.deletedAt = deletedAt;
+            const completed = journal.targets.every(candidate => candidate.status === 'deleted');
+            if (group.members.length === 0) {
+                // The group disappears with its last member (PRD §4.2);
+                // nothing remains that Retry could act on, so the journal
+                // archives with the group in the same write.
+                bucket.groups.splice(bucket.groups.indexOf(group), 1);
+                archiveJournal(bucket, journal, 'completed', deletedAt);
+            } else {
+                bumpRevision(group);
+                assertGroupInvariants(group);
+                if (completed) {
+                    archiveJournal(bucket, journal, 'completed', deletedAt);
+                }
+            }
+            await this.commitBucket(manifest, bucket);
+            return { completed };
+        });
+    }
+
+    /**
+     * Execution of one target failed (or a crash left it interrupted):
+     * the member returns to `ready` with the error recorded, and the
+     * journal keeps the frozen target snapshot for Retry.
+     */
+    failDeletionMember(
+        workspaceIdentity: string,
+        operationId: string,
+        memberId: string,
+        errorCode: string
+    ): Promise<void> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
+            const journal = requireJournal(bucket, operationId);
+            const target = requireJournalTarget(journal, memberId);
+            if (target.status !== 'pending') {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            const group = bucket.groups.find(candidate => candidate.groupId === journal.groupId);
+            const member = group?.members.find(candidate => candidate.memberId === memberId);
+            if (!member || member.state !== 'deleting') {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            const code = requireShortText(errorCode, MAX_ERROR_LENGTH, 'invalid-record');
+            target.status = 'failed';
+            target.errorCode = code;
+            member.state = 'ready';
+            member.lastError = code;
+            if (!group!.primaryMemberId
+                && journal.originalPrimaryMemberId === member.memberId) {
+                // The interrupted member was the primary: restore it so a
+                // transient failure does not silently strip the role.
+                group!.primaryMemberId = member.memberId;
+            }
+            bumpRevision(group!);
+            assertGroupInvariants(group!);
+            await this.commitBucket(manifest, bucket);
+        });
+    }
+
+    /**
+     * Reopens the SAME operation after partial failure (PRD §6.4): failed
+     * targets become pending again with their frozen snapshots untouched —
+     * no re-derivation of targets, sessions, retirement ids, or cutoffs.
+     */
+    retryDeletion(
+        workspaceIdentity: string,
+        operationId: string
+    ): Promise<DeletionJournalEntry> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
+            const journal = requireJournal(bucket, operationId);
+            const retryable = journal.targets.filter(candidate => candidate.status !== 'deleted');
+            if (retryable.length === 0
+                || retryable.some(candidate => candidate.status !== 'failed')) {
+                // 'pending' targets mean the operation is still executing
+                // or awaits crash reconciliation — not a Retry state.
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            const group = bucket.groups.find(candidate => candidate.groupId === journal.groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
+            for (const target of retryable) {
+                const member = group.members.find(candidate =>
+                    candidate.memberId === target.memberId);
+                if (!member) {
+                    throw new WorktreeGroupManifestError('member-not-found');
+                }
+                target.status = 'pending';
+                target.errorCode = undefined;
+                member.state = 'deleting';
+                member.lastError = undefined;
+            }
+            if (group.primaryMemberId
+                && retryable.some(target => target.memberId === group.primaryMemberId)) {
+                group.primaryMemberId = null;
+            }
+            bumpRevision(group);
+            assertGroupInvariants(group);
+            await this.commitBucket(manifest, bucket);
+            return cloneDeletionJournalEntry(journal);
+        });
+    }
+
+    /**
+     * Terminal archival of an operation whose targets all checkpointed
+     * (crash reconciliation may reach this state without the checkpoint
+     * path having archived the journal yet).
+     */
+    completeDeletion(workspaceIdentity: string, operationId: string): Promise<void> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
+            const journal = requireJournal(bucket, operationId);
+            if (!journal.targets.every(candidate => candidate.status === 'deleted')) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            archiveJournal(bucket, journal, 'completed', Date.now());
+            await this.commitBucket(manifest, bucket);
+        });
+    }
+
+    /**
+     * The user abandons a partial intent (PRD §6.4): the journal is
+     * archived, members that were never deleted return to `ready` with
+     * their deletion error cleared, and already-retired records stay —
+     * physical members are never touched here.
+     */
+    abandonDeletion(workspaceIdentity: string, operationId: string): Promise<void> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.requireHealthyBucket(manifest, workspaceIdentity);
+            const journal = requireJournal(bucket, operationId);
+            const group = bucket.groups.find(candidate => candidate.groupId === journal.groupId);
+            for (const target of journal.targets) {
+                if (target.status === 'deleted') {
+                    continue;
+                }
+                const member = group?.members.find(candidate =>
+                    candidate.memberId === target.memberId);
+                if (member) {
+                    if (member.state === 'deleting') {
+                        member.state = 'ready';
+                    }
+                    member.lastError = undefined;
+                    if (group && !group.primaryMemberId
+                        && journal.originalPrimaryMemberId === member.memberId) {
+                        group.primaryMemberId = member.memberId;
+                    }
+                }
+            }
+            if (group) {
+                bumpRevision(group);
+                assertGroupInvariants(group);
+            }
+            archiveJournal(bucket, journal, 'abandoned', Date.now());
+            await this.commitBucket(manifest, bucket);
         });
     }
 
@@ -818,7 +1237,7 @@ export class WorktreeGroupManifestStore {
                 }
             }
             if (changed) {
-                await this.writeManifest(manifest);
+                await this.commitBucket(manifest, bucket);
             }
         });
     }
@@ -830,11 +1249,18 @@ export class WorktreeGroupManifestStore {
     ): Promise<WorktreeGroup> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
-            const group = this.requireGroup(manifest, workspaceIdentity, groupId);
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            // rename / primary changes are leased out while a journaled
+            // deletion is active on the group (decision J).
+            assertGroupNotLeased(bucket, groupId);
+            const group = bucket.groups.find(candidate => candidate.groupId === groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
+            }
             mutate(group);
             bumpRevision(group);
             assertGroupInvariants(group);
-            await this.writeManifest(manifest);
+            await this.commitBucket(manifest, bucket);
             return cloneGroup(group);
         });
     }
@@ -918,6 +1344,18 @@ export class WorktreeGroupManifestStore {
         return Promise.resolve(this.memento.update(STORAGE_KEY, persisted));
     }
 
+    /**
+     * Every aggregate commit bumps the bucket revision so settlements can
+     * bind the exact revision their mutation produced (decision J).
+     */
+    private async commitBucket(
+        manifest: ManifestShape,
+        bucket: WorkspaceAggregate
+    ): Promise<void> {
+        bumpAggregateRevision(bucket);
+        await this.writeManifest(manifest);
+    }
+
     private enqueue<T>(operation: () => Promise<T>): Promise<T> {
         const result = this.writeQueue.then(operation, operation);
         this.writeQueue = result.then(() => undefined, () => undefined);
@@ -982,8 +1420,10 @@ function emptyAggregate(): WorkspaceAggregate {
         groups: [],
         retiredIdentities: [],
         deletionJournal: [],
+        deletionHistory: [],
         generationClaims: [],
         lastGenerationCutoffAt: 0,
+        aggregateRevision: 0,
     };
 }
 
@@ -991,9 +1431,12 @@ function isAggregateEmpty(aggregate: WorkspaceAggregate): boolean {
     return aggregate.groups.length === 0
         && aggregate.retiredIdentities.length === 0
         && aggregate.deletionJournal.length === 0
+        && aggregate.deletionHistory.length === 0
         && aggregate.generationClaims.length === 0
         && !aggregate.corrupt
-        && aggregate.lastGenerationCutoffAt === 0;
+        && aggregate.lastGenerationCutoffAt === 0
+        // A bare revision still pins settlement ordering; keep the bucket.
+        && aggregate.aggregateRevision === 0;
 }
 
 function parseGroups(bucket: unknown[]): WorktreeGroup[] {
@@ -1012,6 +1455,7 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
     }
     // A section present but unreadable is structural damage, not an empty
     // section: quarantine rather than fail open on "no retired records".
+    // The diagnostic ring is exempt: it is non-authoritative by design.
     const sectionDamaged = (candidate.retiredIdentities !== undefined
             && !Array.isArray(candidate.retiredIdentities))
         || (candidate.generationClaims !== undefined
@@ -1022,6 +1466,8 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
         ? candidate.retiredIdentities : [];
     const rawClaims = Array.isArray(candidate.generationClaims)
         ? candidate.generationClaims : [];
+    const rawJournal = Array.isArray(candidate.deletionJournal)
+        ? candidate.deletionJournal : [];
     const retiredIdentities = rawRetired
         .slice(0, MAX_RETIRED_PER_WORKSPACE)
         .map(parseRetiredIdentity)
@@ -1030,27 +1476,39 @@ function parseAggregate(value: unknown): WorkspaceAggregate | null {
         .slice(0, MAX_GENERATION_CLAIMS_PER_WORKSPACE)
         .map(parseGenerationClaim)
         .filter((claim): claim is GenerationClaim => !!claim);
+    const deletionJournal = rawJournal
+        .slice(0, MAX_GROUPS_PER_WORKSPACE)
+        .map(parseDeletionJournalEntry)
+        .filter((entry): entry is DeletionJournalEntry => !!entry);
     // A pending claim may be the only deletion blocker for a live session,
     // so no claim or retired record may ever be dropped silently: any parse
-    // failure or overflow quarantines the bucket instead.
+    // failure or overflow quarantines the bucket instead. The same holds
+    // for the journal: an unreadable entry may own physical deletions.
     const dropped = sectionDamaged
         || retiredIdentities.length !== rawRetired.length
-        || generationClaims.length !== rawClaims.length;
+        || generationClaims.length !== rawClaims.length
+        || deletionJournal.length !== rawJournal.length;
     const aggregate: WorkspaceAggregate = {
         version: 2,
         groups: Array.isArray(candidate.groups) ? parseGroups(candidate.groups) : [],
         ...(candidate.corrupt === true || dropped ? { corrupt: true } : {}),
         retiredIdentities,
-        // The deletion journal arrives with batch 3; tolerate and drop
-        // anything unreadable rather than failing the whole bucket.
-        deletionJournal: Array.isArray(candidate.deletionJournal)
-            ? candidate.deletionJournal.slice(0, MAX_RETIRED_PER_WORKSPACE)
-            : [],
+        deletionJournal,
+        deletionHistory: (Array.isArray(candidate.deletionHistory)
+            ? candidate.deletionHistory : [])
+            .slice(0, MAX_DELETION_HISTORY_ENTRIES)
+            .map(parseDeletionDiagnosticEntry)
+            .filter((entry): entry is DeletionDiagnosticEntry => !!entry),
         generationClaims,
         lastGenerationCutoffAt: typeof candidate.lastGenerationCutoffAt === 'number'
             && Number.isSafeInteger(candidate.lastGenerationCutoffAt)
             && candidate.lastGenerationCutoffAt >= 0
             ? candidate.lastGenerationCutoffAt
+            : 0,
+        aggregateRevision: typeof candidate.aggregateRevision === 'number'
+            && Number.isSafeInteger(candidate.aggregateRevision)
+            && candidate.aggregateRevision >= 0
+            ? candidate.aggregateRevision
             : 0,
     };
     return sanitizeAggregateCrossInvariants(aggregate);
@@ -1128,6 +1586,85 @@ function sanitizeAggregateCrossInvariants(
         }
     }
     if (claimConflict) {
+        aggregate.corrupt = true;
+        return aggregate;
+    }
+    // Journal invariants (PRD §6.4): an active journal is the only legal
+    // owner of `deleting` members and of not-yet-written retirement ids.
+    // Any violation means we cannot prove what a deletion did — quarantine
+    // rather than guess.
+    const seenOperationIds = new Set<string>();
+    const leasedGroupIds = new Set<string>();
+    const deletingMemberIds = new Set<string>();
+    let journalConflict = false;
+    for (const entry of aggregate.deletionJournal) {
+        if (seenOperationIds.has(entry.operationId)
+            || leasedGroupIds.has(entry.groupId)) {
+            journalConflict = true;
+            continue;
+        }
+        seenOperationIds.add(entry.operationId);
+        leasedGroupIds.add(entry.groupId);
+        const group = aggregate.groups.find(candidate =>
+            candidate.groupId === entry.groupId);
+        if (!group) {
+            // An orphan journal owns physical deletions we can no longer
+            // attribute; never drop it silently.
+            journalConflict = true;
+            continue;
+        }
+        const targetMemberIds = new Set<string>();
+        for (const target of entry.targets) {
+            if (targetMemberIds.has(target.memberId)) {
+                journalConflict = true;
+                continue;
+            }
+            targetMemberIds.add(target.memberId);
+            const member = group.members.find(candidate =>
+                candidate.memberId === target.memberId);
+            if (target.status === 'deleted') {
+                // Checkpointed members leave the manifest in the same
+                // write; a deleted target still present is divergence.
+                if (member) {
+                    journalConflict = true;
+                }
+                // The retired fact must exist for a deleted target: the
+                // checkpoint writes both in one commit, so a missing
+                // record means the two diverged.
+                if (!aggregate.retiredIdentities.some(record =>
+                    record.retirementId === target.retirementId)) {
+                    journalConflict = true;
+                }
+                continue;
+            }
+            if (seenRetirementIds.has(target.retirementId)) {
+                // A pending retirement id must never collide with an
+                // already-persisted retirement fact.
+                journalConflict = true;
+            }
+            seenRetirementIds.add(target.retirementId);
+            if (!member) {
+                journalConflict = true;
+                continue;
+            }
+            if (target.status === 'pending') {
+                if (member.state !== 'deleting') {
+                    journalConflict = true;
+                }
+                deletingMemberIds.add(member.memberId);
+            }
+        }
+    }
+    for (const group of aggregate.groups) {
+        for (const member of group.members) {
+            // `deleting` without an owning pending journal target is a
+            // deletion whose journal was lost.
+            if (member.state === 'deleting' && !deletingMemberIds.has(member.memberId)) {
+                journalConflict = true;
+            }
+        }
+    }
+    if (journalConflict) {
         aggregate.corrupt = true;
         return aggregate;
     }
@@ -1408,6 +1945,350 @@ function cloneGenerationClaim(claim: GenerationClaim): GenerationClaim {
         ...claim,
         worktreeKey: { ...claim.worktreeKey },
     };
+}
+
+// ---------- Deletion journal helpers (PRD §6.4) ----------
+
+/** Lease rule (decision J): an active deletion journal blocks the group. */
+function assertGroupNotLeased(bucket: WorkspaceAggregate, groupId: string): void {
+    if (bucket.deletionJournal.some(entry => entry.groupId === groupId)) {
+        throw new WorktreeGroupManifestError('group-leased');
+    }
+}
+
+/** Whether the member is owned by an active deletion journal target. */
+function isJournalTarget(
+    bucket: WorkspaceAggregate,
+    groupId: string,
+    memberId: string
+): boolean {
+    return bucket.deletionJournal.some(entry =>
+        entry.groupId === groupId
+        && entry.targets.some(target => target.memberId === memberId));
+}
+
+function requireJournal(
+    bucket: WorkspaceAggregate,
+    operationId: string
+): DeletionJournalEntry {
+    const journal = bucket.deletionJournal.find(entry => entry.operationId === operationId);
+    if (!journal) {
+        throw new WorktreeGroupManifestError('operation-not-found');
+    }
+    return journal;
+}
+
+function requireJournalTarget(
+    journal: DeletionJournalEntry,
+    memberId: string
+): DeletionJournalTarget {
+    const target = journal.targets.find(candidate => candidate.memberId === memberId);
+    if (!target) {
+        throw new WorktreeGroupManifestError('member-not-found');
+    }
+    return target;
+}
+
+/**
+ * Resolves the deletion target set, failing closed on any ambiguity. Only
+ * `ready` members may enter a journaled deletion: planned/provisioning
+ * members have no physical worktree yet, and `deleting` members already
+ * belong to another journal.
+ */
+function resolveDeletionTargets(
+    group: WorktreeGroup,
+    mode: DeletionOperationMode,
+    memberIds: readonly string[] | undefined
+): WorktreeGroupMember[] {
+    if (mode !== 'member' && mode !== 'group' && mode !== 'visible-only') {
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
+    let members: WorktreeGroupMember[];
+    if (mode === 'group') {
+        // Whole-group deletion targets every member by definition; an
+        // explicit subset would allow invisible residue (PRD §6.4).
+        if (memberIds !== undefined) {
+            throw new WorktreeGroupManifestError('invalid-record');
+        }
+        members = [...group.members];
+    } else {
+        if (!memberIds || memberIds.length === 0) {
+            throw new WorktreeGroupManifestError('invalid-record');
+        }
+        const seen = new Set<string>();
+        members = memberIds.map(memberId => {
+            if (seen.has(memberId)) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            seen.add(memberId);
+            const member = group.members.find(candidate => candidate.memberId === memberId);
+            if (!member) {
+                throw new WorktreeGroupManifestError('member-not-found');
+            }
+            return member;
+        });
+    }
+    if (members.length === 0
+        || members.some(member => member.state !== 'ready')) {
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
+    return members;
+}
+
+/** Dedupe and cap a frozen affected-session list (truncation loses detail). */
+function freezeAffectedSessions(
+    input: readonly RetiredAffectedSession[] | undefined
+): { affectedSessions: RetiredAffectedSession[]; truncated: boolean } {
+    const seen = new Set<string>();
+    const affectedSessions: RetiredAffectedSession[] = [];
+    let truncated = false;
+    for (const entry of input || []) {
+        const provider = requireShortText(entry?.provider, MAX_ID_LENGTH, 'invalid-record');
+        const sessionId = requireShortText(entry?.sessionId, MAX_ID_LENGTH, 'invalid-record');
+        const key = `${provider}::${sessionId}`;
+        if (seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        if (affectedSessions.length >= MAX_AFFECTED_SESSIONS_PER_RECORD) {
+            truncated = true;
+            continue;
+        }
+        affectedSessions.push({ provider, sessionId });
+    }
+    return { affectedSessions, truncated };
+}
+
+/**
+ * Capacity pre-reservation (PRD §6.4): simulate the aggregate as it will
+ * look once every target has checkpointed — journal plus the eventual
+ * retired records built from the frozen snapshots — and refuse the whole
+ * operation with `store-full` before any side effect if it would not fit.
+ * The bucket has already been mutated in memory (members `deleting`,
+ * journal appended); nothing is persisted unless the caller commits.
+ */
+function assertDeletionCapacity(
+    manifest: ManifestShape,
+    workspaceIdentity: string,
+    bucket: WorkspaceAggregate,
+    entry: DeletionJournalEntry,
+    displayName: string,
+    nowMs: number
+): void {
+    if (bucket.retiredIdentities.length + entry.targets.length > MAX_RETIRED_PER_WORKSPACE) {
+        throw new WorktreeGroupManifestError('store-full');
+    }
+    const prospectiveRetired: RetiredWorktreeIdentity[] = entry.targets.map(target => ({
+        retirementId: target.retirementId,
+        repositoryKey: target.repositoryKey,
+        canonicalWorktreePath: target.canonicalWorktreePath,
+        branchName: target.branchName,
+        deletedAt: nowMs,
+        generationCutoffAt: entry.generationCutoffAt,
+        origin: {
+            groupId: entry.groupId,
+            memberId: target.memberId,
+            displayName,
+        },
+        affectedSessions: target.affectedSessions,
+        ...(target.truncated ? { truncated: true } : {}),
+    }));
+    const projected: WorkspaceAggregate = {
+        ...bucket,
+        retiredIdentities: [...bucket.retiredIdentities, ...prospectiveRetired],
+    };
+    const simulated: ManifestShape = { ...manifest, [workspaceIdentity]: projected };
+    if (Buffer.byteLength(JSON.stringify(simulated), 'utf8')
+        > MAX_AGGREGATE_SERIALIZED_BYTES) {
+        throw new WorktreeGroupManifestError('store-full');
+    }
+}
+
+/**
+ * Archives a finished operation into the bounded diagnostic ring. The ring
+ * is non-authoritative: entries are summaries only and the oldest are
+ * evicted past the cap.
+ */
+function archiveJournal(
+    bucket: WorkspaceAggregate,
+    journal: DeletionJournalEntry,
+    outcome: 'completed' | 'abandoned',
+    finishedAt: number
+): void {
+    const index = bucket.deletionJournal.findIndex(entry =>
+        entry.operationId === journal.operationId);
+    if (index >= 0) {
+        bucket.deletionJournal.splice(index, 1);
+    }
+    const failed = journal.targets.filter(target => target.status === 'failed');
+    bucket.deletionHistory.push({
+        operationId: journal.operationId,
+        groupId: journal.groupId,
+        mode: journal.mode,
+        outcome,
+        finishedAt,
+        deletedCount: journal.targets.filter(target => target.status === 'deleted').length,
+        failedCount: failed.length,
+        ...(failed[0]?.errorCode ? { lastErrorCode: failed[0].errorCode } : {}),
+    });
+    if (bucket.deletionHistory.length > MAX_DELETION_HISTORY_ENTRIES) {
+        bucket.deletionHistory.splice(
+            0, bucket.deletionHistory.length - MAX_DELETION_HISTORY_ENTRIES);
+    }
+}
+
+function cloneDeletionJournalEntry(entry: DeletionJournalEntry): DeletionJournalEntry {
+    return {
+        ...entry,
+        targets: entry.targets.map(target => ({
+            ...target,
+            ...(target.worktreeKey ? { worktreeKey: { ...target.worktreeKey } } : {}),
+            affectedSessions: target.affectedSessions.map(session => ({ ...session })),
+        })),
+    };
+}
+
+const DELETION_MODES: readonly DeletionOperationMode[] = ['member', 'group', 'visible-only'];
+const DELETION_TARGET_STATUSES: readonly string[] = ['pending', 'deleted', 'failed'];
+
+function parseDeletionJournalTarget(value: unknown): DeletionJournalTarget | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (!isSafeText(candidate.memberId, MAX_ID_LENGTH)
+        || !isSafeText(candidate.repositoryKey, MAX_PATH_LENGTH)
+        || !isSafeText(candidate.canonicalWorktreePath, MAX_PATH_LENGTH)
+        || !isSafeText(candidate.branchName, MAX_BRANCH_LENGTH)
+        || !isSafeText(candidate.retirementId, MAX_ID_LENGTH)
+        || !Array.isArray(candidate.affectedSessions)
+        || candidate.affectedSessions.length > MAX_AFFECTED_SESSIONS_PER_RECORD
+        || !DELETION_TARGET_STATUSES.includes(candidate.status as string)) {
+        return null;
+    }
+    const affectedSessions: RetiredAffectedSession[] = [];
+    for (const raw of candidate.affectedSessions as unknown[]) {
+        const session = raw as Record<string, unknown>;
+        if (!session || typeof session !== 'object'
+            || !isSafeText(session.provider, MAX_ID_LENGTH)
+            || !isSafeText(session.sessionId, MAX_ID_LENGTH)) {
+            return null;
+        }
+        affectedSessions.push({
+            provider: session.provider as string,
+            sessionId: session.sessionId as string,
+        });
+    }
+    let worktreeKey: WorktreeKey | undefined;
+    if (candidate.worktreeKey !== undefined) {
+        const key = candidate.worktreeKey as Record<string, unknown>;
+        if (!key || typeof key !== 'object'
+            || !isSafeText(key.repositoryKey, MAX_PATH_LENGTH)
+            || !isSafeText(key.canonicalWorktreePath, MAX_PATH_LENGTH)) {
+            return null;
+        }
+        worktreeKey = Object.freeze({
+            repositoryKey: key.repositoryKey as string,
+            canonicalWorktreePath: key.canonicalWorktreePath as string,
+        });
+    }
+    if (candidate.deletedAt !== undefined
+        && (typeof candidate.deletedAt !== 'number'
+            || !Number.isSafeInteger(candidate.deletedAt) || candidate.deletedAt < 0)) {
+        return null;
+    }
+    return {
+        memberId: candidate.memberId as string,
+        repositoryKey: candidate.repositoryKey as string,
+        canonicalWorktreePath: candidate.canonicalWorktreePath as string,
+        branchName: candidate.branchName as string,
+        ...(worktreeKey ? { worktreeKey } : {}),
+        retirementId: candidate.retirementId as string,
+        affectedSessions,
+        ...(candidate.truncated === true ? { truncated: true } : {}),
+        status: candidate.status as DeletionJournalTarget['status'],
+        ...(typeof candidate.deletedAt === 'number'
+            ? { deletedAt: candidate.deletedAt }
+            : {}),
+        ...(isSafeText(candidate.errorCode, MAX_ERROR_LENGTH)
+            ? { errorCode: candidate.errorCode as string }
+            : {}),
+    };
+}
+
+function parseDeletionJournalEntry(value: unknown): DeletionJournalEntry | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (!isSafeText(candidate.operationId, MAX_ID_LENGTH)
+        || !isSafeText(candidate.groupId, MAX_ID_LENGTH)
+        || !DELETION_MODES.includes(candidate.mode as DeletionOperationMode)
+        || (candidate.originalPrimaryMemberId !== null
+            && !isSafeText(candidate.originalPrimaryMemberId, MAX_ID_LENGTH))
+        || typeof candidate.generationCutoffAt !== 'number'
+        || !Number.isSafeInteger(candidate.generationCutoffAt)
+        || candidate.generationCutoffAt < 0
+        || typeof candidate.startedAt !== 'number'
+        || !Number.isSafeInteger(candidate.startedAt)
+        || candidate.startedAt < 0
+        || !Array.isArray(candidate.targets)
+        || candidate.targets.length === 0
+        || (candidate.targets as unknown[]).length > MAX_MEMBERS_PER_GROUP) {
+        return null;
+    }
+    const targets = (candidate.targets as unknown[]).map(parseDeletionJournalTarget);
+    if (targets.some(target => !target)) {
+        return null;
+    }
+    return {
+        operationId: candidate.operationId as string,
+        groupId: candidate.groupId as string,
+        mode: candidate.mode as DeletionOperationMode,
+        originalPrimaryMemberId: candidate.originalPrimaryMemberId as string | null,
+        generationCutoffAt: candidate.generationCutoffAt as number,
+        targets: targets as DeletionJournalTarget[],
+        startedAt: candidate.startedAt as number,
+    };
+}
+
+function parseDeletionDiagnosticEntry(value: unknown): DeletionDiagnosticEntry | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    if (!isSafeText(candidate.operationId, MAX_ID_LENGTH)
+        || !isSafeText(candidate.groupId, MAX_ID_LENGTH)
+        || !DELETION_MODES.includes(candidate.mode as DeletionOperationMode)
+        || (candidate.outcome !== 'completed' && candidate.outcome !== 'abandoned')
+        || typeof candidate.finishedAt !== 'number'
+        || !Number.isSafeInteger(candidate.finishedAt)
+        || typeof candidate.deletedCount !== 'number'
+        || typeof candidate.failedCount !== 'number') {
+        return null;
+    }
+    return {
+        operationId: candidate.operationId as string,
+        groupId: candidate.groupId as string,
+        mode: candidate.mode as DeletionOperationMode,
+        outcome: candidate.outcome,
+        finishedAt: candidate.finishedAt,
+        deletedCount: candidate.deletedCount,
+        failedCount: candidate.failedCount,
+        ...(isSafeText(candidate.lastErrorCode, MAX_ERROR_LENGTH)
+            ? { lastErrorCode: candidate.lastErrorCode as string }
+            : {}),
+    };
+}
+
+function bumpAggregateRevision(bucket: WorkspaceAggregate): void {
+    if (!Number.isSafeInteger(bucket.aggregateRevision)
+        || bucket.aggregateRevision >= Number.MAX_SAFE_INTEGER) {
+        // Refuse the mutation rather than writing an unsafe integer that a
+        // later reload could no longer parse monotonically.
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
+    bucket.aggregateRevision += 1;
 }
 
 function parseRevision(value: unknown): number {

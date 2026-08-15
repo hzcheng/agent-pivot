@@ -6495,5 +6495,23 @@
     "evidence": [
       "package.json"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-DELETE-JOURNAL-001",
+    "domain": "persistence",
+    "title": "Journaled worktree deletion freezes identity before side effects, checkpoints per member into the same aggregate, blocks admission via lease and pending claims, reconciles restarts fail-closed, and archives a bounded diagnostic ring",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/deletionJournal.test.js",
+      "tests/unit/worktrees/deletionController.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupManifestStore.ts",
+      "src/worktrees/deletionJournal.ts",
+      "src/worktrees/deletionController.ts",
+      "src/worktrees/managedWorktreeRemovalController.ts",
+      "src/dashboard.ts"
+    ]
   }
 ]

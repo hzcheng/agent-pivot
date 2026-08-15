@@ -112,6 +112,46 @@ export class ManagedWorktreeRemovalController {
         }
     }
 
+    /**
+     * Read-only blocker check for one worktree (no confirmation, no side
+     * effects). Used by the journaled group-deletion flow (PRD §6.4) for
+     * its admission-time and execution-time rechecks.
+     */
+    getRemovalBlocker(key: WorktreeKey): Promise<string | null> {
+        return this.getBlocker(this.resolveTarget(key), key);
+    }
+
+    /**
+     * Verified physical removal without confirmation or view refresh, for
+     * the journaled group-deletion flow: the caller owns the journal and
+     * all publication; this performs the same blocker check, git removal,
+     * and post-removal path verification as the interactive flow.
+     */
+    async removeVerified(
+        key: WorktreeKey
+    ): Promise<{ kind: 'removed' } | { kind: 'failed'; errorCode: string }> {
+        const target = this.resolveTarget(key);
+        const blocker = await this.getBlocker(target, key);
+        if (blocker) {
+            return { kind: 'failed', errorCode: blocker };
+        }
+        try {
+            const result = await this.runGit(target!.commandCwd, [
+                '-C', target!.commandCwd,
+                'worktree', 'remove', '--', key.canonicalWorktreePath,
+            ]);
+            if (await this.pathExists(key.canonicalWorktreePath)) {
+                return {
+                    kind: 'failed',
+                    errorCode: result.timedOut ? 'git-timeout' : 'worktree-remove-failed',
+                };
+            }
+            return { kind: 'removed' };
+        } catch (_error) {
+            return { kind: 'failed', errorCode: 'worktree-remove-failed' };
+        }
+    }
+
     private resolveTarget(key: WorktreeKey): RemovalTarget | null {
         const snapshot = this.options.getSnapshot();
         const repository = snapshot?.repositories.find(candidate =>

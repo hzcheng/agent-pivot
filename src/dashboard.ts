@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync } from 'fs';
+import { access as accessPath } from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -240,6 +241,7 @@ import {
 } from './workspaces/sessionHydrationController';
 import {
     isWorkspaceHostPathContained,
+    normalizeWorkspaceHostPath,
 } from './workspaces/sessionAssignment';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
@@ -251,7 +253,11 @@ import {
 import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
 import { worktreeKeysEqual } from './worktrees/types';
 import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
-import { WorktreeGroupManifestStore } from './worktrees/groupManifestStore';
+import {
+    WorktreeGroupManifestError,
+    WorktreeGroupManifestStore,
+} from './worktrees/groupManifestStore';
+import { WorktreeDeletionController } from './worktrees/deletionController';
 import { reconcileWorktreeGroupManifest } from './worktrees/groupManifestReconciliation';
 import { IsolatedSessionController } from './worktrees/isolatedSessionController';
 import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
@@ -1582,8 +1588,29 @@ async function initializeDashboard(
             worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
         isWorktreeRetiredStoreCorrupt: navigationIdentity =>
             worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
-        createWorktreeGenerationClaim: (navigationIdentity, input) =>
-            worktreeGroupManifestStore.createGenerationClaim(navigationIdentity, input),
+        // New session admission on a grouped worktree shares the deletion
+        // admission mutex (PRD §6.4, decision J): the claim — the durable
+        // admission marker — is persisted under the same lock that
+        // beginDeletion holds from blocker recheck to journal write, and a
+        // group leased by an active deletion journal refuses the session
+        // before any terminal/provider side effect.
+        createWorktreeGenerationClaim: (navigationIdentity, input) => {
+            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                navigationIdentity, input.worktreeKey);
+            if (!group) {
+                return worktreeGroupManifestStore.createGenerationClaim(
+                    navigationIdentity, input);
+            }
+            return worktreeDeletionController.withAdmissionLock(
+                navigationIdentity, group.groupId, async () => {
+                    if (worktreeGroupManifestStore.isGroupDeletionLeased(
+                        navigationIdentity, group.groupId)) {
+                        throw new WorktreeGroupManifestError('group-leased');
+                    }
+                    return worktreeGroupManifestStore.createGenerationClaim(
+                        navigationIdentity, input);
+                });
+        },
         removeWorktreeGenerationClaim: (navigationIdentity, claimId) =>
             worktreeGroupManifestStore.removeGenerationClaim(navigationIdentity, claimId),
         getRegisteredAiSessionProvider,
@@ -1718,6 +1745,8 @@ async function initializeDashboard(
         },
     });
     let managedWorktreeRemovalController: ManagedWorktreeRemovalController;
+    let worktreeDeletionController: WorktreeDeletionController;
+    const reconciledDeletionIdentities = new Set<string>();
     let currentAiSessionRefreshReason = 'refresh';
     const worktreeGroupCreationController = new WorktreeGroupCreationController({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
@@ -2005,6 +2034,73 @@ async function initializeDashboard(
             if (!delivered) {
                 throw new Error('Managed worktree refresh was not delivered.');
             }
+        },
+    });
+    worktreeDeletionController = new WorktreeDeletionController({
+        store: worktreeGroupManifestStore,
+        recheckBlocker: (_group, member) => member.worktreeKey
+            ? managedWorktreeRemovalController.getRemovalBlocker(member.worktreeKey)
+            : Promise.resolve<string | null>('worktree-not-removable'),
+        snapshotAffectedSessions: async (_group, member) => {
+            // Freeze the old-generation membership (PRD §6.4): every
+            // session whose working directory lies inside the worktree.
+            // Providers that are unavailable contribute nothing; their
+            // sessions still fail closed to the retired generation through
+            // the creation-time/unknown rules, so an incomplete snapshot
+            // never mislabels an old session as current.
+            const memberPath = normalizeWorkspaceHostPath(
+                member.worktreeKey?.canonicalWorktreePath || member.path);
+            if (!memberPath) {
+                return [];
+            }
+            const results = aiSessionReadCoordinator.getResults({
+                candidatePaths: [member.path],
+                reason: 'worktree-deletion-snapshot',
+            });
+            const frozen: { provider: string; sessionId: string }[] = [];
+            for (const [providerId, result] of Object.entries(results)) {
+                if (!result.available) {
+                    continue;
+                }
+                for (const session of result.sessions) {
+                    const cwd = normalizeWorkspaceHostPath(session.cwd || '');
+                    if (cwd && isWorkspaceHostPathContained(memberPath, cwd)) {
+                        frozen.push({ provider: providerId, sessionId: session.id });
+                    }
+                }
+            }
+            return frozen;
+        },
+        removeWorktree: target => {
+            if (!target.worktreeKey) {
+                return Promise.resolve({
+                    kind: 'failed' as const,
+                    errorCode: 'worktree-not-removable',
+                });
+            }
+            return managedWorktreeRemovalController.removeVerified(target.worktreeKey);
+        },
+        observeWorktree: async target => {
+            const snapshot = worktreeSnapshotCoordinator.getSnapshot();
+            const repository = snapshot?.repositories.find(candidate =>
+                candidate.repositoryKey === target.repositoryKey);
+            if (!repository) {
+                // Repository detached or discovery truncated: the deletion
+                // stays pending and the lease keeps holding (PRD §6.4).
+                return 'unknown' as const;
+            }
+            try {
+                await accessPath(target.canonicalWorktreePath);
+                return 'present' as const;
+            } catch {
+                return 'missing' as const;
+            }
+        },
+        onChanged: async () => {
+            await worktreeSnapshotCoordinator.refresh('worktree-group-deletion');
+            await aiSessionDashboardController.refreshNow('worktree-group-deletion', {
+                fallbackToFullRefresh: false,
+            });
         },
     });
     void directTerminalRestoreOutcomeTask.then(result => {
@@ -2718,6 +2814,17 @@ async function initializeDashboard(
             void aiSessionDashboardController.refreshNow('worktree-snapshot', {
                 fallbackToFullRefresh: false,
             });
+        }
+        if (state.kind === 'ready' && !state.refreshing) {
+            // Restart reconciliation for journaled deletions (PRD §6.4):
+            // converge any interrupted journal once per workspace per
+            // activation, from fresh certain observations only.
+            const identity = getCurrentOpenWorkspace()?.navigationIdentity;
+            if (identity && !reconciledDeletionIdentities.has(identity)) {
+                reconciledDeletionIdentities.add(identity);
+                void worktreeDeletionController.reconcileAfterRestart(identity)
+                    .catch(error => logError('worktree deletion reconciliation', error));
+            }
         }
     }));
     if (provider.visible) {

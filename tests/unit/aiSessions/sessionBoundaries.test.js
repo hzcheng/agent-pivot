@@ -134,7 +134,12 @@ test('SESSION-PENDING-TERMINAL-RESOLVER-001 promotes one valid runtime and repor
         }] },
     };
     assert.deepEqual(await resolver.resolvePendingAiSessionTerminals(options), {
-        attempted: 1, promoted: [{ pendingId: 'pending-1', provider: 'codex', sessionId: 'new' }], failures: [],
+        attempted: 1,
+        promoted: [{
+            pendingId: 'pending-1', provider: 'codex', sessionId: 'new',
+            navigationIdentity: 'navigation:/work/app',
+        }],
+        failures: [],
     });
     assert.equal(resolver.getPendingAiSessionPromotionFailureReason([], 'codex', 'new'), 'missing-runtime');
 });

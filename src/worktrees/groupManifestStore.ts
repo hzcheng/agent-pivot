@@ -91,6 +91,11 @@ export class WorktreeGroupManifestError extends Error {
     }
 }
 
+export type GenerationClaimResolution =
+    | { kind: 'keep' }
+    | { kind: 'promote'; provider: string; sessionId: string }
+    | { kind: 'discard' };
+
 export interface NewWorktreeGroupMember {
     repositoryKey: string;
     worktreeKey?: WorktreeKey;
@@ -419,6 +424,13 @@ export class WorktreeGroupManifestStore {
             if (bucket.retiredIdentities.length >= MAX_RETIRED_PER_WORKSPACE) {
                 throw new WorktreeGroupManifestError('store-full');
             }
+            if (bucket.retiredIdentities.some(record =>
+                record.retirementId === input.retirementId)) {
+                // Retirement ids are bucket-unique: reusing one would make
+                // generation claims ambiguous about which retirement they
+                // postdate.
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
             const seen = new Set<string>();
             const affectedSessions: RetiredAffectedSession[] = [];
             let truncated = false;
@@ -494,6 +506,8 @@ export class WorktreeGroupManifestStore {
             worktreeKey: WorktreeKey;
             createdAfterRetirementId: string;
             createdAtMs: number;
+            creatingProvider?: string;
+            launchMarkerPath?: string;
         }
     ): Promise<GenerationClaim> {
         return this.enqueue(async () => {
@@ -501,7 +515,16 @@ export class WorktreeGroupManifestStore {
             const bucket = this.getBucket(manifest, workspaceIdentity);
             const basis = bucket.retiredIdentities.find(record =>
                 record.retirementId === input.createdAfterRetirementId);
-            if (!basis) {
+            if (!basis
+                || basis.repositoryKey !== input.worktreeKey.repositoryKey
+                || basis.canonicalWorktreePath !== input.worktreeKey.canonicalWorktreePath) {
+                // The claim's basis must retire the very same worktree key;
+                // otherwise a newer retirement of a foreign key could prove
+                // this key's sessions "current" (fail-open).
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            if (bucket.generationClaims.some(candidate =>
+                candidate.state === 'pending' && candidate.pendingId === input.pendingId)) {
                 throw new WorktreeGroupManifestError('invalid-record');
             }
             if (bucket.generationClaims.length >= MAX_GENERATION_CLAIMS_PER_WORKSPACE) {
@@ -517,6 +540,15 @@ export class WorktreeGroupManifestStore {
                 createdAtMs: requireTimestamp(input.createdAtMs),
                 state: 'pending',
                 pendingId: requireShortText(input.pendingId, MAX_ID_LENGTH, 'invalid-record'),
+                ...(input.creatingProvider
+                    ? {
+                        creatingProvider: requireShortText(
+                            input.creatingProvider, MAX_ID_LENGTH, 'invalid-record'),
+                    }
+                    : {}),
+                ...(input.launchMarkerPath
+                    ? { launchMarkerPath: requirePath(input.launchMarkerPath) }
+                    : {}),
             };
             bucket.generationClaims.push(claim);
             await this.writeManifest(manifest);
@@ -536,6 +568,13 @@ export class WorktreeGroupManifestStore {
             const claim = bucket.generationClaims.find(candidate =>
                 candidate.state === 'pending' && candidate.pendingId === pendingId);
             if (!claim) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            if (bucket.generationClaims.some(candidate =>
+                candidate.state === 'promoted'
+                && candidate.provider === session.provider
+                && candidate.sessionId === session.sessionId)) {
+                // A promoted session identity may back at most one claim.
                 throw new WorktreeGroupManifestError('invalid-record');
             }
             const promoted: GenerationClaim = {
@@ -570,6 +609,80 @@ export class WorktreeGroupManifestStore {
             bucket.generationClaims.splice(index, 1);
             await this.writeManifest(manifest);
             return true;
+        });
+    }
+
+    /**
+     * Idempotent crash-recovery pass over pending claims (PRD §6.4): the
+     * runtime promotion and the claim promotion are separate writes, so a
+     * crash between them leaves a pending claim whose runtime is gone. The
+     * resolver classifies each pending claim from durable evidence; every
+     * resolution is validated and applied in one aggregate write. Doubt
+     * always resolves to 'keep' — a kept claim blocks deletion (fail-closed)
+     * and can be released later by explicit retired-record cleanup.
+     */
+    reconcileGenerationClaims(
+        workspaceIdentity: string,
+        resolve: (claim: GenerationClaim) => GenerationClaimResolution
+    ): Promise<{ promoted: number; discarded: number; kept: number }> {
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const promotedIdentities = new Set(bucket.generationClaims
+                .filter(claim => claim.state === 'promoted')
+                .map(claim => `${claim.provider}::${claim.sessionId}`));
+            const outcome = { promoted: 0, discarded: 0, kept: 0 };
+            const nextClaims: GenerationClaim[] = [];
+            let changed = false;
+            for (const claim of bucket.generationClaims) {
+                if (claim.state !== 'pending') {
+                    nextClaims.push(claim);
+                    continue;
+                }
+                let resolution: GenerationClaimResolution;
+                try {
+                    resolution = resolve(cloneGenerationClaim(claim));
+                } catch {
+                    resolution = { kind: 'keep' };
+                }
+                if (resolution?.kind === 'promote'
+                    && isSafeText(resolution.provider, MAX_ID_LENGTH)
+                    && isSafeText(resolution.sessionId, MAX_ID_LENGTH)) {
+                    const identity =
+                        `${resolution.provider}::${resolution.sessionId}`;
+                    if (promotedIdentities.has(identity)) {
+                        // Ambiguous promotion target: keep, never guess.
+                        nextClaims.push(claim);
+                        outcome.kept += 1;
+                        continue;
+                    }
+                    promotedIdentities.add(identity);
+                    nextClaims.push({
+                        claimId: claim.claimId,
+                        worktreeKey: claim.worktreeKey,
+                        createdAfterRetirementId: claim.createdAfterRetirementId,
+                        createdAtMs: claim.createdAtMs,
+                        state: 'promoted',
+                        provider: resolution.provider,
+                        sessionId: resolution.sessionId,
+                    });
+                    outcome.promoted += 1;
+                    changed = true;
+                    continue;
+                }
+                if (resolution?.kind === 'discard') {
+                    outcome.discarded += 1;
+                    changed = true;
+                    continue;
+                }
+                nextClaims.push(claim);
+                outcome.kept += 1;
+            }
+            if (changed) {
+                bucket.generationClaims = nextClaims;
+                await this.writeManifest(manifest);
+            }
+            return outcome;
         });
     }
 
@@ -707,7 +820,11 @@ export class WorktreeGroupManifestStore {
                 persisted[bucketKey] = bucket;
             }
         }
-        if (JSON.stringify(persisted).length > MAX_AGGREGATE_SERIALIZED_BYTES) {
+        // Measure real UTF-8 bytes, not UTF-16 code units: CJK content can
+        // occupy ~3x its .length, and the deletion flow pre-reserves
+        // capacity by actual frozen snapshot bytes (PRD §6.4).
+        if (Buffer.byteLength(JSON.stringify(persisted), 'utf8')
+            > MAX_AGGREGATE_SERIALIZED_BYTES) {
             throw new WorktreeGroupManifestError('store-full');
         }
         return Promise.resolve(this.memento.update(STORAGE_KEY, persisted));
@@ -932,8 +1049,16 @@ function parseGenerationClaim(value: unknown): GenerationClaim | null {
         createdAfterRetirementId: candidate.createdAfterRetirementId as string,
         createdAtMs: candidate.createdAtMs as number,
         state: candidate.state,
-        ...(candidate.state === 'pending'
-            ? { pendingId: candidate.pendingId as string }
+            ...(candidate.state === 'pending'
+            ? {
+                pendingId: candidate.pendingId as string,
+                ...(isSafeText(candidate.creatingProvider, MAX_ID_LENGTH)
+                    ? { creatingProvider: candidate.creatingProvider as string }
+                    : {}),
+                ...(isSafeText(candidate.launchMarkerPath, MAX_PATH_LENGTH)
+                    ? { launchMarkerPath: candidate.launchMarkerPath as string }
+                    : {}),
+            }
             : {
                 provider: candidate.provider as string,
                 sessionId: candidate.sessionId as string,

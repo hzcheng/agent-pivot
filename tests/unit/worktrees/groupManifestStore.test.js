@@ -405,6 +405,156 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 retired capacity fails closed and tru
         'the 257th retired record is refused instead of evicting silently');
 });
 
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 store enforces the reference invariants', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    await store.recordRetiredIdentity(WORKSPACE, retiredInput());
+    await assert.rejects(
+        store.recordRetiredIdentity(WORKSPACE, retiredInput({
+            canonicalWorktreePath: '/repos/alpha/.worktrees/other',
+        })),
+        error => error.code === 'invalid-record',
+        'duplicate retirement ids are rejected');
+    await assert.rejects(
+        store.createGenerationClaim(WORKSPACE, {
+            pendingId: 'p-1',
+            worktreeKey: {
+                repositoryKey: '/repos/beta/.git',
+                canonicalWorktreePath: '/repos/beta/.worktrees/fix-login',
+            },
+            createdAfterRetirementId: 'r-1',
+            createdAtMs: 150,
+        }),
+        error => error.code === 'invalid-record',
+        'a claim cannot reference a retirement of a different worktree key');
+    await store.createGenerationClaim(WORKSPACE, {
+        pendingId: 'p-dup',
+        worktreeKey: {
+            repositoryKey: '/repos/alpha/.git',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        },
+        createdAfterRetirementId: 'r-1',
+        createdAtMs: 150,
+    });
+    await assert.rejects(
+        store.createGenerationClaim(WORKSPACE, {
+            pendingId: 'p-dup',
+            worktreeKey: {
+                repositoryKey: '/repos/alpha/.git',
+                canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+            },
+            createdAfterRetirementId: 'r-1',
+            createdAtMs: 160,
+        }),
+        error => error.code === 'invalid-record',
+        'pending ids stay unique');
+    await store.createGenerationClaim(WORKSPACE, {
+        pendingId: 'p-second',
+        worktreeKey: {
+            repositoryKey: '/repos/alpha/.git',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        },
+        createdAfterRetirementId: 'r-1',
+        createdAtMs: 170,
+    });
+    await store.promoteGenerationClaim(WORKSPACE, 'p-dup', {
+        provider: 'codex', sessionId: 's-shared',
+    });
+    await assert.rejects(
+        store.promoteGenerationClaim(WORKSPACE, 'p-second', {
+            provider: 'codex', sessionId: 's-shared',
+        }),
+        error => error.code === 'invalid-record',
+        'a promoted session identity backs at most one claim');
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation promotes, discards, and keeps in one write', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    await store.recordRetiredIdentity(WORKSPACE, retiredInput());
+    for (const pendingId of ['p-promote', 'p-discard', 'p-keep', 'p-throw']) {
+        await store.createGenerationClaim(WORKSPACE, {
+            pendingId,
+            worktreeKey: {
+                repositoryKey: '/repos/alpha/.git',
+                canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+            },
+            createdAfterRetirementId: 'r-1',
+            createdAtMs: 150,
+        });
+    }
+    const outcome = await store.reconcileGenerationClaims(WORKSPACE, claim => {
+        if (claim.pendingId === 'p-promote') {
+            return { kind: 'promote', provider: 'codex', sessionId: 's-found' };
+        }
+        if (claim.pendingId === 'p-discard') {
+            return { kind: 'discard' };
+        }
+        if (claim.pendingId === 'p-throw') {
+            throw new Error('resolver exploded');
+        }
+        return { kind: 'keep' };
+    });
+    assert.deepEqual(outcome, { promoted: 1, discarded: 1, kept: 2 },
+        'a resolver failure keeps the claim (fail-closed)');
+    const claims = store.listGenerationClaims(WORKSPACE);
+    const byPending = id => claims.find(claim =>
+        claim.pendingId === id || claim.sessionId === id);
+    assert.equal(byPending('s-found').state, 'promoted');
+    assert.equal(byPending('p-discard'), undefined);
+    assert.equal(byPending('p-keep').state, 'pending');
+    assert.equal(byPending('p-throw').state, 'pending');
+
+    // A second pass is a no-op: reconciliation is idempotent.
+    const again = await store.reconcileGenerationClaims(WORKSPACE, () => ({ kind: 'keep' }));
+    assert.deepEqual(again, { promoted: 0, discarded: 0, kept: 2 });
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 reconciliation keeps ambiguous promotion targets', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    await store.recordRetiredIdentity(WORKSPACE, retiredInput());
+    for (const pendingId of ['p-a', 'p-b']) {
+        await store.createGenerationClaim(WORKSPACE, {
+            pendingId,
+            worktreeKey: {
+                repositoryKey: '/repos/alpha/.git',
+                canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+            },
+            createdAfterRetirementId: 'r-1',
+            createdAtMs: 150,
+        });
+    }
+    const outcome = await store.reconcileGenerationClaims(WORKSPACE, () => ({
+        kind: 'promote', provider: 'codex', sessionId: 's-same',
+    }));
+    assert.deepEqual(outcome, { promoted: 1, discarded: 0, kept: 1 },
+        'two claims may never promote onto the same session identity');
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 the byte cap measures UTF-8 bytes, not code units', async () => {
+    // A CJK path occupies ~3 UTF-8 bytes per code unit: a blob can fit the
+    // old .length check while exceeding the real byte budget.
+    const store = new WorktreeGroupManifestStore(memento());
+    const hugePath = `/repos/alpha/.worktrees/${'目'.repeat(32000)}`;
+    const members = [];
+    for (let index = 0; index < 12; index++) {
+        members.push({
+            repositoryKey: `/repos/huge-${index}/.git`,
+            worktreeKey: {
+                repositoryKey: `/repos/huge-${index}/.git`,
+                canonicalWorktreePath: `${hugePath}-${index}`,
+            },
+            branchName: `agent-pivot/huge-${index}`,
+            path: `${hugePath}-${index}`,
+            state: 'ready',
+        });
+    }
+    await assert.rejects(
+        store.createGroup(WORKSPACE, {
+            displayName: 'huge', suggestedSlug: 'huge', members,
+        }),
+        error => error.code === 'store-full',
+        'multibyte content cannot smuggle past the byte cap');
+});
+
 test('WORKTREE-GROUPS-RENAME-001 starts revision at 1 and migrates legacy records', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const created = await createGroup(store, [readyMember('alpha', 'fix-login')]);

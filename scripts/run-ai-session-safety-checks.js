@@ -1283,7 +1283,10 @@ async function runPendingTerminalResolverChecks() {
     );
     assert.deepStrictEqual(validResult, {
         attempted: 1,
-        promoted: [{ pendingId: 'pending-valid', provider: 'codex', sessionId: 'session-0' }],
+        promoted: [{
+            pendingId: 'pending-valid', provider: 'codex', sessionId: 'session-0',
+            navigationIdentity: 'navigation:/work/valid',
+        }],
         failures: [],
     });
     assert.deepStrictEqual(promotionCalls[0], {
@@ -1507,7 +1510,8 @@ async function runPendingTerminalResolverChecks() {
         assert.strictEqual(result.attempted, 1);
         assert.deepStrictEqual(result.promoted, []);
         assert.deepStrictEqual(result.failures, [{
-            pendingId: 'pending-valid', provider: 'codex', sessionId: 'session-0', reason: invalidCase.reason,
+            pendingId: 'pending-valid', provider: 'codex', sessionId: 'session-0',
+            navigationIdentity: 'navigation:/work/valid', reason: invalidCase.reason,
         }]);
         assert.deepStrictEqual(aliases, []);
         assert.strictEqual(syncs, 0);
@@ -1527,9 +1531,13 @@ async function runPendingTerminalResolverChecks() {
     );
     assert.deepStrictEqual(partial, {
         attempted: 2,
-        promoted: [{ pendingId: 'pending-first', provider: 'codex', sessionId: 'session-0' }],
+        promoted: [{
+            pendingId: 'pending-first', provider: 'codex', sessionId: 'session-0',
+            navigationIdentity: 'navigation:/work/first',
+        }],
         failures: [{
-            pendingId: 'pending-second', provider: 'codex', sessionId: 'session-1', reason: 'promotion-error',
+            pendingId: 'pending-second', provider: 'codex', sessionId: 'session-1',
+            navigationIdentity: 'navigation:/work/second', reason: 'promotion-error',
         }],
     });
     assert.deepStrictEqual(partialAliases, [['codex', 'session-0', 'First Alias']]);

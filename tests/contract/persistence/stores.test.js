@@ -370,6 +370,57 @@ test('TODO-TODO-STORE-001 preserves unversioned V1 data while dropping duplicate
     assert.throws(() => normalizeTodoData({ version: 2 }), /Unsupported TODO data version/);
 });
 
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 listAll enumerates durable bindings for claim reconciliation', async () => {
+    const workspaceIdentity = {
+        workspaceScopeIdentity: 'scope:fixture',
+        workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work/project'],
+        writableRootHostPaths: ['/work/project'],
+        cwd: '/work/project',
+    };
+    const state = makeState({
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}43001`]: {
+            version: 3,
+            state: 'pending',
+            providerId: 'codex',
+            pendingId: 'pending-1',
+            markerPath: '/tmp/pending-1.done',
+            createdAt: '2026-07-18T10:00:00.000Z',
+            excludedSessionIds: [],
+            updatedAtMs: 1,
+            ...workspaceIdentity,
+        },
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}43002`]: {
+            version: 3,
+            state: 'bound',
+            providerId: 'codex',
+            sessionId: 'session-1',
+            markerPath: '/tmp/pending-1.done',
+            runStartedAtMs: 1,
+            updatedAtMs: 2,
+            ...workspaceIdentity,
+        },
+        'unrelated-key': { nope: true },
+    });
+    state.memento.keys = () => Object.keys(state.values);
+    const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
+
+    const all = store.listAll();
+    assert.equal(all.length, 2, 'only binding-prefixed keys are enumerated');
+    const pending = all.find(record => record.state === 'pending');
+    const bound = all.find(record => record.state === 'bound');
+    assert.equal(pending.pendingId, 'pending-1');
+    assert.equal(bound.sessionId, 'session-1');
+    assert.equal(bound.markerPath, '/tmp/pending-1.done',
+        'the marker path links a pending claim to the bound session');
+
+    const noKeys = makeState({});
+    const storeWithoutKeys = new AiSessionTerminalBindingStore(
+        noKeys.memento, undefined, () => NOW);
+    assert.deepEqual(storeWithoutKeys.listAll(), [],
+        'a memento without keys() degrades to no bindings');
+});
+
 test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-PERSISTENCE-001 preserves workspace-bound records and rejects missing or oversized fields', async () => {
     const processId = 42001;
     const legacyProcessId = 42002;

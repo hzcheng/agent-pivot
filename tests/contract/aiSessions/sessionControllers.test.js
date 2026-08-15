@@ -345,9 +345,11 @@ test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the gi
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a session on a retired path persists its claim before side effects', async () => {
     const order = [];
     const discarded = [];
+    const claimInputs = [];
     const fixture = makeQuickCreateController({
         prepareGenerationClaim: async input => {
             order.push(['claim', input.pendingId]);
+            claimInputs.push(input);
             return 'claim-1';
         },
         discardGenerationClaim: async input => {
@@ -369,6 +371,10 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a session on a retired path persists 
     }), true);
     assert.deepEqual(order, [['claim', 'pending-quick'], ['create', 'pending-quick']],
         'the pending claim is durable before the runtime is created');
+    assert.equal(claimInputs[0].provider, 'kimi');
+    assert.equal(claimInputs[0].launchMarkerPath, '/tmp/pending',
+        'the claim carries the launch marker for crash reconciliation');
+    assert.equal(claimInputs[0].navigationIdentity, 'navigation:fixture');
     assert.deepEqual(discarded, [], 'a started session keeps its pending claim');
 });
 

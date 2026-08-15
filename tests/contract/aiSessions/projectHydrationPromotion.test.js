@@ -114,6 +114,9 @@ function createHarness(overrides = {}) {
         ...(overrides.onSessionPromoted
             ? { onSessionPromoted: overrides.onSessionPromoted }
             : {}),
+        ...(overrides.reconcileGenerationClaims
+            ? { reconcileGenerationClaims: overrides.reconcileGenerationClaims }
+            : {}),
         logDiagnostic: event => diagnostics.push(event),
     });
     return { controller, aliases, effects, diagnostics };
@@ -139,6 +142,24 @@ test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 promotions surface the session identi
         provider: 'codex',
         sessionId: SESSION.id,
     }], 'the promotion hook carries the authoritative session identity');
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 claim reconciliation runs even without pending runtimes', async () => {
+    // The crash window being closed is "runtime promoted, claim not" — so
+    // reconciliation must run on ticks with zero pending runtimes too.
+    const reconciliations = [];
+    const harness = createHarness({
+        runtimeCoordinator: {
+            getPendingForPromotion: async () => [],
+        },
+        reconcileGenerationClaims: async workspace => {
+            reconciliations.push(workspace.navigationIdentity);
+        },
+    });
+
+    await harness.controller.promote(WORKSPACE, sessionResults(), 'scan');
+
+    assert.deepEqual(reconciliations, [WORKSPACE.navigationIdentity]);
 });
 
 test('PERSIST-AI-SESSION-PROJECT-HYDRATION-PROMOTION-001 shares single-flight work and drains the latest queued generation', async () => {

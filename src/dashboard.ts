@@ -1391,6 +1391,91 @@ async function initializeDashboard(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
         ),
     });
+    // PRD §6.4 crash recovery: the runtime promotion and the generation
+    // claim promotion are separate writes, so a crash (or a transient
+    // memento failure) between them strands a pending claim whose runtime
+    // no longer exists. This idempotent pass re-attaches the session id
+    // from the durable terminal binding (same unique launch marker path),
+    // discards claims whose launch provably never happened, and keeps
+    // everything uncertain — kept claims block deletion (fail-closed).
+    const reconcilePendingGenerationClaims = async (workspace: OpenWorkspace) => {
+        const identity = workspace.navigationIdentity;
+        const pendingClaims = worktreeGroupManifestStore.listGenerationClaims(identity)
+            .filter(claim => claim.state === 'pending');
+        if (!pendingClaims.length) {
+            return;
+        }
+        const pendingRuntimes = await aiSessionRuntimeCoordinator.getPendingForPromotion()
+            .catch(() => []);
+        const livePendingIds = new Set(pendingRuntimes
+            .map(runtime => runtime.identity.pendingId)
+            .filter((pendingId): pendingId is string => !!pendingId));
+        const bindings = aiSessionTerminalBindingStore.listAll();
+        const pendingBindingIds = new Set(bindings
+            .filter((binding): binding is typeof binding & { pendingId: string } =>
+                binding.state === 'pending')
+            .map(binding => binding.pendingId));
+        const boundByMarkerPath = new Map<string, { provider: string; sessionId: string }>();
+        for (const binding of bindings) {
+            if ((binding.state === 'bound' || binding.state === 'released')
+                && binding.markerPath) {
+                boundByMarkerPath.set(binding.markerPath, {
+                    provider: binding.providerId,
+                    sessionId: binding.sessionId,
+                });
+            }
+        }
+        await worktreeGroupManifestStore.reconcileGenerationClaims(identity, claim => {
+            if (claim.pendingId && (livePendingIds.has(claim.pendingId)
+                || pendingBindingIds.has(claim.pendingId))) {
+                // The normal promotion flow owns this claim.
+                return { kind: 'keep' as const };
+            }
+            if (claim.launchMarkerPath) {
+                const bound = boundByMarkerPath.get(claim.launchMarkerPath);
+                if (bound) {
+                    return {
+                        kind: 'promote' as const,
+                        provider: bound.provider,
+                        sessionId: bound.sessionId,
+                    };
+                }
+                if (existsSync(claim.launchMarkerPath)) {
+                    // The launch completed but no binding survived: the
+                    // outcome is unknowable, so keep blocking deletion.
+                    return { kind: 'keep' as const };
+                }
+            }
+            // No runtime, no binding, no completed marker: discard only
+            // when the provider also shows no session activity on the path.
+            const providerId = claim.creatingProvider;
+            if (providerId && isAiSessionProviderId(providerId)) {
+                const result = aiSessionReadCoordinator.getProviderResult(providerId, {
+                    forceRefresh: false,
+                    candidatePaths: [claim.worktreeKey.canonicalWorktreePath],
+                    reason: 'claim-reconcile',
+                });
+                if (!result?.available) {
+                    return { kind: 'keep' as const };
+                }
+                const pathPrefix = `${claim.worktreeKey.canonicalWorktreePath}/`;
+                const hasLaterActivity = result.sessions.some(session => {
+                    const cwd = getProviderAiSessionComparableCwd(
+                        providerId, session, aiSessionProviders);
+                    const activityAt = Date.parse(session.createdAt || session.updatedAt || '');
+                    return !!cwd
+                        && (cwd === claim.worktreeKey.canonicalWorktreePath
+                            || cwd.startsWith(pathPrefix))
+                        && Number.isFinite(activityAt)
+                        && activityAt >= claim.createdAtMs;
+                });
+                if (hasLaterActivity) {
+                    return { kind: 'keep' as const };
+                }
+            }
+            return { kind: 'discard' as const };
+        });
+    };
     const workspacePendingSessionPromotionController =
         new WorkspacePendingSessionPromotionController<vscode.Terminal>({
             providers: aiSessionProviders,
@@ -1416,6 +1501,8 @@ async function initializeDashboard(
                     }
                 }
             },
+            reconcileGenerationClaims: workspace =>
+                reconcilePendingGenerationClaims(workspace),
             logDiagnostic: logAiSessionDiagnostic,
         });
     let isolatedSessionController: IsolatedSessionController | undefined;

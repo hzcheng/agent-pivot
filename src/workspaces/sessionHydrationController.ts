@@ -229,6 +229,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
                 this.options.getRetiredWorktreeIdentities?.(workspace.navigationIdentity) || [],
             generationClaims:
                 this.options.getGenerationClaims?.(workspace.navigationIdentity) || [],
+            nowMs: () => this.nowMs(),
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
             selectedSurface: this.options.getSelectedSurface?.(workspace.scopeIdentity),

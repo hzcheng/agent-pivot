@@ -74,6 +74,8 @@ export interface SessionControllerCompositionOptions {
             worktreeKey: WorktreeKey;
             createdAfterRetirementId: string;
             createdAtMs: number;
+            creatingProvider?: string;
+            launchMarkerPath?: string;
         }
     ) => Promise<{ claimId: string }>;
     /** Compensating delete for a pending generation claim (PRD §6.4). */
@@ -484,7 +486,9 @@ export function createSessionControllerComposition(
             projectId,
             message,
         }),
-        prepareGenerationClaim: async ({ navigationIdentity, worktreeKey, pendingId }) => {
+        prepareGenerationClaim: async ({
+            navigationIdentity, worktreeKey, pendingId, provider, launchMarkerPath,
+        }) => {
             if (!options.getRetiredWorktreeIdentities
                 || !options.createWorktreeGenerationClaim) {
                 return null;
@@ -500,6 +504,8 @@ export function createSessionControllerComposition(
                 worktreeKey: { ...worktreeKey },
                 createdAfterRetirementId: retirement.retirementId,
                 createdAtMs: nowMs(),
+                creatingProvider: provider,
+                launchMarkerPath,
             });
             return claim.claimId;
         },

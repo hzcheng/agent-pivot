@@ -21,6 +21,7 @@ const MAX_EXCLUDED_SESSION_IDS = 1000;
 export interface AiSessionTerminalBindingState {
     get<T>(key: string, defaultValue: T): T;
     update(key: string, value: unknown): Thenable<void>;
+    keys?: () => readonly string[];
 }
 
 interface AiSessionTerminalBindingBase {
@@ -109,6 +110,43 @@ export default class AiSessionTerminalBindingStore {
         } catch (error) {
             this.reportErrorOnce(error);
             return null;
+        }
+    }
+
+    /**
+     * Every durable binding record, for claim reconciliation (PRD §6.4):
+     * the marker path links a pending generation claim to the session its
+     * terminal eventually bound to, even across a crash between runtime
+     * promotion and claim promotion.
+     */
+    listAll(): AiSessionTerminalBinding[] {
+        try {
+            const keys = typeof this.state?.keys === 'function'
+                ? this.state.keys() : [];
+            const records: AiSessionTerminalBinding[] = [];
+            for (const key of keys) {
+                const isCurrent = key.startsWith(AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX);
+                const isLegacy = !isCurrent
+                    && key.startsWith(AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX);
+                if (!isCurrent && !isLegacy) {
+                    continue;
+                }
+                const suffix = key.slice((isCurrent
+                    ? AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX
+                    : AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX).length);
+                const processId = Number(suffix);
+                if (!isProcessId(processId)) {
+                    continue;
+                }
+                const record = this.get(processId);
+                if (record) {
+                    records.push(record);
+                }
+            }
+            return records;
+        } catch (error) {
+            this.reportErrorOnce(error);
+            return [];
         }
     }
 

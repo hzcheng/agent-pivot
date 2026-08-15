@@ -68,6 +68,8 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     retiredWorktreeIdentities?: readonly RetiredWorktreeIdentity[];
     /** Generation claims for this workspace bucket (PRD §6.4). */
     generationClaims?: readonly GenerationClaim[];
+    /** Authoritative clock for generation judgment (clock-drift fail-closed). */
+    nowMs?: () => number;
     providers: readonly HydrationProvider[];
     sessionResults: Record<AiSessionProviderId, AiSessionReadResult>;
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;
@@ -173,7 +175,8 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
             input.getSessionComparableCwd,
             input.worktreeGroups,
             input.retiredWorktreeIdentities,
-            input.generationClaims
+            input.generationClaims,
+            input.nowMs
         );
         const assignmentBySessionId = new Map(assigned.map(item => [item.session.id, item]));
         sessionsByProvider[provider.id] = prepareAiSessionsForDisplay(
@@ -243,6 +246,7 @@ function assignHistorySessions(
     worktreeGroups?: readonly WorktreeGroup[],
     retiredIdentities?: readonly RetiredWorktreeIdentity[],
     generationClaims?: readonly GenerationClaim[],
+    nowMs?: () => number,
 ): AssignedHistory[] {
     const seen = new Set<string>();
     const assigned: AssignedHistory[] = [];
@@ -276,7 +280,8 @@ function assignHistorySessions(
                 provider: providerId,
                 sessionId: session.id,
                 createdAtMs: parseSessionCreatedAtMs(session),
-            }, generationClaims || [], retiredIdentities || [])
+            }, generationClaims || [], retiredIdentities || [],
+                nowMs ? nowMs() : Date.now())
             : null;
         const retiredKey = retired && retiredGeneration === 'retired'
             ? {

@@ -127,6 +127,8 @@ export interface AiSessionCreationControllerCommonOptions {
         navigationIdentity: string;
         worktreeKey: WorktreeKey;
         pendingId: string;
+        provider: AiSessionProviderId;
+        launchMarkerPath: string;
     }) => Promise<string | null>;
     /** Compensating delete when the creation never reaches 'started'. */
     discardGenerationClaim?: (input: {
@@ -442,6 +444,8 @@ export class AiSessionCreationController {
                     navigationIdentity: directoryScope.workspaceNavigationIdentity,
                     worktreeKey: { ...directoryScope.worktreeKey },
                     pendingId,
+                    provider: providerId,
+                    launchMarkerPath: markerPath,
                 });
             } catch (error) {
                 options.logRuntimeFailure?.('create-generation-claim', error, 'vscode');

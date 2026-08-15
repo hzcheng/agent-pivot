@@ -652,6 +652,83 @@ test('WORKTREE-GROUPS-CREATE-001 concurrent synthetic tombstone writes share the
     assert.ok(persistCalls >= 1);
 });
 
+test('WORKTREE-GROUPS-CREATE-001 concurrent dismisses share one flight and one outcome', async () => {
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    let failPersists = true;
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+        persistOperations: operations => {
+            if (failPersists) {
+                return Promise.reject(new Error('disk full'));
+            }
+            current.persisted.push(operations);
+            return Promise.resolve();
+        },
+        onPersistenceError: () => undefined,
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-c1', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'c1',
+    });
+    const [first, second] = await Promise.all([
+        current.controller.dismiss('group-member-c1', 'project'),
+        current.controller.dismiss('group-member-c1', 'project'),
+    ]);
+    assert.deepEqual([first, second], [false, false],
+        'a failed tombstone write fails every concurrent caller');
+    assert.equal(current.controller.getRows().length, 1,
+        'the row survives for another attempt');
+
+    failPersists = false;
+    const [third, fourth] = await Promise.all([
+        current.controller.dismiss('group-member-c1', 'project'),
+        current.controller.dismiss('group-member-c1', 'project'),
+    ]);
+    assert.deepEqual([third, fourth], [true, true]);
+    const tombstones = current.persisted.at(-1).filter(record => record.tombstone);
+    assert.equal(tombstones.length, 1, 'exactly one durable tombstone');
+    assert.equal(current.persisted.at(-1)
+        .filter(record => !record.tombstone
+            && record.operationId === 'group-member-c1').length, 0,
+        'no same-id live record accompanies the tombstone');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a completed retry clears the tombstone for that worktree', async () => {
+    const plan = {
+        repositoryKey: '/repo/.git', commandCwd: '/repo', baseRef: 'refs/heads/main',
+        taskName: 'Fix login', slug: 'fix-login',
+        branchName: 'agent-pivot/fix-login',
+        worktreePath: '/repo/.worktrees/fix-login',
+    };
+    const current = fixture({
+        runSetup: async () => {
+            throw Object.assign(new Error('setup'), { code: 'setup-failed' });
+        },
+    });
+    await current.controller.startGroupMember({
+        operationId: 'group-member-c2', projectId: 'project',
+        navigationIdentity: 'navigation:workspace', plan,
+        setupCommand: ['npm', 'ci'], groupId: 'g1', memberId: 'c2',
+    });
+    assert.equal(await current.controller.dismiss('group-member-c2', 'project'), true);
+    assert.ok(current.persisted.at(-1).some(record => record.tombstone));
+
+    // The worktree later provisions fully (e.g. retried): its tombstone
+    // must stop claiming setup-incomplete and stop occupying capacity.
+    current.controller.removeTombstonesForWorktree(
+        '/repo/.git', '/repo/.worktrees/fix-login');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(!current.persisted.at(-1).some(record => record.tombstone));
+});
+
 test('WORKTREE-ISOLATED-SESSION-001 branches a new worktree from the selected worktree branch', async () => {
     const current = fixture();
     current.snapshot.repositories[0].worktrees.push({

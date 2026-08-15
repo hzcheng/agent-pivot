@@ -1577,6 +1577,11 @@ async function initializeDashboard(
                 throw error;
             }
             const bucket = target.workspace.navigationIdentity;
+            // A completed provisioning clears any tombstone claiming the
+            // worktree is half-initialized.
+            isolatedSessionController?.removeTombstonesForWorktree(
+                info.worktreeKey.repositoryKey,
+                info.worktreeKey.canonicalWorktreePath);
             if (info.groupId && info.memberId) {
                 // Group creation (M2): the group already exists with this
                 // member planned; mark the member ready and apply the

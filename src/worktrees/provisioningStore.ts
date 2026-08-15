@@ -76,10 +76,16 @@ export class WorktreeProvisioningStore {
     }
 
     read(): PersistedWorktreeProvisioningOperation[] {
+        const live = this.parseRecords(
+            this.memento.get<unknown>(STORAGE_KEY, []), MAX_RECORDS);
+        const tombstones = this.parseRecords(
+            this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
+        // A tombstone wins over a same-id live record: it is the newer,
+        // authoritative state (written after the operation settled).
+        const tombstoneIds = new Set(tombstones.map(record => record.operationId));
         return [
-            ...this.parseRecords(this.memento.get<unknown>(STORAGE_KEY, []), MAX_RECORDS),
-            ...this.parseRecords(
-                this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES),
+            ...live.filter(record => !tombstoneIds.has(record.operationId)),
+            ...tombstones,
         ];
     }
 

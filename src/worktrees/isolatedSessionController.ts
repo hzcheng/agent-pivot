@@ -359,7 +359,24 @@ export class IsolatedSessionController {
         return this.provisioning.cancel(operationId);
     }
 
-    async dismiss(operationId: string, projectId?: string): Promise<boolean> {
+    /** Operation-level single-flight: concurrent dismissals share one. */
+    private readonly dismissFlights = new Map<string, Promise<boolean>>();
+
+    dismiss(operationId: string, projectId?: string): Promise<boolean> {
+        const pending = this.dismissFlights.get(operationId);
+        if (pending) {
+            return pending;
+        }
+        const flight = this.dismissExclusive(operationId, projectId)
+            .finally(() => this.dismissFlights.delete(operationId));
+        this.dismissFlights.set(operationId, flight);
+        return flight;
+    }
+
+    private async dismissExclusive(
+        operationId: string,
+        projectId?: string
+    ): Promise<boolean> {
         const context = this.contextsByOperation.get(operationId);
         if (!context || (projectId && context.projectId !== projectId)
             || !this.contextMatchesWorkspace(
@@ -383,7 +400,9 @@ export class IsolatedSessionController {
         // ran must not let reconciliation re-seed the half-initialized
         // worktree as ready: keep a tombstone that blocks seeding without
         // ever restoring a row. The tombstone must be durable BEFORE the
-        // row, context, and manifest member go away.
+        // row, context, and manifest member go away — and the context is
+        // dropped first so the live record is excluded from that write:
+        // exactly one durable record exists for this id, never both.
         if (needsTombstone && recovery) {
             const tombstone = this.buildRecoveryRecord(recovery, context);
             if (tombstone) {
@@ -392,20 +411,29 @@ export class IsolatedSessionController {
                     tombstone: true,
                     tombstonedAt: Date.now(),
                 });
+                this.contextsByOperation.delete(operationId);
                 try {
-                    // The row is still live here, so force the tombstone
-                    // into this write — otherwise the awaited persist only
-                    // covers the live record and the tombstone lands
-                    // fire-and-forget after discard.
-                    await this.persistOperations(operationId);
+                    await this.persistOperations();
                 } catch (error) {
                     this.recoveryTombstones.delete(operationId);
+                    this.contextsByOperation.set(operationId, context);
                     this.options.onPersistenceError?.(error);
                     return false;
                 }
             }
         }
         if (!this.provisioning.discard(operationId)) {
+            if (needsTombstone && this.recoveryTombstones.has(operationId)) {
+                // Roll the durable state back too: no tombstone without a
+                // completed dismissal, no row without its context.
+                this.recoveryTombstones.delete(operationId);
+                this.contextsByOperation.set(operationId, context);
+                try {
+                    await this.persistOperations();
+                } catch (error) {
+                    this.options.onPersistenceError?.(error);
+                }
+            }
             return false;
         }
         this.contextsByOperation.delete(operationId);
@@ -569,6 +597,26 @@ export class IsolatedSessionController {
     hasOperation(operationId: string): boolean {
         return this.contextsByOperation.has(operationId)
             || this.provisioning.getRows().some(row => row.operationId === operationId);
+    }
+
+    /**
+     * Drops tombstones covering a now-ready worktree (e.g. a retried
+     * member whose setup completed): they must stop blocking seeding and
+     * occupying capacity once the worktree is fully provisioned.
+     */
+    removeTombstonesForWorktree(repositoryKey: string, worktreePath: string): void {
+        let removed = false;
+        for (const [operationId, record] of this.recoveryTombstones) {
+            if (record.plan.repositoryKey === repositoryKey
+                && record.plan.worktreePath === worktreePath) {
+                this.recoveryTombstones.delete(operationId);
+                removed = true;
+            }
+        }
+        if (removed) {
+            void this.persistOperations().catch(error =>
+                this.options.onPersistenceError?.(error));
+        }
     }
 
     getRows(): ProvisioningWorktreeRow[] {
@@ -765,7 +813,7 @@ export class IsolatedSessionController {
         });
     }
 
-    private persistOperations(forceTombstoneId?: string): Promise<void> {
+    private persistOperations(): Promise<void> {
         if (!this.options.persistOperations) {
             return Promise.resolve();
         }
@@ -780,8 +828,7 @@ export class IsolatedSessionController {
             .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
         const liveOperationIds = new Set(records.map(record => record.operationId));
         const tombstones = Array.from(this.recoveryTombstones.values())
-            .filter(record => !liveOperationIds.has(record.operationId)
-                || record.operationId === forceTombstoneId);
+            .filter(record => !liveOperationIds.has(record.operationId));
         return this.options.persistOperations([...records, ...tombstones]);
     }
 

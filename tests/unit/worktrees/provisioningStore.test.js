@@ -206,6 +206,19 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 prune keeps tombstones for undiscovered
     assert.equal(store.read().length, 0);
 });
 
+test('WORKTREE-PROVISIONING-RECOVERY-001 a tombstone wins over a same-id live record', async () => {
+    // Crash-window durability: a host exit between the tombstone write and
+    // the live-record cleanup must never restore both.
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const live = record('dup-1');
+    await store.replace([live, { ...record('dup-1'), tombstone: true }]);
+    const restored = store.read();
+    assert.equal(restored.length, 1);
+    assert.equal(restored[0].tombstone, true,
+        'the tombstone is the authoritative record for the id');
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
     const valid = record('valid');
     const state = memento([

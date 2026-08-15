@@ -17,6 +17,7 @@ const {
 const confirmRequest = {
     type: 'confirm-worktree-group', version: 1,
     requestId: 'group-create-1', projectId: 'project',
+    previewId: 'preview-1',
     displayName: 'Fix login',
     primaryRepositoryKey: '/alpha/.git',
     members: [{

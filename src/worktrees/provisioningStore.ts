@@ -8,7 +8,11 @@ import { normalizeWorktreeSetupCommand } from './worktreeSetupRunner';
 import { isManagedWorktreePath } from './provisioningPlan';
 
 const STORAGE_KEY = 'agentPivot.worktreeProvisioning.v1';
+const TOMBSTONE_STORAGE_KEY = 'agentPivot.worktreeProvisioningTombstones.v1';
 const MAX_RECORDS = 32;
+// Tombstones live in their own bucket with their own bound so they can
+// never crowd out live recovery records (or be evicted by them).
+const MAX_TOMBSTONES = 128;
 const MAX_STRING = 32 * 1024;
 
 interface MementoLike {
@@ -66,13 +70,23 @@ export class WorktreeProvisioningStore {
     }
 
     read(): PersistedWorktreeProvisioningOperation[] {
-        const value = this.memento.get<unknown>(STORAGE_KEY, []);
+        return [
+            ...this.parseRecords(this.memento.get<unknown>(STORAGE_KEY, []), MAX_RECORDS),
+            ...this.parseRecords(
+                this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES),
+        ];
+    }
+
+    private parseRecords(
+        value: unknown,
+        max: number
+    ): PersistedWorktreeProvisioningOperation[] {
         if (!Array.isArray(value)) {
             return [];
         }
         const seen = new Set<string>();
         const records: PersistedWorktreeProvisioningOperation[] = [];
-        for (const candidate of value.slice(0, MAX_RECORDS)) {
+        for (const candidate of value.slice(0, max)) {
             const record = parseRecord(candidate, this.getWorktreeDirectory?.());
             if (record && !seen.has(record.operationId)) {
                 seen.add(record.operationId);
@@ -82,12 +96,47 @@ export class WorktreeProvisioningStore {
         return records;
     }
 
-    replace(records: readonly PersistedWorktreeProvisioningOperation[]): Promise<void> {
-        const snapshot = records.slice(0, MAX_RECORDS)
+    private sanitizeRecords(
+        records: readonly PersistedWorktreeProvisioningOperation[],
+        max: number
+    ): PersistedWorktreeProvisioningOperation[] {
+        // Keep the newest entries when the bound is exceeded.
+        return records.slice(-max)
             .map(record => parseRecord(record, this.getWorktreeDirectory?.()))
             .filter((record): record is PersistedWorktreeProvisioningOperation => !!record);
+    }
+
+    /**
+     * Drops tombstones whose physical worktree no longer appears in the
+     * snapshot: nothing is left to protect from ready seeding.
+     */
+    async pruneTombstones(
+        existingWorktreePaths: ReadonlySet<string>
+    ): Promise<void> {
+        const tombstones = this.parseRecords(
+            this.memento.get<unknown>(TOMBSTONE_STORAGE_KEY, []), MAX_TOMBSTONES);
+        const kept = tombstones.filter(record =>
+            existingWorktreePaths.has(
+                `${record.plan.repositoryKey} ${record.plan.worktreePath}`));
+        if (kept.length === tombstones.length) {
+            return;
+        }
+        const operation = async (): Promise<void> => {
+            await this.memento.update(TOMBSTONE_STORAGE_KEY, kept);
+        };
+        const result = this.writeQueue.then(operation, operation);
+        this.writeQueue = result.catch(() => undefined);
+        await result;
+    }
+
+    replace(records: readonly PersistedWorktreeProvisioningOperation[]): Promise<void> {
+        const snapshot = this.sanitizeRecords(
+            records.filter(record => !record.tombstone), MAX_RECORDS);
+        const tombstoneSnapshot = this.sanitizeRecords(
+            records.filter(record => record.tombstone), MAX_TOMBSTONES);
         const operation = async (): Promise<void> => {
             await this.memento.update(STORAGE_KEY, snapshot);
+            await this.memento.update(TOMBSTONE_STORAGE_KEY, tombstoneSnapshot);
         };
         const result = this.writeQueue.then(operation, operation);
         this.writeQueue = result.catch(() => undefined);

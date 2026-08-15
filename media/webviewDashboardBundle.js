@@ -3244,6 +3244,7 @@ function initWorktreeGroupForm(options) {
                 setupDisabled: {},
                 primaryRepositoryKey: '',
                 preview: null,
+                previewId: '',
                 previewDirty: false,
                 previewRequestId: '',
                 previewTimer: 0,
@@ -3409,6 +3410,8 @@ function initWorktreeGroupForm(options) {
     function applyPreview(message) {
         if (!message || message.type !== 'worktree-group-preview'
             || message.version !== 1 || typeof message.requestId !== 'string'
+            || typeof message.previewId !== 'string'
+            || typeof message.projectId !== 'string'
             || !Array.isArray(message.members)) {
             return false;
         }
@@ -3423,6 +3426,7 @@ function initWorktreeGroupForm(options) {
             formError: message.formError === 'invalid-task' ? 'invalid-task' : '',
             members: message.members,
         };
+        state.previewId = message.previewId;
         state.previewDirty = false;
         renderForm(message.projectId);
         return true;
@@ -3457,7 +3461,7 @@ function initWorktreeGroupForm(options) {
     function confirmForm(projectId, availableOnly) {
         var state = getState(projectId);
         if (!state || !state.open || state.confirming || state.previewDirty
-            || !state.preview || state.preview.formError) {
+            || !state.preview || state.preview.formError || !state.previewId) {
             return;
         }
         var selected = availableOnly
@@ -3497,6 +3501,7 @@ function initWorktreeGroupForm(options) {
             version: 1,
             requestId: state.confirmRequestId,
             projectId: projectId,
+            previewId: state.previewId,
             displayName: state.name,
             members: members,
         };
@@ -3540,6 +3545,11 @@ function initWorktreeGroupForm(options) {
                     ? message.errorCode : 'unexpected-error';
                 announce(projectId, describeFormError(state.formError));
                 renderForm(projectId);
+                if (state.formError === 'preview-stale') {
+                    // Recompute immediately so the refreshed preview shows
+                    // the configuration that rejected the old confirm.
+                    schedulePreview(projectId, 0);
+                }
             }
             return true;
         }
@@ -3616,6 +3626,7 @@ function initWorktreeGroupForm(options) {
         switch (code) {
             case 'invalid-task': return 'Enter a group name.';
             case 'invalid-members': return 'The member set is no longer valid; close and reopen the form.';
+            case 'preview-stale': return 'The setup configuration changed; the preview has been refreshed — review and confirm again.';
             case 'workspace-unavailable': return 'The workspace is unavailable.';
             case 'manifest-unavailable': return 'The workspace changed during creation; try again.';
             case 'store-full': return 'Too many worktree groups; remove some first.';
@@ -3661,14 +3672,15 @@ function initWorktreeGroupForm(options) {
                     refs.push(ref);
                 }
             });
-        var selectedRef = state.baseRefOverrides[key] || repository.defaultBaseRef;
-        var baseHtml = baseComboboxHtml(state, key, repository, refs, selectedRef, checked);
         var multiRepo = state.repositories.length > 1;
         var preflight = preview && preview.preflight !== 'ok'
             ? '<span class="ai-session-group-form-preflight" role="alert" id="group-form-preflight-'
                 + index + '">' + escapeHtml(describePreflight(preview.preflight.code)) + '</span>'
             : '';
         var preflightId = preflight ? 'group-form-preflight-' + index : '';
+        var selectedRef = state.baseRefOverrides[key] || repository.defaultBaseRef;
+        var baseHtml = baseComboboxHtml(
+            state, key, repository, refs, selectedRef, checked, preflightId);
         var plan = preview && preview.preflight === 'ok'
             ? '<span class="ai-session-group-form-plan">'
                 + escapeHtml(preview.worktreePath) + ' \u2190 '
@@ -3706,7 +3718,7 @@ function initWorktreeGroupForm(options) {
 
     // Searchable base-branch combobox (PRD §6.1): a text input filters the
     // local branch list; ArrowUp/Down + Enter choose, Esc closes.
-    function baseComboboxHtml(state, key, repository, refs, selectedRef, checked) {
+    function baseComboboxHtml(state, key, repository, refs, selectedRef, checked, preflightId) {
         var label = repository.label;
         var open = state.baseDropdown && state.baseDropdown.repositoryKey === key;
         if (!open) {
@@ -3714,6 +3726,10 @@ function initWorktreeGroupForm(options) {
                 + ' data-group-form-base="' + escapeHtml(key) + '"'
                 + ' role="combobox" aria-expanded="false"'
                 + ' aria-label="Base branch for ' + escapeHtml(label) + '"'
+                + (preflightId
+                    ? ' aria-invalid="true" aria-errormessage="' + preflightId + '"'
+                        + ' aria-describedby="' + preflightId + '"'
+                    : '')
                 + (checked ? '' : ' disabled') + '>'
                 + escapeHtml(shortRefName(selectedRef)) + ' \u25be</button>';
         }
@@ -3868,16 +3884,19 @@ function initWorktreeGroupForm(options) {
             + '<div class="ai-session-group-form-header">'
             + '<input type="text" class="ai-session-group-form-name"'
             + ' data-group-form-name placeholder="Worktree group name"'
-            + ' aria-label="Worktree group name" value="' + escapeHtml(state.name) + '">'
+            + ' aria-label="Worktree group name" value="' + escapeHtml(state.name) + '"'
+            + ((state.preview && state.preview.formError === 'invalid-task') || state.formError
+                ? ' aria-invalid="true" aria-describedby="group-form-name-error group-form-error"'
+                : '') + '>'
             + '<button type="button" class="ai-session-group-form-close"'
             + ' data-group-form-action="close" aria-label="Close creation form"'
             + ' data-tooltip="Close (Esc)">\u00d7</button>'
             + '</div>'
             + (state.preview && state.preview.formError === 'invalid-task'
-                ? '<div class="ai-session-group-form-error" role="alert">Enter a group name.</div>'
+                ? '<div class="ai-session-group-form-error" id="group-form-name-error" role="alert">Enter a group name.</div>'
                 : '')
             + (state.formError
-                ? '<div class="ai-session-group-form-error" role="alert">'
+                ? '<div class="ai-session-group-form-error" id="group-form-error" role="alert">'
                     + escapeHtml(describeFormError(state.formError)) + '</div>'
                 : '')
             + selectionTools

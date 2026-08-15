@@ -51,6 +51,13 @@ export interface GroupCreationPreviewMember {
 export interface GroupCreationPreview {
     displayName: string;
     slug: string;
+    /**
+     * Host-issued nonce identifying this preview snapshot. Confirm must
+     * reference it: if the setup configuration changed since, the host
+     * rejects the confirm as preview-stale instead of silently executing
+     * a command the user never saw (PRD §6.1 预览值与执行值逐项一致).
+     */
+    previewId: string;
     formError?: 'invalid-task';
     members: GroupCreationPreviewMember[];
 }
@@ -123,6 +130,13 @@ export class WorktreeGroupCreationController {
      */
     private readonly previewMemo = new Map<string, Promise<GroupCreationPreviewMember>>();
 
+    private previewCounter = 0;
+    /** Latest authoritative preview snapshot per project (nonce → setups). */
+    private readonly previewSnapshots = new Map<string, {
+        previewId: string;
+        setups: Map<string, string>;
+    }>();
+
     constructor(
         private readonly options: WorktreeGroupCreationControllerOptions
     ) {
@@ -140,12 +154,14 @@ export class WorktreeGroupCreationController {
         const activeEditorPath = this.options.getActiveEditorPath();
         const activeRepositoryKey = activeEditorPath
             ? repositories.find(repository => {
-                const paths = repository.worktrees
+                const editorPath = normalizePathForMatch(activeEditorPath);
+                return repository.worktrees
                     .filter(worktree => !worktree.isBare)
-                    .map(worktree => worktree.key.canonicalWorktreePath);
-                return paths.some(candidate =>
-                    activeEditorPath === candidate
-                    || activeEditorPath.startsWith(candidate + '/'));
+                    .map(worktree =>
+                        normalizePathForMatch(worktree.key.canonicalWorktreePath))
+                    .some(worktreePath =>
+                        editorPath === worktreePath
+                        || editorPath.startsWith(worktreePath + '/'));
             })?.repositoryKey
             : undefined;
         return Promise.all(repositories.map(async (repository, index) => {
@@ -179,9 +195,12 @@ export class WorktreeGroupCreationController {
         const target = this.options.getWorkspaceTarget(projectId);
         const snapshot = this.options.getWorktreeSnapshot();
         const slug = slugifyTaskName(displayName);
+        this.previewCounter += 1;
+        const previewId = `preview-${this.previewCounter.toString(36)}`;
         const preview: GroupCreationPreview = {
             displayName: displayName.trim(),
             slug,
+            previewId,
             members: [],
         };
         if (!slug) {
@@ -215,6 +234,15 @@ export class WorktreeGroupCreationController {
                 .getSetupCommand(repository.repositoryKey).slice();
             return member;
         }));
+        // The authoritative snapshot a confirm must reference: the setup
+        // command resolved for each previewed repository right now.
+        this.previewSnapshots.set(projectId, {
+            previewId,
+            setups: new Map(preview.members.map(member => [
+                member.repositoryKey,
+                JSON.stringify(member.setupCommand),
+            ])),
+        });
         return preview;
     }
 
@@ -305,6 +333,7 @@ export class WorktreeGroupCreationController {
      */
     async confirm(request: {
         projectId: string;
+        previewId: string;
         displayName: string;
         members: readonly GroupCreationConfirmedMember[];
         primaryRepositoryKey?: string;
@@ -313,6 +342,13 @@ export class WorktreeGroupCreationController {
         const snapshot = this.options.getWorktreeSnapshot();
         if (!target || !snapshot) {
             return { kind: 'failed', errorCode: 'workspace-unavailable' };
+        }
+        // The confirmed setup toggle may only execute the command the
+        // preview displayed: any configuration change since the referenced
+        // preview snapshot rejects the confirm (PRD §6.1 一致性承诺).
+        const previewSnapshot = this.previewSnapshots.get(request.projectId);
+        if (!previewSnapshot || previewSnapshot.previewId !== request.previewId) {
+            return { kind: 'failed', errorCode: 'preview-stale' };
         }
         const displayName = request.displayName.trim();
         const slug = slugifyTaskName(displayName);
@@ -332,6 +368,12 @@ export class WorktreeGroupCreationController {
                 return { kind: 'failed', errorCode: 'invalid-members' };
             }
             seenRepositories.add(member.repositoryKey);
+            const previewedSetup = previewSnapshot.setups.get(member.repositoryKey);
+            const currentSetup = JSON.stringify(
+                this.options.getSetupCommand(member.repositoryKey).slice());
+            if (previewedSetup === undefined || previewedSetup !== currentSetup) {
+                return { kind: 'failed', errorCode: 'preview-stale' };
+            }
             const commandCwd = repositoryCommandCwd(repository);
             if (!commandCwd || !member.branchName || member.branchName.startsWith('-')
                 || /[\0\r\n]/u.test(member.branchName)
@@ -567,4 +609,9 @@ function repositoryCommandCwd(repository: WorktreeRepositorySnapshot): string {
 function repositoryLabel(repository: WorktreeRepositorySnapshot): string {
     const cwd = repositoryCommandCwd(repository).replace(/[\\/]+$/u, '');
     return cwd.split(/[\\/]/u).pop() || repository.repositoryKey;
+}
+
+/** Slash-normalized compare so Windows paths (C:\repo\…) match too. */
+function normalizePathForMatch(value: string): string {
+    return value.replace(/\\/g, '/').replace(/\/+$/u, '');
 }

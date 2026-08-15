@@ -139,6 +139,7 @@ async function answerPreview(page, members) {
         version: 1,
         requestId: request.requestId,
         projectId: 'project-a',
+        previewId: 'preview-host-1',
         slug: 'fix-login',
         members,
     });
@@ -206,6 +207,8 @@ test('WORKTREE-GROUPS-CREATE-UI-001 opens inline, previews, and confirms the exa
         setupEnabled: true,
     }], 'the host receives exactly the previewed values, with setup as a toggle only');
     assert.equal(confirmRequest.primaryRepositoryKey, '/alpha/.git');
+    assert.equal(confirmRequest.previewId, 'preview-host-1',
+        'the confirm references the authoritative preview snapshot');
 
     await postHostMessage(page, {
         type: 'worktree-group-creation-settlement',
@@ -245,6 +248,12 @@ test('WORKTREE-GROUPS-CREATE-UI-001 preflight failures gate confirm and offer th
         'plain confirm is disabled while any member is blocked');
     assert.match(await form.locator('.ai-session-group-form-preflight').textContent(),
         /no commits/);
+    const betaBase = form.locator('[data-group-form-base="/beta/.git"]');
+    assert.equal(await betaBase.getAttribute('aria-invalid'), 'true',
+        'the blocked member control carries aria-invalid');
+    assert.match(await betaBase.getAttribute('aria-errormessage') || '',
+        /group-form-preflight-/,
+        'the preflight error is referenced from the member control');
     const available = form.locator('[data-group-form-action="confirm-available"]');
     assert.match(await available.textContent(), /available 1\/2/);
 
@@ -272,6 +281,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 Esc keeps unsubmitted input and stale previe
         version: 1,
         requestId: firstRequest.requestId,
         projectId: 'project-a',
+        previewId: 'preview-host-0',
         slug: 'first-name',
         members: okMembers(),
     });

@@ -186,6 +186,11 @@ export function buildWorktreeGroupProjection(
             && members.some(member =>
                 member.memberId === group.primaryMemberId && member.status === 'ready');
         const hasReadyMember = members.some(member => member.status === 'ready');
+        // New sessions wait for the initial parallel creation to settle:
+        // starting one while a member is still provisioning would build a
+        // scope that silently lacks that repository. Settled-failed
+        // members stay visible and do not block usage (PRD §8).
+        const hasInFlightMember = members.some(member => member.status === 'pending');
         if (members.length === 0) {
             // Every member is detached (their repositories left the
             // workspace): the manifest record survives for automatic
@@ -205,7 +210,7 @@ export function buildWorktreeGroupProjection(
             chips: buildChips(members.map(member => member.repositoryLabel), chipUniverse),
             hasDetachedMembers: group.members.some(member => !!member.detached),
             needsPrimarySelection: !primaryReady && hasReadyMember,
-            canCreateSession: primaryReady,
+            canCreateSession: primaryReady && !hasInFlightMember,
             mergeCandidateGroupIds: [],
         });
     }

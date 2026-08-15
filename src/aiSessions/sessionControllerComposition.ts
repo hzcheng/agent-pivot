@@ -55,6 +55,11 @@ export interface SessionControllerCompositionOptions {
         workspaceNavigationIdentity: string,
         key: WorktreeKey
     ) => readonly WorktreeKey[] | null;
+    /** Fail-closed guard while any group member is still provisioning. */
+    isWorktreeGroupProvisioning?: (
+        workspaceNavigationIdentity: string,
+        key: WorktreeKey
+    ) => boolean;
     getActiveEditorUri: () => vscode.Uri | undefined;
     isWorkspaceTrusted: () => boolean;
     getRegisteredAiSessionProvider: (providerId: AiSessionProviderId) => AiSessionProvider;
@@ -357,6 +362,7 @@ export function createSessionControllerComposition(
         getOpenWorkspace: getCurrentOpenWorkspace,
         getWorktreeSnapshot: options.getWorktreeSnapshot,
         getWorktreeGroupPeerKeys: options.getWorktreeGroupPeerKeys,
+        isWorktreeGroupProvisioning: options.isWorktreeGroupProvisioning,
         getActiveEditorUri: options.getActiveEditorUri,
         isWorkspaceTrusted: options.isWorkspaceTrusted,
         getProvider: getRegisteredAiSessionProvider,

@@ -503,6 +503,49 @@ test('SESSION-WORKTREE-SCOPE-001 a locked group peer stays writable like the pro
         ['/managed/feature/app', '/managed/peer-feature']);
 });
 
+test('SESSION-WORKTREE-SCOPE-001 session creation fails closed while a group member is provisioning', async () => {
+    const current = workspace({
+        roots: [
+            { id: 'root-repo', name: 'Repo', uri: 'file:///repos/main/app', hostPath: '/repos/main/app', ordinal: 0 },
+        ],
+    });
+    const key = {
+        repositoryKey: '/repos/main/.git',
+        canonicalWorktreePath: '/managed/feature',
+    };
+    const snapshot = {
+        revision: 1,
+        truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: key.repositoryKey,
+            rootBindings: [{ workspaceRootId: 'root-repo', repositoryRelativePath: 'app' }],
+            worktrees: [{
+                key, branchRef: 'refs/heads/feature', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            }],
+        }],
+    };
+    const warnings = [];
+    const controller = new AiSessionCommandController({
+        getWorktreeSnapshot: () => snapshot,
+        getProvider: () => ({ id: 'codex', label: 'Codex', commandName: 'codex' }),
+        getProviderDirectoryCapability: async () => ({ status: 'supported' }),
+        isWorkspaceTrusted: () => true,
+        isDirectory: () => true,
+        pickWorkspaceRoot: async () => { throw new Error('must not pick'); },
+        showWarningMessage: message => warnings.push(message),
+        getWorktreeGroupPeerKeys: () => [],
+        isWorktreeGroupProvisioning: () => true,
+    });
+
+    const scope = await controller.resolveWorkspaceDirectoryScope(
+        current, 'codex', undefined, undefined, key
+    );
+    assert.equal(scope, null,
+        'creation while a member provisions would silently narrow the scope');
+    assert.match(warnings.at(-1), /still being created/i);
+});
+
 test('SESSION-WORKTREE-SCOPE-001 rejects malformed group peer paths instead of widening scope', () => {
     const current = workspace({
         roots: [

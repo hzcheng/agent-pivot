@@ -161,6 +161,14 @@ export interface AiSessionCommandControllerOptions {
         workspaceNavigationIdentity: string,
         key: WorktreeKey
     ) => readonly WorktreeKey[] | null;
+    /**
+     * True while any member of the group owning the worktree is still
+     * planned/provisioning — session creation must fail closed then.
+     */
+    isWorktreeGroupProvisioning?: (
+        workspaceNavigationIdentity: string,
+        key: WorktreeKey
+    ) => boolean;
     getActiveEditorUri?: () => ActiveEditorUri | string | null;
     isWorkspaceTrusted?: () => boolean;
     getProvider?: (
@@ -235,6 +243,17 @@ export class AiSessionCommandController {
                 creationWorktreeKey
                     ? 'The selected worktree is no longer available. Refresh the dashboard and try again.'
                     : 'This session\'s worktree was deleted, so it cannot be resumed in place. Restore the worktree or start a new session.'
+            );
+            return null;
+        }
+        // Fail closed while any member of the owning group is still being
+        // provisioned: a session created now would silently get a scope
+        // without that repository (PRD §10: 全部 member 就绪前禁用).
+        if (requestedWorktreeKey && worktreeAssignment
+            && this.options.isWorktreeGroupProvisioning?.(
+                workspace.navigationIdentity, requestedWorktreeKey)) {
+            this.options.showWarningMessage?.(
+                'This worktree group is still being created. Start the session once every member is ready.'
             );
             return null;
         }

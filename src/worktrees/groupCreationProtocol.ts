@@ -29,6 +29,8 @@ export interface ConfirmWorktreeGroupRequest {
     version: 1;
     requestId: string;
     projectId: string;
+    /** Host-issued nonce of the preview snapshot this confirm builds on. */
+    previewId: string;
     displayName: string;
     primaryRepositoryKey?: string;
     members: {
@@ -137,6 +139,7 @@ export function parseConfirmWorktreeGroupRequest(
     if (!isRecord(value) || value.type !== 'confirm-worktree-group'
         || value.version !== 1
         || !isSafeId(value.requestId) || !isSafeString(value.projectId)
+        || !isSafeId(value.previewId)
         || typeof value.displayName !== 'string'
         || !value.displayName.trim() || value.displayName.length > 1024
         || !Array.isArray(value.members) || value.members.length === 0) {
@@ -144,8 +147,8 @@ export function parseConfirmWorktreeGroupRequest(
     }
     const hasPrimary = value.primaryRepositoryKey !== undefined;
     const expected = hasPrimary
-        ? ['displayName', 'members', 'primaryRepositoryKey', 'projectId', 'requestId', 'type', 'version']
-        : ['displayName', 'members', 'projectId', 'requestId', 'type', 'version'];
+        ? ['displayName', 'members', 'previewId', 'primaryRepositoryKey', 'projectId', 'requestId', 'type', 'version']
+        : ['displayName', 'members', 'previewId', 'projectId', 'requestId', 'type', 'version'];
     if (!sameKeys(value, expected)
         || (hasPrimary && !isSafeString(value.primaryRepositoryKey))) {
         return null;
@@ -172,6 +175,7 @@ export function parseConfirmWorktreeGroupRequest(
         type: 'confirm-worktree-group', version: 1,
         requestId: value.requestId,
         projectId: value.projectId,
+        previewId: value.previewId,
         displayName: value.displayName,
         ...(hasPrimary ? { primaryRepositoryKey: value.primaryRepositoryKey as string } : {}),
         members,

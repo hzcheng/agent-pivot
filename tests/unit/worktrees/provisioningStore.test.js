@@ -79,6 +79,51 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 round-trips the starting navigation ide
         'a non-string identity invalidates the whole record, fail closed');
 });
 
+test('WORKTREE-PROVISIONING-RECOVERY-001 tombstones have their own bounded bucket', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const tombstones = Array.from({ length: 40 }, (_unused, index) => ({
+        ...record(`tombstone-${index}`),
+        tombstone: true,
+    }));
+    await store.replace(tombstones);
+    const restored = store.read();
+    assert.equal(restored.length, 40,
+        'tombstones are not evicted by the 32-record live cap');
+    assert.ok(restored.every(entry => entry.tombstone === true));
+
+    const live = Array.from({ length: 33 }, (_unused, index) => record(`live-${index}`));
+    await store.replace([...restored.slice(0, 5), ...live]);
+    const after = store.read();
+    assert.equal(after.filter(entry => entry.tombstone).length, 5,
+        'live records never crowd out tombstones');
+    assert.equal(after.filter(entry => !entry.tombstone).length, 32,
+        'live records keep their own cap');
+});
+
+test('WORKTREE-PROVISIONING-RECOVERY-001 pruneTombstones drops entries whose worktree is gone', async () => {
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const gone = {
+        ...record('tombstone-gone'),
+        tombstone: true,
+    };
+    gone.plan = { ...gone.plan, worktreePath: '/repo/.agent-pivot/worktrees/gone' };
+    gone.worktreeKey = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/.agent-pivot/worktrees/gone',
+    };
+    gone.row = { ...gone.row, proposedPath: '/repo/.agent-pivot/worktrees/gone' };
+    const kept = { ...record('tombstone-kept'), tombstone: true };
+    await store.replace([gone, kept]);
+    await store.pruneTombstones(new Set([
+        '/repo/.git /repo/.agent-pivot/worktrees/fix-login-race',
+    ]));
+    const restored = store.read();
+    assert.deepEqual(restored.map(entry => entry.operationId), ['tombstone-kept'],
+        'only the tombstone with a surviving worktree stays');
+});
+
 test('WORKTREE-PROVISIONING-RECOVERY-001 ignores corrupt, duplicate, and unsafe records', () => {
     const valid = record('valid');
     const state = memento([
@@ -107,7 +152,8 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 serializes replacements', async () => {
     const state = memento();
     const writes = [];
     let releaseFirst;
-    state.update = async (_key, value) => {
+    state.update = async (key, value) => {
+        if (key !== 'agentPivot.worktreeProvisioning.v1') return;
         writes.push(value);
         if (writes.length === 1) await new Promise(resolve => { releaseFirst = resolve; });
         state.state.set('agentPivot.worktreeProvisioning.v1', value);

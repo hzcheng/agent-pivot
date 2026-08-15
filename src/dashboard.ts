@@ -1332,6 +1332,21 @@ async function initializeDashboard(
                                 isolatedSessionController?.getActiveGroupMemberIds() || [],
                             onError: (message, error) => logError(message, error),
                         });
+                        // Tombstones protect half-initialized worktrees from
+                        // ready seeding; once the physical worktree is gone
+                        // from the snapshot, the tombstone has served its
+                        // purpose.
+                        const snapshotPaths = new Set<string>();
+                        for (const repository of snapshot.repositories) {
+                            for (const worktree of repository.worktrees) {
+                                snapshotPaths.add(
+                                    `${worktree.key.repositoryKey} ${worktree.key.canonicalWorktreePath}`);
+                            }
+                        }
+                        await worktreeProvisioningStore
+                            .pruneTombstones(snapshotPaths)
+                            .catch(error => logError(
+                                'Failed to prune provisioning tombstones.', error));
                     } catch (error) {
                         // Reconciliation is additive bookkeeping; discovery
                         // stays usable when persistence is unavailable.
@@ -1454,6 +1469,12 @@ async function initializeDashboard(
                     && !!member.worktreeKey
                     && !worktreeKeysEqual(member.worktreeKey, key))
                 .map(member => ({ ...member.worktreeKey! }));
+        },
+        isWorktreeGroupProvisioning: (navigationIdentity, key) => {
+            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                navigationIdentity, key);
+            return !!group && group.members.some(member =>
+                member.state === 'planned' || member.state === 'provisioning');
         },
         getRegisteredAiSessionProvider,
         getRegisteredAiSessionProviders,
@@ -2174,6 +2195,7 @@ async function initializeDashboard(
                 version: 1,
                 requestId: request.requestId,
                 projectId: request.projectId,
+                previewId: preview.previewId,
                 slug: preview.slug,
                 ...(preview.formError ? { formError: preview.formError } : {}),
                 members: preview.members,
@@ -2190,6 +2212,7 @@ async function initializeDashboard(
             // the webview keeps its confirm button pending until it lands.
             const result = await worktreeGroupCreationController.confirm({
                 projectId: request.projectId,
+                previewId: request.previewId,
                 displayName: request.displayName,
                 members: request.members,
                 ...(request.primaryRepositoryKey

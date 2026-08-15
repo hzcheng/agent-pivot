@@ -140,6 +140,13 @@ function fixture(overrides = {}) {
     };
 }
 
+
+async function previewIdFor(current, repositories = ['/alpha/.git', '/beta/.git']) {
+    const preview = await current.controller.preview('project', 'Fix login',
+        repositories.map(repositoryKey => ({ repositoryKey })));
+    return preview.previewId;
+}
+
 function confirmedMembers(overrides = {}) {
     return [
         {
@@ -218,6 +225,7 @@ test('WORKTREE-GROUPS-CREATE-001 confirm provisions the exact confirmed set in p
     const current = fixture();
     const result = await current.controller.confirm({
         projectId: 'project',
+        previewId: await previewIdFor(current),
         displayName: 'Fix login',
         members: confirmedMembers(),
         primaryRepositoryKey: '/beta/.git',
@@ -275,6 +283,7 @@ test('WORKTREE-GROUPS-CREATE-001 a failed member stays in the group with its err
     });
     const result = await current.controller.confirm({
         projectId: 'project',
+        previewId: await previewIdFor(current),
         displayName: 'Fix login',
         members: confirmedMembers(),
         primaryRepositoryKey: '/beta/.git',
@@ -297,6 +306,7 @@ test('WORKTREE-GROUPS-CREATE-001 confirm rejects forged or duplicate member sets
     const current = fixture();
     const duplicate = await current.controller.confirm({
         projectId: 'project',
+        previewId: await previewIdFor(current),
         displayName: 'Fix login',
         members: [confirmedMembers()[0], {
             ...confirmedMembers()[0], worktreePath: '/alpha/.worktrees/other',
@@ -306,6 +316,7 @@ test('WORKTREE-GROUPS-CREATE-001 confirm rejects forged or duplicate member sets
         'one repository contributes at most one member');
     const unmanaged = await current.controller.confirm({
         projectId: 'project',
+        previewId: await previewIdFor(current),
         displayName: 'Fix login',
         members: [{
             ...confirmedMembers()[0], worktreePath: '/tmp/outside',
@@ -315,6 +326,7 @@ test('WORKTREE-GROUPS-CREATE-001 confirm rejects forged or duplicate member sets
         'paths outside the managed directory are rejected');
     const unknown = await current.controller.confirm({
         projectId: 'project',
+        previewId: await previewIdFor(current),
         displayName: 'Fix login',
         members: [{
             ...confirmedMembers()[0], repositoryKey: '/gamma/.git',
@@ -402,6 +414,7 @@ test('WORKTREE-GROUPS-CREATE-001 a throwing executor degrades the member without
     });
     const result = await current.controller.confirm({
         projectId: 'project',
+        previewId: await previewIdFor(current),
         displayName: 'Fix login',
         members: confirmedMembers(),
     });
@@ -412,6 +425,52 @@ test('WORKTREE-GROUPS-CREATE-001 a throwing executor degrades the member without
         member.repositoryKey === '/beta/.git').state, 'failed');
     assert.equal(group.members.find(member =>
         member.repositoryKey === '/alpha/.git').state, 'ready');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a setup configuration change rejects the stale preview', async () => {
+    // Preview shows npm ci; if the configuration changes before confirm,
+    // the host must reject instead of executing a command the user never
+    // saw (PRD §6.1 预览值与执行值逐项一致).
+    let setup = ['npm', 'ci'];
+    const current = fixture({
+        getSetupCommand: () => setup,
+    });
+    const previewId = await previewIdFor(current);
+    setup = ['make', 'setup'];
+    const rejected = await current.controller.confirm({
+        projectId: 'project',
+        previewId,
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.deepEqual(rejected, { kind: 'failed', errorCode: 'preview-stale' });
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 0,
+        'a stale confirm writes nothing');
+
+    const fresh = await current.controller.preview('project', 'Fix login', [
+        { repositoryKey: '/alpha/.git' }, { repositoryKey: '/beta/.git' },
+    ]);
+    const accepted = await current.controller.confirm({
+        projectId: 'project',
+        previewId: fresh.previewId,
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(accepted.kind, 'created', 'a fresh preview confirms');
+    const alphaStart = current.started.find(input =>
+        input.plan.repositoryKey === '/alpha/.git');
+    assert.deepEqual(alphaStart.setupCommand, ['make', 'setup'],
+        'execution uses the refreshed configuration the user just saw');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a windows-style editor path still picks its repository', async () => {
+    const current = fixture({
+        getActiveEditorPath: () => 'C:\\beta\\src\\index.ts',
+    });
+    current.snapshot.repositories[1].worktrees[0].key.canonicalWorktreePath = 'C:\\beta';
+    const options = await current.controller.listRepositoryOptions('project');
+    assert.deepEqual(options.map(option => option.defaultChecked), [false, true],
+        'backslash paths match their worktree');
 });
 
 test('WORKTREE-GROUPS-CREATE-001 retry and dismiss follow the member lifecycle', async () => {
@@ -429,6 +488,7 @@ test('WORKTREE-GROUPS-CREATE-001 retry and dismiss follow the member lifecycle',
     });
     const created = await current.controller.confirm({
         projectId: 'project',
+        previewId: await previewIdFor(current, ['/alpha/.git']),
         displayName: 'Fix login',
         members: [confirmedMembers()[0]],
     });

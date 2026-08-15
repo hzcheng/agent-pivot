@@ -223,6 +223,39 @@ test('WORKTREE-GROUPS-002 a group whose members all detached renders no ghost ro
         'the manifest record survives for re-attachment, but a memberless row is a blank ghost');
 });
 
+test('WORKTREE-GROUPS-002 WORKTREE-GROUPS-CREATE-001 in-flight members disable session creation', () => {
+    const { groups } = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                {
+                    memberId: 'm-beta', repositoryKey: '/beta/.git',
+                    branchName: 'agent-pivot/fix-login', path: '/beta/.worktrees/fix-login',
+                    state: 'provisioning',
+                },
+            ],
+        })],
+    });
+    assert.equal(groups[0].canCreateSession, false,
+        'a member still provisioning must not produce a silently narrowed scope');
+    assert.equal(groups[0].members.find(m => m.memberId === 'm-beta').status, 'pending');
+
+    const settled = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                {
+                    memberId: 'm-beta', repositoryKey: '/beta/.git',
+                    branchName: 'agent-pivot/fix-login', path: '/beta/.worktrees/fix-login',
+                    state: 'failed',
+                },
+            ],
+        })],
+    });
+    assert.equal(settled.groups[0].canCreateSession, true,
+        'a settled-failed member stays visible without blocking the group (PRD §8)');
+});
+
 test('WORKTREE-GROUPS-002 merge hints follow shared suggested slugs without merging silently', () => {
     const { groups } = project({
         groups: [

@@ -188,9 +188,6 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
             ${getAiSessionSurfaceTabButton(project.id, 'worktree', 'WORKTREE', selectedSurface)}
             ${getAiSessionSurfaceTabButton(project.id, 'chats', 'CHATS', selectedSurface)}
         </div>
-        ${getReadyWorktrees(project.worktrees).length
-            ? `<button type="button" class="ai-session-worktree-collapse-all" data-action="toggle-all-ai-session-worktrees" data-collapse-all-state="expanded" aria-label="Collapse all worktrees" data-tooltip="Collapse all worktrees"><span class="ai-session-worktree-collapse-all-icon" data-icon="collapse">${Icons.foldAll}</span><span class="ai-session-worktree-collapse-all-icon" data-icon="expand">${Icons.unfoldAll}</span></button>`
-            : ''}
     </div>
     ${getWorktreeSurfacePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, selectedSurface, provisioningWorktrees)}
     <div id="ai-session-chats-${escapeAttribute(project.id || 'project')}" class="ai-session-surface-panel ai-session-chats-surface" role="tabpanel" data-ai-session-surface-panel="chats" aria-labelledby="ai-session-surface-chats-tab-${escapeAttribute(project.id || 'project')}"${selectedSurface === 'chats' ? '' : ' hidden'}>
@@ -313,6 +310,9 @@ function getWorktreeSurfacePanel(
         .join('\n');
     return `<div id="ai-session-worktree-${projectId}" class="ai-session-surface-panel ai-session-worktree-surface" role="tabpanel" data-ai-session-surface-panel="worktree" aria-labelledby="ai-session-surface-worktree-tab-${projectId}"${selectedSurface === 'worktree' ? '' : ' hidden'}>
         <div class="ai-session-group-form-slot" data-worktree-group-form-slot hidden></div>
+        ${getReadyWorktrees(project.worktrees).length
+            ? `<div class="ai-session-worktree-panel-bar"><button type="button" class="ai-session-worktree-collapse-all" data-action="toggle-all-ai-session-worktrees" data-collapse-all-state="expanded" aria-label="Collapse all worktrees" data-tooltip="Collapse all worktrees"><span class="ai-session-worktree-collapse-all-icon" data-icon="collapse">${Icons.collapseWorktrees}</span><span class="ai-session-worktree-collapse-all-icon" data-icon="expand">${Icons.expandWorktrees}</span></button></div>`
+            : ''}
         <div class="ai-session-worktree-list">${anchorHtml}${groupRowsHtml}${adoptSuggestions}${provisioningRows}${groups}${empty}${truncated}</div>
     </div>`;
 }

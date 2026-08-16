@@ -714,7 +714,13 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
     const toggleAll = project.locator('[data-action="toggle-all-ai-session-worktrees"]');
     const rows = project.locator('.ai-session-worktree-group .codex-session-row');
 
-    assert.equal(await toggleAll.count(), 1, 'the surface bar owns the collapse-all button');
+    assert.equal(await toggleAll.count(), 1, 'the Worktree panel owns the collapse-all button');
+    assert.equal(await page.locator(
+        '.ai-session-surface-bar [data-action="toggle-all-ai-session-worktrees"]'
+    ).count(), 0, 'the button no longer sits next to the surface tabs');
+    assert.equal(await project.locator(
+        '[data-ai-session-surface-panel="worktree"] [data-action="toggle-all-ai-session-worktrees"]'
+    ).count(), 1, 'collapse-all lives inside the Worktree panel');
     await page.evaluate(() => {
         selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
     });

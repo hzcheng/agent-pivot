@@ -1693,6 +1693,15 @@ async function initializeDashboard(
         runSetup: (_plan, worktreeKey, isCancelled, command) =>
             worktreeSetupRunner.run(command, worktreeKey.canonicalWorktreePath, isCancelled),
         publishRows: () => refreshAiSessionViewsIncrementally(),
+        onSettled: outcome => {
+            // Non-success settlements only surface as a transient row state;
+            // log them so post-hoc diagnosis does not depend on the UI.
+            if (outcome.kind !== 'succeeded') {
+                logError(
+                    `Worktree provisioning settled without success: kind=${outcome.kind} error=${outcome.errorCode} operationId=${outcome.operationId}`,
+                    undefined);
+            }
+        },
         recoveredOperations: worktreeProvisioningStore.read(),
         persistOperations: operations => worktreeProvisioningStore.replaceLive(operations),
         persistTombstones: records =>
@@ -1705,55 +1714,63 @@ async function initializeDashboard(
         onPersistenceError: error => logError(
             'Could not persist isolated worktree provisioning recovery state.', error),
         recordProvisionedWorktree: async info => {
-            const target = getCurrentWorkspaceActionTarget(info.projectId);
-            if (!target) {
-                const error = new Error('The workspace is unavailable for manifest recording.');
-                (error as Error & { code?: string }).code = 'manifest-unavailable';
-                throw error;
-            }
-            // Save Workspace As can reuse a legacy projectId for a different
-            // workspace; never write the old operation into the new bucket.
-            if (info.navigationIdentity
-                && target.workspace.navigationIdentity !== info.navigationIdentity) {
-                const error = new Error('The workspace changed since provisioning started.');
-                (error as Error & { code?: string }).code = 'manifest-unavailable';
-                throw error;
-            }
-            const bucket = target.workspace.navigationIdentity;
-            // A completed provisioning clears any tombstone claiming the
-            // worktree is half-initialized.
-            isolatedSessionController?.removeTombstonesForWorktree(
-                info.worktreeKey.repositoryKey,
-                info.worktreeKey.canonicalWorktreePath);
-            if (info.groupId && info.memberId) {
-                // Group creation (M2): the group already exists with this
-                // member planned; mark the member ready and apply the
-                // confirmed primary choice once its member is ready.
-                await worktreeGroupManifestStore.updateMember(
-                    bucket, info.groupId, info.memberId, {
-                        state: 'ready',
-                        worktreeKey: info.worktreeKey,
-                    });
-                if (info.preferredPrimary) {
-                    await worktreeGroupManifestStore.setPrimaryMember(
-                        bucket, info.groupId, info.memberId);
+            try {
+                const target = getCurrentWorkspaceActionTarget(info.projectId);
+                if (!target) {
+                    const error = new Error('The workspace is unavailable for manifest recording.');
+                    (error as Error & { code?: string }).code = 'manifest-unavailable';
+                    throw error;
                 }
-                return;
+                // Save Workspace As can reuse a legacy projectId for a different
+                // workspace; never write the old operation into the new bucket.
+                if (info.navigationIdentity
+                    && target.workspace.navigationIdentity !== info.navigationIdentity) {
+                    const error = new Error('The workspace changed since provisioning started.');
+                    (error as Error & { code?: string }).code = 'manifest-unavailable';
+                    throw error;
+                }
+                const bucket = target.workspace.navigationIdentity;
+                // A completed provisioning clears any tombstone claiming the
+                // worktree is half-initialized.
+                isolatedSessionController?.removeTombstonesForWorktree(
+                    info.worktreeKey.repositoryKey,
+                    info.worktreeKey.canonicalWorktreePath);
+                if (info.groupId && info.memberId) {
+                    // Group creation (M2): the group already exists with this
+                    // member planned; mark the member ready and apply the
+                    // confirmed primary choice once its member is ready.
+                    await worktreeGroupManifestStore.updateMember(
+                        bucket, info.groupId, info.memberId, {
+                            state: 'ready',
+                            worktreeKey: info.worktreeKey,
+                        });
+                    if (info.preferredPrimary) {
+                        await worktreeGroupManifestStore.setPrimaryMember(
+                            bucket, info.groupId, info.memberId);
+                    }
+                    return;
+                }
+                if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
+                    return;
+                }
+                await worktreeGroupManifestStore.createGroup(bucket, {
+                    displayName: info.plan.taskName,
+                    suggestedSlug: info.plan.slug,
+                    members: [{
+                        repositoryKey: info.plan.repositoryKey,
+                        worktreeKey: info.worktreeKey,
+                        branchName: info.plan.branchName,
+                        path: info.worktreeKey.canonicalWorktreePath,
+                        state: 'ready',
+                    }],
+                });
+            } catch (error) {
+                // This throw degrades the operation to a retryable partial;
+                // log it here because the settlement path only persists the
+                // error code into the member record without logging.
+                logError('Failed to record provisioned worktree into the group manifest.', error);
+                throw error;
             }
-            if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
-                return;
-            }
-            await worktreeGroupManifestStore.createGroup(bucket, {
-                displayName: info.plan.taskName,
-                suggestedSlug: info.plan.slug,
-                members: [{
-                    repositoryKey: info.plan.repositoryKey,
-                    worktreeKey: info.worktreeKey,
-                    branchName: info.plan.branchName,
-                    path: info.worktreeKey.canonicalWorktreePath,
-                    state: 'ready',
-                }],
-            });
         },
     });
     let managedWorktreeRemovalController: ManagedWorktreeRemovalController;
@@ -1811,6 +1828,7 @@ async function initializeDashboard(
             isolatedSessionController!.isTombstoneStoreFull(),
         writeSyntheticTombstone: input =>
             isolatedSessionController!.writeSyntheticTombstone(input),
+        onError: (message, error) => logError(message, error),
         onDidChange: () => {
             void aiSessionDashboardController.refreshNow(
                 'worktree-group-creation', { fallbackToFullRefresh: false });

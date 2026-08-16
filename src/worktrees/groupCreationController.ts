@@ -130,6 +130,12 @@ export interface WorktreeGroupCreationControllerOptions {
         projectId: string;
         navigationIdentity: string;
     }) => Promise<boolean>;
+    /**
+     * Diagnostic sink for member failures. Settlement writes the error code
+     * into the member record but never logs it, so without this hook a
+     * failed finalize is invisible after the fact.
+     */
+    onError?: (message: string, error?: unknown) => void;
     onDidChange?: () => void;
 }
 
@@ -889,10 +895,16 @@ export class WorktreeGroupCreationController {
         try {
             await this.settleMemberOutcome(
                 navigationIdentity, groupId, input.memberId, outcome);
-        } catch (_error) {
+        } catch (error) {
             // The member record may be gone (dismissed after a spurious
             // downgrade raced the operation); the physical worktree is
             // re-seeded by reconciliation and never lost.
+            const outcomeSummary = outcome.kind === 'succeeded'
+                ? 'succeeded'
+                : `${outcome.kind}/${outcome.errorCode}`;
+            this.options.onError?.(
+                `Failed to persist worktree group member outcome: groupId=${groupId} memberId=${input.memberId} outcome=${outcomeSummary}`,
+                error);
         }
     }
 
@@ -908,6 +920,11 @@ export class WorktreeGroupCreationController {
             this.options.onDidChange?.();
             return;
         }
+        const completedSteps = outcome.kind === 'partial'
+            ? outcome.completedSteps.join(',') || '-'
+            : '-';
+        this.options.onError?.(
+            `Worktree group member settled without success: kind=${outcome.kind} error=${outcome.errorCode} completedSteps=${completedSteps} groupId=${groupId} memberId=${memberId}`);
         await this.options.manifestStore.updateMember(
             navigationIdentity, groupId, memberId, {
                 state: 'failed',

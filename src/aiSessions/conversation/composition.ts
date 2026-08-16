@@ -56,6 +56,7 @@ import {
 } from './viewerRestoreState';
 import { ConversationWorktreeResolver } from './worktreeResolver';
 import { readCodexRolloutTelemetry } from '../codexRolloutWorkdir';
+import CodexRolloutGoalTurnsReader from '../codexRolloutGoalTurns';
 import {
     readCodexRolloutContentSignature,
     readCodexRolloutSourceBytes,
@@ -230,6 +231,7 @@ function createAvailableConversationCapability(
     const worktreeResolver = new ConversationWorktreeResolver({
         now: options.now,
     });
+    const codexGoalTurns = new CodexRolloutGoalTurnsReader();
     const codexAdapter = ownership.own(factories.createCodexAdapter({
         client: codexClient,
         watchSessionChanges: onDidChange =>
@@ -243,6 +245,13 @@ function createAvailableConversationCapability(
                 .resolveSessionFilePath?.(sessionId);
             return rolloutPath
                 ? readCodexRolloutTelemetry(rolloutPath)
+                : undefined;
+        },
+        readGoalTurns: sessionId => {
+            const rolloutPath = options.services.codex
+                .resolveSessionFilePath?.(sessionId);
+            return rolloutPath
+                ? codexGoalTurns.read(rolloutPath)
                 : undefined;
         },
         readContentSignature: sessionId => {

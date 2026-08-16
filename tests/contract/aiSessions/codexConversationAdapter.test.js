@@ -56,6 +56,7 @@ function createAdapter(result = fixture, overrides = {}) {
         readLifecycleSignal: overrides.readLifecycleSignal,
         readContentSignature: overrides.readContentSignature,
         readSourceBytes: overrides.readSourceBytes,
+        readGoalTurns: overrides.readGoalTurns,
         listSubagentThreads: overrides.listSubagentThreads,
         getSessionProfileContextWindow: overrides.getSessionProfileContextWindow,
         now: overrides.now,
@@ -1352,6 +1353,170 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-002 starts one interaction per userM
     ]);
 });
 
+test('MAIN-AI-SESSION-CONVERSATION-OUTLINE Codex renders goal-continuation turns as /goal interactions', async t => {
+    const native = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'turn-regular',
+                status: 'completed',
+                items: [{
+                    id: 'user-1',
+                    type: 'userMessage',
+                    content: [{ type: 'text', text: 'before the goal' }],
+                }, {
+                    id: 'agent-1',
+                    type: 'agentMessage',
+                    text: 'regular answer',
+                }],
+            }, {
+                // The app-server strips the injected internal goal prompt,
+                // so a goal-continuation turn arrives with no userMessage.
+                id: 'turn-goal',
+                status: 'completed',
+                startedAt: 1786810495,
+                durationMs: 14440420,
+                items: [{
+                    id: 'goal-reasoning',
+                    type: 'reasoning',
+                    summary: ['planning the work'],
+                }, {
+                    id: 'goal-exec',
+                    type: 'commandExecution',
+                    command: 'npm test',
+                    aggregatedOutput: 'all green',
+                    status: 'completed',
+                }, {
+                    id: 'goal-agent',
+                    type: 'agentMessage',
+                    text: 'goal progress report',
+                }],
+            }],
+        },
+    };
+    const harness = createAdapter(native, {
+        readGoalTurns: () => new Map([['turn-goal', 'finish the milestone']]),
+    });
+    t.after(() => harness.adapter.dispose());
+    const { outline, page } = await readWholeConversation(harness.adapter);
+
+    assert.deepEqual(outline.interactions.map(item => [
+        item.id,
+        item.userPreview,
+        item.responseState,
+    ]), [
+        ['user-1', 'before the goal', 'complete'],
+        ['turn-goal-goal', '/goal finish the milestone', 'complete'],
+    ]);
+    // The synthesized input takes the turn timing for the Worked-for row.
+    assert.equal(outline.interactions[1].timestamp, 1786810495000);
+    assert.deepEqual(page.interactionStates[1], {
+        interactionId: 'turn-goal-goal',
+        responseState: 'complete',
+        timestamp: 1786810495000,
+        completedAt: 1786810495000 + 14440420,
+    });
+    assert.deepEqual(page.messages.map(message => [
+        message.interactionId,
+        message.role,
+        message.role === 'tool'
+            ? message.tool.summary
+            : message.role === 'thinking'
+                ? message.thinking.text
+                : message.markdown,
+    ]), [
+        ['user-1', 'user', 'before the goal'],
+        ['user-1', 'assistant', 'regular answer'],
+        ['turn-goal-goal', 'user', '/goal finish the milestone'],
+        ['turn-goal-goal', 'tool', 'commandExecution npm test'],
+        ['turn-goal-goal', 'thinking', 'planning the work'],
+        ['turn-goal-goal', 'assistant', 'goal progress report'],
+    ]);
+});
+
+test('MAIN-AI-SESSION-CONVERSATION-OUTLINE Codex keeps user-less turns hidden without rollout goal data', async t => {
+    const native = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'turn-regular',
+                status: 'completed',
+                items: [{
+                    id: 'user-1',
+                    type: 'userMessage',
+                    content: [{ type: 'text', text: 'visible' }],
+                }],
+            }, {
+                id: 'turn-unknown-internal',
+                status: 'completed',
+                items: [{
+                    id: 'internal-agent',
+                    type: 'agentMessage',
+                    text: 'unknown internal turn stays hidden',
+                }],
+            }],
+        },
+    };
+    const harness = createAdapter(native);
+    t.after(() => harness.adapter.dispose());
+    const { outline, page } = await readWholeConversation(harness.adapter);
+
+    assert.deepEqual(outline.interactions.map(item => item.id), ['user-1']);
+    assert.deepEqual(
+        page.messages.map(message => message.markdown),
+        ['visible']
+    );
+});
+
+test('MAIN-AI-SESSION-CONVERSATION-OUTLINE windowed Codex sessions project goal turns into skeletons and pages', async t => {
+    const goalTurn = {
+        id: 'turn-goal',
+        status: 'completed',
+        items: [{
+            id: 'goal-agent',
+            type: 'agentMessage',
+            text: 'goal-only turn output',
+        }],
+    };
+    const turns = [
+        ...Array.from(
+            { length: 6 },
+            (_item, index) => createPaginatedTurn(index)
+        ),
+        goalTurn,
+        createPaginatedTurn(7),
+    ];
+    const readGoalTurns = () => new Map([['turn-goal', 'ship the release']]);
+    const harness = createWindowedHarness(t, { turns, readGoalTurns });
+    const outline = await harness.adapter.readOutline(sessionId);
+
+    // The goal turn surfaces in the outline already as a skeleton.
+    assert.ok(outline.interactions.some(
+        item => item.id === 'turn-goal-goal'
+            && item.userPreview === '/goal ship the release'
+    ));
+    const proof = createFullReadProof(t, harness.state, { readGoalTurns });
+    const expectedOutline = await proof.readOutline(sessionId);
+    assert.deepEqual(stripRevision(outline), stripRevision(expectedOutline));
+
+    const snapshot = await harness.adapter.readSnapshot(sessionId);
+    const expectedSnapshot = await proof.readSnapshot(sessionId);
+    assert.deepEqual(
+        stripRevision(snapshot.page),
+        stripRevision(expectedSnapshot.page)
+    );
+    assert.ok(snapshot.page.messages.some(message =>
+        message.interactionId === 'turn-goal-goal'
+            && message.role === 'user'
+            && message.markdown === '/goal ship the release'
+    ));
+    assert.ok(snapshot.page.messages.some(message =>
+        message.interactionId === 'turn-goal-goal'
+            && message.role === 'assistant'
+            && message.markdown === 'goal-only turn output'
+    ));
+});
+
 test('SESSION-AI-SESSION-CODEX-CONVERSATION-003 maps completed, active, failed, and cancelled native turn states', async t => {
     const statuses = ['completed', 'active', 'inProgress', 'failed', 'cancelled'];
     const native = {
@@ -2187,6 +2352,7 @@ function createPaginatedHarness(t, options = {}) {
     const harness = createAdapter(undefined, {
         client,
         readContentSignature: () => state.signature,
+        readGoalTurns: options.readGoalTurns,
     });
     t.after(() => harness.adapter.dispose());
     return {
@@ -2199,7 +2365,7 @@ function createPaginatedHarness(t, options = {}) {
 
 // Ground truth: the same content loaded through the stable full-read path
 // (no server version → the paginated accelerator never engages).
-function createFullReadProof(t, state) {
+function createFullReadProof(t, state, options = {}) {
     const requests = [];
     const client = {
         async request(method, params) {
@@ -2216,6 +2382,7 @@ function createFullReadProof(t, state) {
     const harness = createAdapter(undefined, {
         client,
         readContentSignature: () => state.signature,
+        readGoalTurns: options.readGoalTurns,
     });
     t.after(() => harness.adapter.dispose());
     return harness.adapter;
@@ -2813,6 +2980,7 @@ function createWindowedHarness(t, options = {}) {
         readSourceBytes: id => (
             id === sessionId ? state.sourceBytes : 8 * 1024 * 1024
         ),
+        readGoalTurns: options.readGoalTurns,
         now: () => now,
     });
     t.after(() => harness.adapter.dispose());

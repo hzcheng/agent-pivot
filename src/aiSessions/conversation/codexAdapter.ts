@@ -91,6 +91,14 @@ export interface CodexConversationAdapterOptions {
     readRolloutTelemetry?(
         sessionId: string
     ): CodexRolloutTelemetrySnapshot | undefined;
+    // Goal-continuation turn ids mapped to their `/goal` objective, read
+    // from the rollout transcript. The app-server strips the internal
+    // goal user message from turn items, leaving goal turns with no
+    // userMessage at all; without this map their whole content would have
+    // no interaction to attach to and would silently drop.
+    readGoalTurns?(
+        sessionId: string
+    ): ReadonlyMap<string, string> | undefined;
     // Rollout stat signature used solely as the validity signal for the
     // normalized-conversation cache: identical stat means the app-server
     // content cannot have changed, so the cached conversation is reused
@@ -403,6 +411,14 @@ interface NormalizeTurnContext {
     newItemIds: string[];
     seededDispatchIndex?: number;
     seededDispatchTimingComplete: boolean;
+    goalTurns?: ReadonlyMap<string, string>;
+}
+
+// Deterministic interaction id for a goal-continuation turn's synthesized
+// input. Stable across the skeleton and full paths so anchors survive
+// materialization, matching the userMessage-based id rule.
+function goalInteractionId(turnId: string): string {
+    return `${turnId}-goal`;
 }
 
 function normalizeTurnItems(
@@ -419,6 +435,37 @@ function normalizeTurnItems(
     const timing = turnTiming(turn);
     let timingAssigned = false;
     let currentInteractionIndex: number | undefined = seededDispatchIndex;
+    // Goal-continuation turns carry no userMessage (the app-server strips
+    // the injected internal goal prompt), so their content items would
+    // otherwise have no interaction to attach to and silently drop.
+    // Synthesize the `/goal` input lazily, only for turns the rollout scan
+    // identified as goal continuations; unknown internal turn kinds keep
+    // the previous drop behavior.
+    const ensureContentInteraction = (): number | undefined => {
+        if (currentInteractionIndex !== undefined) {
+            return currentInteractionIndex;
+        }
+        const objective = typeof turn.id === 'string'
+            ? context.goalTurns?.get(turn.id)
+            : undefined;
+        if (!objective) {
+            return undefined;
+        }
+        const userMarkdown = visibleMessage(`/goal ${objective}`);
+        interactions.push({
+            id: goalInteractionId(turn.id as string),
+            providerTurnId: turn.id,
+            ...(!timingAssigned ? timing : {}),
+            userMarkdown,
+            userPreview: buildUserPreview(userMarkdown),
+            userGraphemeCount: countGraphemes(userMarkdown),
+            assistantMarkdown: [],
+            responseState,
+        });
+        currentInteractionIndex = interactions.length - 1;
+        timingAssigned = true;
+        return currentInteractionIndex;
+    };
     for (const rawItem of turn.items) {
         const item = asRecord(rawItem);
         if (!item
@@ -483,7 +530,8 @@ function normalizeTurnItems(
             currentInteractionIndex = interactions.length - 1;
             timingAssigned = true;
         } else if (item.type === 'reasoning') {
-            if (currentInteractionIndex === undefined) {
+            const targetIndex = ensureContentInteraction();
+            if (targetIndex === undefined) {
                 continue;
             }
             // App-server exposes readable summaries separately from raw
@@ -491,7 +539,7 @@ function normalizeTurnItems(
             // never fall back to `content` or legacy `text` fields.
             const text = normalizeReasoningSummary(item.summary);
             if (text) {
-                const interaction = interactions[currentInteractionIndex];
+                const interaction = interactions[targetIndex];
                 (interaction.thinking ||= []).push({
                     position: interaction.assistantMarkdown.length,
                     text,
@@ -499,20 +547,22 @@ function normalizeTurnItems(
             }
         } else if (item.type === 'commandExecution'
             || item.type === 'fileChange') {
-            if (currentInteractionIndex === undefined) {
+            const targetIndex = ensureContentInteraction();
+            if (targetIndex === undefined) {
                 continue;
             }
             const tool = normalizeToolItem(item);
             if (!tool) {
                 continue;
             }
-            const interaction = interactions[currentInteractionIndex];
+            const interaction = interactions[targetIndex];
             (interaction.toolCalls ||= []).push({
                 position: interaction.assistantMarkdown.length,
                 ...tool,
             });
         } else if (item.type === 'plan') {
-            if (currentInteractionIndex === undefined) {
+            const targetIndex = ensureContentInteraction();
+            if (targetIndex === undefined) {
                 continue;
             }
             const planText = typeof item.text === 'string'
@@ -521,7 +571,7 @@ function normalizeTurnItems(
             if (!planText) {
                 continue;
             }
-            const interaction = interactions[currentInteractionIndex];
+            const interaction = interactions[targetIndex];
             (interaction.plans ||= []).push({
                 position: interaction.assistantMarkdown.length,
                 markdown: planText,
@@ -530,14 +580,15 @@ function normalizeTurnItems(
             if (typeof item.text !== 'string') {
                 throw protocolError();
             }
-            if (currentInteractionIndex === undefined) {
+            const targetIndex = ensureContentInteraction();
+            if (targetIndex === undefined) {
                 continue;
             }
             const text = visibleMessage(item.text);
             if (!text) {
                 continue;
             }
-            const interaction = interactions[currentInteractionIndex];
+            const interaction = interactions[targetIndex];
             if (item.phase === 'commentary') {
                 appendConversationAssistantText(
                     interaction,
@@ -577,7 +628,8 @@ interface NormalizedConversationTurn {
 function normalizeThreadRead(
     value: unknown,
     sessionId: string,
-    dispatch?: { label: string; timestamp?: number }
+    dispatch?: { label: string; timestamp?: number },
+    goalTurns?: ReadonlyMap<string, string>
 ): {
     interactions: ConversationInteraction[];
     turns: NormalizedConversationTurn[];
@@ -596,6 +648,7 @@ function normalizeThreadRead(
         itemIds: new Set<string>(),
         newItemIds: [],
         seededDispatchTimingComplete: true,
+        goalTurns,
     };
     const turns: NormalizedConversationTurn[] = [];
     // A subagent thread exposes no userMessage for its dispatch prompt
@@ -798,7 +851,8 @@ function composeWindowedRevision(
 // id equals the id the full path assigns, so anchors survive
 // materialization.
 function skeletonTurnInteractions(
-    turn: Record<string, any>
+    turn: Record<string, any>,
+    goalTurns?: ReadonlyMap<string, string>
 ): { interactions: ConversationInteraction[]; itemIds: string[] } {
     let userItem: Record<string, any> | undefined;
     let agentItemId: string | undefined;
@@ -821,6 +875,29 @@ function skeletonTurnInteractions(
             : [userItem.id as string])
         : (agentItemId ? [agentItemId] : []);
     if (!userItem) {
+        // Goal-continuation turn: the app-server stripped its internal
+        // user message, so project the same synthesized `/goal`
+        // interaction the full path assigns (same id, same label) —
+        // anchors then survive materialization.
+        const objective = typeof turn.id === 'string'
+            ? goalTurns?.get(turn.id)
+            : undefined;
+        if (objective) {
+            const userMarkdown = visibleMessage(`/goal ${objective}`);
+            return {
+                interactions: [{
+                    id: goalInteractionId(turn.id as string),
+                    providerTurnId: turn.id,
+                    ...turnTiming(turn),
+                    userMarkdown,
+                    userPreview: buildUserPreview(userMarkdown),
+                    userGraphemeCount: countGraphemes(userMarkdown),
+                    assistantMarkdown: [],
+                    responseState: turnResponseState(turn.status),
+                }],
+                itemIds,
+            };
+        }
         return { interactions: [], itemIds };
     }
     if (!Array.isArray(userItem.content)) {
@@ -2043,7 +2120,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             ? fetched.slice(0, anchorIndex + 1)
             : fetched
         ).reverse();
-        const turns = this.normalizeReloadedTurns(kept, reloaded);
+        const turns = this.normalizeReloadedTurns(
+            kept,
+            reloaded,
+            this.goalTurns(sessionId)
+        );
         if (!turns) {
             return null;
         }
@@ -2137,7 +2218,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
     // back to a full read that settles (or canonically rejects) it.
     private normalizeReloadedTurns(
         kept: LoadedConversationTurn[],
-        reloaded: Record<string, any>[]
+        reloaded: Record<string, any>[],
+        goalTurns?: ReadonlyMap<string, string>
     ): LoadedConversationTurn[] | null {
         const itemIds = new Set<string>();
         for (const chunk of kept) {
@@ -2158,6 +2240,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     itemIds,
                     newItemIds: [],
                     seededDispatchTimingComplete: true,
+                    goalTurns,
                 };
                 normalizeTurnItems(turn, context);
                 rebuilt.push({
@@ -2166,7 +2249,10 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     itemIds: context.newItemIds,
                     fingerprint: fingerprintInteractions(context.interactions),
                     summaryFingerprint: turnSummaryFingerprint(turn),
-                    skeletonItemIds: skeletonTurnInteractions(turn).itemIds,
+                    skeletonItemIds: skeletonTurnInteractions(
+                        turn,
+                        goalTurns
+                    ).itemIds,
                     characters: conversationCharacters(context.interactions),
                     kind: 'full' as const,
                     lastTouchedAt: this.now(),
@@ -2357,6 +2443,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         const chunks: LoadedConversationTurn[] = [];
         const itemIds = new Set<string>();
         const turnIds = new Set<string>();
+        const goalTurns = this.goalTurns(sessionId);
         try {
             for (let pageIndex = pages.length - 1; pageIndex >= 0; pageIndex -= 1) {
                 const pageTurns = pages[pageIndex].turns;
@@ -2366,7 +2453,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                         throw protocolError();
                     }
                     turnIds.add(turn.id);
-                    const skeleton = skeletonTurnInteractions(turn);
+                    const skeleton = skeletonTurnInteractions(turn, goalTurns);
                     for (const itemId of skeleton.itemIds) {
                         if (itemIds.has(itemId)) {
                             throw protocolError();
@@ -2400,7 +2487,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             chunks,
             itemIds,
             signal,
-            signature
+            signature,
+            goalTurns
         );
         if (tail === 'stale') {
             return 'stale';
@@ -2486,7 +2574,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         chunks: LoadedConversationTurn[],
         chunkIndexByTurnId: Map<string, number>,
         itemIds: Set<string>,
-        turn: Record<string, any>
+        turn: Record<string, any>,
+        goalTurns?: ReadonlyMap<string, string>
     ): 'committed' | 'skipped' | 'expanded' {
         const index = chunkIndexByTurnId.get(turn.id);
         if (index === undefined) {
@@ -2522,6 +2611,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             ),
             newItemIds: [],
             seededDispatchTimingComplete: true,
+            goalTurns,
         };
         normalizeTurnItems(turn, context);
         for (const itemId of context.newItemIds) {
@@ -2557,7 +2647,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         chunks: LoadedConversationTurn[],
         itemIds: Set<string>,
         signal: ConversationAbortSignal | undefined,
-        signature: string
+        signature: string,
+        goalTurns?: ReadonlyMap<string, string>
     ): Promise<boolean | 'stale'> {
         const chunkIndexByTurnId = new Map(
             chunks.map((chunk, index) => [chunk.turnId, index] as const)
@@ -2590,7 +2681,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                         chunks,
                         chunkIndexByTurnId,
                         itemIds,
-                        turn
+                        turn,
+                        goalTurns
                     );
                 }
             } catch (error) {
@@ -2756,7 +2848,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                             chunks,
                             chunkIndexByTurnId,
                             itemIds,
-                            turn
+                            turn,
+                            this.goalTurns(sessionId)
                         ) === 'expanded') {
                             expanded = true;
                         }
@@ -2981,7 +3074,12 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     threadId
                 )
                 : undefined;
-            normalized = normalizeThreadRead(result, threadId, dispatch);
+            normalized = normalizeThreadRead(
+                result,
+                threadId,
+                dispatch,
+                split.subagentId ? undefined : this.goalTurns(sessionId)
+            );
         } catch (error) {
             if (error instanceof ConversationError) {
                 throw error;
@@ -3040,6 +3138,17 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
 
     private now(): number {
         return this.options.now ? this.options.now() : Date.now();
+    }
+
+    // Best-effort rollout probe; goal labels must never block readability.
+    private goalTurns(
+        sessionId: string
+    ): ReadonlyMap<string, string> | undefined {
+        try {
+            return this.options.readGoalTurns?.(sessionId);
+        } catch (_error) {
+            return undefined;
+        }
     }
 
     private ensureProviderWatch(): void {

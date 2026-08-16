@@ -775,16 +775,24 @@ function getWorktreeAnchorHtml(
         : anchor.activity === 'active' ? 'active' : 'idle';
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
     const ariaLabel = `Current, ${inlineSummary}, ${sessionLabel}, ${activity}`;
-    // The anchor intentionally has no management menu, but session creation
-    // must stay discoverable from the Worktree surface (annotation: without
-    // it users could not find how to start a main-checkout session). The
-    // section carries no worktree key, so quick-create launches a plain
-    // main-checkout session, exactly like the Chats + button.
+    // The anchor is not a managed worktree — no removal, no branch actions —
+    // but it shares the SAME ⋯ menu as every other row (single- and
+    // multi-root alike): session creation stays discoverable, with provider
+    // and full-option entries, and no standalone + button anywhere.
     const providerLabel = getAiProviderLabel(quickCreateProvider);
     const quickLabel = quickCreateProfile
         ? `New ${providerLabel} session with profile ${quickCreateProfile}`
         : `New ${providerLabel} session`;
-    const quickCreate = `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickLabel)}" data-tooltip="${escapeAttribute(quickLabel)}">${Icons.add}</button>`;
+    const moreLabel = 'Actions for Current';
+    const more = `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
+        data-worktree-name="Current"
+        data-worktree-head-kind="branch"
+        data-can-resume="true"
+        data-can-remove="false"
+        data-can-branch-create="false"
+        data-quick-provider="${escapeAttribute(quickCreateProvider)}"
+        data-quick-label="${escapeAttribute(quickLabel)}"
+        data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`;
     // The per-repository branch detail lives on the fast hover tooltip; the
     // row itself stays a single compact line (annotation: the inline summary
     // squeezed the "Current" title away).
@@ -796,7 +804,7 @@ function getWorktreeAnchorHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
-            ${quickCreate}
+            ${more}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')
@@ -850,13 +858,9 @@ function getWorktreeGroupRowHtml(
     const quickLabel = quickCreateProfile
         ? `New ${providerLabel} session in ${name} with profile ${quickCreateProfile}`
         : `New ${providerLabel} session in ${name}`;
-    const quickCreate = group.canCreateSession && primary?.worktreeKey
-        ? `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickLabel)}" data-tooltip="${escapeAttribute(quickLabel)}">${Icons.add}</button>`
-        : '';
-    // M3: the group menu hosts group-level actions (rename now; derive,
-    // add-repo, and group removal land in later M3 batches) and keeps the
-    // existing worktree operations acting on the primary member while one
-    // is ready, so migration never removes capabilities (review I4).
+    // All actions live in the ⋯ menu (session creation included) — no
+    // standalone + button on any row, so single-root, multi-root, and
+    // group rows behave identically.
     const moreLabel = `Actions for ${name}`;
     const more = `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
         data-group-id="${escapeAttribute(group.groupId)}"
@@ -970,7 +974,7 @@ function getWorktreeGroupRowHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
-            ${quickCreate}${merge}${more}
+            ${merge}${more}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')
@@ -1244,6 +1248,7 @@ export function getAiSessionWorktreeMenu() {
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="codex">New Codex session</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="kimi">New Kimi session</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="claude">New Claude session</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-create-with-options">New session with options…</div>
     <div class="custom-context-menu-separator" role="separator" data-worktree-session-separator></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-branch-create"></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group</div>

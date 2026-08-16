@@ -4240,7 +4240,7 @@
   {
    "id": "WORKTREE-GROUPS-UI-001",
    "domain": "webview",
-   "title": "The Worktree surface renders the Current anchor row without actions, group rows with chips and merge affordances, legacy-scope badges, and stays usable at the minimum sidebar width",
+   "title": "The Worktree surface unifies row behavior: every row carries the same actions menu (no standalone + anywhere), the Current anchor menu offers session creation but never removal, group rows show chips and merge affordances, legacy-scope badges, and the surface stays usable at the minimum sidebar width",
    "priority": "P0",
    "status": "automated",
    "owners": [

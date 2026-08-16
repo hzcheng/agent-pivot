@@ -166,7 +166,7 @@ async function openSurfacePage(html, width) {
     return page;
 }
 
-test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches and no management menu', async t => {
+test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches and a unified actions menu', async t => {
     const page = await openSurfacePage(surface({
         worktreeAnchor: {
             entries: [
@@ -191,50 +191,68 @@ test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches a
     const tooltip = await header.getAttribute('data-tooltip');
     assert.deepEqual(tooltip.split('\n'), ['alpha: main', 'beta: 1.0'],
         'the hover tooltip lists one repository per line');
-    assert.equal(await anchor.locator('.ai-session-worktree-more').count(), 0,
-        'the anchor is not a managed worktree: no actions menu');
-    const quick = anchor.locator('[data-action="create-ai-session-quick"]');
-    assert.equal(await quick.count(), 1,
-        'session creation stays discoverable on the anchor row');
+    assert.equal(await anchor.locator('.ai-session-worktree-more').count(), 1,
+        'the anchor shares the same actions menu as every other row');
+    assert.equal(await anchor.locator('[data-action="create-ai-session-quick"]').count(), 0,
+        'no standalone + button: creation lives in the menu');
     assert.equal(
         await anchor.locator('.codex-session-row[data-session-id="s-main"]').count(), 1,
         'main-checkout sessions collect under the anchor');
 });
 
-test('WORKTREE-GROUPS-UI-001 anchor quick-create launches a plain main-checkout session', async t => {
-    const page = await openSurfacePage(surface({
+test('WORKTREE-GROUPS-UI-001 the anchor menu launches main-checkout sessions and never offers removal', async t => {
+    const sessionHtml = () => surface({
         worktreeAnchor: {
             entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
             worktreeKeys: [alphaMainKey],
             sessions: [],
             activity: 'idle',
         },
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const quickItem = menu.locator('[data-action="worktree-quick-create"]');
+    assert.equal(await quickItem.isVisible(), true,
+        'quick create is offered for the Current anchor');
+    assert.equal(await menu.locator('[data-action="worktree-provider-create"]').first()
+        .isVisible(), true, 'per-provider creation is offered');
+    assert.equal(await menu.locator('[data-action="worktree-create-with-options"]')
+        .isVisible(), true, 'the full-options creation entry is offered');
+    assert.equal(await menu.locator('[data-action="worktree-remove"]').isHidden(), true,
+        'the anchor can never be removed');
+    assert.equal(await menu.locator('[data-action="worktree-branch-create"]')
+        .isHidden(), true, 'no worktree target: branch creation stays hidden');
+    assert.equal(await menu.locator('[data-action="worktree-group-rename"]')
+        .isHidden(), true, 'no group: group actions stay hidden');
+
+    await quickItem.evaluate(item => item.click());
+    const messages = await page.evaluate(() => window.__postedMessages);
+    const created = messages.filter(message => message.type === 'create-ai-session-quick');
+    assert.equal(created.length, 1);
+    assert.equal(created[0].worktreeKey, undefined,
+        'no worktree key: the session starts in the main checkout, like Chats +');
+    // The full-options entry launches the picker flow without a key too.
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-create-with-options"]')
+        .evaluate(item => item.click());
+    const withOptions = (await page.evaluate(() => window.__postedMessages))
+        .filter(message => message.type === 'create-ai-session');
+    assert.equal(withOptions.length, 1);
+    assert.equal(withOptions[0].worktreeKey, undefined);
+});
+
+test('WORKTREE-GROUPS-UI-001 group rows carry no standalone plus button', async t => {
+    const page = await openSurfacePage(surface({
+        worktreeGroups: [groupRow()],
     }), 320);
     t.after(() => page.close());
-
-    await page.evaluate(() => {
-        window.__postedMessages = [];
-        window.vscode = {
-            postMessage: message => window.__postedMessages.push(message),
-            getState: () => undefined,
-            setState: () => undefined,
-        };
-    });
-    await page.addScriptTag({ content: controlsScript });
-    await page.evaluate(() => {
-        window.__controls = initProjectAiSessionControls({});
-        window.__controls.onTriggerAiSessionAction(
-            document.querySelector(
-            '.ai-session-worktree-anchor [data-action="create-ai-session-quick"]'
-            ),
-            'project-a'
-        );
-    });
-    const messages = await page.evaluate(() => window.__postedMessages);
-    assert.equal(messages.length, 1);
-    assert.equal(messages[0].type, 'create-ai-session-quick');
-    assert.equal(messages[0].worktreeKey, undefined,
-        'no worktree key: the session starts in the main checkout, like Chats +');
+    const row = page.locator('.ai-session-worktree-task-group');
+    assert.equal(await row.locator('[data-action="create-ai-session-quick"]').count(), 0,
+        'session creation lives in the ⋯ menu');
+    assert.equal(await row.locator('.ai-session-worktree-more').count(), 1);
 });
 
 test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a member summary', async t => {
@@ -262,12 +280,12 @@ test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a memb
     const summary = await row.locator('.ai-session-worktree-member-summary').textContent();
     assert.ok(summary.includes('2 worktrees'));
     assert.ok(summary.includes('alpha, beta'));
-    const quick = row.locator('[data-action="create-ai-session-quick"]');
-    assert.equal(await quick.count(), 1);
+    assert.equal(await row.locator('[data-action="create-ai-session-quick"]').count(), 0,
+        'no standalone + on group rows: creation lives in the menu');
     assert.equal(
         await row.getAttribute('data-worktree-path'),
         '/alpha/.worktrees/fix-login',
-        'quick create targets the primary member worktree');
+        'the menu context still targets the primary member worktree');
     assert.equal(await row.locator('[data-action="merge-worktree-groups"]').count(), 0,
         'no merge affordance without a same-slug candidate');
 });

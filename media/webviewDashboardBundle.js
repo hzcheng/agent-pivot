@@ -5171,10 +5171,15 @@ function initProjectAiSessionControls(options) {
         var quickItem = menu.querySelector('[data-action="worktree-quick-create"]');
         quickItem.textContent = button.getAttribute('data-quick-label')
             || ('New session in ' + (button.getAttribute('data-worktree-name') || 'worktree'));
-        quickItem.hidden = !menu.__context.canResume || !hasWorktreeTarget;
+        // Session creation works without a worktree target too: the Current
+        // anchor launches plain main-checkout sessions from the same menu,
+        // keeping single- and multi-root behavior identical.
+        quickItem.hidden = !menu.__context.canResume;
         menu.querySelectorAll('[data-action="worktree-provider-create"]').forEach(item => {
-            item.hidden = !menu.__context.canResume || !hasWorktreeTarget;
+            item.hidden = !menu.__context.canResume;
         });
+        var optionsItem = menu.querySelector('[data-action="worktree-create-with-options"]');
+        optionsItem.hidden = !menu.__context.canResume;
         var branchItem = menu.querySelector('[data-action="worktree-branch-create"]');
         branchItem.textContent = 'New worktree from '
             + (button.getAttribute('data-worktree-name') || 'this branch');
@@ -5238,16 +5243,20 @@ function initProjectAiSessionControls(options) {
         var originButton = menu ? menu.__originButton : null;
         if (!menu || !context || !context.projectId) return;
         var action = item.getAttribute('data-action');
-        var worktreeKey = {
-            repositoryKey: context.repositoryKey,
-            canonicalWorktreePath: context.worktreePath,
-        };
+        // The Current anchor has no worktree target: session creation then
+        // launches a plain main-checkout session (no key in the payload).
+        var worktreeKey = context.repositoryKey && context.worktreePath
+            ? {
+                repositoryKey: context.repositoryKey,
+                canonicalWorktreePath: context.worktreePath,
+            }
+            : null;
         if (action === 'worktree-quick-create' && context.canResume) {
             window.vscode.postMessage({
                 type: 'create-ai-session-quick',
                 projectId: context.projectId,
                 provider: context.quickProvider,
-                worktreeKey: worktreeKey,
+                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
             });
         } else if (action === 'worktree-provider-create') {
             var provider = item.getAttribute('data-provider');
@@ -5256,7 +5265,14 @@ function initProjectAiSessionControls(options) {
                 type: 'create-ai-session-quick',
                 projectId: context.projectId,
                 provider: provider,
-                worktreeKey: worktreeKey,
+                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
+            });
+        } else if (action === 'worktree-create-with-options' && context.canResume) {
+            // The full creation flow: title, profile, and root pickers.
+            window.vscode.postMessage({
+                type: 'create-ai-session',
+                projectId: context.projectId,
+                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
             });
         } else if (action === 'worktree-branch-create' && context.canBranchCreate) {
             // M2: absorbed by the inline creation form with a branch seed

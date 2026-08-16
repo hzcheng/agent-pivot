@@ -2075,3 +2075,26 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 pending clears only after the rendered a
     assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 0,
         'once the rendered aggregate reaches the bound revision, the card retires');
 });
+
+test('WORKTREE-GROUPS-UI-001 the actions menu closes when the webview loses focus', async t => {
+    // VS Code forwards no outside clicks into the webview: the menu must
+    // close on window blur (e.g. the user clicked into the editor).
+    const sessionHtml = () => surface({
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [alphaMainKey],
+            sessions: [],
+            activity: 'idle',
+        },
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    assert.equal(await menu.evaluate(el => el.classList.contains('visible')), true);
+    await page.evaluate(() => {
+        window.dispatchEvent(new Event('blur'));
+    });
+    assert.equal(await menu.evaluate(el => el.classList.contains('visible')), false,
+        'the menu closes on webview blur');
+});

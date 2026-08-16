@@ -257,16 +257,15 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 lays out two independently scrolling window reg
                     + `(height ${before.currentGroup.height}, panel ${before.panel.height})`
             );
         }
+        assert.equal(before.resizerHidden, true,
+            `${label}: the separator hides while the CURRENT WINDOW card is collapsed`);
         assert.ok(
-            before.resizer.top >= before.currentGroup.bottom - 1
-                && before.otherGroup.top >= before.resizer.bottom
+            before.otherGroup.top >= before.currentGroup.bottom - 1
                 && before.otherGroup.top - before.currentGroup.bottom <= 24,
-            `${label}: the separator must sit between the two regions `
+            `${label}: OPEN WINDOWS packs directly under the content-sized CURRENT WINDOW `
                 + `(current bottom ${before.currentGroup.bottom}, `
-                + `resizer ${before.resizer.top}-${before.resizer.bottom}, `
                 + `other top ${before.otherGroup.top})`
         );
-        assert.equal(before.resizerHidden, false, `${label}: separator starts visible`);
         assert.equal(before.manual, false, `${label}: auto layout has no dragged share`);
 
         const scrolled = await page.evaluate(() => {
@@ -290,7 +289,10 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 lays out two independently scrolling window reg
 });
 
 test('WEBVIEW-OPEN-TAB-SPLIT-001 drags the separator to resize regions and persists the share', async t => {
-    const page = await openDashboardPage(t, { width: 800, height: 600 });
+    // The separator exists only while the CURRENT WINDOW card is expanded:
+    // a collapsed card is content-sized and never holds a dragged share.
+    const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
+    const page = await openDashboardPage(t, { width: 800, height: 600, cards });
     const initial = await openTabGeometry(page);
     const startHeight = initial.currentGroup.height;
     const resizerCenter = initial.resizer.top + initial.resizer.height / 2;
@@ -325,8 +327,9 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 drags the separator to resize regions and persi
     assert.equal(afterDrag.resizerValueNow, String(expectedAriaPercent),
         'aria-valuenow tracks the dragged percentage of the pane space');
 
-    // Shrink CURRENT WINDOW to the minimum: its list must then scroll while
-    // OPEN WINDOWS keeps its own scroll position.
+    // Shrink CURRENT WINDOW to the expanded pane minimum. Region scroll
+    // independence is already owned by the layout test above; the expanded
+    // sidebar card intentionally fits its group list without overflow.
     const shrunk = await openTabGeometry(page);
     const shrunkResizerCenter = shrunk.resizer.top + shrunk.resizer.height / 2;
     await page.mouse.move(400, shrunkResizerCenter);
@@ -335,31 +338,9 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 drags the separator to resize regions and persi
     await page.mouse.up();
     const clamped = await openTabGeometry(page);
     assert.ok(
-        Math.abs(clamped.currentGroup.height - OPEN_TAB_PANE_MIN_PX) <= 2,
-        `the drag clamps at the pane minimum (got ${clamped.currentGroup.height})`
+        Math.abs(clamped.currentGroup.height - OPEN_TAB_PANE_MIN_EXPANDED_PX) <= 2,
+        `the drag clamps at the expanded pane minimum (got ${clamped.currentGroup.height})`
     );
-    assert.ok(
-        clamped.currentList.scrollHeight > clamped.currentList.clientHeight,
-        'the squeezed CURRENT WINDOW region overflows'
-    );
-    const independence = await page.evaluate(() => {
-        const currentList = document.querySelector(
-            '#dashboard-tab-open .open-current-workspace-group .group-list'
-        );
-        currentList.scrollTop = 40;
-        return {
-            currentScrollTop: currentList.scrollTop,
-            otherScrollTop: document.querySelector(
-                '#dashboard-tab-open .open-other-windows-group .group-list'
-            ).scrollTop,
-            bodyScrollY: window.scrollY,
-        };
-    });
-    assert.ok(independence.currentScrollTop > 0, 'CURRENT WINDOW region accepts scroll');
-    assert.equal(independence.otherScrollTop, 0,
-        'scrolling CURRENT WINDOW must not scroll OPEN WINDOWS');
-    assert.equal(independence.bodyScrollY, 0,
-        'scrolling CURRENT WINDOW must not move the page');
 
     // Keyboard: ArrowDown grows the pane above the separator by one step.
     const beforeKeys = await openTabGeometry(page);
@@ -378,22 +359,130 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 drags the separator to resize regions and persi
 });
 
 test('WEBVIEW-OPEN-TAB-SPLIT-001 restores the persisted share on init', async t => {
+    // The restored share applies to an expanded CURRENT WINDOW card; a
+    // collapsed card is content-sized and never holds a share. 0.6 keeps
+    // the pane above the expanded floor (no clamping).
+    const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
     const page = await openDashboardPage(t, {
         width: 800,
         height: 600,
-        initialState: { openTab: { currentWindowShare: 0.3 } },
+        cards,
+        initialState: { openTab: { currentWindowShare: 0.6 } },
     });
     const geometry = await openTabGeometry(page);
     const inner = geometry.panel.height - geometry.resizer.height;
     assert.equal(geometry.manual, true, 'a persisted share enables the manual layout');
     assert.ok(
-        Math.abs(geometry.currentGroup.height - geometry.panel.height * 0.3) <= 2,
-        `CURRENT WINDOW restores to ~30% of the split (expected ~${geometry.panel.height * 0.3}, `
+        Math.abs(geometry.currentGroup.height - geometry.panel.height * 0.6) <= 2,
+        `CURRENT WINDOW restores to ~60% of the split (expected ~${geometry.panel.height * 0.6}, `
             + `got ${geometry.currentGroup.height})`
     );
     const expectedAriaPercent = Math.round(geometry.currentGroup.height / inner * 100);
     assert.equal(geometry.resizerValueNow, String(expectedAriaPercent),
         'aria-valuenow reflects the restored share');
+});
+
+test('WEBVIEW-OPEN-TAB-SPLIT-001 docks the collapsed OPEN WINDOWS bar at the panel bottom and uncaps CURRENT WINDOW', async t => {
+    const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
+    for (const config of [
+        { width: 800, height: 600, isSidebar: false },
+        { width: 360, height: 900, isSidebar: true },
+    ]) {
+        const page = await openDashboardPage(t, { ...config, cards });
+        const label = `width ${config.width}`;
+        await page.evaluate(() => {
+            document.querySelector('#dashboard-tab-open .open-other-windows-group')
+                .classList.add('collapsed');
+            window.__agentPivotOpenTabSplit.sync();
+        });
+        const geometry = await openTabGeometry(page);
+        assert.equal(geometry.resizerHidden, true,
+            `${label}: the separator hides while OPEN WINDOWS is collapsed`);
+        assert.ok(geometry.otherGroup.height < 60,
+            `${label}: the collapsed region shrinks to its title bar `
+                + `(height ${geometry.otherGroup.height})`);
+        assert.ok(
+            Math.abs(geometry.otherGroup.bottom - geometry.panel.bottom) <= 2,
+            `${label}: the collapsed bar docks to the panel bottom instead of hovering `
+                + `under CURRENT WINDOW (bar bottom ${geometry.otherGroup.bottom}, `
+                + `panel bottom ${geometry.panel.bottom})`
+        );
+        if (config.isSidebar) {
+            assert.ok(
+                geometry.currentGroup.height > geometry.panel.height / 2 + 40,
+                `${label}: the sidebar fit layout fills the freed space beyond the half cap `
+                    + `(height ${geometry.currentGroup.height}, panel ${geometry.panel.height})`
+            );
+            assert.ok(
+                Math.abs(geometry.otherGroup.top - geometry.currentGroup.bottom) <= 24,
+                `${label}: no void opens between the filled CURRENT WINDOW and the docked bar `
+                    + `(current bottom ${geometry.currentGroup.bottom}, `
+                    + `bar top ${geometry.otherGroup.top})`
+            );
+        } else {
+            assert.equal(geometry.currentGroupMaxHeight, 'none',
+                `${label}: the wide legacy pane is uncapped while OPEN WINDOWS is collapsed`);
+        }
+        assert.ok(geometry.bodyScrollHeight <= geometry.viewportHeight + 1,
+            `${label}: the reclamation must not reintroduce page scroll`);
+    }
+});
+
+test('WEBVIEW-OPEN-TAB-SPLIT-001 suspends the dragged share while the CURRENT WINDOW card is collapsed and restores it on expand', async t => {
+    const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
+    const page = await openDashboardPage(t, {
+        width: 360,
+        height: 900,
+        isSidebar: true,
+        cards,
+        initialState: { openTab: { currentWindowShare: 0.7 } },
+    });
+    const before = await openTabGeometry(page);
+    assert.equal(before.manual, true, 'the persisted share enables the manual layout');
+    assert.ok(
+        Math.abs(before.currentGroup.height - before.panel.height * 0.7) <= 2,
+        `the share pins the expanded card (expected ~${before.panel.height * 0.7}, `
+            + `got ${before.currentGroup.height})`
+    );
+    assert.equal(before.resizerHidden, false, 'the separator shows for the expanded card');
+
+    // Mirror the host toggle: collapse the card (the class and attribute the
+    // webview toggle handler maintains) and resync the split.
+    await page.evaluate(() => {
+        const groupEl = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
+        groupEl.classList.remove('current-card-expanded');
+        groupEl.querySelector('.workspace-card').removeAttribute('data-codex-expanded');
+        window.__agentPivotOpenTabSplit.sync();
+    });
+    const suspended = await openTabGeometry(page);
+    assert.equal(suspended.manual, true,
+        'the manual layout class stays — the share is suspended, not discarded');
+    assert.equal(suspended.resizerHidden, true,
+        'the separator hides while the card is collapsed');
+    assert.ok(
+        suspended.currentGroup.height < before.currentGroup.height - 100,
+        `the collapsed card releases the pinned share back to content size `
+            + `(was ${before.currentGroup.height}, now ${suspended.currentGroup.height})`
+    );
+    assert.ok(
+        Math.abs(suspended.otherGroup.top - suspended.currentGroup.bottom) <= 24,
+        `OPEN WINDOWS packs directly under the collapsed CURRENT WINDOW `
+            + `(current bottom ${suspended.currentGroup.bottom}, other top ${suspended.otherGroup.top})`
+    );
+
+    await page.evaluate(() => {
+        const groupEl = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
+        groupEl.classList.add('current-card-expanded');
+        groupEl.querySelector('.workspace-card').setAttribute('data-codex-expanded', '');
+        window.__agentPivotOpenTabSplit.sync();
+    });
+    const restored = await openTabGeometry(page);
+    assert.equal(restored.resizerHidden, false, 'the separator returns with the expanded card');
+    assert.ok(
+        Math.abs(restored.currentGroup.height - restored.panel.height * 0.7) <= 2,
+        `the persisted share is restored on re-expand `
+            + `(expected ~${restored.panel.height * 0.7}, got ${restored.currentGroup.height})`
+    );
 });
 
 test('WEBVIEW-OPEN-TAB-SPLIT-001 hides the separator while OPEN WINDOWS is collapsed', async t => {
@@ -753,21 +842,29 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
             + `(got ${afterKeys.currentGroup.height})`
     );
 
-    // Collapsing restores the collapsed 72px floor.
+    // Collapsing suspends the dragged share entirely: the pane returns to the
+    // collapsed card's content size and the hidden separator leaves the
+    // keyboard order, so ArrowUp no longer resizes anything.
     await page.evaluate(() => {
         const group = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
         group.classList.remove('current-card-expanded');
         group.querySelector('.workspace-card').removeAttribute('data-codex-expanded');
+        window.__agentPivotOpenTabSplit.sync();
     });
+    const collapsedPane = await openTabGeometry(page);
+    assert.equal(collapsedPane.resizerHidden, true,
+        'the separator hides while the card is collapsed');
+    assert.ok(
+        collapsedPane.currentGroup.height < OPEN_TAB_PANE_MIN_EXPANDED_PX - 50,
+        `the collapsed pane releases the floor back to content size `
+            + `(got ${collapsedPane.currentGroup.height})`
+    );
     for (let step = 0; step < 12; step += 1) {
         await page.keyboard.press('ArrowUp');
     }
-    const collapsedFloor = await openTabGeometry(page);
-    assert.ok(
-        Math.abs(collapsedFloor.currentGroup.height - OPEN_TAB_PANE_MIN_PX) <= 2,
-        `the collapsed pane keeps the legacy ${OPEN_TAB_PANE_MIN_PX}px floor `
-            + `(got ${collapsedFloor.currentGroup.height})`
-    );
+    const afterCollapsedKeys = await openTabGeometry(page);
+    assert.equal(afterCollapsedKeys.currentGroup.height, collapsedPane.currentGroup.height,
+        'ArrowUp is inert while the separator is hidden');
 });
 
 test('WORKTREE-GROUPING-UI-001 keeps the worktree list scrollable inside the fitted card', async t => {

@@ -213,6 +213,9 @@ function initProjects() {
         if (dataId == null)
             return;
 
+        if (worktreeGroupForm.onClick(e.target, projectDiv, dataId))
+            return;
+
         if (aiSessionControls.onTriggerAiSessionAction(e.target, dataId))
             return;
 
@@ -281,6 +284,7 @@ function initProjects() {
         getSelectedAiSessionProviders: aiSessionControls.getSelectedAiSessionProviders,
         syncAiSessionBatchManagementDom: aiSessionControls.syncAiSessionBatchManagementDom,
         reconcilePendingAiSessionProviderSelectionDom: aiSessionControls.reconcilePendingAiSessionProviderSelectionDom,
+        reconcileWorktreeGroupFormDom: () => worktreeGroupForm.reconcileDom(),
         submitAiSessionProviderSelection: aiSessionControls.submitAiSessionProviderSelection,
         toggleCodexSessions: aiSessionControls.toggleCodexSessions,
         exitAiSessionBatchManagement: aiSessionControls.exitAiSessionBatchManagement,
@@ -288,11 +292,32 @@ function initProjects() {
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
         presentationTransactions: presentationTransactions,
     });
+    var worktreeGroupForm = initWorktreeGroupForm({
+        findCurrentWorkspaceDiv: projectId =>
+            aiSessionsUpdate.findCurrentWorkspaceDiv(projectId),
+    });
+    aiSessionControls.setWorktreeGroupForm(worktreeGroupForm);
 
     function applyValidatedAiSessionPresentationState(message) {
         if (!aiSessionPresentationStateStore.adopt(message)) return;
         aiSessionPresentationDom.apply(message);
         aiSessionControls.reconcileAiSessionAttentionAcknowledgements();
+        // Track the worktree-group aggregate revision the webview has
+        // actually rendered (PRD §6.4 decision J): deletion settlements
+        // bind a minimum revision, and pending UI may only clear once a
+        // presentation at or beyond it has been applied.
+        if (typeof message.worktreeGroupsAggregateRevision === 'number'
+            && message.workspaceNavigationIdentity) {
+            var applied = window.__agentPivotWorktreeGroupAggregateRevision
+                || { identity: '', revision: 0 };
+            if (applied.identity !== message.workspaceNavigationIdentity
+                || message.worktreeGroupsAggregateRevision > applied.revision) {
+                window.__agentPivotWorktreeGroupAggregateRevision = {
+                    identity: message.workspaceNavigationIdentity,
+                    revision: message.worktreeGroupsAggregateRevision,
+                };
+            }
+        }
     }
 
     function readInitialAiSessionPresentationState() {
@@ -360,6 +385,12 @@ function initProjects() {
             return;
         }
 
+        contextMenuElement = e.target.closest("#aiSessionWorktreeMenu [data-action]");
+        if (contextMenuElement) {
+            aiSessionControls.activateAiSessionWorktreeMenuItem(contextMenuElement);
+            return;
+        }
+
         contextMenuElement = e.target.closest("#groupContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onGroupContextMenuActionClicked(contextMenuElement);
@@ -368,7 +399,8 @@ function initProjects() {
 
         // The create-dropdown arrow owns its toggle: the generic close would
         // hide the menu before the arrow handler can see it was open.
-        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')) {
+        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')
+            && !e.target.closest('[data-action="ai-session-worktree-menu"]')) {
             contextMenus.closeContextMenus();
         }
         if (!e.target.closest('.ai-session-provider-menu-wrapper')) {
@@ -470,6 +502,11 @@ function initProjects() {
             focusAiSessionConversationOrigin(message);
             return;
         }
+        if (message
+            && message.type === 'reveal-ai-session-requested') {
+            revealAiSessionInWorkspace(message);
+            return;
+        }
         if (message && message.type === 'todo-mutation-result') {
             applyTodoMutationResult(message, document);
             return;
@@ -510,6 +547,9 @@ function initProjects() {
             })) {
                 return;
             }
+            // applyOpenWorkspacesUpdate replaces the whole wrapper,
+            // including the form slot: re-render any open creation form.
+            worktreeGroupForm.reconcileDom();
             updateStickyGroupHeaderOffset();
             if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
                 openTabSplit.syncResizer();
@@ -566,6 +606,61 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'isolated-session-settlement') {
+            aiSessionControls.applyIsolatedSessionSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'managed-worktree-removal-settlement') {
+            aiSessionControls.applyManagedWorktreeRemovalSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-primary-settlement') {
+            aiSessionControls.applySetGroupPrimarySettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-rename-settlement') {
+            aiSessionControls.applyWorktreeGroupRenameSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-deletion-preview') {
+            aiSessionControls.applyWorktreeGroupDeletionPreview(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-deletion-settlement') {
+            aiSessionControls.applyWorktreeGroupDeletionSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-adopt-settlement') {
+            aiSessionControls.applyWorktreeAdoptSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-form-state') {
+            worktreeGroupForm.applyFormState(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-preview') {
+            worktreeGroupForm.applyPreview(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-creation-settlement') {
+            worktreeGroupForm.applyCreationSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-member-settlement') {
+            worktreeGroupForm.applyMemberSettlement(message);
+            return;
+        }
+
         if (!message || message.type !== 'ai-sessions-updated') {
             return;
         }
@@ -613,6 +708,27 @@ function initProjects() {
     });
 
     document.addEventListener("keydown", e => {
+        var worktreeHeader = e.target && e.target.closest
+            ? e.target.closest('.ai-session-worktree-header')
+            : null;
+        if (worktreeHeader
+            && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
+                || e.key === 'Home' || e.key === 'End')) {
+            var worktreePanel = worktreeHeader.closest('[data-ai-session-panel]');
+            var worktreeHeaders = worktreePanel
+                ? Array.from(worktreePanel.querySelectorAll('.ai-session-worktree-header'))
+                : [];
+            var worktreeHeaderIndex = worktreeHeaders.indexOf(worktreeHeader);
+            if (worktreeHeaderIndex >= 0 && worktreeHeaders.length) {
+                e.preventDefault();
+                var nextWorktreeHeaderIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? worktreeHeaders.length - 1
+                        : (worktreeHeaderIndex + (e.key === 'ArrowDown' ? 1 : -1)
+                            + worktreeHeaders.length) % worktreeHeaders.length;
+                worktreeHeaders[nextWorktreeHeaderIndex]?.focus();
+            }
+            return;
+        }
         var aiSessionProviderTrigger = e.target && e.target.closest
             ? e.target.closest('[data-ai-provider-menu-trigger]')
             : null;
@@ -737,6 +853,70 @@ function initProjects() {
             if (e.key === 'Tab') {
                 contextMenus.closeContextMenus();
             }
+        }
+
+        var worktreeMenuItem = e.target && e.target.closest
+            ? e.target.closest('#aiSessionWorktreeMenu [role="menuitem"]')
+            : null;
+        if (worktreeMenuItem) {
+            var worktreeMenu = worktreeMenuItem.closest('#aiSessionWorktreeMenu');
+            var worktreeItems = Array.from(
+                worktreeMenu.querySelectorAll('[role="menuitem"]:not([hidden])')
+            );
+            var worktreeIndex = worktreeItems.indexOf(worktreeMenuItem);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+                e.preventDefault();
+                var nextWorktreeIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? worktreeItems.length - 1
+                        : (worktreeIndex + (e.key === 'ArrowDown' ? 1 : -1) + worktreeItems.length)
+                            % worktreeItems.length;
+                worktreeItems[nextWorktreeIndex]?.focus();
+                return;
+            }
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                aiSessionControls.activateAiSessionWorktreeMenuItem(worktreeMenuItem);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                var worktreeOrigin = worktreeMenu.__originButton || null;
+                aiSessionControls.closeAiSessionWorktreeMenu();
+                worktreeOrigin?.focus();
+                return;
+            }
+            if (e.key === 'Tab') {
+                aiSessionControls.closeAiSessionWorktreeMenu();
+            }
+        }
+
+        var surfaceTab = e.target && e.target.closest
+            ? e.target.closest('[data-ai-session-surface-tab]')
+            : null;
+        if (surfaceTab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+            e.preventDefault();
+            var nextSurfaceId = getAdjacentAiSessionSurface(
+                surfaceTab.getAttribute('data-ai-session-surface-tab'),
+                e.key
+            );
+            var surfaceProject = surfaceTab.closest('.project[data-id]');
+            var nextSurface = surfaceProject
+                && Array.from(surfaceProject.querySelectorAll('[data-ai-session-surface-tab]'))
+                    .find(candidate =>
+                        candidate.getAttribute('data-ai-session-surface-tab') === nextSurfaceId
+                    );
+            nextSurface?.focus();
+            return;
+        }
+        if (surfaceTab && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            var surfaceTabProject = surfaceTab.closest('.project[data-id]');
+            var surfaceTabProjectId = surfaceTabProject
+                && surfaceTabProject.getAttribute('data-id');
+            if (surfaceTabProjectId) {
+                aiSessionControls.onTriggerAiSessionAction(surfaceTab, surfaceTabProjectId);
+            }
+            return;
         }
 
         var tab = e.target && e.target.closest ? e.target.closest('[data-ai-session-tab]') : null;

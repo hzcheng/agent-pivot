@@ -23,6 +23,11 @@ const directoryScope = {
     workspaceNavigationIdentity: workspace.navigationIdentity,
     workspaceScopeIdentity: workspace.scopeIdentity,
     workspaceRootHostPaths: ['/work'],
+    writableRootHostPaths: ['/work'],
+    worktreeKey: {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/work',
+    },
     primaryRootId: 'root:fixture',
     primaryCwd: '/work',
     additionalDirectories: [],
@@ -88,6 +93,8 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 creates one tracked pending ter
     assert.equal(requests[0].title, 'Fixture title');
     assert.equal(requests[0].identity.provider, 'codex');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
+    assert.deepEqual(requests[0].identity.writableRootHostPaths, ['/work']);
+    assert.deepEqual(requests[0].identity.worktreeKey, directoryScope.worktreeKey);
     assert.deepEqual(requests[0].excludedSessionIds, ['existing']);
     assert.equal(requests[0].launch, undefined);
     assert.equal(typeof requests[0].createLaunchSpec, 'function');
@@ -333,6 +340,155 @@ test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the gi
     assert.deepEqual(fixture.rememberedScopes, [directoryScope]);
     assert.deepEqual(fixture.rememberedProfiles, []);
     assert.deepEqual(fixture.effects, [['refresh']]);
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a session on a retired path persists its claim before side effects', async () => {
+    const order = [];
+    const discarded = [];
+    const claimInputs = [];
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async input => {
+            order.push(['claim', input.pendingId]);
+            claimInputs.push(input);
+            return 'claim-1';
+        },
+        discardGenerationClaim: async input => {
+            discarded.push(input.claimId);
+        },
+        runtimeCoordinator: {
+            create: async request => {
+                order.push(['create', request.identity.pendingId]);
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    }), true);
+    assert.deepEqual(order, [['claim', 'pending-quick'], ['create', 'pending-quick']],
+        'the pending claim is durable before the runtime is created');
+    assert.equal(claimInputs[0].provider, 'kimi');
+    assert.equal(claimInputs[0].launchMarkerPath, '/tmp/pending',
+        'the claim carries the launch marker for crash reconciliation');
+    assert.equal(claimInputs[0].navigationIdentity, 'navigation:fixture');
+    assert.deepEqual(discarded, [], 'a started session keeps its pending claim');
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a claim write failure rejects creation before any side effect', async () => {
+    let creates = 0;
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => {
+            throw new Error('store-full');
+        },
+        runtimeCoordinator: {
+            create: async () => {
+                creates += 1;
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    });
+    assert.equal(creates, 0, 'no terminal/provider side effect happened');
+    assert.ok(fixture.effects.some(effect => effect[0] === 'error'));
+});
+
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a non-started creation discards its pending claim', async () => {
+    const discarded = [];
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => 'claim-1',
+        discardGenerationClaim: async input => {
+            discarded.push([input.navigationIdentity, input.claimId]);
+        },
+        runtimeCoordinator: {
+            create: async () => ({ status: 'cancelled' }),
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+
+    await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    });
+    assert.deepEqual(discarded, [['navigation:fixture', 'claim-1']],
+        'the compensating delete releases the pending claim');
+});
+
+test('WORKTREE-SESSION-CREATE-TARGET-001 quick-create carries an explicit worktree through scope resolution', async () => {
+    const key = {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    };
+    const selections = [];
+    const fixture = makeQuickCreateController({
+        selectCreationScopeTarget: async (selectedWorkspace, explicitKey) => {
+            selections.push([selectedWorkspace.scopeIdentity, explicitKey]);
+            return { kind: 'worktree', key: explicitKey };
+        },
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'kimi', undefined, key), true);
+    assert.deepEqual(selections, [['scope:fixture', key]]);
+    assert.deepEqual(fixture.resolvedScopes, [[
+        makeWorkspaceTarget(),
+        'kimi',
+        undefined,
+        key,
+    ]]);
+    assert.equal(fixture.requests.length, 1);
+});
+
+test('WORKTREE-ISOLATED-SESSION-001 WORKTREE-PROVISIONING-STATE-001 isolated creation uses the task title and reports actual runtime start', async () => {
+    const key = {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    };
+    const fixture = makeQuickCreateController({
+        selectCreationScopeTarget: async (_workspace, explicitKey) => ({
+            kind: 'worktree', key: explicitKey,
+        }),
+    });
+
+    assert.equal(await fixture.controller.createSessionInWorktree(
+        'p', 'codex', ' Fix login race ', key), true);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.requests[0].title, 'Fix login race');
+    assert.deepEqual(fixture.requests[0].identity.worktreeKey, directoryScope.worktreeKey);
+
+    const blocked = makeQuickCreateController({
+        selectCreationScopeTarget: async (_workspace, explicitKey) => ({
+            kind: 'worktree', key: explicitKey,
+        }),
+        runtimeCoordinator: {
+            create: async () => ({ status: 'blocked' }),
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+    assert.equal(await blocked.controller.createSessionInWorktree(
+        'p', 'kimi', 'Task', key), false,
+    'provisioning must not settle as success for a non-started runtime result');
+});
+
+test('WORKTREE-SESSION-CREATE-TARGET-001 cancellation stops quick-create before scope or runtime work', async () => {
+    const fixture = makeQuickCreateController({
+        selectCreationScopeTarget: async () => null,
+    });
+
+    assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true);
+    assert.deepEqual(fixture.resolvedScopes, []);
+    assert.deepEqual(fixture.requests, []);
+    assert.deepEqual(fixture.rememberedProviders, []);
 });
 
 test('AI-SESSION-QUICK-CREATE-001 rejects unknown workspaces and invalid providers without side effects', async () => {
@@ -652,6 +808,8 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
     assert.equal(requests.length, 1);
     assert.equal(requests[0].identity.sessionId, 's');
     assert.equal(requests[0].identity.workspaceScopeIdentity, 'scope:fixture');
+    assert.deepEqual(requests[0].identity.writableRootHostPaths, ['/work']);
+    assert.deepEqual(requests[0].identity.worktreeKey, directoryScope.worktreeKey);
     assert.equal(requests[0].launch, undefined);
     assert.equal(typeof requests[0].createLaunchSpec, 'function');
     assert.deepEqual(launchSpecs, [{
@@ -1272,4 +1430,70 @@ test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 keeps the first run start when co
     });
     reader.read();
     assert.deepEqual(calls, [['a@100']]);
+});
+
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 every worktree session creation enters the deletion admission mutex', async () => {
+    // No retired identity: prepareGenerationClaim returns null, but the
+    // admission wrapper must still run around claim + create.
+    const order = [];
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => {
+            order.push('claim');
+            return null;
+        },
+        withWorktreeDeletionAdmission: async (scope, operation) => {
+            order.push('admission-enter');
+            const result = await operation();
+            order.push('admission-exit');
+            return result;
+        },
+        runtimeCoordinator: {
+            create: async () => {
+                order.push('create');
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+    assert.equal(await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    }), true);
+    assert.deepEqual(order, ['admission-enter', 'claim', 'create', 'admission-exit'],
+        'claim persistence and runtime creation both run inside the admission lock');
+});
+
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 a leased group refuses the session before any side effect', async () => {
+    let creates = 0;
+    let claims = 0;
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => {
+            claims += 1;
+            return 'claim-1';
+        },
+        withWorktreeDeletionAdmission: async () => {
+            const error = new Error('group-leased');
+            error.code = 'group-leased';
+            throw error;
+        },
+        runtimeCoordinator: {
+            create: async () => {
+                creates += 1;
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+    // The legacy quick-create boolean always reports true; the lease
+    // guarantee is zero side effects plus a user-visible warning.
+    await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    });
+    assert.equal(creates, 0, 'no runtime was created');
+    assert.equal(claims, 0, 'no claim is written once the lease check fails');
+    assert.ok(fixture.effects.some(effect =>
+        effect[0] === 'warning' && /being deleted/.test(effect[1])));
 });

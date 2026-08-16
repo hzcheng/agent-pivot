@@ -9,6 +9,7 @@ import type {
     AiSessionRuntimeIdentity,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
+import { getAiSessionRuntimeIdentityPersistenceFields } from './runtimeTypes';
 import {
     ambiguousIdentityParts,
     ambiguousRecordIdentityParts,
@@ -505,7 +506,7 @@ export class TmuxRuntimeBindingStore {
                     && isBoundedPath(runtime.markerPath)
                     && isFinitePositive(runtime.runStartedAtMs);
                 const record = validateKnownRecord({
-                    version: 2,
+                    ...getAiSessionRuntimeIdentityPersistenceFields(runtime.identity),
                     state: 'known',
                     provider: runtime.identity.provider,
                     sessionId,
@@ -595,10 +596,12 @@ export class TmuxRuntimeBindingStore {
             return records;
         }
         for (const filePath of await listJsonFiles(this.root)) {
-            const record = validatePersistedPendingRecord(await readJsonRegularFile(filePath), now);
+            const value = await readJsonRegularFile(filePath);
+            const record = validatePersistedPendingRecord(value, now);
             if (!record || !isCanonicalRecordPath(filePath, record)) {
                 continue;
             }
+            await this.rewriteLegacyEquivalentRecord(filePath, value, record);
             records.push(record);
         }
         records.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt)
@@ -617,19 +620,21 @@ export class TmuxRuntimeBindingStore {
         for (const filePath of await listJsonFiles(this.root)) {
             const name = path.basename(filePath);
             if (name.startsWith('pending-')) {
-                const record = validatePersistedPendingRecord(
-                    await readJsonRegularFile(filePath), now
-                );
+                const value = await readJsonRegularFile(filePath);
+                const record = validatePersistedPendingRecord(value, now);
                 if (record && isCanonicalRecordPath(filePath, record)) {
+                    await this.rewriteLegacyEquivalentRecord(filePath, value, record);
                     pending.set(pendingLifecycleRecordKey(record), record);
                 }
                 continue;
             }
             if (name.startsWith('promoting-')) {
-                const record = validatePromotingRecord(await readJsonRegularFile(filePath));
+                const value = await readJsonRegularFile(filePath);
+                const record = validatePromotingRecord(value);
                 if (!record || !isCanonicalRecordPath(filePath, record)) {
                     throw new Error('A durable tmux promoting record is invalid.');
                 }
+                await this.rewriteLegacyEquivalentRecord(filePath, value, record);
                 const key = pendingLifecycleRecordKey(record);
                 if (promoting.has(key)) {
                     throw new Error('Multiple durable tmux promoting records target one pending runtime.');
@@ -643,6 +648,7 @@ export class TmuxRuntimeBindingStore {
                 if (!record && isLegacyProjectKeyConsumedRecord(value)) {
                     continue;
                 }
+                await this.rewriteLegacyEquivalentRecord(filePath, value, record);
                 if (!record || !isCanonicalRecordPath(filePath, record)) {
                     throw new Error('A durable tmux consumed record is invalid.');
                 }
@@ -706,13 +712,15 @@ export class TmuxRuntimeBindingStore {
     ): Promise<Array<{ filePath: string; record: TmuxFinalRuntimeBinding }>> {
         const entries: Array<{ filePath: string; record: TmuxFinalRuntimeBinding }> = [];
         for (const filePath of await listJsonFiles(this.root)) {
-            const record = validateFinalRuntimeRecord(await readJsonRegularFile(filePath), this.now());
+            const value = await readJsonRegularFile(filePath);
+            const record = validateFinalRuntimeRecord(value, this.now());
             if (!record || !isCanonicalRecordPath(filePath, record)) {
                 continue;
             }
             if (isFinalRuntimeExpired(record, this.now())) {
                 await removeFile(filePath);
             } else {
+                await this.rewriteLegacyEquivalentRecord(filePath, value, record);
                 entries.push({ filePath, record });
             }
         }
@@ -736,6 +744,17 @@ export class TmuxRuntimeBindingStore {
             }
         }
         return entries;
+    }
+
+    private async rewriteLegacyEquivalentRecord(
+        filePath: string,
+        value: unknown,
+        record: TmuxRuntimeBinding
+    ): Promise<void> {
+        if (value && typeof value === 'object' && !Array.isArray(value)
+            && (value as Record<string, unknown>).version === 3 && record.version === 2) {
+            await this.writeRecord(filePath, record);
+        }
     }
 
     private recordPath(
@@ -886,4 +905,3 @@ async function removeFileDurably(filePath: string): Promise<void> {
         }
     }
 }
-

@@ -7,7 +7,11 @@ import { sanitizeAiSessionAlias } from './aliasStore';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
-import { isValidAiSessionRuntimeIdentityId } from './runtimeTypes';
+import {
+    cloneAiSessionDirectoryScope,
+    isCreateErrorProvenNotStarted,
+    isValidAiSessionRuntimeIdentityId,
+} from './runtimeTypes';
 import type {
     AiSessionCreateRuntimeRequest,
     AiSessionPendingRuntimeSnapshot,
@@ -15,6 +19,8 @@ import type {
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
 import type { AiSessionDirectoryScope, SessionProfileDecision, WorkspaceAiSessionActionTarget } from './types';
+import type { WorktreeKey } from '../worktrees/types';
+import type { AiSessionCreationScopeTarget } from './worktreeCreationTarget';
 
 interface AiSessionCreationTarget {
     id: string;
@@ -51,6 +57,12 @@ export interface AiSessionCreationControllerCommonOptions {
         workspace: WorkspaceAiSessionActionTarget['workspace']
     ) => Thenable<string | undefined> | Promise<string | undefined>;
     pickProvider: () => Thenable<AiSessionProviderId | undefined>;
+    selectCreationScopeTarget?: (
+        workspace: WorkspaceAiSessionActionTarget['workspace'],
+        explicitWorktreeKey?: WorktreeKey
+    ) => AiSessionCreationScopeTarget | null
+        | Thenable<AiSessionCreationScopeTarget | null>
+        | Promise<AiSessionCreationScopeTarget | null>;
     /**
      * Codex-only profile picker. Returns 'base' for an explicit base-config
      * decision (including the picker-hidden fallback), a profile name for a
@@ -85,7 +97,8 @@ export interface AiSessionCreationControllerCommonOptions {
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
         providerId: AiSessionProviderId,
-        explicitRootId?: string
+        explicitRootId?: string,
+        worktreeKey?: WorktreeKey
     ) => AiSessionDirectoryScope | null | Thenable<AiSessionDirectoryScope | null> | Promise<AiSessionDirectoryScope | null>;
     rememberDirectoryScope?: (
         directoryScope: AiSessionDirectoryScope
@@ -104,6 +117,41 @@ export interface AiSessionCreationControllerCommonOptions {
         error: unknown,
         backend: 'vscode' | 'tmux'
     ) => void;
+    /**
+     * PRD §6.4 generation claim: when the target worktree path carries a
+     * retired identity, the creation must persist a pending claim before
+     * any terminal/provider side effect. Returns the claim id, or null when
+     * the path has no retired record (no claim needed). Throwing rejects
+     * the creation before side effects (e.g. store-full).
+     */
+    prepareGenerationClaim?: (input: {
+        navigationIdentity: string;
+        worktreeKey: WorktreeKey;
+        pendingId: string;
+        provider: AiSessionProviderId;
+        launchMarkerPath: string;
+    }) => Promise<string | null>;
+    /** Compensating delete when the creation never reaches 'started'. */
+    discardGenerationClaim?: (input: {
+        navigationIdentity: string;
+        claimId: string;
+    }) => Promise<void>;
+    /**
+     * Deletion admission (PRD §6.4 decision J): wraps the whole admission
+     * phase of a worktree session creation — claim persistence AND runtime
+     * creation — inside the shared per-group mutex, and throws
+     * WorktreeGroupManifestError('group-leased') when the group is being
+     * deleted. Every worktree session creation must go through it, not
+     * only retired-path ones: otherwise a session could slip in after the
+     * deletion's blocker scan and start inside a deleted worktree.
+     */
+    withWorktreeDeletionAdmission?: <T>(
+        scope: {
+            workspaceNavigationIdentity: string;
+            worktreeKey: WorktreeKey;
+        },
+        operation: () => Promise<T>
+    ) => Promise<T>;
 }
 
 export interface AiSessionCreationRuntimeControllerOptions extends AiSessionCreationControllerCommonOptions {
@@ -126,7 +174,7 @@ export class AiSessionCreationController {
     /**
      * Full interactive flow: pick provider, (codex) pick profile, input title.
      */
-    async createSession(projectId: string): Promise<void> {
+    async createSession(projectId: string, explicitWorktreeKey?: WorktreeKey): Promise<void> {
         if (this.creating) {
             return;
         }
@@ -140,8 +188,15 @@ export class AiSessionCreationController {
         }
         this.creating = true;
         try {
+            const scopeTarget = await this.selectCreationScopeTarget(
+                target.workspace.workspace,
+                explicitWorktreeKey
+            );
+            if (!scopeTarget) {
+                return;
+            }
             let explicitRootId: string | undefined;
-            if (target.workspace.workspace.roots.length > 1) {
+            if (scopeTarget.kind === 'workspace' && target.workspace.workspace.roots.length > 1) {
                 explicitRootId = await this.options.pickWorkspaceRoot(target.workspace.workspace);
                 if (!explicitRootId) {
                     return;
@@ -162,14 +217,21 @@ export class AiSessionCreationController {
             if (codexProfileDecision) {
                 fields.codexProfileDecision = codexProfileDecision;
             }
-            await this.createProviderSession(providerId, target, fields, explicitRootId);
+            await this.createProviderSession(
+                providerId,
+                target,
+                fields,
+                explicitRootId,
+                scopeTarget.kind === 'worktree' ? scopeTarget.key : undefined
+            );
         } finally {
             this.creating = false;
         }
     }
 
     /**
-     * Quick-create: skip all pickers and use the given provider/profile directly.
+     * Quick-create: use the given provider/profile directly. Worktree target
+     * selection may still prompt when multiple linked worktrees are eligible.
      * Returns false only when the creation was never attempted: another
      * creation is in flight, the workspace is unknown, or the provider id is
      * invalid. Directory-scope and runtime failures surface their own UI
@@ -178,7 +240,8 @@ export class AiSessionCreationController {
     async createSessionQuick(
         projectId: string,
         providerId: AiSessionProviderId,
-        codexProfileDecision?: SessionProfileDecision
+        codexProfileDecision?: SessionProfileDecision,
+        explicitWorktreeKey?: WorktreeKey
     ): Promise<boolean> {
         if (this.creating) {
             return false;
@@ -195,6 +258,13 @@ export class AiSessionCreationController {
         }
         this.creating = true;
         try {
+            const scopeTarget = await this.selectCreationScopeTarget(
+                target.workspace.workspace,
+                explicitWorktreeKey
+            );
+            if (!scopeTarget) {
+                return true;
+            }
             // Resolve default profile when none is explicitly provided
             const effectiveProfile = codexProfileDecision
                 ?? (providerId === 'codex'
@@ -204,11 +274,67 @@ export class AiSessionCreationController {
                 title: '',
                 codexProfileDecision: effectiveProfile,
             };
-            // No explicit root: the directory-scope preflight resolves the
-            // multi-root choice from the active editor or the remembered
-            // primary root (see rememberDirectoryScope) without prompting.
-            await this.createProviderSession(providerId, target, fields);
+            // The selected worktree, when any, owns directory resolution.
+            // Legacy non-Git workspaces continue to use the active editor or
+            // remembered primary root (see rememberDirectoryScope).
+            await this.createProviderSession(
+                providerId,
+                target,
+                fields,
+                undefined,
+                scopeTarget.kind === 'worktree' ? scopeTarget.key : undefined
+            );
             return true;
+        } finally {
+            this.creating = false;
+        }
+    }
+
+    /**
+     * Picker-free creation for a Host-provisioned worktree. Unlike the legacy
+     * quick-create boolean, this reports true only after the runtime starts so
+     * a provisioning operation can settle or retry authoritatively.
+     */
+    async createSessionInWorktree(
+        projectId: string,
+        providerId: AiSessionProviderId,
+        title: string,
+        worktreeKey: WorktreeKey,
+        codexProfileDecision?: SessionProfileDecision
+    ): Promise<boolean> {
+        if (this.creating || !this.options.isProviderId(providerId)) {
+            return false;
+        }
+        const workspace = this.options.getWorkspaceTarget(projectId);
+        const target: AiSessionCreationTarget | null = workspace
+            ? { id: workspace.cardId, name: workspace.workspace.displayName, workspace }
+            : null;
+        if (!target) {
+            return false;
+        }
+        this.creating = true;
+        try {
+            const scopeTarget = await this.selectCreationScopeTarget(
+                target.workspace.workspace,
+                worktreeKey
+            );
+            if (!scopeTarget || scopeTarget.kind !== 'worktree') {
+                return false;
+            }
+            const effectiveProfile = codexProfileDecision
+                ?? (providerId === 'codex'
+                    ? this.options.getDefaultCodexProfileDecision?.()
+                    : undefined);
+            return await this.createProviderSession(
+                providerId,
+                target,
+                {
+                    title: sanitizeAiSessionAlias(title),
+                    codexProfileDecision: effectiveProfile,
+                },
+                undefined,
+                scopeTarget.key
+            );
         } finally {
             this.creating = false;
         }
@@ -249,15 +375,17 @@ export class AiSessionCreationController {
         providerId: AiSessionProviderId,
         target: AiSessionCreationTarget,
         fields: NewAiSessionFields,
-        explicitRootId?: string
-    ): Promise<void> {
+        explicitRootId?: string,
+        worktreeKey?: WorktreeKey
+    ): Promise<boolean> {
         const directoryScope = await this.options.resolveWorkspaceDirectoryScope(
-            target.workspace, providerId, explicitRootId
+            target.workspace, providerId, explicitRootId, worktreeKey
         );
         if (!directoryScope) {
-            return;
+            return false;
         }
-        await this.createRuntimeSession(providerId, target, fields, directoryScope, this.options);
+        return await this.createRuntimeSession(
+            providerId, target, fields, directoryScope, this.options);
     }
 
     private async createRuntimeSession(
@@ -266,7 +394,7 @@ export class AiSessionCreationController {
         fields: NewAiSessionFields,
         directoryScope: AiSessionDirectoryScope,
         options: AiSessionCreationRuntimeControllerOptions
-    ): Promise<void> {
+    ): Promise<boolean> {
         const coordinator = options.runtimeCoordinator;
         const sessionProvider = options.getProvider(providerId);
         if (!sessionProvider.buildNewSessionLaunchSpec) {
@@ -288,13 +416,20 @@ export class AiSessionCreationController {
         const createdAt = new Date(options.nowMs()).toISOString();
         const markerPath = options.getPendingMarkerPath(providerId);
         const terminalName = `${sessionProvider.terminalNamePrefix}: ${target.name || 'New Session'}`;
-        const launchScope = cloneDirectoryScope(directoryScope);
+        const launchScope = cloneAiSessionDirectoryScope(directoryScope);
         const request: AiSessionCreateRuntimeRequest = {
             identity: {
                 provider: providerId,
                 workspaceScopeIdentity: directoryScope.workspaceScopeIdentity,
                 workspaceNavigationIdentity: directoryScope.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...directoryScope.workspaceRootHostPaths],
+                ...(directoryScope.writableRootHostPaths ? {
+                    writableRootHostPaths: [...directoryScope.writableRootHostPaths],
+                } : {}),
+                ...(directoryScope.worktreeKey ? {
+                    worktreeKey: { ...directoryScope.worktreeKey },
+                } : {}),
+                ...(directoryScope.isolatedRoots ? { isolatedRoots: true } : {}),
                 cwd,
                 pendingId,
             },
@@ -316,10 +451,69 @@ export class AiSessionCreationController {
                 )),
             directoryScope,
         };
-        let result: AiSessionRuntimeActionResult<vscode.Terminal>;
+        // PRD §6.4: on a retired path the pending generation claim must be
+        // durable before any terminal/provider side effect; a claim write
+        // failure rejects the creation outright. The whole admission phase
+        // (claim + runtime creation) runs inside the per-group deletion
+        // admission mutex (decision J) so a session can never slip between
+        // a deletion's blocker scan and its journal write.
+        let generationClaimId: string | null = null;
+        const createWithAdmission = async ()
+            : Promise<AiSessionRuntimeActionResult<vscode.Terminal> | null> => {
+            if (directoryScope.worktreeKey && options.prepareGenerationClaim) {
+                try {
+                    generationClaimId = await options.prepareGenerationClaim({
+                        navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                        worktreeKey: { ...directoryScope.worktreeKey },
+                        pendingId,
+                        provider: providerId,
+                        launchMarkerPath: markerPath,
+                    });
+                } catch (error) {
+                    options.logRuntimeFailure?.('create-generation-claim', error, 'vscode');
+                    if (options.showErrorMessage) {
+                        await options.showErrorMessage(
+                            'Could not record the worktree session claim; the session was not started.');
+                    } else {
+                        await options.showWarningMessage(
+                            'Could not record the worktree session claim; the session was not started.');
+                    }
+                    options.refresh();
+                    return null;
+                }
+            }
+            return coordinator.create(request);
+        };
+        let result: AiSessionRuntimeActionResult<vscode.Terminal> | null;
         try {
-            result = await coordinator.create(request);
+            result = directoryScope.worktreeKey && options.withWorktreeDeletionAdmission
+                ? await options.withWorktreeDeletionAdmission({
+                    workspaceNavigationIdentity: directoryScope.workspaceNavigationIdentity,
+                    worktreeKey: { ...directoryScope.worktreeKey },
+                }, createWithAdmission)
+                : await createWithAdmission();
         } catch (error) {
+            if ((error as { code?: string })?.code === 'group-leased') {
+                // The group is being deleted: refuse before side effects.
+                options.logRuntimeFailure?.('create-group-leased', error, 'vscode');
+                if (options.showWarningMessage) {
+                    await options.showWarningMessage(
+                        'This group is being deleted; the session was not started.');
+                }
+                options.refresh();
+                return false;
+            }
+            // PRD §6.4: only a proven-not-started failure may discard the
+            // claim. Timeouts, post-launch failures, and uncertain recovery
+            // keep it — claim reconciliation can still re-attach the
+            // session, and a kept claim blocks deletion (fail-closed).
+            if (generationClaimId && options.discardGenerationClaim
+                && isCreateErrorProvenNotStarted(error)) {
+                await options.discardGenerationClaim({
+                    navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                    claimId: generationClaimId,
+                }).catch(() => undefined);
+            }
             options.logRuntimeFailure?.('create-runtime', error, 'tmux');
             if (options.showErrorMessage) {
                 await options.showErrorMessage('Could not start the AI session runtime.');
@@ -327,15 +521,28 @@ export class AiSessionCreationController {
                 await options.showWarningMessage('Could not start the AI session runtime.');
             }
             options.refresh();
-            return;
+            return false;
+        }
+        if (result === null) {
+            // Claim persistence refused the creation before side effects.
+            return false;
+        }
+        // Cancelled/settings outcomes happen before any launch side effect;
+        // conflict/blocked mean the runtime state is unclear → keep.
+        if ((result.status === 'cancelled' || result.status === 'settings')
+            && generationClaimId && options.discardGenerationClaim) {
+            await options.discardGenerationClaim({
+                navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                claimId: generationClaimId,
+            }).catch(() => undefined);
         }
         if (result.status === 'cancelled' || result.status === 'settings') {
-            return;
+            return false;
         }
         if (result.status === 'conflict') {
             options.refresh();
             await options.announceStatus(target.id, 'Multiple live runtimes match this AI session.');
-            return;
+            return false;
         }
         if (result.status === 'blocked') {
             options.refresh();
@@ -343,7 +550,7 @@ export class AiSessionCreationController {
                 target.id,
                 'Runtime creation is still awaiting lifecycle acknowledgement.'
             );
-            return;
+            return false;
         }
         if (result.status === 'started') {
             await options.rememberDirectoryScope?.(directoryScope);
@@ -355,15 +562,18 @@ export class AiSessionCreationController {
         await options.showActiveTab(target.id);
         options.refresh();
         options.scheduleNewSessionRefresh(providerId);
+        return result.status === 'started';
     }
-}
 
-function cloneDirectoryScope(scope: AiSessionDirectoryScope): AiSessionDirectoryScope {
-    return {
-        ...scope,
-        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
-        additionalDirectories: [...scope.additionalDirectories],
-    };
+    private async selectCreationScopeTarget(
+        workspace: WorkspaceAiSessionActionTarget['workspace'],
+        explicitWorktreeKey?: WorktreeKey
+    ): Promise<AiSessionCreationScopeTarget | null> {
+        if (!this.options.selectCreationScopeTarget) {
+            return { kind: 'workspace' };
+        }
+        return this.options.selectCreationScopeTarget(workspace, explicitWorktreeKey);
+    }
 }
 
 function mergeCodexProfileLaunchOptions(

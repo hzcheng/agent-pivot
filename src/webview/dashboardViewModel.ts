@@ -2,6 +2,8 @@
 
 import type { AiSessionProviderId, Group, Project } from '../models';
 import type { TodoSearchCatalogItem } from '../todos/types';
+import type { WorktreeActivity, WorktreeRowViewModel } from '../aiSessions/types';
+import type { WorktreeKey } from '../worktrees/types';
 
 export interface DashboardWorkspaceSearchSessionItem {
     key: string;
@@ -15,6 +17,24 @@ export interface DashboardWorkspaceSearchSessionItem {
     name: string;
     updatedAt?: string;
     active?: boolean;
+    worktreeKey?: WorktreeKey;
+    worktreeName?: string;
+}
+
+export interface DashboardWorkspaceSearchWorktreeItem {
+    key: string;
+    searchText: string;
+    workspaceId: string;
+    workspaceNavigationIdentity: string;
+    workspaceName: string;
+    action: 'reveal-workspace-worktree';
+    repositoryKey: string;
+    canonicalWorktreePath: string;
+    name: string;
+    branchRef?: string;
+    head: string;
+    activity: WorktreeActivity;
+    sessionCount: number;
 }
 
 export interface DashboardSearchProjectItem {
@@ -42,8 +62,9 @@ export interface DashboardSearchWorkspaceItem {
 }
 
 export interface DashboardWorkspaceSearchCatalog {
-    version: 2;
+    version: 3;
     sessions: DashboardWorkspaceSearchSessionItem[];
+    worktrees: DashboardWorkspaceSearchWorktreeItem[];
     openWorkspaces: DashboardSearchWorkspaceItem[];
     savedProjects: DashboardSearchProjectItem[];
     todos: TodoSearchCatalogItem[];
@@ -74,7 +95,9 @@ export interface DashboardSearchWorkspace {
             updatedAt?: string;
             active?: boolean;
             primaryRootLabel?: string;
+            worktreeKey?: WorktreeKey;
         }>>>;
+        worktrees?: WorktreeRowViewModel[];
     };
 }
 
@@ -196,27 +219,70 @@ export function buildWorkspaceDashboardSearchCatalog(
         });
 
     const sessions: DashboardWorkspaceSearchSessionItem[] = [];
+    const worktrees: DashboardWorkspaceSearchWorktreeItem[] = [];
     if (current?.aiSessions) {
-        PROVIDERS.forEach(provider => (current.aiSessions.sessionsByProvider[provider.id] || [])
-            .forEach(session => sessions.push({
-                key: `${provider.id}:${session.id}`,
+        const worktreeNameByKey = new Map<string, string>();
+        (current.aiSessions.worktrees || []).forEach(row => {
+            if (row.kind !== 'ready') {
+                return;
+            }
+            const name = getWorktreeDisplayName(row);
+            const key = worktreeLookupKey(row.git.key);
+            worktreeNameByKey.set(key, name);
+            worktrees.push({
+                key: `worktree:${key}`,
                 searchText: searchable(
-                    session.name,
+                    name,
+                    row.git.branchRef,
+                    row.git.key.canonicalWorktreePath,
+                    row.git.key.repositoryKey,
+                    row.git.head,
                     current.name,
-                    session.primaryRootLabel,
-                    provider.id,
-                    session.id
                 ),
                 workspaceId: current.id,
                 workspaceNavigationIdentity: current.navigationIdentity,
                 workspaceName: current.name || '',
-                action: 'reveal-workspace-session',
-                provider: provider.id,
-                sessionId: session.id,
-                name: session.name || session.id,
-                updatedAt: session.updatedAt,
-                active: session.active === true,
-            })));
+                action: 'reveal-workspace-worktree',
+                repositoryKey: row.git.key.repositoryKey,
+                canonicalWorktreePath: row.git.key.canonicalWorktreePath,
+                name,
+                ...(row.git.branchRef ? { branchRef: row.git.branchRef } : {}),
+                head: row.git.head,
+                activity: row.activity,
+                sessionCount: row.sessions.length,
+            });
+        });
+        PROVIDERS.forEach(provider => (current.aiSessions.sessionsByProvider[provider.id] || [])
+            .forEach(session => {
+                const worktreeName = session.worktreeKey
+                    ? worktreeNameByKey.get(worktreeLookupKey(session.worktreeKey))
+                    : undefined;
+                sessions.push({
+                    key: `${provider.id}:${session.id}`,
+                    searchText: searchable(
+                        session.name,
+                        current.name,
+                        session.primaryRootLabel,
+                        worktreeName,
+                        session.worktreeKey?.canonicalWorktreePath,
+                        provider.id,
+                        session.id
+                    ),
+                    workspaceId: current.id,
+                    workspaceNavigationIdentity: current.navigationIdentity,
+                    workspaceName: current.name || '',
+                    action: 'reveal-workspace-session',
+                    provider: provider.id,
+                    sessionId: session.id,
+                    name: session.name || session.id,
+                    updatedAt: session.updatedAt,
+                    active: session.active === true,
+                    ...(session.worktreeKey ? {
+                        worktreeKey: { ...session.worktreeKey },
+                    } : {}),
+                    ...(worktreeName ? { worktreeName } : {}),
+                });
+            }));
     }
 
     const savedProjects = buildSavedProjectSearchItems(groups);
@@ -231,13 +297,27 @@ export function buildWorkspaceDashboardSearchCatalog(
     }));
 
     return {
-        version: 2,
+        version: 3,
         sessions,
+        worktrees,
         openWorkspaces,
         savedProjects,
         todos,
         ...(skillItems.length ? { skills: skillItems } : {}),
     };
+}
+
+function worktreeLookupKey(key: WorktreeKey): string {
+    return JSON.stringify([key.repositoryKey, key.canonicalWorktreePath]);
+}
+
+function getWorktreeDisplayName(row: Extract<WorktreeRowViewModel, { kind: 'ready' }>): string {
+    if (row.git.branchRef) {
+        return row.git.branchRef.replace(/^refs\/heads\//, '');
+    }
+    const normalizedPath = row.git.key.canonicalWorktreePath.replace(/[\\/]+$/g, '');
+    const pathName = normalizedPath.split(/[\\/]/).pop();
+    return pathName || row.git.head.substring(0, 8) || 'worktree';
 }
 
 export function serializeDashboardSearchCatalog(

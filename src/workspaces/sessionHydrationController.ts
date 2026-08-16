@@ -21,6 +21,13 @@ import type { OpenWorkspace } from './types';
 import { projectWorkspaceActiveSessions } from './activeSessionPresentation';
 import type { WorkspaceActiveSessionPresentation } from './activeSessionPresentation';
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
+import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
+import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
+import type {
+    GenerationClaim,
+    RetiredWorktreeIdentity,
+} from '../worktrees/retiredWorktrees';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label' | 'terminalCwdFields'>;
 
@@ -34,6 +41,7 @@ export interface WorkspaceSessionHydrationReadCoordinator {
 
 export interface AiSessionProjectionSnapshot<TTerminal = unknown> {
     revision: number;
+    worktreeSnapshot: WorktreeSnapshot | null;
     activeRuntimes: readonly AiSessionRuntimeSnapshot<TTerminal>[];
     pendingRuntimes: readonly AiSessionPendingRuntimeSnapshot<TTerminal>[];
     executionSnapshot: Readonly<Record<string, AiSessionExecutionSnapshot>>;
@@ -47,6 +55,7 @@ export interface AiSessionPresentationTransaction<TTerminal = unknown>
 }
 
 export interface AiSessionProjectionCoordinatorOptions<TTerminal = unknown> {
+    getWorktreeSnapshot?: () => WorktreeSnapshot | null;
     getActiveRuntimes: () => readonly AiSessionRuntimeSnapshot<TTerminal>[];
     getPendingRuntimes: () => readonly AiSessionPendingRuntimeSnapshot<TTerminal>[];
     getExecutionSnapshot: () => Readonly<Record<string, AiSessionExecutionSnapshot>>;
@@ -75,6 +84,7 @@ export class AiSessionProjectionCoordinator<TTerminal = unknown> {
     capture(): AiSessionProjectionSnapshot<TTerminal> {
         return {
             revision: this.revision,
+            worktreeSnapshot: this.options.getWorktreeSnapshot?.() || null,
             activeRuntimes: this.options.getActiveRuntimes(),
             pendingRuntimes: this.options.getPendingRuntimes(),
             executionSnapshot: this.options.getExecutionSnapshot(),
@@ -122,8 +132,32 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getProviderSelection: (
         workspaceScopeIdentity: string
     ) => AiSessionProviderSelection | undefined;
+    getSelectedSurface?: (
+        workspaceScopeIdentity: string
+    ) => 'worktree' | 'chats' | undefined;
     getExpanded: (workspaceScopeIdentity: string) => boolean;
     getProjectionSnapshot: () => AiSessionProjectionSnapshot<TTerminal>;
+    getProvisioningWorktrees?: (
+        navigationIdentity: string
+    ) => readonly ProvisioningWorktreeRow[];
+    /** Authoritative worktree group manifest bucket for the hydrated workspace. */
+    getWorktreeGroups?: (
+        workspaceNavigationIdentity: string
+    ) => readonly WorktreeGroup[];
+    /** Active deletion journals for the hydrated workspace (PRD §6.4). */
+    getDeletionJournals?: (
+        workspaceNavigationIdentity: string
+    ) => readonly DeletionJournalEntry[];
+    /** Retired worktree identities for the hydrated workspace (PRD §6.4). */
+    getRetiredWorktreeIdentities?: (
+        workspaceNavigationIdentity: string
+    ) => readonly RetiredWorktreeIdentity[];
+    /** Generation claims for the hydrated workspace (PRD §6.4). */
+    getGenerationClaims?: (
+        workspaceNavigationIdentity: string
+    ) => readonly GenerationClaim[];
+    /** Quarantine signal for the retired store (PRD §6.4). */
+    isRetiredStoreCorrupt?: (workspaceNavigationIdentity: string) => boolean;
     onDidReadSessions?: (
         workspace: OpenWorkspace,
         sessionResults: Record<AiSessionProviderId, AiSessionReadResult>,
@@ -157,11 +191,14 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             return null;
         }
 
-        const candidatePaths = getWorkspaceAiSessionCandidatePaths(workspace);
+        const projection = projectionOverride || this.options.getProjectionSnapshot();
+        const candidatePaths = getWorkspaceAiSessionCandidatePaths(
+            workspace,
+            projection.worktreeSnapshot,
+        );
         const maxFiles = getAiSessionScanMaxFiles(reason, this.options.incrementalScanMaxFiles);
         const sessionResults = this.options.readCoordinator.getResults({ candidatePaths, reason, maxFiles });
         this.options.onDidReadSessions?.(workspace, sessionResults, reason);
-        const projection = projectionOverride || this.options.getProjectionSnapshot();
         const activePresentation = Object.prototype.hasOwnProperty.call(
             projection,
             'presentation'
@@ -191,8 +228,22 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             executionSnapshot: projection.executionSnapshot,
             focusedIdentity: projection.focusedIdentity,
             attentionAggregate: projection.attentionAggregate,
+            worktreeSnapshot: projection.worktreeSnapshot,
+            provisioningWorktrees:
+                this.options.getProvisioningWorktrees?.(workspace.navigationIdentity) || [],
+            worktreeGroups: this.options.getWorktreeGroups?.(workspace.navigationIdentity) || [],
+            deletionJournals:
+                this.options.getDeletionJournals?.(workspace.navigationIdentity) || [],
+            retiredWorktreeIdentities:
+                this.options.getRetiredWorktreeIdentities?.(workspace.navigationIdentity) || [],
+            generationClaims:
+                this.options.getGenerationClaims?.(workspace.navigationIdentity) || [],
+            nowMs: () => this.nowMs(),
+            retiredStoreCorrupt:
+                this.options.isRetiredStoreCorrupt?.(workspace.navigationIdentity) || false,
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
+            selectedSurface: this.options.getSelectedSurface?.(workspace.scopeIdentity),
             expanded: this.options.getExpanded(workspace.scopeIdentity),
         });
         this.logDiagnostic({
@@ -205,6 +256,11 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             sessionCount: result.aiSessionCount,
             activeSessionCount: result.activeSessionCount,
             unavailableProviderCount: result.unavailableProviders.length,
+            ...(projection.worktreeSnapshot ? {
+                worktreeSnapshotRevision: projection.worktreeSnapshot.revision,
+                worktreeRepositoryCount: projection.worktreeSnapshot.repositories.length,
+                truncatedWorktreeCount: projection.worktreeSnapshot.truncatedWorktreeCount,
+            } : {}),
         });
         return result;
     }

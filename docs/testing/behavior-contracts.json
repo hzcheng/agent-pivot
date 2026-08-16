@@ -2000,6 +2000,384 @@
     ]
   },
   {
+    "id": "RUNTIME-WORKTREE-IDENTITY-001",
+    "domain": "runtime",
+    "title": "Runtime identity v3 validates, compares, and defensively clones worktree and writable-root identity",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimePrimitives.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/runtimeTypes.ts",
+      "src/worktrees/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-DISCOVERY-001",
+    "domain": "session",
+    "title": "Workspace roots discover bounded, canonical Git worktree snapshots with compatible porcelain parsing and stable per-repository base refs",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/baseRefStore.test.js",
+      "tests/unit/worktrees/gitWorktreeDiscovery.test.js",
+      "tests/unit/worktrees/porcelainParser.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/baseRefStore.ts",
+      "src/worktrees/gitWorktreeDiscovery.ts",
+      "src/worktrees/porcelainParser.ts",
+      "src/worktrees/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-SNAPSHOT-001",
+    "domain": "session",
+    "title": "Worktree snapshots refresh automatically with single-flight generation safety and flow coherently through session hydration and presentation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/gitRepositoryStateMonitor.test.js",
+      "tests/unit/worktrees/snapshotCoordinator.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/worktrees/gitRepositoryStateMonitor.ts",
+      "src/worktrees/snapshotCoordinator.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/sessionHydrationController.ts"
+    ]
+  },
+  {
+    "id": "SESSION-WORKTREE-ASSIGNMENT-001",
+    "domain": "session",
+    "title": "Sibling worktree histories and runtimes map to stable worktree identity, resume in their owning worktree, and leave legacy records visible as unmanaged",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeSessionAssignment.test.js",
+      "tests/unit/workspaces/sessionScope.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/commandController.ts",
+      "src/workspaces/worktreeSessionAssignment.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/sessionHydrationController.ts",
+      "src/workspaces/sessionScope.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PRESENTATION-001",
+    "domain": "webview",
+    "title": "Workspace projections combine worktree Git and Session state and every Dashboard search channel publishes catalog v3 worktree entries",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeSessionAssignment.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/types.ts",
+      "src/workspaces/viewModels.ts",
+      "src/webview/dashboardViewModel.ts",
+      "src/webview/webviewDashboardValidationScripts.js",
+      "src/webview/webviewDashboardSearchScripts.js"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPING-UI-001",
+    "domain": "webview",
+    "title": "The Dashboard exposes Worktree and Chats as the only top-level AI surfaces while Chats preserves the original Active and All session lists and Worktree renders the Orca-style worktree dashboard",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/worktreeGrouping.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewAiSessionViewStateScripts.js",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "WORKTREE-QUICK-SWITCH-001",
+    "domain": "webview",
+    "title": "The public Worktree or Session switch command orders attention, active, recent, and idle targets and safely focuses, resumes, or reveals the selected target",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/dashboard/worktreeQuickSwitch.test.js",
+      "tests/contract/dashboardBoundaries.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/worktreeQuickSwitch.ts",
+      "src/dashboard/commandRegistration.ts",
+      "src/dashboard.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "src/webview/webviewProjectAiUpdateScripts.js"
+    ]
+  },
+  {
+    "id": "WORKTREE-SESSION-CREATE-TARGET-001",
+    "domain": "runtime",
+    "title": "Session creation resolves an explicit, active-editor, unique, or user-picked worktree independently of display grouping and launches with a snapshot-validated worktree scope",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/worktreeCreationTarget.test.js",
+      "tests/unit/workspaces/sessionScope.test.js",
+      "tests/browser/quickSessionCreate.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/worktreeCreationTarget.ts",
+      "src/aiSessions/creationController.ts",
+      "src/aiSessions/commandController.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-PLAN-001",
+    "domain": "runtime",
+    "title": "Isolated worktree planning derives a bounded recoverable slug and atomically allocates one collision suffix across the Git branch and managed path",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/provisioningPlan.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/provisioningPlan.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-STATE-001",
+    "domain": "runtime",
+    "title": "Host-owned isolated worktree provisioning publishes queued, create, setup, and agent stages and retries or cancels without repeating completed work",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/provisioningController.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/provisioningController.ts",
+      "src/worktrees/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-GIT-001",
+    "domain": "runtime",
+    "title": "Isolated worktree creation validates repository identity, uses bounded shell-free Git commands, classifies real collisions, and reconciles late success before reporting failure",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/gitWorktreeProvisioner.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/gitWorktreeProvisioner.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-ISOLATED-SESSION-001",
+    "domain": "runtime",
+    "title": "New worktree creation selects a workspace repository, creates and discovers one linked worktree with an optional setup command, and keeps failures safely retryable; sessions start separately from the row menu",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/isolatedSessionController.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/isolatedSessionController.ts",
+      "src/aiSessions/creationController.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-PROTOCOL-001",
+    "domain": "webview",
+    "title": "New Isolated Session mutations use exact correlated requests, treat accepted as progress, and settle start, retry, and cancel requests once against Host-owned operation state",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/provisioningProtocol.test.js",
+      "tests/browser/quickSessionCreate.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/provisioningProtocol.ts",
+      "src/dashboard.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-UI-001",
+    "domain": "webview",
+    "title": "Sessions renders Host-owned isolated-worktree progress and accessible retry or cancel actions without allowing stale Webview state to claim success",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/worktreeGrouping.test.js",
+      "tests/unit/workspaces/worktreeSessionAssignment.test.js"
+    ],
+    "evidence": [
+      "src/workspaces/viewModels.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-SETUP-001",
+    "domain": "runtime",
+    "title": "Isolated worktree setup runs one optional bounded shell-free executable argv in the created checkout and remains safely cancellable",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/worktreeSetupRunner.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/worktrees/worktreeSetupRunner.ts",
+      "src/worktrees/isolatedSessionController.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-PROVISIONING-RECOVERY-001",
+    "domain": "persistence",
+    "title": "Interrupted isolated-session operations restore from validated machine-local state as explicit retry rows and resume after their last durable step",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/provisioningStore.test.js",
+      "tests/contract/worktrees/provisioningController.test.js",
+      "tests/contract/worktrees/isolatedSessionController.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/provisioningStore.ts",
+      "src/worktrees/provisioningController.ts",
+      "src/worktrees/isolatedSessionController.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-MANAGED-CLEANUP-001",
+    "domain": "runtime",
+    "title": "Worktree cleanup removes only an explicitly confirmed clean idle unopened Agent Pivot checkout without force and retains its local branch",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeSessionAssignment.test.js",
+      "tests/unit/worktrees/provisioningPlan.test.js",
+      "tests/contract/worktrees/managedWorktreeRemovalController.test.js",
+      "tests/browser/worktreeGrouping.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/managedWorktreeRemovalController.ts",
+      "src/worktrees/provisioningPlan.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-MANAGED-CLEANUP-PROTOCOL-001",
+    "domain": "webview",
+    "title": "Managed worktree removal uses an exact correlated request and keeps pending UI until a matching Host terminal settlement",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/removalProtocol.test.js",
+      "tests/browser/quickSessionCreate.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/removalProtocol.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "RUNTIME-TMUX-WORKTREE-REQUEST-001",
+    "domain": "runtime",
+    "title": "Deferred tmux requests snapshot worktree runtime identity without retaining mutable inputs",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/tmuxRuntimeRequest.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxRuntimeRequest.ts",
+      "src/aiSessions/runtimeTypes.ts"
+    ]
+  },
+  {
+    "id": "RUNTIME-TMUX-WORKTREE-RECORDS-001",
+    "domain": "runtime",
+    "title": "Tmux binding records dual-read v2 and preserve v3 worktree identity across validation and cloning",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/tmuxBindingRecords.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxBindingRecords.ts"
+    ]
+  },
+  {
+    "id": "RUNTIME-TMUX-WORKTREE-RELOAD-001",
+    "domain": "runtime",
+    "title": "Live tmux runtimes preserve v3 worktree identity and remain discoverable during mixed v2/v3 metadata upgrades",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimeBackends.test.js",
+      "tests/contract/aiSessions/tmuxDiscovery.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxLayout.ts",
+      "src/aiSessions/tmuxManagedMetadata.ts",
+      "src/aiSessions/tmuxRuntimeBindingStore.ts",
+      "src/aiSessions/tmuxRuntimeDiscovery.ts"
+    ]
+  },
+  {
+    "id": "PERSIST-AI-SESSION-TERMINAL-V3-001",
+    "domain": "persistence",
+    "title": "Direct terminal bindings reload v3 worktree identity while retaining v2 compatibility",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/persistence/stores.test.js",
+      "tests/contract/aiSessions/terminalService.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/terminalBindingStore.ts",
+      "src/aiSessions/terminalService.ts"
+    ]
+  },
+  {
+    "id": "PERSIST-AI-SESSION-TMUX-ATTACH-V3-001",
+    "domain": "persistence",
+    "title": "Tmux attach bindings dual-read v2 keys and reload v3 worktree identity",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/persistence/stores.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxAttachBindingStore.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001",
     "domain": "runtime",
     "title": "Tmux Webview Experience behavior",
@@ -3798,6 +4176,168 @@
       "src/workspaces/sessionScope.ts",
       "src/aiSessions/commandController.ts",
       "src/aiSessions/commandBuilders.ts"
+    ]
+  },
+  {
+    "id": "SESSION-WORKTREE-SCOPE-001",
+    "domain": "session",
+    "title": "Worktree session scope confines writable roots to the bound repository worktrees, marks strict isolation, and preserves workspace ownership roots",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/sessionScope.test.js",
+      "tests/contract/aiSessions/runtimePrimitives.test.js"
+    ],
+    "evidence": [
+      "src/workspaces/sessionScope.ts",
+      "src/aiSessions/runtimeTypes.ts",
+      "src/workspaces/types.ts",
+      "src/worktrees/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-001",
+    "domain": "persistence",
+    "title": "The worktree group manifest is the only authoritative grouping record, enforces one group per worktree key and one member per repository, and removes empty groups",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupManifestStore.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupManifestStore.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-002",
+    "domain": "session",
+    "title": "The worktree group projection collapses main checkouts into one labeled anchor row, groups manifest worktrees into single rows with shortest-unique-prefix repository chips, and never merges same-slug groups silently",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeGroupProjection.test.js"
+    ],
+    "evidence": [
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/workspaces/viewModels.ts",
+      "src/aiSessions/types.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-003",
+    "domain": "session",
+    "title": "Snapshot reconciliation seeds extension-created worktrees as one-worktree groups without cross-repository slug merging and tracks repository detachment idempotently",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupManifestReconciliation.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupManifestReconciliation.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+   "id": "WORKTREE-GROUPS-UI-001",
+   "domain": "webview",
+   "title": "The Worktree surface unifies row behavior: every row carries the same actions menu (no standalone + anywhere), the Current anchor menu offers session creation but never removal, group rows show chips and merge affordances, legacy-scope badges, and the surface stays usable at the minimum sidebar width",
+   "priority": "P0",
+   "status": "automated",
+   "owners": [
+     "tests/browser/worktreeGroups.test.js"
+   ],
+   "evidence": [
+     "src/webview/webviewAiSessionContent.ts",
+     "src/webview/webviewProjectAiSessionControlsScripts.js",
+     "media/styles.scss"
+   ]
+ },
+  {
+    "id": "WORKTREE-GROUPS-CREATE-001",
+    "domain": "session",
+    "title": "Group creation provisions exactly the confirmed member set in parallel, fails execution-time collisions without re-suffixing, and reconciles in-flight members after a restart",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/groupCreationController.test.js",
+      "tests/unit/worktrees/groupCreationProtocol.test.js",
+      "tests/contract/worktrees/isolatedSessionController.test.js",
+      "tests/unit/worktrees/groupManifestReconciliation.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupCreationController.ts",
+      "src/worktrees/groupCreationProtocol.ts",
+      "src/worktrees/isolatedSessionController.ts",
+      "src/worktrees/gitWorktreeProvisioner.ts",
+      "src/worktrees/groupManifestReconciliation.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-CREATE-UI-001",
+    "domain": "webview",
+    "title": "The inline group creation form previews every physical side effect in real time, gates confirm on preflight, offers the explicit available-subset action, and renders member Retry/Dismiss",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/worktreeGroupForm.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewGroupFormScripts.js",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-HISTORY-IDENTITY-001",
+    "domain": "persistence",
+    "title": "Retired worktree identities persist in the group aggregate with a monotonic cutoff high-water mark, generation claims persist independently of terminal bindings and promote atomically, and history sessions derive their pre/post-deletion generation fail-closed",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/retiredWorktrees.test.js",
+      "tests/unit/worktrees/groupManifestStore.test.js",
+      "tests/contract/aiSessions/projectHydrationController.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/aiSessions/projectHydrationPromotion.test.js",
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/retiredWorktrees.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/sessionHydrationController.ts",
+      "src/workspaces/pendingSessionPromotionController.ts",
+      "src/aiSessions/creationController.ts",
+      "src/aiSessions/sessionControllerComposition.ts",
+      "src/services/codexSessionService.ts",
+      "src/services/claudeSessionService.ts",
+      "src/models.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-RENAME-001",
+    "domain": "session",
+    "title": "Group rename writes displayName, regenerated suggestedSlug, and a monotonic revision in one store mutation, drives the inline editor through the accepted/settled/failed settlement lifecycle, and the expandable member summary survives authoritative replacements",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupManifestStore.test.js",
+      "tests/unit/worktrees/groupRenameProtocol.test.js",
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupManifestStore.ts",
+      "src/worktrees/groupRenameProtocol.ts",
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewAiSessionViewStateScripts.js",
+      "src/dashboard.ts",
+      "media/styles.scss"
     ]
   },
   {
@@ -5910,14 +6450,18 @@
   {
     "id": "ARCH-SESSION-WORKTREE-001",
     "domain": "session",
-    "title": "Session worktree resolution maps operating paths to git worktrees across main checkouts, linked worktrees, and detached HEAD",
+    "title": "Session worktree boundaries keep Git identity independent and map operating paths across main, linked, and detached checkouts",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/aiSessions/conversationWorktreeResolver.test.js"
+      "tests/unit/aiSessions/conversationWorktreeResolver.test.js",
+      "tests/unit/aiSessions/sessionBoundaries.test.js",
+      "tests/unit/services/sourceControl.test.js"
     ],
     "evidence": [
-      "src/aiSessions/conversation/worktreeResolver.ts"
+      "src/aiSessions/conversation/worktreeResolver.ts",
+      "src/worktrees/types.ts",
+      "src/services/sourceControl.ts"
     ]
   },
   {
@@ -5950,6 +6494,130 @@
     ],
     "evidence": [
       "package.json"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-DELETE-JOURNAL-001",
+    "domain": "persistence",
+    "title": "Journaled worktree deletion freezes identity before side effects, checkpoints per member into the same aggregate, blocks admission via lease and pending claims, reconciles restarts fail-closed, and archives a bounded diagnostic ring",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/deletionJournal.test.js",
+      "tests/unit/worktrees/deletionController.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupManifestStore.ts",
+      "src/worktrees/deletionJournal.ts",
+      "src/worktrees/deletionController.ts",
+      "src/worktrees/managedWorktreeRemovalController.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-MEMBER-DELETE-001",
+    "domain": "persistence",
+    "title": "Member-level journaled deletion end to end: inline confirmation card with blocker preview, history counts and primary replacement, exactly-once settlements with aggregate revision binding, Retry/abandon of partial journals, orphan claim discard, and focus restoration",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupDeletionProtocol.test.js",
+      "tests/unit/worktrees/groupDeletionHandler.test.js",
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/contract/worktrees/journaledDeletion.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupDeletionProtocol.ts",
+      "src/worktrees/groupDeletionHandler.ts",
+      "src/worktrees/deletionController.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-GROUP-DELETE-001",
+    "domain": "persistence",
+    "title": "Group-level journaled deletion end to end: per-member gate results in one confirmation card, detached members block whole-group deletion with a visible-only alternative, partial failures keep residue for Retry, and whole-group completion removes the row with ordered focus restoration",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupDeletionHandler.test.js",
+      "tests/unit/worktrees/deletionJournal.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupDeletionProtocol.ts",
+      "src/worktrees/groupDeletionHandler.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-DERIVE-001",
+    "domain": "persistence",
+    "title": "Deriving a group reuses the inline creation form with source-prefilled name, selection and branch bases, ref-verified candidate eligibility, and a source-revision-bound preview token that fails closed on drift",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/groupDerive.test.js",
+      "tests/unit/worktrees/groupCreationProtocol.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupCreationController.ts",
+      "src/worktrees/groupCreationProtocol.ts",
+      "src/webview/webviewGroupFormScripts.js",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-ADD-REPO-001",
+    "domain": "persistence",
+    "title": "Add repo reuses the inline creation form with a locked group slug, eligible-repository filtering, active-editor default check, and revision-bound preview tokens; scope-outdated judgment annotates group rows fail-safe (ready members only, mapped bindings, cross-platform comparison)",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/worktrees/groupAddRepo.test.js",
+      "tests/unit/worktrees/groupCreationProtocol.test.js",
+      "tests/unit/workspaces/sessionScopeOutdated.test.js",
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupCreationController.ts",
+      "src/worktrees/groupCreationProtocol.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/sessionHydration.ts",
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewGroupFormScripts.js",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-ADOPT-MERGE-001",
+    "domain": "persistence",
+    "title": "Adopt clusters unmanaged worktrees by slug with host-side revalidation against snapshot and manifest before one aggregate write; merge works between any two groups with double revision binding, double lease validation, and primary fallback for a headless survivor",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupAdoptMerge.test.js",
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupAdoptProtocol.ts",
+      "src/worktrees/groupAdoptHandler.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/dashboard.ts"
     ]
   }
 ]

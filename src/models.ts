@@ -182,6 +182,12 @@ export interface CodexSession {
     id: string;
     name: string;
     updatedAt?: string;
+    /**
+     * Stable provider-side creation time (ISO), when the provider exposes
+     * one. Feeds worktree session-generation judgment (PRD §6.4); sessions
+     * without it fail closed to the retired generation.
+     */
+    createdAt?: string;
     cwd?: string;
     workDir?: string;
     provider?: AiSessionProviderId;

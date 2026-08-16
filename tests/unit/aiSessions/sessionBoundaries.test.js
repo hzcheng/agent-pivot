@@ -45,6 +45,17 @@ const providers = [
     { id: 'kimi', terminalNamePrefix: 'Kimi', projectSessionsKey: 'kimiSessions', terminalCwdFields: ['workDir', 'cwd'] },
 ];
 
+test('ARCH-SESSION-WORKTREE-001 keeps the worktree domain independent from AI sessions', () => {
+    const worktreeRoot = path.resolve(__dirname, '../../../src/worktrees');
+    const sourceFiles = fs.readdirSync(worktreeRoot)
+        .filter(name => name.endsWith('.ts'));
+    assert.ok(sourceFiles.length > 0, 'the worktree domain must contain production source');
+    for (const name of sourceFiles) {
+        const source = fs.readFileSync(path.join(worktreeRoot, name), 'utf8');
+        assert.doesNotMatch(source, /from\s+['"][^'"]*aiSessions(?:\/|['"])/, name);
+    }
+});
+
 test('PROJECT-ASSIGNMENT-001 assigns a session only to its deepest matching project', () => {
     const result = helpers.assignAiSessionsToProjects([
         { project: { id: 'root' }, path: '/work' },
@@ -123,7 +134,12 @@ test('SESSION-PENDING-TERMINAL-RESOLVER-001 promotes one valid runtime and repor
         }] },
     };
     assert.deepEqual(await resolver.resolvePendingAiSessionTerminals(options), {
-        attempted: 1, promoted: [{ pendingId: 'pending-1', provider: 'codex', sessionId: 'new' }], failures: [],
+        attempted: 1,
+        promoted: [{
+            pendingId: 'pending-1', provider: 'codex', sessionId: 'new',
+            navigationIdentity: 'navigation:/work/app',
+        }],
+        failures: [],
     });
     assert.equal(resolver.getPendingAiSessionPromotionFailureReason([], 'codex', 'new'), 'missing-runtime');
 });

@@ -16,6 +16,7 @@ export function buildAiSessionPresentationState<TTerminal>(
     renderedWorkspaceNavigationIdentity: string | null,
     runningCardAnimation: string = 'current',
     runningIconAnimation: string = 'current',
+    worktreeGroupsAggregateRevision: number | null = null,
 ): AiSessionPresentationStateMessage {
     return {
         type: 'ai-session-presentation-state',
@@ -26,5 +27,6 @@ export function buildAiSessionPresentationState<TTerminal>(
         runningIconAnimation,
         revealFocused,
         workspaceNavigationIdentity: renderedWorkspaceNavigationIdentity,
+        worktreeGroupsAggregateRevision,
     };
 }

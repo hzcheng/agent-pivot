@@ -22,8 +22,10 @@ import {
 } from './runtimeLaunch';
 import { AiSessionRuntimeLifecycleBlockedError } from './runtimeTypes';
 import {
+    cloneAiSessionDirectoryScope,
     cloneAiSessionRuntimeIdentity,
     isValidAiSessionPromotionDisplayName,
+    markCreateErrorProvenNotStarted,
 } from './runtimeTypes';
 
 interface DirectTerminalEntry<TTerminal> {
@@ -221,13 +223,20 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             throw new Error('Multiple Direct Terminal runtimes use this pending ID.');
         }
 
-        const created = this.terminalService.createTerminal({
-            name: input.terminalName,
-            cwd: input.identity.cwd || undefined,
-            cwdFailureMessage: 'Failed to create the AI session terminal with cwd.',
-            cwdWarningMessage: 'Could not open the AI session terminal at the project directory. Starting without a working directory.',
-            logError: () => undefined,
-        });
+        let created: { terminal: TTerminal; cwdAccepted: boolean };
+        try {
+            created = this.terminalService.createTerminal({
+                name: input.terminalName,
+                cwd: input.identity.cwd || undefined,
+                cwdFailureMessage: 'Failed to create the AI session terminal with cwd.',
+                cwdWarningMessage: 'Could not open the AI session terminal at the project directory. Starting without a working directory.',
+                logError: () => undefined,
+            });
+        } catch (error) {
+            // The terminal itself was never created: the provider launch
+            // provably never happened (PRD §6.4 claim discard rule).
+            throw markCreateErrorProvenNotStarted(error);
+        }
         const dispatched = materializeCreateRequest(input);
         const pending: DirectPendingTerminalEntry<TTerminal> = {
             provider: dispatched.identity.provider,
@@ -402,7 +411,7 @@ function snapshotResumeRequest(
         projectName: request.projectName,
         sessionName: request.sessionName,
         terminalName: request.terminalName,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         launchMarkerPath: launch.launchMarkerPath,
         createLaunchSpec: launch.createLaunchSpec,
     };
@@ -417,7 +426,7 @@ function snapshotCreateRequest(
         projectName: request.projectName,
         terminalName: request.terminalName,
         createdAt: request.createdAt,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         excludedSessionIds: [...request.excludedSessionIds],
         ...(request.title === undefined ? {} : { title: request.title }),
         launchMarkerPath: launch.launchMarkerPath,
@@ -433,7 +442,7 @@ function materializeResumeRequest(
         projectName: request.projectName,
         sessionName: request.sessionName,
         terminalName: request.terminalName,
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         launchMarkerPath: request.launchMarkerPath,
         launch: materializeAiSessionLaunchSpec(request),
     };
@@ -449,7 +458,7 @@ function materializeCreateRequest(
         createdAt: request.createdAt,
         excludedSessionIds: [...request.excludedSessionIds],
         ...(request.title === undefined ? {} : { title: request.title }),
-        directoryScope: cloneDirectoryScope(request.directoryScope),
+        directoryScope: cloneAiSessionDirectoryScope(request.directoryScope),
         launchMarkerPath: request.launchMarkerPath,
         launch: materializeAiSessionLaunchSpec(request),
     };
@@ -460,14 +469,6 @@ function cloneRuntime<TTerminal>(runtime: AiSessionRuntimeSnapshot<TTerminal>): 
         ...runtime,
         identity: cloneAiSessionRuntimeIdentity(runtime.identity),
         ...(runtime.tmux ? { tmux: { ...runtime.tmux } } : {}),
-    };
-}
-
-function cloneDirectoryScope(scope: AiSessionResumeRuntimeRequest['directoryScope']): AiSessionResumeRuntimeRequest['directoryScope'] {
-    return {
-        ...scope,
-        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
-        additionalDirectories: [...scope.additionalDirectories],
     };
 }
 

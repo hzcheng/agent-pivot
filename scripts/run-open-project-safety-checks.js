@@ -1298,7 +1298,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     );
     assert.strictEqual(posted[0].currentWorkspaceCount, 1);
     assert.strictEqual(posted[0].navigationWorkspaceCount, 2);
-    assert.strictEqual(posted[0].searchCatalog.version, 2);
+    assert.strictEqual(posted[0].searchCatalog.version, 3);
     dashboardAttention = {
         protocolVersion: 1,
         aggregateRevision: 'b'.repeat(64),

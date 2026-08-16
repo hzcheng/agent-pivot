@@ -20,6 +20,9 @@ import { tmuxLocatorMatchesIdentity } from './tmuxNaming';
 import {
     aiSessionRuntimeIdentitiesEqual,
     cloneAiSessionRuntimeIdentity,
+    getAiSessionRuntimeIdentityExtensionFields,
+    getAiSessionRuntimeIdentityPersistenceFields,
+    getAiSessionRuntimeIdentityVersion,
 } from './runtimeTypes';
 import type {
     TmuxFinalBindingSnapshot,
@@ -46,6 +49,12 @@ interface DiscoveryWindowRecord {
 
 interface TmuxDiscoveryClient {
     listWindows(): Promise<DiscoveryWindowRecord[]>;
+    setSessionOptions?(sessionName: string, values: Record<string, string>): Promise<void>;
+    setWindowOptions?(
+        sessionName: string,
+        windowName: string,
+        values: Record<string, string>
+    ): Promise<void>;
 }
 
 interface TmuxDiscoveryBindingStore {
@@ -391,6 +400,7 @@ export class TmuxRuntimeDiscovery {
             if (!parsed || !actual) {
                 continue;
             }
+            await repairLegacyEquivalentMetadata(this.options.client, row, parsed);
             const pendingBinding = parsed.pendingId !== undefined
                 ? findPendingBinding(pendingByLocator, actual, parsed)
                 : undefined;
@@ -399,6 +409,9 @@ export class TmuxRuntimeDiscovery {
                 workspaceScopeIdentity: parsed.workspaceScopeIdentity,
                 workspaceNavigationIdentity: parsed.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...parsed.workspaceRootHostPaths],
+                ...(getAiSessionRuntimeIdentityVersion(parsed) === 3
+                    ? getAiSessionRuntimeIdentityExtensionFields(parsed)
+                    : {}),
                 cwd: parsed.cwd,
                 ...(parsed.sessionId !== undefined
                     ? { sessionId: parsed.sessionId }
@@ -626,6 +639,7 @@ export class TmuxRuntimeDiscovery {
                     workspaceScopeIdentity: known.workspaceScopeIdentity,
                     workspaceNavigationIdentity: known.workspaceNavigationIdentity,
                     workspaceRootHostPaths: [...known.workspaceRootHostPaths],
+                    ...getAiSessionRuntimeIdentityExtensionFields(known as AiSessionRuntimeIdentity),
                     cwd,
                     sessionId: known.sessionId,
                 },
@@ -719,7 +733,7 @@ function inactiveBindingFromSnapshot(
         throw new Error('An inactive tmux runtime requires a final managed identity.');
     }
     return {
-        version: 2,
+        ...getAiSessionRuntimeIdentityPersistenceFields(runtime.identity),
         state: runtime.state,
         provider: runtime.identity.provider,
         sessionId: runtime.identity.sessionId,
@@ -744,6 +758,7 @@ function inactiveSnapshotFromBinding(
             workspaceScopeIdentity: record.workspaceScopeIdentity,
             workspaceNavigationIdentity: record.workspaceNavigationIdentity,
             workspaceRootHostPaths: [...record.workspaceRootHostPaths],
+            ...getAiSessionRuntimeIdentityExtensionFields(record as AiSessionRuntimeIdentity),
             cwd: record.cwd,
             sessionId: record.sessionId,
         },
@@ -794,24 +809,49 @@ function parseRowMetadata(row: DiscoveryWindowRecord): AiSessionManagedTmuxMetad
             return null;
         }
         const windowProof = parseManagedTmuxMetadata(row.windowMetadata);
-        return windowProof && windowProof.layout === 'project'
-            ? windowProof
-            : null;
+        return windowProof && windowProof.layout === 'project' ? windowProof : null;
     }
     if (row.sessionMetadata.layout === 'session' && row.windowMetadata.layout === 'session') {
         const sessionProof = parseManagedTmuxMetadata(row.sessionMetadata);
         return sessionProof && sessionProof.layout === 'session'
-            && isSessionWindowOwnershipBase(row.windowMetadata)
-            ? sessionProof
-            : null;
+            && isSessionWindowOwnershipBase(row.windowMetadata) ? sessionProof : null;
     }
     return null;
+}
+
+async function repairLegacyEquivalentMetadata(
+    client: TmuxDiscoveryClient,
+    row: DiscoveryWindowRecord,
+    parsed: AiSessionManagedTmuxMetadata
+): Promise<void> {
+    if (parsed.version !== 3 || getAiSessionRuntimeIdentityVersion(parsed) === 3
+        || !client.setSessionOptions || !client.setWindowOptions) {
+        return;
+    }
+    const full = parsed.layout === 'project' ? row.windowMetadata : row.sessionMetadata;
+    const base = parsed.layout === 'project' ? row.sessionMetadata : row.windowMetadata;
+    const legacyFull: Record<string, string> = { ...full, version: '2' };
+    delete legacyFull.writableRootHostPaths;
+    delete legacyFull.worktreeKey;
+    delete legacyFull.isolatedRoots;
+    const legacyBase: Record<string, string> = { ...base, version: '2' };
+    try {
+        if (parsed.layout === 'project') {
+            await client.setSessionOptions(row.sessionName, legacyBase);
+            await client.setWindowOptions(row.sessionName, row.windowName, legacyFull);
+        } else {
+            await client.setSessionOptions(row.sessionName, legacyFull);
+            await client.setWindowOptions(row.sessionName, row.windowName, legacyBase);
+        }
+    } catch (_error) {
+        // Discovery remains available even if a best-effort rollback-compatibility repair fails.
+    }
 }
 
 function isProjectSessionOwnershipBase(values: Record<string, string>): boolean {
     return Object.keys(values).length === 4
         && values.managed === '1'
-        && values.version === '2'
+        && (values.version === '2' || values.version === '3')
         && values.layout === 'project'
         && typeof values.workspaceScopeIdentity === 'string';
 }
@@ -819,7 +859,7 @@ function isProjectSessionOwnershipBase(values: Record<string, string>): boolean 
 function isSessionWindowOwnershipBase(values: Record<string, string>): boolean {
     return Object.keys(values).length === 3
         && values.managed === '1'
-        && values.version === '2'
+        && (values.version === '2' || values.version === '3')
         && values.layout === 'session';
 }
 
@@ -873,13 +913,15 @@ function findPendingBinding(
         return undefined;
     }
     return (bindings.get(locatorKey(locator)) || []).find(binding =>
-        binding.provider === metadata.provider
-        && binding.workspaceScopeIdentity === metadata.workspaceScopeIdentity
-        && binding.workspaceNavigationIdentity === metadata.workspaceNavigationIdentity
-        && JSON.stringify(binding.workspaceRootHostPaths.slice().sort())
-            === JSON.stringify(metadata.workspaceRootHostPaths.slice().sort())
-        && binding.cwd === metadata.cwd
-        && binding.pendingId === metadata.pendingId
+        aiSessionRuntimeIdentitiesEqual(binding as AiSessionRuntimeIdentity, {
+            provider: metadata.provider,
+            workspaceScopeIdentity: metadata.workspaceScopeIdentity,
+            workspaceNavigationIdentity: metadata.workspaceNavigationIdentity,
+            workspaceRootHostPaths: metadata.workspaceRootHostPaths,
+            ...getAiSessionRuntimeIdentityExtensionFields(metadata),
+            cwd: metadata.cwd,
+            pendingId: metadata.pendingId,
+        })
         && binding.layout === metadata.layout
         && locatorsEqual(binding.locator, locator));
 }
@@ -890,12 +932,18 @@ function findKnownBindingForManagedRow(
     locator: AiSessionTmuxLocator
 ): TmuxKnownRuntimeBinding | undefined {
     const matches = bindings.filter(binding =>
-        binding.provider === metadata.provider
-        && binding.workspaceScopeIdentity === metadata.workspaceScopeIdentity
-        && binding.workspaceNavigationIdentity === metadata.workspaceNavigationIdentity
-        && JSON.stringify(binding.workspaceRootHostPaths.slice().sort())
-            === JSON.stringify(metadata.workspaceRootHostPaths.slice().sort())
-        && binding.cwd === metadata.cwd
+        aiSessionRuntimeIdentitiesEqual({
+            ...binding,
+            sessionId: 'identity-comparison',
+        } as AiSessionRuntimeIdentity, {
+            provider: metadata.provider,
+            workspaceScopeIdentity: metadata.workspaceScopeIdentity,
+            workspaceNavigationIdentity: metadata.workspaceNavigationIdentity,
+            workspaceRootHostPaths: metadata.workspaceRootHostPaths,
+            ...getAiSessionRuntimeIdentityExtensionFields(metadata),
+            cwd: metadata.cwd,
+            sessionId: 'identity-comparison',
+        })
         && binding.layout === metadata.layout
         && locatorsEqual(binding.locator, locator));
     return matches.length === 1 ? matches[0] : undefined;
@@ -905,13 +953,7 @@ function finalIdentityMatchesKnown(
     identity: AiSessionRuntimeIdentity,
     known: TmuxKnownRuntimeBinding
 ): boolean {
-    return identity.provider === known.provider
-        && identity.workspaceScopeIdentity === known.workspaceScopeIdentity
-        && identity.workspaceNavigationIdentity === known.workspaceNavigationIdentity
-        && JSON.stringify(identity.workspaceRootHostPaths.slice().sort())
-            === JSON.stringify(known.workspaceRootHostPaths.slice().sort())
-        && identity.cwd === known.cwd
-        && identity.sessionId === known.sessionId;
+    return aiSessionRuntimeIdentitiesEqual(identity, known as AiSessionRuntimeIdentity);
 }
 
 function identityKey(identity: AiSessionRuntimeIdentity): string {
@@ -920,6 +962,8 @@ function identityKey(identity: AiSessionRuntimeIdentity): string {
         identity.workspaceScopeIdentity,
         identity.workspaceNavigationIdentity,
         identity.workspaceRootHostPaths.slice().sort(),
+        (identity.writableRootHostPaths ?? identity.workspaceRootHostPaths).slice().sort(),
+        identity.worktreeKey ?? null,
         identity.cwd,
         identity.sessionId !== undefined ? 'session' : 'pending',
         identity.sessionId !== undefined ? identity.sessionId : identity.pendingId,
@@ -932,6 +976,7 @@ function knownIdentityKey(known: TmuxKnownRuntimeBinding): string {
         workspaceScopeIdentity: known.workspaceScopeIdentity,
         workspaceNavigationIdentity: known.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...known.workspaceRootHostPaths],
+        ...getAiSessionRuntimeIdentityExtensionFields(known as AiSessionRuntimeIdentity),
         cwd: known.cwd,
         sessionId: known.sessionId,
     });

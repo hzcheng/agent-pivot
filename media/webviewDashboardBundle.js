@@ -84,6 +84,241 @@ function normalizeAiSessionTab(value) {
     return value === 'active' ? 'active' : 'sessions';
 }
 
+function normalizeAiSessionSurface(value) {
+    return value === 'worktree' ? 'worktree' : 'chats';
+}
+
+function getAdjacentAiSessionSurface(surface, key) {
+    surface = normalizeAiSessionSurface(surface);
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        return surface === 'worktree' ? 'chats' : 'worktree';
+    }
+    if (key === 'Home') return 'worktree';
+    if (key === 'End') return 'chats';
+    return surface;
+}
+
+function readAiSessionSurfaceState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function'
+        ? vscodeApi.getState() || {}
+        : {};
+    return state.aiSessionSurfaces && typeof state.aiSessionSurfaces === 'object'
+        && !Array.isArray(state.aiSessionSurfaces)
+        ? Object.assign({}, state.aiSessionSurfaces)
+        : {};
+}
+
+function writeAiSessionSurfaceState(vscodeApi, projectId, surface) {
+    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectId) return;
+    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    var surfaces = readAiSessionSurfaceState(vscodeApi);
+    surfaces[projectId] = normalizeAiSessionSurface(surface);
+    vscodeApi.setState(Object.assign({}, state, { aiSessionSurfaces: surfaces }));
+}
+
+function selectAiSessionSurfaceDom(projectDiv, surface) {
+    if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return null;
+    surface = normalizeAiSessionSurface(surface);
+    var sessionSection = projectDiv.querySelector('.codex-sessions');
+    if (sessionSection && typeof sessionSection.setAttribute === 'function') {
+        sessionSection.setAttribute('data-selected-ai-session-surface', surface);
+    }
+    var selectedTab = null;
+    projectDiv.querySelectorAll('[data-ai-session-surface-tab]').forEach(tab => {
+        var selected = tab.getAttribute('data-ai-session-surface-tab') === surface;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.setAttribute('tabindex', selected ? '0' : '-1');
+        if (selected) selectedTab = tab;
+    });
+    projectDiv.querySelectorAll('[data-ai-session-surface-panel]').forEach(panel => {
+        panel.toggleAttribute(
+            'hidden',
+            panel.getAttribute('data-ai-session-surface-panel') !== surface
+        );
+    });
+    return selectedTab;
+}
+
+function restoreAiSessionSurfaceFromState(projectDiv, vscodeApi) {
+    if (!projectDiv) return null;
+    var projectId = projectDiv.getAttribute('data-id');
+    var surfaces = readAiSessionSurfaceState(vscodeApi);
+    var section = projectDiv.querySelector('.codex-sessions');
+    var fallback = section && typeof section.getAttribute === 'function'
+        ? section.getAttribute('data-selected-ai-session-surface') || 'worktree'
+        : 'worktree';
+    return selectAiSessionSurfaceDom(
+        projectDiv,
+        Object.prototype.hasOwnProperty.call(surfaces, projectId)
+            ? surfaces[projectId]
+            : fallback
+    );
+}
+
+function getSelectedAiSessionSurface(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+    var selected = projectDiv.querySelector(
+        '[data-ai-session-surface-tab][aria-selected="true"]'
+    );
+    return selected
+        ? normalizeAiSessionSurface(selected.getAttribute('data-ai-session-surface-tab'))
+        : null;
+}
+
+function readAiSessionWorktreeCollapseState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    return state.aiSessionCollapsedWorktrees
+        && typeof state.aiSessionCollapsedWorktrees === 'object'
+        && !Array.isArray(state.aiSessionCollapsedWorktrees)
+        ? Object.assign({}, state.aiSessionCollapsedWorktrees)
+        : {};
+}
+
+function readAiSessionMemberDetailsState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    return state.aiSessionExpandedGroupMembers
+        && typeof state.aiSessionExpandedGroupMembers === 'object'
+        && !Array.isArray(state.aiSessionExpandedGroupMembers)
+        ? Object.assign({}, state.aiSessionExpandedGroupMembers)
+        : {};
+}
+
+// M3: the member summary toggles per-member details (PRD §10). Expansion is
+// transient view state — preserved across reloads and authoritative
+// replacements exactly like the group collapse state.
+function setWorktreeGroupMemberDetailsExpanded(group, expanded) {
+    if (!group) return false;
+    var toggle = group.querySelector('[data-action="toggle-group-member-details"]');
+    var details = group.querySelector('.ai-session-worktree-member-details');
+    if (!toggle || !details) return false;
+    expanded = expanded !== false;
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    // Keep the accessible name honest about what the toggle will do next.
+    var label = expanded
+        ? toggle.getAttribute('data-label-collapse')
+        : toggle.getAttribute('data-label-expand');
+    if (label) {
+        toggle.setAttribute('aria-label', label);
+    }
+    group.toggleAttribute('data-member-details-expanded', expanded);
+    details.toggleAttribute('hidden', !expanded);
+    return true;
+}
+
+function getAiSessionWorktreeGroupKey(group) {
+    // Reserved identities first: the anchor and manifest groups must never
+    // collide with each other or with unmanaged rows on an empty
+    // repository/path pair.
+    if (group?.hasAttribute('data-worktree-anchor')) {
+        return '["__anchor__"]';
+    }
+    var groupId = group?.getAttribute('data-group-id');
+    if (groupId) {
+        return JSON.stringify(['group', groupId]);
+    }
+    return JSON.stringify([
+        group?.getAttribute('data-worktree-repository-key') || '',
+        group?.getAttribute('data-worktree-path') || '',
+        !!group?.hasAttribute('data-worktree-unmanaged'),
+    ]);
+}
+
+function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
+    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectDiv) return;
+    var projectId = projectDiv.getAttribute('data-id');
+    if (!projectId) return;
+    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    var projects = readAiSessionWorktreeCollapseState(vscodeApi);
+    projects[projectId] = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group[data-worktree-collapsed]'
+    )).map(getAiSessionWorktreeGroupKey)));
+    var memberDetails = readAiSessionMemberDetailsState(vscodeApi);
+    memberDetails[projectId] = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group[data-member-details-expanded]'
+    )).map(getAiSessionWorktreeGroupKey)));
+    vscodeApi.setState(Object.assign({}, state, {
+        aiSessionCollapsedWorktrees: projects,
+        aiSessionExpandedGroupMembers: memberDetails,
+    }));
+    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+}
+
+// The collapse-all affordance acts like every group toggle at once: any
+// expanded group collapses everything, otherwise everything expands.
+function toggleAllAiSessionWorktrees(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return;
+    var groups = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'));
+    if (!groups.length) return;
+    var anyExpanded = groups.some(group => !group.hasAttribute('data-worktree-collapsed'));
+    groups.forEach(group => {
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !anyExpanded
+        );
+    });
+    writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+}
+
+function syncAiSessionWorktreeCollapseAllButton(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return;
+    var button = projectDiv.querySelector('[data-action="toggle-all-ai-session-worktrees"]');
+    if (!button) return;
+    var anyExpanded = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
+        .some(group => !group.hasAttribute('data-worktree-collapsed'));
+    button.setAttribute('data-collapse-all-state', anyExpanded ? 'expanded' : 'collapsed');
+    var label = anyExpanded ? 'Collapse all worktrees' : 'Expand all worktrees';
+    button.setAttribute('aria-label', label);
+    button.setAttribute('data-tooltip', label);
+}
+
+function setAiSessionWorktreeExpanded(header, expanded) {
+    if (!header) return false;
+    var group = header.closest('.ai-session-worktree-group');
+    if (!group) return false;
+    expanded = expanded !== false;
+    header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    group.toggleAttribute('data-worktree-collapsed', !expanded);
+    var list = group.querySelector('.ai-session-worktree-session-list');
+    if (list) list.toggleAttribute('hidden', !expanded);
+    return true;
+}
+
+function setAiSessionWorktreeGroupExpanded(projectDiv, group, expanded) {
+    if (!projectDiv || !group) return false;
+    var key = getAiSessionWorktreeGroupKey(group);
+    var changed = false;
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(candidate => {
+        if (getAiSessionWorktreeGroupKey(candidate) !== key) return;
+        changed = setAiSessionWorktreeExpanded(
+            candidate.querySelector('.ai-session-worktree-header'),
+            expanded
+        ) || changed;
+    });
+    return changed;
+}
+
+function restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi) {
+    if (!projectDiv) return;
+    var projectId = projectDiv.getAttribute('data-id');
+    var projects = readAiSessionWorktreeCollapseState(vscodeApi);
+    var collapsed = new Set(Array.isArray(projects[projectId]) ? projects[projectId] : []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(group => {
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !collapsed.has(getAiSessionWorktreeGroupKey(group))
+        );
+    });
+    var memberDetails = readAiSessionMemberDetailsState(vscodeApi);
+    var expandedMembers = new Set(
+        Array.isArray(memberDetails[projectId]) ? memberDetails[projectId] : []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]').forEach(group => {
+        if (expandedMembers.has(getAiSessionWorktreeGroupKey(group))) {
+            setWorktreeGroupMemberDetailsExpanded(group, true);
+        }
+    });
+    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+}
+
 function parseAiSessionConversationFocusOrigin(message) {
     var expectedKeys = [
         'type',
@@ -109,6 +344,82 @@ function parseAiSessionConversationFocusOrigin(message) {
     return message;
 }
 
+function parseAiSessionRevealRequest(message) {
+    var expectedKeys = ['projectId', 'provider', 'sessionId', 'type', 'version'];
+    if (!message || typeof message !== 'object' || Array.isArray(message)
+        || Object.keys(message).length !== expectedKeys.length
+        || !expectedKeys.every(key =>
+            Object.prototype.hasOwnProperty.call(message, key))
+        || message.type !== 'reveal-ai-session-requested'
+        || message.version !== 1
+        || (message.provider !== 'codex'
+            && message.provider !== 'kimi'
+            && message.provider !== 'claude')
+        || !['projectId', 'sessionId'].every(key =>
+            typeof message[key] === 'string' && message[key].trim())) {
+        return null;
+    }
+    return message;
+}
+
+// Session-switch commands land here: the view follows the switched session
+// to wherever it lives — its worktree group (expanded, scrolled into view)
+// or the Chats active list. Scroll-only; keyboard focus stays put.
+function revealAiSessionInWorkspace(message) {
+    var request = parseAiSessionRevealRequest(message);
+    if (!request || typeof document === 'undefined'
+        || typeof document.querySelectorAll !== 'function') {
+        return false;
+    }
+    var projectDiv = Array.from(document.querySelectorAll(
+        '.workspace-card[data-current-workspace][data-id]'
+    )).find(candidate =>
+        candidate.getAttribute('data-id') === request.projectId
+    );
+    if (!projectDiv) {
+        return false;
+    }
+    var rowSelector = '[data-session-provider][data-session-id]';
+    var matches = candidate =>
+        candidate.getAttribute('data-session-provider') === request.provider
+        && candidate.getAttribute('data-session-id') === request.sessionId;
+    var worktreeRow = Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="worktree"] ' + rowSelector
+    )).find(matches);
+    var surface = worktreeRow ? 'worktree' : 'chats';
+    selectAiSessionSurfaceDom(projectDiv, surface);
+    writeAiSessionSurfaceState(window.vscode, request.projectId, surface);
+    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+        window.vscode.postMessage({
+            type: 'select-ai-session-surface',
+            version: 1,
+            projectId: request.projectId,
+            surface: surface,
+        });
+    }
+    if (worktreeRow) {
+        var group = worktreeRow.closest('.ai-session-worktree-group');
+        if (group) {
+            setAiSessionWorktreeGroupExpanded(projectDiv, group, true);
+            writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+        }
+        worktreeRow.scrollIntoView({ block: 'nearest' });
+        return true;
+    }
+    selectAiSessionTabDom(projectDiv, 'active');
+    writeAiSessionTabState(window.vscode, request.projectId, 'active');
+    var activeRow = Array.from(projectDiv.querySelectorAll(
+        '.active-ai-session-row' + rowSelector
+    )).find(matches) || Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="chats"] ' + rowSelector
+    )).find(matches);
+    if (activeRow) {
+        activeRow.scrollIntoView({ block: 'nearest' });
+        return true;
+    }
+    return false;
+}
+
 function focusAiSessionConversationOrigin(message) {
     var origin = parseAiSessionConversationFocusOrigin(message);
     if (!origin || typeof document === 'undefined'
@@ -122,6 +433,16 @@ function focusAiSessionConversationOrigin(message) {
     );
     if (!projectDiv) {
         return false;
+    }
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
+    writeAiSessionSurfaceState(window.vscode, origin.projectId, 'chats');
+    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+        window.vscode.postMessage({
+            type: 'select-ai-session-surface',
+            version: 1,
+            projectId: origin.projectId,
+            surface: 'chats',
+        });
     }
     selectAiSessionTabDom(projectDiv, 'active');
     writeAiSessionTabState(window.vscode, origin.projectId, 'active');
@@ -206,6 +527,8 @@ function restoreAiSessionTabsFromState(root, vscodeApi) {
         if (Object.prototype.hasOwnProperty.call(tabs, projectId)) {
             selectAiSessionTabDom(projectDiv, tabs[projectId]);
         }
+        restoreAiSessionSurfaceFromState(projectDiv, vscodeApi);
+        restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi);
     });
 }
 
@@ -242,7 +565,8 @@ function restoreAiSessionListAnchor(list, anchor) {
 function getFocusedAiSessionCardIdentity(projectDiv) {
     if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
     var row = projectDiv.querySelector(
-        '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+        '.ai-session-chats-surface .codex-session-row'
+        + '[data-session-focused][data-session-provider][data-session-id]'
     );
     return row ? {
         provider: row.getAttribute('data-session-provider') || '',
@@ -258,13 +582,20 @@ function captureAiSessionViewState(projectDiv) {
     var focusedInside = focused && typeof focused.closest === 'function' && focused.closest('.project[data-id]') === projectDiv;
     var focusedRow = focusedInside ? focused.closest('.codex-session-row') : null;
     var focusedTab = focusedInside ? focused.closest('[data-ai-session-tab]') : null;
+    var focusedSurfaceTab = focusedInside
+        ? focused.closest('[data-ai-session-surface-tab]')
+        : null;
     var selectedTab = getSelectedAiSessionTab(projectDiv);
+    var selectedSurface = getSelectedAiSessionSurface(projectDiv);
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
     selectAiSessionTabDom(projectDiv, 'active');
     var activeAnchor = captureAiSessionListAnchor(activeList);
     selectAiSessionTabDom(projectDiv, 'sessions');
     var historyAnchor = captureAiSessionListAnchor(historyList);
     selectAiSessionTabDom(projectDiv, selectedTab);
+    selectAiSessionSurfaceDom(projectDiv, selectedSurface);
     return {
+        selectedSurface: selectedSurface,
         selectedTab: selectedTab,
         activeAnchor: activeAnchor,
         historyAnchor: historyAnchor,
@@ -273,17 +604,49 @@ function captureAiSessionViewState(projectDiv) {
         restoreFocus: !!focusedInside,
         focusedSession: focusedSession,
         focusedTab: focusedTab && focusedTab.getAttribute('data-ai-session-tab'),
+        focusedSurfaceTab: focusedSurfaceTab
+            && focusedSurfaceTab.getAttribute('data-ai-session-surface-tab'),
         focusedRow: focusedRow ? {
             provider: focusedRow.getAttribute('data-session-provider') || '',
             sessionId: focusedRow.getAttribute('data-session-id') || '',
             pendingCreatedAt: focusedRow.getAttribute('data-pending-created-at') || '',
             panel: focusedRow.closest('[data-ai-session-panel]')?.getAttribute('data-ai-session-panel') || '',
         } : null,
+        collapsedWorktrees: Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-worktree-collapsed]'
+        )).map(getAiSessionWorktreeGroupKey),
+        expandedMemberDetails: Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-member-details-expanded]'
+        )).map(getAiSessionWorktreeGroupKey),
+        groupRename: window.__agentPivotWorktreeGroupRename
+            && typeof window.__agentPivotWorktreeGroupRename.capture === 'function'
+            ? window.__agentPivotWorktreeGroupRename.capture(projectDiv)
+            : null,
+        groupDeletion: window.__agentPivotWorktreeGroupDeletion
+            && typeof window.__agentPivotWorktreeGroupDeletion.capture === 'function'
+            ? window.__agentPivotWorktreeGroupDeletion.capture(projectDiv)
+            : null,
+        worktreeAdopt: window.__agentPivotWorktreeAdopt
+            && typeof window.__agentPivotWorktreeAdopt.capture === 'function'
+            ? window.__agentPivotWorktreeAdopt.capture(projectDiv)
+            : null,
+        worktreeKeys: Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group'
+        )).map(getAiSessionWorktreeGroupKey))),
     };
 }
 
 function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
     if (!viewState || !viewState.restoreFocus) return;
+    if (viewState.focusedSurfaceTab) {
+        var surfaceTabToFocus = Array.from(projectDiv.querySelectorAll(
+            '[data-ai-session-surface-tab]'
+        )).find(tab =>
+            tab.getAttribute('data-ai-session-surface-tab') === viewState.focusedSurfaceTab
+        );
+        surfaceTabToFocus?.focus({ preventScroll: true });
+        return;
+    }
     if (viewState.focusedTab) {
         var tabToFocus = Array.from(projectDiv.querySelectorAll('[data-ai-session-tab]'))
             .find(tab => tab.getAttribute('data-ai-session-tab') === viewState.focusedTab);
@@ -291,7 +654,9 @@ function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
         return;
     }
     if (!viewState.focusedRow) return;
-    var rows = Array.from(projectDiv.querySelectorAll('.codex-session-row'));
+    var rows = Array.from(projectDiv.querySelectorAll(
+        '.ai-session-chats-surface .codex-session-row'
+    ));
     var match = rows.find(row => {
         var panel = row.closest('[data-ai-session-panel]');
         return (row.getAttribute('data-session-provider') || '') === viewState.focusedRow.provider
@@ -304,13 +669,55 @@ function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
 
 function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options) {
     if (!projectDiv || !viewState) return null;
+    var collapsed = new Set(viewState.collapsedWorktrees || []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(group => {
+        var key = getAiSessionWorktreeGroupKey(group);
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !collapsed.has(key)
+        );
+    });
+    var expandedMemberDetails = new Set(viewState.expandedMemberDetails || []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]').forEach(group => {
+        if (expandedMemberDetails.has(getAiSessionWorktreeGroupKey(group))) {
+            setWorktreeGroupMemberDetailsExpanded(group, true);
+        }
+    });
+    if (viewState.groupRename
+        && window.__agentPivotWorktreeGroupRename
+        && typeof window.__agentPivotWorktreeGroupRename.restore === 'function') {
+        window.__agentPivotWorktreeGroupRename.restore(projectDiv, viewState.groupRename);
+    }
+    if (viewState.groupDeletion
+        && window.__agentPivotWorktreeGroupDeletion
+        && typeof window.__agentPivotWorktreeGroupDeletion.restore === 'function') {
+        window.__agentPivotWorktreeGroupDeletion.restore(projectDiv, viewState.groupDeletion);
+    }
+    if (viewState.worktreeAdopt
+        && window.__agentPivotWorktreeAdopt
+        && typeof window.__agentPivotWorktreeAdopt.restore === 'function') {
+        window.__agentPivotWorktreeAdopt.restore(projectDiv, viewState.worktreeAdopt);
+    }
+    var currentWorktreeKeys = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group'
+    )).map(getAiSessionWorktreeGroupKey)));
+    if (Array.isArray(viewState.worktreeKeys)
+        && JSON.stringify(viewState.worktreeKeys) !== JSON.stringify(currentWorktreeKeys)) {
+        var liveRegion = projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = 'Worktree list updated. ' + currentWorktreeKeys.length
+                + ' worktree' + (currentWorktreeKeys.length === 1 ? ' shown.' : 's shown.');
+        }
+    }
     var activeList = projectDiv.querySelector('.ai-session-active-panel .codex-sessions-list');
     var historyList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
     selectAiSessionTabDom(projectDiv, 'active');
     restoreAiSessionListAnchor(activeList, viewState.activeAnchor);
     selectAiSessionTabDom(projectDiv, 'sessions');
     restoreAiSessionListAnchor(historyList, viewState.historyAnchor);
     var selectedTab = selectAiSessionTabDom(projectDiv, requestedTab || viewState.selectedTab);
+    selectAiSessionSurfaceDom(projectDiv, viewState.selectedSurface);
     if (!options || options.restoreFocus !== false) {
         restoreAiSessionViewFocus(projectDiv, viewState, selectedTab);
     }
@@ -337,6 +744,12 @@ function revealChangedFocusedAiSessionCard(root, states) {
         // surface it instead of preserving the stale scroll position.
         var panel = row.closest('[data-ai-session-panel]');
         if (panel && panel.hidden) {
+            selectAiSessionSurfaceDom(projectDiv, 'chats');
+            writeAiSessionSurfaceState(
+                window.vscode,
+                projectDiv.getAttribute('data-id'),
+                'chats'
+            );
             selectAiSessionTabDom(projectDiv, 'active');
             writeAiSessionTabState(window.vscode, projectDiv.getAttribute('data-id'), 'active');
         }
@@ -406,9 +819,47 @@ function captureCurrentWorkspaceAiSessionStates(root) {
             states.set(projectId, {
                 view: captureAiSessionViewState(projectDiv),
                 providerMenu: captureAiSessionProviderMenuState(projectDiv),
+                listScrolls: captureAiSessionListScrolls(projectDiv),
             });
         });
     return states;
+}
+
+// The worktree/chats panels scroll independently of the outer workspace
+// list, so an authoritative HTML replacement must carry each inner list's
+// scroll position across the new nodes; otherwise every refresh snaps the
+// panel back to the top.
+function captureAiSessionListScrolls(projectDiv) {
+    var scrolls = [];
+    projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel] .ai-session-worktree-list,'
+        + ' [data-ai-session-panel] .codex-sessions-list'
+    ).forEach(list => {
+        var panel = list.closest('[data-ai-session-surface-panel], [data-ai-session-panel]');
+        if (!panel) return;
+        var key = panel.getAttribute('data-ai-session-surface-panel')
+            || panel.getAttribute('data-ai-session-panel');
+        var scrollTop = Math.max(0, Number(list.scrollTop) || 0);
+        if (key && scrollTop > 0) {
+            scrolls.push({ key: key, scrollTop: scrollTop });
+        }
+    });
+    return scrolls;
+}
+
+function restoreAiSessionListScrolls(projectDiv, scrolls) {
+    (scrolls || []).forEach(saved => {
+        var panel = projectDiv.querySelector(
+            '[data-ai-session-surface-panel="' + saved.key + '"],'
+            + ' [data-ai-session-panel="' + saved.key + '"]'
+        );
+        var list = panel
+            ? panel.querySelector('.ai-session-worktree-list, .codex-sessions-list')
+            : null;
+        if (!list) return;
+        var maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+        list.scrollTop = Math.min(saved.scrollTop, maxScrollTop);
+    });
 }
 
 function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProviderMenu) {
@@ -421,6 +872,7 @@ function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProv
             restoreAiSessionViewState(projectDiv, state.view, state.view.selectedTab, {
                 restoreFocus: false,
             });
+            restoreAiSessionListScrolls(projectDiv, state.listScrolls);
             restoreAiSessionProviderMenuState(
                 projectDiv,
                 state.providerMenu,
@@ -722,7 +1174,7 @@ function applyOpenWorkspacesUpdate(message, options) {
         || typeof message.html !== 'string'
         || typeof normalizeDashboardSearchCatalog !== 'function'
         || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-        || message.searchCatalog.version !== 2) {
+        || message.searchCatalog.version !== 3) {
         return false;
     }
     if (message.semanticRevision === lastAppliedOpenWorkspacesSemanticRevision) {
@@ -1119,11 +1571,11 @@ function initOpenTabSplit() {
     // innerHTML replacements, so replacements never have to replay it.
     var OPEN_TAB_PANE_MIN_PX = 72;
     // Expanded CURRENT WINDOW cards carry fixed AI-session chrome (module
-    // header, tabs, provider controls); the pane minimum rises so the chrome
-    // and one session row stay reachable. Measured against the sidebar fit
-    // layout (360px/240px widths) and mirrored as the min-height of the
-    // expanded rules in media/styles.scss.
-    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 263;
+    // header, surface tabs, chat tabs, provider controls); the pane minimum
+    // rises so the chrome and one session row stay reachable. Measured
+    // against the sidebar fit layout (360px/240px widths) and mirrored as
+    // the min-height of the expanded rules in media/styles.scss.
+    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
     var OPEN_TAB_KEY_STEP_PX = 24;
     var OPEN_TAB_STATE_KEY = 'openTab';
 
@@ -2050,6 +2502,8 @@ function initProjectContextMenus(options) {
         // The create-dropdown arrows mirror the shared menu's visibility.
         document.querySelectorAll('[data-action="create-ai-session-dropdown"][aria-expanded="true"]')
             .forEach(button => button.setAttribute("aria-expanded", "false"));
+        document.querySelectorAll('[data-action="ai-session-worktree-menu"][aria-expanded="true"]')
+            .forEach(button => button.setAttribute("aria-expanded", "false"));
     }
 
     function getAiSessionContextMenuOrigin() {
@@ -2085,6 +2539,10 @@ function initAiSessionPresentationStateStore(options) {
                 || message.workspaceScopeIdentity === null)
             && (typeof message.workspaceNavigationIdentity === 'string'
                 || message.workspaceNavigationIdentity === null)
+            && (typeof message.worktreeGroupsAggregateRevision === 'undefined'
+                || message.worktreeGroupsAggregateRevision === null
+                || (Number.isSafeInteger(message.worktreeGroupsAggregateRevision)
+                    && message.worktreeGroupsAggregateRevision >= 0))
             && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
             && Number.isSafeInteger(message.activeAttentionCount)
             && message.activeAttentionCount >= 0
@@ -2615,6 +3073,7 @@ function initProjectAiSessionsUpdate(options) {
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
+    var reconcileWorktreeGroupFormDom = options.reconcileWorktreeGroupFormDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;
     var exitAiSessionBatchManagement = options.exitAiSessionBatchManagement;
@@ -2631,7 +3090,7 @@ function initProjectAiSessionsUpdate(options) {
             || typeof message.html !== 'string'
             || typeof normalizeDashboardSearchCatalog !== 'function'
             || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-            || message.searchCatalog.version !== 2) {
+            || message.searchCatalog.version !== 3) {
             presentationTransactions.requestFullRefresh('unsupported-ai-session-message');
             return;
         }
@@ -2673,6 +3132,9 @@ function initProjectAiSessionsUpdate(options) {
                     }
                 }
                 reconcilePendingAiSessionProviderSelectionDom();
+                if (reconcileWorktreeGroupFormDom) {
+                    reconcileWorktreeGroupFormDom();
+                }
             },
         })) {
             return;
@@ -2763,7 +3225,47 @@ function initProjectAiSessionsUpdate(options) {
         return false;
     }
 
+    function revealWorkspaceWorktree(navigationIdentity, repositoryKey, canonicalWorktreePath) {
+        if (!repositoryKey || !canonicalWorktreePath) {
+            return false;
+        }
+        var workspaceDiv = findWorkspaceDiv(navigationIdentity);
+        if (!workspaceDiv) {
+            return false;
+        }
+        var workspaceId = workspaceDiv.getAttribute('data-id');
+        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
+            toggleCodexSessions(workspaceDiv, workspaceId);
+        }
+        selectAiSessionSurfaceDom(workspaceDiv, 'worktree');
+        writeAiSessionSurfaceState(window.vscode, workspaceId, 'worktree');
+        if (window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: workspaceId,
+                surface: 'worktree',
+            });
+        }
+        var group = Array.from(workspaceDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-worktree-repository-key][data-worktree-path]'
+        )).find(candidate =>
+            candidate.getAttribute('data-worktree-repository-key') === repositoryKey
+            && candidate.getAttribute('data-worktree-path') === canonicalWorktreePath
+        );
+        if (!group) {
+            focusSearchRevealTarget(workspaceDiv);
+            return false;
+        }
+        var header = group.querySelector('.ai-session-worktree-header');
+        setAiSessionWorktreeGroupExpanded(workspaceDiv, group, true);
+        writeAiSessionWorktreeCollapseState(window.vscode, workspaceDiv);
+        focusSearchRevealTarget(header || group);
+        return true;
+    }
+
     window.__agentPivotRevealWorkspaceSession = revealWorkspaceSession;
+    window.__agentPivotRevealWorkspaceWorktree = revealWorkspaceWorktree;
     window.__agentPivotRevealPendingWorkspaceSession = () => {
         if (!pendingWorkspaceSessionReveal) {
             return false;
@@ -2785,6 +3287,1083 @@ function initProjectAiSessionsUpdate(options) {
     };
 }
 
+/* src/webview/webviewGroupFormScripts.js */
+'use strict';
+
+/**
+ * The M2 inline worktree group creation form (PRD §6.1): an in-place card
+ * at the top of the Worktree panel with a real-time per-member preview.
+ *
+ * Form state lives here (not in the DOM) because authoritative workspace
+ * updates replace the surface HTML wholesale; reconcileDom re-renders the
+ * form after every applied update. Closing the form keeps the unsubmitted
+ * input for the next open.
+ */
+function initWorktreeGroupForm(options) {
+    options = options || {};
+    var getCurrentWorkspaceDiv = options.findCurrentWorkspaceDiv;
+
+    var PREVIEW_DEBOUNCE_MS = 300;
+    var statesByProject = new Map();
+    var nextRequestSerial = 0;
+
+    function nextRequestId(prefix) {
+        nextRequestSerial = nextRequestSerial >= Number.MAX_SAFE_INTEGER
+            ? 1 : nextRequestSerial + 1;
+        return prefix + '-' + nextRequestSerial.toString(36);
+    }
+
+    function getState(projectId) {
+        return statesByProject.get(projectId) || null;
+    }
+
+    function ensureState(projectId) {
+        var state = statesByProject.get(projectId);
+        if (!state) {
+            state = {
+                open: false,
+                bootstrapping: false,
+                name: '',
+                repositories: [],
+                checked: {},
+                baseRefOverrides: {},
+                setupDisabled: {},
+                primaryRepositoryKey: '',
+                preview: null,
+                previewId: '',
+                previewDirty: false,
+                previewRequestId: '',
+                previewTimer: 0,
+                baseDropdown: null,
+                confirming: false,
+                confirmRequestId: '',
+                formError: '',
+                pendingFocusGroupId: '',
+                pendingMemberRequests: {},
+                derive: null,
+                addRepo: null,
+            };
+            statesByProject.set(projectId, state);
+        }
+        return state;
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function shortRefName(ref) {
+        var value = String(ref || '');
+        return value.indexOf('refs/heads/') === 0
+            ? value.slice('refs/heads/'.length)
+            : value;
+    }
+
+    function checkedRepositories(state) {
+        return state.repositories.filter(function (repository) {
+            return state.checked[repository.repositoryKey];
+        });
+    }
+
+    function openForm(projectId, seed) {
+        var state = ensureState(projectId);
+        if (state.open) {
+            return;
+        }
+        state.open = true;
+        state.bootstrapping = true;
+        state.formError = '';
+        renderForm(projectId);
+        var message = {
+            type: 'open-worktree-group-form',
+            version: 1,
+            projectId: projectId,
+        };
+        if (seed && seed.repositoryKey && seed.worktreePath) {
+            message.seedRepositoryKey = seed.repositoryKey;
+            message.seedWorktreePath = seed.worktreePath;
+        }
+        if (seed && seed.sourceGroupId) {
+            message.sourceGroupId = seed.sourceGroupId;
+        }
+        if (seed && seed.targetGroupId) {
+            message.targetGroupId = seed.targetGroupId;
+        }
+        window.vscode.postMessage(message);
+        focusNameInput(projectId);
+    }
+
+    function closeForm(projectId, keepInput) {
+        var state = getState(projectId);
+        if (!state || !state.open) {
+            return;
+        }
+        state.open = false;
+        state.bootstrapping = false;
+        state.confirming = false;
+        state.previewDirty = false;
+        if (state.previewTimer) {
+            clearTimeout(state.previewTimer);
+            state.previewTimer = 0;
+        }
+        if (!keepInput) {
+            var focusGroupId = state.pendingFocusGroupId;
+            statesByProject.delete(projectId);
+            if (focusGroupId) {
+                ensureState(projectId).pendingFocusGroupId = focusGroupId;
+            }
+        }
+        renderForm(projectId);
+    }
+
+    function applyFormState(message) {
+        if (!message || message.type !== 'worktree-group-form-state'
+            || message.version !== 1 || typeof message.projectId !== 'string'
+            || !Array.isArray(message.repositories)) {
+            return false;
+        }
+        var state = getState(message.projectId);
+        if (!state || !state.open) {
+            return true;
+        }
+        state.bootstrapping = false;
+        state.repositories = message.repositories.filter(function (repository) {
+            return repository && typeof repository.repositoryKey === 'string';
+        });
+        if (!Object.keys(state.checked).length) {
+            state.repositories.forEach(function (repository) {
+                state.checked[repository.repositoryKey] = !!repository.defaultChecked;
+            });
+        }
+        if (message.derive && typeof message.derive === 'object'
+            && typeof message.derive.sourceGroupId === 'string') {
+            // Derive mode (PRD §6.2): precheck the source group's member
+            // repositories, override each base ref to the source branch,
+            // and prefill the default name 源名-2 (until the user types).
+            state.derive = {
+                sourceGroupId: message.derive.sourceGroupId,
+                sourceName: typeof message.derive.sourceName === 'string'
+                    ? message.derive.sourceName : '',
+                skipped: Array.isArray(message.derive.skipped)
+                    ? message.derive.skipped.filter(function (entry) {
+                        return entry && typeof entry.repositoryLabel === 'string'
+                            && typeof entry.reason === 'string';
+                    })
+                    : [],
+            };
+            var deriveChecked = Array.isArray(message.derive.checkedRepositories)
+                ? message.derive.checkedRepositories : [];
+            state.repositories.forEach(function (repository) {
+                state.checked[repository.repositoryKey] =
+                    deriveChecked.indexOf(repository.repositoryKey) >= 0;
+            });
+            if (message.derive.baseOverrides
+                && typeof message.derive.baseOverrides === 'object') {
+                Object.keys(message.derive.baseOverrides).forEach(function (repositoryKey) {
+                    if (typeof message.derive.baseOverrides[repositoryKey] === 'string') {
+                        state.baseRefOverrides[repositoryKey] =
+                            message.derive.baseOverrides[repositoryKey];
+                    }
+                });
+            }
+            if (!state.name.trim() && typeof message.derive.suggestedName === 'string') {
+                state.name = message.derive.suggestedName;
+            }
+        }
+        if (message.addRepo && typeof message.addRepo === 'object'
+            && typeof message.addRepo.groupId === 'string'
+            && typeof message.addRepo.displayName === 'string') {
+            // Add-repo mode (PRD §6.3): the group name and slug are locked;
+            // the form only picks the repositories to add.
+            state.addRepo = {
+                groupId: message.addRepo.groupId,
+                displayName: message.addRepo.displayName,
+            };
+            state.name = message.addRepo.displayName;
+        }
+        if (message.seed && typeof message.seed.repositoryKey === 'string'
+            && typeof message.seed.baseRef === 'string') {
+            // Branch-from-here: check only the seeded repository and prefill
+            // its branch as the base-ref override (PRD §6.1 entry rules).
+            state.repositories.forEach(function (repository) {
+                state.checked[repository.repositoryKey] =
+                    repository.repositoryKey === message.seed.repositoryKey;
+            });
+            state.baseRefOverrides[message.seed.repositoryKey] = message.seed.baseRef;
+        }
+        var checked = checkedRepositories(state);
+        if (!checked.some(function (repository) {
+            return repository.repositoryKey === state.primaryRepositoryKey;
+        })) {
+            state.primaryRepositoryKey = checked.length
+                ? checked[0].repositoryKey : '';
+        }
+        schedulePreview(message.projectId, 0);
+        renderForm(message.projectId);
+        return true;
+    }
+
+    function schedulePreview(projectId, debounceMs) {
+        var state = getState(projectId);
+        if (!state || !state.open) {
+            return;
+        }
+        if (state.previewTimer) {
+            clearTimeout(state.previewTimer);
+        }
+        state.previewDirty = true;
+        state.previewTimer = setTimeout(function () {
+            state.previewTimer = 0;
+            sendPreviewRequest(projectId);
+        }, debounceMs === undefined ? PREVIEW_DEBOUNCE_MS : debounceMs);
+        // Never rebuild the form on a keystroke: innerHTML replacement
+        // destroys the focused input mid-typing. Patch only the actions row.
+        syncActionsDom(projectId);
+    }
+
+    function sendPreviewRequest(projectId) {
+        var state = getState(projectId);
+        if (!state || !state.open) {
+            return;
+        }
+        var requestId = nextRequestId('group-preview');
+        state.previewRequestId = requestId;
+        window.vscode.postMessage({
+            type: 'preview-worktree-group',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            displayName: state.name,
+            ...(state.derive ? { sourceGroupId: state.derive.sourceGroupId } : {}),
+            ...(state.addRepo ? { targetGroupId: state.addRepo.groupId } : {}),
+            selections: checkedRepositories(state).map(function (repository) {
+                var override = state.baseRefOverrides[repository.repositoryKey];
+                return override
+                    ? { repositoryKey: repository.repositoryKey, baseRef: override }
+                    : { repositoryKey: repository.repositoryKey };
+            }),
+        });
+    }
+
+    function applyPreview(message) {
+        if (!message || message.type !== 'worktree-group-preview'
+            || message.version !== 1 || typeof message.requestId !== 'string'
+            || typeof message.previewId !== 'string'
+            || typeof message.projectId !== 'string'
+            || !Array.isArray(message.members)) {
+            return false;
+        }
+        var state = statesByProject.get(message.projectId || '');
+        // Stale responses must never overwrite a newer form state (PRD §6.1
+        // preview engineering contract).
+        if (!state || !state.open || message.requestId !== state.previewRequestId) {
+            return true;
+        }
+        state.preview = {
+            slug: typeof message.slug === 'string' ? message.slug : '',
+            formError: message.formError === 'invalid-task' ? 'invalid-task' : '',
+            members: message.members,
+        };
+        state.previewId = message.previewId;
+        state.previewDirty = false;
+        renderForm(message.projectId);
+        return true;
+    }
+
+    function previewMemberFor(state, repositoryKey) {
+        if (!state.preview) {
+            return null;
+        }
+        for (var index = 0; index < state.preview.members.length; index++) {
+            if (state.preview.members[index].repositoryKey === repositoryKey) {
+                return state.preview.members[index];
+            }
+        }
+        return null;
+    }
+
+    function availableMembers(state) {
+        return checkedRepositories(state).filter(function (repository) {
+            var member = previewMemberFor(state, repository.repositoryKey);
+            return member && member.preflight === 'ok';
+        });
+    }
+
+    function hasPreflightFailures(state) {
+        return checkedRepositories(state).some(function (repository) {
+            var member = previewMemberFor(state, repository.repositoryKey);
+            return member && member.preflight !== 'ok';
+        });
+    }
+
+    function confirmForm(projectId, availableOnly) {
+        var state = getState(projectId);
+        if (!state || !state.open || state.confirming || state.previewDirty
+            || !state.preview || state.preview.formError || !state.previewId) {
+            return;
+        }
+        var selected = availableOnly
+            ? availableMembers(state)
+            : checkedRepositories(state);
+        if (!selected.length) {
+            return;
+        }
+        if (!availableOnly && hasPreflightFailures(state)) {
+            return;
+        }
+        var members = [];
+        for (var index = 0; index < selected.length; index++) {
+            var repository = selected[index];
+            var preview = previewMemberFor(state, repository.repositoryKey);
+            if (!preview || preview.preflight !== 'ok') {
+                return;
+            }
+            members.push({
+                repositoryKey: repository.repositoryKey,
+                baseRef: preview.baseRef,
+                branchName: preview.branchName,
+                worktreePath: preview.worktreePath,
+                // The host re-reads the configured command per repository;
+                // the webview only carries the user's toggle.
+                setupEnabled: !state.setupDisabled[repository.repositoryKey],
+            });
+        }
+        var primaryAvailable = members.some(function (member) {
+            return member.repositoryKey === state.primaryRepositoryKey;
+        });
+        state.confirming = true;
+        state.confirmRequestId = nextRequestId('group-confirm');
+        state.formError = '';
+        var message = {
+            type: 'confirm-worktree-group',
+            version: 1,
+            requestId: state.confirmRequestId,
+            projectId: projectId,
+            previewId: state.previewId,
+            displayName: state.name,
+            members: members,
+        };
+        if (state.addRepo) {
+            message.targetGroupId = state.addRepo.groupId;
+        }
+        if (primaryAvailable) {
+            message.primaryRepositoryKey = state.primaryRepositoryKey;
+        }
+        window.vscode.postMessage(message);
+        renderForm(projectId);
+    }
+
+    function applyCreationSettlement(message) {
+        if (!message || message.type !== 'worktree-group-creation-settlement'
+            || message.version !== 1 || typeof message.requestId !== 'string'
+            || ['accepted', 'created', 'failed'].indexOf(message.status) < 0) {
+            return false;
+        }
+        var entries = statesByProject.entries();
+        for (var step = entries.next(); !step.done; step = entries.next()) {
+            var projectId = step.value[0];
+            var state = step.value[1];
+            if (state.confirmRequestId !== message.requestId) {
+                continue;
+            }
+            if (message.status === 'accepted') {
+                return true;
+            }
+            state.confirming = false;
+            if (message.status === 'created') {
+                state.pendingFocusGroupId = typeof message.groupId === 'string'
+                    ? message.groupId : '';
+                // Confirmed: the next open starts from a clean form, and
+                // focus lands on the new group row once it renders.
+                announce(projectId, 'Worktree group created.');
+                closeForm(projectId, false);
+                // The group row usually rendered before this settlement
+                // arrived; try the focus immediately instead of waiting
+                // for a replacement that may never come.
+                reconcileDom();
+            } else {
+                state.formError = typeof message.errorCode === 'string'
+                    ? message.errorCode : 'unexpected-error';
+                announce(projectId, describeFormError(state.formError));
+                renderForm(projectId);
+                if (state.formError === 'preview-stale') {
+                    // Recompute immediately so the refreshed preview shows
+                    // the configuration that rejected the old confirm.
+                    schedulePreview(projectId, 0);
+                }
+            }
+            return true;
+        }
+        return true;
+    }
+
+    function submitMemberRequest(projectId, button, type) {
+        var groupId = button.getAttribute('data-group-id');
+        var memberId = button.getAttribute('data-member-id');
+        if (!groupId || !memberId || button.disabled) {
+            return;
+        }
+        var requestId = nextRequestId('group-member');
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        var state = ensureState(projectId);
+        state.pendingMemberRequests[requestId] = {
+            button: button, groupId: groupId, memberId: memberId,
+        };
+        window.vscode.postMessage({
+            type: type,
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+        });
+    }
+
+    function applyMemberSettlement(message) {
+        if (!message || message.type !== 'worktree-group-member-settlement'
+            || message.version !== 1 || typeof message.requestId !== 'string'
+            || ['accepted', 'settled', 'failed'].indexOf(message.status) < 0) {
+            return false;
+        }
+        var entries = statesByProject.entries();
+        for (var step = entries.next(); !step.done; step = entries.next()) {
+            var pending = step.value[1].pendingMemberRequests[message.requestId];
+            if (!pending) {
+                continue;
+            }
+            if (message.status === 'accepted') {
+                return true;
+            }
+            delete step.value[1].pendingMemberRequests[message.requestId];
+            if (pending.button && pending.button.isConnected) {
+                pending.button.disabled = false;
+                pending.button.removeAttribute('aria-disabled');
+            }
+            announce(step.value[0], message.status === 'settled'
+                ? 'Member worktree ready.'
+                : 'Member action failed'
+                    + (typeof message.errorCode === 'string'
+                        ? ': ' + describePreflight(message.errorCode) : '') + '.');
+            return true;
+        }
+        return true;
+    }
+
+    function describePreflight(code) {
+        switch (code) {
+            case 'branch-conflict': return 'branch name already exists';
+            case 'path-conflict': return 'path already exists';
+            case 'repository-has-no-commits': return 'repository has no commits yet';
+            case 'base-ref-unavailable': return 'base ref unavailable';
+            case 'allocation-exhausted': return 'no free branch/path suffix';
+            case 'repository-unavailable': return 'repository unavailable';
+            case 'store-full': return 'too many dismissed worktrees pending cleanup; remove them from disk first';
+            default: return code || 'unavailable';
+        }
+    }
+
+    // PRD §8: 人话错误，不显示裸错误码.
+    function describeFormError(code) {
+        switch (code) {
+            case 'invalid-task': return 'Enter a group name.';
+            case 'invalid-members': return 'The member set is no longer valid; close and reopen the form.';
+            case 'preview-stale': return 'The setup configuration changed; the preview has been refreshed — review and confirm again.';
+            case 'workspace-unavailable': return 'The workspace is unavailable.';
+            case 'manifest-unavailable': return 'The workspace changed during creation; try again.';
+            case 'store-full': return 'Too many worktree groups; remove some first.';
+            default: return 'Creation failed: ' + (code || 'unexpected error');
+        }
+    }
+
+    function announce(projectId, text) {
+        var projectDiv = getCurrentWorkspaceDiv
+            ? getCurrentWorkspaceDiv(projectId) : null;
+        var liveRegion = projectDiv
+            && projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = text;
+        }
+    }
+
+    // The single-instance rule must be visible: while the form is open the
+    // new-worktree button is disabled (PRD §6.1).
+    function syncCreateButton(projectId, formOpen) {
+        var projectDiv = getCurrentWorkspaceDiv
+            ? getCurrentWorkspaceDiv(projectId) : null;
+        var button = projectDiv
+            && projectDiv.querySelector('[data-action="create-isolated-session"]');
+        if (button) {
+            button.disabled = !!formOpen;
+        }
+    }
+
+    function memberRowHtml(state, repository, index) {
+        var key = repository.repositoryKey;
+        var checked = !!state.checked[key];
+        var preview = previewMemberFor(state, key);
+        var seen = {};
+        var refs = [];
+        [repository.defaultBaseRef]
+            .concat((repository.localBranches || []).map(function (branch) {
+                return 'refs/heads/' + branch;
+            }))
+            .forEach(function (ref) {
+                if (ref && !seen[ref]) {
+                    seen[ref] = true;
+                    refs.push(ref);
+                }
+            });
+        var multiRepo = state.repositories.length > 1;
+        var preflight = preview && preview.preflight !== 'ok'
+            ? '<span class="ai-session-group-form-preflight" role="alert" id="group-form-preflight-'
+                + index + '">' + escapeHtml(describePreflight(preview.preflight.code)) + '</span>'
+            : '';
+        var preflightId = preflight ? 'group-form-preflight-' + index : '';
+        var selectedRef = state.baseRefOverrides[key] || repository.defaultBaseRef;
+        var baseHtml = baseComboboxHtml(
+            state, key, repository, refs, selectedRef, checked, preflightId);
+        var plan = preview && preview.preflight === 'ok'
+            ? '<span class="ai-session-group-form-plan">'
+                + escapeHtml(preview.worktreePath) + ' \u2190 '
+                + escapeHtml(preview.branchName) + '</span>'
+            : '';
+        // Display the setup command from the authoritative preview (config
+        // is re-resolved per preview); the bootstrap value is only a
+        // pre-first-preview placeholder. An empty array is authoritative
+        // too: a config change to empty must not resurrect the old command.
+        var setupCommand = preview && Array.isArray(preview.setupCommand)
+            ? preview.setupCommand
+            : repository.setupCommand;
+        var setup = setupCommand && setupCommand.length
+            ? '<label class="ai-session-group-form-setup">'
+                + '<input type="checkbox" data-group-form-setup="' + escapeHtml(key) + '"'
+                + (state.setupDisabled[key] ? '' : ' checked') + (checked ? '' : ' disabled') + '>'
+                + '<span>' + (state.setupDisabled[key]
+                    ? 'setup disabled for this repository'
+                    : 'setup: ' + escapeHtml(setupCommand.join(' '))) + '</span></label>'
+            : '<span class="ai-session-group-form-setup ai-session-group-form-setup-none">no setup configured</span>';
+        var primary = checked
+            ? '<label class="ai-session-group-form-primary" data-tooltip="Primary worktree for new sessions">'
+                + '<input type="radio" name="group-form-primary" data-group-form-primary="'
+                + escapeHtml(key) + '"'
+                + (state.primaryRepositoryKey === key ? ' checked' : '') + '>primary</label>'
+            : '';
+        return '<div class="ai-session-group-form-member"'
+            + ' data-group-form-member="' + escapeHtml(key) + '"'
+            + (checked ? '' : ' data-unchecked') + '>'
+            + (multiRepo
+                ? '<label class="ai-session-group-form-check">'
+                    + '<input type="checkbox" data-group-form-check="' + escapeHtml(key) + '"'
+                    + (checked ? ' checked' : '')
+                    + (preflightId ? ' aria-describedby="' + preflightId + '"' : '') + '>'
+                    + '<span>' + escapeHtml(repository.label) + '</span></label>'
+                : '<span class="ai-session-group-form-check ai-session-group-form-single">'
+                    + escapeHtml(repository.label) + '</span>')
+            + baseHtml
+            + primary + setup + plan + preflight
+            + '</div>';
+    }
+
+    // Searchable base-branch combobox (PRD §6.1): a text input filters the
+    // local branch list; ArrowUp/Down + Enter choose, Esc closes.
+    function baseComboboxHtml(state, key, repository, refs, selectedRef, checked, preflightId) {
+        var label = repository.label;
+        var open = state.baseDropdown && state.baseDropdown.repositoryKey === key;
+        if (!open) {
+            return '<button type="button" class="ai-session-group-form-base"'
+                + ' data-group-form-base="' + escapeHtml(key) + '"'
+                + ' role="combobox" aria-expanded="false"'
+                + ' aria-label="Base branch for ' + escapeHtml(label) + '"'
+                + (preflightId
+                    ? ' aria-invalid="true" aria-errormessage="' + preflightId + '"'
+                        + ' aria-describedby="' + preflightId + '"'
+                    : '')
+                + (checked ? '' : ' disabled') + '>'
+                + escapeHtml(shortRefName(selectedRef)) + ' \u25be</button>';
+        }
+        var filter = state.baseDropdown.filter || '';
+        var filtered = refs.filter(function (ref) {
+            return shortRefName(ref).toLowerCase().indexOf(filter.toLowerCase()) >= 0;
+        });
+        var activeIndex = Math.min(state.baseDropdown.activeIndex, filtered.length - 1);
+        var optionsHtml = filtered.map(function (ref, position) {
+            return '<li role="option" id="group-form-base-option-' + position + '"'
+                + ' data-group-form-base-option="' + escapeHtml(ref) + '"'
+                + ' aria-selected="' + (ref === selectedRef) + '"'
+                + (position === activeIndex ? ' data-active' : '') + '>'
+                + escapeHtml(shortRefName(ref)) + '</li>';
+        }).join('');
+        return '<span class="ai-session-group-form-base-combobox">'
+            + '<input type="text" class="ai-session-group-form-base-filter"'
+            + ' data-group-form-base-filter="' + escapeHtml(key) + '"'
+            + ' role="combobox" aria-expanded="true"'
+            + ' aria-controls="group-form-base-listbox"'
+            + (preflightId
+                ? ' aria-invalid="true" aria-errormessage="' + preflightId + '"'
+                    + ' aria-describedby="' + preflightId + '"'
+                : '')
+            + (activeIndex >= 0
+                ? ' aria-activedescendant="group-form-base-option-' + activeIndex + '"'
+                : '')
+            + ' aria-label="Search base branch for ' + escapeHtml(label) + '"'
+            + ' value="' + escapeHtml(filter) + '">'
+            + '<ul role="listbox" id="group-form-base-listbox"'
+            + ' class="ai-session-group-form-base-listbox">'
+            + (optionsHtml || '<li class="ai-session-group-form-base-empty">no matching branch</li>')
+            + '</ul></span>';
+    }
+
+    function formSlot(projectId) {
+        var projectDiv = getCurrentWorkspaceDiv
+            ? getCurrentWorkspaceDiv(projectId) : null;
+        return projectDiv && projectDiv.querySelector('[data-worktree-group-form-slot]');
+    }
+
+    function actionsHtml(state) {
+        var checked = checkedRepositories(state);
+        var failures = hasPreflightFailures(state);
+        var availableCount = availableMembers(state).length;
+        var hasName = !!state.name.trim();
+        var canConfirm = !state.confirming && !state.previewDirty
+            && !!state.preview && !state.preview.formError
+            && checked.length > 0 && !failures && hasName;
+        var canConfirmAvailable = !state.confirming && !state.previewDirty
+            && !!state.preview && failures && availableCount > 0 && hasName;
+        var availableButton = failures
+            ? '<button type="button" class="ai-session-group-form-available"'
+                + ' data-group-form-action="confirm-available"'
+                + (canConfirmAvailable ? '' : ' disabled')
+                + '>Create only the available ' + availableCount + '/'
+                + checked.length + ' members</button>'
+            : '';
+        return '<button type="button" class="ai-session-group-form-confirm"'
+            + ' data-group-form-action="confirm"' + (canConfirm ? '' : ' disabled')
+            + '>Create worktree group</button>'
+            + availableButton
+            + (state.previewDirty && hasName
+                ? '<span class="ai-session-group-form-pending">previewing\u2026</span>'
+                : '');
+    }
+
+    // Light patch for keystroke-driven state changes: the confirm button
+    // and the pending indicator follow the dirty flag without touching the
+    // rest of the form (a full rebuild would drop input focus).
+    function syncActionsDom(projectId) {
+        var state = getState(projectId);
+        var slot = formSlot(projectId);
+        var actions = slot && slot.querySelector('.ai-session-group-form-actions');
+        if (!state || !state.open || !actions) {
+            return;
+        }
+        actions.innerHTML = actionsHtml(state);
+    }
+
+    function captureFormFocus(slot) {
+        var active = document.activeElement;
+        if (!active || !slot.contains(active)) {
+            return null;
+        }
+        var attributes = [
+            'data-group-form-name',
+            'data-group-form-base-filter',
+            'data-group-form-base',
+            'data-group-form-check',
+            'data-group-form-setup',
+            'data-group-form-primary',
+            'data-group-form-action',
+        ];
+        for (var index = 0; index < attributes.length; index++) {
+            var attribute = attributes[index];
+            var value = active.getAttribute && active.getAttribute(attribute);
+            if (value !== null && value !== undefined) {
+                var isTextInput = attribute === 'data-group-form-name'
+                    || attribute === 'data-group-form-base-filter';
+                return {
+                    selector: '[' + attribute + (value ? '="' + CSS.escape(value) + '"' : '') + ']',
+                    selectionStart: isTextInput
+                        ? active.selectionStart : null,
+                    selectionEnd: isTextInput
+                        ? active.selectionEnd : null,
+                };
+            }
+        }
+        return null;
+    }
+
+    function restoreFormFocus(slot, capture) {
+        if (!capture) {
+            return;
+        }
+        var element = slot.querySelector(capture.selector);
+        if (!element) {
+            return;
+        }
+        element.focus();
+        if (capture.selectionStart !== null && element.setSelectionRange) {
+            element.setSelectionRange(capture.selectionStart, capture.selectionEnd);
+        }
+    }
+
+    function renderForm(projectId) {
+        var state = getState(projectId);
+        var slot = formSlot(projectId);
+        if (!slot) {
+            return;
+        }
+        if (!state || !state.open) {
+            slot.hidden = true;
+            slot.innerHTML = '';
+            syncCreateButton(projectId, false);
+            return;
+        }
+        var focus = captureFormFocus(slot);
+        var membersHtml = state.bootstrapping
+            ? '<div class="ai-session-group-form-loading">Loading repositories\u2026</div>'
+            : (state.repositories.length
+                ? state.repositories.map(function (repository, index) {
+                    return memberRowHtml(state, repository, index);
+                }).join('')
+                : '<div class="ai-session-group-form-loading">No git repository found in this workspace.</div>');
+        var selectionTools = state.repositories.length > 1
+            ? '<div class="ai-session-group-form-tools">'
+                + '<button type="button" data-group-form-action="select-all">Select all</button>'
+                + '<button type="button" data-group-form-action="select-none">Clear</button>'
+                + '</div>'
+            : '';
+        slot.innerHTML = '<div class="ai-session-group-form" data-worktree-group-form'
+            + ' data-project-id="' + escapeHtml(projectId) + '">'
+            + '<div class="ai-session-group-form-title">'
+            + (state.addRepo
+                ? 'Add repositories to ' + escapeHtml(state.addRepo.displayName)
+                : state.derive
+                    ? 'Derive from ' + escapeHtml(state.derive.sourceName || 'group')
+                    : 'New worktree group')
+            + '</div>'
+            + (state.derive && state.derive.skipped.length
+                ? '<div class="ai-session-group-form-derive-skipped" role="note">'
+                    + 'Skipped: ' + state.derive.skipped.map(function (entry) {
+                        return escapeHtml(entry.repositoryLabel)
+                            + ' (' + escapeHtml(entry.reason) + ')';
+                    }).join('; ')
+                    + '</div>'
+                : '')
+            + '<div class="ai-session-group-form-header">'
+            + '<input type="text" class="ai-session-group-form-name"'
+            + ' data-group-form-name placeholder="Worktree group name"'
+            + ' aria-label="Worktree group name" value="' + escapeHtml(state.name) + '"'
+            // Add-repo mode locks the group name (PRD §6.3: slug 锁定).
+            + (state.addRepo ? ' readonly aria-readonly="true"' : '')
+            + ((state.preview && state.preview.formError === 'invalid-task') || state.formError
+                ? ' aria-invalid="true" aria-describedby="group-form-name-error group-form-error"'
+                : '') + '>'
+            + '<button type="button" class="ai-session-group-form-close"'
+            + ' data-group-form-action="close" aria-label="Close creation form"'
+            + ' data-tooltip="Close (Esc)">\u00d7</button>'
+            + '</div>'
+            + (state.preview && state.preview.formError === 'invalid-task'
+                ? '<div class="ai-session-group-form-error" id="group-form-name-error" role="alert">Enter a group name.</div>'
+                : '')
+            + (state.formError
+                ? '<div class="ai-session-group-form-error" id="group-form-error" role="alert">'
+                    + escapeHtml(describeFormError(state.formError)) + '</div>'
+                : '')
+            + selectionTools
+            + '<div class="ai-session-group-form-members">' + membersHtml + '</div>'
+            + '<div class="ai-session-group-form-actions">' + actionsHtml(state) + '</div>'
+            + '</div>';
+        slot.hidden = false;
+        restoreFormFocus(slot, focus);
+        syncCreateButton(projectId, true);
+    }
+
+    function focusNameInput(projectId) {
+        var projectDiv = getCurrentWorkspaceDiv
+            ? getCurrentWorkspaceDiv(projectId) : null;
+        var input = projectDiv && projectDiv.querySelector('[data-group-form-name]');
+        if (input) {
+            input.focus();
+        }
+    }
+
+    // Re-render after authoritative workspace updates replaced the DOM, and
+    // move focus to a freshly created group row exactly once.
+    function reconcileDom() {
+        var entries = statesByProject.entries();
+        for (var step = entries.next(); !step.done; step = entries.next()) {
+            var projectId = step.value[0];
+            var state = step.value[1];
+            if (state.open) {
+                renderForm(projectId);
+            }
+            if (state.pendingFocusGroupId) {
+                var projectDiv = getCurrentWorkspaceDiv
+                    ? getCurrentWorkspaceDiv(projectId) : null;
+                var header = projectDiv && projectDiv.querySelector(
+                    '.ai-session-worktree-task-group[data-group-id="'
+                    + CSS.escape(state.pendingFocusGroupId)
+                    + '"] .ai-session-worktree-header');
+                if (header) {
+                    state.pendingFocusGroupId = '';
+                    header.focus();
+                }
+            }
+        }
+    }
+
+    function onClick(target, projectDiv, projectId) {
+        var state = getState(projectId);
+        var baseToggle = target.closest
+            ? target.closest('[data-group-form-base]') : null;
+        if (baseToggle) {
+            if (state) {
+                var toggleKey = baseToggle.getAttribute('data-group-form-base');
+                state.baseDropdown = state.baseDropdown
+                    && state.baseDropdown.repositoryKey === toggleKey
+                    ? null
+                    : { repositoryKey: toggleKey, filter: '', activeIndex: 0 };
+                renderForm(projectId);
+                if (state.baseDropdown) {
+                    var filterInput = formSlot(projectId)
+                        && formSlot(projectId).querySelector('[data-group-form-base-filter]');
+                    if (filterInput) {
+                        filterInput.focus();
+                    }
+                }
+            }
+            return true;
+        }
+        var baseOption = target.closest
+            ? target.closest('[data-group-form-base-option]') : null;
+        if (baseOption) {
+            if (state && state.baseDropdown) {
+                state.baseRefOverrides[state.baseDropdown.repositoryKey] =
+                    baseOption.getAttribute('data-group-form-base-option');
+                state.baseDropdown = null;
+                schedulePreview(projectId, 0);
+                renderForm(projectId);
+            }
+            return true;
+        }
+        if (state && state.baseDropdown
+            && !(target.closest && target.closest('.ai-session-group-form-base-combobox'))) {
+            state.baseDropdown = null;
+            renderForm(projectId);
+            // Fall through: the click may still hit another form control.
+        }
+        var formAction = target.closest
+            ? target.closest('[data-group-form-action]') : null;
+        if (formAction) {
+            var action = formAction.getAttribute('data-group-form-action');
+            if (action === 'close') {
+                closeForm(projectId, true);
+            } else if (action === 'confirm') {
+                confirmForm(projectId, false);
+            } else if (action === 'confirm-available') {
+                confirmForm(projectId, true);
+            } else if (action === 'select-all' || action === 'select-none') {
+                if (state) {
+                    var checkAll = action === 'select-all';
+                    state.repositories.forEach(function (repository) {
+                        state.checked[repository.repositoryKey] = checkAll;
+                    });
+                    var remaining = checkedRepositories(state);
+                    if (!remaining.some(function (repository) {
+                        return repository.repositoryKey === state.primaryRepositoryKey;
+                    })) {
+                        state.primaryRepositoryKey = remaining.length
+                            ? remaining[0].repositoryKey : '';
+                    }
+                    schedulePreview(projectId, 0);
+                    // Bulk selection changes every checkbox: the light
+                    // actions patch is not enough here.
+                    renderForm(projectId);
+                }
+            }
+            return true;
+        }
+        var memberAction = target.closest
+            ? target.closest('[data-action="retry-group-member"],'
+                + '[data-action="dismiss-group-member"]') : null;
+        if (memberAction) {
+            submitMemberRequest(
+                projectId, memberAction,
+                memberAction.getAttribute('data-action') === 'retry-group-member'
+                    ? 'retry-worktree-group-member'
+                    : 'dismiss-worktree-group-member');
+            return true;
+        }
+        return false;
+    }
+
+    function onInput(target) {
+        var filterInput = target.closest
+            ? target.closest('[data-group-form-base-filter]') : null;
+        if (filterInput) {
+            var filterForm = filterInput.closest('[data-worktree-group-form]');
+            var filterProjectId = filterForm && filterForm.getAttribute('data-project-id');
+            var filterState = filterProjectId && getState(filterProjectId);
+            if (filterState && filterState.baseDropdown) {
+                filterState.baseDropdown.filter = filterInput.value;
+                filterState.baseDropdown.activeIndex = 0;
+                renderForm(filterProjectId);
+            }
+            return true;
+        }
+        var nameInput = target.closest
+            ? target.closest('[data-group-form-name]') : null;
+        if (!nameInput) {
+            return false;
+        }
+        var form = nameInput.closest('[data-worktree-group-form]');
+        var projectId = form && form.getAttribute('data-project-id');
+        var state = projectId && getState(projectId);
+        if (!state) {
+            return true;
+        }
+        state.name = nameInput.value;
+        schedulePreview(projectId);
+        return true;
+    }
+
+    function onChange(target) {
+        var form = target.closest
+            ? target.closest('[data-worktree-group-form]') : null;
+        if (!form) {
+            return false;
+        }
+        var projectId = form.getAttribute('data-project-id');
+        var state = projectId && getState(projectId);
+        if (!state) {
+            return true;
+        }
+        var check = target.closest('[data-group-form-check]');
+        if (check) {
+            var key = check.getAttribute('data-group-form-check');
+            state.checked[key] = !!check.checked;
+            if (state.checked[key] && !state.primaryRepositoryKey) {
+                state.primaryRepositoryKey = key;
+            }
+            if (!state.checked[key] && state.primaryRepositoryKey === key) {
+                var remaining = checkedRepositories(state);
+                state.primaryRepositoryKey = remaining.length
+                    ? remaining[0].repositoryKey : '';
+            }
+            schedulePreview(projectId, 0);
+            return true;
+        }
+        var setup = target.closest('[data-group-form-setup]');
+        if (setup) {
+            state.setupDisabled[setup.getAttribute('data-group-form-setup')] =
+                !setup.checked;
+            renderForm(projectId);
+            return true;
+        }
+        var primary = target.closest('[data-group-form-primary]');
+        if (primary) {
+            state.primaryRepositoryKey =
+                primary.getAttribute('data-group-form-primary');
+            renderForm(projectId);
+            return true;
+        }
+        return false;
+    }
+
+    function onKeydown(event) {
+        var form = event.target && event.target.closest
+            ? event.target.closest('[data-worktree-group-form]') : null;
+        if (!form) {
+            return false;
+        }
+        var projectId = form.getAttribute('data-project-id');
+        var state = projectId && getState(projectId);
+        if (state && state.baseDropdown
+            && event.target.hasAttribute('data-group-form-base-filter')) {
+            var dropdown = state.baseDropdown;
+            if (event.key === 'Escape') {
+                state.baseDropdown = null;
+                renderForm(projectId);
+                return true;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp'
+                || event.key === 'Enter') {
+                var repository = state.repositories.find(function (candidate) {
+                    return candidate.repositoryKey === dropdown.repositoryKey;
+                });
+                var refs = repository
+                    ? [repository.defaultBaseRef]
+                        .concat((repository.localBranches || []).map(function (branch) {
+                            return 'refs/heads/' + branch;
+                        }))
+                        .filter(function (ref, position, all) {
+                            return ref && all.indexOf(ref) === position;
+                        })
+                    : [];
+                var filtered = refs.filter(function (ref) {
+                    return shortRefName(ref).toLowerCase()
+                        .indexOf((dropdown.filter || '').toLowerCase()) >= 0;
+                });
+                if (event.key === 'Enter') {
+                    var chosen = filtered[Math.min(dropdown.activeIndex, filtered.length - 1)];
+                    if (chosen) {
+                        state.baseRefOverrides[dropdown.repositoryKey] = chosen;
+                    }
+                    state.baseDropdown = null;
+                    schedulePreview(projectId, 0);
+                    renderForm(projectId);
+                } else {
+                    var delta = event.key === 'ArrowDown' ? 1 : -1;
+                    dropdown.activeIndex = Math.max(0, Math.min(
+                        filtered.length - 1, dropdown.activeIndex + delta));
+                    renderForm(projectId);
+                }
+                event.preventDefault();
+                return true;
+            }
+        }
+        if (event.key === 'Escape') {
+            closeForm(projectId, true);
+            return true;
+        }
+        if (event.key === 'Enter' && event.target.matches('[data-group-form-name]')) {
+            // Single-repo degradation keeps the old one-shot flow: Enter
+            // submits when the form is confirmable (PRD §7).
+            confirmForm(projectId, false);
+            return true;
+        }
+        return false;
+    }
+
+    document.addEventListener('input', function (event) {
+        onInput(event.target);
+    });
+    document.addEventListener('change', function (event) {
+        onChange(event.target);
+    });
+    document.addEventListener('keydown', function (event) {
+        onKeydown(event);
+    });
+
+    return {
+        openForm: openForm,
+        closeForm: closeForm,
+        isOpen: function (projectId) {
+            var state = getState(projectId);
+            return !!state && state.open;
+        },
+        onClick: onClick,
+        reconcileDom: reconcileDom,
+        applyFormState: applyFormState,
+        applyPreview: applyPreview,
+        applyCreationSettlement: applyCreationSettlement,
+        applyMemberSettlement: applyMemberSettlement,
+    };
+}
+
 /* src/webview/webviewProjectAiSessionControlsScripts.js */
 function initProjectAiSessionControls(options) {
     'use strict';
@@ -2793,6 +4372,67 @@ function initProjectAiSessionControls(options) {
     var getAiSessionsUpdate = options.getAiSessionsUpdate;
     var getAiSessionPresentationStateStore = options.getAiSessionPresentationStateStore;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
+
+    // Native title tooltips take over a second to appear; icon-only buttons
+    // get a shared fast tooltip instead (150ms), driven by data-tooltip.
+    var fastTooltip = null;
+    var fastTooltipTimer = null;
+    var fastTooltipTarget = null;
+
+    function hideFastTooltip() {
+        if (fastTooltipTimer) {
+            clearTimeout(fastTooltipTimer);
+            fastTooltipTimer = null;
+        }
+        fastTooltipTarget = null;
+        if (fastTooltip) {
+            fastTooltip.remove();
+            fastTooltip = null;
+        }
+    }
+
+    function showFastTooltip(target) {
+        var label = target.getAttribute('data-tooltip');
+        if (!label || !target.isConnected) return;
+        hideFastTooltip();
+        fastTooltipTarget = target;
+        fastTooltipTimer = setTimeout(() => {
+            if (fastTooltipTarget !== target || !target.isConnected) return;
+            fastTooltip = document.createElement('div');
+            fastTooltip.className = 'ai-session-fast-tooltip';
+            fastTooltip.setAttribute('role', 'tooltip');
+            fastTooltip.textContent = label;
+            document.body.appendChild(fastTooltip);
+            var rect = target.getBoundingClientRect();
+            var tipRect = fastTooltip.getBoundingClientRect();
+            var left = Math.max(4, Math.min(
+                rect.right - tipRect.width,
+                window.innerWidth - tipRect.width - 4
+            ));
+            var top = rect.top - tipRect.height - 5;
+            if (top < 4) {
+                top = rect.bottom + 5;
+            }
+            fastTooltip.style.left = left + 'px';
+            fastTooltip.style.top = top + 'px';
+        }, 150);
+    }
+
+    document.addEventListener('mouseover', event => {
+        var target = event.target && event.target.closest
+            ? event.target.closest('[data-tooltip]') : null;
+        if (target === fastTooltipTarget) return;
+        hideFastTooltip();
+        if (target) showFastTooltip(target);
+    });
+    document.addEventListener('pointerdown', hideFastTooltip, true);
+    document.addEventListener('focusin', event => {
+        var target = event.target && event.target.closest
+            ? event.target.closest('[data-tooltip]') : null;
+        hideFastTooltip();
+        if (target) showFastTooltip(target);
+    });
+    document.addEventListener('focusout', hideFastTooltip);
 
     var batchAiSessionState = {
         projectId: null,
@@ -2803,6 +4443,17 @@ function initProjectAiSessionControls(options) {
     var nextAiSessionBatchArchiveRequestId = 0;
     var nextAiSessionProviderSelectionRequestId = 0;
     var nextAiSessionAttentionAcknowledgementRequestId = 0;
+    var nextIsolatedSessionRequestId = 0;
+    var pendingIsolatedSessionRequests = new Map();
+    var nextManagedWorktreeRemovalRequestId = 0;
+    var pendingManagedWorktreeRemovalRequests = new Map();
+    var nextSetGroupPrimaryRequestId = 0;
+    var pendingSetGroupPrimaryRequests = new Map();
+    var worktreeGroupForm = null;
+
+    function setWorktreeGroupForm(form) {
+        worktreeGroupForm = form;
+    }
     var pendingAiSessionAttentionAcknowledgements = new Map();
     var pendingAiSessionProviderSelectionProjectId = null;
     var pendingAiSessionProviderSelectionRequestId = null;
@@ -2948,6 +4599,227 @@ function initProjectAiSessionControls(options) {
 
     function onTriggerAiSessionAction(target, projectId) {
         var projectDiv = target.closest('.project[data-id]');
+        var managedWorktreeRemoveAction = target.closest(
+            '[data-action="remove-managed-worktree"]'
+        );
+        if (managedWorktreeRemoveAction) {
+            submitManagedWorktreeRemoval(
+                projectId,
+                managedWorktreeRemoveAction.closest(
+                    '.ai-session-worktree-group[data-worktree-repository-key][data-worktree-path]'
+                ),
+                managedWorktreeRemoveAction
+            );
+            return true;
+        }
+        var isolatedCreateAction = target.closest('[data-action="create-isolated-session"]');
+        if (isolatedCreateAction) {
+            // M2: the inline group creation form opens at the top of the
+            // Worktree surface, so follow it there immediately.
+            selectAiSessionSurfaceDom(projectDiv, 'worktree');
+            writeAiSessionSurfaceState(window.vscode, projectId, 'worktree');
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: projectId,
+                surface: 'worktree',
+            });
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(projectId, null);
+            }
+            return true;
+        }
+        var isolatedRetryAction = target.closest(
+            '[data-action="retry-isolated-session"][data-operation-id]'
+        );
+        if (isolatedRetryAction) {
+            submitIsolatedSessionRequest(
+                'retry-isolated-session', projectId,
+                isolatedRetryAction.getAttribute('data-operation-id'), isolatedRetryAction
+            );
+            return true;
+        }
+        var isolatedDismissAction = target.closest(
+            '[data-action="dismiss-isolated-session"][data-operation-id]'
+        );
+        if (isolatedDismissAction) {
+            submitIsolatedSessionRequest(
+                'dismiss-isolated-session', projectId,
+                isolatedDismissAction.getAttribute('data-operation-id'), isolatedDismissAction
+            );
+            return true;
+        }
+        var isolatedCancelAction = target.closest(
+            '[data-action="cancel-isolated-session"][data-operation-id]'
+        );
+        if (isolatedCancelAction) {
+            submitIsolatedSessionRequest(
+                'cancel-isolated-session', projectId,
+                isolatedCancelAction.getAttribute('data-operation-id'), isolatedCancelAction
+            );
+            return true;
+        }
+        var worktreeCollapseAllAction = target.closest(
+            '[data-action="toggle-all-ai-session-worktrees"]'
+        );
+        if (worktreeCollapseAllAction) {
+            toggleAllAiSessionWorktrees(projectDiv);
+            return true;
+        }
+        var worktreeMenuAction = target.closest('[data-action="ai-session-worktree-menu"]');
+        if (worktreeMenuAction) {
+            toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);
+            return true;
+        }
+        var mergeGroupsAction = target.closest(
+            '[data-action="merge-worktree-groups"][data-group-id]'
+        );
+        if (mergeGroupsAction) {
+            window.vscode.postMessage({
+                type: 'merge-worktree-groups',
+                projectId: projectId,
+                sourceGroupId: mergeGroupsAction.getAttribute('data-group-id'),
+            });
+            return true;
+        }
+        var setPrimaryAction = target.closest(
+            '[data-action="set-group-primary"][data-group-id][data-member-id]'
+        );
+        if (setPrimaryAction) {
+            submitSetGroupPrimaryRequest(projectId, setPrimaryAction);
+            return true;
+        }
+        var viewConversationAction = target.closest(
+            '[data-action="view-ai-session-conversation"]'
+        );
+        if (viewConversationAction) {
+            var viewRow = viewConversationAction.closest('.codex-session-row[data-session-id]');
+            if (viewRow) {
+                window.vscode.postMessage({
+                    type: 'open-active-ai-session-conversation',
+                    version: 1,
+                    projectId: projectId,
+                    provider: viewRow.getAttribute('data-session-provider'),
+                    sessionId: viewRow.getAttribute('data-session-id'),
+                });
+            }
+            return true;
+        }
+        var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
+        if (worktreeToggle) {
+            setAiSessionWorktreeGroupExpanded(
+                projectDiv,
+                worktreeToggle.closest('.ai-session-worktree-group'),
+                worktreeToggle.getAttribute('aria-expanded') !== 'true'
+            );
+            writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+            return true;
+        }
+        var memberDetailsToggle = target.closest('[data-action="toggle-group-member-details"]');
+        if (memberDetailsToggle) {
+            var memberDetailsSection = memberDetailsToggle.closest('.ai-session-worktree-group');
+            if (memberDetailsSection
+                && typeof setWorktreeGroupMemberDetailsExpanded === 'function') {
+                setWorktreeGroupMemberDetailsExpanded(
+                    memberDetailsSection,
+                    memberDetailsToggle.getAttribute('aria-expanded') !== 'true'
+                );
+                writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+            }
+            return true;
+        }
+        var memberRemoveAction = target.closest(
+            '[data-action="preview-group-member-deletion"][data-group-id][data-member-id]'
+        );
+        if (memberRemoveAction) {
+            startWorktreeGroupMemberDeletion(
+                projectId,
+                memberRemoveAction.getAttribute('data-group-id'),
+                memberRemoveAction.getAttribute('data-member-id')
+            );
+            return true;
+        }
+        var deletionCancel = target.closest('[data-action="cancel-group-member-deletion"]');
+        if (deletionCancel) {
+            cancelWorktreeGroupDeletionCard(projectDiv);
+            return true;
+        }
+        var deletionConfirm = target.closest('[data-action="confirm-group-member-deletion"]');
+        if (deletionConfirm) {
+            if (!deletionConfirm.disabled) {
+                confirmWorktreeGroupMemberDeletion(
+                    deletionConfirm.closest('.ai-session-worktree-deletion-card'));
+            }
+            return true;
+        }
+        var visibleOnlySwitch = target.closest('[data-action="preview-group-visible-deletion"]');
+        if (visibleOnlySwitch) {
+            var switchSection = visibleOnlySwitch.closest('.ai-session-worktree-group');
+            var switchGroupId = switchSection && switchSection.getAttribute('data-group-id');
+            if (switchGroupId) {
+                startWorktreeGroupMemberDeletion(projectId, switchGroupId, '', {
+                    mode: 'visible-only',
+                });
+            }
+            return true;
+        }
+        var deletionRetry = target.closest(
+            '[data-action="retry-group-deletion"][data-operation-id]'
+        );
+        if (deletionRetry) {
+            submitWorktreeGroupDeletionOperation(deletionRetry, 'retry');
+            return true;
+        }
+        var deletionAbandon = target.closest(
+            '[data-action="abandon-group-deletion"][data-operation-id]'
+        );
+        if (deletionAbandon) {
+            submitWorktreeGroupDeletionOperation(deletionAbandon, 'abandon');
+            return true;
+        }
+        var claimDiscard = target.closest(
+            '[data-action="discard-generation-claim"][data-claim-id]'
+        );
+        if (claimDiscard) {
+            submitWorktreeGroupClaimDiscard(claimDiscard);
+            return true;
+        }
+        var adoptCluster = target.closest('[data-action="adopt-worktree-cluster"]');
+        if (adoptCluster) {
+            startWorktreeAdopt(adoptCluster);
+            return true;
+        }
+        var adoptCancel = target.closest('[data-action="cancel-worktree-adopt"]');
+        if (adoptCancel) {
+            cancelWorktreeAdoptCard(projectDiv);
+            return true;
+        }
+        var adoptConfirm = target.closest('[data-action="confirm-worktree-adopt"]');
+        if (adoptConfirm) {
+            if (!adoptConfirm.disabled) {
+                confirmWorktreeAdopt(adoptConfirm.closest('.ai-session-worktree-adopt-card'));
+            }
+            return true;
+        }
+        var surfaceAction = target.closest(
+            '[data-action="select-ai-session-surface"][data-surface]'
+        );
+        if (surfaceAction) {
+            var selectedSurface = normalizeAiSessionSurface(
+                surfaceAction.getAttribute('data-surface')
+            );
+            selectAiSessionSurfaceDom(projectDiv, selectedSurface);
+            writeAiSessionSurfaceState(window.vscode, projectId, selectedSurface);
+            // The host renders future authoritative HTML with this selection,
+            // so replacements never flip the visible surface.
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: projectId,
+                surface: selectedSurface,
+            });
+            return true;
+        }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');
         if (tabAction) {
             var selectedTab = normalizeAiSessionTab(tabAction.getAttribute('data-tab'));
@@ -2982,11 +4854,21 @@ function initProjectAiSessionControls(options) {
         if (quickCreateAction) {
             var provider = quickCreateAction.getAttribute('data-provider');
             if (provider) {
-                window.vscode.postMessage({
+                var message = {
                     type: 'create-ai-session-quick',
                     projectId,
                     provider: provider,
-                });
+                };
+                var worktreeGroup = quickCreateAction.closest(
+                    '[data-worktree-repository-key][data-worktree-path]'
+                );
+                if (worktreeGroup) {
+                    message.worktreeKey = {
+                        repositoryKey: worktreeGroup.getAttribute('data-worktree-repository-key'),
+                        canonicalWorktreePath: worktreeGroup.getAttribute('data-worktree-path'),
+                    };
+                }
+                window.vscode.postMessage(message);
             }
 
             return true;
@@ -3186,6 +5068,1704 @@ function initProjectAiSessionControls(options) {
             window.vscode.postMessage(activation.message);
         }
         return true;
+    }
+
+    function submitIsolatedSessionRequest(type, projectId, operationId, button, sourceWorktree) {
+        if (!projectId || !button || button.disabled)
+            return;
+        nextIsolatedSessionRequestId = nextIsolatedSessionRequestId >= Number.MAX_SAFE_INTEGER
+            ? 1 : nextIsolatedSessionRequestId + 1;
+        var requestId = 'isolated-' + nextIsolatedSessionRequestId.toString(36);
+        var message = {
+            type: type,
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+        };
+        if (operationId) message.operationId = operationId;
+        if (sourceWorktree) message.sourceWorktree = sourceWorktree;
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        pendingIsolatedSessionRequests.set(requestId, {
+            button: button,
+            projectId: projectId,
+            requestType: type,
+            operationId: operationId || requestId,
+        });
+        window.vscode.postMessage(message);
+    }
+
+    function applyIsolatedSessionSettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'operationId', 'requestId', 'status', 'type', 'version']
+            : ['operationId', 'requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'isolated-session-settlement'
+            || message.version !== 1
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || Object.keys(message).length !== expectedKeys.length
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.operationId !== 'string' || !message.operationId
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))
+            || !['accepted', 'cancelled', 'rejected', 'succeeded', 'partial', 'failed']
+                .includes(message.status)) {
+            return false;
+        }
+        var pending = pendingIsolatedSessionRequests.get(message.requestId);
+        if (!pending) return true;
+        if (pending.operationId !== message.operationId) return true;
+        if (message.status === 'accepted') return true;
+        pendingIsolatedSessionRequests.delete(message.requestId);
+        if (pending.button && pending.button.isConnected) {
+            pending.button.disabled = false;
+            pending.button.removeAttribute('aria-disabled');
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = message.status === 'succeeded'
+                ? pending.requestType === 'cancel-isolated-session'
+                    ? 'Worktree creation cancelled.'
+                    : pending.requestType === 'dismiss-isolated-session'
+                        ? 'Worktree creation dismissed.'
+                        : 'Worktree created.'
+                : message.status === 'cancelled'
+                    ? 'Worktree creation cancelled.'
+                    : `Worktree creation ${message.status}: ${describeProvisioningError(message.errorCode)}`;
+        }
+        return true;
+    }
+
+    // The per-worktree ⋯ menu is one shared body-level element; the context is
+    // rebound from the clicked row every time it opens so a single menu can
+    // serve quick create, per-provider create, branch-from-here, and removal.
+    function toggleAiSessionWorktreeMenu(button, projectId) {
+        var menu = document.getElementById('aiSessionWorktreeMenu');
+        if (!menu || !button) return false;
+        var wasOpen = menu.classList.contains('visible') && menu.__originButton === button;
+        if (window.__agentPivotContextMenus
+            && typeof window.__agentPivotContextMenus.closeContextMenus === 'function') {
+            window.__agentPivotContextMenus.closeContextMenus();
+        }
+        if (wasOpen) return true;
+        // Group rows always carry the menu (M3: group-level actions such as
+        // rename must stay reachable even without a ready primary); the
+        // worktree-targeted items below hide themselves when the row has no
+        // usable primary worktree.
+        var group = button.closest('.ai-session-worktree-group');
+        if (!group) return false;
+        menu.__context = {
+            projectId: projectId,
+            repositoryKey: group.getAttribute('data-worktree-repository-key') || '',
+            worktreePath: group.getAttribute('data-worktree-path') || '',
+            groupId: button.getAttribute('data-group-id')
+                || group.getAttribute('data-group-id') || '',
+            quickProvider: button.getAttribute('data-quick-provider') || '',
+            canResume: button.getAttribute('data-can-resume') === 'true',
+            canRemove: button.getAttribute('data-can-remove') === 'true',
+            canBranchCreate: button.getAttribute('data-can-branch-create') === 'true'
+                && button.getAttribute('data-worktree-head-kind') === 'branch',
+        };
+        menu.__originButton = button;
+        var hasWorktreeTarget = !!(menu.__context.repositoryKey && menu.__context.worktreePath);
+        var quickItem = menu.querySelector('[data-action="worktree-quick-create"]');
+        quickItem.textContent = button.getAttribute('data-quick-label')
+            || ('New session in ' + (button.getAttribute('data-worktree-name') || 'worktree'));
+        // Session creation works without a worktree target too: the Current
+        // anchor launches plain main-checkout sessions from the same menu,
+        // keeping single- and multi-root behavior identical.
+        quickItem.hidden = !menu.__context.canResume;
+        menu.querySelectorAll('[data-action="worktree-provider-create"]').forEach(item => {
+            item.hidden = !menu.__context.canResume;
+        });
+        var optionsItem = menu.querySelector('[data-action="worktree-create-with-options"]');
+        optionsItem.hidden = !menu.__context.canResume;
+        var branchItem = menu.querySelector('[data-action="worktree-branch-create"]');
+        branchItem.textContent = 'New worktree from '
+            + (button.getAttribute('data-worktree-name') || 'this branch');
+        branchItem.hidden = !menu.__context.canBranchCreate || !hasWorktreeTarget;
+        var renameItem = menu.querySelector('[data-action="worktree-group-rename"]');
+        renameItem.hidden = !menu.__context.groupId;
+        var deriveItem = menu.querySelector('[data-action="worktree-group-derive"]');
+        deriveItem.hidden = !menu.__context.groupId;
+        var addRepoItem = menu.querySelector('[data-action="worktree-group-add-repo"]');
+        addRepoItem.hidden = !menu.__context.groupId;
+        var groupDeleteItem = menu.querySelector('[data-action="worktree-group-delete"]');
+        groupDeleteItem.hidden = !menu.__context.groupId;
+        var sessionSeparator = menu.querySelector('[data-worktree-session-separator]');
+        if (sessionSeparator) {
+            sessionSeparator.hidden = quickItem.hidden && branchItem.hidden;
+        }
+        var removeItem = menu.querySelector('[data-action="worktree-remove"]');
+        removeItem.hidden = !menu.__context.canRemove || !hasWorktreeTarget;
+        var removeSeparator = menu.querySelector('[data-worktree-remove-separator]');
+        if (removeSeparator) {
+            removeSeparator.hidden = removeItem.hidden && renameItem.hidden;
+        }
+
+        button.setAttribute('aria-expanded', 'true');
+        menu.style.visibility = 'hidden';
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+        menu.classList.add('visible');
+        var buttonRect = button.getBoundingClientRect();
+        var menuRect = menu.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = Math.max(viewportPadding, Math.min(
+            buttonRect.right - menuRect.width,
+            window.innerWidth - menuRect.width - viewportPadding
+        ));
+        var top = buttonRect.bottom + 2;
+        if (top + menuRect.height > window.innerHeight - viewportPadding) {
+            top = Math.max(viewportPadding, buttonRect.top - menuRect.height - 2);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.style.visibility = 'visible';
+        var firstItem = menu.querySelector('[role="menuitem"]:not([hidden])');
+        firstItem?.focus();
+        return true;
+    }
+
+    function closeAiSessionWorktreeMenu() {
+        var menu = document.getElementById('aiSessionWorktreeMenu');
+        if (!menu) return;
+        if (menu.__originButton) {
+            menu.__originButton.setAttribute('aria-expanded', 'false');
+        }
+        menu.__originButton = null;
+        menu.classList.remove('visible');
+    }
+
+    function activateAiSessionWorktreeMenuItem(item) {
+        var menu = document.getElementById('aiSessionWorktreeMenu');
+        var context = menu && menu.__context;
+        var originButton = menu ? menu.__originButton : null;
+        if (!menu || !context || !context.projectId) return;
+        var action = item.getAttribute('data-action');
+        // The Current anchor has no worktree target: session creation then
+        // launches a plain main-checkout session (no key in the payload).
+        var worktreeKey = context.repositoryKey && context.worktreePath
+            ? {
+                repositoryKey: context.repositoryKey,
+                canonicalWorktreePath: context.worktreePath,
+            }
+            : null;
+        if (action === 'worktree-quick-create' && context.canResume) {
+            window.vscode.postMessage({
+                type: 'create-ai-session-quick',
+                projectId: context.projectId,
+                provider: context.quickProvider,
+                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
+            });
+        } else if (action === 'worktree-provider-create') {
+            var provider = item.getAttribute('data-provider');
+            if (!provider) return;
+            window.vscode.postMessage({
+                type: 'create-ai-session-quick',
+                projectId: context.projectId,
+                provider: provider,
+                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
+            });
+        } else if (action === 'worktree-create-with-options' && context.canResume) {
+            // The full creation flow: title, profile, and root pickers.
+            window.vscode.postMessage({
+                type: 'create-ai-session',
+                projectId: context.projectId,
+                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
+            });
+        } else if (action === 'worktree-branch-create' && context.canBranchCreate) {
+            // M2: absorbed by the inline creation form with a branch seed
+            // (PRD §6.1 entry absorption).
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, {
+                    repositoryKey: context.repositoryKey,
+                    worktreePath: context.worktreePath,
+                });
+            }
+        } else if (action === 'worktree-group-rename' && context.groupId) {
+            startWorktreeGroupRename(context.projectId, context.groupId);
+        } else if (action === 'worktree-group-derive' && context.groupId) {
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, {
+                    sourceGroupId: context.groupId,
+                });
+            }
+        } else if (action === 'worktree-group-add-repo' && context.groupId) {
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, {
+                    targetGroupId: context.groupId,
+                });
+            }
+        } else if (action === 'worktree-group-delete' && context.groupId) {
+            startWorktreeGroupMemberDeletion(context.projectId, context.groupId, '', {
+                mode: 'group',
+            });
+        } else if (action === 'worktree-remove' && context.canRemove) {
+            var projectDiv = document.querySelector(
+                '.project[data-id="' + CSS.escape(context.projectId) + '"]'
+            );
+            var group = projectDiv && projectDiv.querySelector(
+                '.ai-session-worktree-group[data-worktree-path="' + CSS.escape(context.worktreePath) + '"]'
+            );
+            if (!group || !originButton || !originButton.isConnected) return;
+            submitManagedWorktreeRemoval(context.projectId, group, originButton);
+        } else {
+            return;
+        }
+        closeAiSessionWorktreeMenu();
+    }
+
+    function submitManagedWorktreeRemoval(projectId, group, button) {
+        if (!projectId || !group || !button || button.disabled) return;
+        var repositoryKey = group.getAttribute('data-worktree-repository-key');
+        var worktreePath = group.getAttribute('data-worktree-path');
+        if (!repositoryKey || !worktreePath) return;
+        nextManagedWorktreeRemovalRequestId = nextManagedWorktreeRemovalRequestId
+            >= Number.MAX_SAFE_INTEGER ? 1 : nextManagedWorktreeRemovalRequestId + 1;
+        var requestId = 'worktree-remove-' + nextManagedWorktreeRemovalRequestId.toString(36);
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        pendingManagedWorktreeRemovalRequests.set(requestId, {
+            button: button,
+            projectId: projectId,
+        });
+        window.vscode.postMessage({
+            type: 'remove-managed-worktree', version: 1,
+            requestId: requestId, projectId: projectId,
+            repositoryKey: repositoryKey, worktreePath: worktreePath,
+        });
+    }
+
+    function applyManagedWorktreeRemovalSettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'requestId', 'status', 'type', 'version']
+            : ['requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'managed-worktree-removal-settlement'
+            || message.version !== 1
+            || Object.keys(message).length !== expectedKeys.length
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || typeof message.requestId !== 'string' || !message.requestId
+            || !['accepted', 'cancelled', 'rejected', 'succeeded', 'partial', 'failed']
+                .includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingManagedWorktreeRemovalRequests.get(message.requestId);
+        if (!pending) return true;
+        if (message.status === 'accepted') return true;
+        pendingManagedWorktreeRemovalRequests.delete(message.requestId);
+        if (pending.button && pending.button.isConnected) {
+            pending.button.disabled = false;
+            pending.button.removeAttribute('aria-disabled');
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = message.status === 'succeeded'
+                ? 'Managed worktree removed; local branch kept.'
+                : message.status === 'cancelled'
+                    ? 'Worktree removal cancelled.'
+                    : `Worktree removal ${message.status}: ${describeWorktreeRemovalError(message.errorCode)}`;
+        }
+        return true;
+    }
+
+    function submitSetGroupPrimaryRequest(projectId, button) {
+        var groupId = button && button.getAttribute('data-group-id');
+        var memberId = button && button.getAttribute('data-member-id');
+        if (!projectId || !groupId || !memberId || button.disabled) return;
+        nextSetGroupPrimaryRequestId = nextSetGroupPrimaryRequestId
+            >= Number.MAX_SAFE_INTEGER ? 1 : nextSetGroupPrimaryRequestId + 1;
+        var requestId = 'set-primary-' + nextSetGroupPrimaryRequestId.toString(36);
+        // Transient pending state until the Host's terminal settlement (or
+        // an authoritative refresh re-render) resolves it.
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        pendingSetGroupPrimaryRequests.set(requestId, {
+            button: button,
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+        });
+        window.vscode.postMessage({
+            type: 'set-worktree-group-primary',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+        });
+    }
+
+    function applySetGroupPrimarySettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'groupId', 'memberId', 'requestId', 'status', 'type', 'version']
+            : ['groupId', 'memberId', 'requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'worktree-group-primary-settlement'
+            || message.version !== 1
+            || Object.keys(message).length !== expectedKeys.length
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || typeof message.memberId !== 'string' || !message.memberId
+            || !['accepted', 'settled', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingSetGroupPrimaryRequests.get(message.requestId);
+        if (!pending) return true;
+        if (pending.groupId !== message.groupId
+            || pending.memberId !== message.memberId) return true;
+        if (message.status === 'accepted') return true;
+        pendingSetGroupPrimaryRequests.delete(message.requestId);
+        if (pending.button && pending.button.isConnected) {
+            pending.button.disabled = false;
+            pending.button.removeAttribute('aria-disabled');
+        }
+        if (message.status === 'failed') {
+            var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+            var liveRegion = projectDiv && projectDiv.querySelector('[data-ai-session-live-region]');
+            if (liveRegion) {
+                liveRegion.textContent = 'Could not set the primary worktree; try again.';
+            }
+        }
+        return true;
+    }
+
+    // ---------- Worktree group rename (M3; PRD §5.2) ----------
+    // The editor is local transient state: an unrelated authoritative
+    // replacement captures and restores it (view-state script); a submitted
+    // editor stays pending until the rename lands in the authoritative HTML
+    // (the restored editor is skipped once the group's name changed), and a
+    // failed settlement re-enables it in place — the host never refreshes on
+    // failure because nothing authoritative changed.
+    var pendingWorktreeGroupRenameRequests = new Map();
+    var worktreeGroupRenameSerial = 0;
+    // A per-document nonce keeps request ids unique across webview reloads:
+    // a late settlement from a previous document can never correlate with a
+    // request issued by this one.
+    var worktreeGroupRenameDocumentNonce = Math.random().toString(36).slice(2, 10);
+
+    function nextWorktreeGroupRenameRequestId() {
+        worktreeGroupRenameSerial = worktreeGroupRenameSerial >= Number.MAX_SAFE_INTEGER
+            ? 1 : worktreeGroupRenameSerial + 1;
+        return 'group-rename-' + worktreeGroupRenameDocumentNonce
+            + '-' + worktreeGroupRenameSerial.toString(36);
+    }
+
+    function findWorktreeGroupSection(projectDiv, groupId) {
+        if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return null;
+        var sections = projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]');
+        for (var index = 0; index < sections.length; index++) {
+            if (sections[index].getAttribute('data-group-id') === groupId) {
+                return sections[index];
+            }
+        }
+        return null;
+    }
+
+    function announceWorktreeGroupRename(projectId, text) {
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var liveRegion = projectDiv
+            && projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = text;
+        }
+    }
+
+    function cancelWorktreeGroupRename(projectDiv, options) {
+        var editor = projectDiv
+            && projectDiv.querySelector('.ai-session-worktree-rename-editor');
+        if (!editor || editor.getAttribute('data-rename-pending') === 'true') return false;
+        var section = editor.closest('.ai-session-worktree-group');
+        var toolbar = section && section.querySelector('.ai-session-worktree-toolbar');
+        editor.remove();
+        if (toolbar) toolbar.hidden = false;
+        if (section && !(options && options.keepFocus)) {
+            var header = section.querySelector('.ai-session-worktree-header');
+            if (header && typeof header.focus === 'function') {
+                header.focus({ preventScroll: true });
+            }
+        }
+        return true;
+    }
+
+    function buildWorktreeGroupRenameEditor(section, initialValue, options) {
+        var toolbar = section.querySelector('.ai-session-worktree-toolbar');
+        var title = section.querySelector('.ai-session-worktree-title');
+        if (!toolbar || !title) return null;
+        var groupId = section.getAttribute('data-group-id') || '';
+        var editor = document.createElement('div');
+        editor.className = 'ai-session-worktree-rename-editor';
+        editor.setAttribute('data-rename-original-name', title.textContent || '');
+        // Freeze the base revision when the editor opens: a replacement
+        // that advances the group meanwhile must not let this edit post a
+        // newer revision than the user ever saw — the host rejects stale
+        // bases with group-changed.
+        var baseRevision = options && options.baseRevision !== undefined
+            ? options.baseRevision
+            : parseInt(section.getAttribute('data-group-revision') || '', 10);
+        editor.setAttribute('data-rename-base-revision', String(baseRevision));
+        if (options && options.pending) {
+            editor.setAttribute('data-rename-pending', 'true');
+        }
+        var input = document.createElement('input');
+        input.className = 'ai-session-worktree-rename-input';
+        input.type = 'text';
+        input.maxLength = 200;
+        input.value = initialValue;
+        input.setAttribute('aria-label', 'Rename worktree group');
+        input.setAttribute('aria-describedby', 'ai-session-worktree-rename-hint');
+        if (options && options.pending) {
+            input.readOnly = true;
+            input.setAttribute('aria-disabled', 'true');
+            editor.setAttribute('aria-busy', 'true');
+        }
+        var hint = document.createElement('span');
+        hint.className = 'ai-session-worktree-rename-hint';
+        hint.id = 'ai-session-worktree-rename-hint';
+        hint.textContent = 'Enter to rename · Esc to cancel';
+        editor.appendChild(input);
+        editor.appendChild(hint);
+        toolbar.hidden = true;
+        section.insertBefore(editor, toolbar.nextSibling);
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.stopPropagation();
+                submitWorktreeGroupRenameEditor(section, editor, input);
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelWorktreeGroupRename(section.closest('.project'));
+            }
+        });
+        if (!options || !options.skipFocus) {
+            input.focus({ preventScroll: true });
+            if (typeof input.select === 'function' && !(options && options.pending)) {
+                input.select();
+            }
+        }
+        return editor;
+    }
+
+    function startWorktreeGroupRename(projectId, groupId) {
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var section = findWorktreeGroupSection(projectDiv, groupId);
+        if (!section) return;
+        // One editor per workspace card: a fresh rename supersedes an
+        // unsubmitted editor; a submitted one keeps ownership until settled.
+        var existing = projectDiv.querySelector('.ai-session-worktree-rename-editor');
+        if (existing) {
+            if (existing.getAttribute('data-rename-pending') === 'true') return;
+            cancelWorktreeGroupRename(projectDiv, { keepFocus: true });
+        }
+        var title = section.querySelector('.ai-session-worktree-title');
+        buildWorktreeGroupRenameEditor(section, title ? title.textContent || '' : '');
+    }
+
+    function submitWorktreeGroupRenameEditor(section, editor, input) {
+        if (editor.getAttribute('data-rename-pending') === 'true') return;
+        var projectDiv = section.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = section.getAttribute('data-group-id') || '';
+        var baseRevision = parseInt(
+            editor.getAttribute('data-rename-base-revision') || '', 10);
+        var value = (input.value || '').trim();
+        if (!projectId || !groupId || !Number.isSafeInteger(baseRevision) || baseRevision < 1) {
+            return;
+        }
+        if (!value) {
+            announceWorktreeGroupRename(projectId, 'The group name cannot be empty.');
+            input.focus({ preventScroll: true });
+            return;
+        }
+        if (value === editor.getAttribute('data-rename-original-name')) {
+            cancelWorktreeGroupRename(projectDiv);
+            return;
+        }
+        var requestId = nextWorktreeGroupRenameRequestId();
+        pendingWorktreeGroupRenameRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+            awaitingReplacement: false,
+        });
+        editor.setAttribute('data-rename-pending', 'true');
+        editor.setAttribute('data-rename-request-id', requestId);
+        // readonly (not disabled) keeps focus stable: disabling the focused
+        // input drops focus to <body> until the replacement arrives.
+        input.readOnly = true;
+        input.setAttribute('aria-disabled', 'true');
+        editor.setAttribute('aria-busy', 'true');
+        window.vscode.postMessage({
+            type: 'rename-worktree-group',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            displayName: value,
+            baseRevision: baseRevision,
+        });
+    }
+
+    function applyWorktreeGroupRenameSettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'groupId', 'projectId', 'requestId', 'status', 'type', 'version']
+            : ['groupId', 'projectId', 'requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'worktree-group-rename-settlement'
+            || message.version !== 1
+            || Object.keys(message).length !== expectedKeys.length
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || !['accepted', 'settled', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingWorktreeGroupRenameRequests.get(message.requestId);
+        if (!pending || pending.groupId !== message.groupId
+            || pending.projectId !== message.projectId) return true;
+        if (message.status === 'accepted') return true;
+        if (pending.awaitingReplacement) {
+            // The terminal settled settlement already arrived; any later
+            // settlement for this request is out of order — ignore it.
+            return true;
+        }
+        if (message.status === 'settled') {
+            // Keep the correlation until the authoritative replacement
+            // actually applies: the restore hook below retires it when the
+            // renamed row lands, and a lost publication is covered by the
+            // host's full-refresh fallback.
+            pending.awaitingReplacement = true;
+            return true;
+        }
+        pendingWorktreeGroupRenameRequests.delete(message.requestId);
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var section = findWorktreeGroupSection(projectDiv, pending.groupId);
+        var editor = section
+            && section.querySelector('.ai-session-worktree-rename-editor');
+        var input = editor
+            && editor.querySelector('.ai-session-worktree-rename-input');
+        if (editor && input && editor.isConnected) {
+            editor.removeAttribute('data-rename-pending');
+            editor.removeAttribute('aria-busy');
+            input.readOnly = false;
+            input.removeAttribute('aria-disabled');
+            input.focus({ preventScroll: true });
+        }
+        announceWorktreeGroupRename(
+            pending.projectId,
+            'Could not rename the worktree group; try again.'
+        );
+        return true;
+    }
+
+    // View-state hooks: an unsubmitted editor survives authoritative
+    // replacements; a submitted one is restored only while the authoritative
+    // name still equals the original (i.e. the rename has not landed yet).
+    function captureWorktreeGroupRenameEditor(projectDiv) {
+        if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+        var editor = projectDiv.querySelector('.ai-session-worktree-rename-editor');
+        if (!editor) return null;
+        var section = editor.closest('.ai-session-worktree-group');
+        var groupId = section && section.getAttribute('data-group-id');
+        var input = editor.querySelector('.ai-session-worktree-rename-input');
+        if (!groupId || !input) return null;
+        return {
+            groupId: groupId,
+            value: input.value || '',
+            originalName: editor.getAttribute('data-rename-original-name') || '',
+            pending: editor.getAttribute('data-rename-pending') === 'true',
+            requestId: editor.getAttribute('data-rename-request-id') || '',
+            baseRevision: editor.getAttribute('data-rename-base-revision') || '',
+        };
+    }
+
+    function restoreWorktreeGroupRenameEditor(projectDiv, state) {
+        if (!projectDiv || !state || !state.groupId) return;
+        var section = findWorktreeGroupSection(projectDiv, state.groupId);
+        if (!section) return;
+        // The replacement pipeline restores view state in two passes;
+        // building the editor must be idempotent.
+        if (section.querySelector('.ai-session-worktree-rename-editor')) return;
+        var title = section.querySelector('.ai-session-worktree-title');
+        var currentName = title ? title.textContent || '' : '';
+        if (state.pending && currentName !== state.originalName) {
+            // The rename landed: the authoritative row already shows it.
+            // Retire the correlation — exactly by request id when known, so
+            // even a replacement that races ahead of the settled settlement
+            // cannot leak the pending entry — and park focus on the renamed
+            // group's header.
+            if (state.requestId) {
+                pendingWorktreeGroupRenameRequests.delete(state.requestId);
+            }
+            pendingWorktreeGroupRenameRequests.forEach((pending, requestId) => {
+                if (pending.awaitingReplacement && pending.groupId === state.groupId) {
+                    pendingWorktreeGroupRenameRequests.delete(requestId);
+                }
+            });
+            var header = section.querySelector('.ai-session-worktree-header');
+            if (header && typeof header.focus === 'function') {
+                header.focus({ preventScroll: true });
+            }
+            return;
+        }
+        var editor = buildWorktreeGroupRenameEditor(
+            section,
+            state.value,
+            {
+                pending: state.pending,
+                skipFocus: true,
+                baseRevision: state.baseRevision,
+            }
+        );
+        if (editor && state.pending && state.requestId) {
+            editor.setAttribute('data-rename-request-id', state.requestId);
+        }
+        if (editor && !state.pending) {
+            var input = editor.querySelector('.ai-session-worktree-rename-input');
+            if (input) {
+                input.focus({ preventScroll: true });
+                if (typeof input.setSelectionRange === 'function') {
+                    input.setSelectionRange(input.value.length, input.value.length);
+                }
+            }
+        }
+    }
+
+    window.__agentPivotWorktreeGroupRename = {
+        capture: captureWorktreeGroupRenameEditor,
+        restore: restoreWorktreeGroupRenameEditor,
+    };
+
+    // ---------- Worktree group member deletion (M3 batch 4; PRD §6.4) ----------
+    // The confirmation card is local transient state, like the rename
+    // editor: an unsubmitted card is captured/restored across authoritative
+    // replacements (re-previewing so its data can never go stale), and a
+    // submitted card stays pending until the correlated settlement plus
+    // the authoritative replacement retires it — a settled deletion
+    // removes the member row, a partial one replaces it with the
+    // Retry/abandon banner, both observed in the replacement DOM.
+    var pendingWorktreeGroupDeletionRequests = new Map();
+    var pendingWorktreeGroupDeletionPreviews = new Map();
+    var worktreeGroupDeletionSerial = 0;
+    var worktreeGroupDeletionDocumentNonce = Math.random().toString(36).slice(2, 10);
+
+    function nextWorktreeGroupDeletionRequestId(prefix) {
+        worktreeGroupDeletionSerial = worktreeGroupDeletionSerial >= Number.MAX_SAFE_INTEGER
+            ? 1 : worktreeGroupDeletionSerial + 1;
+        return prefix + '-' + worktreeGroupDeletionDocumentNonce
+            + '-' + worktreeGroupDeletionSerial.toString(36);
+    }
+
+    function findWorktreeGroupDeletionCard(projectDiv) {
+        if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+        return projectDiv.querySelector('.ai-session-worktree-deletion-card');
+    }
+
+    function announceWorktreeGroupDeletion(projectId, text) {
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var liveRegion = projectDiv
+            && projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = text;
+        }
+    }
+
+    function cancelWorktreeGroupDeletionCard(projectDiv, options) {
+        var card = findWorktreeGroupDeletionCard(projectDiv);
+        if (!card || card.getAttribute('data-deletion-pending') === 'true') return false;
+        var section = card.closest('.ai-session-worktree-group');
+        var memberId = card.getAttribute('data-member-id') || '';
+        card.remove();
+        if (!(options && options.keepFocus) && section) {
+            var origin = memberId
+                && section.querySelector('[data-action="preview-group-member-deletion"]'
+                    + '[data-member-id="' + CSS.escape(memberId) + '"]');
+            var focusTarget = origin
+                || section.querySelector('.ai-session-worktree-header');
+            if (focusTarget && typeof focusTarget.focus === 'function') {
+                focusTarget.focus({ preventScroll: true });
+            }
+        }
+        return true;
+    }
+
+    function buildWorktreeGroupDeletionCardShell(section, memberId) {
+        var card = document.createElement('div');
+        card.className = 'ai-session-worktree-deletion-card';
+        card.setAttribute('data-member-id', memberId);
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-label', 'Confirm worktree removal');
+        card.tabIndex = -1;
+        var list = section.querySelector('.ai-session-worktree-session-list');
+        (list || section).appendChild(card);
+        card.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelWorktreeGroupDeletionCard(section.closest('.project'));
+            }
+        });
+        return card;
+    }
+
+    function renderWorktreeGroupDeletionCardLoading(section, memberId) {
+        var card = buildWorktreeGroupDeletionCardShell(section, memberId);
+        card.setAttribute('data-deletion-phase', 'loading');
+        var text = document.createElement('div');
+        text.className = 'ai-session-worktree-deletion-card-text';
+        text.textContent = 'Checking the worktree…';
+        card.appendChild(text);
+        return card;
+    }
+
+    function describeDeletionBlocker(errorCode) {
+        switch (errorCode) {
+            case 'worktree-active': return 'an AI session is running in this worktree';
+            case 'worktree-open': return 'the worktree is open in a workspace window';
+            case 'worktree-provisioning': return 'the worktree is still being created';
+            case 'worktree-not-removable': return 'the worktree is not in a removable state';
+            case 'worktree-status-failed': return 'the worktree state could not be verified';
+            case 'worktree-identity-changed': return 'the worktree branch changed unexpectedly';
+            case 'uncommitted-changes': return 'the worktree has uncommitted changes';
+            case 'deletion-blocked': return 'a session is being created in this worktree';
+            case 'group-leased': return 'another deletion is in progress for this group';
+            case 'group-changed': return 'the group changed; review the deletion again';
+            case 'member-not-ready': return 'the member is not in a removable state';
+            case 'store-full': return 'the local store is full';
+            case 'store-corrupt': return 'the local store needs attention';
+            default: return errorCode;
+        }
+    }
+
+    function updateWorktreeGroupDeletionConfirmState(card) {
+        var confirm = card.querySelector('[data-action="confirm-group-member-deletion"]');
+        if (!confirm) return;
+        var blocked = card.getAttribute('data-deletion-blocked') === 'true';
+        var needsReplacement = card.getAttribute('data-replacement-required') === 'true';
+        var chosen = needsReplacement
+            ? !!card.querySelector('.ai-session-worktree-deletion-replacement:checked')
+            : true;
+        confirm.disabled = blocked || !chosen;
+    }
+
+    function renderWorktreeGroupDeletionCard(section, preview) {
+        var memberId = preview.member && preview.member.memberId || '';
+        var card = buildWorktreeGroupDeletionCardShell(section, memberId);
+        card.setAttribute('data-deletion-phase', 'ready');
+        card.setAttribute('data-base-revision', String(preview.groupRevision || 0));
+        var mode = preview.mode || 'member';
+        card.setAttribute('data-deletion-mode', mode);
+        if (mode !== 'member') {
+            return renderWorktreeGroupDeletionCardGroupMode(card, preview);
+        }
+        var member = preview.member;
+        var lines = document.createElement('div');
+        lines.className = 'ai-session-worktree-deletion-card-text';
+        var title = document.createElement('div');
+        title.className = 'ai-session-worktree-deletion-card-title';
+        title.textContent = 'Remove ' + (member.repositoryLabel || 'worktree')
+            + ' (' + member.branchName + ') from this group?';
+        lines.appendChild(title);
+        var pathLine = document.createElement('div');
+        pathLine.className = 'ai-session-worktree-deletion-card-path';
+        pathLine.textContent = member.path;
+        lines.appendChild(pathLine);
+        var detail = document.createElement('div');
+        detail.className = 'ai-session-worktree-deletion-card-detail';
+        detail.textContent = 'Only the worktree directory is deleted; the local branch is kept.'
+            + (member.historyCount > 0
+                ? ' ' + member.historyCount + ' past session'
+                    + (member.historyCount === 1 ? '' : 's')
+                    + ' will stay in Chats but cannot be resumed.'
+                : '');
+        lines.appendChild(detail);
+        card.appendChild(lines);
+        if (member.blocker) {
+            card.setAttribute('data-deletion-blocked', 'true');
+            var blockerLine = document.createElement('div');
+            blockerLine.className = 'ai-session-worktree-deletion-card-error';
+            blockerLine.setAttribute('role', 'alert');
+            blockerLine.textContent = 'Cannot remove: '
+                + describeDeletionBlocker(member.blocker) + '.';
+            card.appendChild(blockerLine);
+        }
+        if (preview.replacementRequired
+            && Array.isArray(preview.replacementCandidates)
+            && preview.replacementCandidates.length) {
+            card.setAttribute('data-replacement-required', 'true');
+            var picker = document.createElement('div');
+            picker.className = 'ai-session-worktree-deletion-replacements';
+            picker.setAttribute('role', 'radiogroup');
+            picker.setAttribute('aria-label', 'Choose the new primary worktree');
+            var pickerHint = document.createElement('div');
+            pickerHint.className = 'ai-session-worktree-deletion-card-detail';
+            pickerHint.textContent = 'This is the primary worktree — choose its replacement:';
+            picker.appendChild(pickerHint);
+            preview.replacementCandidates.forEach(candidate => {
+                var option = document.createElement('label');
+                option.className = 'ai-session-worktree-deletion-replacement-option';
+                var radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.className = 'ai-session-worktree-deletion-replacement';
+                radio.name = 'deletion-primary-replacement';
+                radio.value = candidate.memberId;
+                radio.addEventListener('change', () =>
+                    updateWorktreeGroupDeletionConfirmState(card));
+                option.appendChild(radio);
+                option.appendChild(document.createTextNode(candidate.repositoryLabel));
+                picker.appendChild(option);
+            });
+            card.appendChild(picker);
+        }
+        if (Array.isArray(preview.blockingClaims) && preview.blockingClaims.length) {
+            card.setAttribute('data-deletion-blocked', 'true');
+            var claimsBox = document.createElement('div');
+            claimsBox.className = 'ai-session-worktree-deletion-claims';
+            var claimsText = document.createElement('div');
+            claimsText.className = 'ai-session-worktree-deletion-card-error';
+            claimsText.setAttribute('role', 'alert');
+            claimsText.textContent = 'A session start on this worktree never completed.'
+                + ' Discard the unfinished start to allow the deletion.';
+            claimsBox.appendChild(claimsText);
+            preview.blockingClaims.forEach(claim => {
+                var discard = document.createElement('button');
+                discard.type = 'button';
+                discard.className = 'ai-session-worktree-deletion-discard-claim';
+                discard.setAttribute('data-action', 'discard-generation-claim');
+                discard.setAttribute('data-claim-id', claim.claimId);
+                discard.textContent = 'Discard unfinished '
+                    + (claim.provider || 'session') + ' start';
+                claimsBox.appendChild(discard);
+            });
+            card.appendChild(claimsBox);
+        }
+        var actions = document.createElement('div');
+        actions.className = 'ai-session-worktree-deletion-card-actions';
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'ai-session-worktree-deletion-cancel';
+        cancel.setAttribute('data-action', 'cancel-group-member-deletion');
+        cancel.textContent = 'Cancel';
+        var confirm = document.createElement('button');
+        confirm.type = 'button';
+        confirm.className = 'ai-session-worktree-deletion-confirm';
+        confirm.setAttribute('data-action', 'confirm-group-member-deletion');
+        confirm.textContent = 'Remove worktree';
+        actions.appendChild(cancel);
+        actions.appendChild(confirm);
+        card.appendChild(actions);
+        updateWorktreeGroupDeletionConfirmState(card);
+        return card;
+    }
+
+    function renderWorktreeGroupDeletionCardGroupMode(card, preview) {
+        var members = Array.isArray(preview.members) ? preview.members : [];
+        var totalHistory = members.reduce((sum, member) => sum + (member.historyCount || 0), 0);
+        var visibleOnly = preview.mode === 'visible-only';
+        var lines = document.createElement('div');
+        lines.className = 'ai-session-worktree-deletion-card-text';
+        var title = document.createElement('div');
+        title.className = 'ai-session-worktree-deletion-card-title';
+        title.textContent = visibleOnly
+            ? 'Remove the ' + members.length + ' visible worktree'
+                + (members.length === 1 ? '' : 's') + ' of this group?'
+            : 'Remove all ' + members.length + ' worktrees of this group?';
+        lines.appendChild(title);
+        var detail = document.createElement('div');
+        detail.className = 'ai-session-worktree-deletion-card-detail';
+        detail.textContent = 'Only the worktree directories are deleted; the local branches are kept.'
+            + (totalHistory > 0
+                ? ' ' + totalHistory + ' past session' + (totalHistory === 1 ? '' : 's')
+                    + ' will stay in Chats but cannot be resumed.'
+                : '');
+        lines.appendChild(detail);
+        card.appendChild(lines);
+        var anyBlocked = false;
+        members.forEach(member => {
+            var row = document.createElement('div');
+            row.className = 'ai-session-worktree-deletion-member';
+            var label = document.createElement('span');
+            label.className = 'ai-session-worktree-deletion-member-label';
+            label.textContent = member.repositoryLabel + ' (' + member.branchName + ')';
+            row.appendChild(label);
+            var state = document.createElement('span');
+            state.className = 'ai-session-worktree-deletion-member-state';
+            if (member.blocker) {
+                anyBlocked = true;
+                state.textContent = describeDeletionBlocker(member.blocker);
+                row.setAttribute('data-deletion-member-blocked', 'true');
+            } else {
+                state.textContent = 'ready';
+            }
+            row.appendChild(state);
+            card.appendChild(row);
+        });
+        if (anyBlocked) {
+            card.setAttribute('data-deletion-blocked', 'true');
+            var blockedNote = document.createElement('div');
+            blockedNote.className = 'ai-session-worktree-deletion-card-error';
+            blockedNote.setAttribute('role', 'alert');
+            blockedNote.textContent = 'Resolve the blocked worktrees, then review the deletion again.';
+            card.appendChild(blockedNote);
+        }
+        if (preview.wholeGroupBlocked) {
+            card.setAttribute('data-deletion-blocked', 'true');
+            var detachedNote = document.createElement('div');
+            detachedNote.className = 'ai-session-worktree-deletion-card-error';
+            detachedNote.setAttribute('role', 'alert');
+            detachedNote.textContent = (preview.detachedCount || 0) + ' worktree'
+                + (preview.detachedCount === 1 ? '' : 's')
+                + ' in this group belong to repositories outside the workspace and'
+                + ' cannot be deleted. Restore the repositories to delete the whole'
+                + ' group, or remove only the visible worktrees.';
+            card.appendChild(detachedNote);
+            var visibleSwitch = document.createElement('button');
+            visibleSwitch.type = 'button';
+            visibleSwitch.className = 'ai-session-worktree-deletion-visible-only';
+            visibleSwitch.setAttribute('data-action', 'preview-group-visible-deletion');
+            visibleSwitch.textContent = 'Remove visible worktrees instead';
+            card.appendChild(visibleSwitch);
+        }
+        if (Array.isArray(preview.blockingClaims) && preview.blockingClaims.length) {
+            card.setAttribute('data-deletion-blocked', 'true');
+            var claimsBox = document.createElement('div');
+            claimsBox.className = 'ai-session-worktree-deletion-claims';
+            var claimsText = document.createElement('div');
+            claimsText.className = 'ai-session-worktree-deletion-card-error';
+            claimsText.setAttribute('role', 'alert');
+            claimsText.textContent = 'A session start on one of these worktrees never'
+                + ' completed. Discard the unfinished start to allow the deletion.';
+            claimsBox.appendChild(claimsText);
+            preview.blockingClaims.forEach(claim => {
+                var discard = document.createElement('button');
+                discard.type = 'button';
+                discard.className = 'ai-session-worktree-deletion-discard-claim';
+                discard.setAttribute('data-action', 'discard-generation-claim');
+                discard.setAttribute('data-claim-id', claim.claimId);
+                discard.textContent = 'Discard unfinished '
+                    + (claim.provider || 'session') + ' start';
+                claimsBox.appendChild(discard);
+            });
+            card.appendChild(claimsBox);
+        }
+        var actions = document.createElement('div');
+        actions.className = 'ai-session-worktree-deletion-card-actions';
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'ai-session-worktree-deletion-cancel';
+        cancel.setAttribute('data-action', 'cancel-group-member-deletion');
+        cancel.textContent = 'Cancel';
+        var confirm = document.createElement('button');
+        confirm.type = 'button';
+        confirm.className = 'ai-session-worktree-deletion-confirm';
+        confirm.setAttribute('data-action', 'confirm-group-member-deletion');
+        confirm.textContent = visibleOnly
+            ? 'Remove visible worktrees'
+            : 'Remove ' + members.length + ' worktree' + (members.length === 1 ? '' : 's');
+        actions.appendChild(cancel);
+        actions.appendChild(confirm);
+        card.appendChild(actions);
+        updateWorktreeGroupDeletionConfirmState(card);
+        return card;
+    }
+
+    function startWorktreeGroupMemberDeletion(projectId, groupId, memberId, options) {
+        var mode = options && options.mode || 'member';
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var section = findWorktreeGroupSection(projectDiv, groupId);
+        if (!section || (mode === 'member' && !memberId)) return;
+        var existing = findWorktreeGroupDeletionCard(projectDiv);
+        if (existing) {
+            if (existing.getAttribute('data-deletion-pending') === 'true') return;
+            cancelWorktreeGroupDeletionCard(projectDiv, { keepFocus: true });
+        }
+        var requestId = nextWorktreeGroupDeletionRequestId('group-delete-preview');
+        pendingWorktreeGroupDeletionPreviews.set(requestId, {
+            projectId: projectId, groupId: groupId, memberId: memberId, mode: mode,
+        });
+        var loading = renderWorktreeGroupDeletionCardLoading(section, memberId);
+        loading.setAttribute('data-deletion-mode', mode);
+        window.vscode.postMessage({
+            type: 'preview-worktree-group-deletion',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            mode: mode,
+            ...(mode === 'member' ? { memberId: memberId } : {}),
+        });
+    }
+
+    function applyWorktreeGroupDeletionPreview(message) {
+        if (!message || message.type !== 'worktree-group-deletion-preview'
+            || message.version !== 1
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || (message.status !== 'ready' && message.status !== 'failed')) return false;
+        var pending = pendingWorktreeGroupDeletionPreviews.get(message.requestId);
+        if (!pending || pending.groupId !== message.groupId
+            || pending.projectId !== message.projectId) return true;
+        pendingWorktreeGroupDeletionPreviews.delete(message.requestId);
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var section = findWorktreeGroupSection(projectDiv, pending.groupId);
+        var card = findWorktreeGroupDeletionCard(projectDiv);
+        if (!section || !card
+            || card.getAttribute('data-member-id') !== pending.memberId
+            || card.getAttribute('data-deletion-phase') !== 'loading'
+            || card.getAttribute('data-deletion-pending') === 'true') return true;
+        card.remove();
+        if (message.status !== 'ready'
+            || ((message.mode || 'member') === 'member' && !message.member)
+            || ((message.mode || 'member') !== 'member' && !Array.isArray(message.members))) {
+            announceWorktreeGroupDeletion(pending.projectId,
+                'Could not prepare the deletion: '
+                + describeDeletionBlocker(message.errorCode || 'deletion-failed') + '.');
+            return true;
+        }
+        renderWorktreeGroupDeletionCard(section, message);
+        var cardNow = findWorktreeGroupDeletionCard(projectDiv);
+        if (cardNow) {
+            cardNow.focus({ preventScroll: true });
+        }
+        return true;
+    }
+
+    function confirmWorktreeGroupMemberDeletion(card) {
+        if (!card || card.getAttribute('data-deletion-pending') === 'true') return;
+        var section = card.closest('.ai-session-worktree-group');
+        var projectDiv = card.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = section && section.getAttribute('data-group-id');
+        var memberId = card.getAttribute('data-member-id') || '';
+        var mode = card.getAttribute('data-deletion-mode') || 'member';
+        var baseRevision = parseInt(card.getAttribute('data-base-revision') || '', 10);
+        if (!projectId || !groupId || (mode === 'member' && !memberId)
+            || !Number.isSafeInteger(baseRevision) || baseRevision < 1) return;
+        var replacement = card.querySelector(
+            '.ai-session-worktree-deletion-replacement:checked');
+        var requestId = nextWorktreeGroupDeletionRequestId('group-delete');
+        pendingWorktreeGroupDeletionRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+            awaitingReplacement: false,
+        });
+        card.setAttribute('data-deletion-pending', 'true');
+        card.setAttribute('data-deletion-request-id', requestId);
+        card.setAttribute('aria-busy', 'true');
+        card.querySelectorAll('button, input').forEach(control => {
+            control.disabled = true;
+        });
+        card.focus({ preventScroll: true });
+        window.vscode.postMessage({
+            type: 'delete-worktree-group-member',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            mode: mode,
+            ...(mode === 'member' ? { memberId: memberId } : {}),
+            baseRevision: baseRevision,
+            ...(replacement ? { replacementPrimaryMemberId: replacement.value } : {}),
+        });
+    }
+
+    function setWorktreeGroupDeletionBannerPending(banner, pending) {
+        if (!banner) return;
+        if (pending) {
+            banner.setAttribute('aria-busy', 'true');
+            banner.querySelectorAll('button').forEach(button => {
+                button.disabled = true;
+            });
+        } else {
+            banner.removeAttribute('aria-busy');
+            banner.querySelectorAll('button').forEach(button => {
+                button.disabled = false;
+            });
+        }
+    }
+
+    function submitWorktreeGroupDeletionOperation(button, kind) {
+        var banner = button && button.closest('.ai-session-worktree-deletion');
+        var section = button && button.closest('.ai-session-worktree-group');
+        var projectDiv = button && button.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = button.getAttribute('data-group-id') || '';
+        var operationId = button.getAttribute('data-operation-id') || '';
+        if (!projectId || !groupId || !operationId || button.disabled) return;
+        var requestId = nextWorktreeGroupDeletionRequestId('group-delete-' + kind);
+        pendingWorktreeGroupDeletionRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+            memberId: '',
+            banner: true,
+            awaitingReplacement: false,
+        });
+        if (banner) {
+            banner.setAttribute('data-deletion-request-id', requestId);
+        }
+        setWorktreeGroupDeletionBannerPending(banner, true);
+        window.vscode.postMessage({
+            type: kind === 'retry'
+                ? 'retry-worktree-group-deletion'
+                : 'abandon-worktree-group-deletion',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            operationId: operationId,
+        });
+    }
+
+    function submitWorktreeGroupClaimDiscard(button) {
+        var card = button && button.closest('.ai-session-worktree-deletion-card');
+        var section = button && button.closest('.ai-session-worktree-group');
+        var projectDiv = button && button.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        var groupId = section && section.getAttribute('data-group-id') || '';
+        var claimId = button.getAttribute('data-claim-id') || '';
+        var memberId = card && card.getAttribute('data-member-id') || '';
+        if (!projectId || !groupId || !claimId || button.disabled) return;
+        var requestId = nextWorktreeGroupDeletionRequestId('group-claim-discard');
+        pendingWorktreeGroupDeletionRequests.set(requestId, {
+            projectId: projectId,
+            groupId: groupId,
+            memberId: memberId,
+            claimDiscard: true,
+            awaitingReplacement: false,
+        });
+        button.disabled = true;
+        window.vscode.postMessage({
+            type: 'discard-worktree-generation-claim',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            groupId: groupId,
+            claimId: claimId,
+        });
+    }
+
+    function applyWorktreeGroupDeletionSettlement(message) {
+        var baseKeys = ['groupId', 'projectId', 'requestId', 'status', 'type', 'version'];
+        var withError = baseKeys.concat(['errorCode']);
+        var withRevision = baseKeys.concat(['minimumAggregateRevision']);
+        var withBoth = baseKeys.concat(['errorCode', 'minimumAggregateRevision']);
+        var keys = message && typeof message === 'object'
+            ? Object.keys(message).sort() : [];
+        var matchesShape = [baseKeys, withError, withRevision, withBoth]
+            .some(expected => {
+                var sorted = expected.slice().sort();
+                return keys.length === sorted.length
+                    && keys.every((key, index) => key === sorted[index]);
+            });
+        if (!message || message.type !== 'worktree-group-deletion-settlement'
+            || message.version !== 1 || !matchesShape
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
+            || typeof message.groupId !== 'string' || !message.groupId
+            || !['accepted', 'settled', 'partial', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))
+            || (Object.prototype.hasOwnProperty.call(message, 'minimumAggregateRevision')
+                && (!Number.isSafeInteger(message.minimumAggregateRevision)
+                    || message.minimumAggregateRevision < 0))) return false;
+        var pending = pendingWorktreeGroupDeletionRequests.get(message.requestId);
+        if (!pending || pending.groupId !== message.groupId
+            || pending.projectId !== message.projectId) return true;
+        if (message.status === 'accepted') return true;
+        if (pending.awaitingReplacement) {
+            return true;
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        if (message.status === 'failed') {
+            pendingWorktreeGroupDeletionRequests.delete(message.requestId);
+            if (pending.banner) {
+                var section = findWorktreeGroupSection(projectDiv, pending.groupId);
+                setWorktreeGroupDeletionBannerPending(section
+                    && section.querySelector('.ai-session-worktree-deletion'), false);
+            } else if (pending.claimDiscard) {
+                var card = findWorktreeGroupDeletionCard(projectDiv);
+                var discardButton = card && card.querySelector(
+                    '[data-action="discard-generation-claim"]');
+                if (discardButton) {
+                    discardButton.disabled = false;
+                }
+            } else {
+                var card = findWorktreeGroupDeletionCard(projectDiv);
+                if (card && card.isConnected) {
+                    card.removeAttribute('data-deletion-pending');
+                    card.removeAttribute('aria-busy');
+                    card.querySelectorAll('button, input').forEach(control => {
+                        control.disabled = false;
+                    });
+                    updateWorktreeGroupDeletionConfirmState(card);
+                }
+            }
+            announceWorktreeGroupDeletion(pending.projectId,
+                'Deletion failed: '
+                + describeDeletionBlocker(message.errorCode || 'deletion-failed') + '.');
+            return true;
+        }
+        if (pending.claimDiscard) {
+            // The claim is gone: re-run the preview so the card reflects
+            // the now-unblocked deletion instead of trusting local edits.
+            pendingWorktreeGroupDeletionRequests.delete(message.requestId);
+            if (pending.memberId) {
+                startWorktreeGroupMemberDeletion(
+                    pending.projectId, pending.groupId, pending.memberId);
+            }
+            return true;
+        }
+        // settled / partial: keep the correlation until the authoritative
+        // replacement lands (member row gone, or the Retry/abandon banner
+        // visible) — the restore hook retires it.
+        pending.awaitingReplacement = true;
+        if (typeof message.minimumAggregateRevision === 'number') {
+            // Decision J: the pending UI may only clear once a rendered
+            // presentation at or beyond this aggregate revision applied.
+            pending.minimumAggregateRevision = message.minimumAggregateRevision;
+        }
+        return true;
+    }
+
+    function worktreeGroupAggregateRevisionReached(minimum) {
+        if (typeof minimum !== 'number') {
+            return true;
+        }
+        var applied = window.__agentPivotWorktreeGroupAggregateRevision;
+        return !!applied && applied.revision >= minimum;
+    }
+
+    function captureWorktreeGroupDeletionCard(projectDiv) {
+        var card = findWorktreeGroupDeletionCard(projectDiv);
+        if (!card) return null;
+        var section = card.closest('.ai-session-worktree-group');
+        var groupId = section && section.getAttribute('data-group-id');
+        if (!groupId) return null;
+        return {
+            groupId: groupId,
+            memberId: card.getAttribute('data-member-id') || '',
+            mode: card.getAttribute('data-deletion-mode') || 'member',
+            phase: card.getAttribute('data-deletion-phase') || 'loading',
+            pending: card.getAttribute('data-deletion-pending') === 'true',
+            requestId: card.getAttribute('data-deletion-request-id') || '',
+        };
+    }
+
+    function restoreWorktreeGroupDeletionCard(projectDiv, state) {
+        if (!projectDiv || !state || !state.groupId) return;
+        var section = findWorktreeGroupSection(projectDiv, state.groupId);
+        if (state.pending) {
+            // Retire the pending correlation from the authoritative DOM:
+            // the member row is gone (settled) or the deletion banner
+            // took over (partial) — or the whole group disappeared.
+            var memberGone = !section || !section.querySelector(
+                '.ai-session-worktree-member-detail[data-member-id="'
+                + CSS.escape(state.memberId) + '"]');
+            var banner = section && section.querySelector('.ai-session-worktree-deletion');
+            var pendingEntry = state.requestId
+                ? pendingWorktreeGroupDeletionRequests.get(state.requestId)
+                : null;
+            var revisionPending = pendingEntry
+                && !worktreeGroupAggregateRevisionReached(
+                    pendingEntry.minimumAggregateRevision);
+            if ((memberGone || banner) && !revisionPending) {
+                if (state.requestId) {
+                    pendingWorktreeGroupDeletionRequests.delete(state.requestId);
+                }
+                pendingWorktreeGroupDeletionRequests.forEach((entry, requestId) => {
+                    if (entry.awaitingReplacement && entry.groupId === state.groupId
+                        && worktreeGroupAggregateRevisionReached(
+                            entry.minimumAggregateRevision)) {
+                        pendingWorktreeGroupDeletionRequests.delete(requestId);
+                    }
+                });
+                if (!section) {
+                    // The whole group left with its last member: park
+                    // focus on the next group header, else the Current
+                    // anchor, else the New button (PRD §6.4 focus rule).
+                    var nextHeader = projectDiv.querySelector(
+                        '.ai-session-worktree-group .ai-session-worktree-header');
+                    var anchor = projectDiv.querySelector(
+                        '.ai-session-worktree-anchor .ai-session-worktree-header');
+                    var createButton = projectDiv.querySelector(
+                        '[data-action="create-isolated-session"]');
+                    var focusTarget = nextHeader || anchor || createButton;
+                    if (focusTarget && typeof focusTarget.focus === 'function') {
+                        focusTarget.focus({ preventScroll: true });
+                    }
+                } else {
+                    var header = section.querySelector('.ai-session-worktree-header');
+                    if (header && typeof header.focus === 'function' && !banner) {
+                        header.focus({ preventScroll: true });
+                    } else if (banner && typeof banner.focus === 'function') {
+                        banner.tabIndex = -1;
+                        banner.focus({ preventScroll: true });
+                    }
+                }
+                return;
+            }
+            // Still executing: keep the pending card visible.
+            if (section
+                && !section.querySelector('.ai-session-worktree-deletion-card')) {
+                var card = renderWorktreeGroupDeletionCardLoading(section, state.memberId);
+                card.setAttribute('data-deletion-mode', state.mode || 'member');
+                card.setAttribute('data-deletion-pending', 'true');
+                card.setAttribute('aria-busy', 'true');
+                if (state.requestId) {
+                    card.setAttribute('data-deletion-request-id', state.requestId);
+                }
+                var text = card.querySelector('.ai-session-worktree-deletion-card-text');
+                if (text) {
+                    text.textContent = 'Removing the worktree…';
+                }
+            }
+            return;
+        }
+        // Unsubmitted card: re-preview so the card never acts on stale
+        // preview data after an authoritative replacement.
+        startWorktreeGroupMemberDeletion(
+            projectDiv.getAttribute('data-id'), state.groupId, state.memberId, {
+                mode: state.mode || 'member',
+            });
+    }
+
+    window.__agentPivotWorktreeGroupDeletion = {
+        capture: captureWorktreeGroupDeletionCard,
+        restore: restoreWorktreeGroupDeletionCard,
+    };
+
+    // ---------- Worktree adopt (M3 batch 8; PRD §6.5) ----------
+    // The adopt card is local transient state like the deletion card: the
+    // host re-validates every selected key against the live snapshot and
+    // manifest, so stale card data can never adopt a claimed or vanished
+    // worktree. A submitted card stays pending until the settlement and
+    // the authoritative replacement (suggestion bar gone) retire it.
+    var pendingWorktreeAdoptRequests = new Map();
+    var worktreeAdoptSerial = 0;
+    var worktreeAdoptDocumentNonce = Math.random().toString(36).slice(2, 10);
+
+    function nextWorktreeAdoptRequestId() {
+        worktreeAdoptSerial = worktreeAdoptSerial >= Number.MAX_SAFE_INTEGER
+            ? 1 : worktreeAdoptSerial + 1;
+        return 'adopt-' + worktreeAdoptDocumentNonce
+            + '-' + worktreeAdoptSerial.toString(36);
+    }
+
+    function findWorktreeAdoptCard(projectDiv) {
+        if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+        return projectDiv.querySelector('.ai-session-worktree-adopt-card');
+    }
+
+    function cancelWorktreeAdoptCard(projectDiv) {
+        var card = findWorktreeAdoptCard(projectDiv);
+        if (!card || card.getAttribute('data-adopt-pending') === 'true') return false;
+        var slug = card.getAttribute('data-adopt-slug') || '';
+        card.remove();
+        var origin = projectDiv && projectDiv.querySelector(
+            '[data-action="adopt-worktree-cluster"][data-adopt-slug="' + CSS.escape(slug) + '"]');
+        if (origin && typeof origin.focus === 'function') {
+            origin.focus({ preventScroll: true });
+        }
+        return true;
+    }
+
+    function startWorktreeAdopt(button) {
+        var suggestion = button.closest('.ai-session-worktree-adopt-suggestion');
+        var projectDiv = button.closest('.project');
+        if (!suggestion || !projectDiv) return;
+        var existing = findWorktreeAdoptCard(projectDiv);
+        if (existing) {
+            if (existing.getAttribute('data-adopt-pending') === 'true') return;
+            cancelWorktreeAdoptCard(projectDiv);
+        }
+        var members = [];
+        try {
+            members = JSON.parse(suggestion.getAttribute('data-adopt-members') || '[]');
+        } catch (_error) {
+            return;
+        }
+        if (!Array.isArray(members) || !members.length) return;
+        var slug = suggestion.getAttribute('data-adopt-slug') || '';
+        var card = document.createElement('div');
+        card.className = 'ai-session-worktree-adopt-card ai-session-worktree-deletion-card';
+        card.setAttribute('data-adopt-slug', slug);
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-label', 'Adopt worktrees as a group');
+        card.tabIndex = -1;
+        var title = document.createElement('div');
+        title.className = 'ai-session-worktree-deletion-card-title';
+        title.textContent = 'Adopt ' + members.length + ' worktree'
+            + (members.length === 1 ? '' : 's') + ' as a group';
+        card.appendChild(title);
+        members.forEach(member => {
+            var option = document.createElement('label');
+            option.className = 'ai-session-worktree-adopt-member';
+            var check = document.createElement('input');
+            check.type = 'checkbox';
+            check.className = 'ai-session-worktree-adopt-member-check';
+            check.checked = true;
+            check.setAttribute('data-repository-key', member.repositoryKey);
+            check.setAttribute('data-worktree-path', member.canonicalWorktreePath);
+            option.appendChild(check);
+            option.appendChild(document.createTextNode(
+                member.repositoryLabel + ' (' + member.branchName + ')'));
+            card.appendChild(option);
+        });
+        var nameInput = document.createElement('input');
+        nameInput.type = 'text';
+        nameInput.className = 'ai-session-worktree-adopt-name';
+        nameInput.maxLength = 200;
+        nameInput.value = slug;
+        nameInput.setAttribute('aria-label', 'Group name');
+        card.appendChild(nameInput);
+        var select = document.createElement('select');
+        select.className = 'ai-session-worktree-adopt-target';
+        select.setAttribute('aria-label', 'Adopt into');
+        var newOption = document.createElement('option');
+        newOption.value = '';
+        newOption.textContent = 'New group';
+        select.appendChild(newOption);
+        projectDiv.querySelectorAll('.ai-session-worktree-task-group').forEach(section => {
+            var groupId = section.getAttribute('data-group-id');
+            var name = section.querySelector('.ai-session-worktree-title');
+            if (!groupId) return;
+            var option = document.createElement('option');
+            option.value = groupId;
+            option.textContent = 'Add to: ' + (name ? name.textContent : groupId);
+            select.appendChild(option);
+        });
+        card.appendChild(select);
+        var actions = document.createElement('div');
+        actions.className = 'ai-session-worktree-deletion-card-actions';
+        var cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.setAttribute('data-action', 'cancel-worktree-adopt');
+        cancel.className = 'ai-session-worktree-deletion-cancel';
+        cancel.textContent = 'Cancel';
+        var confirm = document.createElement('button');
+        confirm.type = 'button';
+        confirm.setAttribute('data-action', 'confirm-worktree-adopt');
+        confirm.className = 'ai-session-worktree-deletion-confirm';
+        confirm.textContent = 'Adopt';
+        actions.appendChild(cancel);
+        actions.appendChild(confirm);
+        card.appendChild(actions);
+        card.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                cancelWorktreeAdoptCard(projectDiv);
+            }
+        });
+        suggestion.insertAdjacentElement('afterend', card);
+        nameInput.focus({ preventScroll: true });
+        if (typeof nameInput.select === 'function') {
+            nameInput.select();
+        }
+    }
+
+    function confirmWorktreeAdopt(card) {
+        if (!card || card.getAttribute('data-adopt-pending') === 'true') return;
+        var projectDiv = card.closest('.project');
+        var projectId = projectDiv && projectDiv.getAttribute('data-id');
+        if (!projectId) return;
+        var members = [];
+        card.querySelectorAll('.ai-session-worktree-adopt-member-check:checked')
+            .forEach(check => {
+                members.push({
+                    repositoryKey: check.getAttribute('data-repository-key'),
+                    canonicalWorktreePath: check.getAttribute('data-worktree-path'),
+                });
+            });
+        if (!members.length) return;
+        var target = card.querySelector('.ai-session-worktree-adopt-target');
+        var nameInput = card.querySelector('.ai-session-worktree-adopt-name');
+        var targetGroupId = target && target.value || '';
+        var displayName = nameInput && nameInput.value.trim() || '';
+        if (!targetGroupId && !displayName) return;
+        var requestId = nextWorktreeAdoptRequestId();
+        pendingWorktreeAdoptRequests.set(requestId, {
+            projectId: projectId,
+            slug: card.getAttribute('data-adopt-slug') || '',
+            awaitingReplacement: false,
+        });
+        card.setAttribute('data-adopt-pending', 'true');
+        card.setAttribute('data-adopt-request-id', requestId);
+        card.setAttribute('aria-busy', 'true');
+        card.querySelectorAll('button, input, select').forEach(control => {
+            control.disabled = true;
+        });
+        window.vscode.postMessage({
+            type: 'adopt-worktrees',
+            version: 1,
+            requestId: requestId,
+            projectId: projectId,
+            members: members,
+            ...(targetGroupId
+                ? { targetGroupId: targetGroupId }
+                : { displayName: displayName }),
+        });
+    }
+
+    function applyWorktreeAdoptSettlement(message) {
+        var baseKeys = ['projectId', 'requestId', 'status', 'type', 'version'];
+        var withError = baseKeys.concat(['errorCode']);
+        var withGroup = baseKeys.concat(['groupId']);
+        var keys = message && typeof message === 'object'
+            ? Object.keys(message).sort() : [];
+        var matchesShape = [baseKeys, withError, withGroup]
+            .map(expected => expected.slice().sort())
+            .some(expected => keys.length === expected.length
+                && keys.every((key, index) => key === expected[index]));
+        if (!message || message.type !== 'worktree-adopt-settlement'
+            || message.version !== 1 || !matchesShape
+            || typeof message.requestId !== 'string' || !message.requestId
+            || typeof message.projectId !== 'string' || !message.projectId
+            || !['accepted', 'settled', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingWorktreeAdoptRequests.get(message.requestId);
+        if (!pending || pending.projectId !== message.projectId) return true;
+        if (message.status === 'accepted') return true;
+        if (pending.awaitingReplacement) return true;
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        if (message.status === 'failed') {
+            pendingWorktreeAdoptRequests.delete(message.requestId);
+            var card = findWorktreeAdoptCard(projectDiv);
+            if (card && card.isConnected) {
+                card.removeAttribute('data-adopt-pending');
+                card.removeAttribute('aria-busy');
+                card.querySelectorAll('button, input, select').forEach(control => {
+                    control.disabled = false;
+                });
+            }
+            announceWorktreeGroupDeletion(pending.projectId,
+                'Could not adopt the worktrees: '
+                + describeDeletionBlocker(message.errorCode || 'adopt-failed') + '.');
+            return true;
+        }
+        pending.awaitingReplacement = true;
+        return true;
+    }
+
+    function captureWorktreeAdoptCard(projectDiv) {
+        var card = findWorktreeAdoptCard(projectDiv);
+        if (!card) return null;
+        return {
+            slug: card.getAttribute('data-adopt-slug') || '',
+            pending: card.getAttribute('data-adopt-pending') === 'true',
+            requestId: card.getAttribute('data-adopt-request-id') || '',
+        };
+    }
+
+    function restoreWorktreeAdoptCard(projectDiv, state) {
+        if (!projectDiv || !state || !state.slug) return;
+        var bar = projectDiv.querySelector(
+            '.ai-session-worktree-adopt-suggestion[data-adopt-slug="'
+            + CSS.escape(state.slug) + '"]');
+        if (state.pending) {
+            if (!bar) {
+                // The suggestion is gone: the adoption landed. Retire the
+                // correlation and park focus on the group list.
+                if (state.requestId) {
+                    pendingWorktreeAdoptRequests.delete(state.requestId);
+                }
+                pendingWorktreeAdoptRequests.forEach((entry, requestId) => {
+                    if (entry.awaitingReplacement) {
+                        pendingWorktreeAdoptRequests.delete(requestId);
+                    }
+                });
+                var header = projectDiv.querySelector(
+                    '.ai-session-worktree-task-group .ai-session-worktree-header');
+                if (header && typeof header.focus === 'function') {
+                    header.focus({ preventScroll: true });
+                }
+                return;
+            }
+            if (!findWorktreeAdoptCard(projectDiv)) {
+                var button = bar.querySelector('[data-action="adopt-worktree-cluster"]');
+                if (button) {
+                    startWorktreeAdopt(button);
+                    var card = findWorktreeAdoptCard(projectDiv);
+                    if (card) {
+                        card.setAttribute('data-adopt-pending', 'true');
+                        card.setAttribute('aria-busy', 'true');
+                        if (state.requestId) {
+                            card.setAttribute('data-adopt-request-id', state.requestId);
+                        }
+                        card.querySelectorAll('button, input, select').forEach(control => {
+                            control.disabled = true;
+                        });
+                    }
+                }
+            }
+            return;
+        }
+        if (bar && !findWorktreeAdoptCard(projectDiv)) {
+            var origin = bar.querySelector('[data-action="adopt-worktree-cluster"]');
+            if (origin) {
+                startWorktreeAdopt(origin);
+            }
+        }
+    }
+
+    window.__agentPivotWorktreeAdopt = {
+        capture: captureWorktreeAdoptCard,
+        restore: restoreWorktreeAdoptCard,
+    };
+
+    function describeProvisioningError(errorCode) {
+        switch (errorCode) {
+            case 'repository-has-no-commits':
+                return 'the repository has no commits yet; make an initial commit first';
+            case 'invalid-plan':
+                return 'the saved creation plan is no longer valid; dismiss and recreate';
+            case 'interrupted':
+                return 'interrupted by a reload; retry or dismiss';
+            case 'snapshot-unavailable':
+                return 'worktree discovery is not ready yet; try again';
+            case 'workspace-untrusted':
+                return 'the workspace is not trusted';
+            case 'repository-unavailable':
+                return 'no usable repository found in this workspace';
+            case 'base-ref-unavailable':
+                return 'that worktree has no branch to base on';
+            case 'duplicate-operation':
+            case 'operation-running':
+                return 'another creation is already in progress';
+            case 'invalid-task':
+                return 'enter a task name';
+            case 'setup-failed':
+                return 'the setup command failed';
+            case 'worktree-create-failed':
+                return 'Git could not create the worktree';
+            case 'git-timeout':
+                return 'Git timed out';
+            default:
+                return (errorCode || 'try again') + '';
+        }
+    }
+
+    function describeWorktreeRemovalError(errorCode) {
+        switch (errorCode) {
+            case 'worktree-dirty':
+                return 'the worktree has uncommitted changes';
+            case 'worktree-not-removable':
+                return 'it is not a removable Agent Pivot worktree';
+            case 'worktree-active':
+                return 'a session is still running in it';
+            case 'worktree-open':
+                return 'it is open as a workspace';
+            case 'worktree-provisioning':
+                return 'it is still being created';
+            case 'operation-running':
+                return 'another removal is already in progress';
+            default:
+                return (errorCode || 'try again') + '';
+        }
     }
 
     function acknowledgeAiSessionRow(sessionRow) {
@@ -3699,11 +7279,22 @@ function initProjectAiSessionControls(options) {
         batchAiSessionManager: batchAiSessionManager,
         batchAiSessionState: batchAiSessionState,
         applyAiSessionAttentionAcknowledgementResult: applyAiSessionAttentionAcknowledgementResult,
+        applyIsolatedSessionSettlement: applyIsolatedSessionSettlement,
+        applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
+        applySetGroupPrimarySettlement: applySetGroupPrimarySettlement,
+        applyWorktreeGroupRenameSettlement: applyWorktreeGroupRenameSettlement,
+        applyWorktreeGroupDeletionPreview: applyWorktreeGroupDeletionPreview,
+        applyWorktreeGroupDeletionSettlement: applyWorktreeGroupDeletionSettlement,
+        applyWorktreeAdoptSettlement: applyWorktreeAdoptSettlement,
+        setWorktreeGroupForm: setWorktreeGroupForm,
         getPendingAiSessionProviderSelectionProjectId: getPendingAiSessionProviderSelectionProjectId,
         activateAiSessionProviderOption: activateAiSessionProviderOption,
+        activateAiSessionWorktreeMenuItem: activateAiSessionWorktreeMenuItem,
         applyAiSessionProviderSelectionResult: applyAiSessionProviderSelectionResult,
         closeAiSessionProviderMenu: closeAiSessionProviderMenu,
         closeAiSessionProviderMenus: closeAiSessionProviderMenus,
+        closeAiSessionWorktreeMenu: closeAiSessionWorktreeMenu,
+        toggleAiSessionWorktreeMenu: toggleAiSessionWorktreeMenu,
         exitAiSessionBatchManagement: exitAiSessionBatchManagement,
         getAiSessionProviderOptions: getAiSessionProviderOptions,
         getArchiveAiSessionMessageType: getArchiveAiSessionMessageType,
@@ -3937,6 +7528,9 @@ function initProjects() {
         if (dataId == null)
             return;
 
+        if (worktreeGroupForm.onClick(e.target, projectDiv, dataId))
+            return;
+
         if (aiSessionControls.onTriggerAiSessionAction(e.target, dataId))
             return;
 
@@ -4005,6 +7599,7 @@ function initProjects() {
         getSelectedAiSessionProviders: aiSessionControls.getSelectedAiSessionProviders,
         syncAiSessionBatchManagementDom: aiSessionControls.syncAiSessionBatchManagementDom,
         reconcilePendingAiSessionProviderSelectionDom: aiSessionControls.reconcilePendingAiSessionProviderSelectionDom,
+        reconcileWorktreeGroupFormDom: () => worktreeGroupForm.reconcileDom(),
         submitAiSessionProviderSelection: aiSessionControls.submitAiSessionProviderSelection,
         toggleCodexSessions: aiSessionControls.toggleCodexSessions,
         exitAiSessionBatchManagement: aiSessionControls.exitAiSessionBatchManagement,
@@ -4012,11 +7607,32 @@ function initProjects() {
         updateStickyGroupHeaderOffset: updateStickyGroupHeaderOffset,
         presentationTransactions: presentationTransactions,
     });
+    var worktreeGroupForm = initWorktreeGroupForm({
+        findCurrentWorkspaceDiv: projectId =>
+            aiSessionsUpdate.findCurrentWorkspaceDiv(projectId),
+    });
+    aiSessionControls.setWorktreeGroupForm(worktreeGroupForm);
 
     function applyValidatedAiSessionPresentationState(message) {
         if (!aiSessionPresentationStateStore.adopt(message)) return;
         aiSessionPresentationDom.apply(message);
         aiSessionControls.reconcileAiSessionAttentionAcknowledgements();
+        // Track the worktree-group aggregate revision the webview has
+        // actually rendered (PRD §6.4 decision J): deletion settlements
+        // bind a minimum revision, and pending UI may only clear once a
+        // presentation at or beyond it has been applied.
+        if (typeof message.worktreeGroupsAggregateRevision === 'number'
+            && message.workspaceNavigationIdentity) {
+            var applied = window.__agentPivotWorktreeGroupAggregateRevision
+                || { identity: '', revision: 0 };
+            if (applied.identity !== message.workspaceNavigationIdentity
+                || message.worktreeGroupsAggregateRevision > applied.revision) {
+                window.__agentPivotWorktreeGroupAggregateRevision = {
+                    identity: message.workspaceNavigationIdentity,
+                    revision: message.worktreeGroupsAggregateRevision,
+                };
+            }
+        }
     }
 
     function readInitialAiSessionPresentationState() {
@@ -4084,6 +7700,12 @@ function initProjects() {
             return;
         }
 
+        contextMenuElement = e.target.closest("#aiSessionWorktreeMenu [data-action]");
+        if (contextMenuElement) {
+            aiSessionControls.activateAiSessionWorktreeMenuItem(contextMenuElement);
+            return;
+        }
+
         contextMenuElement = e.target.closest("#groupContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onGroupContextMenuActionClicked(contextMenuElement);
@@ -4092,7 +7714,8 @@ function initProjects() {
 
         // The create-dropdown arrow owns its toggle: the generic close would
         // hide the menu before the arrow handler can see it was open.
-        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')) {
+        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')
+            && !e.target.closest('[data-action="ai-session-worktree-menu"]')) {
             contextMenus.closeContextMenus();
         }
         if (!e.target.closest('.ai-session-provider-menu-wrapper')) {
@@ -4194,6 +7817,11 @@ function initProjects() {
             focusAiSessionConversationOrigin(message);
             return;
         }
+        if (message
+            && message.type === 'reveal-ai-session-requested') {
+            revealAiSessionInWorkspace(message);
+            return;
+        }
         if (message && message.type === 'todo-mutation-result') {
             applyTodoMutationResult(message, document);
             return;
@@ -4234,6 +7862,9 @@ function initProjects() {
             })) {
                 return;
             }
+            // applyOpenWorkspacesUpdate replaces the whole wrapper,
+            // including the form slot: re-render any open creation form.
+            worktreeGroupForm.reconcileDom();
             updateStickyGroupHeaderOffset();
             if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
                 openTabSplit.syncResizer();
@@ -4290,6 +7921,61 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'isolated-session-settlement') {
+            aiSessionControls.applyIsolatedSessionSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'managed-worktree-removal-settlement') {
+            aiSessionControls.applyManagedWorktreeRemovalSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-primary-settlement') {
+            aiSessionControls.applySetGroupPrimarySettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-rename-settlement') {
+            aiSessionControls.applyWorktreeGroupRenameSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-deletion-preview') {
+            aiSessionControls.applyWorktreeGroupDeletionPreview(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-deletion-settlement') {
+            aiSessionControls.applyWorktreeGroupDeletionSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-adopt-settlement') {
+            aiSessionControls.applyWorktreeAdoptSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-form-state') {
+            worktreeGroupForm.applyFormState(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-preview') {
+            worktreeGroupForm.applyPreview(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-creation-settlement') {
+            worktreeGroupForm.applyCreationSettlement(message);
+            return;
+        }
+
+        if (message && message.type === 'worktree-group-member-settlement') {
+            worktreeGroupForm.applyMemberSettlement(message);
+            return;
+        }
+
         if (!message || message.type !== 'ai-sessions-updated') {
             return;
         }
@@ -4337,6 +8023,27 @@ function initProjects() {
     });
 
     document.addEventListener("keydown", e => {
+        var worktreeHeader = e.target && e.target.closest
+            ? e.target.closest('.ai-session-worktree-header')
+            : null;
+        if (worktreeHeader
+            && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
+                || e.key === 'Home' || e.key === 'End')) {
+            var worktreePanel = worktreeHeader.closest('[data-ai-session-panel]');
+            var worktreeHeaders = worktreePanel
+                ? Array.from(worktreePanel.querySelectorAll('.ai-session-worktree-header'))
+                : [];
+            var worktreeHeaderIndex = worktreeHeaders.indexOf(worktreeHeader);
+            if (worktreeHeaderIndex >= 0 && worktreeHeaders.length) {
+                e.preventDefault();
+                var nextWorktreeHeaderIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? worktreeHeaders.length - 1
+                        : (worktreeHeaderIndex + (e.key === 'ArrowDown' ? 1 : -1)
+                            + worktreeHeaders.length) % worktreeHeaders.length;
+                worktreeHeaders[nextWorktreeHeaderIndex]?.focus();
+            }
+            return;
+        }
         var aiSessionProviderTrigger = e.target && e.target.closest
             ? e.target.closest('[data-ai-provider-menu-trigger]')
             : null;
@@ -4461,6 +8168,70 @@ function initProjects() {
             if (e.key === 'Tab') {
                 contextMenus.closeContextMenus();
             }
+        }
+
+        var worktreeMenuItem = e.target && e.target.closest
+            ? e.target.closest('#aiSessionWorktreeMenu [role="menuitem"]')
+            : null;
+        if (worktreeMenuItem) {
+            var worktreeMenu = worktreeMenuItem.closest('#aiSessionWorktreeMenu');
+            var worktreeItems = Array.from(
+                worktreeMenu.querySelectorAll('[role="menuitem"]:not([hidden])')
+            );
+            var worktreeIndex = worktreeItems.indexOf(worktreeMenuItem);
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
+                e.preventDefault();
+                var nextWorktreeIndex = e.key === 'Home' ? 0
+                    : e.key === 'End' ? worktreeItems.length - 1
+                        : (worktreeIndex + (e.key === 'ArrowDown' ? 1 : -1) + worktreeItems.length)
+                            % worktreeItems.length;
+                worktreeItems[nextWorktreeIndex]?.focus();
+                return;
+            }
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                aiSessionControls.activateAiSessionWorktreeMenuItem(worktreeMenuItem);
+                return;
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                var worktreeOrigin = worktreeMenu.__originButton || null;
+                aiSessionControls.closeAiSessionWorktreeMenu();
+                worktreeOrigin?.focus();
+                return;
+            }
+            if (e.key === 'Tab') {
+                aiSessionControls.closeAiSessionWorktreeMenu();
+            }
+        }
+
+        var surfaceTab = e.target && e.target.closest
+            ? e.target.closest('[data-ai-session-surface-tab]')
+            : null;
+        if (surfaceTab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+            e.preventDefault();
+            var nextSurfaceId = getAdjacentAiSessionSurface(
+                surfaceTab.getAttribute('data-ai-session-surface-tab'),
+                e.key
+            );
+            var surfaceProject = surfaceTab.closest('.project[data-id]');
+            var nextSurface = surfaceProject
+                && Array.from(surfaceProject.querySelectorAll('[data-ai-session-surface-tab]'))
+                    .find(candidate =>
+                        candidate.getAttribute('data-ai-session-surface-tab') === nextSurfaceId
+                    );
+            nextSurface?.focus();
+            return;
+        }
+        if (surfaceTab && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            var surfaceTabProject = surfaceTab.closest('.project[data-id]');
+            var surfaceTabProjectId = surfaceTabProject
+                && surfaceTabProject.getAttribute('data-id');
+            if (surfaceTabProjectId) {
+                aiSessionControls.onTriggerAiSessionAction(surfaceTab, surfaceTabProjectId);
+            }
+            return;
         }
 
         var tab = e.target && e.target.closest ? e.target.closest('[data-ai-session-tab]') : null;
@@ -6246,15 +10017,16 @@ function validatePromptPanelUpdatedMessage(message) {
 
 function normalizeDashboardSearchCatalog(value) {
     if (value
-        && value.version === 2
+        && value.version === 3
         && Array.isArray(value.sessions)
+        && Array.isArray(value.worktrees)
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
         && Array.isArray(value.todos)
         && (value.skills === undefined || Array.isArray(value.skills))) {
         return value;
     }
-    return { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] };
+    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
 }
 
 function replaceDashboardSearchCatalogState(state, catalog) {
@@ -6286,6 +10058,7 @@ function filterDashboardCatalog(catalog, query) {
     var regex = globToDashboardRegex(query);
     var sections = [
         { id: 'ai-sessions', title: 'AI SESSIONS', type: 'session', items: catalog.sessions },
+        { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
         { id: 'todos', title: 'TODO RESULTS', type: 'todo', items: catalog.todos },
@@ -6352,6 +10125,14 @@ function renderDashboardSearchResults(container, sections) {
                     activeBadge.textContent = 'Active';
                     metadata.appendChild(activeBadge);
                 }
+            } else if (section.type === 'worktree') {
+                button.dataset.searchAction = 'reveal-workspace-worktree';
+                button.dataset.workspaceId = String(item.workspaceId || '');
+                button.dataset.workspaceNavigationIdentity = String(item.workspaceNavigationIdentity || '');
+                button.dataset.repositoryKey = String(item.repositoryKey || '');
+                button.dataset.worktreePath = String(item.canonicalWorktreePath || '');
+                metadata.textContent = [item.workspaceName, item.activity, `${item.sessionCount || 0} sessions`]
+                    .filter(Boolean).join(' · ');
             } else if (section.type === 'open-workspace') {
                 button.dataset.workspaceId = String(item.workspaceId || '');
                 button.dataset.workspaceNavigationIdentity = String(item.navigationIdentity || '');
@@ -7225,6 +11006,24 @@ function initDashboard(options) {
             }
             return;
         }
+        if (action === 'reveal-workspace-worktree') {
+            if (typeof options.clearSearch === 'function') {
+                options.clearSearch();
+            } else {
+                setSearchQuery('');
+            }
+            activateTab('open', false);
+            if (typeof window.__agentPivotRevealWorkspaceWorktree === 'function') {
+                window.__agentPivotRevealWorkspaceWorktree(
+                    button.dataset.workspaceNavigationIdentity,
+                    button.dataset.repositoryKey,
+                    button.dataset.worktreePath
+                );
+            } else if (typeof window.__agentPivotRevealWorkspace === 'function') {
+                window.__agentPivotRevealWorkspace(button.dataset.workspaceNavigationIdentity);
+            }
+            return;
+        }
         if (action === 'show-current-workspace') {
             if (typeof options.clearSearch === 'function') {
                 options.clearSearch();
@@ -7412,6 +11211,31 @@ function initDashboard(options) {
             aiPanel.setPendingAiSubtab('prompts');
             activateTab('ai');
             aiPanel.applyPendingAiSubtab();
+        }
+        if (event && event.data
+            && event.data.type === 'reveal-workspace-worktree-requested'
+            && event.data.version === 1
+            && Object.keys(event.data).length === 5
+            && typeof event.data.navigationIdentity === 'string'
+            && event.data.navigationIdentity
+            && typeof event.data.repositoryKey === 'string'
+            && event.data.repositoryKey
+            && typeof event.data.canonicalWorktreePath === 'string'
+            && event.data.canonicalWorktreePath) {
+            if (searchQuery && typeof options.clearSearch === 'function') {
+                options.clearSearch();
+            }
+            if (searchQuery) {
+                setSearchQuery('');
+            }
+            activateTab('open', false);
+            if (typeof window.__agentPivotRevealWorkspaceWorktree === 'function') {
+                window.__agentPivotRevealWorkspaceWorktree(
+                    event.data.navigationIdentity,
+                    event.data.repositoryKey,
+                    event.data.canonicalWorktreePath
+                );
+            }
         }
     });
     if (searchResults) {

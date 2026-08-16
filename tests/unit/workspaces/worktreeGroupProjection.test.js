@@ -1,0 +1,516 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const {
+    buildWorktreeGroupProjection,
+    buildChips,
+} = require('../../../out/workspaces/worktreeGroupProjection');
+
+const WORKSPACE = {
+    navigationIdentity: 'navigation:fixture',
+    scopeIdentity: 'scope:fixture',
+    kind: 'savedMultiRoot',
+    displayName: 'Fixture',
+    navigationUri: 'file:///work/fixture.code-workspace',
+    environment: 'local',
+    roots: [
+        {
+            id: 'alpha', name: 'Alpha', uri: 'file:///alpha/main',
+            hostPath: '/alpha/main', ordinal: 0,
+        },
+        {
+            id: 'beta', name: 'Beta', uri: 'file:///beta/main',
+            hostPath: '/beta/main', ordinal: 1,
+        },
+    ],
+};
+
+function gitWorktree(repositoryKey, worktreePath, options) {
+    return {
+        key: { repositoryKey, canonicalWorktreePath: worktreePath },
+        head: '1'.repeat(40),
+        branchRef: 'refs/heads/main',
+        isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+        ...(options || {}),
+    };
+}
+
+const SNAPSHOT = {
+    revision: 1,
+    repositories: [{
+        repositoryKey: '/alpha/.git',
+        rootBindings: [{ workspaceRootId: 'alpha', repositoryRelativePath: '' }],
+        worktrees: [
+            gitWorktree('/alpha/.git', '/alpha/main', { isMain: true }),
+            gitWorktree('/alpha/.git', '/alpha/.worktrees/fix-login', {
+                branchRef: 'refs/heads/agent-pivot/fix-login',
+            }),
+        ],
+    }, {
+        repositoryKey: '/beta/.git',
+        rootBindings: [{ workspaceRootId: 'beta', repositoryRelativePath: '' }],
+        worktrees: [
+            gitWorktree('/beta/.git', '/beta/main', {
+                isMain: true, branchRef: 'refs/heads/1.0',
+            }),
+            gitWorktree('/beta/.git', '/beta/.worktrees/fix-login', {
+                branchRef: 'refs/heads/agent-pivot/fix-login',
+            }),
+            gitWorktree('/beta/.git', '/beta/.worktrees/solo', {
+                branchRef: 'refs/heads/agent-pivot/solo',
+            }),
+        ],
+    }],
+    truncatedWorktreeCount: 0,
+};
+
+function member(repositoryKey, slug, overrides) {
+    return {
+        memberId: `m-${repositoryKey}-${slug}`,
+        repositoryKey,
+        worktreeKey: {
+            repositoryKey,
+            canonicalWorktreePath: `/${repositoryKey.includes('alpha') ? 'alpha' : 'beta'}/.worktrees/${slug}`,
+        },
+        branchName: `agent-pivot/${slug}`,
+        path: `/${repositoryKey.includes('alpha') ? 'alpha' : 'beta'}/.worktrees/${slug}`,
+        state: 'ready',
+        ...(overrides || {}),
+    };
+}
+
+function group(overrides) {
+    return {
+        groupId: 'g-1',
+        displayName: 'Fix login',
+        suggestedSlug: 'fix-login',
+        primaryMemberId: 'm-alpha',
+        members: [member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' })],
+        createdAt: 100,
+        revision: 3,
+        ...(overrides || {}),
+    };
+}
+
+function project(overrides) {
+    return buildWorktreeGroupProjection({
+        workspace: WORKSPACE,
+        snapshot: SNAPSHOT,
+        groups: [],
+        sessions: [],
+        activeSessions: [],
+        ...(overrides || {}),
+    });
+}
+
+test('WORKTREE-GROUPS-002 collapses main checkouts into one anchor with labeled real branches', () => {
+    const { anchor } = project();
+    assert.deepEqual(anchor.entries, [
+        { repositoryLabel: 'alpha', branch: 'main' },
+        { repositoryLabel: 'beta', branch: '1.0' },
+    ]);
+    assert.equal(anchor.activity, 'idle');
+});
+
+test('WORKTREE-GROUPS-002 groups manifest worktrees into one row and leaves the rest unmanaged', () => {
+    const { groups, unmanaged } = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta' }),
+            ],
+        })],
+    });
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].members.length, 2);
+    assert.equal(groups[0].members.find(m => m.memberId === 'm-alpha').isPrimary, true);
+    assert.equal(groups[0].canCreateSession, true);
+    assert.deepEqual(unmanaged.map(row => row.git.key.canonicalWorktreePath),
+        ['/beta/.worktrees/solo'],
+        'main checkouts and claimed worktrees never appear as unmanaged rows');
+});
+
+test('WORKTREE-GROUPS-RENAME-001 projects the manifest revision onto the group row', () => {
+    const { groups } = project({ groups: [group({ revision: 7 })] });
+    assert.equal(groups[0].revision, 7);
+});
+
+test('WORKTREE-GROUPS-ADD-REPO-001 scope-outdated live sessions annotate the group row', () => {
+    const alphaKey = member('/alpha/.git', 'fix-login').worktreeKey;
+    const { groups } = project({
+        groups: [group()],
+        activeSessions: [
+            {
+                key: 'codex:s-1', provider: 'codex', sessionId: 's-1',
+                name: 'One', executionState: 'running', focused: false,
+                needsAttention: false, pending: false, backend: 'vscode',
+                attached: true, worktreeKey: alphaKey, scopeOutdated: true,
+            },
+        ],
+    });
+    assert.equal(groups[0].scopeOutdatedSessions, 1);
+    const current = project({
+        groups: [group()],
+        activeSessions: [
+            {
+                key: 'codex:s-2', provider: 'codex', sessionId: 's-2',
+                name: 'Two', executionState: 'running', focused: false,
+                needsAttention: false, pending: false, backend: 'vscode',
+                attached: true, worktreeKey: alphaKey,
+            },
+        ],
+    });
+    assert.equal(current.groups[0].scopeOutdatedSessions, undefined);
+});
+
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 an active deletion journal leases the group row', () => {
+    const journal = {
+        operationId: 'op-1',
+        groupId: 'g-1',
+        mode: 'member',
+        originalPrimaryMemberId: null,
+        generationCutoffAt: 100,
+        startedAt: 90,
+        targets: [{
+            memberId: 'm-alpha',
+            repositoryKey: '/alpha/.git',
+            canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+            branchName: 'agent-pivot/fix-login',
+            retirementId: 'r-1',
+            affectedSessions: [],
+            status: 'pending',
+        }],
+    };
+    const leased = project({
+        groups: [group({ members: [member('/alpha/.git', 'fix-login', {
+            memberId: 'm-alpha', state: 'deleting',
+        })] })],
+        deletionJournals: [journal],
+    });
+    assert.equal(leased.groups[0].canCreateSession, false);
+    assert.equal(leased.groups[0].members[0].status, 'deleting');
+    assert.deepEqual(leased.groups[0].deletion, {
+        operationId: 'op-1', pendingCount: 1, failedCount: 0,
+    });
+    const failed = project({
+        groups: [group()],
+        deletionJournals: [{
+            ...journal,
+            targets: [{ ...journal.targets[0], status: 'failed', errorCode: 'git-timeout' }],
+        }],
+    });
+    assert.deepEqual(failed.groups[0].deletion, {
+        operationId: 'op-1', pendingCount: 0, failedCount: 1,
+    });
+    // Without a journal the row is unaffected.
+    const plain = project({ groups: [group()] });
+    assert.equal(plain.groups[0].deletion, undefined);
+    assert.equal(plain.groups[0].canCreateSession, true);
+});
+
+test('WORKTREE-GROUPS-002 aggregates sessions across members and derives activity', () => {
+    const alphaKey = member('/alpha/.git', 'fix-login').worktreeKey;
+    const betaKey = member('/beta/.git', 'fix-login').worktreeKey;
+    const sessions = [
+        { id: 's1', name: 'One', provider: 'codex', worktreeKey: alphaKey },
+        {
+            id: 's2', name: 'Two', provider: 'codex', worktreeKey: betaKey,
+            attention: { unread: true },
+        },
+    ];
+    const { groups, anchor } = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta' }),
+            ],
+        })],
+        sessions,
+    });
+    assert.deepEqual(groups[0].sessions.map(session => session.id), ['s2', 's1'],
+        'attention sessions sort first within the group');
+    assert.equal(groups[0].activity, 'attention');
+    assert.equal(anchor.sessions.length, 0);
+});
+
+test('WORKTREE-GROUPS-002 anchor collects sessions that run in main checkouts', () => {
+    const mainKey = { repositoryKey: '/alpha/.git', canonicalWorktreePath: '/alpha/main' };
+    const { anchor } = project({
+        sessions: [{ id: 's1', name: 'Main', provider: 'codex', worktreeKey: mainKey }],
+        activeSessions: [{
+            key: 'codex:s1', provider: 'codex', sessionId: 's1', name: 'Main',
+            executionState: 'running', focused: false, needsAttention: false,
+            pending: false, backend: 'vscode', attached: true, worktreeKey: mainKey,
+        }],
+    });
+    assert.equal(anchor.sessions.length, 1);
+    assert.equal(anchor.activity, 'active');
+});
+
+test('WORKTREE-GROUPS-002 member status reflects manifest state and snapshot health', () => {
+    const { groups } = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                {
+                    memberId: 'm-planned', repositoryKey: '/gamma/.git',
+                    branchName: 'agent-pivot/fix-login', path: '/gamma/.worktrees/fix-login',
+                    state: 'provisioning',
+                },
+                member('/beta/.git', 'fix-login', {
+                    memberId: 'm-beta', detached: true,
+                }),
+            ],
+        })],
+    });
+    const byId = Object.fromEntries(groups[0].members.map(m => [m.memberId, m.status]));
+    assert.equal(byId['m-alpha'], 'ready');
+    assert.equal(byId['m-planned'], 'pending');
+    assert.equal(byId['m-beta'], undefined,
+        'detached members stay off the row until their repository returns');
+    assert.equal(groups[0].hasDetachedMembers, true);
+});
+
+test('WORKTREE-GROUPS-002 marks missing worktrees without dropping the group row', () => {
+    const { groups } = project({
+        groups: [group({
+            members: [member('/alpha/.git', 'fix-login', {
+                memberId: 'm-alpha',
+                worktreeKey: {
+                    repositoryKey: '/alpha/.git',
+                    canonicalWorktreePath: '/alpha/.worktrees/deleted-externally',
+                },
+                path: '/alpha/.worktrees/deleted-externally',
+            })],
+        })],
+    });
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].members[0].status, 'missing');
+});
+
+test('WORKTREE-GROUPS-002 a group whose members all detached renders no ghost row', () => {
+    const { groups } = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha', detached: true }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta', detached: true }),
+            ],
+        })],
+    });
+    assert.deepEqual(groups, [],
+        'the manifest record survives for re-attachment, but a memberless row is a blank ghost');
+});
+
+test('WORKTREE-GROUPS-002 WORKTREE-GROUPS-CREATE-001 in-flight members disable session creation', () => {
+    const { groups } = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                {
+                    memberId: 'm-beta', repositoryKey: '/beta/.git',
+                    branchName: 'agent-pivot/fix-login', path: '/beta/.worktrees/fix-login',
+                    state: 'provisioning',
+                },
+            ],
+        })],
+    });
+    assert.equal(groups[0].canCreateSession, false,
+        'a member still provisioning must not produce a silently narrowed scope');
+    assert.equal(groups[0].members.find(m => m.memberId === 'm-beta').status, 'pending');
+
+    const settled = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                {
+                    memberId: 'm-beta', repositoryKey: '/beta/.git',
+                    branchName: 'agent-pivot/fix-login', path: '/beta/.worktrees/fix-login',
+                    state: 'failed',
+                },
+            ],
+        })],
+    });
+    assert.equal(settled.groups[0].canCreateSession, true,
+        'a settled-failed member stays visible without blocking the group (PRD §8)');
+});
+
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 merge is offered between any two groups (slug no longer gates)', () => {
+    const { groups } = project({
+        groups: [
+            group(),
+            group({
+                groupId: 'g-2', createdAt: 200,
+                members: [member('/beta/.git', 'fix-login', { memberId: 'm-beta' })],
+            }),
+            group({
+                groupId: 'g-3', displayName: 'Other', suggestedSlug: 'other', createdAt: 300,
+                members: [member('/beta/.git', 'solo', { memberId: 'm-solo' })],
+            }),
+        ],
+    });
+    const byId = Object.fromEntries(groups.map(row => [row.groupId, row]));
+    // Batch 8 (PRD §6.5): every other group is a merge candidate.
+    assert.deepEqual(byId['g-1'].mergeCandidateGroupIds.sort(), ['g-2', 'g-3']);
+    assert.deepEqual(byId['g-2'].mergeCandidateGroupIds.sort(), ['g-1', 'g-3']);
+    assert.deepEqual(byId['g-3'].mergeCandidateGroupIds.sort(), ['g-1', 'g-2']);
+    assert.equal(groups.length, 3, 'merge candidates stay separate rows');
+});
+
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 adopt suggestions cluster unmanaged worktrees by slug', () => {
+    const { adoptSuggestions } = project();
+    // The fixture snapshot has agent-pivot/fix-login unmanaged worktrees in
+    // both repositories plus a solo worktree on a non-conventional branch.
+    const fixLogin = adoptSuggestions.find(suggestion => suggestion.slug === 'fix-login');
+    assert.ok(fixLogin, 'the shared slug clusters both unmanaged worktrees');
+    assert.equal(fixLogin.members.length, 2);
+    assert.deepEqual(fixLogin.members.map(member => member.branchName).sort(),
+        ['agent-pivot/fix-login', 'agent-pivot/fix-login']);
+    assert.equal(fixLogin.members[0].worktreeKey.canonicalWorktreePath.includes('fix-login'),
+        true);
+    // The solo worktree on agent-pivot/solo forms its own single-member
+    // suggestion (the same Adopt path); nothing clusters by guesswork.
+    const solo = adoptSuggestions.find(suggestion => suggestion.slug === 'solo');
+    assert.ok(solo && solo.members.length === 1);
+    assert.equal(adoptSuggestions.length, 2);
+});
+
+test('WORKTREE-GROUPS-ADOPT-MERGE-001 a single unmanaged worktree follows the same adopt path', () => {
+    const { adoptSuggestions } = project({
+        snapshot: {
+            ...SNAPSHOT,
+            repositories: [SNAPSHOT.repositories[0]],
+        },
+    });
+    assert.equal(adoptSuggestions.length, 1);
+    assert.equal(adoptSuggestions[0].slug, 'fix-login');
+    assert.equal(adoptSuggestions[0].members.length, 1);
+});
+
+test('WORKTREE-GROUPS-002 colliding display names get a stable branch discriminator', () => {
+    const { groups } = project({
+        groups: [
+            group(),
+            group({
+                groupId: 'g-2', createdAt: 200,
+                members: [member('/beta/.git', 'fix-login', { memberId: 'm-beta' })],
+            }),
+        ],
+    });
+    const byId = Object.fromEntries(groups.map(row => [row.groupId, row]));
+    assert.equal(byId['g-1'].discriminator, 'agent-pivot/fix-login');
+    assert.equal(byId['g-2'].discriminator, 'agent-pivot/fix-login');
+});
+
+test('WORKTREE-GROUPS-002 groups sort by activity then recency', () => {
+    const { groups } = project({
+        groups: [
+            group({ groupId: 'g-idle', createdAt: 300 }),
+            group({
+                groupId: 'g-busy', createdAt: 100,
+                members: [member('/beta/.git', 'fix-login', { memberId: 'm-beta' })],
+            }),
+        ],
+        activeSessions: [{
+            key: 'codex:s1', provider: 'codex', sessionId: 's1', name: 'Live',
+            executionState: 'running', focused: false, needsAttention: false,
+            pending: false, backend: 'vscode', attached: true,
+            worktreeKey: member('/beta/.git', 'fix-login').worktreeKey,
+        }],
+    });
+    assert.deepEqual(groups.map(row => row.groupId), ['g-busy', 'g-idle']);
+});
+
+test('WORKTREE-GROUPS-002 chips use the shortest prefix unique across the workspace', () => {
+    const chips = buildChips(['agent-pivot'], ['agent-pivot', 'agent-platform', 'pi']);
+    assert.deepEqual(chips, [{ label: 'agent-pi', title: 'agent-pivot' }],
+        'a single-member group still disambiguates against sibling repositories');
+    assert.deepEqual(buildChips(['pi', 'agent-pivot'],
+        ['agent-pivot', 'agent-platform', 'pi'])[0],
+        { label: 'p', title: 'pi' });
+    const { groups } = project({ groups: [group()] });
+    assert.deepEqual(groups[0].chips, [{ label: 'a', title: 'alpha' }]);
+});
+
+test('WORKTREE-GROUPS-002 failed or missing members push the group into attention', () => {
+    const failed = project({
+        groups: [group({
+            primaryMemberId: null,
+            members: [{
+                memberId: 'm-failed', repositoryKey: '/alpha/.git',
+                branchName: 'agent-pivot/fix-login', path: '/alpha/.worktrees/fix-login',
+                state: 'failed', lastError: 'interrupted',
+            }],
+        })],
+    });
+    assert.equal(failed.groups[0].activity, 'attention',
+        'a failed member is as visible as an unread session');
+
+    const missing = project({
+        groups: [group({
+            members: [member('/alpha/.git', 'fix-login', {
+                memberId: 'm-alpha',
+                worktreeKey: {
+                    repositoryKey: '/alpha/.git',
+                    canonicalWorktreePath: '/alpha/.worktrees/deleted-externally',
+                },
+                path: '/alpha/.worktrees/deleted-externally',
+            })],
+        })],
+    });
+    assert.equal(missing.groups[0].activity, 'attention',
+        'an externally deleted worktree must not look like a healthy group');
+
+    const detached = project({
+        groups: [group({
+            members: [
+                member('/alpha/.git', 'fix-login', { memberId: 'm-alpha' }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta', detached: true }),
+            ],
+        })],
+    });
+    assert.equal(detached.groups[0].activity, 'idle',
+        'detached members are informational, not attention');
+});
+
+test('WORKTREE-GROUPS-002 an unavailable primary disables creation instead of falling back', () => {
+    const { groups } = project({
+        groups: [group({
+            primaryMemberId: 'm-missing',
+            members: [
+                member('/alpha/.git', 'fix-login', {
+                    memberId: 'm-missing',
+                    worktreeKey: {
+                        repositoryKey: '/alpha/.git',
+                        canonicalWorktreePath: '/alpha/.worktrees/deleted-externally',
+                    },
+                    path: '/alpha/.worktrees/deleted-externally',
+                }),
+                member('/beta/.git', 'fix-login', { memberId: 'm-beta' }),
+            ],
+        })],
+    });
+    assert.equal(groups[0].members.find(m => m.memberId === 'm-missing').status, 'missing');
+    assert.equal(groups[0].canCreateSession, false,
+        'the ready peer must not silently take over creation');
+    assert.equal(groups[0].needsPrimarySelection, true,
+        'the row must ask the user to choose a new primary');
+});
+
+test('WORKTREE-GROUPS-002 a group without a ready primary cannot create sessions', () => {
+    const { groups } = project({
+        groups: [group({
+            primaryMemberId: null,
+            members: [{
+                memberId: 'm-failed', repositoryKey: '/alpha/.git',
+                branchName: 'agent-pivot/fix-login', path: '/alpha/.worktrees/fix-login',
+                state: 'failed', lastError: 'interrupted',
+            }],
+        })],
+    });
+    assert.equal(groups[0].canCreateSession, false);
+    assert.equal(groups[0].needsPrimarySelection, false,
+        'no ready member means there is nothing to select as primary');
+    assert.equal(groups[0].members[0].status, 'failed');
+    assert.equal(groups[0].members[0].errorCode, 'interrupted');
+});

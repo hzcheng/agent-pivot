@@ -1546,7 +1546,7 @@ const guards = {
             || (dashboardSource.match(
                 /getRenderedCurrentWorkspaceNavigationIdentity\(cards\)/g
             ) || []).length !== 1
-            || !/const cards = this\.options\.getCards\(projection\)[\s\S]*?presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,[\s\S]*?getRenderedCurrentWorkspaceNavigationIdentity\(cards\),/
+            || !/const cards = this\.options\.getCards\(projection\)[\s\S]*?const renderedIdentity = getRenderedCurrentWorkspaceNavigationIdentity\(cards\);[\s\S]*?presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,\s*renderedIdentity,/
                 .test(controllerSource)
             || !/const cards = this\.getCards\(projection\)[\s\S]*?presentation:\s*buildAiSessionPresentationState\(\s*false,\s*projection,[\s\S]*?getRenderedCurrentWorkspaceNavigationIdentity\(cards\),/
                 .test(openWorkspaceSource)

@@ -59,6 +59,10 @@ const aiSessionControlsScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectAiSessionControlsScripts.js'),
     'utf8'
 );
+const groupFormScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewGroupFormScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -130,6 +134,7 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: groupFormScript });
     await page.addScriptTag({ content: aiSessionControlsScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => {
@@ -161,8 +166,9 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
             currentWorkspaceCount: 1,
             html,
             searchCatalog: {
-                version: 2,
+                version: 3,
                 sessions: [],
+                worktrees: [],
                 openWorkspaces: [],
                 savedProjects: [],
                 todos: [],

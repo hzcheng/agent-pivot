@@ -81,6 +81,8 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 requires whole-branch review and blocks
         ['unexplained CI or harness failures', /unexplained[\s\S]*(?:CI|harness)[\s\S]*failures/i],
         ['blocking failure classification', /blocking[\s\S]*classif|classif[\s\S]*blocking/i],
         ['build-cleaner dependency ordering', /cleans or rebuilds `out\/`[\s\S]*consume `out\/`/i],
+        ['performance-threshold isolation', /browser performance-threshold tests[\s\S]*without concurrent CPU-intensive[\s\S]*coverage[\s\S]*rerun[\s\S]*browser suite alone/i],
+        ['aggregate runtime safety gate', /runtime identity[\s\S]*tmux metadata versions[\s\S]*runtime-binding[\s\S]*npm run test:safety:run[\s\S]*migration[\s\S]*recovery[\s\S]*cross-host race/i],
         ['post-implementation capability audit', /final implementation or skill-owner commit[\s\S]*audit\.head/i],
         ['exit-code-gated verification', /own exit code[\s\S]*pipefail[\s\S]*never `;`/i],
     ]);

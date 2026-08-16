@@ -52,6 +52,7 @@ function createFixture(overrides = {}) {
     const composition = createSessionControllerComposition({
         getCurrentWorkspaceActionTarget: cardId => ({ cardId }),
         getCurrentOpenWorkspace: () => ({ scopeIdentity: 'scope-1' }),
+        getWorktreeSnapshot: () => ({ revision: 9 }),
         getActiveEditorUri: () => undefined,
         isWorkspaceTrusted: () => true,
         getRegisteredAiSessionProvider: providerId => providers.find(provider => provider.id === providerId) || null,
@@ -176,18 +177,66 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 delegates directory scopes to t
     });
 
     await controllerOptions.creation.resolveWorkspaceDirectoryScope({ workspace: 'w' }, 'codex', 'root-9');
-    assert.deepEqual(resolved, [['w', 'codex', undefined, 'root-9']],
+    assert.deepEqual(resolved, [['w', 'codex', undefined, 'root-9', undefined]],
         'creation resolves against the target workspace');
 
     await controllerOptions.resume.resolveWorkspaceDirectoryScope({ workspace: 'w' }, 'session', 'kimi', 'root-8');
     assert.deepEqual(resolved[1], ['w', 'kimi', 'session', 'root-8'],
         'resume resolves against the target workspace with the session');
+    assert.deepEqual(controllerOptions.command.getWorktreeSnapshot(), { revision: 9 },
+        'resume scope resolution receives the current coherent worktree snapshot');
 
     await controllerOptions.creation.rememberDirectoryScope({ rootId: 'root-1' });
     const logErrorCall = calls.find(call => call[0] === 'logError');
     assert.equal(logErrorCall[1], 'Could not save the AI session workspace root.');
     assert.ok(logErrorCall[2] instanceof Error && logErrorCall[2].message === 'disk full',
         'a failed scope memory logs instead of throwing');
+});
+
+test('WORKTREE-SESSION-CREATE-TARGET-001 composition prompts only when target resolution is ambiguous', async () => {
+    const keyMain = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo' };
+    const keyFeature = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-feature' };
+    const workspace = {
+        navigationIdentity: 'nav', scopeIdentity: 'scope', kind: 'singleFolder',
+        displayName: 'repo', navigationUri: 'file:///repo', environment: 'local',
+        roots: [{ id: 'root', name: 'repo', uri: 'file:///repo', hostPath: '/repo', ordinal: 0 }],
+    };
+    const snapshot = {
+        revision: 1, truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: '/repo/.git',
+            rootBindings: [{ workspaceRootId: 'root', repositoryRelativePath: '' }],
+            worktrees: [
+                { key: keyMain, branchRef: 'refs/heads/main', head: 'a'.repeat(40), isMain: true, isBare: false, health: 'normal', headKind: 'branch' },
+                { key: keyFeature, branchRef: 'refs/heads/feature', head: 'b'.repeat(40), isMain: false, isBare: false, health: 'normal', headKind: 'branch' },
+            ],
+        }],
+    };
+    const picks = [];
+    const { controllerOptions } = createFixture({
+        showQuickPick: async (items, options) => {
+            picks.push({ items, options });
+            return items[1];
+        },
+        compositionOptions: {
+            getWorktreeSnapshot: () => snapshot,
+            getActiveEditorUri: () => undefined,
+        },
+    });
+
+    assert.deepEqual(await controllerOptions.creation.selectCreationScopeTarget(workspace), {
+        kind: 'worktree', key: keyFeature,
+    });
+    assert.equal(picks.length, 1);
+    assert.equal(picks[0].options.title, 'New AI Session Worktree');
+    assert.deepEqual(picks[0].items.map(item => [item.label, item.description]), [
+        ['main', '/repo'], ['feature', '/repo-feature'],
+    ]);
+
+    assert.deepEqual(await controllerOptions.creation.selectCreationScopeTarget(workspace, keyMain), {
+        kind: 'worktree', key: keyMain,
+    });
+    assert.equal(picks.length, 1, 'an explicit worktree row target never opens a picker');
 });
 
 test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 AI-SESSION-QUICK-CREATE-001 persists the started provider through the workspace state store', async () => {

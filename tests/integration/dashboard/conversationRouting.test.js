@@ -774,6 +774,28 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 routes validated open requests and ig
     await harness.dispose();
 });
 
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a history-only session resolves without a live runtime', async () => {
+    // The View Conversation button on history rows targets sessions whose
+    // runtime is gone — including deleted worktrees (PRD §6.4): the Host
+    // resolver answers with a minimal stopped target read from the hydrated
+    // history, and the viewer reads the transcript from disk.
+    const harness = createDashboardConversationHarness({
+        focusedSession: {
+            provider: 'codex',
+            sessionId: 'session-a',
+            name: 'Ended session',
+            focused: false,
+            executionState: 'stopped',
+        },
+    });
+    await harness.activate();
+
+    assert.equal(await harness.openActiveConversation(), 'opened');
+    assert.equal(harness.viewerTargets.length, 1);
+    assert.equal(harness.viewerTargets[0].displayName, 'Ended session');
+    await harness.dispose();
+});
+
 test('PRODUCTION-CONVERSATION-LIFECYCLE-001 keeps the exact viewer authority lifecycle live', async () => {
     let targetAvailable = true;
     const focusedSession = {

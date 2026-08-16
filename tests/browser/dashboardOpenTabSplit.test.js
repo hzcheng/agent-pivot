@@ -58,7 +58,7 @@ const openTabSplitScript = fs.readFileSync(
 const BROWSER_CONDITION_TIMEOUT_MS = 5_000;
 const OPEN_TAB_PANE_MIN_PX = 72;
 // Mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in webviewOpenTabSplitScripts.js.
-const OPEN_TAB_PANE_MIN_EXPANDED_PX = 263;
+const OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
 
 let browser;
 
@@ -469,8 +469,9 @@ test('WEBVIEW-OPEN-TAB-SPLIT-001 keeps the OPEN WINDOWS scroll anchor across aut
         + `<div class="group-list">${listCards}</div></div>`;
     const navigationCount = before.identities.filter(info => info.isNavigation).length;
     const catalog = {
-        version: 2,
+        version: 3,
         sessions: [],
+        worktrees: [],
         openWorkspaces: before.identities.map(info => ({
             workspaceId: info.id,
             action: 'switch-open-workspace',
@@ -548,6 +549,32 @@ function makeExpandedCurrentWorkspaceCard(sessionCount) {
     return card;
 }
 
+function makeExpandedCurrentWorkspaceCardWithWorktrees(worktreeCount) {
+    const card = makeExpandedCurrentWorkspaceCard(2);
+    card.aiSessions.worktrees = Array.from({ length: worktreeCount }, (_, index) => ({
+        kind: 'ready',
+        git: {
+            key: {
+                repositoryKey: '/repo/.git',
+                canonicalWorktreePath: `/repo/.agent-pivot/worktrees/task-${index}`,
+            },
+            branchRef: `refs/heads/agent-pivot/task-${index}`,
+            head: 'a'.repeat(40),
+            isMain: false,
+            isBare: false,
+            health: 'normal',
+            headKind: 'branch',
+        },
+        activity: 'idle',
+        sessions: [],
+        authority: { canResume: true, canRemove: true },
+    }));
+    card.aiSessions.worktreeSnapshotRevision = 1;
+    card.aiSessions.worktreeRepositoryCount = 1;
+    card.aiSessions.bareWorktreeCount = 0;
+    return card;
+}
+
 function expandedFitGeometry(page) {
     return page.evaluate(() => {
         const group = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
@@ -583,7 +610,9 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 fits the expanded CURRENT WINDOW ca
     // scoped there: cover the default and minimum supported sidebar widths.
     for (const config of [
         { width: 360, height: 900, isSidebar: true },
-        { width: 240, height: 720, isSidebar: true },
+        // The taller viewport keeps the auto half-pane pin above the raised
+        // expanded floor (OPEN_TAB_PANE_MIN_EXPANDED_PX) so both rules show.
+        { width: 240, height: 760, isSidebar: true },
     ]) {
         const cards = [makeExpandedCurrentWorkspaceCard(12), ...makeWorkspaceCards(9).slice(1)];
         const page = await openDashboardPage(t, { ...config, cards });
@@ -668,6 +697,7 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
         height: 720,
         isSidebar: true,
         cards,
+        withWorkspaceUpdate: true,
     });
 
     // Drag far past the top: the expanded pane floor must hold well above the
@@ -694,13 +724,15 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
         };
         const list = group.querySelector('.ai-session-tab-panel:not([hidden]) .codex-sessions-list');
         return {
-            moduleHeader: within('.ai-session-module-header'),
+            surfaceTabs: within('.ai-session-surface-tabs'),
+            chatsActions: within('.ai-session-chats-actions'),
             tabs: within('.ai-session-tabs'),
             providerControls: within('.ai-session-provider-controls'),
             listClientHeight: list.clientHeight,
         };
     });
-    assert.ok(chrome.moduleHeader, 'the AI SESSIONS header must stay inside the pane');
+    assert.ok(chrome.surfaceTabs, 'the WORKTREE/CHATS tabs must stay inside the pane');
+    assert.ok(chrome.chatsActions, 'the session create actions must stay inside the pane');
     assert.ok(chrome.tabs, 'the ACTIVE/SESSIONS tabs must stay inside the pane');
     assert.ok(chrome.providerControls, 'the provider controls must stay inside the pane');
     assert.ok(
@@ -727,7 +759,7 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
         group.classList.remove('current-card-expanded');
         group.querySelector('.workspace-card').removeAttribute('data-codex-expanded');
     });
-    for (let step = 0; step < 10; step += 1) {
+    for (let step = 0; step < 12; step += 1) {
         await page.keyboard.press('ArrowUp');
     }
     const collapsedFloor = await openTabGeometry(page);
@@ -736,6 +768,83 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the AI session chrome reachab
         `the collapsed pane keeps the legacy ${OPEN_TAB_PANE_MIN_PX}px floor `
             + `(got ${collapsedFloor.currentGroup.height})`
     );
+});
+
+test('WORKTREE-GROUPING-UI-001 keeps the worktree list scrollable inside the fitted card', async t => {
+    const cards = [
+        makeExpandedCurrentWorkspaceCardWithWorktrees(16),
+        ...makeWorkspaceCards(9).slice(1),
+    ];
+    const page = await openDashboardPage(t, {
+        width: 360,
+        height: 720,
+        isSidebar: true,
+        cards,
+    });
+
+    await page.evaluate(() => {
+        const projectDiv = document.querySelector(
+            '#dashboard-tab-open .open-current-workspace-group .workspace-card'
+        );
+        // Mirror selectAiSessionSurfaceDom (the eval'd view-state helpers are
+        // not global in this harness): select the Worktree surface.
+        const sessionSection = projectDiv.querySelector('.codex-sessions');
+        sessionSection.setAttribute('data-selected-ai-session-surface', 'worktree');
+        projectDiv.querySelectorAll('[data-ai-session-surface-tab]').forEach(tab => {
+            const selected = tab.getAttribute('data-ai-session-surface-tab') === 'worktree';
+            tab.setAttribute('aria-selected', String(selected));
+            tab.setAttribute('tabindex', selected ? '0' : '-1');
+        });
+        projectDiv.querySelectorAll('[data-ai-session-surface-panel]').forEach(panel => {
+            panel.toggleAttribute(
+                'hidden',
+                panel.getAttribute('data-ai-session-surface-panel') !== 'worktree'
+            );
+        });
+    });
+
+    const geometry = await page.evaluate(() => {
+        const group = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
+        const card = group.querySelector('.workspace-card');
+        const panel = group.querySelector('[data-ai-session-surface-panel="worktree"]');
+        const list = group.querySelector('.ai-session-worktree-list');
+        const lastGroup = list.querySelector('.ai-session-worktree-group:last-child');
+        const cardBox = card.getBoundingClientRect();
+        return {
+            cardBottom: cardBox.bottom,
+            cardPaddingBottom: parseFloat(getComputedStyle(card).paddingBottom) || 0,
+            panelDisplay: getComputedStyle(panel).display,
+            listOverflowY: getComputedStyle(list).overflowY,
+            listClientHeight: list.clientHeight,
+            listScrollHeight: list.scrollHeight,
+            listBottom: list.getBoundingClientRect().bottom,
+            lastGroupBottom: lastGroup.getBoundingClientRect().bottom,
+        };
+    });
+    assert.equal(geometry.panelDisplay, 'flex',
+        'the worktree surface panel stays in the flex chain');
+    assert.equal(geometry.listOverflowY, 'auto',
+        'the worktree list must be the inner scroll surface');
+    assert.ok(geometry.listScrollHeight > geometry.listClientHeight,
+        `sixteen worktrees must overflow the fitted list `
+            + `(scrollHeight ${geometry.listScrollHeight}, clientHeight ${geometry.listClientHeight})`);
+    assert.ok(
+        geometry.listBottom <= geometry.cardBottom - geometry.cardPaddingBottom + 1.5,
+        `the worktree list must not spill past the card `
+            + `(list bottom ${geometry.listBottom}, card bottom ${geometry.cardBottom})`
+    );
+
+    // Scrolling to the end reveals the last worktree instead of clipping it.
+    const revealed = await page.evaluate(() => {
+        const group = document.querySelector('#dashboard-tab-open .open-current-workspace-group');
+        const list = group.querySelector('.ai-session-worktree-list');
+        list.scrollTop = list.scrollHeight;
+        const lastGroup = list.querySelector('.ai-session-worktree-group:last-child');
+        const listBox = list.getBoundingClientRect();
+        const lastBox = lastGroup.getBoundingClientRect();
+        return lastBox.bottom <= listBox.bottom + 1.5 && lastBox.top >= listBox.top - 1.5;
+    });
+    assert.ok(revealed, 'scrolling the worktree list must reveal the last worktree row');
 });
 
 test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 reconciles below-floor shares for the expanded card', async t => {

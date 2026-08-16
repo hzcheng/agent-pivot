@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync } from 'fs';
+import { access as accessPath } from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -98,6 +99,10 @@ import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigat
 import {
     createAiSessionQuickSwitchHandlers,
 } from './dashboard/sessionQuickSwitch';
+import {
+    createWorktreeOrSessionSwitchHandler,
+} from './dashboard/worktreeQuickSwitch';
+import { parseAiSessionCreationWorktreeKey } from './aiSessions/worktreeCreationTarget';
 import {
     createAiSessionMruTracker,
 } from './aiSessions/sessionMru';
@@ -234,8 +239,79 @@ import {
     AiSessionPresentationTransaction,
     WorkspaceSessionHydrationController,
 } from './workspaces/sessionHydrationController';
+import {
+    isWorkspaceHostPathContained,
+    normalizeWorkspaceHostPath,
+} from './workspaces/sessionAssignment';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
+import { GitWorktreeDiscovery } from './worktrees/gitWorktreeDiscovery';
+import {
+    GitApiLike,
+    GitRepositoryStateMonitor,
+} from './worktrees/gitRepositoryStateMonitor';
+import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
+import { worktreeKeysEqual } from './worktrees/types';
+import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
+import {
+    WorktreeGroupManifestError,
+    WorktreeGroupManifestStore,
+} from './worktrees/groupManifestStore';
+import { WorktreeDeletionController } from './worktrees/deletionController';
+import { reconcileWorktreeGroupManifest } from './worktrees/groupManifestReconciliation';
+import { IsolatedSessionController } from './worktrees/isolatedSessionController';
+import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
+import { normalizeWorktreeDirectory } from './worktrees/provisioningPlan';
+import { GitWorktreeProvisioner } from './worktrees/gitWorktreeProvisioner';
+import {
+    WorktreeGroupCreationController,
+} from './worktrees/groupCreationController';
+import {
+    acceptedWorktreeGroupCreationSettlement,
+    acceptedWorktreeGroupMemberSettlement,
+    parseConfirmWorktreeGroupRequest,
+    parseOpenWorktreeGroupFormRequest,
+    parsePreviewWorktreeGroupRequest,
+    parseWorktreeGroupMemberRequest,
+    settledWorktreeGroupCreationSettlement,
+    settledWorktreeGroupMemberSettlement,
+} from './worktrees/groupCreationProtocol';
+import {
+    normalizeWorktreeSetupCommand,
+    WorktreeSetupRunner,
+} from './worktrees/worktreeSetupRunner';
+import { ManagedWorktreeRemovalController } from './worktrees/managedWorktreeRemovalController';
+import {
+    acceptedManagedWorktreeRemovalSettlement,
+    parseManagedWorktreeRemovalRequest,
+    settledManagedWorktreeRemovalSettlement,
+} from './worktrees/removalProtocol';
+import {
+    acceptedWorktreeGroupPrimarySettlement,
+    parseSetWorktreeGroupPrimaryRequest,
+    settledWorktreeGroupPrimarySettlement,
+} from './worktrees/groupPrimaryProtocol';
+import type { WorktreeGroupRenameSettlement } from './worktrees/groupRenameProtocol';
+import { handleRenameWorktreeGroup } from './worktrees/groupRenameHandler';
+import { createSettlementReplayCache } from './worktrees/settlementReplayCache';
+import {
+    handleAbandonWorktreeGroupDeletion,
+    handleDeleteWorktreeGroupMember,
+    handleDiscardWorktreeGenerationClaim,
+    handlePreviewWorktreeGroupDeletion,
+    handleRetryWorktreeGroupDeletion,
+    WorktreeGroupDeletionHandlerDeps,
+} from './worktrees/groupDeletionHandler';
+import type { WorktreeGroupDeletionSettlement } from './worktrees/groupDeletionProtocol';
+import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
+import { handleAdoptWorktrees } from './worktrees/groupAdoptHandler';
+import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
+import {
+    acceptedIsolatedSessionSettlement,
+    cancelledMutationSettlement,
+    parseIsolatedSessionRequest,
+    settledIsolatedSessionSettlement,
+} from './worktrees/provisioningProtocol';
 
 const NEW_AI_SESSION_REFRESH_DELAYS_MS = [250, 1000, 2500, 5000];
 const AI_SESSION_REFRESH_DEBOUNCE_MS = 3000;
@@ -306,6 +382,21 @@ function runBoundedAiProviderHelp(
             });
         });
     });
+}
+
+async function getVsCodeGitApiForWorktreeMonitoring(): Promise<GitApiLike | undefined> {
+    const extension = vscode.extensions.getExtension('vscode.git');
+    if (!extension) {
+        return undefined;
+    }
+    const exports = extension.isActive ? extension.exports : await extension.activate();
+    const api = (exports as { getAPI?: (version: number) => unknown } | undefined)
+        ?.getAPI?.(1) as GitApiLike | undefined;
+    return api && Array.isArray(api.repositories)
+        && typeof api.onDidOpenRepository === 'function'
+        && typeof api.onDidCloseRepository === 'function'
+        ? api
+        : undefined;
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -1199,6 +1290,115 @@ async function initializeDashboard(
     const getCurrentOpenWorkspace = (): OpenWorkspace | null => openWorkspaceController
         ? openWorkspaceController.getCurrentWorkspace()
         : resolveCurrentOpenWorkspace();
+    const worktreeBaseRefStore = new WorktreeBaseRefStore(context.globalState);
+    const worktreeProvisioningStore = new WorktreeProvisioningStore(
+        context.globalState,
+        () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees'))
+    );
+    const worktreeSetupRunner = new WorktreeSetupRunner();
+    const worktreeGroupManifestStore = new WorktreeGroupManifestStore(context.globalState);
+    const gitWorktreeDiscovery = new GitWorktreeDiscovery({
+        getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
+    });
+    const getPriorityWorktreeKeys = (): import('./worktrees/types').WorktreeKey[] => [
+        ...aiSessionRuntimeCoordinator.getActive(),
+        ...aiSessionRuntimeCoordinator.getPending(),
+    ].reduce((keys, runtime) => {
+        const key = runtime.identity.worktreeKey;
+        if (key && !keys.some(candidate => worktreeKeysEqual(candidate, key))) {
+            keys.push({ ...key });
+        }
+        return keys;
+    }, [] as import('./worktrees/types').WorktreeKey[]);
+    const getWorktreePrioritySignature = (): string => JSON.stringify(
+        getPriorityWorktreeKeys()
+            .map(key => [key.repositoryKey, key.canonicalWorktreePath])
+            .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    );
+    let requestedWorktreePrioritySignature = getWorktreePrioritySignature();
+    const worktreeSnapshotCoordinator = ownResource(() =>
+        new WorktreeSnapshotCoordinator({
+            load: async () => {
+                const loadStartedAt = Date.now();
+                const workspace = getCurrentOpenWorkspace();
+                const snapshot = await gitWorktreeDiscovery.discover({
+                    workspaceRoots: workspace?.roots || [],
+                    priorityWorktreeKeys: getPriorityWorktreeKeys(),
+                });
+                for (const repository of snapshot.repositories) {
+                    if (repository.baseRef) {
+                        try {
+                            await worktreeBaseRefStore.rememberInitial(
+                                repository.repositoryKey, repository.baseRef);
+                        } catch (error) {
+                            // Discovery remains usable when VS Code cannot
+                            // persist the initial preference. A later refresh
+                            // can retry without discarding the Git snapshot.
+                            logError('Failed to remember the worktree base ref.', error);
+                        }
+                    }
+                }
+                // Reconcile against the workspace captured when this load
+                // started: if the user switched workspaces mid-discovery,
+                // this snapshot belongs to the old one and must not leak
+                // into the new workspace's manifest bucket.
+                if (workspace
+                    && getCurrentOpenWorkspace()?.navigationIdentity
+                        === workspace.navigationIdentity) {
+                    try {
+                        await reconcileWorktreeGroupManifest({
+                            store: worktreeGroupManifestStore,
+                            workspaceIdentity: workspace.navigationIdentity,
+                            snapshot,
+                            recoveryRecords: worktreeProvisioningStore.read(),
+                            activeGroupMemberIds:
+                                isolatedSessionController?.getActiveGroupMemberIds() || [],
+                            onError: (message, error) => logError(message, error),
+                        });
+                        // Tombstones protect half-initialized worktrees from
+                        // ready seeding; once the physical worktree is gone
+                        // from the snapshot, the tombstone has served its
+                        // purpose.
+                        const snapshotPaths = new Set<string>();
+                        const discoveredRepositories = new Set<string>();
+                        for (const repository of snapshot.repositories) {
+                            discoveredRepositories.add(repository.repositoryKey);
+                            for (const worktree of repository.worktrees) {
+                                snapshotPaths.add(
+                                    `${worktree.key.repositoryKey} ${worktree.key.canonicalWorktreePath}`);
+                            }
+                        }
+                        // Prune through the controller: it drops in-memory
+                        // copies before the store write, so a queued
+                        // replace can never resurrect a pruned tombstone.
+                        await isolatedSessionController
+                            ?.pruneTombstones(
+                                snapshotPaths,
+                                snapshot.truncatedWorktreeCount > 0,
+                                loadStartedAt,
+                                discoveredRepositories)
+                            .catch(error => logError(
+                                'Failed to prune provisioning tombstones.', error));
+                    } catch (error) {
+                        // Reconciliation is additive bookkeeping; discovery
+                        // stays usable when persistence is unavailable.
+                        logError('Failed to reconcile the worktree group manifest.', error);
+                    }
+                }
+                return snapshot;
+            },
+            setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+            clearTimeout: handle => clearTimeout(handle as NodeJS.Timeout),
+        }));
+    const gitRepositoryStateMonitor = ownResource(() =>
+        new GitRepositoryStateMonitor({
+            getApi: getVsCodeGitApiForWorktreeMonitoring,
+            onDidChange: () => worktreeSnapshotCoordinator.invalidate('git-state'),
+            onError: error => logError(
+                'Failed to subscribe to Git repository state changes.', error),
+        }));
+    void gitRepositoryStateMonitor.start();
     const savedWorkspaceProjectAdapter = new SavedWorkspaceProjectAdapter({
         getCurrentWorkspace: resolveCurrentOpenWorkspace,
         pendingStore: new PendingWorkspaceSaveStore(context.globalState),
@@ -1209,6 +1409,71 @@ async function initializeDashboard(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
         ),
     });
+    // PRD §6.4 crash recovery: the runtime promotion and the generation
+    // claim promotion are separate writes, so a crash (or a transient
+    // memento failure) between them strands a pending claim whose runtime
+    // no longer exists. This idempotent pass re-attaches the session id
+    // from the durable terminal binding (same unique launch marker path).
+    // It never discards: no post-hoc channel can authoritatively prove a
+    // launch never happened (markers are cleaned up on terminal close and
+    // provider inventories cannot prove a negative), so claims are released
+    // only by the in-process compensating delete, by promotion, or by
+    // explicit retired-record cleanup.
+    const reconcilePendingGenerationClaims = async (workspace: OpenWorkspace) => {
+        const identity = workspace.navigationIdentity;
+        const pendingClaims = worktreeGroupManifestStore.listGenerationClaims(identity)
+            .filter(claim => claim.state === 'pending');
+        if (!pendingClaims.length) {
+            return;
+        }
+        const bindings = aiSessionTerminalBindingStore.listAll();
+        if (!bindings) {
+            // Enumeration failed: absence of evidence is not evidence.
+            return;
+        }
+        const boundByMarkerPath = new Map<string, {
+            provider: string;
+            sessionId: string;
+            navigationIdentity: string;
+            worktreeKey?: import('./worktrees/types').WorktreeKey;
+        }>();
+        let ambiguous = false;
+        for (const binding of bindings) {
+            if ((binding.state !== 'bound' && binding.state !== 'released')
+                || !binding.markerPath) {
+                continue;
+            }
+            const existing = boundByMarkerPath.get(binding.markerPath);
+            // Session identity is the composite {provider, sessionId} plus
+            // the owning bucket and worktree key: any half differing makes
+            // the marker ambiguous.
+            if (existing && (existing.sessionId !== binding.sessionId
+                || existing.provider !== binding.providerId
+                || existing.navigationIdentity !== binding.workspaceNavigationIdentity
+                || (existing.worktreeKey?.canonicalWorktreePath
+                        !== binding.worktreeKey?.canonicalWorktreePath)
+                || (existing.worktreeKey?.repositoryKey
+                        !== binding.worktreeKey?.repositoryKey))) {
+                ambiguous = true;
+                break;
+            }
+            boundByMarkerPath.set(binding.markerPath, {
+                provider: binding.providerId,
+                sessionId: binding.sessionId,
+                navigationIdentity: binding.workspaceNavigationIdentity,
+                ...(binding.worktreeKey ? { worktreeKey: binding.worktreeKey } : {}),
+            });
+        }
+        if (ambiguous) {
+            logError('Ambiguous terminal bindings skipped during claim reconciliation.', null);
+            return;
+        }
+        await worktreeGroupManifestStore.reconcileGenerationClaims(identity, claim =>
+            resolveGenerationClaimDisposition(claim, {
+                navigationIdentity: identity,
+                boundSessionByMarkerPath: boundByMarkerPath,
+            }));
+    };
     const workspacePendingSessionPromotionController =
         new WorkspacePendingSessionPromotionController<vscode.Terminal>({
             providers: aiSessionProviders,
@@ -1221,8 +1486,24 @@ async function initializeDashboard(
             syncActiveRuntime: () => activeAiSessionTerminalHighlighter.sync(),
             evaluateExecution: () => evaluateAiSessionLifecycleTick(),
             scheduleRefresh: () => refreshAiSessionViewsIncrementally(),
+            onSessionPromoted: async ({ navigationIdentity, pendingId, provider, sessionId }) => {
+                // PRD §6.4: promote the pending generation claim recorded at
+                // creation time; sessions without a retired path have no
+                // claim and the missing-claim rejection is expected.
+                try {
+                    await worktreeGroupManifestStore.promoteGenerationClaim(
+                        navigationIdentity, pendingId, { provider, sessionId });
+                } catch (error) {
+                    if ((error as { code?: string })?.code !== 'invalid-record') {
+                        throw error;
+                    }
+                }
+            },
+            reconcileGenerationClaims: workspace =>
+                reconcilePendingGenerationClaims(workspace),
             logDiagnostic: logAiSessionDiagnostic,
         });
+    let isolatedSessionController: IsolatedSessionController | undefined;
     const workspaceSessionHydrationController = new WorkspaceSessionHydrationController<vscode.Terminal>({
         providers: aiSessionProviders,
         readCoordinator: aiSessionReadCoordinator,
@@ -1245,6 +1526,8 @@ async function initializeDashboard(
         },
         getQuickCreateProvider: scopeIdentity =>
             aiSessionWorkspaceStateStore.getQuickCreateProviders()[scopeIdentity],
+        getSelectedSurface: scopeIdentity =>
+            aiSessionWorkspaceStateStore.getSelectedSurfaces()[scopeIdentity],
         getProviderSelection: scopeIdentity => {
             const stored = aiSessionWorkspaceStateStore.getProviderSelections()[scopeIdentity];
             if (stored) {
@@ -1257,6 +1540,18 @@ async function initializeDashboard(
         },
         getExpanded: scopeIdentity => aiSessionWorkspaceStateStore.getExpandedWorkspaces().has(scopeIdentity),
         getProjectionSnapshot: () => aiSessionProjectionCoordinator.capture(),
+        getProvisioningWorktrees: navigationIdentity =>
+            isolatedSessionController?.getVisibleRows(navigationIdentity) || [],
+        getWorktreeGroups: navigationIdentity =>
+            worktreeGroupManifestStore.listGroups(navigationIdentity),
+        getDeletionJournals: navigationIdentity =>
+            worktreeGroupManifestStore.listDeletionJournals(navigationIdentity),
+        getRetiredWorktreeIdentities: navigationIdentity =>
+            worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+        getGenerationClaims: navigationIdentity =>
+            worktreeGroupManifestStore.listGenerationClaims(navigationIdentity),
+        isRetiredStoreCorrupt: navigationIdentity =>
+            worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
         onDidReadSessions: (workspace, sessionResults, reason) => {
             void workspacePendingSessionPromotionController.promote(
                 workspace,
@@ -1279,6 +1574,57 @@ async function initializeDashboard(
     } = createSessionControllerComposition({
         getCurrentWorkspaceActionTarget,
         getCurrentOpenWorkspace,
+        getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        getWorktreeGroupPeerKeys: (navigationIdentity, key) => {
+            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                navigationIdentity, key);
+            if (!group) {
+                return null;
+            }
+            // Group sessions write every ready, non-detached member worktree
+            // (PRD §5.5); the requested key's own path is covered by the
+            // primary worktree bindings. Keys are revalidated against the
+            // live snapshot and file system before entering the scope.
+            return group.members
+                .filter(member => member.state === 'ready' && !member.detached
+                    && !!member.worktreeKey
+                    && !worktreeKeysEqual(member.worktreeKey, key))
+                .map(member => ({ ...member.worktreeKey! }));
+        },
+        isWorktreeGroupProvisioning: (navigationIdentity, key) => {
+            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                navigationIdentity, key);
+            return !!group && group.members.some(member =>
+                member.state === 'planned' || member.state === 'provisioning');
+        },
+        getRetiredWorktreeIdentities: navigationIdentity =>
+            worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+        isWorktreeRetiredStoreCorrupt: navigationIdentity =>
+            worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
+        // Every worktree session creation — retired path or not — runs its
+        // whole admission phase (lease check, claim persistence, runtime
+        // creation) under the shared per-group deletion admission mutex
+        // (PRD §6.4, decision J). The claim write itself stays a plain
+        // store call: it always happens inside the admission wrapper.
+        createWorktreeGenerationClaim: (navigationIdentity, input) =>
+            worktreeGroupManifestStore.createGenerationClaim(navigationIdentity, input),
+        withWorktreeDeletionAdmission: (scope, operation) => {
+            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                scope.workspaceNavigationIdentity, scope.worktreeKey);
+            if (!group) {
+                return operation();
+            }
+            return worktreeDeletionController.withAdmissionLock(
+                scope.workspaceNavigationIdentity, group.groupId, async () => {
+                    if (worktreeGroupManifestStore.isGroupDeletionLeased(
+                        scope.workspaceNavigationIdentity, group.groupId)) {
+                        throw new WorktreeGroupManifestError('group-leased');
+                    }
+                    return operation();
+                });
+        },
+        removeWorktreeGenerationClaim: (navigationIdentity, claimId) =>
+            worktreeGroupManifestStore.removeGenerationClaim(navigationIdentity, claimId),
         getRegisteredAiSessionProvider,
         getRegisteredAiSessionProviders,
         getAiSessionRuntimeById,
@@ -1326,7 +1672,150 @@ async function initializeDashboard(
         focusTerminalView: () => vscode.commands.executeCommand('workbench.action.terminal.focus'),
         nowMs: () => Date.now(),
     });
+    const worktreeGroupProvisioner = new GitWorktreeProvisioner();
+    isolatedSessionController = new IsolatedSessionController({
+        provisioner: worktreeGroupProvisioner,
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        getActiveEditorPath: () => vscode.window.activeTextEditor?.document.uri.fsPath,
+        isProviderId: isAiSessionProviderId,
+        isWorkspaceTrusted: () => (
+            vscode.workspace as typeof vscode.workspace & { isTrusted?: boolean }
+        ).isTrusted !== false,
+        showInputBox: options => vscode.window.showInputBox(options),
+        showQuickPick: (items, quickPickOptions) =>
+            vscode.window.showQuickPick(items, quickPickOptions),
+        refreshWorktreeSnapshot: () => worktreeSnapshotCoordinator.refresh('provisioning'),
+        getSetupCommand: () => normalizeWorktreeSetupCommand(
+            getAgentPivotConfiguration().get<unknown>('worktreeSetupCommand', [])),
+        getWorktreeDirectory: () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
+        runSetup: (_plan, worktreeKey, isCancelled, command) =>
+            worktreeSetupRunner.run(command, worktreeKey.canonicalWorktreePath, isCancelled),
+        publishRows: () => refreshAiSessionViewsIncrementally(),
+        recoveredOperations: worktreeProvisioningStore.read(),
+        persistOperations: operations => worktreeProvisioningStore.replaceLive(operations),
+        persistTombstones: records =>
+            worktreeProvisioningStore.appendTombstones(records),
+        deleteTombstones: operationIds =>
+            worktreeProvisioningStore.deleteTombstones(operationIds),
+        pruneTombstones: (paths, truncated, startedAt, repositories) =>
+            worktreeProvisioningStore.pruneTombstones(
+                paths, truncated, startedAt, repositories),
+        onPersistenceError: error => logError(
+            'Could not persist isolated worktree provisioning recovery state.', error),
+        recordProvisionedWorktree: async info => {
+            const target = getCurrentWorkspaceActionTarget(info.projectId);
+            if (!target) {
+                const error = new Error('The workspace is unavailable for manifest recording.');
+                (error as Error & { code?: string }).code = 'manifest-unavailable';
+                throw error;
+            }
+            // Save Workspace As can reuse a legacy projectId for a different
+            // workspace; never write the old operation into the new bucket.
+            if (info.navigationIdentity
+                && target.workspace.navigationIdentity !== info.navigationIdentity) {
+                const error = new Error('The workspace changed since provisioning started.');
+                (error as Error & { code?: string }).code = 'manifest-unavailable';
+                throw error;
+            }
+            const bucket = target.workspace.navigationIdentity;
+            // A completed provisioning clears any tombstone claiming the
+            // worktree is half-initialized.
+            isolatedSessionController?.removeTombstonesForWorktree(
+                info.worktreeKey.repositoryKey,
+                info.worktreeKey.canonicalWorktreePath);
+            if (info.groupId && info.memberId) {
+                // Group creation (M2): the group already exists with this
+                // member planned; mark the member ready and apply the
+                // confirmed primary choice once its member is ready.
+                await worktreeGroupManifestStore.updateMember(
+                    bucket, info.groupId, info.memberId, {
+                        state: 'ready',
+                        worktreeKey: info.worktreeKey,
+                    });
+                if (info.preferredPrimary) {
+                    await worktreeGroupManifestStore.setPrimaryMember(
+                        bucket, info.groupId, info.memberId);
+                }
+                return;
+            }
+            if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
+                return;
+            }
+            await worktreeGroupManifestStore.createGroup(bucket, {
+                displayName: info.plan.taskName,
+                suggestedSlug: info.plan.slug,
+                members: [{
+                    repositoryKey: info.plan.repositoryKey,
+                    worktreeKey: info.worktreeKey,
+                    branchName: info.plan.branchName,
+                    path: info.worktreeKey.canonicalWorktreePath,
+                    state: 'ready',
+                }],
+            });
+        },
+    });
+    let managedWorktreeRemovalController: ManagedWorktreeRemovalController;
+    let worktreeDeletionController: WorktreeDeletionController;
+    const reconciledDeletionIdentities = new Set<string>();
+    const currentWorktreeGroupsAggregateRevision = () => {
+        const identity = getCurrentOpenWorkspace()?.navigationIdentity;
+        return identity
+            ? worktreeGroupManifestStore.getAggregateRevision(identity)
+            : null;
+    };
     let currentAiSessionRefreshReason = 'refresh';
+    const worktreeGroupCreationController = new WorktreeGroupCreationController({
+        getWorkspaceTarget: getCurrentWorkspaceActionTarget,
+        getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        listLocalBranches: commandCwd =>
+            worktreeGroupProvisioner.listLocalBranches(commandCwd),
+        isBranchAvailable: (commandCwd, branchName) =>
+            worktreeGroupProvisioner.isBranchAvailable(commandCwd, branchName),
+        isPathAvailable: worktreePath =>
+            worktreeGroupProvisioner.isPathAvailable(worktreePath),
+        preflightPlan: plan => worktreeGroupProvisioner.preflightPlan(plan),
+        // Resource-scoped per repository (PRD §6.1): a cross-repo group can
+        // mix Node/Java/Go stacks, so each member reads its own folder's
+        // setup override.
+        getSetupCommand: repositoryKey => {
+            const workspace = getCurrentOpenWorkspace();
+            const repository = worktreeSnapshotCoordinator.getSnapshot()
+                ?.repositories.find(candidate =>
+                    candidate.repositoryKey === repositoryKey);
+            const binding = repository?.rootBindings.find(candidate =>
+                workspace?.roots.some(root => root.id === candidate.workspaceRootId));
+            const root = workspace?.roots.find(candidate =>
+                candidate.id === binding?.workspaceRootId);
+            return normalizeWorktreeSetupCommand(
+                getAgentPivotConfiguration(
+                    root ? vscode.Uri.parse(root.uri) : undefined
+                ).get<unknown>('worktreeSetupCommand', []));
+        },
+        getWorktreeDirectory: () => normalizeWorktreeDirectory(
+            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
+        getActiveEditorPath: () => vscode.window.activeTextEditor?.document.uri.fsPath,
+        manifestStore: worktreeGroupManifestStore,
+        startMemberOperation: input =>
+            isolatedSessionController!.startGroupMember(input),
+        retryMemberOperation: (operationId, projectId) =>
+            isolatedSessionController!.retry(operationId, projectId),
+        dismissMemberOperation: (operationId, projectId) =>
+            isolatedSessionController!.dismiss(operationId, projectId),
+        hasMemberOperation: operationId =>
+            isolatedSessionController!.hasOperation(operationId),
+        memberDismissNeedsTombstone: operationId =>
+            isolatedSessionController!.memberDismissNeedsTombstone(operationId),
+        isTombstoneStoreFull: () =>
+            isolatedSessionController!.isTombstoneStoreFull(),
+        writeSyntheticTombstone: input =>
+            isolatedSessionController!.writeSyntheticTombstone(input),
+        onDidChange: () => {
+            void aiSessionDashboardController.refreshNow(
+                'worktree-group-creation', { fallbackToFullRefresh: false });
+        },
+    });
     const notifyConfiguration = ownResource(() => createNotifyConfiguration({
         context,
         getConfiguration: () => getAgentPivotConfiguration(),
@@ -1425,6 +1914,14 @@ async function initializeDashboard(
         nowMs: () => Date.now(),
     });
     aiSessionProjectionCoordinator = new AiSessionProjectionCoordinator<vscode.Terminal>({
+        getWorktreeSnapshot: () => {
+            const prioritySignature = getWorktreePrioritySignature();
+            if (prioritySignature !== requestedWorktreePrioritySignature) {
+                requestedWorktreePrioritySignature = prioritySignature;
+                worktreeSnapshotCoordinator.invalidate('runtime-priority');
+            }
+            return worktreeSnapshotCoordinator.getSnapshot();
+        },
         getActiveRuntimes: () => aiSessionRuntimeCoordinator.getActive(),
         getPendingRuntimes: () => aiSessionRuntimeCoordinator.getPending(),
         getExecutionSnapshot: () => aiSessionExecutionController.getSnapshot(),
@@ -1495,6 +1992,10 @@ async function initializeDashboard(
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: projection => getOpenWorkspaceCards(projection),
+        getWorktreeGroupsAggregateRevision: navigationIdentity =>
+            navigationIdentity
+                ? worktreeGroupManifestStore.getAggregateRevision(navigationIdentity)
+                : null,
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         beginProjection: reason => {
@@ -1519,6 +2020,115 @@ async function initializeDashboard(
         setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
         clearTimeout: handle => clearTimeout(handle),
     }));
+    managedWorktreeRemovalController = new ManagedWorktreeRemovalController({
+        getSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        isProjectTarget: projectId => !!getCurrentWorkspaceActionTarget(projectId),
+        isActive: key => getPriorityWorktreeKeys().some(candidate =>
+            worktreeKeysEqual(candidate, key)),
+        isOpenWorkspace: key => (getCurrentOpenWorkspace()?.roots || []).some(root =>
+            isWorkspaceHostPathContained(key.canonicalWorktreePath, root.hostPath)),
+        isProvisioning: key => isolatedSessionController!.getRows().some(row =>
+            row.repositoryKey === key.repositoryKey
+            && row.proposedPath === key.canonicalWorktreePath),
+        confirm: (message, action) => vscode.window.showWarningMessage(
+            message, { modal: true }, action),
+        getWorkspaceIdentity: projectId =>
+            getCurrentWorkspaceActionTarget(projectId)?.workspace.navigationIdentity ?? null,
+        refresh: async (removedKey, workspaceIdentity) => {
+            // Retire the manifest member before any snapshot/view refresh:
+            // the physical directory is already gone at this point, and a
+            // failed retirement must surface as a partial outcome instead of
+            // leaving a ghost group behind. The bucket identity was captured
+            // when the removal started, so a workspace switch cannot divert it.
+            if (workspaceIdentity) {
+                const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                    workspaceIdentity, removedKey);
+                const member = group?.members.find(candidate => candidate.worktreeKey
+                    && worktreeKeysEqual(candidate.worktreeKey, removedKey));
+                if (group && member) {
+                    await worktreeGroupManifestStore.removeMember(
+                        workspaceIdentity, group.groupId, member.memberId);
+                }
+            }
+            await worktreeSnapshotCoordinator.refresh('managed-worktree-removed');
+            const delivered = await provider.postMessage(
+                aiSessionDashboardController.getUpdatedMessage('managed-worktree-removed'));
+            if (!delivered) {
+                throw new Error('Managed worktree refresh was not delivered.');
+            }
+        },
+    });
+    // Freeze the old-generation membership (PRD §6.4): every session whose
+    // working directory lies inside the worktree. Providers that are
+    // unavailable contribute nothing; their sessions still fail closed to
+    // the retired generation through the creation-time/unknown rules, so
+    // an incomplete snapshot never mislabels an old session as current.
+    const snapshotMemberAffectedSessions = async (member: {
+        worktreeKey?: { repositoryKey: string; canonicalWorktreePath: string };
+        path: string;
+    }) => {
+        const memberPath = normalizeWorkspaceHostPath(
+            member.worktreeKey?.canonicalWorktreePath || member.path);
+        if (!memberPath) {
+            return [];
+        }
+        const results = aiSessionReadCoordinator.getResults({
+            candidatePaths: [member.path],
+            reason: 'worktree-deletion-snapshot',
+        });
+        const frozen: { provider: string; sessionId: string }[] = [];
+        for (const [providerId, result] of Object.entries(results)) {
+            if (!result.available) {
+                continue;
+            }
+            for (const session of result.sessions) {
+                const cwd = normalizeWorkspaceHostPath(session.cwd || '');
+                if (cwd && isWorkspaceHostPathContained(memberPath, cwd)) {
+                    frozen.push({ provider: providerId, sessionId: session.id });
+                }
+            }
+        }
+        return frozen;
+    };
+    worktreeDeletionController = new WorktreeDeletionController({
+        store: worktreeGroupManifestStore,
+        recheckBlocker: (_group, member) => member.worktreeKey
+            ? managedWorktreeRemovalController.getRemovalBlocker(member.worktreeKey)
+            : Promise.resolve<string | null>('worktree-not-removable'),
+        snapshotAffectedSessions: (_group, member) =>
+            snapshotMemberAffectedSessions(member),
+        removeWorktree: target => {
+            if (!target.worktreeKey) {
+                return Promise.resolve({
+                    kind: 'failed' as const,
+                    errorCode: 'worktree-not-removable',
+                });
+            }
+            return managedWorktreeRemovalController.removeVerified(target.worktreeKey);
+        },
+        observeWorktree: async target => {
+            const snapshot = worktreeSnapshotCoordinator.getSnapshot();
+            const repository = snapshot?.repositories.find(candidate =>
+                candidate.repositoryKey === target.repositoryKey);
+            if (!repository) {
+                // Repository detached or discovery truncated: the deletion
+                // stays pending and the lease keeps holding (PRD §6.4).
+                return 'unknown' as const;
+            }
+            try {
+                await accessPath(target.canonicalWorktreePath);
+                return 'present' as const;
+            } catch {
+                return 'missing' as const;
+            }
+        },
+        onChanged: async () => {
+            await worktreeSnapshotCoordinator.refresh('worktree-group-deletion');
+            await aiSessionDashboardController.refreshNow('worktree-group-deletion', {
+                fallbackToFullRefresh: false,
+            });
+        },
+    });
     void directTerminalRestoreOutcomeTask.then(result => {
         if (result.outcome === 'restored') {
             try {
@@ -1550,9 +2160,28 @@ async function initializeDashboard(
                 session.provider === providerId
                 && session.sessionId === sessionId
             );
-            return activeSession
-                ? withConversationDisplayMetadata(
+            if (activeSession) {
+                return withConversationDisplayMetadata(
                     activeSession,
+                    activeSessions
+                );
+            }
+            // History rows resolve too (PRD §6.4): a session whose runtime
+            // is gone — including one whose worktree was deleted — must
+            // still open its read-only conversation. The viewer reads the
+            // transcript from disk; it never needed a live runtime.
+            const historySession = (
+                target?.sessions.sessionsByProvider[providerId] || []
+            ).find(session => session.id === sessionId);
+            return historySession
+                ? withConversationDisplayMetadata(
+                    {
+                        provider: providerId,
+                        sessionId: historySession.id,
+                        name: historySession.name,
+                        focused: false,
+                        executionState: 'stopped',
+                    },
                     activeSessions
                 )
                 : null;
@@ -1730,6 +2359,416 @@ async function initializeDashboard(
         showSponsorOptions,
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
+    // Idempotency cache for group rename settlements (PRD §6.4 protocol
+    // rules): replays re-receive the recorded terminal settlement and are
+    // never re-executed.
+    const worktreeGroupRenameSettlements = createSettlementReplayCache<
+        WorktreeGroupRenameSettlement>();
+    const worktreeGroupDeletionSettlements = createSettlementReplayCache<
+        WorktreeGroupDeletionSettlement>();
+    const worktreeGroupDeletionHandlerDeps: WorktreeGroupDeletionHandlerDeps = {
+        postMessage: outgoing => provider.postMessage(outgoing),
+        getNavigationIdentity: projectId =>
+            getCurrentWorkspaceActionTarget(projectId)
+                ?.workspace.navigationIdentity || null,
+        store: worktreeGroupManifestStore,
+        controller: worktreeDeletionController,
+        probeMemberBlocker: async (navigationIdentity, groupId, memberId) => {
+            const member = worktreeGroupManifestStore.listGroups(navigationIdentity)
+                .find(candidate => candidate.groupId === groupId)
+                ?.members.find(candidate => candidate.memberId === memberId);
+            if (!member) {
+                return 'member-not-found';
+            }
+            return member.worktreeKey
+                ? managedWorktreeRemovalController.getRemovalBlocker(member.worktreeKey)
+                : 'worktree-not-removable';
+        },
+        countMemberHistorySessions: async (navigationIdentity, groupId, memberId) => {
+            const member = worktreeGroupManifestStore.listGroups(navigationIdentity)
+                .find(candidate => candidate.groupId === groupId)
+                ?.members.find(candidate => candidate.memberId === memberId);
+            if (!member) {
+                return 0;
+            }
+            return (await snapshotMemberAffectedSessions(member)).length;
+        },
+        getRepositoryLabel: fallbackRepositoryLabel,
+        refreshNow: () => aiSessionDashboardController.refreshNow(
+            'worktree-group-deletion', { fallbackToFullRefresh: true }),
+        logError,
+        replayCache: worktreeGroupDeletionSettlements,
+    };
+
+    const isolatedSessionHandlers = {
+        'start-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'start-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const outcome = await isolatedSessionController!.start(
+                request.requestId, request.projectId, request.sourceWorktree);
+            await provider.postMessage(settledIsolatedSessionSettlement(request, outcome));
+        },
+        'retry-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'retry-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const outcome = await isolatedSessionController!.retry(
+                request.operationId, request.projectId);
+            await provider.postMessage(settledIsolatedSessionSettlement(request, outcome));
+        },
+        'cancel-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'cancel-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const accepted = isolatedSessionController!.cancel(
+                request.operationId, request.projectId);
+            await provider.postMessage(cancelledMutationSettlement(request, accepted));
+        },
+        'dismiss-isolated-session': async (message: unknown) => {
+            const request = parseIsolatedSessionRequest(message);
+            if (!request || request.type !== 'dismiss-isolated-session') {
+                return;
+            }
+            await provider.postMessage(acceptedIsolatedSessionSettlement(request));
+            const accepted = await isolatedSessionController!.dismiss(
+                request.operationId, request.projectId);
+            await provider.postMessage(cancelledMutationSettlement(request, accepted));
+        },
+        'open-worktree-group-form': async (message: unknown) => {
+            const request = parseOpenWorktreeGroupFormRequest(message);
+            if (!request) {
+                return;
+            }
+            // Add repo (PRD §6.3): the form lists only repositories not
+            // already in the group, locks the group name, and prechecks
+            // only the active editor's repository when eligible.
+            const addRepo = request.targetGroupId
+                ? await worktreeGroupCreationController.listAddRepoOptions(
+                    request.projectId, request.targetGroupId)
+                : null;
+            if (request.targetGroupId && !addRepo) {
+                return;
+            }
+            const repositories = addRepo
+                ? addRepo.options
+                : await worktreeGroupCreationController
+                    .listRepositoryOptions(request.projectId);
+            // Derive (PRD §6.2): prefill name, selection, and base refs
+            // from the source group; the group itself is never modified.
+            const derive = request.sourceGroupId
+                ? await worktreeGroupCreationController.deriveFormContext(
+                    request.projectId, request.sourceGroupId)
+                : null;
+            // Branch-from-here (PRD §6.1): resolve the seed worktree's
+            // branch so the form can prefill the base-ref override.
+            const seedWorktree = request.seedRepositoryKey
+                && request.seedWorktreePath
+                ? worktreeSnapshotCoordinator.getSnapshot()?.repositories
+                    .find(candidate =>
+                        candidate.repositoryKey === request.seedRepositoryKey)
+                    ?.worktrees.find(candidate =>
+                        candidate.key.canonicalWorktreePath
+                            === request.seedWorktreePath)
+                : undefined;
+            await provider.postMessage({
+                type: 'worktree-group-form-state',
+                version: 1,
+                projectId: request.projectId,
+                ...(addRepo
+                    ? {
+                        addRepo: {
+                            groupId: addRepo.group.groupId,
+                            displayName: addRepo.group.displayName,
+                        },
+                    }
+                    : {}),
+                ...(derive ? { derive } : {}),
+                ...(request.seedRepositoryKey && seedWorktree?.branchRef
+                    ? {
+                        seed: {
+                            repositoryKey: request.seedRepositoryKey,
+                            baseRef: seedWorktree.branchRef,
+                        },
+                    }
+                    : {}),
+                repositories,
+            });
+        },
+        'preview-worktree-group': async (message: unknown) => {
+            const request = parsePreviewWorktreeGroupRequest(message);
+            if (!request) {
+                return;
+            }
+            const preview = await worktreeGroupCreationController.preview(
+                request.projectId, request.displayName, request.selections,
+                request.sourceGroupId, request.targetGroupId);
+            await provider.postMessage({
+                type: 'worktree-group-preview',
+                version: 1,
+                requestId: request.requestId,
+                projectId: request.projectId,
+                previewId: preview.previewId,
+                slug: preview.slug,
+                ...(preview.formError ? { formError: preview.formError } : {}),
+                members: preview.members,
+            });
+        },
+        'confirm-worktree-group': async (message: unknown) => {
+            const request = parseConfirmWorktreeGroupRequest(message);
+            if (!request) {
+                return;
+            }
+            await provider.postMessage(
+                acceptedWorktreeGroupCreationSettlement(request));
+            // Every accepted request owes exactly one terminal settlement —
+            // the webview keeps its confirm button pending until it lands.
+            const result = await worktreeGroupCreationController.confirm({
+                projectId: request.projectId,
+                previewId: request.previewId,
+                displayName: request.displayName,
+                members: request.members,
+                ...(request.primaryRepositoryKey
+                    ? { primaryRepositoryKey: request.primaryRepositoryKey }
+                    : {}),
+                ...(request.targetGroupId
+                    ? { targetGroupId: request.targetGroupId }
+                    : {}),
+            }).catch(error => {
+                logError('Failed to confirm the worktree group creation.', error);
+                return { kind: 'failed' as const, errorCode: 'unexpected-error' };
+            });
+            await provider.postMessage(
+                settledWorktreeGroupCreationSettlement(request, result));
+        },
+        'retry-worktree-group-member': async (message: unknown) => {
+            const request = parseWorktreeGroupMemberRequest(message);
+            if (!request || request.type !== 'retry-worktree-group-member') {
+                return;
+            }
+            await provider.postMessage(
+                acceptedWorktreeGroupMemberSettlement(request));
+            const outcome = await worktreeGroupCreationController.retryMember(
+                request.projectId, request.groupId, request.memberId)
+                .catch(error => {
+                    logError('Failed to retry the worktree group member.', error);
+                    return {
+                        kind: 'failed' as const,
+                        operationId: request.memberId,
+                        errorCode: 'unexpected-error',
+                    };
+                });
+            await provider.postMessage(settledWorktreeGroupMemberSettlement(
+                request,
+                outcome.kind === 'succeeded'
+                    ? { kind: 'settled' }
+                    : { kind: 'failed', errorCode: outcome.errorCode }));
+        },
+        'dismiss-worktree-group-member': async (message: unknown) => {
+            const request = parseWorktreeGroupMemberRequest(message);
+            if (!request || request.type !== 'dismiss-worktree-group-member') {
+                return;
+            }
+            await provider.postMessage(
+                acceptedWorktreeGroupMemberSettlement(request));
+            const dismissed = await worktreeGroupCreationController.dismissMember(
+                request.projectId, request.groupId, request.memberId)
+                .catch(error => {
+                    logError('Failed to dismiss the worktree group member.', error);
+                    return 'unavailable' as const;
+                });
+            await provider.postMessage(settledWorktreeGroupMemberSettlement(
+                request,
+                dismissed === 'dismissed'
+                    ? { kind: 'settled' }
+                    : {
+                        kind: 'failed',
+                        errorCode: dismissed === 'store-full'
+                            ? 'store-full' : 'dismiss-unavailable',
+                    }));
+        },
+        'remove-managed-worktree': async (message: unknown) => {
+            const request = parseManagedWorktreeRemovalRequest(message);
+            if (!request) {
+                return;
+            }
+            await provider.postMessage(acceptedManagedWorktreeRemovalSettlement(request));
+            const outcome = await managedWorktreeRemovalController.remove(
+                request.projectId,
+                {
+                    repositoryKey: request.repositoryKey,
+                    canonicalWorktreePath: request.worktreePath,
+                }
+            );
+            await provider.postMessage(
+                settledManagedWorktreeRemovalSettlement(request, outcome));
+        },
+        'merge-worktree-groups': async (message: unknown) => {
+            // Migration-suggested group → group merge (PRD §6.5): the webview
+            // submits only the source group; the host stays authoritative by
+            // re-deriving same-slug candidates and confirming via QuickPick.
+            const request = (message && typeof message === 'object')
+                ? message as { projectId?: unknown; sourceGroupId?: unknown }
+                : {};
+            if (typeof request.projectId !== 'string'
+                || typeof request.sourceGroupId !== 'string'
+                || !request.sourceGroupId) {
+                return;
+            }
+            const target = getCurrentWorkspaceActionTarget(request.projectId);
+            if (!target) {
+                return;
+            }
+            const bucket = target.workspace.navigationIdentity;
+            const groups = worktreeGroupManifestStore.listGroups(bucket);
+            const source = groups.find(group => group.groupId === request.sourceGroupId);
+            if (!source) {
+                return;
+            }
+            // M3 batch 8 (PRD §6.5): merge is no longer slug-gated — any
+            // other group is a candidate; same-slug groups sort first as
+            // the migration-era hint.
+            const candidates = groups
+                .filter(group => group.groupId !== source.groupId)
+                .sort((left, right) =>
+                    Number(right.suggestedSlug === source.suggestedSlug)
+                    - Number(left.suggestedSlug === source.suggestedSlug));
+            if (candidates.length === 0) {
+                return;
+            }
+            type MergePick = vscode.QuickPickItem & { groupId: string };
+            const picks: MergePick[] = candidates.map(group => ({
+                label: group.displayName,
+                description: group.members.map(member => member.branchName).join(' · '),
+                groupId: group.groupId,
+            }));
+            const chosen = await vscode.window.showQuickPick(picks, {
+                placeHolder: `Merge "${source.displayName}" into…`,
+            });
+            if (!chosen) {
+                return;
+            }
+            // Double revision binding (decision G): the revisions captured
+            // when the dialog opened must still hold at the write.
+            const expectedRevisions = {
+                targetRevision: chosen.groupId
+                    ? groups.find(group => group.groupId === chosen.groupId)?.revision ?? -1
+                    : -1,
+                sourceRevision: source.revision,
+            };
+            try {
+                await worktreeGroupManifestStore.mergeGroups(
+                    bucket, chosen.groupId, source.groupId, expectedRevisions);
+            } catch (error) {
+                const code = (error as { code?: string })?.code || 'merge-failed';
+                void vscode.window.showWarningMessage(
+                    code === 'repository-conflict'
+                        ? 'These groups cannot be merged: both contain a worktree of the same repository. Remove one of them first.'
+                        : code === 'group-changed'
+                            ? 'A group changed while the merge was open. Review and try again.'
+                            : 'The groups could not be merged. Try again.');
+                return;
+            }
+            void aiSessionDashboardController.refreshNow('worktree-groups-merged', {
+                fallbackToFullRefresh: false,
+            });
+        },
+        'rename-worktree-group': async (message: unknown) => {
+            await handleRenameWorktreeGroup(message, {
+                postMessage: outgoing => provider.postMessage(outgoing),
+                getNavigationIdentity: projectId =>
+                    getCurrentWorkspaceActionTarget(projectId)
+                        ?.workspace.navigationIdentity || null,
+                store: worktreeGroupManifestStore,
+                refreshNow: () => aiSessionDashboardController.refreshNow(
+                    'worktree-group-renamed', { fallbackToFullRefresh: true }),
+                showWarning: warning => {
+                    void vscode.window.showWarningMessage(warning);
+                },
+                logError,
+                replayCache: worktreeGroupRenameSettlements,
+            });
+        },
+        'preview-worktree-group-deletion': async (message: unknown) => {
+            await handlePreviewWorktreeGroupDeletion(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'delete-worktree-group-member': async (message: unknown) => {
+            await handleDeleteWorktreeGroupMember(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'retry-worktree-group-deletion': async (message: unknown) => {
+            await handleRetryWorktreeGroupDeletion(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'abandon-worktree-group-deletion': async (message: unknown) => {
+            await handleAbandonWorktreeGroupDeletion(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'discard-worktree-generation-claim': async (message: unknown) => {
+            await handleDiscardWorktreeGenerationClaim(
+                message, worktreeGroupDeletionHandlerDeps);
+        },
+        'adopt-worktrees': async (message: unknown) => {
+            await handleAdoptWorktrees(message, {
+                postMessage: outgoing => provider.postMessage(outgoing),
+                getNavigationIdentity: projectId =>
+                    getCurrentWorkspaceActionTarget(projectId)
+                        ?.workspace.navigationIdentity || null,
+                store: worktreeGroupManifestStore,
+                getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+                refreshNow: () => aiSessionDashboardController.refreshNow(
+                    'worktrees-adopted', { fallbackToFullRefresh: true }),
+                logError,
+            });
+        },
+        'set-worktree-group-primary': async (message: unknown) => {
+            const request = parseSetWorktreeGroupPrimaryRequest(message);
+            if (!request) {
+                return;
+            }
+            // The webview keeps the button disabled from the accepted
+            // settlement until a terminal one arrives: every accepted
+            // request owes exactly one settled/failed settlement, because
+            // the authoritative refresh alone is fire-and-forget.
+            await provider.postMessage(acceptedWorktreeGroupPrimarySettlement(request));
+            const target = getCurrentWorkspaceActionTarget(request.projectId);
+            if (!target) {
+                await provider.postMessage(settledWorktreeGroupPrimarySettlement(
+                    request, { kind: 'failed', errorCode: 'workspace-unavailable' }));
+                return;
+            }
+            try {
+                await worktreeGroupManifestStore.setPrimaryMember(
+                    target.workspace.navigationIdentity, request.groupId, request.memberId);
+            } catch (error) {
+                logError('Failed to set the worktree group primary member.', error);
+                void vscode.window.showWarningMessage(
+                    'Agent Pivot: could not set the primary worktree. Refresh the dashboard and try again.');
+                const errorCode = (error as { code?: string })?.code || 'set-primary-failed';
+                await provider.postMessage(settledWorktreeGroupPrimarySettlement(
+                    request, {
+                        kind: 'failed',
+                        errorCode: /^[a-z0-9-]{1,64}$/.test(errorCode)
+                            ? errorCode : 'set-primary-failed',
+                    }));
+                await aiSessionDashboardController.refreshNow(
+                    'worktree-group-primary-failed', { fallbackToFullRefresh: false });
+                return;
+            }
+            await provider.postMessage(settledWorktreeGroupPrimarySettlement(
+                request, { kind: 'settled' }));
+            await aiSessionDashboardController.refreshNow('worktree-group-primary-changed', {
+                fallbackToFullRefresh: false,
+            });
+        },
+    };
 
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
@@ -1740,16 +2779,31 @@ async function initializeDashboard(
             ...projectHandlers,
             ...skillPanel.handlers,
             ...dashboardMessageHandlers,
+            ...isolatedSessionHandlers,
         },
         createAiSession: async e => {
-            await aiSessionCreationController.createSession(e.projectId as string);
+            const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
+                ? parseAiSessionCreationWorktreeKey(e.worktreeKey)
+                : undefined;
+            if (worktreeKey === null) {
+                return;
+            }
+            await aiSessionCreationController.createSession(e.projectId as string, worktreeKey);
         },
         createAiSessionQuick: async e => {
             const providerId = e.provider as AiSessionProviderId;
+            const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
+                ? parseAiSessionCreationWorktreeKey(e.worktreeKey)
+                : undefined;
+            if (worktreeKey === null) {
+                return;
+            }
             if (providerId && isAiSessionProviderId(providerId)) {
                 await aiSessionCreationController.createSessionQuick(
                     e.projectId as string,
-                    providerId
+                    providerId,
+                    undefined,
+                    worktreeKey
                 );
             }
         },
@@ -1792,6 +2846,7 @@ async function initializeDashboard(
                     getRenderedCurrentWorkspaceNavigationIdentity(cards),
                     getEffectiveRunningCardAnimation(configuration),
                     getEffectiveRunningIconAnimation(configuration),
+                    currentWorktreeGroupsAggregateRevision(),
                 ),
             );
         },
@@ -1803,6 +2858,7 @@ async function initializeDashboard(
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
             setAiSessionWatchersActive(visible);
+            worktreeSnapshotCoordinator.setVisible(visible);
             activeAiSessionTerminalHighlighter.setVisible(visible);
             aiSessionAttentionEvent.setDeferredRestoreRefreshReady(visible);
             publishDeferredTmuxRestoreIfReady();
@@ -1894,6 +2950,45 @@ async function initializeDashboard(
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         refresh: refreshStewardViews,
     });
+    ownResource(() => worktreeSnapshotCoordinator.onDidChange(state => {
+        if ((state.kind === 'ready' && !state.refreshing) || state.kind === 'error') {
+            void aiSessionDashboardController.refreshNow('worktree-snapshot', {
+                fallbackToFullRefresh: false,
+            });
+        }
+        if (state.kind === 'ready' && !state.refreshing) {
+            // Restart reconciliation for journaled deletions (PRD §6.4):
+            // converge any interrupted journal once per workspace per
+            // activation, from fresh certain observations only.
+            const identity = getCurrentOpenWorkspace()?.navigationIdentity;
+            if (identity && !reconciledDeletionIdentities.has(identity)) {
+                reconciledDeletionIdentities.add(identity);
+                void worktreeDeletionController.reconcileAfterRestart(identity)
+                    .then(() => {
+                        // 'unknown' observations keep journals pending;
+                        // unmark the identity so the NEXT certain snapshot
+                        // retries instead of leaving the group leased for
+                        // the rest of this activation.
+                        const stillPending = worktreeGroupManifestStore
+                            .listDeletionJournals(identity)
+                            .some(entry => entry.targets.some(target =>
+                                target.status === 'pending'));
+                        if (stillPending) {
+                            reconciledDeletionIdentities.delete(identity);
+                        }
+                    })
+                    .catch(error => logError('worktree deletion reconciliation', error));
+            }
+        }
+    }));
+    if (provider.visible) {
+        worktreeSnapshotCoordinator.setVisible(true);
+    } else {
+        void worktreeSnapshotCoordinator.start();
+    }
+    // Restored provisioning rows were held back during construction; publish
+    // them only now that every controller they refresh is initialized.
+    isolatedSessionController?.publishRestoredRows();
     const buildCurrentAttentionQueue = (): AttentionQueue => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         let workspace: AttentionQueueWorkspace | null = null;
@@ -2127,6 +3222,29 @@ async function initializeDashboard(
             vscode.window.showInformationMessage(message),
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
+    });
+    const switchWorktreeOrSession = createWorktreeOrSessionSwitchHandler({
+        getWorkspaceTarget: getCurrentWorkspaceActionTargetWithoutCardId,
+        showPick: async (items, placeHolder) => vscode.window.showQuickPick([...items], {
+            placeHolder,
+            matchOnDescription: true,
+        }),
+        focusSession: (projectId, provider, sessionId) =>
+            aiSessionTerminalCommandController.focusActive(projectId, provider, sessionId),
+        resumeSession: (projectId, provider, sessionId) =>
+            aiSessionResumeController.resumeProjectSession(projectId, provider, sessionId),
+        revealWorktree: async (navigationIdentity, key) => {
+            await showAgentPivot();
+            await provider.postMessage({
+                type: 'reveal-workspace-worktree-requested',
+                version: 1,
+                navigationIdentity,
+                repositoryKey: key.repositoryKey,
+                canonicalWorktreePath: key.canonicalWorktreePath,
+            });
+        },
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
     // The first paint happens after bootstrap settles (see the post-ready
     // startup timer below); earlier reads of the card projection are unsafe.
@@ -2391,13 +3509,23 @@ async function initializeDashboard(
         nextActiveSession: () => sessionNavigationCoordinator.enqueue(
             () => followAdjacentActiveConversationWithFeedback('next')
         ),
-        nextAttentionSession: () => jumpToNextAttentionSession(),
-        nextRunningSession: () =>
-            runningSessionJumpHandler.jumpToNextRunningSession(),
-        switchToAiSession: () =>
-            aiSessionQuickSwitchHandlers.switchToAiSession(),
-        toggleLastAiSession: () =>
-            aiSessionQuickSwitchHandlers.toggleLastAiSession(),
+        nextAttentionSession: async () => {
+            await jumpToNextAttentionSession();
+            revealFocusedAiSessionInDashboard();
+        },
+        nextRunningSession: async () => {
+            await runningSessionJumpHandler.jumpToNextRunningSession();
+            revealFocusedAiSessionInDashboard();
+        },
+        switchToAiSession: async () => {
+            await aiSessionQuickSwitchHandlers.switchToAiSession();
+            revealFocusedAiSessionInDashboard();
+        },
+        switchWorktreeOrSession: () => switchWorktreeOrSession(),
+        toggleLastAiSession: async () => {
+            await aiSessionQuickSwitchHandlers.toggleLastAiSession();
+            revealFocusedAiSessionInDashboard();
+        },
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
     };
 
@@ -2412,6 +3540,7 @@ async function initializeDashboard(
     }));
 
     ownResource(() => vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        worktreeSnapshotCoordinator.invalidate('workspace-roots');
         dashboardLifecycleController.handleWorkspaceFoldersChanged();
     }));
 
@@ -2620,6 +3749,33 @@ async function initializeDashboard(
         return result === 'opened';
     }
 
+    // After a command-driven session switch, make the sidebar follow the
+    // session: the webview reveals it inside its worktree group or the Chats
+    // active list, scrolling it into view without stealing keyboard focus.
+    function revealAiSessionInDashboard(
+        providerId: AiSessionProviderId,
+        sessionId: string
+    ): void {
+        const currentCard = getOpenWorkspaceCards().find(candidate => candidate.kind === 'current');
+        if (!currentCard || !sessionId) {
+            return;
+        }
+        void provider.postMessage({
+            type: 'reveal-ai-session-requested',
+            version: 1,
+            projectId: currentCard.id,
+            provider: providerId,
+            sessionId: sessionId,
+        });
+    }
+
+    function revealFocusedAiSessionInDashboard(): void {
+        const identity = getFocusedAiSessionIdentity();
+        if (identity?.sessionId) {
+            revealAiSessionInDashboard(identity.provider, identity.sessionId);
+        }
+    }
+
     async function followAdjacentActiveConversationWithFeedback(
         direction: 'previous' | 'next'
     ): Promise<void> {
@@ -2629,6 +3785,7 @@ async function initializeDashboard(
             const identity = getFocusedAiSessionIdentity();
             if (identity?.sessionId) {
                 aiSessionMru.record(identity.provider, identity.sessionId);
+                revealAiSessionInDashboard(identity.provider, identity.sessionId);
             }
         } else if (result === 'inactive' || result === 'closed') {
             void vscode.window.showInformationMessage(
@@ -2739,6 +3896,7 @@ async function initializeDashboard(
             openWorkspaceDashboardController.getCurrentRenderedWorkspaceNavigationIdentity(),
             getEffectiveRunningCardAnimation(configuration),
             getEffectiveRunningIconAnimation(configuration),
+            currentWorktreeGroupsAggregateRevision(),
         );
         try {
             void provider.postMessage(message).then(undefined, error => {

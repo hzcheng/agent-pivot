@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const test = require('node:test');
 const {
     makeTmuxInactiveBinding,
@@ -13,6 +14,7 @@ const {
     ambiguousRecordMatchesIdentity,
     cloneAmbiguous,
     cloneConsumed,
+    clonePending,
     clonePromoting,
     consumedMatchesPromoting,
     consumedRecordMatchesIdentity,
@@ -24,8 +26,14 @@ const {
     validateAmbiguousRecord,
     validateConsumedRecord,
     validateKnownRebindIntent,
+    validateKnownRecord,
     validatePromotingRecord,
+    validateTmuxPendingRuntimeBinding,
 } = require('../../../out/aiSessions/tmuxBindingRecords');
+const {
+    pendingAmbiguityMatches,
+    pendingRequestFingerprint,
+} = require('../../../out/aiSessions/tmuxPendingLifecycle');
 
 const NOW = Date.parse('2026-07-18T10:00:00.000Z');
 const FINGERPRINT = 'a'.repeat(64);
@@ -150,6 +158,84 @@ test('RUNTIME-TMUX-RECORDS-001 validates consumed records with and without a fin
     ])) {
         assert.equal(validateConsumedRecord(copy), null, label);
     }
+});
+
+test('RUNTIME-TMUX-WORKTREE-RECORDS-001 dual-reads v2 and preserves v3 identity fields', () => {
+    const legacy = makeTmuxPendingBinding('legacy-v2');
+    assert.equal(validateTmuxPendingRuntimeBinding(legacy, NOW)?.version, 2);
+
+    const worktreeIdentity = {
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature', '/repos/backend'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+    };
+    const pending = {
+        ...makeTmuxPendingBinding('worktree-v3'),
+        version: 3,
+        ...worktreeIdentity,
+    };
+    const validatedPending = validateTmuxPendingRuntimeBinding(pending, NOW);
+    assert.deepEqual(validatedPending?.writableRootHostPaths, worktreeIdentity.writableRootHostPaths);
+    assert.deepEqual(validatedPending?.worktreeKey, worktreeIdentity.worktreeKey);
+    const pendingClone = clonePending(validatedPending);
+    assert.notEqual(pendingClone.writableRootHostPaths, validatedPending.writableRootHostPaths);
+    assert.notEqual(pendingClone.worktreeKey, validatedPending.worktreeKey);
+
+    const known = {
+        ...makeTmuxKnownBinding('worktree-v3'),
+        version: 3,
+        ...worktreeIdentity,
+    };
+    const validatedKnown = validateKnownRecord(known);
+    assert.deepEqual(validatedKnown?.writableRootHostPaths, worktreeIdentity.writableRootHostPaths);
+    assert.deepEqual(validatedKnown?.worktreeKey, worktreeIdentity.worktreeKey);
+    assert.equal(validateKnownRecord({ ...known, writableRootHostPaths: undefined }), null);
+});
+
+test('RUNTIME-TMUX-RECORDS-001 keeps legacy pending fingerprints rollback-readable', () => {
+    const binding = makeTmuxPendingBinding('legacy-v3-fingerprint');
+    const request = {
+        identity: identityOf(binding),
+        createdAt: binding.createdAt,
+        excludedSessionIds: [...binding.excludedSessionIds],
+        title: binding.title,
+        launchMarkerPath: '',
+    };
+    const legacyDigest = createHash('sha256').update(JSON.stringify([
+        3,
+        binding.provider,
+        binding.workspaceScopeIdentity,
+        binding.workspaceNavigationIdentity,
+        binding.workspaceRootHostPaths.slice().sort(),
+        binding.pendingId,
+        binding.cwd,
+        binding.createdAt,
+        binding.excludedSessionIds,
+        binding.title ?? null,
+        request.launchMarkerPath,
+    ]), 'utf8').digest('hex');
+    const ambiguous = {
+        version: 2,
+        state: 'ambiguous',
+        ...identityOf(binding),
+        createdAt: binding.createdAt,
+        excludedSessionIds: [...binding.excludedSessionIds],
+        ...(binding.title === undefined ? {} : { title: binding.title }),
+        layout: binding.layout,
+        locator: { ...binding.locator },
+        acceptedAtMs: binding.acceptedAtMs,
+        requestFingerprint: `v3:${legacyDigest}`,
+    };
+
+    assert.equal(pendingRequestFingerprint(request), `v3:${legacyDigest}`);
+    assert.ok(validateAmbiguousRecord(ambiguous));
+    assert.equal(pendingAmbiguityMatches(
+        ambiguous, request, binding, binding.locator
+    ), true);
 });
 
 test('RUNTIME-TMUX-RECORDS-001 detects legacy project-key consumed records', () => {

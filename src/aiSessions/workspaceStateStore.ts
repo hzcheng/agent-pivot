@@ -4,6 +4,7 @@ import type { AiSessionProviderId } from '../models';
 import {
     WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY,
     WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY,
+    WORKSPACE_AI_SESSION_SURFACE_KEY,
     WORKSPACE_EXPANDED_AI_SESSIONS_KEY,
     WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY,
 } from '../constants';
@@ -15,6 +16,8 @@ interface MementoLike {
     get<T>(key: string): T;
     update(key: string, value: unknown): Thenable<void>;
 }
+
+export type AiSessionSurfaceId = 'worktree' | 'chats';
 
 export default class AiSessionWorkspaceStateStore {
     constructor(
@@ -93,6 +96,36 @@ export default class AiSessionWorkspaceStateStore {
     }
 
     getProviderSelections(): Record<string, AiSessionProviderSelection> {
+        return this.readProviderSelections();
+    }
+
+    getSelectedSurfaces(): Record<string, AiSessionSurfaceId> {
+        const stored = this.state.get<unknown>(WORKSPACE_AI_SESSION_SURFACE_KEY);
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
+            return {};
+        }
+        return Object.keys(stored as Record<string, unknown>).reduce((result, workspaceScopeIdentity) => {
+            const surface = (stored as Record<string, unknown>)[workspaceScopeIdentity];
+            if (workspaceScopeIdentity && (surface === 'worktree' || surface === 'chats')) {
+                result[workspaceScopeIdentity] = surface;
+            }
+            return result;
+        }, {} as Record<string, AiSessionSurfaceId>);
+    }
+
+    async setSelectedSurface(
+        workspaceScopeIdentity: string,
+        surface: AiSessionSurfaceId
+    ): Promise<void> {
+        if (!workspaceScopeIdentity || (surface !== 'worktree' && surface !== 'chats')) {
+            return;
+        }
+        const surfaces = this.getSelectedSurfaces();
+        surfaces[workspaceScopeIdentity] = surface;
+        await this.state.update(WORKSPACE_AI_SESSION_SURFACE_KEY, surfaces);
+    }
+
+    private readProviderSelections(): Record<string, AiSessionProviderSelection> {
         const storedSelections = this.state.get<unknown>(WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY);
         if (!storedSelections || typeof storedSelections !== 'object' || Array.isArray(storedSelections)) {
             return {};

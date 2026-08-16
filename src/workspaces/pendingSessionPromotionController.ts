@@ -45,6 +45,22 @@ export interface WorkspacePendingSessionPromotionControllerOptions<TTerminal = u
     syncActiveRuntime: () => void;
     evaluateExecution: () => void;
     scheduleRefresh: (reason: string) => void;
+    /**
+     * A pending runtime was authoritatively promoted to a provider session.
+     * Used to promote pending worktree generation claims (PRD §6.4).
+     */
+    onSessionPromoted?: (input: {
+        navigationIdentity: string;
+        pendingId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }) => void | Promise<void>;
+    /**
+     * Idempotent generation-claim reconciliation (PRD §6.4): runs on every
+     * promotion tick — even when no pending runtime exists, because the
+     * crash window it closes is exactly "runtime promoted, claim not".
+     */
+    reconcileGenerationClaims?: (workspace: OpenWorkspace) => Promise<void>;
     logDiagnostic?: (event: Record<string, unknown>) => void;
 }
 
@@ -109,6 +125,17 @@ export class WorkspacePendingSessionPromotionController<TTerminal = unknown> {
     }
 
     private async promoteOnce(request: PromotionRequest): Promise<void> {
+        if (this.options.reconcileGenerationClaims) {
+            try {
+                await this.options.reconcileGenerationClaims(request.workspace);
+            } catch (error) {
+                this.logDiagnostic({
+                    event: 'workspace-ai-session-claim-reconcile-failed',
+                    reason: request.reason,
+                    category: error instanceof Error ? error.name : typeof error,
+                });
+            }
+        }
         const pendingRuntimes = (await this.options.runtimeCoordinator.getPendingForPromotion())
             .filter(runtime => runtime.identity.workspaceScopeIdentity
                 === request.workspace.scopeIdentity);
@@ -132,6 +159,22 @@ export class WorkspacePendingSessionPromotionController<TTerminal = unknown> {
             syncActiveRuntime: this.options.syncActiveRuntime,
         });
         if (result.promoted.length) {
+            for (const promoted of result.promoted) {
+                try {
+                    await this.options.onSessionPromoted?.({
+                        // The runtime's captured identity owns the claim
+                        // bucket; the hydrating workspace may have changed
+                        // (Save Workspace As) since creation.
+                        navigationIdentity: promoted.navigationIdentity
+                            || request.workspace.navigationIdentity,
+                        pendingId: promoted.pendingId,
+                        provider: promoted.provider,
+                        sessionId: promoted.sessionId,
+                    });
+                } catch {
+                    // Claim promotion must never break session promotion.
+                }
+            }
             this.options.evaluateExecution();
             this.options.scheduleRefresh('pending-promotion');
         }

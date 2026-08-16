@@ -135,6 +135,10 @@
                 "title": "Agent Pivot: Switch to AI Session"
             },
             {
+                "command": "agentPivot.switchWorktreeOrSession",
+                "title": "Agent Pivot: Switch Worktree or Session"
+            },
+            {
                 "command": "agentPivot.toggleLastAiSession",
                 "title": "Agent Pivot: Toggle Last AI Session"
             },
@@ -315,6 +319,23 @@
                     "default": "",
                     "scope": "machine",
                     "description": "Codex configuration profile (-p <name>, layered from <name>.config.toml in the Codex home) used for newly created Codex sessions. Does not affect resuming existing sessions: a resumed session always reuses the profile decision recorded when it was created."
+                },
+                "agentPivot.worktreeDirectory": {
+                    "type": "string",
+                    "scope": "machine",
+                    "default": ".worktrees",
+                    "markdownDescription": "Directory that holds isolated worktrees created by Agent Pivot, relative to the repository root (for example `.worktrees` or `.git/worktrees`). Absolute paths and `..` segments are not allowed. Existing worktrees created under previous locations stay manageable."
+                },
+                "agentPivot.worktreeSetupCommand": {
+                    "type": "array",
+                    "scope": "machine-overridable",
+                    "default": [],
+                    "maxItems": 128,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "markdownDescription": "Optional executable and argument array run once after Agent Pivot creates an isolated worktree and before it starts the AI session, for example `[\"npm\", \"ci\"]`. Resolvable per repository (workspace-folder override) so a multi-repo group can run the right setup for each stack. No shell is used, so pipes, redirects, variable expansion, and chained commands are not interpreted. Leave empty to skip setup."
                 },
                 "agentPivot.aiSessionTmuxLayout": {
                     "type": "string",

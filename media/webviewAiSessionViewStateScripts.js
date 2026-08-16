@@ -2,6 +2,241 @@ function normalizeAiSessionTab(value) {
     return value === 'active' ? 'active' : 'sessions';
 }
 
+function normalizeAiSessionSurface(value) {
+    return value === 'worktree' ? 'worktree' : 'chats';
+}
+
+function getAdjacentAiSessionSurface(surface, key) {
+    surface = normalizeAiSessionSurface(surface);
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+        return surface === 'worktree' ? 'chats' : 'worktree';
+    }
+    if (key === 'Home') return 'worktree';
+    if (key === 'End') return 'chats';
+    return surface;
+}
+
+function readAiSessionSurfaceState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function'
+        ? vscodeApi.getState() || {}
+        : {};
+    return state.aiSessionSurfaces && typeof state.aiSessionSurfaces === 'object'
+        && !Array.isArray(state.aiSessionSurfaces)
+        ? Object.assign({}, state.aiSessionSurfaces)
+        : {};
+}
+
+function writeAiSessionSurfaceState(vscodeApi, projectId, surface) {
+    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectId) return;
+    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    var surfaces = readAiSessionSurfaceState(vscodeApi);
+    surfaces[projectId] = normalizeAiSessionSurface(surface);
+    vscodeApi.setState(Object.assign({}, state, { aiSessionSurfaces: surfaces }));
+}
+
+function selectAiSessionSurfaceDom(projectDiv, surface) {
+    if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return null;
+    surface = normalizeAiSessionSurface(surface);
+    var sessionSection = projectDiv.querySelector('.codex-sessions');
+    if (sessionSection && typeof sessionSection.setAttribute === 'function') {
+        sessionSection.setAttribute('data-selected-ai-session-surface', surface);
+    }
+    var selectedTab = null;
+    projectDiv.querySelectorAll('[data-ai-session-surface-tab]').forEach(tab => {
+        var selected = tab.getAttribute('data-ai-session-surface-tab') === surface;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.setAttribute('tabindex', selected ? '0' : '-1');
+        if (selected) selectedTab = tab;
+    });
+    projectDiv.querySelectorAll('[data-ai-session-surface-panel]').forEach(panel => {
+        panel.toggleAttribute(
+            'hidden',
+            panel.getAttribute('data-ai-session-surface-panel') !== surface
+        );
+    });
+    return selectedTab;
+}
+
+function restoreAiSessionSurfaceFromState(projectDiv, vscodeApi) {
+    if (!projectDiv) return null;
+    var projectId = projectDiv.getAttribute('data-id');
+    var surfaces = readAiSessionSurfaceState(vscodeApi);
+    var section = projectDiv.querySelector('.codex-sessions');
+    var fallback = section && typeof section.getAttribute === 'function'
+        ? section.getAttribute('data-selected-ai-session-surface') || 'worktree'
+        : 'worktree';
+    return selectAiSessionSurfaceDom(
+        projectDiv,
+        Object.prototype.hasOwnProperty.call(surfaces, projectId)
+            ? surfaces[projectId]
+            : fallback
+    );
+}
+
+function getSelectedAiSessionSurface(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
+    var selected = projectDiv.querySelector(
+        '[data-ai-session-surface-tab][aria-selected="true"]'
+    );
+    return selected
+        ? normalizeAiSessionSurface(selected.getAttribute('data-ai-session-surface-tab'))
+        : null;
+}
+
+function readAiSessionWorktreeCollapseState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    return state.aiSessionCollapsedWorktrees
+        && typeof state.aiSessionCollapsedWorktrees === 'object'
+        && !Array.isArray(state.aiSessionCollapsedWorktrees)
+        ? Object.assign({}, state.aiSessionCollapsedWorktrees)
+        : {};
+}
+
+function readAiSessionMemberDetailsState(vscodeApi) {
+    var state = vscodeApi && typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    return state.aiSessionExpandedGroupMembers
+        && typeof state.aiSessionExpandedGroupMembers === 'object'
+        && !Array.isArray(state.aiSessionExpandedGroupMembers)
+        ? Object.assign({}, state.aiSessionExpandedGroupMembers)
+        : {};
+}
+
+// M3: the member summary toggles per-member details (PRD §10). Expansion is
+// transient view state — preserved across reloads and authoritative
+// replacements exactly like the group collapse state.
+function setWorktreeGroupMemberDetailsExpanded(group, expanded) {
+    if (!group) return false;
+    var toggle = group.querySelector('[data-action="toggle-group-member-details"]');
+    var details = group.querySelector('.ai-session-worktree-member-details');
+    if (!toggle || !details) return false;
+    expanded = expanded !== false;
+    toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    // Keep the accessible name honest about what the toggle will do next.
+    var label = expanded
+        ? toggle.getAttribute('data-label-collapse')
+        : toggle.getAttribute('data-label-expand');
+    if (label) {
+        toggle.setAttribute('aria-label', label);
+    }
+    group.toggleAttribute('data-member-details-expanded', expanded);
+    details.toggleAttribute('hidden', !expanded);
+    return true;
+}
+
+function getAiSessionWorktreeGroupKey(group) {
+    // Reserved identities first: the anchor and manifest groups must never
+    // collide with each other or with unmanaged rows on an empty
+    // repository/path pair.
+    if (group?.hasAttribute('data-worktree-anchor')) {
+        return '["__anchor__"]';
+    }
+    var groupId = group?.getAttribute('data-group-id');
+    if (groupId) {
+        return JSON.stringify(['group', groupId]);
+    }
+    return JSON.stringify([
+        group?.getAttribute('data-worktree-repository-key') || '',
+        group?.getAttribute('data-worktree-path') || '',
+        !!group?.hasAttribute('data-worktree-unmanaged'),
+    ]);
+}
+
+function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
+    if (!vscodeApi || typeof vscodeApi.setState !== 'function' || !projectDiv) return;
+    var projectId = projectDiv.getAttribute('data-id');
+    if (!projectId) return;
+    var state = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() || {} : {};
+    var projects = readAiSessionWorktreeCollapseState(vscodeApi);
+    projects[projectId] = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group[data-worktree-collapsed]'
+    )).map(getAiSessionWorktreeGroupKey)));
+    var memberDetails = readAiSessionMemberDetailsState(vscodeApi);
+    memberDetails[projectId] = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group[data-member-details-expanded]'
+    )).map(getAiSessionWorktreeGroupKey)));
+    vscodeApi.setState(Object.assign({}, state, {
+        aiSessionCollapsedWorktrees: projects,
+        aiSessionExpandedGroupMembers: memberDetails,
+    }));
+    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+}
+
+// The collapse-all affordance acts like every group toggle at once: any
+// expanded group collapses everything, otherwise everything expands.
+function toggleAllAiSessionWorktrees(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelectorAll !== 'function') return;
+    var groups = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'));
+    if (!groups.length) return;
+    var anyExpanded = groups.some(group => !group.hasAttribute('data-worktree-collapsed'));
+    groups.forEach(group => {
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !anyExpanded
+        );
+    });
+    writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+}
+
+function syncAiSessionWorktreeCollapseAllButton(projectDiv) {
+    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return;
+    var button = projectDiv.querySelector('[data-action="toggle-all-ai-session-worktrees"]');
+    if (!button) return;
+    var anyExpanded = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
+        .some(group => !group.hasAttribute('data-worktree-collapsed'));
+    button.setAttribute('data-collapse-all-state', anyExpanded ? 'expanded' : 'collapsed');
+    var label = anyExpanded ? 'Collapse all worktrees' : 'Expand all worktrees';
+    button.setAttribute('aria-label', label);
+    button.setAttribute('data-tooltip', label);
+}
+
+function setAiSessionWorktreeExpanded(header, expanded) {
+    if (!header) return false;
+    var group = header.closest('.ai-session-worktree-group');
+    if (!group) return false;
+    expanded = expanded !== false;
+    header.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    group.toggleAttribute('data-worktree-collapsed', !expanded);
+    var list = group.querySelector('.ai-session-worktree-session-list');
+    if (list) list.toggleAttribute('hidden', !expanded);
+    return true;
+}
+
+function setAiSessionWorktreeGroupExpanded(projectDiv, group, expanded) {
+    if (!projectDiv || !group) return false;
+    var key = getAiSessionWorktreeGroupKey(group);
+    var changed = false;
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(candidate => {
+        if (getAiSessionWorktreeGroupKey(candidate) !== key) return;
+        changed = setAiSessionWorktreeExpanded(
+            candidate.querySelector('.ai-session-worktree-header'),
+            expanded
+        ) || changed;
+    });
+    return changed;
+}
+
+function restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi) {
+    if (!projectDiv) return;
+    var projectId = projectDiv.getAttribute('data-id');
+    var projects = readAiSessionWorktreeCollapseState(vscodeApi);
+    var collapsed = new Set(Array.isArray(projects[projectId]) ? projects[projectId] : []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(group => {
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !collapsed.has(getAiSessionWorktreeGroupKey(group))
+        );
+    });
+    var memberDetails = readAiSessionMemberDetailsState(vscodeApi);
+    var expandedMembers = new Set(
+        Array.isArray(memberDetails[projectId]) ? memberDetails[projectId] : []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]').forEach(group => {
+        if (expandedMembers.has(getAiSessionWorktreeGroupKey(group))) {
+            setWorktreeGroupMemberDetailsExpanded(group, true);
+        }
+    });
+    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+}
+
 function parseAiSessionConversationFocusOrigin(message) {
     var expectedKeys = [
         'type',
@@ -27,6 +262,82 @@ function parseAiSessionConversationFocusOrigin(message) {
     return message;
 }
 
+function parseAiSessionRevealRequest(message) {
+    var expectedKeys = ['projectId', 'provider', 'sessionId', 'type', 'version'];
+    if (!message || typeof message !== 'object' || Array.isArray(message)
+        || Object.keys(message).length !== expectedKeys.length
+        || !expectedKeys.every(key =>
+            Object.prototype.hasOwnProperty.call(message, key))
+        || message.type !== 'reveal-ai-session-requested'
+        || message.version !== 1
+        || (message.provider !== 'codex'
+            && message.provider !== 'kimi'
+            && message.provider !== 'claude')
+        || !['projectId', 'sessionId'].every(key =>
+            typeof message[key] === 'string' && message[key].trim())) {
+        return null;
+    }
+    return message;
+}
+
+// Session-switch commands land here: the view follows the switched session
+// to wherever it lives — its worktree group (expanded, scrolled into view)
+// or the Chats active list. Scroll-only; keyboard focus stays put.
+function revealAiSessionInWorkspace(message) {
+    var request = parseAiSessionRevealRequest(message);
+    if (!request || typeof document === 'undefined'
+        || typeof document.querySelectorAll !== 'function') {
+        return false;
+    }
+    var projectDiv = Array.from(document.querySelectorAll(
+        '.workspace-card[data-current-workspace][data-id]'
+    )).find(candidate =>
+        candidate.getAttribute('data-id') === request.projectId
+    );
+    if (!projectDiv) {
+        return false;
+    }
+    var rowSelector = '[data-session-provider][data-session-id]';
+    var matches = candidate =>
+        candidate.getAttribute('data-session-provider') === request.provider
+        && candidate.getAttribute('data-session-id') === request.sessionId;
+    var worktreeRow = Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="worktree"] ' + rowSelector
+    )).find(matches);
+    var surface = worktreeRow ? 'worktree' : 'chats';
+    selectAiSessionSurfaceDom(projectDiv, surface);
+    writeAiSessionSurfaceState(window.vscode, request.projectId, surface);
+    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+        window.vscode.postMessage({
+            type: 'select-ai-session-surface',
+            version: 1,
+            projectId: request.projectId,
+            surface: surface,
+        });
+    }
+    if (worktreeRow) {
+        var group = worktreeRow.closest('.ai-session-worktree-group');
+        if (group) {
+            setAiSessionWorktreeGroupExpanded(projectDiv, group, true);
+            writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+        }
+        worktreeRow.scrollIntoView({ block: 'nearest' });
+        return true;
+    }
+    selectAiSessionTabDom(projectDiv, 'active');
+    writeAiSessionTabState(window.vscode, request.projectId, 'active');
+    var activeRow = Array.from(projectDiv.querySelectorAll(
+        '.active-ai-session-row' + rowSelector
+    )).find(matches) || Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="chats"] ' + rowSelector
+    )).find(matches);
+    if (activeRow) {
+        activeRow.scrollIntoView({ block: 'nearest' });
+        return true;
+    }
+    return false;
+}
+
 function focusAiSessionConversationOrigin(message) {
     var origin = parseAiSessionConversationFocusOrigin(message);
     if (!origin || typeof document === 'undefined'
@@ -40,6 +351,16 @@ function focusAiSessionConversationOrigin(message) {
     );
     if (!projectDiv) {
         return false;
+    }
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
+    writeAiSessionSurfaceState(window.vscode, origin.projectId, 'chats');
+    if (window.vscode && typeof window.vscode.postMessage === 'function') {
+        window.vscode.postMessage({
+            type: 'select-ai-session-surface',
+            version: 1,
+            projectId: origin.projectId,
+            surface: 'chats',
+        });
     }
     selectAiSessionTabDom(projectDiv, 'active');
     writeAiSessionTabState(window.vscode, origin.projectId, 'active');
@@ -124,6 +445,8 @@ function restoreAiSessionTabsFromState(root, vscodeApi) {
         if (Object.prototype.hasOwnProperty.call(tabs, projectId)) {
             selectAiSessionTabDom(projectDiv, tabs[projectId]);
         }
+        restoreAiSessionSurfaceFromState(projectDiv, vscodeApi);
+        restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi);
     });
 }
 
@@ -160,7 +483,8 @@ function restoreAiSessionListAnchor(list, anchor) {
 function getFocusedAiSessionCardIdentity(projectDiv) {
     if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
     var row = projectDiv.querySelector(
-        '.codex-session-row[data-session-focused][data-session-provider][data-session-id]'
+        '.ai-session-chats-surface .codex-session-row'
+        + '[data-session-focused][data-session-provider][data-session-id]'
     );
     return row ? {
         provider: row.getAttribute('data-session-provider') || '',
@@ -176,13 +500,20 @@ function captureAiSessionViewState(projectDiv) {
     var focusedInside = focused && typeof focused.closest === 'function' && focused.closest('.project[data-id]') === projectDiv;
     var focusedRow = focusedInside ? focused.closest('.codex-session-row') : null;
     var focusedTab = focusedInside ? focused.closest('[data-ai-session-tab]') : null;
+    var focusedSurfaceTab = focusedInside
+        ? focused.closest('[data-ai-session-surface-tab]')
+        : null;
     var selectedTab = getSelectedAiSessionTab(projectDiv);
+    var selectedSurface = getSelectedAiSessionSurface(projectDiv);
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
     selectAiSessionTabDom(projectDiv, 'active');
     var activeAnchor = captureAiSessionListAnchor(activeList);
     selectAiSessionTabDom(projectDiv, 'sessions');
     var historyAnchor = captureAiSessionListAnchor(historyList);
     selectAiSessionTabDom(projectDiv, selectedTab);
+    selectAiSessionSurfaceDom(projectDiv, selectedSurface);
     return {
+        selectedSurface: selectedSurface,
         selectedTab: selectedTab,
         activeAnchor: activeAnchor,
         historyAnchor: historyAnchor,
@@ -191,17 +522,49 @@ function captureAiSessionViewState(projectDiv) {
         restoreFocus: !!focusedInside,
         focusedSession: focusedSession,
         focusedTab: focusedTab && focusedTab.getAttribute('data-ai-session-tab'),
+        focusedSurfaceTab: focusedSurfaceTab
+            && focusedSurfaceTab.getAttribute('data-ai-session-surface-tab'),
         focusedRow: focusedRow ? {
             provider: focusedRow.getAttribute('data-session-provider') || '',
             sessionId: focusedRow.getAttribute('data-session-id') || '',
             pendingCreatedAt: focusedRow.getAttribute('data-pending-created-at') || '',
             panel: focusedRow.closest('[data-ai-session-panel]')?.getAttribute('data-ai-session-panel') || '',
         } : null,
+        collapsedWorktrees: Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-worktree-collapsed]'
+        )).map(getAiSessionWorktreeGroupKey),
+        expandedMemberDetails: Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-member-details-expanded]'
+        )).map(getAiSessionWorktreeGroupKey),
+        groupRename: window.__agentPivotWorktreeGroupRename
+            && typeof window.__agentPivotWorktreeGroupRename.capture === 'function'
+            ? window.__agentPivotWorktreeGroupRename.capture(projectDiv)
+            : null,
+        groupDeletion: window.__agentPivotWorktreeGroupDeletion
+            && typeof window.__agentPivotWorktreeGroupDeletion.capture === 'function'
+            ? window.__agentPivotWorktreeGroupDeletion.capture(projectDiv)
+            : null,
+        worktreeAdopt: window.__agentPivotWorktreeAdopt
+            && typeof window.__agentPivotWorktreeAdopt.capture === 'function'
+            ? window.__agentPivotWorktreeAdopt.capture(projectDiv)
+            : null,
+        worktreeKeys: Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+            '.ai-session-worktree-group'
+        )).map(getAiSessionWorktreeGroupKey))),
     };
 }
 
 function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
     if (!viewState || !viewState.restoreFocus) return;
+    if (viewState.focusedSurfaceTab) {
+        var surfaceTabToFocus = Array.from(projectDiv.querySelectorAll(
+            '[data-ai-session-surface-tab]'
+        )).find(tab =>
+            tab.getAttribute('data-ai-session-surface-tab') === viewState.focusedSurfaceTab
+        );
+        surfaceTabToFocus?.focus({ preventScroll: true });
+        return;
+    }
     if (viewState.focusedTab) {
         var tabToFocus = Array.from(projectDiv.querySelectorAll('[data-ai-session-tab]'))
             .find(tab => tab.getAttribute('data-ai-session-tab') === viewState.focusedTab);
@@ -209,7 +572,9 @@ function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
         return;
     }
     if (!viewState.focusedRow) return;
-    var rows = Array.from(projectDiv.querySelectorAll('.codex-session-row'));
+    var rows = Array.from(projectDiv.querySelectorAll(
+        '.ai-session-chats-surface .codex-session-row'
+    ));
     var match = rows.find(row => {
         var panel = row.closest('[data-ai-session-panel]');
         return (row.getAttribute('data-session-provider') || '') === viewState.focusedRow.provider
@@ -222,13 +587,55 @@ function restoreAiSessionViewFocus(projectDiv, viewState, selectedTab) {
 
 function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options) {
     if (!projectDiv || !viewState) return null;
+    var collapsed = new Set(viewState.collapsedWorktrees || []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group').forEach(group => {
+        var key = getAiSessionWorktreeGroupKey(group);
+        setAiSessionWorktreeExpanded(
+            group.querySelector('.ai-session-worktree-header'),
+            !collapsed.has(key)
+        );
+    });
+    var expandedMemberDetails = new Set(viewState.expandedMemberDetails || []);
+    projectDiv.querySelectorAll('.ai-session-worktree-group[data-group-id]').forEach(group => {
+        if (expandedMemberDetails.has(getAiSessionWorktreeGroupKey(group))) {
+            setWorktreeGroupMemberDetailsExpanded(group, true);
+        }
+    });
+    if (viewState.groupRename
+        && window.__agentPivotWorktreeGroupRename
+        && typeof window.__agentPivotWorktreeGroupRename.restore === 'function') {
+        window.__agentPivotWorktreeGroupRename.restore(projectDiv, viewState.groupRename);
+    }
+    if (viewState.groupDeletion
+        && window.__agentPivotWorktreeGroupDeletion
+        && typeof window.__agentPivotWorktreeGroupDeletion.restore === 'function') {
+        window.__agentPivotWorktreeGroupDeletion.restore(projectDiv, viewState.groupDeletion);
+    }
+    if (viewState.worktreeAdopt
+        && window.__agentPivotWorktreeAdopt
+        && typeof window.__agentPivotWorktreeAdopt.restore === 'function') {
+        window.__agentPivotWorktreeAdopt.restore(projectDiv, viewState.worktreeAdopt);
+    }
+    var currentWorktreeKeys = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
+        '.ai-session-worktree-group'
+    )).map(getAiSessionWorktreeGroupKey)));
+    if (Array.isArray(viewState.worktreeKeys)
+        && JSON.stringify(viewState.worktreeKeys) !== JSON.stringify(currentWorktreeKeys)) {
+        var liveRegion = projectDiv.querySelector('[data-ai-session-live-region]');
+        if (liveRegion) {
+            liveRegion.textContent = 'Worktree list updated. ' + currentWorktreeKeys.length
+                + ' worktree' + (currentWorktreeKeys.length === 1 ? ' shown.' : 's shown.');
+        }
+    }
     var activeList = projectDiv.querySelector('.ai-session-active-panel .codex-sessions-list');
     var historyList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
+    selectAiSessionSurfaceDom(projectDiv, 'chats');
     selectAiSessionTabDom(projectDiv, 'active');
     restoreAiSessionListAnchor(activeList, viewState.activeAnchor);
     selectAiSessionTabDom(projectDiv, 'sessions');
     restoreAiSessionListAnchor(historyList, viewState.historyAnchor);
     var selectedTab = selectAiSessionTabDom(projectDiv, requestedTab || viewState.selectedTab);
+    selectAiSessionSurfaceDom(projectDiv, viewState.selectedSurface);
     if (!options || options.restoreFocus !== false) {
         restoreAiSessionViewFocus(projectDiv, viewState, selectedTab);
     }
@@ -255,6 +662,12 @@ function revealChangedFocusedAiSessionCard(root, states) {
         // surface it instead of preserving the stale scroll position.
         var panel = row.closest('[data-ai-session-panel]');
         if (panel && panel.hidden) {
+            selectAiSessionSurfaceDom(projectDiv, 'chats');
+            writeAiSessionSurfaceState(
+                window.vscode,
+                projectDiv.getAttribute('data-id'),
+                'chats'
+            );
             selectAiSessionTabDom(projectDiv, 'active');
             writeAiSessionTabState(window.vscode, projectDiv.getAttribute('data-id'), 'active');
         }
@@ -324,9 +737,47 @@ function captureCurrentWorkspaceAiSessionStates(root) {
             states.set(projectId, {
                 view: captureAiSessionViewState(projectDiv),
                 providerMenu: captureAiSessionProviderMenuState(projectDiv),
+                listScrolls: captureAiSessionListScrolls(projectDiv),
             });
         });
     return states;
+}
+
+// The worktree/chats panels scroll independently of the outer workspace
+// list, so an authoritative HTML replacement must carry each inner list's
+// scroll position across the new nodes; otherwise every refresh snaps the
+// panel back to the top.
+function captureAiSessionListScrolls(projectDiv) {
+    var scrolls = [];
+    projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel] .ai-session-worktree-list,'
+        + ' [data-ai-session-panel] .codex-sessions-list'
+    ).forEach(list => {
+        var panel = list.closest('[data-ai-session-surface-panel], [data-ai-session-panel]');
+        if (!panel) return;
+        var key = panel.getAttribute('data-ai-session-surface-panel')
+            || panel.getAttribute('data-ai-session-panel');
+        var scrollTop = Math.max(0, Number(list.scrollTop) || 0);
+        if (key && scrollTop > 0) {
+            scrolls.push({ key: key, scrollTop: scrollTop });
+        }
+    });
+    return scrolls;
+}
+
+function restoreAiSessionListScrolls(projectDiv, scrolls) {
+    (scrolls || []).forEach(saved => {
+        var panel = projectDiv.querySelector(
+            '[data-ai-session-surface-panel="' + saved.key + '"],'
+            + ' [data-ai-session-panel="' + saved.key + '"]'
+        );
+        var list = panel
+            ? panel.querySelector('.ai-session-worktree-list, .codex-sessions-list')
+            : null;
+        if (!list) return;
+        var maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+        list.scrollTop = Math.min(saved.scrollTop, maxScrollTop);
+    });
 }
 
 function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProviderMenu) {
@@ -339,6 +790,7 @@ function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProv
             restoreAiSessionViewState(projectDiv, state.view, state.view.selectedTab, {
                 restoreFocus: false,
             });
+            restoreAiSessionListScrolls(projectDiv, state.listScrolls);
             restoreAiSessionProviderMenuState(
                 projectDiv,
                 state.providerMenu,

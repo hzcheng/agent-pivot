@@ -4,17 +4,23 @@ import type { AiSessionProviderId, CodexSession } from '../models';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
+import { cloneAiSessionDirectoryScope } from './runtimeTypes';
 import type {
     AiSessionResumeRuntimeRequest,
     AiSessionRuntimeActionResult,
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
-import type { AiSessionDirectoryScope, SessionProfileDecision, WorkspaceAiSessionActionTarget } from './types';
+import type {
+    AiSessionDirectoryScope,
+    AiSessionViewModel,
+    SessionProfileDecision,
+    WorkspaceAiSessionActionTarget,
+} from './types';
 
 interface AiSessionResumeTarget {
     id: string;
     name: string;
-    session: CodexSession;
+    session: AiSessionViewModel;
     workspace: WorkspaceAiSessionActionTarget;
 }
 
@@ -54,7 +60,7 @@ export interface AiSessionResumeControllerCommonOptions {
     getProvider: (providerId: AiSessionProviderId) => AiSessionResumeProvider | null;
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
-        session: CodexSession,
+        session: AiSessionViewModel,
         providerId: AiSessionProviderId,
         explicitRootId?: string
     ) => AiSessionDirectoryScope | null | Thenable<AiSessionDirectoryScope | null> | Promise<AiSessionDirectoryScope | null>;
@@ -125,6 +131,14 @@ export class AiSessionResumeController<
         }
 
         const session = target.session;
+        if (session.worktreeUnavailable) {
+            // The session's worktree is gone — or the retired store cannot
+            // prove either way (quarantined): resume fails closed (PRD §6.4).
+            this.options.showWarningMessage(
+                'This session’s worktree was deleted, so it cannot be resumed. '
+                + 'View the conversation instead.');
+            return;
+        }
         const directoryScope = await this.options.resolveWorkspaceDirectoryScope(
             target.workspace, session, providerId, explicitRootId
         );
@@ -175,7 +189,7 @@ export class AiSessionResumeController<
             : undefined;
         const cwd = directoryScope.primaryCwd;
         const markerPath = options.getMarkerPath(providerId, session.id);
-        const launchScope = cloneDirectoryScope(directoryScope);
+        const launchScope = cloneAiSessionDirectoryScope(directoryScope);
         const request: AiSessionResumeRuntimeRequest = {
             identity: {
                 provider: providerId,
@@ -183,6 +197,13 @@ export class AiSessionResumeController<
                 workspaceScopeIdentity: directoryScope.workspaceScopeIdentity,
                 workspaceNavigationIdentity: directoryScope.workspaceNavigationIdentity,
                 workspaceRootHostPaths: [...directoryScope.workspaceRootHostPaths],
+                ...(directoryScope.writableRootHostPaths ? {
+                    writableRootHostPaths: [...directoryScope.writableRootHostPaths],
+                } : {}),
+                ...(directoryScope.worktreeKey ? {
+                    worktreeKey: { ...directoryScope.worktreeKey },
+                } : {}),
+                ...(directoryScope.isolatedRoots ? { isolatedRoots: true } : {}),
                 cwd,
             },
             projectName: target.name || 'AI Session',
@@ -240,14 +261,6 @@ export class AiSessionResumeController<
         options.refresh();
         return result;
     }
-}
-
-function cloneDirectoryScope(scope: AiSessionDirectoryScope): AiSessionDirectoryScope {
-    return {
-        ...scope,
-        workspaceRootHostPaths: [...scope.workspaceRootHostPaths],
-        additionalDirectories: [...scope.additionalDirectories],
-    };
 }
 
 function validateControllerOptions<TTerminal extends AiSessionResumeTerminal>(

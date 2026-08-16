@@ -36,6 +36,10 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // compiles to an empty, statement-less file, so there is nothing to
     // instrument.
     'src/aiSessions/conversation/viewerTarget.ts',
+    // Type-only module: it declares workspace/root transport shapes and
+    // compiles to an empty, statement-less file. Do not generalize this to
+    // every types.ts file; several of them also export executable helpers.
+    'src/workspaces/types.ts',
     // Vendored third-party library (Name that Color, Creative Commons). It is
     // only reachable through colorService, whose own unit tests exercise the
     // ntc call sites; vendored code carries no per-change coverage obligation.
@@ -80,11 +84,16 @@ function parseChangedLines(diff) {
     return changed;
 }
 
+// Branch diffs include minified media bundles whose single changed lines
+// alone exceed the 1MB execFileSync default; read git output through an
+// explicit generous buffer instead of dying with ENOBUFS.
+const GIT_OUTPUT_MAX_BUFFER = 64 * 1024 * 1024;
+
 function listUntrackedFiles(root, execFileSync = childProcess.execFileSync) {
     return execFileSync(
         'git',
         ['ls-files', '--others', '--exclude-standard', '-z', '--'],
-        { cwd: root, encoding: 'utf8' }
+        { cwd: root, encoding: 'utf8', maxBuffer: GIT_OUTPUT_MAX_BUFFER }
     ).split('\0').filter(Boolean);
 }
 
@@ -242,7 +251,7 @@ function main(options = {}) {
     const diff = options.diff ?? childProcess.execFileSync(
         'git',
         ['diff', '--unified=0', '--no-color', base, '--'],
-        { cwd: root, encoding: 'utf8' }
+        { cwd: root, encoding: 'utf8', maxBuffer: GIT_OUTPUT_MAX_BUFFER }
     );
     const untrackedFiles = options.untrackedFiles
         ?? (options.diff === undefined ? listUntrackedFiles(root) : []);

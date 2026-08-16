@@ -27,8 +27,11 @@ import {
     AiSessionRuntimeLifecycleBlockedError,
     AiSessionRuntimeTargetChangedError,
     cloneAiSessionRuntimeIdentity,
+    getAiSessionRuntimeIdentityExtensionFields,
+    getAiSessionRuntimeIdentityPersistenceFields,
     isValidAiSessionPromotionDisplayName,
     isValidAiSessionRuntimeIdentity,
+    markCreateErrorProvenNotStarted,
     TmuxRuntimeUnavailableError,
 } from './runtimeTypes';
 import {
@@ -264,7 +267,7 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             sessionName: input.title?.trim() || 'new-session',
         });
         const binding = validateTmuxPendingRuntimeBinding({
-            version: 2,
+            ...getAiSessionRuntimeIdentityPersistenceFields(identity),
             state: 'pending',
             pendingId: identity.pendingId,
             provider: identity.provider,
@@ -605,6 +608,7 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
                     workspaceScopeIdentity: binding.workspaceScopeIdentity,
                     workspaceNavigationIdentity: binding.workspaceNavigationIdentity,
                     workspaceRootHostPaths: [...binding.workspaceRootHostPaths],
+                    ...getAiSessionRuntimeIdentityExtensionFields(binding as AiSessionRuntimeIdentity),
                     cwd: binding.cwd,
                     pendingId: binding.pendingId,
                 };
@@ -930,7 +934,7 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             && Number.isFinite(lifecycle.runStartedAtMs)
             && lifecycle.runStartedAtMs > 0;
         await this.dependencies.runtimeStore.setKnown({
-            version: 2,
+            ...getAiSessionRuntimeIdentityPersistenceFields(identity),
             state: 'known',
             provider: identity.provider,
             sessionId: identity.sessionId,
@@ -988,7 +992,7 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             throw new Error('A pending ambiguity tombstone requires the complete accepted request.');
         }
         const record: TmuxAmbiguousRuntimeBinding = {
-            version: 2,
+            ...getAiSessionRuntimeIdentityPersistenceFields(identity),
             state: 'ambiguous',
             provider: identity.provider,
             workspaceScopeIdentity: identity.workspaceScopeIdentity,
@@ -1057,6 +1061,10 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         if (!recovered) {
             if (isProvenNoCreate(error) && !await this.locatorIsOccupied(locator)) {
                 await this.dependencies.runtimeStore.removeAmbiguous(request.identity);
+                // The create command itself failed and nothing occupies the
+                // target: the provider launch provably never happened, so
+                // the caller may discard the generation claim (PRD §6.4).
+                markCreateErrorProvenNotStarted(error);
             }
             throw error;
         }
@@ -1406,7 +1414,7 @@ function attachBinding(runtime: AiSessionRuntimeSnapshot, terminalName: string):
         throw new Error('A tmux attach binding requires a locator.');
     }
     return {
-        version: 2,
+        ...getAiSessionRuntimeIdentityPersistenceFields(runtime.identity),
         layout: runtime.tmux.layout,
         workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
         workspaceNavigationIdentity: runtime.identity.workspaceNavigationIdentity,

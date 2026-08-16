@@ -136,6 +136,7 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
         getWorkspaceTarget: cardId => cardId === 'project' ? workspaceTarget : null,
         isProviderId: value => value === 'codex',
         setExpanded: async (key, value) => effects.push(['expanded', key, value]),
+        setSelectedSurface: async (key, value) => effects.push(['surface', key, value]),
         setProviderSelection: async (scope, selection) =>
             effects.push(['providers', scope, selection]),
         postProviderSelectionResult: async result => effects.push(['provider-result', result]),
@@ -148,11 +149,15 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
         showInformationMessage: message => effects.push(['message', message]), refresh: () => effects.push(['refresh']),
     });
     await controller.toggleSessionsExpanded('project', true);
+    await controller.selectSurface('project', 'worktree');
+    await controller.selectSurface('project', 'grid');
+    await controller.selectSurface('missing', 'chats');
     await controller.selectProviders('project', ['claude', 'codex', 'claude', 'unknown'], 7, 1);
     await controller.renameSession('codex', 'session');
     await controller.copySessionId('session');
     assert.deepEqual(effects, [
         ['expanded', 'scope:/work', true],
+        ['surface', 'scope:/work', 'worktree'],
         ['providers', 'scope:/work', {
             primaryProvider: 'codex',
             selectedProviders: ['codex', 'claude'],

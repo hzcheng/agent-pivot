@@ -31,6 +31,19 @@ const METADATA_CHECKSUM_LENGTH = 16;
 const METADATA_READ_MARKER_PREFIX = '__project_steward_metadata__:';
 const METADATA_BATCH_MARKER_PREFIX = '__project_steward_metadata_batch__:';
 const MAX_METADATA_BATCH_TARGETS = 8;
+/**
+ * tmux rejects an over-long `;`-joined command sequence with the
+ * undocumented `command too long` error (exit 1). The per-target metadata
+ * read grows with every new metadata key, so chunk by the joined argument
+ * length as well as the target count; a fixed target count alone silently
+ * breaks when a key is added.
+ *
+ * The limit applies to the serialized command, so measure UTF-8 bytes, not
+ * UTF-16 code units — CJK session names occupy 3 bytes per character.
+ * Empirically (tmux 3.2a) the sequence fails at roughly 16K bytes; 12K
+ * leaves a wide margin while still batching several targets per call.
+ */
+const MAX_METADATA_BATCH_ARGS_BYTES = 12288;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const REQUIRED_COMMANDS = [
     'new-session',
@@ -550,15 +563,53 @@ export class TmuxClient {
         requests: MetadataReadRequest[]
     ): Promise<Map<string, Record<string, string>>> {
         const values = new Map<string, Record<string, string>>();
-        for (let offset = 0; offset < requests.length; offset += MAX_METADATA_BATCH_TARGETS) {
-            const batch = requests.slice(offset, offset + MAX_METADATA_BATCH_TARGETS);
+        // A single target can exceed the limit on its own (long CJK names);
+        // split its key set across several invocations and merge the reads.
+        const pieces: Array<MetadataReadRequest & { keys: MetadataOptionKey[] }> = [];
+        for (const request of requests) {
+            const allKeys = metadataOptionKeys();
+            if (metadataBatchArgsBytes([request]) <= MAX_METADATA_BATCH_ARGS_BYTES) {
+                pieces.push({ ...request, keys: allKeys });
+                continue;
+            }
+            let currentKeys: MetadataOptionKey[] = [];
+            for (const key of allKeys) {
+                const candidate = [...currentKeys, key];
+                if (currentKeys.length > 0
+                    && metadataBatchArgsBytes([request], candidate)
+                        > MAX_METADATA_BATCH_ARGS_BYTES) {
+                    pieces.push({ ...request, keys: currentKeys });
+                    currentKeys = [key];
+                } else {
+                    currentKeys = candidate;
+                }
+            }
+            if (currentKeys.length > 0) {
+                pieces.push({ ...request, keys: currentKeys });
+            }
+        }
+        for (let offset = 0; offset < pieces.length;) {
+            let end = Math.min(offset + MAX_METADATA_BATCH_TARGETS, pieces.length);
+            while (end > offset + 1
+                && metadataBatchArgsBytes(pieces.slice(offset, end))
+                    > MAX_METADATA_BATCH_ARGS_BYTES) {
+                end -= 1;
+            }
+            const batch = pieces.slice(offset, end);
+            offset = end;
             const result = await this.invoke('list-windows', metadataBatchReadArgs(batch));
             if (result.exitCode !== 0) {
                 throw resultError('list-windows', result);
             }
-            const parsed = parseMetadataBatchSequence(result.stdout, batch.length);
+            // Each piece carries the exact key subset it requested (a single
+            // over-long target is split across pieces): parsing must expect
+            // precisely those keys or it rejects valid partial output.
+            const parsed = parseMetadataBatchSequence(result.stdout, batch);
             for (let index = 0; index < batch.length; index++) {
-                values.set(batch[index].id, parsed[index]);
+                values.set(batch[index].id, {
+                    ...values.get(batch[index].id),
+                    ...parsed[index],
+                });
             }
         }
         return values;
@@ -828,9 +879,16 @@ function parseClientSessions(stdout: string): Map<number, string> {
     return sessions;
 }
 
-function metadataReadArgs(baseArgs: string[]): string[] {
+function metadataBatchArgsBytes(
+    requests: readonly (MetadataReadRequest & { keys?: MetadataOptionKey[] })[],
+    keysOverride?: MetadataOptionKey[]
+): number {
+    return Buffer.byteLength(metadataBatchReadArgs(requests, keysOverride).join(' '), 'utf8');
+}
+
+function metadataReadArgs(baseArgs: string[], keys?: MetadataOptionKey[]): string[] {
     const args: string[] = [];
-    for (const key of metadataOptionKeys()) {
+    for (const key of keys || metadataOptionKeys()) {
         if (args.length) {
             args.push(';');
         }
@@ -846,7 +904,10 @@ function metadataReadArgs(baseArgs: string[]): string[] {
     return args;
 }
 
-function metadataBatchReadArgs(requests: MetadataReadRequest[]): string[] {
+function metadataBatchReadArgs(
+    requests: readonly (MetadataReadRequest & { keys?: MetadataOptionKey[] })[],
+    keysOverride?: MetadataOptionKey[]
+): string[] {
     const args: string[] = [];
     for (let index = 0; index < requests.length; index++) {
         if (args.length) {
@@ -855,7 +916,7 @@ function metadataBatchReadArgs(requests: MetadataReadRequest[]): string[] {
         args.push(
             'display-message', '-p', metadataBatchReadMarker(index),
             ';',
-            ...metadataReadArgs(requests[index].baseArgs),
+            ...metadataReadArgs(requests[index].baseArgs, keysOverride || requests[index].keys),
         );
     }
     return args;
@@ -863,7 +924,7 @@ function metadataBatchReadArgs(requests: MetadataReadRequest[]): string[] {
 
 function parseMetadataBatchSequence(
     stdout: string,
-    requestCount: number
+    requests: readonly { keys?: MetadataOptionKey[] }[]
 ): Record<string, string>[] {
     if (stdout.length > MAX_LIST_OUTPUT_LENGTH || !stdout) {
         throw new TmuxClientError('list-windows', 'invalid-output');
@@ -874,12 +935,13 @@ function parseMetadataBatchSequence(
     }
     const values: Record<string, string>[] = [];
     let lineIndex = 0;
-    for (let index = 0; index < requestCount; index++) {
+    for (let index = 0; index < requests.length; index++) {
         if (lines[lineIndex] !== metadataBatchReadMarker(index)) {
             throw new TmuxClientError('list-windows', 'invalid-output');
         }
         lineIndex += 1;
-        const parsed = parseMetadataSequenceLines(lines, lineIndex, 'list-windows');
+        const parsed = parseMetadataSequenceLines(
+            lines, lineIndex, 'list-windows', requests[index].keys);
         values.push(parsed.values);
         lineIndex = parsed.nextLineIndex;
     }
@@ -914,10 +976,11 @@ function parseMetadataSequenceLines(
     lines: string[],
     startLineIndex: number,
     operation: TmuxOperation,
+    keys: readonly MetadataOptionKey[] = metadataOptionKeys(),
 ): { values: Record<string, string>; nextLineIndex: number } {
     const values: Record<string, string> = {};
     let lineIndex = startLineIndex;
-    for (const key of metadataOptionKeys()) {
+    for (const key of keys) {
         const marker = metadataReadMarker(key);
         if (lines[lineIndex] !== marker) {
             const value = lines[lineIndex++];

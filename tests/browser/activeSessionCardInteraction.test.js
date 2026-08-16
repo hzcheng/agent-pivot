@@ -124,6 +124,10 @@ const aiSessionControlsScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectAiSessionControlsScripts.js'),
     'utf8'
 );
+const groupFormScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewGroupFormScripts.js'),
+    'utf8'
+);
 const projectScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectScripts.js'),
     'utf8'
@@ -248,10 +252,15 @@ function currentWorkspaceGroupMarkup(
             activeProvider: 'codex',
             selectedProviders: ['codex'],
             expanded: true,
-            sessionsByProvider: { codex: [], kimi: [], claude: [] },
+            sessionsByProvider: {
+                codex: options.historySessions || [],
+                kimi: [],
+                claude: [],
+            },
             unavailableProviders: [],
             activeSessions: activeAiSessions,
-            aiSessionCount: activeAiSessions.length,
+            aiSessionCount: activeAiSessions.length
+                + (options.historySessions || []).length,
             activeSessionCount: activeAiSessions.length,
             activeAttentionCount: activeAiSessions
                 .filter(entry => entry.needsAttention).length,
@@ -292,7 +301,7 @@ async function postListAiSessionsUpdate(
             generatedAt: '2026-08-11T00:00:00.000Z',
             currentWorkspaceCount: 1, html: htmlValue,
             searchCatalog: {
-                version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [],
+                version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [],
             },
             presentation: presentationValue,
         } }));
@@ -321,7 +330,7 @@ async function postListOpenWorkspacesUpdate(
             currentWorkspaceCount: 1, navigationWorkspaceCount: 0, otherWindowsStatus: 'ready',
             html: htmlValue,
             searchCatalog: {
-                version: 2, sessions: [], openWorkspaces: [{ identity: 'project-a' }],
+                version: 3, sessions: [], worktrees: [], openWorkspaces: [{ identity: 'project-a' }],
                 savedProjects: [], todos: [],
             },
             presentation: presentationValue,
@@ -407,6 +416,7 @@ async function bootCardPageScripts(page, preserveInitialMessages = false) {
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: groupFormScript });
     await page.addScriptTag({ content: aiSessionControlsScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(preserveMessages => {
@@ -463,6 +473,7 @@ async function openListPage(t, activeAiSessions, historySessions) {
     await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
+    await page.addScriptTag({ content: groupFormScript });
     await page.addScriptTag({ content: aiSessionControlsScript });
     await page.addScriptTag({ content: projectScript });
     await page.evaluate(() => initProjects());
@@ -575,8 +586,9 @@ function aiSessionsEnvelope(activeSessions, projectionRevision, options = {}) {
         currentWorkspaceCount: 1,
         html: currentWorkspaceGroupMarkup(activeSessions, attentionCount),
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [],
             savedProjects: [],
             todos: [],
@@ -605,8 +617,9 @@ function openWorkspacesEnvelope(activeSessions, projectionRevision, options = {}
                 ${currentOpenWorkspaceProjectMarkup()}
             </div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
             savedProjects: [],
             todos: [],
@@ -1194,8 +1207,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy AI upd
             session('codex', 'legacy-session', true),
         ])}</div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [],
             savedProjects: [],
             todos: [],
@@ -1231,8 +1245,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy OPEN u
                 ${currentOpenWorkspaceProjectMarkup()}
             </div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
             savedProjects: [],
             todos: [],
@@ -1304,8 +1319,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and c
             attentionSession,
         ])}</div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [],
             savedProjects: [],
             todos: [],
@@ -1352,8 +1368,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and
                 ${currentOpenWorkspaceProjectMarkup()}
             </div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
             savedProjects: [],
             todos: [],
@@ -1400,8 +1417,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope
             otherSession,
         ])}</div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [],
             savedProjects: [],
             todos: [],
@@ -1453,8 +1471,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelo
                 ${currentOpenWorkspaceProjectMarkup()}
             </div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
             savedProjects: [],
             todos: [],
@@ -1517,8 +1536,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes AI
             addedSession,
         ])}</div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [],
             savedProjects: [],
             todos: [],
@@ -1586,8 +1606,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OP
                 ${currentOpenWorkspaceProjectMarkup()}
             </div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
             savedProjects: [],
             todos: [],
@@ -1633,8 +1654,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid pr
             replacement
         )}</div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [],
             savedProjects: [],
             todos: [],
@@ -1669,8 +1691,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid OP
                 ${currentOpenWorkspaceProjectMarkup()}
             </div>`,
         searchCatalog: {
-            version: 2,
+            version: 3,
             sessions: [],
+            worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
             savedProjects: [],
             todos: [],
@@ -1897,7 +1920,7 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps acknowledgement pending u
                 renderedSession,
             ])}</div>`,
             searchCatalog: {
-                version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [],
+                version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [],
             },
             presentation: presentationMessage([renderedSession], projectionRevision, {
                 attention: { 'codex:session-a': attention },
@@ -2720,6 +2743,47 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 click focuses an unfocused card and o
     );
 });
 
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a history row View Conversation button posts the open request', async t => {
+    // Regression: history rows — including sessions whose worktree was
+    // deleted (PRD §6.4) — must reach the Host conversation resolver with
+    // their provider and session id; the row itself cannot be resumed.
+    const page = await openListPage(t, [], [historySession('codex', 'history-1')]);
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.vscode.postMessage = message => window.__postedMessages.push(message);
+    });
+    await page.locator('[data-ai-session-tab="sessions"]').click();
+    const historyRow = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-1"]'
+    );
+    const viewButton = historyRow.locator('[data-action="view-ai-session-conversation"]');
+    assert.equal(await viewButton.count(), 1);
+    const iconMetrics = await viewButton.evaluate(button => {
+        const svg = button.querySelector('svg');
+        const rect = svg.getBoundingClientRect();
+        return {
+            width: rect.width,
+            height: rect.height,
+            fill: getComputedStyle(svg).fill,
+            color: getComputedStyle(button).color,
+        };
+    });
+    assert.ok(iconMetrics.width <= 14 && iconMetrics.height <= 14,
+        `the view icon must stay icon-sized, got ${iconMetrics.width}x${iconMetrics.height}`);
+    assert.equal(iconMetrics.fill, iconMetrics.color,
+        'the view icon inherits the button color instead of rendering as a solid box');
+
+    await viewButton.click();
+
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'open-active-ai-session-conversation',
+        version: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'history-1',
+    });
+});
+
 test('ACTIVE-SESSION-CONVERSATION-OPEN-001 RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 rendered Conversation actions keep one project authority when roots change', async t => {
     const authority = new CurrentWorkspaceSessionAuthority();
     const beforeProjectId = authority.getProjectId({
@@ -2772,6 +2836,52 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY
     });
 });
 
+test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 a history row keeps a readable title at the 170px minimum width', async t => {
+    const history = [historySession('codex', 'history-1')];
+    const page = await openCardPage(
+        t,
+        [],
+        { width: 170, height: 600 },
+        currentWorkspaceGroupMarkup([], 0, { historySessions: history })
+    );
+    await page.locator('[data-ai-session-tab="sessions"]').click();
+    const historyRow = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-1"]'
+    );
+    const metrics = () => historyRow.evaluate(el => {
+        const name = el.querySelector('.codex-session-name').getBoundingClientRect();
+        const actions = el.querySelector('.codex-session-actions').getBoundingClientRect();
+        return {
+            nameWidth: Math.round(name.width),
+            rowRight: Math.round(el.getBoundingClientRect().right),
+            actionsRight: Math.round(actions.right),
+            actionsOpacity: getComputedStyle(el.querySelector('.codex-session-actions')).opacity,
+            documentScrollWidth: document.documentElement.scrollWidth,
+        };
+    });
+
+    const idle = await metrics();
+    assert.equal(idle.documentScrollWidth, 170, 'no horizontal overflow at 170px');
+    // The fixture card chrome costs ~80px of wrapper/list paddings, so 40px
+    // here corresponds to roughly 60-80px in the real sidebar; before the
+    // narrow-width rules the title collapsed to 0-27px.
+    assert.ok(idle.nameWidth >= 40,
+        `the title must keep a readable width, got ${idle.nameWidth}px`);
+
+    await historyRow.hover();
+    await waitForPageCondition(page, () => {
+        const actions = document.querySelector(
+            '.codex-session-row[data-session-id="history-1"] .codex-session-actions');
+        return actions && getComputedStyle(actions).opacity === '1';
+    });
+    const hovered = await metrics();
+    assert.equal(hovered.actionsOpacity, '1', 'the action pill reveals on hover');
+    assert.ok(hovered.actionsRight <= hovered.rowRight + 1,
+        'the hover action pill overlays the truncated tail but stays inside the row');
+    assert.equal(hovered.documentScrollWidth, 170,
+        'the revealed actions must not introduce horizontal overflow');
+});
+
 test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card header without focusing another session', async t => {
     const page = await openCardPage(t, [
         session('codex', 'session-a', true),
@@ -2785,6 +2895,12 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card 
 
     await postHostMessage(page, focusOrigin());
     assert.equal(await activeTab.getAttribute('aria-selected'), 'true');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'select-ai-session-surface',
+        version: 1,
+        projectId: 'project-a',
+        surface: 'chats',
+    }, 'focusing a conversation origin must report the Chats surface for future renders');
     assert.equal(
         await focused.locator('.ai-session-primary-action')
             .evaluate(header => document.activeElement === header),

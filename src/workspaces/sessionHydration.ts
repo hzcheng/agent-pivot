@@ -22,6 +22,7 @@ import { getAiSessionKey, prepareAiSessionsForDisplay } from '../aiSessions/sess
 import {
     assignPathToWorkspaceRoot,
     getWorkspaceHostPathComparisonKey,
+    isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
 import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
@@ -35,12 +36,52 @@ import {
     buildWorkspaceSessionAttentionIndex,
     getWorkspaceSessionAttention,
 } from './sessionAttention';
+import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
+import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type { WorktreeKey } from '../worktrees/types';
+import { mapWorktreeBoundHostPaths } from './sessionScope';
+import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
+import type {
+    GenerationClaim,
+    RetiredWorktreeIdentity,
+} from '../worktrees/retiredWorktrees';
+import {
+    findLatestRetirementForPath,
+    judgeSessionGeneration,
+} from '../worktrees/retiredWorktrees';
+import {
+    findGroupMemberWorktreeKeyForPath,
+    manifestClaimsWorktreeKey,
+} from './worktreeGroupProjection';
 import { buildWorkspaceAiSessionViewModel } from './viewModels';
+import {
+    assignPathToWorkspaceWorktree,
+    getWorkspaceWorktreeCandidatePaths,
+} from './worktreeSessionAssignment';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label'>;
 
 export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     workspace: OpenWorkspace;
+    /** Coherent discovery input reserved for worktree-aware projection. */
+    worktreeSnapshot?: WorktreeSnapshot | null;
+    provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
+    /** Authoritative worktree group manifest bucket for this workspace. */
+    worktreeGroups?: readonly WorktreeGroup[];
+    /** Active deletion journals for this workspace bucket (PRD §6.4). */
+    deletionJournals?: readonly DeletionJournalEntry[];
+    /** Retired worktree identities for this workspace bucket (PRD §6.4). */
+    retiredWorktreeIdentities?: readonly RetiredWorktreeIdentity[];
+    /** Generation claims for this workspace bucket (PRD §6.4). */
+    generationClaims?: readonly GenerationClaim[];
+    /**
+     * Quarantine signal for the retired store (PRD §6.4): while set, every
+     * session that cannot be positively placed is unknown — and unknown
+     * means unresumable.
+     */
+    retiredStoreCorrupt?: boolean;
+    /** Authoritative clock for generation judgment (clock-drift fail-closed). */
+    nowMs?: () => number;
     providers: readonly HydrationProvider[];
     sessionResults: Record<AiSessionProviderId, AiSessionReadResult>;
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string;
@@ -64,28 +105,22 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     activePresentation?: WorkspaceActiveSessionPresentation;
     activeProvider?: AiSessionProviderId;
     providerSelection?: AiSessionProviderSelection;
+    selectedSurface?: 'worktree' | 'chats';
     expanded?: boolean;
 }
 
-export function getWorkspaceAiSessionCandidatePaths(workspace: OpenWorkspace | null): string[] {
-    const seen = new Set<string>();
-    return (workspace?.roots || [])
-        .slice()
-        .sort((left, right) => left.ordinal - right.ordinal)
-        .map(root => normalizeWorkspaceHostPath(root.hostPath))
-        .filter(candidatePath => {
-            const key = getWorkspaceHostPathComparisonKey(candidatePath);
-            if (!key || seen.has(key)) {
-                return false;
-            }
-            seen.add(key);
-            return true;
-        });
+export function getWorkspaceAiSessionCandidatePaths(
+    workspace: OpenWorkspace | null,
+    worktreeSnapshot?: WorktreeSnapshot | null,
+): string[] {
+    return getWorkspaceWorktreeCandidatePaths(workspace, worktreeSnapshot);
 }
 
 interface AssignedHistory {
     session: CodexSession;
-    root: WorkspaceRoot;
+    root: WorkspaceRoot | null;
+    worktreeKey?: import('../worktrees/types').WorktreeKey;
+    worktreeUnavailable?: boolean;
 }
 
 interface SortableActiveSession extends ActiveAiSessionViewModel {
@@ -116,7 +151,14 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)));
     const pendingRuntimes = deduplicatePendingRuntimes((input.pendingRuntimes || [])
         .filter(runtime => hasWorkspaceRuntimeContinuity(input.workspace, runtime)
-            && !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots)));
+            && (!!assignPathToWorkspaceWorktree(
+                runtime.identity.cwd,
+                input.workspace,
+                input.worktreeSnapshot,
+                runtime.identity.worktreeKey,
+            ) || !!assignPathToWorkspaceRoot(runtime.identity.cwd, input.workspace.roots)
+            || !!findGroupMemberWorktreeKeyForPath(
+                input.worktreeGroups || [], runtime.identity.cwd))));
     const activeSessionKeys = new Set(activeRuntimes
         .filter(runtime => !!runtime.identity.sessionId)
         .map(runtime => getAiSessionKey(runtime.identity.provider, runtime.identity.sessionId)));
@@ -140,17 +182,24 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         const assigned = assignHistorySessions(
             provider.id,
             result.sessions,
-            input.workspace.roots,
-            input.getSessionComparableCwd
+            input.workspace,
+            input.worktreeSnapshot,
+            input.getSessionComparableCwd,
+            input.worktreeGroups,
+            input.retiredWorktreeIdentities,
+            input.generationClaims,
+            input.nowMs,
+            input.retiredStoreCorrupt
         );
-        const rootBySessionId = new Map(assigned.map(item => [item.session.id, item.root]));
+        const assignmentBySessionId = new Map(assigned.map(item => [item.session.id, item]));
         sessionsByProvider[provider.id] = prepareAiSessionsForDisplay(
             assigned.map(item => item.session),
             provider.id,
             new Set(input.pinnedSessions),
             { ...input.aliases }
         ).map(session => {
-            const root = rootBySessionId.get(session.id);
+            const assignment = assignmentBySessionId.get(session.id);
+            const root = assignment?.root;
             const key = getAiSessionKey(provider.id, session.id);
             const attention = root && getWorkspaceSessionAttention(
                 attentionByRootAndSession,
@@ -165,8 +214,11 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
                 active: activeSessionKeys.has(key),
                 focused: focusedSessionKey === key,
                 ...(attention ? { attention } : {}),
-                primaryRootId: root.id,
-                primaryRootLabel: root.name,
+                ...rootMetadata(root || null),
+                ...(assignment?.worktreeKey ? {
+                    worktreeKey: { ...assignment.worktreeKey },
+                } : {}),
+                ...(assignment?.worktreeUnavailable ? { worktreeUnavailable: true } : {}),
             };
         });
     }
@@ -188,17 +240,28 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         attentionCount: activePresentation.attentionCount,
         activeProvider: input.activeProvider,
         providerSelection: input.providerSelection,
+        selectedSurface: input.selectedSurface,
         expanded: input.expanded,
         quickCreateProfile: input.quickCreateProfile,
         quickCreateProvider: input.quickCreateProvider,
+        worktreeSnapshot: input.worktreeSnapshot,
+        provisioningWorktrees: input.provisioningWorktrees,
+        worktreeGroups: input.worktreeGroups,
+        deletionJournals: input.deletionJournals,
     });
 }
 
 function assignHistorySessions(
     providerId: AiSessionProviderId,
     sessions: readonly CodexSession[],
-    roots: readonly WorkspaceRoot[],
+    workspace: OpenWorkspace,
+    worktreeSnapshot: WorktreeSnapshot | null | undefined,
     getSessionComparableCwd: (providerId: AiSessionProviderId, session: CodexSession) => string,
+    worktreeGroups?: readonly WorktreeGroup[],
+    retiredIdentities?: readonly RetiredWorktreeIdentity[],
+    generationClaims?: readonly GenerationClaim[],
+    nowMs?: () => number,
+    retiredStoreCorrupt?: boolean,
 ): AssignedHistory[] {
     const seen = new Set<string>();
     const assigned: AssignedHistory[] = [];
@@ -207,12 +270,156 @@ function assignHistorySessions(
             continue;
         }
         seen.add(session.id);
-        const root = assignPathToWorkspaceRoot(getSessionComparableCwd(providerId, session), roots);
-        if (root) {
-            assigned.push({ session: { ...session }, root });
+        const cwd = getSessionComparableCwd(providerId, session);
+        const worktree = assignPathToWorkspaceWorktree(cwd, workspace, worktreeSnapshot);
+        // Manifest fallback (PRD §6.4): history keeps the worktree identity
+        // even after the physical worktree is deleted — including worktrees
+        // outside the workspace roots, which would otherwise vanish.
+        const manifestKey = worktree
+            ? null
+            : findGroupMemberWorktreeKeyForPath(worktreeGroups || [], cwd);
+        // Retired identity fallback (PRD §6.4): once a journaled deletion
+        // removes the manifest member, the retired record keeps the history
+        // identity — but only for the pre-deletion generation. Sessions of
+        // a later generation (explicit claim, or a stable creation time
+        // past the cutoff) are not claimed by the retired record.
+        const retired = worktree || manifestKey
+            ? null
+            : findLatestRetirementForPath(
+                retiredIdentities || [],
+                cwd,
+                normalizeWorkspaceHostPath,
+                isWorkspaceHostPathContained);
+        const retiredGeneration = retired
+            ? judgeSessionGeneration(retired, {
+                provider: providerId,
+                sessionId: session.id,
+                createdAtMs: parseSessionCreatedAtMs(session),
+            }, generationClaims || [], retiredIdentities || [],
+                nowMs ? nowMs() : Date.now())
+            : null;
+        const retiredKey = retired && retiredGeneration === 'retired'
+            ? {
+                repositoryKey: retired.repositoryKey,
+                canonicalWorktreePath: retired.canonicalWorktreePath,
+            }
+            : null;
+        const root = worktree?.root
+            || (manifestKey || retiredKey ? null : assignPathToWorkspaceRoot(cwd, workspace.roots));
+        // While the retired store is quarantined, a root-fallback session
+        // might actually belong to a deleted worktree we can no longer see:
+        // unknown means unresumable. Sessions sitting directly on a
+        // workspace root (the Current anchor's domain) are unaffected.
+        const corruptUnknown = !!retiredStoreCorrupt && !worktree && !manifestKey
+            && !retiredKey && !!root
+            && normalizeWorkspaceHostPath(root.hostPath)
+                !== normalizeWorkspaceHostPath(cwd);
+        const worktreeUnavailable = !!manifestKey || !!retiredKey || corruptUnknown
+            || !!worktree && (worktree.worktree.health === 'missing'
+                || worktree.worktree.health === 'prunable');
+        if (worktree || manifestKey || retiredKey || root) {
+            assigned.push({
+                session: { ...session },
+                root,
+                ...(worktree
+                    ? { worktreeKey: { ...worktree.worktree.key } }
+                    : manifestKey
+                        ? { worktreeKey: manifestKey }
+                        : retiredKey ? { worktreeKey: retiredKey } : {}),
+                ...(worktreeUnavailable ? { worktreeUnavailable: true } : {}),
+            });
         }
     }
     return assigned;
+}
+
+function parseSessionCreatedAtMs(session: CodexSession): number | undefined {
+    if (!session.createdAt) {
+        return undefined;
+    }
+    const parsed = Date.parse(session.createdAt);
+    return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+/**
+ * Scope-outdated judgment (PRD §6.3 决策 D): a live group session's
+ * persisted writable roots no longer MATCH the group's expected scope —
+ * a member added after the start leaves the session unable to write it,
+ * and a member removed after the start leaves the session with write
+ * access to a worktree that no longer belongs to the task. Both
+ * directions flag the row. The expected scope maps every ready,
+ * non-detached member's visible repository bindings into its worktree;
+ * comparison is normalized and case/path-separator safe. Unknown
+ * persisted scope means no hint — never a guess.
+ */
+export function isGroupSessionScopeOutdated(
+    runtime: {
+        identity: {
+            worktreeKey?: WorktreeKey;
+            isolatedRoots?: boolean;
+            writableRootHostPaths?: readonly string[];
+        };
+    },
+    groups: readonly WorktreeGroup[],
+    snapshot: WorktreeSnapshot | null | undefined,
+    workspace: OpenWorkspace
+): boolean {
+    const key = runtime.identity.worktreeKey;
+    if (!key || !runtime.identity.isolatedRoots) {
+        // Pre-isolation runtimes carry the legacy marker instead (PRD §5.5).
+        return false;
+    }
+    const group = groups.find(candidate => candidate.members.some(member =>
+        member.worktreeKey
+        && member.worktreeKey.repositoryKey === key.repositoryKey
+        && member.worktreeKey.canonicalWorktreePath === key.canonicalWorktreePath));
+    if (!group || !snapshot) {
+        return false;
+    }
+    const persisted = runtime.identity.writableRootHostPaths;
+    if (!persisted || persisted.length === 0) {
+        return false;
+    }
+    // Cross-platform comparison keys (Windows case/separator-insensitive).
+    // Cross-platform comparison keys (Windows case/separator-insensitive).
+    const persistedSet = new Set(persisted.map(getWorkspaceHostPathComparisonKey));
+    const expectedSet = new Set<string>();
+    for (const member of group.members) {
+        // New members enter the expected scope only once ready (PRD §6.3).
+        if (member.state !== 'ready' || member.detached || !member.worktreeKey) {
+            continue;
+        }
+        const repository = snapshot.repositories.find(candidate =>
+            candidate.repositoryKey === member.repositoryKey);
+        if (!repository) {
+            continue;
+        }
+        let mapped: string[];
+        try {
+            mapped = mapWorktreeBoundHostPaths(
+                member.worktreeKey.canonicalWorktreePath,
+                repository.rootBindings,
+                workspace.roots);
+        } catch {
+            continue;
+        }
+        for (const candidatePath of mapped) {
+            expectedSet.add(getWorkspaceHostPathComparisonKey(candidatePath));
+        }
+    }
+    for (const candidate of expectedSet) {
+        if (!persistedSet.has(candidate)) {
+            return true;
+        }
+    }
+    // Removed members leave stale write access behind (PRD §6.3): any
+    // persisted root outside the expected scope outdates the session too.
+    for (const candidate of persistedSet) {
+        if (!expectedSet.has(candidate)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function buildActiveSessions<TTerminal>(input: {
@@ -231,7 +438,19 @@ function buildActiveSessions<TTerminal>(input: {
             const key = getAiSessionKey(providerId, sessionId);
             const session = input.sessionsByProvider[providerId]
                 ?.find(candidate => candidate.id === sessionId);
-            const root = assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
+            const worktree = assignPathToWorkspaceWorktree(
+                runtime.identity.cwd,
+                input.input.workspace,
+                input.input.worktreeSnapshot,
+                runtime.identity.worktreeKey,
+            );
+            const manifestKey = !worktree && runtime.identity.worktreeKey
+                && manifestClaimsWorktreeKey(
+                    input.input.worktreeGroups || [], runtime.identity.worktreeKey)
+                ? { ...runtime.identity.worktreeKey }
+                : null;
+            const root = worktree?.root
+                || assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
             const presentation = input.activePresentation.sessions.find(candidate =>
                 candidate.provider === providerId && candidate.sessionId === sessionId
             );
@@ -260,6 +479,21 @@ function buildActiveSessions<TTerminal>(input: {
                     ? { attentionEventId: presentation.eventIds[0] }
                     : {}),
                 ...rootMetadata(root),
+                ...(worktree
+                    ? { worktreeKey: { ...worktree.worktree.key } }
+                    : manifestKey ? { worktreeKey: manifestKey } : {}),
+                // Pre-isolation worktree runtimes keep their wider writable
+                // roots until restarted (PRD §5.5 legacy marker).
+                ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
+                    ? { legacyScope: true }
+                    : {}),
+                ...(isGroupSessionScopeOutdated(
+                    runtime,
+                    input.input.worktreeGroups || [],
+                    input.input.worktreeSnapshot,
+                    input.input.workspace)
+                    ? { scopeOutdated: true }
+                    : {}),
                 activityMs: finiteNumber(runtime.runStartedAtMs),
                 sourceOrder,
             };
@@ -268,7 +502,19 @@ function buildActiveSessions<TTerminal>(input: {
         const providerId = runtime.identity.provider;
         const pendingId = runtime.identity.pendingId || runtime.createdAt;
         const key = pendingKey(providerId, pendingId);
-        const root = assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
+        const worktree = assignPathToWorkspaceWorktree(
+            runtime.identity.cwd,
+            input.input.workspace,
+            input.input.worktreeSnapshot,
+            runtime.identity.worktreeKey,
+        );
+        const manifestKey = !worktree && runtime.identity.worktreeKey
+            && manifestClaimsWorktreeKey(
+                input.input.worktreeGroups || [], runtime.identity.worktreeKey)
+            ? { ...runtime.identity.worktreeKey }
+            : null;
+        const root = worktree?.root
+            || assignPathToWorkspaceRoot(runtime.identity.cwd, input.input.workspace.roots);
         const focused = input.focusedPendingKey === key;
         const conflict = runtime.projectionConflict === true;
         return {
@@ -291,6 +537,19 @@ function buildActiveSessions<TTerminal>(input: {
             ...(runtime.stale ? { stale: true } : {}),
             createdAt: runtime.createdAt,
             ...rootMetadata(root),
+            ...(worktree
+                ? { worktreeKey: { ...worktree.worktree.key } }
+                : manifestKey ? { worktreeKey: manifestKey } : {}),
+            ...(runtime.identity.worktreeKey && !runtime.identity.isolatedRoots
+                ? { legacyScope: true }
+                : {}),
+            ...(isGroupSessionScopeOutdated(
+                runtime,
+                input.input.worktreeGroups || [],
+                input.input.worktreeSnapshot,
+                input.input.workspace)
+                ? { scopeOutdated: true }
+                : {}),
             activityMs: timestamp(runtime.createdAt),
             sourceOrder: active.length + sourceOrder,
         };

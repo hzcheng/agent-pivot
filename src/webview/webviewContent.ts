@@ -27,6 +27,7 @@ import { escapeAttribute } from './webviewHtmlEscape';
 import {
     getAiSessionContextMenu,
     getAiSessionCreateDropdown,
+    getAiSessionWorktreeMenu,
     getAiSessionsDiv,
     getWorkspaceAiSessionSurface,
     normalizeRunningCardAnimation,
@@ -206,6 +207,7 @@ export function getStewardContent(
         ${getGroupContextMenu()}
         ${getAiSessionContextMenu()}
         ${getAiSessionCreateDropdown()}
+        ${getAiSessionWorktreeMenu()}
         </div>
     </body>
 

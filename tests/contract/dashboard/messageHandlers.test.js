@@ -44,6 +44,7 @@ function createFixture(overrides = {}) {
         getPromptTerminalCommandController: () => ({ handleInsertRequest: record('promptInsert') }),
         aiSessionCommandController: {
             toggleSessionsExpanded: record('toggleSessionsExpanded'),
+            selectSurface: record('selectSurface'),
             selectProviders: record('selectProviders'),
             togglePin: record('togglePin'),
             renameSession: record('renameSession'),
@@ -83,6 +84,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'prompt-command',
         'prompt-insert-terminal',
         'toggle-codex-sessions',
+        'select-ai-session-surface',
         'select-ai-session-providers',
         'focus-ai-session-terminal',
         'focus-pending-ai-session',
@@ -409,6 +411,26 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with the tmux b
         projectId: 'p1', providerId: 'kimi', sessionId: 's9',
         pendingCreatedAt: 'pc9', expectedBackend: 'tmux',
     }]);
+});
+
+test('WORKTREE-GROUPING-UI-001 stores the surface selection only from exact envelopes', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['select-ai-session-surface']({
+        type: 'select-ai-session-surface', version: 1,
+        projectId: 'p1', surface: 'worktree',
+    });
+    assert.deepEqual(calls, [['selectSurface', 'p1', 'worktree']]);
+
+    await handlers['select-ai-session-surface']({
+        type: 'select-ai-session-surface', version: 1,
+        projectId: 'p1', surface: 'worktree', extra: true,
+    });
+    await handlers['select-ai-session-surface']({
+        type: 'select-ai-session-surface', version: 2,
+        projectId: 'p1', surface: 'chats',
+    });
+    assert.equal(calls.length, 1, 'extra keys and wrong versions must be rejected');
 });
 
 test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 delegates archive, provider, and pin mutations', async () => {

@@ -1200,6 +1200,9 @@ function runTmuxLayoutChecks() {
         workspaceScopeIdentity: '@agent-pivot-workspace-scope-identity',
         workspaceNavigationIdentity: '@agent-pivot-workspace-navigation-identity',
         workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
+        writableRootHostPaths: '@agent-pivot-writable-root-host-paths',
+        worktreeKey: '@agent-pivot-worktree-key',
+        isolatedRoots: '@agent-pivot-isolated-roots',
         cwd: '@agent-pivot-cwd',
         provider: '@agent-pivot-provider',
         sessionId: '@agent-pivot-session-id',
@@ -3435,6 +3438,7 @@ async function runTmuxStoreChecks() {
         assert.strictEqual(staleCrossTransition, false);
         assert.deepStrictEqual(await crossHostA.getKnown('codex', 'cross-host'), {
             ...crossNew,
+            version: 2,
             cwd: crossRuntime.identity.cwd,
             markerPath: crossRuntime.markerPath,
             runStartedAtMs: crossRuntime.runStartedAtMs,
@@ -5931,7 +5935,7 @@ async function runTmuxBackendChecks() {
     assert.ok(pendingHarness.operations.findIndex(item => item.type === 'store-consumed')
         < pendingHarness.operations.findIndex(item => item.type === 'remove-pending'));
     assert.ok(pendingHarness.operations.some(item => item.type === 'lock' && item.key === tmuxLayout.getTmuxRuntimeKey({
-        provider: 'claude', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], cwd: '/work', sessionId: 'final-1',
+        provider: 'claude', workspaceScopeIdentity: 'pk', workspaceNavigationIdentity: 'nav-1', workspaceRootHostPaths: ['/work'], writableRootHostPaths: ['/work'], cwd: '/work', sessionId: 'final-1',
     })));
     assert.ok(pendingHarness.operations.some(item =>
         item.type === 'lock' && item.key === `pending:${tmuxLayout.getTmuxRuntimeKey(pendingRequest.identity)}`));

@@ -182,15 +182,16 @@ function validatePromptPanelUpdatedMessage(message) {
 
 function normalizeDashboardSearchCatalog(value) {
     if (value
-        && value.version === 2
+        && value.version === 3
         && Array.isArray(value.sessions)
+        && Array.isArray(value.worktrees)
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
         && Array.isArray(value.todos)
         && (value.skills === undefined || Array.isArray(value.skills))) {
         return value;
     }
-    return { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] };
+    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
 }
 
 function replaceDashboardSearchCatalogState(state, catalog) {

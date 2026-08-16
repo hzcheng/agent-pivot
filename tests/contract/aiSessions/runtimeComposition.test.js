@@ -145,6 +145,18 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 
     assert.equal(result.lateAttentionClientObserved, true);
 });
 
+test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 restored provisioning rows publish after composition settles', () => {
+    // Regression: restoring persisted provisioning rows published during the
+    // IsolatedSessionController constructor, reaching view refreshes before
+    // the dashboard composition existed and killing bootstrap with a TDZ
+    // error whenever a recovery record survived into activation.
+    const result = runProductionActivation('restored-provisioning');
+    assert.equal(result.bootstrapState, 'ready',
+        'activation with a persisted provisioning record must not fail bootstrap');
+    assert.equal(result.failure, null);
+    assert.equal(result.providerRegistrations, 1);
+});
+
 test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes commands while runtime recovery is pending', () => {
     const result = runProductionActivation('pending');
     assert.equal(result.failure, null);
@@ -168,6 +180,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes c
         'agentPivot.nextAttentionSession',
         'agentPivot.nextRunningSession',
         'agentPivot.switchToAiSession',
+        'agentPivot.switchWorktreeOrSession',
         'agentPivot.toggleLastAiSession',
         'agentPivot.switchToOpenWindow',
         'agentPivot.notify.setWebhook',

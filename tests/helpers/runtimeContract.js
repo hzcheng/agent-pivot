@@ -11,6 +11,9 @@ const { TmuxRuntimeBackend } = require('../../out/aiSessions/tmuxRuntimeBackend'
 const { TmuxRuntimeDiscovery } = require('../../out/aiSessions/tmuxRuntimeDiscovery');
 const { ProjectTmuxLayout, SessionTmuxLayout } = require('../../out/aiSessions/tmuxLayout');
 const { TmuxClientError } = require('../../out/aiSessions/tmuxClient');
+const {
+    getAiSessionRuntimeIdentityPersistenceFields,
+} = require('../../out/aiSessions/runtimeTypes');
 
 const FIXED_NOW = Date.parse('2026-07-18T10:00:00.000Z');
 
@@ -338,18 +341,21 @@ function createSyntheticTmuxStore(initial = {}) {
             for (const runtime of runtimes) {
                 if (!runtime.identity.sessionId || !runtime.tmux) continue;
                 const key = `${runtime.identity.provider}:${runtime.identity.sessionId}`;
-                known.set(key, makeTmuxKnownBinding(runtime.identity.sessionId, {
-                    provider: runtime.identity.provider,
-                    workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
-                    workspaceNavigationIdentity: runtime.identity.workspaceNavigationIdentity,
-                    workspaceRootHostPaths: runtime.identity.workspaceRootHostPaths,
-                    cwd: runtime.identity.cwd,
-                    layout: runtime.tmux.layout,
-                    locator: runtime.tmux,
-                    markerPath: runtime.markerPath,
-                    runStartedAtMs: runtime.runStartedAtMs,
-                    lastSeenAtMs: FIXED_NOW,
-                }));
+                known.set(key, {
+                    ...makeTmuxKnownBinding(runtime.identity.sessionId, {
+                        provider: runtime.identity.provider,
+                        workspaceScopeIdentity: runtime.identity.workspaceScopeIdentity,
+                        workspaceNavigationIdentity: runtime.identity.workspaceNavigationIdentity,
+                        workspaceRootHostPaths: runtime.identity.workspaceRootHostPaths,
+                        cwd: runtime.identity.cwd,
+                        layout: runtime.tmux.layout,
+                        locator: runtime.tmux,
+                        markerPath: runtime.markerPath,
+                        runStartedAtMs: runtime.runStartedAtMs,
+                        lastSeenAtMs: FIXED_NOW,
+                    }),
+                    ...getAiSessionRuntimeIdentityPersistenceFields(runtime.identity),
+                });
                 inactive.delete(key);
             }
         },

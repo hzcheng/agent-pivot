@@ -87,6 +87,8 @@ test('COVERAGE-CHANGED-CODE-001 exempts only the paths the suite structurally ca
     assert.equal(isUninstrumentedByDesign('scripts/run-ai-session-safety-checks.js'), true);
     assert.equal(isUninstrumentedByDesign('src/webview/conversationViewerScripts.js'), true);
     assert.equal(isUninstrumentedByDesign('src/services/ntc.ts'), true);
+    assert.equal(isUninstrumentedByDesign('src/workspaces/types.ts'), true,
+        'a statement-less workspace type module cannot appear in V8 coverage');
     assert.equal(isUninstrumentedByDesign('src/services/colorService.ts'), false);
     assert.equal(isUninstrumentedByDesign('src/webview/webviewContent.ts'), false);
     assert.equal(isUninstrumentedByDesign('src/aiSessions/dashboardController.ts'), false);
@@ -178,6 +180,29 @@ test('COVERAGE-CHANGED-CODE-001 evaluates pass, threshold failure, and missing i
         logger,
     }), 1);
     assert.match(output.at(-1), /not instrumented/);
+});
+
+test('COVERAGE-CHANGED-CODE-001 reads unbounded git output through an explicit large buffer', () => {
+    // Large feature branches diff minified media bundles whose single lines
+    // already exceed the 1MB execFileSync default, so the gate must opt into
+    // a generous buffer instead of dying with ENOBUFS mid-CI.
+    const root = path.resolve(__dirname, '../../..');
+    const source = fs.readFileSync(
+        path.join(root, 'scripts/check-changed-coverage.js'),
+        'utf8'
+    );
+    const constant = source.match(/GIT_OUTPUT_MAX_BUFFER\s*=\s*(\d+)\s*\*\s*(\d+)\s*\*\s*(\d+)/);
+    assert.ok(constant, 'the gate must define an explicit GIT_OUTPUT_MAX_BUFFER');
+    const bytes = Number(constant[1]) * Number(constant[2]) * Number(constant[3]);
+    assert.ok(bytes >= 32 * 1024 * 1024, 'the git output buffer must be at least 32MB');
+    const diffCall = source.match(
+        /execFileSync\(\s*'git',\s*\[\s*'diff'[\s\S]*?\{[^}]*maxBuffer:\s*GIT_OUTPUT_MAX_BUFFER[^}]*\}/
+    );
+    assert.ok(diffCall, 'the branch diff read must pass GIT_OUTPUT_MAX_BUFFER');
+    const lsFilesCall = source.match(
+        /execFileSync\(\s*'git',\s*\[\s*'ls-files'[\s\S]*?\{[^}]*maxBuffer:\s*GIT_OUTPUT_MAX_BUFFER[^}]*\}/
+    );
+    assert.ok(lsFilesCall, 'the untracked-file listing must pass GIT_OUTPUT_MAX_BUFFER');
 });
 
 test('COVERAGE-CHANGED-CODE-001 remains wired after JSON coverage production in every Linux coverage gate', () => {

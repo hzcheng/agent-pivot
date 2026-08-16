@@ -314,6 +314,8 @@ function initProjectContextMenus(options) {
         // The create-dropdown arrows mirror the shared menu's visibility.
         document.querySelectorAll('[data-action="create-ai-session-dropdown"][aria-expanded="true"]')
             .forEach(button => button.setAttribute("aria-expanded", "false"));
+        document.querySelectorAll('[data-action="ai-session-worktree-menu"][aria-expanded="true"]')
+            .forEach(button => button.setAttribute("aria-expanded", "false"));
     }
 
     function getAiSessionContextMenuOrigin() {

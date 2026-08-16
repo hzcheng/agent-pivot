@@ -129,13 +129,14 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
     const context = {
         document,
         normalizeDashboardSearchCatalog: value => value
-            && value.version === 2
+            && value.version === 3
             && Array.isArray(value.sessions)
+            && Array.isArray(value.worktrees)
             && Array.isArray(value.openWorkspaces)
             && Array.isArray(value.savedProjects)
             && Array.isArray(value.todos)
             ? value
-            : { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
         window: {
             __agentPivotDashboard: {
                 replaceSearchCatalog: catalog => catalogs.push(catalog),
@@ -297,8 +298,9 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
     const context = createOpenWorkspaceUpdateVm(wrapper, catalogs);
     assert.equal(typeof context.applyOpenWorkspacesUpdate, 'function');
     const catalog = {
-        version: 2,
+        version: 3,
         sessions: [],
+        worktrees: [],
         openWorkspaces: [
             { workspaceId: 'current', action: 'show-current-workspace' },
             { workspaceId: 'other-a', action: 'switch-open-workspace' },

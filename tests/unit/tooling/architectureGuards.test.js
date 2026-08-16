@@ -57,6 +57,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/webview/dashboardViewModel.ts',
         'src/workspaces/sessionAssignment.ts',
         'src/workspaces/types.ts',
+        'src/worktrees/types.ts',
         'src/aiSessions/conversation/composition.ts',
         'src/aiSessions/conversation/worktreeResolver.ts',
         'src/aiSessions/codexRolloutWorkdir.ts',
@@ -804,8 +805,8 @@ for (const mutation of [
         expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
         mutate: source => replaceFixtureSource(
             source,
-            'getRenderedCurrentWorkspaceNavigationIdentity(cards),',
-            'projection.presentation.workspaceNavigationIdentity,'
+            'const renderedIdentity = getRenderedCurrentWorkspaceNavigationIdentity(cards);',
+            'const renderedIdentity = projection.presentation.workspaceNavigationIdentity;'
         ),
     },
     {

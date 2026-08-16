@@ -494,6 +494,25 @@ body .project {
 }
 
 // CONTEXT MENU
+.ai-session-fast-tooltip {
+    position: fixed;
+    z-index: 10001;
+    max-width: 260px;
+    padding: 3px 8px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 5px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+    box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+    font-family: var(--vscode-font-family);
+    font-size: 10px;
+    line-height: 1.4;
+    // Tooltips may carry one line per item (e.g. the Current anchor's
+    // per-repository branch list); pre-line keeps single-line tips intact.
+    white-space: pre-line;
+    pointer-events: none;
+}
+
 .custom-context-menu {
     position: fixed;
     z-index: 10000;
@@ -2052,20 +2071,21 @@ body .project {
     // content-sized pane. In auto layout the pane pins to the same half share
     // the 50% cap implies; a dragged share keeps priority because this auto
     // rule excludes the manual layout via :not(.open-tab-split-manual).
-    // The 263px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
+    // The 283px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
     // webviewOpenTabSplitScripts.js: below it the fixed AI-session chrome
-    // (module header with the quick-create caption, tabs, provider controls)
-    // would clip away and the session list would starve to zero height.
+    // (module header with the quick-create caption, surface tabs, chat tabs,
+    // provider controls) would clip away and the session list would starve
+    // to zero height.
     body.steward-sidebar & {
         .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded {
             flex: 0 0 auto;
             height: 50%;
             max-height: none;
-            min-height: 263px;
+            min-height: 283px;
         }
 
         .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded {
-            min-height: 263px;
+            min-height: 283px;
         }
 
         // In both layouts the expanded card fills the group list (keeping the
@@ -2096,6 +2116,26 @@ body .project {
                     flex-direction: column;
                     max-height: 100vh;
                     overflow: hidden;
+                }
+
+                .ai-session-surface-panel:not([hidden]) {
+                    flex: 1 1 0;
+                    min-height: 0;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .ai-session-worktree-list {
+                    flex: 1 1 0;
+                    min-height: 0;
+                    overflow-y: auto;
+
+                    .ai-session-worktree-group,
+                    .ai-session-provisioning-row,
+                    .ai-session-worktree-empty-state,
+                    .ai-session-worktree-truncated {
+                        flex-shrink: 0;
+                    }
                 }
 
                 .ai-session-tab-panel:not([hidden]) {
@@ -3073,32 +3113,48 @@ body.steward-sidebar {
                 visibility 0s linear 220ms;
         }
 
-        .ai-session-module-header {
+        // Create actions live inside their owning surface: session creation
+        // sits in the Chats panel, worktree creation in the Worktree panel.
+        .ai-session-surface-actions {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            min-height: 24px;
-        }
-
-        .ai-session-create-actions {
-            position: relative;
-            display: inline-flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 2px;
+            justify-content: flex-end;
+            gap: 6px;
+            margin-top: 6px;
             flex: 0 0 auto;
         }
 
-        .ai-session-module-title {
-            min-width: 0;
-            overflow: hidden;
-            color: var(--vscode-descriptionForeground);
-            font-size: 9px;
-            font-weight: 700;
-            letter-spacing: .08em;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        .ai-session-create-isolated-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            min-height: 24px;
+            padding: 3px;
+            border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+            border-radius: 5px;
+            color: var(--vscode-button-foreground);
+            background: var(--vscode-button-background);
+            cursor: pointer;
+
+            svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            &:hover:not(:disabled) {
+                background: var(--vscode-button-hoverBackground);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            &:disabled {
+                opacity: .55;
+                cursor: progress;
+            }
         }
 
         .ai-session-create-button {
@@ -3229,25 +3285,69 @@ body.steward-sidebar {
             opacity: 0.8;
         }
 
-        .ai-session-create-caption {
-            max-width: 132px;
-            padding: 0 2px;
-            overflow: hidden;
-            color: var(--vscode-descriptionForeground);
-            font-size: 8px;
-            font-weight: 700;
-            letter-spacing: .04em;
-            line-height: 1.3;
-            text-align: right;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        // The surface bar keeps the WORKTREE/CHATS switcher and the
+        // new-worktree icon button on one row.
+        .ai-session-surface-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 6px;
+            flex: 0 0 auto;
+
+            .ai-session-surface-tabs {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
         }
 
-        .ai-session-tabs {
+        .ai-session-worktree-collapse-all {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            min-height: 24px;
+            padding: 3px;
+            border: 1px solid transparent;
+            border-radius: 5px;
+            color: var(--vscode-descriptionForeground);
+            background: transparent;
+            cursor: pointer;
+
+            svg {
+                width: 13px;
+                height: 13px;
+            }
+
+            &:hover,
+            &:focus-visible {
+                color: var(--steward-foreground);
+                background: var(--vscode-list-hoverBackground);
+            }
+
+            [data-icon="expand"] {
+                display: none;
+            }
+
+            &[data-collapse-all-state="collapsed"] {
+                [data-icon="collapse"] {
+                    display: none;
+                }
+
+                [data-icon="expand"] {
+                    display: inline-flex;
+                }
+            }
+        }
+
+        // Collapsing worktrees only means something on the Worktree surface.
+        .codex-sessions[data-selected-ai-session-surface="chats"] .ai-session-worktree-collapse-all {
+            display: none;
+        }
+
+        .ai-session-surface-tabs {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 3px;
-            margin-top: 6px;
             padding: 2px;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 7px;
@@ -3291,6 +3391,1144 @@ body.steward-sidebar {
                     border-color: var(--vscode-focusBorder);
                     background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
                 }
+            }
+        }
+
+        // The Chats toolbar keeps the Active/All filter and the create
+        // actions on one row; the inner tabs are deliberately lighter than
+        // the boxed WORKTREE/CHATS surface switcher so the two levels read
+        // as different hierarchy at a glance.
+        .ai-session-chats-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 7px;
+            min-width: 0;
+
+            .ai-session-surface-actions {
+                margin-top: 0;
+                margin-left: auto;
+            }
+        }
+
+        .ai-session-tabs {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            min-width: 0;
+            flex: 1 1 auto;
+            border-bottom: 1px solid var(--vscode-panel-border);
+
+            [role="tab"] {
+                position: relative;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 4px;
+                min-width: 0;
+                min-height: 24px;
+                padding: 2px 6px;
+                border: none;
+                border-bottom: 2px solid transparent;
+                margin-bottom: -1px;
+                color: var(--vscode-descriptionForeground);
+                background: transparent;
+                font-family: var(--vscode-font-family);
+                font-size: 9px;
+                font-weight: 700;
+                letter-spacing: .04em;
+                cursor: pointer;
+                transition:
+                    color $defaultTransition,
+                    border-color $defaultTransition;
+
+                &:hover {
+                    color: var(--steward-foreground);
+                }
+
+                &:focus-visible {
+                    outline: 1px solid var(--vscode-focusBorder);
+                    outline-offset: 1px;
+                }
+
+                &[aria-selected="true"] {
+                    color: var(--steward-foreground);
+                    border-bottom-color: var(--vscode-focusBorder);
+                }
+            }
+        }
+
+        .ai-session-surface-tabs {
+            border-radius: 6px;
+
+            [role="tab"] {
+                min-height: 28px;
+                font-size: 10px;
+            }
+        }
+
+        .ai-session-surface-panel[hidden] {
+            display: none;
+        }
+
+
+        .ai-session-worktree-list {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 0;
+            margin-top: 6px;
+        }
+
+        .ai-session-grouping-control {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 5px;
+            margin-top: 5px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+            font-weight: 600;
+
+            select {
+                min-width: 72px;
+                height: 22px;
+                padding: 1px 18px 1px 5px;
+                border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+                border-radius: 4px;
+                color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+                background: var(--vscode-dropdown-background, var(--vscode-input-background));
+                font-family: var(--vscode-font-family);
+                font-size: 10px;
+            }
+        }
+
+        .ai-session-worktree-group,
+        .ai-session-worktree-session-list,
+        .ai-session-worktree-toolbar {
+            min-width: 0;
+        }
+
+        .ai-session-provisioning-row {
+            display: grid;
+            grid-template-columns: 14px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 7px;
+            min-width: 0;
+            padding: 7px;
+            border: 1px solid var(--vscode-focusBorder);
+            border-radius: 7px;
+            background: var(--vscode-sideBar-background);
+
+            &[data-provisioning-stage="failed"] {
+                border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+            }
+        }
+
+        .ai-session-provisioning-spinner {
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--vscode-panel-border);
+            border-top-color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+            border-radius: 50%;
+            animation: steward-session-icon-spin 1s linear infinite;
+        }
+
+        .ai-session-provisioning-copy {
+            display: grid;
+            min-width: 0;
+            gap: 2px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+
+            strong {
+                overflow: hidden;
+                color: var(--vscode-foreground);
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+        }
+
+        .ai-session-provisioning-error {
+            color: var(--vscode-errorForeground);
+        }
+
+        .ai-session-provisioning-actions {
+            display: inline-flex;
+            gap: 4px;
+
+            button {
+                padding: 2px 6px;
+                border: 1px solid var(--vscode-button-secondaryBackground, var(--vscode-panel-border));
+                border-radius: 4px;
+                color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                background: var(--vscode-button-secondaryBackground, transparent);
+                font: inherit;
+                cursor: pointer;
+            }
+        }
+
+        .ai-session-worktree-group {
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 7px;
+            background: var(--vscode-sideBar-background);
+            overflow: hidden;
+        }
+
+        .ai-session-worktree-header {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            box-sizing: border-box;
+            width: 100%;
+            min-height: 30px;
+            padding: 4px 6px;
+            border: 0;
+            color: var(--vscode-foreground);
+            background: transparent;
+            font-family: var(--vscode-font-family);
+            text-align: left;
+            cursor: pointer;
+
+            &:hover,
+            &:focus-visible {
+                background: var(--vscode-list-hoverBackground);
+            }
+        }
+
+        .ai-session-worktree-toolbar {
+            display: flex;
+            align-items: stretch;
+        }
+
+        // `hidden` must beat the flex display while the rename editor owns
+        // the row (M3).
+        .ai-session-worktree-toolbar[hidden] {
+            display: none;
+        }
+
+        .ai-session-worktree-toolbar .ai-session-worktree-header {
+            width: auto;
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .ai-session-worktree-more {
+            display: inline-flex;
+            flex: 0 0 24px;
+            align-items: center;
+            justify-content: center;
+            align-self: stretch;
+            box-sizing: border-box;
+            min-width: 24px;
+            border: 0;
+            border-left: 1px solid var(--vscode-panel-border);
+            color: var(--vscode-descriptionForeground);
+            background: transparent;
+            cursor: pointer;
+
+            svg {
+                width: 13px;
+                height: 13px;
+            }
+
+            &:hover,
+            &:focus-visible,
+            &[aria-expanded="true"] {
+                color: var(--steward-foreground);
+                background: var(--vscode-list-hoverBackground);
+            }
+
+            &:disabled {
+                opacity: .55;
+                cursor: progress;
+            }
+        }
+
+        .ai-session-worktree-indicator {
+            flex: 0 0 auto;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .ai-session-worktree-group[data-worktree-activity="active"] .ai-session-worktree-indicator {
+            color: var(--vscode-terminal-ansiGreen, #89d185);
+        }
+
+        .ai-session-worktree-group[data-worktree-activity="attention"] .ai-session-worktree-indicator {
+            color: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+        }
+
+        .ai-session-worktree-title {
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            font-size: 10px;
+            font-weight: 600;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ai-session-worktree-health,
+        .ai-session-worktree-head,
+        .ai-session-worktree-count {
+            flex: 0 0 auto;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+        }
+
+        .ai-session-worktree-health {
+            padding: 1px 3px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 999px;
+        }
+
+        .ai-session-worktree-chevron {
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            color: var(--vscode-descriptionForeground);
+            transform: rotate(0deg);
+            transition: transform $defaultTransition;
+
+            svg {
+                width: 11px;
+                height: 11px;
+            }
+        }
+
+        .ai-session-worktree-group[data-worktree-collapsed] .ai-session-worktree-chevron {
+            transform: rotate(-90deg);
+        }
+
+        .ai-session-worktree-session-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            // Indent under the group header so the cards read as belonging
+            // to the worktree, with a quiet tree guide along the edge.
+            margin-left: 7px;
+            padding: 0 3px 3px 9px;
+            border-left: 1px solid var(--vscode-panel-border);
+
+            // The display rule above outranks the UA [hidden] style, so the
+            // collapse toggle must win explicitly.
+            &[hidden] {
+                display: none;
+            }
+        }
+
+        .ai-session-worktree-empty,
+        .ai-session-worktree-truncated,
+        .ai-session-worktree-empty-state {
+            padding: 5px 7px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+        }
+
+        .ai-session-worktree-empty-state {
+            margin-top: 5px;
+            border: 1px dashed var(--vscode-panel-border);
+            border-radius: 6px;
+        }
+
+        .ai-session-worktree-chip {
+            display: inline-flex;
+            min-width: 0;
+            max-width: 92px;
+            padding: 1px 4px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 999px;
+            overflow: hidden;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        // Worktree groups (docs/worktree-tasks-prd.md §10)
+        .ai-session-repo-chip {
+            display: inline-flex;
+            align-items: center;
+            min-width: 0;
+            max-width: 64px;
+            padding: 0 4px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 3px;
+            overflow: hidden;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            font-family: var(--vscode-editor-font-family, monospace);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        // The anchor row keeps its title fully visible; branch details live
+        // on the hover tooltip.
+        .ai-session-worktree-anchor .ai-session-worktree-title {
+            flex: 0 0 auto;
+        }
+
+        .ai-session-worktree-discriminator {
+            min-width: 0;
+            overflow: hidden;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        // M3: the member summary is a toggle button that expands per-member
+        // details (PRD §10); it must still read as a quiet note by default.
+        .ai-session-worktree-member-summary {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 2px 7px 1px;
+            border: none;
+            background: none;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            font-family: inherit;
+            text-align: left;
+            cursor: pointer;
+
+            &:hover,
+            &:focus-visible {
+                color: var(--vscode-foreground);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: -1px;
+            }
+
+            .ai-session-worktree-member-summary-text {
+                flex: 1 1 auto;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-member-summary-chevron {
+                flex: 0 0 auto;
+                display: inline-flex;
+                align-items: center;
+                transform: rotate(0deg);
+                transition: transform $defaultTransition;
+
+                svg {
+                    width: 9px;
+                    height: 9px;
+                }
+            }
+        }
+
+        .ai-session-worktree-group[data-member-details-expanded]
+            .ai-session-worktree-member-summary-chevron {
+            transform: rotate(180deg);
+        }
+
+        .ai-session-worktree-member-details {
+            padding: 0 7px 2px;
+
+            .ai-session-worktree-member-detail {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: baseline;
+                gap: 1px 6px;
+                padding: 1px 0;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+            }
+
+            .ai-session-worktree-member-detail-repo {
+                max-width: 100%;
+                min-width: 0;
+                overflow: hidden;
+                font-weight: 600;
+                color: var(--vscode-foreground);
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-member-detail-primary {
+                flex: 0 0 auto;
+                padding: 0 3px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 3px;
+                font-size: 7px;
+                letter-spacing: 0.02em;
+                text-transform: uppercase;
+            }
+
+            .ai-session-worktree-member-detail-branch {
+                max-width: 100%;
+                min-width: 0;
+                overflow: hidden;
+                font-family: var(--vscode-editor-font-family, monospace);
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-member-detail-path {
+                flex-basis: 100%;
+                min-width: 0;
+                overflow: hidden;
+                font-family: var(--vscode-editor-font-family, monospace);
+                opacity: 0.8;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-member-detail-state {
+                color: var(--vscode-descriptionForeground);
+            }
+
+            [data-member-detail-status="failed"] .ai-session-worktree-member-detail-state,
+            [data-member-detail-status="missing"] .ai-session-worktree-member-detail-state {
+                color: var(--vscode-errorForeground);
+            }
+        }
+
+        // M3: inline group rename editor (PRD §10); the toolbar hides while
+        // it is open so the row keeps its vertical rhythm.
+        .ai-session-worktree-rename-editor {
+            padding: 2px 4px 1px;
+
+            .ai-session-worktree-rename-input {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 2px 4px;
+                border: 1px solid var(--vscode-input-border, transparent);
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                font-size: 10px;
+
+                &:focus {
+                    border-color: var(--vscode-focusBorder);
+                    outline: none;
+                }
+
+                &:disabled {
+                    opacity: 0.6;
+                }
+            }
+
+            .ai-session-worktree-rename-hint {
+                display: block;
+                padding-top: 1px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+            }
+        }
+
+        // M3 batch 4: inline member deletion confirmation card and the
+        // deletion journal banner (PRD §6.4).
+        .ai-session-worktree-deletion-card {
+            margin: 3px 0 2px;
+            padding: 5px 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+
+            &:focus {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            &[aria-busy="true"] {
+                opacity: 0.75;
+            }
+
+            .ai-session-worktree-deletion-card-title {
+                color: var(--vscode-foreground);
+                font-size: 9px;
+                font-weight: 600;
+            }
+
+            .ai-session-worktree-deletion-card-path {
+                margin-top: 1px;
+                color: var(--vscode-descriptionForeground);
+                font-family: var(--vscode-editor-font-family, monospace);
+                font-size: 8px;
+                overflow-wrap: anywhere;
+            }
+
+            .ai-session-worktree-deletion-card-detail {
+                margin-top: 2px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+                line-height: 1.4;
+            }
+
+            .ai-session-worktree-deletion-card-error {
+                margin-top: 2px;
+                color: var(--vscode-errorForeground);
+                font-size: 8px;
+                line-height: 1.4;
+            }
+
+            .ai-session-worktree-deletion-replacements {
+                display: grid;
+                gap: 2px;
+                margin-top: 3px;
+            }
+
+            .ai-session-worktree-deletion-replacement-option {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                color: var(--vscode-foreground);
+                font-size: 9px;
+                cursor: pointer;
+            }
+
+            .ai-session-worktree-deletion-claims {
+                margin-top: 3px;
+            }
+
+            .ai-session-worktree-deletion-discard-claim {
+                margin-top: 2px;
+                padding: 1px 6px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 4px;
+                color: var(--vscode-foreground);
+                background: var(--vscode-button-secondaryBackground, transparent);
+                font-size: 8px;
+                cursor: pointer;
+            }
+
+            .ai-session-worktree-deletion-card-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 4px;
+                margin-top: 4px;
+
+                button {
+                    padding: 2px 8px;
+                    border: 1px solid var(--vscode-panel-border);
+                    border-radius: 4px;
+                    font-size: 8px;
+                    cursor: pointer;
+                }
+
+                .ai-session-worktree-deletion-cancel {
+                    color: var(--vscode-foreground);
+                    background: var(--vscode-button-secondaryBackground, transparent);
+                }
+
+                .ai-session-worktree-deletion-confirm {
+                    color: var(--vscode-button-foreground);
+                    background: var(--vscode-button-background);
+                    border-color: var(--vscode-button-border, transparent);
+
+                    &:disabled {
+                        opacity: 0.5;
+                        cursor: default;
+                    }
+                }
+            }
+        }
+
+        .ai-session-worktree-member-details .ai-session-worktree-member-remove {
+            flex: 0 0 auto;
+            align-self: center;
+            display: inline-grid;
+            width: 14px;
+            height: 14px;
+            place-items: center;
+            padding: 0;
+            border: 0;
+            color: var(--vscode-descriptionForeground);
+            background: transparent;
+            cursor: pointer;
+            opacity: 0.55;
+
+            &:hover,
+            &:focus-visible {
+                color: var(--vscode-errorForeground);
+                opacity: 1;
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            svg {
+                width: 11px;
+                height: 11px;
+            }
+        }
+
+        .ai-session-worktree-deletion-member {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            margin-top: 2px;
+            font-size: 8px;
+
+            .ai-session-worktree-deletion-member-label {
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--vscode-foreground);
+            }
+
+            .ai-session-worktree-deletion-member-state {
+                flex: 0 0 auto;
+                color: var(--vscode-descriptionForeground);
+            }
+
+            &[data-deletion-member-blocked="true"] .ai-session-worktree-deletion-member-state {
+                color: var(--vscode-errorForeground);
+            }
+        }
+
+        .ai-session-worktree-adopt-suggestion {
+            margin-top: 3px;
+
+            .ai-session-worktree-adopt {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                width: 100%;
+                padding: 3px 6px;
+                border: 1px dashed var(--vscode-panel-border);
+                border-radius: 5px;
+                color: var(--vscode-descriptionForeground);
+                background: transparent;
+                font-size: 8px;
+                cursor: pointer;
+                text-align: left;
+
+                &:hover,
+                &:focus-visible {
+                    color: var(--vscode-foreground);
+                    border-color: var(--vscode-focusBorder);
+                    outline: none;
+                }
+
+                svg {
+                    width: 11px;
+                    height: 11px;
+                    flex: 0 0 auto;
+                }
+            }
+        }
+
+        .ai-session-worktree-adopt-card {
+            .ai-session-worktree-adopt-member {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                margin-top: 2px;
+                color: var(--vscode-foreground);
+                font-size: 9px;
+                cursor: pointer;
+            }
+
+            .ai-session-worktree-adopt-name,
+            .ai-session-worktree-adopt-target {
+                box-sizing: border-box;
+                width: 100%;
+                margin-top: 3px;
+                padding: 2px 4px;
+                border: 1px solid var(--vscode-input-border, transparent);
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                font-size: 9px;
+            }
+        }
+
+        .ai-session-worktree-scope-outdated {
+            margin-top: 3px;
+            padding: 2px 6px;
+            border-left: 2px solid var(--vscode-editorWarning-foreground);
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+            line-height: 1.4;
+        }
+
+        .ai-session-worktree-deletion-visible-only {
+            margin-top: 3px;
+            padding: 1px 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            color: var(--vscode-foreground);
+            background: var(--vscode-button-secondaryBackground, transparent);
+            font-size: 8px;
+            cursor: pointer;
+        }
+
+        .ai-session-worktree-deletion {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            margin-top: 3px;
+            padding: 3px 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 8px;
+
+            &[role="alert"] {
+                border-color: var(--vscode-errorForeground);
+            }
+
+            .ai-session-worktree-deletion-text {
+                flex: 1 1 auto;
+                min-width: 0;
+            }
+
+            button {
+                padding: 1px 6px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 4px;
+                color: var(--vscode-foreground);
+                background: var(--vscode-button-secondaryBackground, transparent);
+                font-size: 8px;
+                cursor: pointer;
+
+                &:disabled {
+                    opacity: 0.5;
+                    cursor: default;
+                }
+            }
+        }
+
+
+        .ai-session-worktree-member-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 7px 2px;
+            font-size: 9px;
+
+            .ai-session-worktree-member-label {
+                font-weight: 600;
+            }
+
+            .ai-session-worktree-member-state {
+                flex: 1 1 auto;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--vscode-descriptionForeground);
+            }
+
+            &[data-member-status="failed"] .ai-session-worktree-member-state {
+                color: var(--vscode-editorWarning-foreground);
+            }
+
+            button {
+                padding: 0 6px;
+                border: 1px solid var(--vscode-panel-border);
+                border-radius: 3px;
+                background: transparent;
+                color: var(--vscode-foreground);
+                font-size: 8px;
+                cursor: pointer;
+
+                &:disabled {
+                    opacity: .6;
+                    cursor: default;
+                }
+            }
+        }
+
+        // The slot is a flex item of the surface panel: cap its height and
+        // scroll internally so a tall form never pushes the worktree list
+        // out of reach (the list keeps its own scroll below).
+        .ai-session-group-form-slot {
+            flex: 0 1 auto;
+            min-height: 0;
+            max-height: 60%;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .ai-session-group-form {
+            margin: 2px 4px 6px;
+            padding: 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            background: var(--vscode-sideBar-background);
+            font-size: 10px;
+
+            .ai-session-group-form-header {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .ai-session-group-form-derive-skipped {
+                margin-bottom: 4px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 8px;
+                line-height: 1.4;
+            }
+
+            .ai-session-group-form-title {
+                margin-bottom: 4px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+                font-weight: 600;
+                letter-spacing: .04em;
+                text-transform: uppercase;
+            }
+
+            .ai-session-group-form-tools {
+                display: flex;
+                gap: 8px;
+                margin-top: 4px;
+
+                button {
+                    padding: 0;
+                    border: 0;
+                    background: transparent;
+                    color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+                    font-size: 9px;
+                    cursor: pointer;
+                }
+            }
+
+            .ai-session-group-form-name {
+                flex: 1 1 auto;
+                min-width: 0;
+                padding: 3px 6px;
+                border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+                border-radius: 4px;
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground, var(--vscode-foreground));
+                font: inherit;
+            }
+
+            .ai-session-group-form-close {
+                padding: 0 6px;
+                border: 0;
+                background: transparent;
+                color: var(--vscode-descriptionForeground);
+                font-size: 12px;
+                cursor: pointer;
+            }
+
+            .ai-session-group-form-error {
+                margin-top: 4px;
+                color: var(--vscode-errorForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-loading {
+                margin-top: 4px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-member {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 4px 8px;
+                margin-top: 6px;
+                padding: 4px;
+                border-radius: 4px;
+
+                &[data-unchecked] {
+                    opacity: .55;
+                }
+            }
+
+            .ai-session-group-form-check {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-weight: 600;
+            }
+
+            .ai-session-group-form-base {
+                max-width: 140px;
+                padding: 1px 6px;
+                background: var(--vscode-dropdown-background, var(--vscode-input-background));
+                color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+                border: 1px solid var(--vscode-dropdown-border, var(--vscode-panel-border));
+                border-radius: 3px;
+                font: inherit;
+                font-size: 9px;
+                cursor: pointer;
+                text-align: left;
+            }
+
+            .ai-session-group-form-base-combobox {
+                position: relative;
+                display: inline-block;
+
+                .ai-session-group-form-base-filter {
+                    width: 140px;
+                    padding: 1px 6px;
+                    background: var(--vscode-input-background);
+                    color: var(--vscode-input-foreground, var(--vscode-foreground));
+                    border: 1px solid var(--vscode-focusBorder);
+                    border-radius: 3px;
+                    font: inherit;
+                    font-size: 9px;
+                }
+
+                .ai-session-group-form-base-listbox {
+                    position: absolute;
+                    z-index: 5;
+                    top: 100%;
+                    left: 0;
+                    min-width: 160px;
+                    max-height: 180px;
+                    overflow-y: auto;
+                    margin: 2px 0 0;
+                    padding: 2px 0;
+                    list-style: none;
+                    background: var(--vscode-menu-background, var(--vscode-editor-background));
+                    border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+                    border-radius: 4px;
+                    box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, .3));
+
+                    li {
+                        padding: 2px 8px;
+                        font-size: 9px;
+                        cursor: pointer;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+
+                        &[data-active] {
+                            background: var(--vscode-list-activeSelectionBackground,
+                                var(--vscode-list-hoverBackground));
+                        }
+
+                        &[aria-selected="true"] {
+                            font-weight: 600;
+                        }
+                    }
+
+                    .ai-session-group-form-base-empty {
+                        color: var(--vscode-descriptionForeground);
+                        cursor: default;
+                    }
+                }
+            }
+
+            .ai-session-group-form-primary,
+            .ai-session-group-form-setup {
+                display: inline-flex;
+                align-items: center;
+                gap: 3px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-plan {
+                flex-basis: 100%;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-preflight {
+                flex-basis: 100%;
+                color: var(--vscode-errorForeground);
+                font-size: 9px;
+            }
+
+            .ai-session-group-form-actions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-top: 8px;
+
+                button {
+                    padding: 2px 10px;
+                    border: 1px solid var(--vscode-button-border, transparent);
+                    border-radius: 4px;
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    font: inherit;
+                    font-size: 10px;
+                    cursor: pointer;
+
+                    &:disabled {
+                        opacity: .5;
+                        cursor: default;
+                    }
+                }
+
+                .ai-session-group-form-available {
+                    background: var(--vscode-button-secondaryBackground, transparent);
+                    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+                    border-color: var(--vscode-panel-border);
+                }
+            }
+
+            .ai-session-group-form-pending {
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
+            }
+        }
+
+        .ai-session-worktree-primary-picker {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 7px 3px;
+        }
+
+        .ai-session-worktree-primary-hint {
+            color: var(--vscode-editorWarning-foreground);
+            font-size: 8px;
+        }
+
+        .ai-session-worktree-primary-choice {
+            padding: 0 6px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 3px;
+            background: transparent;
+            color: var(--vscode-foreground);
+            font-size: 8px;
+            cursor: pointer;
+
+            &:hover {
+                background: var(--vscode-list-hoverBackground);
+            }
+        }
+
+        .ai-session-legacy-scope {
+            color: var(--vscode-editorWarning-foreground);
+        }
+
+        .ai-session-worktree-quick-create,
+        .ai-session-worktree-merge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            padding: 0;
+            border: none;
+            background: transparent;
+            color: var(--vscode-descriptionForeground);
+            cursor: pointer;
+
+            &:hover {
+                color: var(--vscode-foreground);
+            }
+
+            svg {
+                width: 12px;
+                height: 12px;
             }
         }
 
@@ -3825,6 +5063,7 @@ body.steward-sidebar {
 
         .codex-session-icon,
         .codex-session-pin,
+        .codex-session-view,
         .codex-session-archive,
         .ai-session-close-terminal {
             display: inline-flex;
@@ -3936,6 +5175,7 @@ body.steward-sidebar {
         }
 
         .codex-session-pin,
+        .codex-session-view,
         .codex-session-archive,
         .ai-session-close-terminal {
             svg {
@@ -3945,6 +5185,7 @@ body.steward-sidebar {
         }
 
         .codex-session-pin,
+        .codex-session-view,
         .codex-session-archive,
         .ai-session-close-terminal {
             color: var(--vscode-descriptionForeground);
@@ -3980,6 +5221,13 @@ body.steward-sidebar {
             &.active {
                 color: var(--vscode-focusBorder);
                 background: var(--vscode-list-inactiveSelectionBackground, transparent);
+            }
+        }
+
+        .codex-session-view {
+            &:hover {
+                color: var(--vscode-focusBorder);
+                transform: scale(1.08);
             }
         }
 
@@ -5395,6 +6643,52 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     body.steward-sidebar {
         overflow-x: hidden;
 
+        // The creation form stacks every control on its own line so the
+        // combobox, setup toggle, and actions stay usable at the 170px
+        // minimum sidebar width.
+        .ai-session-group-form {
+            margin: 2px 2px 4px;
+            padding: 4px;
+
+            .ai-session-group-form-member {
+                display: block;
+
+                > * {
+                    margin-top: 4px;
+                }
+
+                .ai-session-group-form-check,
+                .ai-session-group-form-primary,
+                .ai-session-group-form-setup {
+                    display: flex;
+                }
+
+                .ai-session-group-form-base,
+                .ai-session-group-form-base-filter {
+                    width: 100%;
+                    max-width: 100%;
+                    box-sizing: border-box;
+                }
+
+                .ai-session-group-form-base-combobox {
+                    display: block;
+                }
+
+                .ai-session-group-form-base-listbox {
+                    min-width: 0;
+                    width: 100%;
+                }
+            }
+
+            .ai-session-group-form-actions {
+                flex-wrap: wrap;
+
+                button {
+                    flex: 1 1 auto;
+                }
+            }
+        }
+
         .project {
             min-width: 0;
             max-width: 100%;
@@ -5417,9 +6711,8 @@ body.steward-sidebar .project .ai-session-attention-indicator {
 
             .project-title-row,
             .project-description,
-            .ai-session-module-header,
-            .ai-session-module-title,
-            .ai-session-create-actions,
+            .ai-session-chats-toolbar,
+            .ai-session-surface-actions,
             .ai-session-batch-actions,
             .ai-session-batch-selection-actions,
             .ai-session-batch-submit-actions,
@@ -5431,7 +6724,6 @@ body.steward-sidebar .project .ai-session-attention-indicator {
             }
 
             .project-description,
-            .ai-session-module-title,
             .codex-session-name,
             .codex-session-meta {
                 overflow: hidden;
@@ -5451,8 +6743,20 @@ body.steward-sidebar .project .ai-session-attention-indicator {
                 .ai-session-primary-action {
                     grid-template-columns: 22px minmax(0, 1fr);
                     gap: 5px;
-                    padding-right: 36px;
+                    // No permanent reservation for the hover action pill:
+                    // three action icons need ~48px, which would leave the
+                    // title unreadable at the minimum sidebar width. The
+                    // pill transiently overlays the truncated tail instead
+                    // (VS Code list rows behave the same way on hover).
+                    padding-right: 8px;
                     padding-left: 6px;
+                }
+
+                // The leading provider icon already encodes the provider;
+                // the text badge costs the truncated title ~30px it cannot
+                // spare in a narrow sidebar.
+                .ai-session-provider-badge {
+                    display: none;
                 }
             }
 

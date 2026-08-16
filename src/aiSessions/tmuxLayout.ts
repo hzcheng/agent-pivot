@@ -10,11 +10,13 @@ import type {
 } from './runtimeTypes';
 import {
     getAiSessionRuntimeRootSnapshotKey,
+    getAiSessionRuntimeIdentityVersion,
     isValidAiSessionRuntimeIdentity,
 } from './runtimeTypes';
 import { legacyTmuxLocator } from './tmuxNaming';
 
-const METADATA_VERSION = 2;
+const LEGACY_METADATA_VERSION = 2;
+const METADATA_VERSION = 3;
 const MAX_ID_LENGTH = 512;
 const MAX_MARKER_LENGTH = 4096;
 const MAX_CREATED_AT_LENGTH = 200;
@@ -27,6 +29,9 @@ export const TMUX_METADATA_OPTIONS = {
     workspaceScopeIdentity: '@agent-pivot-workspace-scope-identity',
     workspaceNavigationIdentity: '@agent-pivot-workspace-navigation-identity',
     workspaceRootHostPaths: '@agent-pivot-workspace-root-host-paths',
+    writableRootHostPaths: '@agent-pivot-writable-root-host-paths',
+    worktreeKey: '@agent-pivot-worktree-key',
+    isolatedRoots: '@agent-pivot-isolated-roots',
     cwd: '@agent-pivot-cwd',
     provider: '@agent-pivot-provider',
     sessionId: '@agent-pivot-session-id',
@@ -72,13 +77,18 @@ export function getTmuxRuntimeKey(identity: AiSessionRuntimeIdentity): string {
     }
     const kind = hasSessionId ? 'session' : 'pending';
     const id = requireIdentityId(hasSessionId ? identity.sessionId : identity.pendingId, `${kind}Id`);
+    const usesWorktreeIdentity = getAiSessionRuntimeIdentityVersion(identity) === METADATA_VERSION;
     return JSON.stringify([
-        METADATA_VERSION,
+        usesWorktreeIdentity ? METADATA_VERSION : LEGACY_METADATA_VERSION,
         identity.provider,
         identity.workspaceScopeIdentity,
         identity.workspaceNavigationIdentity,
         JSON.parse(getAiSessionRuntimeRootSnapshotKey(identity)),
         identity.cwd,
+        ...(usesWorktreeIdentity ? [
+            identity.writableRootHostPaths ?? identity.workspaceRootHostPaths,
+            identity.worktreeKey ?? null,
+        ] : []),
         kind,
         id,
     ]);
@@ -91,14 +101,21 @@ export function parseManagedTmuxMetadata(values: unknown): AiSessionManagedTmuxM
     const record = values as Record<string, unknown>;
     const hasSessionId = record.sessionId !== undefined;
     const hasPendingId = record.pendingId !== undefined;
+    const version = record.version === String(LEGACY_METADATA_VERSION)
+        ? LEGACY_METADATA_VERSION
+        : record.version === String(METADATA_VERSION)
+            ? METADATA_VERSION
+            : null;
+    const v3RequiredKeys = version === METADATA_VERSION ? ['writableRootHostPaths'] : [];
+    const v3OptionalKeys = version === METADATA_VERSION ? ['worktreeKey', 'isolatedRoots'] : [];
     if (hasSessionId === hasPendingId || !hasExactKeys(record, [
         'managed', 'version', 'layout', 'workspaceScopeIdentity',
         'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd',
-        'provider', hasSessionId ? 'sessionId' : 'pendingId',
-    ], ['createdAt', 'marker'])) {
+        'provider', hasSessionId ? 'sessionId' : 'pendingId', ...v3RequiredKeys,
+    ], ['createdAt', 'marker', ...v3OptionalKeys])) {
         return null;
     }
-    if (record.managed !== '1' || record.version !== String(METADATA_VERSION)
+    if (record.managed !== '1' || version === null
         || !isTmuxLayout(record.layout) || !isAiSessionProviderIdValue(record.provider)
         || !isBoundedString(record.workspaceScopeIdentity, MAX_ID_LENGTH)
         || !isBoundedString(record.workspaceNavigationIdentity, MAX_MARKER_LENGTH)
@@ -107,6 +124,21 @@ export function parseManagedTmuxMetadata(values: unknown): AiSessionManagedTmuxM
     }
     const workspaceRootHostPaths = parseWorkspaceRootHostPaths(record.workspaceRootHostPaths);
     if (!workspaceRootHostPaths) {
+        return null;
+    }
+    const writableRootHostPaths = version === METADATA_VERSION
+        ? parseWorkspaceRootHostPaths(record.writableRootHostPaths)
+        : undefined;
+    if (version === METADATA_VERSION && !writableRootHostPaths) {
+        return null;
+    }
+    const worktreeKey = record.worktreeKey === undefined
+        ? undefined
+        : parseWorktreeKey(record.worktreeKey);
+    if (record.worktreeKey !== undefined && !worktreeKey) {
+        return null;
+    }
+    if (record.isolatedRoots !== undefined && record.isolatedRoots !== '1') {
         return null;
     }
 
@@ -122,11 +154,14 @@ export function parseManagedTmuxMetadata(values: unknown): AiSessionManagedTmuxM
     }
 
     const base: AiSessionManagedTmuxMetadataBase = {
-        version: METADATA_VERSION,
+        version,
         layout: record.layout,
         workspaceScopeIdentity: record.workspaceScopeIdentity,
         workspaceNavigationIdentity: record.workspaceNavigationIdentity,
         workspaceRootHostPaths,
+        ...(writableRootHostPaths ? { writableRootHostPaths } : {}),
+        ...(worktreeKey ? { worktreeKey } : {}),
+        ...(record.isolatedRoots === '1' ? { isolatedRoots: true as const } : {}),
         cwd: record.cwd,
         provider: record.provider,
         ...(createdAt !== undefined ? { createdAt } : {}),
@@ -144,6 +179,30 @@ export function parseManagedTmuxMetadata(values: unknown): AiSessionManagedTmuxM
     }
     const result = { ...base, pendingId: record.pendingId };
     return isValidAiSessionRuntimeIdentity(result) ? result : null;
+}
+
+function parseWorktreeKey(value: unknown): AiSessionRuntimeIdentity['worktreeKey'] | null {
+    let parsed = value;
+    if (typeof value === 'string') {
+        try {
+            parsed = JSON.parse(value);
+        } catch (_error) {
+            return null;
+        }
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return null;
+    }
+    const key = parsed as Record<string, unknown>;
+    if (Object.keys(key).length !== 2
+        || typeof key.repositoryKey !== 'string'
+        || typeof key.canonicalWorktreePath !== 'string') {
+        return null;
+    }
+    return {
+        repositoryKey: key.repositoryKey,
+        canonicalWorktreePath: key.canonicalWorktreePath,
+    };
 }
 
 function hasExactKeys(

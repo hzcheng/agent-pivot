@@ -14,6 +14,10 @@ function initAiSessionPresentationStateStore(options) {
                 || message.workspaceScopeIdentity === null)
             && (typeof message.workspaceNavigationIdentity === 'string'
                 || message.workspaceNavigationIdentity === null)
+            && (typeof message.worktreeGroupsAggregateRevision === 'undefined'
+                || message.worktreeGroupsAggregateRevision === null
+                || (Number.isSafeInteger(message.worktreeGroupsAggregateRevision)
+                    && message.worktreeGroupsAggregateRevision >= 0))
             && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
             && Number.isSafeInteger(message.activeAttentionCount)
             && message.activeAttentionCount >= 0
@@ -544,6 +548,7 @@ function initProjectAiSessionsUpdate(options) {
     var getSelectedAiSessionProviders = options.getSelectedAiSessionProviders;
     var syncAiSessionBatchManagementDom = options.syncAiSessionBatchManagementDom;
     var reconcilePendingAiSessionProviderSelectionDom = options.reconcilePendingAiSessionProviderSelectionDom;
+    var reconcileWorktreeGroupFormDom = options.reconcileWorktreeGroupFormDom;
     var submitAiSessionProviderSelection = options.submitAiSessionProviderSelection;
     var toggleCodexSessions = options.toggleCodexSessions;
     var exitAiSessionBatchManagement = options.exitAiSessionBatchManagement;
@@ -560,7 +565,7 @@ function initProjectAiSessionsUpdate(options) {
             || typeof message.html !== 'string'
             || typeof normalizeDashboardSearchCatalog !== 'function'
             || normalizeDashboardSearchCatalog(message.searchCatalog) !== message.searchCatalog
-            || message.searchCatalog.version !== 2) {
+            || message.searchCatalog.version !== 3) {
             presentationTransactions.requestFullRefresh('unsupported-ai-session-message');
             return;
         }
@@ -602,6 +607,9 @@ function initProjectAiSessionsUpdate(options) {
                     }
                 }
                 reconcilePendingAiSessionProviderSelectionDom();
+                if (reconcileWorktreeGroupFormDom) {
+                    reconcileWorktreeGroupFormDom();
+                }
             },
         })) {
             return;
@@ -692,7 +700,47 @@ function initProjectAiSessionsUpdate(options) {
         return false;
     }
 
+    function revealWorkspaceWorktree(navigationIdentity, repositoryKey, canonicalWorktreePath) {
+        if (!repositoryKey || !canonicalWorktreePath) {
+            return false;
+        }
+        var workspaceDiv = findWorkspaceDiv(navigationIdentity);
+        if (!workspaceDiv) {
+            return false;
+        }
+        var workspaceId = workspaceDiv.getAttribute('data-id');
+        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
+            toggleCodexSessions(workspaceDiv, workspaceId);
+        }
+        selectAiSessionSurfaceDom(workspaceDiv, 'worktree');
+        writeAiSessionSurfaceState(window.vscode, workspaceId, 'worktree');
+        if (window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: workspaceId,
+                surface: 'worktree',
+            });
+        }
+        var group = Array.from(workspaceDiv.querySelectorAll(
+            '.ai-session-worktree-group[data-worktree-repository-key][data-worktree-path]'
+        )).find(candidate =>
+            candidate.getAttribute('data-worktree-repository-key') === repositoryKey
+            && candidate.getAttribute('data-worktree-path') === canonicalWorktreePath
+        );
+        if (!group) {
+            focusSearchRevealTarget(workspaceDiv);
+            return false;
+        }
+        var header = group.querySelector('.ai-session-worktree-header');
+        setAiSessionWorktreeGroupExpanded(workspaceDiv, group, true);
+        writeAiSessionWorktreeCollapseState(window.vscode, workspaceDiv);
+        focusSearchRevealTarget(header || group);
+        return true;
+    }
+
     window.__agentPivotRevealWorkspaceSession = revealWorkspaceSession;
+    window.__agentPivotRevealWorkspaceWorktree = revealWorkspaceWorktree;
     window.__agentPivotRevealPendingWorkspaceSession = () => {
         if (!pendingWorkspaceSessionReveal) {
             return false;

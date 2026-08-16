@@ -29,6 +29,7 @@ const publicCommands = [
     'agentPivot.nextAttentionSession',
     'agentPivot.nextRunningSession',
     'agentPivot.switchToAiSession',
+    'agentPivot.switchWorktreeOrSession',
     'agentPivot.toggleLastAiSession',
     'agentPivot.switchToOpenWindow'
 ];

@@ -2,24 +2,28 @@
 
 import type * as vscode from 'vscode';
 
-import type { AiSessionProviderId, CodexSession } from '../models';
+import type { AiSessionProviderId } from '../models';
 import type {
     ProviderDirectoryCapabilityProvider,
     ProviderDirectoryCapabilityResult,
 } from './providerDirectoryCapability';
 import { assignPathToWorkspaceRoot } from '../workspaces/sessionAssignment';
+import { assignPathToWorkspaceWorktree } from '../workspaces/worktreeSessionAssignment';
 import {
     buildAiSessionDirectoryScope,
+    mapWorktreeBoundHostPaths,
     WorkspaceDirectoryScopeError,
 } from '../workspaces/sessionScope';
 import type { ActiveEditorUri } from '../workspaces/sessionScope';
-import type { OpenWorkspace } from '../workspaces/types';
+import type { OpenWorkspace, RepositoryRootBinding } from '../workspaces/types';
+import type { WorktreeKey, WorktreeSnapshot } from '../worktrees/types';
 import { sanitizeAiSessionAlias } from './aliasStore';
 import { normalizeAiSessionProviderSelection } from './providerSelection';
 import type { AiSessionProviderSelection } from './providerSelection';
 import type {
     AiSessionDirectoryScope,
     AiSessionProviderSelectionResultMessage,
+    AiSessionViewModel,
     WorkspaceAiSessionActionTarget,
 } from './types';
 
@@ -55,6 +59,12 @@ export interface AiSessionWorkspaceLaunchPreflightOptions {
     explicitRootId?: string;
     historicalCwd?: string;
     lastUsedRootId?: string;
+    worktree?: {
+        key: WorktreeKey;
+        rootBindings: readonly RepositoryRootBinding[];
+        /** Other ready group members' worktree paths (PRD §5.5). */
+        extraWritableHostPaths?: readonly string[];
+    };
 }
 
 function blocked(
@@ -116,9 +126,10 @@ export async function preflightAiSessionDirectoryScope(
             explicitRootId,
             activeEditorUri: options.action === 'create' ? options.activeEditorUri : null,
             lastUsedRootId: options.action === 'create' ? options.lastUsedRootId : null,
-            primaryCwd: options.action === 'resume' && historicalRoot
+            primaryCwd: options.action === 'resume' && (historicalRoot || options.worktree)
                 ? options.historicalCwd
                 : undefined,
+            worktree: options.worktree,
             isDirectory: options.isDirectory,
         });
         return { status: 'ready', directoryScope };
@@ -139,6 +150,25 @@ export async function preflightAiSessionDirectoryScope(
 export interface AiSessionCommandControllerOptions {
     getWorkspaceTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     getOpenWorkspace?: () => OpenWorkspace | null;
+    getWorktreeSnapshot?: () => WorktreeSnapshot | null;
+    /**
+     * Authoritative manifest lookup (PRD §5.2): the other ready, non-detached
+     * member worktree keys of the group that owns the given worktree. Every
+     * returned key is revalidated against the live snapshot and the file
+     * system before it enters the session scope.
+     */
+    getWorktreeGroupPeerKeys?: (
+        workspaceNavigationIdentity: string,
+        key: WorktreeKey
+    ) => readonly WorktreeKey[] | null;
+    /**
+     * True while any member of the group owning the worktree is still
+     * planned/provisioning — session creation must fail closed then.
+     */
+    isWorktreeGroupProvisioning?: (
+        workspaceNavigationIdentity: string,
+        key: WorktreeKey
+    ) => boolean;
     getActiveEditorUri?: () => ActiveEditorUri | string | null;
     isWorkspaceTrusted?: () => boolean;
     getProvider?: (
@@ -157,6 +187,10 @@ export interface AiSessionCommandControllerOptions {
     showWarningMessage?: (message: string) => unknown;
     isProviderId: (value: string) => value is AiSessionProviderId;
     setExpanded: (workspaceScopeIdentity: string, expanded: boolean) => Thenable<unknown>;
+    setSelectedSurface: (
+        workspaceScopeIdentity: string,
+        surface: 'worktree' | 'chats'
+    ) => Thenable<unknown>;
     setProviderSelection: (
         workspaceScopeIdentity: string,
         selection: AiSessionProviderSelection
@@ -184,9 +218,82 @@ export class AiSessionCommandController {
     async resolveWorkspaceDirectoryScope(
         workspace: OpenWorkspace,
         providerId: AiSessionProviderId,
-        session?: CodexSession,
-        explicitRootId?: string
+        session?: AiSessionViewModel,
+        explicitRootId?: string,
+        creationWorktreeKey?: WorktreeKey
     ): Promise<AiSessionDirectoryScope | null> {
+        const historicalCwd = session?.cwd || session?.workDir;
+        const requestedWorktreeKey = session?.worktreeKey || creationWorktreeKey;
+        const worktreeAssignment = requestedWorktreeKey
+            ? assignPathToWorkspaceWorktree(
+                historicalCwd || '',
+                workspace,
+                this.options.getWorktreeSnapshot?.(),
+                requestedWorktreeKey,
+            )
+            : null;
+        if (requestedWorktreeKey && (!worktreeAssignment
+            || worktreeAssignment.worktree.isBare
+            || worktreeAssignment.worktree.health === 'missing'
+            || worktreeAssignment.worktree.health === 'prunable')) {
+            // Fail closed for creation AND resume (PRD §6.4): a session whose
+            // worktree is gone must never fall back to the main checkout —
+            // the agent would otherwise write outside its task boundary.
+            this.options.showWarningMessage?.(
+                creationWorktreeKey
+                    ? 'The selected worktree is no longer available. Refresh the dashboard and try again.'
+                    : 'This session\'s worktree was deleted, so it cannot be resumed in place. Restore the worktree or start a new session.'
+            );
+            return null;
+        }
+        // Fail closed while any member of the owning group is still being
+        // provisioned: a session created now would silently get a scope
+        // without that repository (PRD §10: 全部 member 就绪前禁用).
+        if (requestedWorktreeKey && worktreeAssignment
+            && this.options.isWorktreeGroupProvisioning?.(
+                workspace.navigationIdentity, requestedWorktreeKey)) {
+            this.options.showWarningMessage?.(
+                'This worktree group is still being created. Start the session once every member is ready.'
+            );
+            return null;
+        }
+        // Group peer members must revalidate against the live snapshot and
+        // the file system: the manifest's ready state is not updated when a
+        // physical worktree disappears, so an unchecked path could hand the
+        // agent a writable directory that no longer belongs to the task.
+        const peerKeys = requestedWorktreeKey && worktreeAssignment
+            ? this.options.getWorktreeGroupPeerKeys?.(
+                workspace.navigationIdentity, requestedWorktreeKey) || []
+            : [];
+        const extraWritableHostPaths: string[] = [];
+        for (const peerKey of peerKeys) {
+            const peerAssignment = assignPathToWorkspaceWorktree(
+                '', workspace, this.options.getWorktreeSnapshot?.(), peerKey);
+            // Peers grant their bound workspace subdirectories, never the
+            // whole physical worktree root (same mapping as the primary).
+            const peerPaths = peerAssignment
+                ? mapWorktreeBoundHostPaths(
+                    peerKey.canonicalWorktreePath,
+                    peerAssignment.repository.rootBindings,
+                    workspace.roots)
+                : [];
+            if (!peerAssignment
+                || peerAssignment.worktree.isBare
+                // Locked worktrees still exist and stay usable (Git only
+                // blocks prune/repair): keep the check aligned with the
+                // projection and the primary-member rule, which reject only
+                // missing/prunable/bare.
+                || peerAssignment.worktree.health === 'missing'
+                || peerAssignment.worktree.health === 'prunable'
+                || peerPaths.length === 0
+                || peerPaths.some(peerPath => !this.options.isDirectory?.(peerPath))) {
+                this.options.showWarningMessage?.(
+                    'A member worktree of this group is no longer available. Refresh the dashboard and resolve the group before starting sessions in it.'
+                );
+                return null;
+            }
+            extraWritableHostPaths.push(...peerPaths);
+        }
         const result = await preflightAiSessionDirectoryScope({
             workspace,
             provider: this.options.getProvider?.(providerId) || null,
@@ -196,9 +303,21 @@ export class AiSessionCommandController {
             isDirectory: this.options.isDirectory,
             pickWorkspaceRoot: this.options.pickWorkspaceRoot,
             activeEditorUri: this.options.getActiveEditorUri?.(),
-            explicitRootId,
-            historicalCwd: session?.cwd || session?.workDir,
+            explicitRootId: explicitRootId || worktreeAssignment?.root?.id,
+            historicalCwd,
             lastUsedRootId: this.options.getPrimaryRootId?.(workspace),
+            ...(worktreeAssignment ? {
+                worktree: {
+                    key: worktreeAssignment.worktree.key,
+                    rootBindings: worktreeAssignment.repository.rootBindings.filter(binding =>
+                        workspace.roots.some(root => root.id === binding.workspaceRootId)),
+                    // A manifest group session writes every ready member
+                    // worktree, not just its cwd repository (PRD §5.5). The
+                    // lookup covers both creation (group row quick-create)
+                    // and resume (session carries its worktreeKey).
+                    extraWritableHostPaths,
+                },
+            } : {}),
         });
         if (result.status === 'blocked') {
             this.options.showWarningMessage?.(result.message);
@@ -223,6 +342,18 @@ export class AiSessionCommandController {
             return;
         }
         await this.options.setExpanded(workspaceTarget.workspace.scopeIdentity, expanded);
+    }
+
+    async selectSurface(projectId: unknown, surface: unknown): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId
+            || (surface !== 'worktree' && surface !== 'chats')) {
+            return;
+        }
+        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
+        if (!workspaceTarget) {
+            return;
+        }
+        await this.options.setSelectedSurface(workspaceTarget.workspace.scopeIdentity, surface);
     }
 
     async selectProviders(

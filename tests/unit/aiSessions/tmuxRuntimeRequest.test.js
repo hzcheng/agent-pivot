@@ -209,6 +209,29 @@ test('RUNTIME-TMUX-BACKEND-001 materializes deferred requests with cloned identi
     assert.notEqual(materializedPending.identity, deferredPending.identity);
 });
 
+test('RUNTIME-TMUX-WORKTREE-REQUEST-001 snapshots v3 identity fields defensively', () => {
+    const identity = resumeIdentity({
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature', '/repos/backend'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+    });
+    const deferred = snapshotResumeRequest(resumeRequest({ identity }));
+
+    assert.deepEqual(deferred.identity, identity);
+    assert.notEqual(deferred.identity.writableRootHostPaths, identity.writableRootHostPaths);
+    assert.notEqual(deferred.identity.worktreeKey, identity.worktreeKey);
+    identity.writableRootHostPaths.push('/mutated');
+    identity.worktreeKey.canonicalWorktreePath = '/mutated';
+    assert.deepEqual(deferred.identity.writableRootHostPaths, [
+        '/managed/frontend-feature', '/repos/backend',
+    ]);
+    assert.equal(deferred.identity.worktreeKey.canonicalWorktreePath, '/managed/frontend-feature');
+});
+
 test('RUNTIME-TMUX-BACKEND-001 rejects launch specs whose marker changes before dispatch', () => {
     const deferred = snapshotResumeRequest(resumeRequest({ launch: launch({ markerPath: '/tmp/m' }) }));
     const tampered = {

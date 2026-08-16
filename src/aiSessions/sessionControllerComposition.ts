@@ -6,6 +6,7 @@ import type * as vscode from 'vscode';
 import { isAiSessionProviderId } from '../models';
 import type { AiSessionProviderId } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
+import type { WorktreeSnapshot } from '../worktrees/types';
 import type { WorkspacePrimaryRootStore } from '../workspaces/primaryRootStore';
 import type { ActiveAiSessionTerminalIdentity } from './activeTerminalHighlight';
 import type AiSessionAliasController from './aliasController';
@@ -21,6 +22,13 @@ import { getAiSessionIdsForCwd } from './pendingTerminals';
 import type AiSessionPinController from './pinController';
 import type AiSessionProfileController from './sessionProfileController';
 import { resolveDefaultCodexProfileDecision } from './sessionProfileController';
+import {
+    resolveAiSessionWorktreeCreationTarget,
+} from './worktreeCreationTarget';
+import type { AiSessionCreationScopeTarget } from './worktreeCreationTarget';
+import type { WorktreeKey } from '../worktrees/types';
+import type { RetiredWorktreeIdentity } from '../worktrees/retiredWorktrees';
+import { findLatestRetirementForKey } from '../worktrees/retiredWorktrees';
 import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
 import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
 import type { AiSessionReadCoordinator } from './readCoordinator';
@@ -43,6 +51,55 @@ import type AiSessionWorkspaceStateStore from './workspaceStateStore';
 export interface SessionControllerCompositionOptions {
     getCurrentWorkspaceActionTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     getCurrentOpenWorkspace: () => OpenWorkspace | null;
+    getWorktreeSnapshot: () => WorktreeSnapshot | null;
+    /** Authoritative manifest lookup for group session scoping (PRD §5.5). */
+    getWorktreeGroupPeerKeys?: (
+        workspaceNavigationIdentity: string,
+        key: WorktreeKey
+    ) => readonly WorktreeKey[] | null;
+    /** Fail-closed guard while any group member is still provisioning. */
+    isWorktreeGroupProvisioning?: (
+        workspaceNavigationIdentity: string,
+        key: WorktreeKey
+    ) => boolean;
+    /** Retired identities for generation-claim creation (PRD §6.4). */
+    getRetiredWorktreeIdentities?: (
+        workspaceNavigationIdentity: string
+    ) => readonly RetiredWorktreeIdentity[];
+    /** Quarantine signal for the retired store (PRD §6.4). */
+    isWorktreeRetiredStoreCorrupt?: (
+        workspaceNavigationIdentity: string
+    ) => boolean;
+    /** Persists a pending generation claim (PRD §6.4). */
+    createWorktreeGenerationClaim?: (
+        workspaceNavigationIdentity: string,
+        input: {
+            pendingId: string;
+            worktreeKey: WorktreeKey;
+            createdAfterRetirementId: string;
+            createdAtMs: number;
+            creatingProvider?: string;
+            launchMarkerPath?: string;
+        }
+    ) => Promise<{ claimId: string }>;
+    /** Compensating delete for a pending generation claim (PRD §6.4). */
+    removeWorktreeGenerationClaim?: (
+        workspaceNavigationIdentity: string,
+        claimId: string
+    ) => Promise<boolean>;
+    /**
+     * Shared deletion admission (PRD §6.4 decision J): runs the given
+     * admission-phase operation under the per-group mutex and throws
+     * group-leased when the group is being deleted. Applies to EVERY
+     * worktree session creation.
+     */
+    withWorktreeDeletionAdmission?: <T>(
+        scope: {
+            workspaceNavigationIdentity: string;
+            worktreeKey: WorktreeKey;
+        },
+        operation: () => Promise<T>
+    ) => Promise<T>;
     getActiveEditorUri: () => vscode.Uri | undefined;
     isWorkspaceTrusted: () => boolean;
     getRegisteredAiSessionProvider: (providerId: AiSessionProviderId) => AiSessionProvider;
@@ -209,6 +266,48 @@ export function createSessionControllerComposition(
         );
         return selected?.rootId;
     };
+    const selectAiSessionCreationScopeTarget = async (
+        workspace: OpenWorkspace,
+        explicitWorktreeKey?: WorktreeKey
+    ): Promise<AiSessionCreationScopeTarget | null> => {
+        const resolution = resolveAiSessionWorktreeCreationTarget({
+            workspace,
+            snapshot: options.getWorktreeSnapshot(),
+            activeEditorPath: options.getActiveEditorUri()?.fsPath,
+            explicitKey: explicitWorktreeKey,
+        });
+        if (resolution.status === 'workspace') {
+            return { kind: 'workspace' };
+        }
+        if (resolution.status === 'selected') {
+            return { kind: 'worktree', key: resolution.key };
+        }
+        if (resolution.status === 'blocked') {
+            await showWarningMessage(
+                resolution.reason === 'snapshot-unavailable'
+                    ? 'Worktree discovery is not ready yet. Refresh the dashboard and try again.'
+                    : resolution.reason === 'no-linked-worktrees'
+                        ? 'No linked worktree is available for a new AI session.'
+                        : 'The selected worktree is no longer available. Refresh the dashboard and try again.'
+            );
+            return null;
+        }
+        const selected = await showQuickPick(
+            resolution.candidates.map(candidate => ({
+                label: candidate.label,
+                description: candidate.description,
+                worktreeKey: candidate.key,
+            })),
+            {
+                placeHolder: 'Select the worktree where the AI session will run',
+                ignoreFocusOut: true,
+                title: 'New AI Session Worktree',
+            } as vscode.QuickPickOptions & { title: string }
+        );
+        return selected
+            ? { kind: 'worktree', key: { ...selected.worktreeKey } }
+            : null;
+    };
     const pickAiSessionProvider = async (): Promise<AiSessionProviderId | undefined> => {
         const quickPickOptions: vscode.QuickPickOptions = {
             placeHolder: 'Select an AI provider',
@@ -301,6 +400,9 @@ export function createSessionControllerComposition(
     const aiSessionCommandController = factories.createCommandController({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getOpenWorkspace: getCurrentOpenWorkspace,
+        getWorktreeSnapshot: options.getWorktreeSnapshot,
+        getWorktreeGroupPeerKeys: options.getWorktreeGroupPeerKeys,
+        isWorktreeGroupProvisioning: options.isWorktreeGroupProvisioning,
         getActiveEditorUri: options.getActiveEditorUri,
         isWorkspaceTrusted: options.isWorkspaceTrusted,
         getProvider: getRegisteredAiSessionProvider,
@@ -323,6 +425,8 @@ export function createSessionControllerComposition(
         showWarningMessage: message => showWarningMessage(message),
         isProviderId: isAiSessionProviderId,
         setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
+        setSelectedSurface: (workspaceScopeIdentity, surface) =>
+            aiSessionWorkspaceStateStore.setSelectedSurface(workspaceScopeIdentity, surface),
         setProviderSelection: (workspaceScopeIdentity, selection) =>
             aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
         postProviderSelectionResult: result => postMessage(result),
@@ -342,6 +446,7 @@ export function createSessionControllerComposition(
         isProviderId: isAiSessionProviderId,
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         pickWorkspaceRoot: workspace => pickAiSessionWorkspaceRoot(workspace, 'create'),
+        selectCreationScopeTarget: selectAiSessionCreationScopeTarget,
         pickProvider: pickAiSessionProvider,
         pickCodexProfile,
         rememberSessionProfile: (pendingId, decision) => {
@@ -363,9 +468,9 @@ export function createSessionControllerComposition(
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,
-        resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId) =>
+        resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId, worktreeKey) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(
-                target.workspace, providerId, undefined, explicitRootId
+                target.workspace, providerId, undefined, explicitRootId, worktreeKey
             ),
         rememberDirectoryScope: async directoryScope => {
             try {
@@ -398,6 +503,45 @@ export function createSessionControllerComposition(
             projectId,
             message,
         }),
+        prepareGenerationClaim: async ({
+            navigationIdentity, worktreeKey, pendingId, provider, launchMarkerPath,
+        }) => {
+            if (!options.getRetiredWorktreeIdentities
+                || !options.createWorktreeGenerationClaim) {
+                return null;
+            }
+            if (options.isWorktreeRetiredStoreCorrupt?.(navigationIdentity)) {
+                // A quarantined retired store cannot prove whether this path
+                // was retired: refuse the creation rather than starting a
+                // session without its generation claim (PRD §6.4).
+                throw new Error('The retired-worktree store is quarantined.');
+            }
+            const retirement = findLatestRetirementForKey(
+                options.getRetiredWorktreeIdentities(navigationIdentity),
+                worktreeKey);
+            if (!retirement) {
+                return null;
+            }
+            const claim = await options.createWorktreeGenerationClaim(navigationIdentity, {
+                pendingId,
+                worktreeKey: { ...worktreeKey },
+                createdAfterRetirementId: retirement.retirementId,
+                createdAtMs: nowMs(),
+                creatingProvider: provider,
+                launchMarkerPath,
+            });
+            return claim.claimId;
+        },
+        // Every worktree session creation — not only retired-path ones —
+        // enters the shared deletion admission mutex, so a session can
+        // never slip between a deletion's blocker scan and its journal
+        // write (PRD §6.4 decision J).
+        ...(options.withWorktreeDeletionAdmission
+            ? { withWorktreeDeletionAdmission: options.withWorktreeDeletionAdmission }
+            : {}),
+        discardGenerationClaim: async ({ navigationIdentity, claimId }) => {
+            await options.removeWorktreeGenerationClaim?.(navigationIdentity, claimId);
+        },
         nowMs,
     });
     const aiSessionArchiveController = factories.createArchiveController({

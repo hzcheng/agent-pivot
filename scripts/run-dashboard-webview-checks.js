@@ -304,13 +304,14 @@ function cssRuleIncludesTopLevelDeclaration(rule, declaration) {
 
 function makeDashboardCatalog() {
     return {
-        version: 2,
+        version: 3,
         sessions: [{
             key: 'codex:c1', searchText: 'fix dashboard codex c1', workspaceId: 'workspace-current',
             workspaceNavigationIdentity: 'navigation-current', workspaceName: 'Dashboard Workspace',
             provider: 'codex', sessionId: 'c1', name: 'Fix dashboard', active: true,
             action: 'reveal-workspace-session',
         }],
+        worktrees: [],
         openWorkspaces: [{
             key: 'workspace:navigation-current', navigationIdentity: 'navigation-current',
             searchText: 'dashboard workspace local app api', workspaceId: 'workspace-current',
@@ -344,13 +345,14 @@ function makeUpdatedDashboardCatalog() {
 
 function makeWorkspaceDashboardCatalog() {
     return {
-        version: 2,
+        version: 3,
         sessions: [{
             key: 'codex:c1', searchText: 'fix dashboard codex c1', workspaceId: 'workspace-current',
             workspaceNavigationIdentity: 'navigation-current', workspaceName: 'Dashboard Workspace',
             provider: 'codex', sessionId: 'c1', name: 'Fix dashboard', active: true,
             action: 'reveal-workspace-session',
         }],
+        worktrees: [],
         openWorkspaces: [{
             key: 'workspace:navigation-current', navigationIdentity: 'navigation-current',
             searchText: 'dashboard workspace local app api', workspaceId: 'workspace-current',
@@ -432,14 +434,14 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(aiMessage.projectionRevision, 7);
     assert.strictEqual(aiMessage.presentation.projectionRevision, 7);
     assert.strictEqual(aiMessage.currentWorkspaceCount, 1);
-    assert.strictEqual(aiMessage.searchCatalog.version, 2);
+    assert.strictEqual(aiMessage.searchCatalog.version, 3);
     assert.deepStrictEqual(aiMessage.searchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.ok(aiMessage.html.includes('data-current-workspace'));
     assert.ok(aiMessage.html.includes('data-session-icon-fx="halo"'),
         'AI session incremental updates must use the configured running icon animation');
     assert.ok(aiMessage.html.includes('data-session-fx="custom"'),
         'AI session incremental updates must preserve the independent running card animation');
-    assert.strictEqual(workspaceSearchCatalog.version, 2);
+    assert.strictEqual(workspaceSearchCatalog.version, 3);
     assert.deepStrictEqual(workspaceSearchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.deepStrictEqual(workspaceSearchCatalog.sessions.map(item => item.action), ['reveal-workspace-session']);
     assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
@@ -448,7 +450,7 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(openWorkspacesMessage.presentation.projectionRevision, 1);
     assert.strictEqual(openWorkspacesMessage.currentWorkspaceCount, 1);
     assert.strictEqual(openWorkspacesMessage.navigationWorkspaceCount, 1);
-    assert.strictEqual(openWorkspacesMessage.searchCatalog.version, 2);
+    assert.strictEqual(openWorkspacesMessage.searchCatalog.version, 3);
     assert.strictEqual(openWorkspacesMessage.otherWindowsStatus, 'ready');
     assert.deepStrictEqual(
         openWorkspacesMessage.searchCatalog.openWorkspaces.map(item => item.action),
@@ -667,10 +669,8 @@ function runWorkspaceCardRenderingChecks() {
         'the quick-create button announces the provider it will launch');
     assert.ok(multiHtml.includes('data-action="create-ai-session-dropdown"'),
         'the split button keeps a dropdown entry for other providers');
-    assert.ok(multiHtml.includes('class="ai-session-create-caption"'),
-        'the split button carries a hover caption identifying the quick-create target');
-    assert.ok(multiHtml.includes('aria-hidden="true">Codex</span>'),
-        'the caption names the active provider when no profile applies');
+    assert.ok(multiHtml.includes('data-tooltip="New Codex session"'),
+        'the quick-create button names its provider in the fast tooltip');
 
     const captionSurface = {
         id: 'project-caption',
@@ -686,16 +686,18 @@ function runWorkspaceCardRenderingChecks() {
     const captionHtml = webviewAiSessionContent.getAiSessionsDiv(captionSurface);
     assert.ok(captionHtml.includes('aria-label="New Codex session with profile deepseek"'),
         'the quick button announces the effective profile');
-    assert.ok(captionHtml.includes('aria-hidden="true">Codex · deepseek</span>'),
-        'the caption shows the provider and profile');
+    assert.ok(captionHtml.includes('data-tooltip="New Codex session with profile deepseek"'),
+        'the quick button tooltip shows the provider and profile');
 
     const kimiCaptionHtml = webviewAiSessionContent.getAiSessionsDiv({
         ...captionSurface,
         activeAiSessionProvider: 'kimi',
         quickCreateProfile: 'deepseek',
     });
-    assert.ok(kimiCaptionHtml.includes('aria-hidden="true">Kimi</span>'),
+    assert.ok(kimiCaptionHtml.includes('data-tooltip="New Kimi session"'),
         'a non-codex provider never carries the codex profile');
+    assert.ok(!kimiCaptionHtml.includes('ai-session-create-caption'),
+        'no visible caption crowds the toolbar row');
     assert.ok(kimiCaptionHtml.includes('aria-label="New Kimi session"'));
 
     const rememberedHtml = webviewAiSessionContent.getAiSessionsDiv({
@@ -706,8 +708,8 @@ function runWorkspaceCardRenderingChecks() {
     });
     assert.ok(rememberedHtml.includes('data-action="create-ai-session-quick" data-provider="kimi"'),
         'the quick button follows the remembered provider, not the list filter');
-    assert.ok(rememberedHtml.includes('aria-hidden="true">Kimi</span>'),
-        'the caption follows the remembered provider');
+    assert.ok(rememberedHtml.includes('data-tooltip="New Kimi session"'),
+        'the quick button tooltip follows the remembered provider');
     assert.ok(rememberedHtml.includes('data-active-ai-session-provider="codex"'),
         'the session list filter keeps its own primary provider');
 
@@ -3798,6 +3800,7 @@ async function runDashboardCommandRegistrationChecks() {
         'nextAttentionSession',
         'nextRunningSession',
         'switchToAiSession',
+        'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
     ];
@@ -3833,6 +3836,7 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.nextAttentionSession',
         'agentPivot.nextRunningSession',
         'agentPivot.switchToAiSession',
+        'agentPivot.switchWorktreeOrSession',
         'agentPivot.toggleLastAiSession',
         'agentPivot.switchToOpenWindow',
     ]);
@@ -3871,6 +3875,7 @@ async function runDashboardCommandRegistrationChecks() {
         'nextAttentionSession',
         'nextRunningSession',
         'switchToAiSession',
+        'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
     ]);
@@ -4079,7 +4084,7 @@ function runControllerChecks(source) {
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(workspaceTodoSections.map(section => section.title))),
         ['TODO RESULTS'],
-        'v2 search must preserve searchable TODO results beside workspace-first sections'
+        'v3 search must preserve searchable TODO results beside workspace-first sections'
     );
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(workspaceTodoSections.map(section => section.id))),
@@ -4088,19 +4093,19 @@ function runControllerChecks(source) {
     assert.strictEqual(context.filterDashboardCatalog(makeWorkspaceDashboardCatalog(), 'missing').length, 0);
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(context.normalizeDashboardSearchCatalog(null))),
-        { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] }
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] }
     );
     assert.strictEqual(
         context.normalizeDashboardSearchCatalog(makeWorkspaceDashboardCatalog()).version,
-        2
+        3
     );
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(context.normalizeDashboardSearchCatalog({
             ...makeDashboardCatalog(),
             openWorkspaces: null,
         }))),
-        { version: 2, sessions: [], openWorkspaces: [], savedProjects: [], todos: [] },
-        'a malformed v2 catalog must fail closed'
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
+        'a malformed v3 catalog must fail closed'
     );
     const state = {
         activeTab: 'projects',
@@ -5147,7 +5152,7 @@ function runSourceContractChecks(source) {
         rule.selectors.includes(compiledFitGroupSelector)
         && rule.body.includes('height: 50%')
         && rule.body.includes('max-height: none')
-        && rule.body.includes('min-height: 263px')
+        && rule.body.includes('min-height: 283px')
     ), 'auto layout must pin the expanded CURRENT WINDOW group to half the pane');
     const compiledFitManualSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded';
@@ -5157,7 +5162,7 @@ function runSourceContractChecks(source) {
     );
     assert.ok(compiledFitManualRules.some(rule =>
         rule.selectors.includes(compiledFitManualSelector)
-        && rule.body.includes('min-height: 263px')
+        && rule.body.includes('min-height: 283px')
     ), 'a dragged share must respect the raised expanded pane floor');
     const compiledFitListSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list';

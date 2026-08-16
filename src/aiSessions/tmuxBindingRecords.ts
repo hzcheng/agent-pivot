@@ -9,21 +9,29 @@ import type {
     AiSessionTmuxLocator,
 } from './runtimeTypes';
 import {
+    aiSessionRuntimeIdentitiesEqual,
     cloneAiSessionRuntimeIdentity,
     getAiSessionRuntimeRootSnapshotKey,
+    getAiSessionRuntimeIdentityVersion,
     isValidAiSessionPromotionDisplayName,
     isValidAiSessionRuntimeIdentity,
 } from './runtimeTypes';
 
-export interface TmuxPendingRuntimeBinding {
-    version: 2;
-    state: 'pending';
-    pendingId: string;
+interface TmuxRuntimeBindingIdentity {
+    version: 2 | 3;
     provider: AiSessionProviderId;
     workspaceScopeIdentity: string;
     workspaceNavigationIdentity: string;
     workspaceRootHostPaths: string[];
+    writableRootHostPaths?: string[];
+    worktreeKey?: AiSessionRuntimeIdentity['worktreeKey'];
+    isolatedRoots?: boolean;
     cwd: string;
+}
+
+export interface TmuxPendingRuntimeBinding extends TmuxRuntimeBindingIdentity {
+    state: 'pending';
+    pendingId: string;
     createdAt: string;
     excludedSessionIds: string[];
     projectName?: string;
@@ -33,15 +41,9 @@ export interface TmuxPendingRuntimeBinding {
     locator: AiSessionTmuxLocator;
 }
 
-export interface TmuxKnownRuntimeBinding {
-    version: 2;
+export interface TmuxKnownRuntimeBinding extends TmuxRuntimeBindingIdentity {
     state: 'known';
-    provider: AiSessionProviderId;
     sessionId: string;
-    workspaceScopeIdentity: string;
-    workspaceNavigationIdentity: string;
-    workspaceRootHostPaths: string[];
-    cwd: string;
     layout: AiSessionTmuxLayout;
     locator: AiSessionTmuxLocator;
     lastSeenAtMs: number;
@@ -49,15 +51,9 @@ export interface TmuxKnownRuntimeBinding {
     runStartedAtMs?: number;
 }
 
-export interface TmuxInactiveRuntimeBinding {
-    version: 2;
+export interface TmuxInactiveRuntimeBinding extends TmuxRuntimeBindingIdentity {
     state: 'completed' | 'stopped';
-    provider: AiSessionProviderId;
     sessionId: string;
-    workspaceScopeIdentity: string;
-    workspaceNavigationIdentity: string;
-    workspaceRootHostPaths: string[];
-    cwd: string;
     layout: AiSessionTmuxLayout;
     locator: AiSessionTmuxLocator;
     markerPath: string;
@@ -82,15 +78,9 @@ export interface TmuxKnownRebindIntent {
     recordedAtMs: number;
 }
 
-export interface TmuxConsumedPendingBinding {
-    version: 2;
+export interface TmuxConsumedPendingBinding extends TmuxRuntimeBindingIdentity {
     state: 'consumed';
     pendingId: string;
-    provider: AiSessionProviderId;
-    workspaceScopeIdentity: string;
-    workspaceNavigationIdentity: string;
-    workspaceRootHostPaths: string[];
-    cwd: string;
     finalSessionId: string;
     finalSessionName?: string;
     layout: AiSessionTmuxLayout;
@@ -98,15 +88,9 @@ export interface TmuxConsumedPendingBinding {
     consumedAtMs: number;
 }
 
-export interface TmuxPromotingRuntimeBinding {
-    version: 2;
+export interface TmuxPromotingRuntimeBinding extends TmuxRuntimeBindingIdentity {
     state: 'promoting';
     pendingId: string;
-    provider: AiSessionProviderId;
-    workspaceScopeIdentity: string;
-    workspaceNavigationIdentity: string;
-    workspaceRootHostPaths: string[];
-    cwd: string;
     createdAt: string;
     markerPath: string;
     pendingBinding: TmuxPendingRuntimeBinding;
@@ -125,14 +109,8 @@ export interface TmuxRecoverablePendingBinding {
     recoverySessionId: string;
 }
 
-export interface TmuxAmbiguousRuntimeBindingBase {
-    version: 2;
+export interface TmuxAmbiguousRuntimeBindingBase extends TmuxRuntimeBindingIdentity {
     state: 'ambiguous';
-    provider: AiSessionProviderId;
-    workspaceScopeIdentity: string;
-    workspaceNavigationIdentity: string;
-    workspaceRootHostPaths: string[];
-    cwd: string;
     layout: AiSessionTmuxLayout;
     locator: AiSessionTmuxLocator;
     acceptedAtMs: number;
@@ -161,7 +139,9 @@ export type TmuxRuntimeBinding = TmuxPendingRuntimeBinding | TmuxFinalRuntimeBin
 
 export type TmuxFinalRecordLock = <T>(operation: () => Promise<T>) => Promise<T>;
 
-const RECORD_VERSION = 2;
+const LEGACY_RECORD_VERSION = 2;
+const RECORD_VERSION = 3;
+const RECORD_FILENAME_VERSION = 2;
 export const MAX_ID_LENGTH = 512;
 const MAX_PATH_LENGTH = 4096;
 const MAX_TITLE_LENGTH = 200;
@@ -195,7 +175,7 @@ export function getRecordFilename(
     ...identity: string[]
 ): string {
     const digest = createHash('sha256')
-        .update(JSON.stringify([RECORD_VERSION, kind, ...identity]), 'utf8')
+        .update(JSON.stringify([RECORD_FILENAME_VERSION, kind, ...identity]), 'utf8')
         .digest('hex');
     return `${kind}-${digest}.json`;
 }
@@ -207,12 +187,12 @@ function validatePendingRecord(value: unknown): TmuxPendingRuntimeBinding | null
     const record = value as Record<string, unknown>;
     const locator = validateLocator(record.locator);
     const identity = validateBindingIdentity(record, { pendingId: record.pendingId });
-    if (!hasExactKeys(record, [
+    if (!hasBindingExactKeys(record, [
         'version', 'state', 'pendingId', 'provider', 'workspaceScopeIdentity',
         'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'createdAt',
         'excludedSessionIds', 'acceptedAtMs', 'layout', 'locator',
     ], ['projectName', 'title'])
-        || record.version !== RECORD_VERSION || record.state !== 'pending'
+        || !isRecordVersion(record.version) || record.state !== 'pending'
         || !identity
         || !isDateString(record.createdAt) || !isLayout(record.layout) || !locator
         || locator.layout !== record.layout || !Array.isArray(record.excludedSessionIds)
@@ -224,7 +204,7 @@ function validatePendingRecord(value: unknown): TmuxPendingRuntimeBinding | null
         return null;
     }
     return {
-        version: 2,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'pending',
         pendingId: identity.pendingId as string,
         ...bindingIdentityFields(identity),
@@ -278,9 +258,9 @@ export function validateConsumedRecord(
         'layout', 'finalLocator', 'consumedAtMs',
     ];
     const hasFinalSessionName = Object.prototype.hasOwnProperty.call(record, 'finalSessionName');
-    if (!(hasExactKeys(record, [...legacyKeys, 'finalSessionName'])
-            || (!requireFinalSessionName && hasExactKeys(record, legacyKeys)))
-        || record.version !== RECORD_VERSION || record.state !== 'consumed'
+    if (!(hasBindingExactKeys(record, [...legacyKeys, 'finalSessionName'])
+            || (!requireFinalSessionName && hasBindingExactKeys(record, legacyKeys)))
+        || !isRecordVersion(record.version) || record.state !== 'consumed'
         || !identity
         || !isBoundedString(record.finalSessionId, MAX_ID_LENGTH)
         || (hasFinalSessionName && !isRequiredDisplayName(record.finalSessionName))
@@ -289,7 +269,7 @@ export function validateConsumedRecord(
         return null;
     }
     return {
-        version: 2,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'consumed',
         pendingId: identity.pendingId as string,
         ...bindingIdentityFields(identity),
@@ -332,12 +312,12 @@ export function validatePromotingRecord(value: unknown): TmuxPromotingRuntimeBin
     const finalLocator = validateLocator(record.finalLocator);
     const pendingBinding = validatePendingRecord(record.pendingBinding);
     const identity = validateBindingIdentity(record, { pendingId: record.pendingId });
-    if (!hasExactKeys(record, [
+    if (!hasBindingExactKeys(record, [
         'version', 'state', 'pendingId', 'provider', 'workspaceScopeIdentity',
         'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'createdAt',
         'markerPath', 'pendingBinding', 'finalSessionId', 'layout', 'sourceLocator',
         'finalSessionName', 'finalLocator', 'requestFingerprint', 'recordedAtMs',
-    ]) || record.version !== RECORD_VERSION || record.state !== 'promoting'
+    ]) || !isRecordVersion(record.version) || record.state !== 'promoting'
         || !identity
         || !isDateString(record.createdAt)
         || (record.markerPath !== '' && !isBoundedString(record.markerPath, MAX_PATH_LENGTH))
@@ -356,7 +336,7 @@ export function validatePromotingRecord(value: unknown): TmuxPromotingRuntimeBin
         return null;
     }
     return {
-        version: 2,
+        version: record.version as 2 | 3,
         state: 'promoting',
         pendingId: identity.pendingId as string,
         ...bindingIdentityFields(identity),
@@ -382,12 +362,12 @@ export function validateAmbiguousRecord(value: unknown): TmuxAmbiguousRuntimeBin
     const hasSessionId = record.sessionId !== undefined;
     const hasPendingId = record.pendingId !== undefined;
     const exactKeys = hasSessionId
-        ? hasExactKeys(record, [
+        ? hasBindingExactKeys(record, [
             'version', 'state', 'provider', 'workspaceScopeIdentity',
             'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'layout',
             'locator', 'acceptedAtMs', 'sessionId',
         ])
-        : hasExactKeys(record, [
+        : hasBindingExactKeys(record, [
             'version', 'state', 'provider', 'workspaceScopeIdentity',
             'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'layout',
             'locator', 'acceptedAtMs', 'pendingId', 'createdAt', 'excludedSessionIds',
@@ -395,7 +375,7 @@ export function validateAmbiguousRecord(value: unknown): TmuxAmbiguousRuntimeBin
         ], ['projectName', 'title', 'markerPath']);
     const identity = hasSessionId === hasPendingId ? null : validateBindingIdentity(record,
         hasSessionId ? { sessionId: record.sessionId } : { pendingId: record.pendingId });
-    if (!exactKeys || record.version !== RECORD_VERSION || record.state !== 'ambiguous'
+    if (!exactKeys || !isRecordVersion(record.version) || record.state !== 'ambiguous'
         || !identity
         || !isLayout(record.layout) || !locator || locator.layout !== record.layout
         || !isFiniteNonNegative(record.acceptedAtMs)
@@ -407,11 +387,11 @@ export function validateAmbiguousRecord(value: unknown): TmuxAmbiguousRuntimeBin
             || (record.markerPath !== undefined
                 && !isBoundedString(record.markerPath, MAX_PATH_LENGTH))
             || typeof record.requestFingerprint !== 'string'
-            || !/^(?:v3:)?[a-f0-9]{64}$/.test(record.requestFingerprint)))) {
+            || !/^(?:(?:v3|v4):)?[a-f0-9]{64}$/.test(record.requestFingerprint)))) {
         return null;
     }
     return {
-        version: 2,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'ambiguous',
         ...bindingIdentityFields(identity),
         ...(hasSessionId
@@ -424,7 +404,10 @@ export function validateAmbiguousRecord(value: unknown): TmuxAmbiguousRuntimeBin
                 ...(record.projectName === undefined ? {} : { projectName: record.projectName as string }),
                 ...(record.title === undefined ? {} : { title: record.title as string }),
                 ...(record.markerPath === undefined ? {} : { markerPath: record.markerPath as string }),
-                requestFingerprint: record.requestFingerprint as string,
+                requestFingerprint: record.version === 3
+                    && getAiSessionRuntimeIdentityVersion(identity) === 2
+                    ? legacyPendingRequestFingerprint(record)
+                    : record.requestFingerprint as string,
             }),
         layout: record.layout,
         locator,
@@ -441,12 +424,12 @@ export function validateKnownRecord(value: unknown): TmuxKnownRuntimeBinding | n
     const identity = validateBindingIdentity(record, { sessionId: record.sessionId });
     const lifecycleFieldCount = [record.markerPath, record.runStartedAtMs]
         .filter(field => field !== undefined).length;
-    if (!hasExactKeys(record, [
+    if (!hasBindingExactKeys(record, [
         'version', 'state', 'provider', 'sessionId', 'workspaceScopeIdentity',
         'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'layout',
         'locator', 'lastSeenAtMs',
     ], ['markerPath', 'runStartedAtMs'])
-        || record.version !== RECORD_VERSION || record.state !== 'known'
+        || !isRecordVersion(record.version) || record.state !== 'known'
         || !identity
         || !isLayout(record.layout) || !locator || locator.layout !== record.layout
         || !isFiniteNonNegative(record.lastSeenAtMs)
@@ -456,7 +439,7 @@ export function validateKnownRecord(value: unknown): TmuxKnownRuntimeBinding | n
         return null;
     }
     return {
-        version: 2,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: 'known',
         sessionId: identity.sessionId as string,
         ...bindingIdentityFields(identity),
@@ -505,11 +488,11 @@ export function validateInactiveRecord(
     const record = value as Record<string, unknown>;
     const locator = validateLocator(record.locator);
     const identity = validateBindingIdentity(record, { sessionId: record.sessionId });
-    if (!hasExactKeys(record, [
+    if (!hasBindingExactKeys(record, [
         'version', 'state', 'provider', 'sessionId', 'workspaceScopeIdentity',
         'workspaceNavigationIdentity', 'workspaceRootHostPaths', 'cwd', 'layout',
         'locator', 'markerPath', 'runStartedAtMs', 'detectedAtMs',
-    ]) || record.version !== RECORD_VERSION
+    ]) || !isRecordVersion(record.version)
         || (record.state !== 'completed' && record.state !== 'stopped')
         || !identity || !isLayout(record.layout)
         || !locator || locator.layout !== record.layout
@@ -520,7 +503,7 @@ export function validateInactiveRecord(
         return null;
     }
     return {
-        version: 2,
+        version: getAiSessionRuntimeIdentityVersion(identity),
         state: record.state,
         sessionId: identity.sessionId as string,
         ...bindingIdentityFields(identity),
@@ -572,6 +555,25 @@ function hasExactKeys(
     const allowed = new Set([...required, ...optional]);
     return required.every(key => Object.prototype.hasOwnProperty.call(record, key))
         && Object.keys(record).every(key => allowed.has(key));
+}
+
+function hasBindingExactKeys(
+    record: Record<string, unknown>,
+    required: readonly string[],
+    optional: readonly string[] = []
+): boolean {
+    if (!isRecordVersion(record.version)) {
+        return false;
+    }
+    return record.version === RECORD_VERSION
+        ? hasExactKeys(record, [...required, 'writableRootHostPaths'], [
+            ...optional, 'worktreeKey', 'isolatedRoots',
+        ])
+        : hasExactKeys(record, required, optional);
+}
+
+function isRecordVersion(value: unknown): value is 2 | 3 {
+    return value === LEGACY_RECORD_VERSION || value === RECORD_VERSION;
 }
 
 export function locatorsEqual(left: AiSessionTmuxLocator, right: AiSessionTmuxLocator): boolean {
@@ -656,20 +658,25 @@ function knownBindingsEqualExceptSessionId(
 }
 
 export function clonePending(record: TmuxPendingRuntimeBinding): TmuxPendingRuntimeBinding {
-    return { ...record, workspaceRootHostPaths: [...record.workspaceRootHostPaths], excludedSessionIds: [...record.excludedSessionIds], locator: { ...record.locator } };
+    return {
+        ...record,
+        ...cloneBindingIdentityFields(record),
+        excludedSessionIds: [...record.excludedSessionIds],
+        locator: { ...record.locator },
+    };
 }
 
 export function cloneKnown(record: TmuxKnownRuntimeBinding): TmuxKnownRuntimeBinding {
-    return { ...record, workspaceRootHostPaths: [...record.workspaceRootHostPaths], locator: { ...record.locator } };
+    return { ...record, ...cloneBindingIdentityFields(record), locator: { ...record.locator } };
 }
 
 export function cloneInactive(record: TmuxInactiveRuntimeBinding): TmuxInactiveRuntimeBinding {
-    return { ...record, workspaceRootHostPaths: [...record.workspaceRootHostPaths], locator: { ...record.locator } };
+    return { ...record, ...cloneBindingIdentityFields(record), locator: { ...record.locator } };
 }
 
 export function cloneAmbiguous(record: TmuxAmbiguousRuntimeBinding): TmuxAmbiguousRuntimeBinding {
     if (record.sessionId !== undefined) {
-        return { ...record, workspaceRootHostPaths: [...record.workspaceRootHostPaths], locator: { ...record.locator } };
+        return { ...record, ...cloneBindingIdentityFields(record), locator: { ...record.locator } };
     }
     const pendingRecord = record as TmuxAmbiguousRuntimeBindingBase & {
         pendingId: string;
@@ -683,20 +690,20 @@ export function cloneAmbiguous(record: TmuxAmbiguousRuntimeBinding): TmuxAmbiguo
     };
     return {
         ...pendingRecord,
-        workspaceRootHostPaths: [...pendingRecord.workspaceRootHostPaths],
+        ...cloneBindingIdentityFields(pendingRecord),
         locator: { ...pendingRecord.locator },
         excludedSessionIds: [...pendingRecord.excludedSessionIds],
     };
 }
 
 export function cloneConsumed(record: TmuxConsumedPendingBinding): TmuxConsumedPendingBinding {
-    return { ...record, workspaceRootHostPaths: [...record.workspaceRootHostPaths], finalLocator: { ...record.finalLocator } };
+    return { ...record, ...cloneBindingIdentityFields(record), finalLocator: { ...record.finalLocator } };
 }
 
 export function clonePromoting(record: TmuxPromotingRuntimeBinding): TmuxPromotingRuntimeBinding {
     return {
         ...record,
-        workspaceRootHostPaths: [...record.workspaceRootHostPaths],
+        ...cloneBindingIdentityFields(record),
         sourceLocator: { ...record.sourceLocator },
         finalLocator: { ...record.finalLocator },
         pendingBinding: clonePending(record.pendingBinding),
@@ -817,12 +824,41 @@ function validateBindingIdentity(
         workspaceScopeIdentity: record.workspaceScopeIdentity,
         workspaceNavigationIdentity: record.workspaceNavigationIdentity,
         workspaceRootHostPaths: record.workspaceRootHostPaths,
+        ...(record.writableRootHostPaths !== undefined
+            ? { writableRootHostPaths: record.writableRootHostPaths }
+            : {}),
+        ...(record.worktreeKey !== undefined ? { worktreeKey: record.worktreeKey } : {}),
+        ...(record.isolatedRoots === true ? { isolatedRoots: true } : {}),
         cwd: record.cwd,
         ...id,
     };
-    return isValidAiSessionRuntimeIdentity(identity)
-        ? cloneAiSessionRuntimeIdentity(identity)
-        : null;
+    if (!isValidAiSessionRuntimeIdentity(identity)) {
+        return null;
+    }
+    const clone = cloneAiSessionRuntimeIdentity(identity);
+    if (getAiSessionRuntimeIdentityVersion(clone) === 2) {
+        delete clone.writableRootHostPaths;
+        delete clone.worktreeKey;
+        delete clone.isolatedRoots;
+    }
+    return clone;
+}
+
+function legacyPendingRequestFingerprint(record: Record<string, unknown>): string {
+    const digest = createHash('sha256').update(JSON.stringify([
+        3,
+        record.provider,
+        record.workspaceScopeIdentity,
+        record.workspaceNavigationIdentity,
+        [...record.workspaceRootHostPaths as string[]].sort(),
+        record.pendingId,
+        record.cwd,
+        record.createdAt,
+        record.excludedSessionIds,
+        record.title ?? null,
+        record.markerPath ?? '',
+    ]), 'utf8').digest('hex');
+    return `v3:${digest}`;
 }
 
 function bindingIdentityFields(identity: AiSessionRuntimeIdentity) {
@@ -831,7 +867,23 @@ function bindingIdentityFields(identity: AiSessionRuntimeIdentity) {
         workspaceScopeIdentity: identity.workspaceScopeIdentity,
         workspaceNavigationIdentity: identity.workspaceNavigationIdentity,
         workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+        ...(identity.writableRootHostPaths
+            ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
+            : {}),
+        ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
         cwd: identity.cwd,
+    };
+}
+
+function cloneBindingIdentityFields(identity: TmuxRuntimeBindingIdentity) {
+    return {
+        workspaceRootHostPaths: [...identity.workspaceRootHostPaths],
+        ...(identity.writableRootHostPaths
+            ? { writableRootHostPaths: [...identity.writableRootHostPaths] }
+            : {}),
+        ...(identity.worktreeKey ? { worktreeKey: { ...identity.worktreeKey } } : {}),
+        ...(identity.isolatedRoots ? { isolatedRoots: true } : {}),
     };
 }
 
@@ -851,12 +903,10 @@ export function bindingIdentitiesEqual(
         cwd: string;
     }
 ): boolean {
-    return left.provider === right.provider
-        && left.workspaceScopeIdentity === right.workspaceScopeIdentity
-        && left.workspaceNavigationIdentity === right.workspaceNavigationIdentity
-        && getAiSessionRuntimeRootSnapshotKey(left as AiSessionRuntimeIdentity)
-            === getAiSessionRuntimeRootSnapshotKey(right as AiSessionRuntimeIdentity)
-        && left.cwd === right.cwd;
+    return aiSessionRuntimeIdentitiesEqual(
+        { ...left, sessionId: 'identity-comparison' } as AiSessionRuntimeIdentity,
+        { ...right, sessionId: 'identity-comparison' } as AiSessionRuntimeIdentity
+    );
 }
 
 function isPendingExpired(record: TmuxPendingRuntimeBinding, now: number): boolean {

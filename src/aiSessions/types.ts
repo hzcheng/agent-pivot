@@ -13,6 +13,11 @@ import type { DashboardWorkspaceSearchCatalog } from '../webview/dashboardViewMo
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import type { AiSessionRuntimeBackendId, AiSessionRuntimeIdentity, AiSessionTmuxLayout } from './runtimeTypes';
+import type { WorktreeKey } from '../worktrees/types';
+import type {
+    ProvisioningWorktreeRow,
+    WorktreeGitSnapshot,
+} from '../worktrees/types';
 
 export interface AiSessionTerminalEntry<TTerminal = unknown> {
     terminal: TTerminal;
@@ -27,9 +32,124 @@ export interface AiSessionDirectoryScope {
     workspaceNavigationIdentity: string;
     workspaceScopeIdentity: string;
     workspaceRootHostPaths: string[];
+    writableRootHostPaths?: string[];
+    worktreeKey?: WorktreeKey;
+    /** Strict worktree isolation: writable roots cover member worktrees only. */
+    isolatedRoots?: boolean;
     primaryRootId: string;
     primaryCwd: string;
     additionalDirectories: string[];
+}
+
+export type WorktreeActivity = 'active' | 'attention' | 'idle';
+
+export interface WorktreeAuthority {
+    canInput: boolean;
+    canFocus: boolean;
+    canStop: boolean;
+    canResume: boolean;
+    canArchive: boolean;
+    canRemove: boolean;
+    canTakeControl: boolean;
+    liveOwnerAvailable: boolean;
+}
+
+export interface WorktreeViewModel {
+    git: WorktreeGitSnapshot;
+    activity: WorktreeActivity;
+    sessions: AiSessionViewModel[];
+    authority: WorktreeAuthority;
+}
+
+export interface ReadyWorktreeRow extends WorktreeViewModel {
+    kind: 'ready';
+}
+
+export type WorktreeRowViewModel = ProvisioningWorktreeRow | ReadyWorktreeRow;
+
+// ── Worktree Groups (docs/worktree-tasks-prd.md) ────────────────
+
+export type WorktreeGroupMemberStatus =
+  | 'ready'
+  | 'pending'
+  | 'failed'
+  | 'missing'
+  | 'deleting'
+  | 'detached';
+
+export interface WorktreeGroupMemberViewModel {
+    memberId: string;
+    repositoryKey: string;
+    /** Human repository label derived from the repository key. */
+    repositoryLabel: string;
+    /** Physical worktree identity; present for members with a created worktree. */
+    worktreeKey?: WorktreeKey;
+    branchName: string;
+    path: string;
+    status: WorktreeGroupMemberStatus;
+    errorCode?: string;
+    isPrimary: boolean;
+}
+
+export interface WorktreeRepositoryChip {
+    /** Shortest unique prefix among the visible repository labels. */
+    label: string;
+    /** Full repository label; the chip's accessible name. */
+    title: string;
+}
+
+export interface WorktreeGroupRowViewModel {
+    kind: 'group';
+    groupId: string;
+    displayName: string;
+    /** Persistent monotonic manifest revision (PRD §4); tokens bind to it. */
+    revision: number;
+    /** Stable branch short name shown when group display names collide. */
+    discriminator?: string;
+    activity: WorktreeActivity;
+    sessions: AiSessionViewModel[];
+    members: WorktreeGroupMemberViewModel[];
+    chips: WorktreeRepositoryChip[];
+    hasDetachedMembers: boolean;
+    /** No ready primary member: the row must ask for a primary selection. */
+    needsPrimarySelection: boolean;
+    /** At least one ready member exists, so sessions can be launched. */
+    canCreateSession: boolean;
+    /**
+     * Live sessions whose persisted writable scope no longer covers the
+     * group's expected scope (PRD §6.3): the row annotates them.
+     */
+    scopeOutdatedSessions?: number;
+    /**
+     * An active deletion journal leases this group (PRD §6.4): the row
+     * shows the operation state and offers Retry/abandon for failures.
+     */
+    deletion?: {
+        operationId: string;
+        pendingCount: number;
+        failedCount: number;
+    };
+    /** Other visible groups sharing this group's suggested slug (merge hint). */
+    mergeCandidateGroupIds: string[];
+}
+
+export interface WorktreeAnchorEntry {
+    repositoryLabel: string;
+    branch: string;
+}
+
+/** The single collapsed row anchoring sessions that run in main checkouts. */
+export interface WorktreeAnchorViewModel {
+    entries: WorktreeAnchorEntry[];
+    /** Main-checkout worktree keys, used to attribute live sessions. */
+    worktreeKeys: WorktreeKey[];
+    sessions: AiSessionViewModel[];
+    activity: WorktreeActivity;
+}
+
+export interface WorktreeQuickCreatePreferences {
+    provider: AiSessionProviderId;
+    profile?: string;
 }
 
 export type AiSessionTabId = 'active' | 'sessions';
@@ -79,6 +199,18 @@ export interface ActiveAiSessionViewModel {
     primaryRootId?: string;
     primaryRootLabel?: string;
     outsideWorkspace?: boolean;
+    worktreeKey?: WorktreeKey;
+    /**
+     * Running pre-isolation worktree session (PRD §5.5): its writable roots
+     * still include non-member main checkouts until it is restarted.
+     */
+    legacyScope?: boolean;
+    /**
+     * The group gained a member after this session started (PRD §6.3): the
+     * persisted writable roots no longer cover the expected group scope.
+     * Restart the session to pick the new worktree up.
+     */
+    scopeOutdated?: boolean;
 }
 
 export interface AiSessionReadResult {
@@ -196,6 +328,12 @@ export interface AiSessionViewModel {
     primaryRootId?: string;
     primaryRootLabel?: string;
     outsideWorkspace?: boolean;
+    worktreeKey?: WorktreeKey;
+    /**
+     * The session's worktree is gone or unhealthy (PRD §6.4): viewing the
+     * conversation stays available, resume fails closed.
+     */
+    worktreeUnavailable?: boolean;
 }
 
 export interface WorkspaceAiSessionViewModel {
@@ -210,9 +348,32 @@ export interface WorkspaceAiSessionViewModel {
     aiSessionCount: number;
     attentionCount: number;
     defaultTab: AiSessionTabId;
+    /** The surface the user last selected; absent renders the Chats default. */
+    selectedSurface?: 'worktree' | 'chats';
     activeSessions: ActiveAiSessionViewModel[];
     activeSessionCount: number;
     activeAttentionCount: number;
+    /** Collapsed main-checkout anchor row (PRD §4); sessions run in main checkouts. */
+    worktreeAnchor?: WorktreeAnchorViewModel;
+    /** Manifest-backed worktree group rows (authoritative grouping). */
+    worktreeGroups?: WorktreeGroupRowViewModel[];
+    /** Provisioning + unclaimed ready rows (rendered as the Unmanaged section). */
+    worktrees: WorktreeRowViewModel[];
+    /** Adopt suggestions: unmanaged worktrees clustered by task slug (PRD §6.5). */
+    worktreeAdoptSuggestions?: {
+        slug: string;
+        members: {
+            worktreeKey: WorktreeKey;
+            branchName: string;
+            repositoryLabel: string;
+        }[];
+    }[];
+    worktreeRepositoryCount?: number;
+    bareWorktreeCount?: number;
+    unmanagedSessions: AiSessionViewModel[];
+    unmanagedActiveSessions: ActiveAiSessionViewModel[];
+    worktreeSnapshotRevision?: number;
+    truncatedWorktreeCount: number;
     /** The Codex profile a picker-free quick-create would launch with, when any. */
     quickCreateProfile?: string;
     /** The provider quick-create remembers for this workspace, when any. */
@@ -257,6 +418,13 @@ export interface AiSessionPresentationStateMessage {
     projectionRevision: number;
     workspaceScopeIdentity: string | null;
     workspaceNavigationIdentity: string | null;
+    /**
+     * The worktree-group aggregate revision this presentation was built
+     * from (PRD §6.4 decision J): deletion settlements bind a minimum, and
+     * the webview clears pending state only once a rendered presentation
+     * at or beyond it has applied.
+     */
+    worktreeGroupsAggregateRevision?: number | null;
     attentionCount: number;
     activeAttentionCount: number;
     runningSessionCount: number;

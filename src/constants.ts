@@ -46,6 +46,7 @@ export const WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY =
     'workspaceQuickCreateAiSessionProvider.v1';
 export const WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY =
     'workspaceAiSessionProviderSelection.v1';
+export const WORKSPACE_AI_SESSION_SURFACE_KEY = 'workspaceAiSessionSurface.v1';
 
 export enum StorageOption {
     GlobalState,

@@ -1,6 +1,57 @@
 // This way to include SVGs was much easier to include than as file
 
 // Original Author: Jason Long, Source: https://commons.wikimedia.org/wiki/File:Git_.svg
+export const foldAll = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m6 10 6-6 6 6"></path>
+    <path d="m6 15.5 6-6 6 6"></path>
+    <path d="M5 21h14"></path>
+</svg>
+`;
+
+export const unfoldAll = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 3h14"></path>
+    <path d="m6 14.5 6 6 6-6"></path>
+    <path d="m6 9 6 6 6-6"></path>
+</svg>
+`;
+
+export const moreActions = `
+<svg viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="5" cy="12" r="1.8"></circle>
+    <circle cx="12" cy="12" r="1.8"></circle>
+    <circle cx="19" cy="12" r="1.8"></circle>
+</svg>
+`;
+
+export const chevronDown = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m6 9.5 6 6 6-6"></path>
+</svg>
+`;
+
+export const trash = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 7h16"></path>
+    <path d="M9 7V5.4c0-.8.6-1.4 1.4-1.4h3.2c.8 0 1.4.6 1.4 1.4V7"></path>
+    <path d="M6.5 7l.8 12.1c.05 1 .9 1.9 1.9 1.9h5.6c1 0 1.85-.9 1.9-1.9L17.5 7"></path>
+    <path d="M10 11v6M14 11v6"></path>
+</svg>
+`;
+
+export const gitBranchAdd = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="6" cy="5" r="2.1"></circle>
+    <circle cx="6" cy="19" r="2.1"></circle>
+    <circle cx="15" cy="7.5" r="2.1"></circle>
+    <path d="M6 7.1v9.8"></path>
+    <path d="M6 15.5c0-3.2 2.9-5.3 6.8-5.8"></path>
+    <path d="M19 13.5v6"></path>
+    <path d="M16 16.5h6"></path>
+</svg>
+`;
+
 export const gitSvg = `
 <svg viewBox="0 0 97 97">
     <path d="M92.71,44.408L52.591,4.291c-2.31-2.311-6.057-2.311-8.369,0l-8.33,8.332L46.459,23.19
@@ -10,6 +61,12 @@ export const gitSvg = `
         c0.68-0.679,1.467-1.193,2.307-1.537V36.369c-0.84-0.344-1.625-0.853-2.307-1.537c-2.083-2.082-2.584-5.14-1.516-7.698
         L31.798,16.715L4.288,44.222c-2.311,2.313-2.311,6.06,0,8.371l40.121,40.118c2.31,2.311,6.056,2.311,8.369,0L92.71,52.779
         C95.021,50.468,95.021,46.719,92.71,44.408z"/>
+</svg>
+`;
+
+export const viewConversation = `
+<svg viewBox="0 0 512 512">
+    <path d="M256 32C114.6 32 0 125.1 0 240c0 49.6 21.4 94.9 57.2 130.4-4.9 42.8-24.8 79.5-24.8 79.5-3.2 6.4-.9 14.1 5.5 17.3 2.3 1.1 4.7 1.6 7.1 1.6 4.4 0 8.7-1.8 11.7-5.2 0 0 31.3-32.9 75.4-56.3 36.7 18.5 78.6 28.7 123.9 28.7 141.4 0 256-93.1 256-208S397.4 32 256 32zm-80 272c-17.7 0-32-14.3-32-32s14.3-32 32-32 32 14.3 32 32-14.3 32-32 32zm80 0c-17.7 0-32-14.3-32-32s14.3-32 32-32 32 14.3 32 32-14.3 32-32 32zm80 0c-17.7 0-32-14.3-32-32s14.3-32 32-32 32 14.3 32 32-14.3 32-32 32z"/>
 </svg>
 `;
 

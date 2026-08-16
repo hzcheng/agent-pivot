@@ -52,6 +52,8 @@ export interface PendingAiSessionPromotionIdentity {
     pendingId: string;
     provider: AiSessionProviderId;
     sessionId: string;
+    /** The navigation identity captured when the session was created. */
+    navigationIdentity: string;
 }
 
 export interface PendingAiSessionPromotionFailure extends PendingAiSessionPromotionIdentity {
@@ -126,6 +128,12 @@ export async function resolvePendingAiSessionTerminals<TTerminal = unknown>(
             pendingId,
             provider: pendingRuntime.identity.provider,
             sessionId: session.id,
+            // The runtime's own captured identity, not the hydrating
+            // workspace's: a Save Workspace As between creation and
+            // promotion may change the latter, and generation claims live
+            // in the bucket the session was created under (PRD §6.4).
+            navigationIdentity:
+                pendingRuntime.identity.workspaceNavigationIdentity,
         };
         let settlement: PendingAiSessionPromotionSettlement;
         try {

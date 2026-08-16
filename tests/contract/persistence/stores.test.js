@@ -13,9 +13,16 @@ const AiSessionAliasStore = require('../../../out/aiSessions/aliasStore').defaul
 const AiSessionPinStore = require('../../../out/aiSessions/pinStore').default;
 const AiSessionWorkspaceStateStore = require('../../../out/aiSessions/workspaceStateStore').default;
 const {
+    AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX,
     AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX,
 } = require('../../../out/aiSessions/terminalBindingStore');
 const AiSessionTerminalBindingStore = require('../../../out/aiSessions/terminalBindingStore').default;
+const {
+    AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX,
+    AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX,
+    AI_SESSION_TMUX_ATTACH_RECOVERY_BINDING_KEY_PREFIX,
+    TmuxAttachBindingStore,
+} = require('../../../out/aiSessions/tmuxAttachBindingStore');
 const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntimeBindingStore');
 const { normalizeTodoData } = require('../../../out/todos/types');
 const {
@@ -149,6 +156,11 @@ test('PERSIST-PROJECT-STATE-STORE-001 AI-SESSION-QUICK-CREATE-001 quick-create p
 test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores invalid writes', async () => {
     const state = makeState({
         'workspaceExpandedAiSessions.v2': ['scope-a', '', 7, 'scope-a', 'scope-b'],
+        'workspaceAiSessionSurface.v1': {
+            'scope-a': 'worktree',
+            'scope-b': 'grid',
+            '': 'chats',
+        },
         'workspaceActiveAiSessionProvider.v2': {
             'scope-a': 'codex',
             'scope-b': 'unknown',
@@ -168,6 +180,8 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     );
 
     assert.deepEqual(Array.from(store.getExpandedWorkspaces()), ['scope-a', 'scope-b']);
+    assert.deepEqual(store.getSelectedSurfaces(), { 'scope-a': 'worktree' },
+        'invalid surfaces and empty scopes are dropped on read');
     assert.deepEqual(store.getActiveProviders(), { 'scope-a': 'codex', 'scope-c': 'kimi' });
     assert.deepEqual(store.getProviderSelections(), {
         'scope-a': {
@@ -177,6 +191,9 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     });
     await store.setExpanded('scope-c', true);
     await store.setExpanded('', true);
+    await store.setSelectedSurface('scope-c', 'chats');
+    await store.setSelectedSurface('', 'worktree');
+    await store.setSelectedSurface('scope-d', 'grid');
     await store.setActiveProvider('scope-d', 'claude');
     await store.setActiveProvider('scope-e', 'unknown');
     await store.setProviderSelection('scope-d', {
@@ -194,6 +211,9 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     assert.deepEqual(state.values['workspaceExpandedAiSessions.v2'], [
         'scope-a', 'scope-b', 'scope-c',
     ]);
+    assert.deepEqual(state.values['workspaceAiSessionSurface.v1'], {
+        'scope-a': 'worktree', 'scope-c': 'chats',
+    });
     assert.deepEqual(state.values['workspaceActiveAiSessionProvider.v2'], {
         'scope-a': 'codex', 'scope-c': 'kimi', 'scope-d': 'claude',
         'scope-e': 'codex', 'scope-f': 'codex',
@@ -350,10 +370,62 @@ test('TODO-TODO-STORE-001 preserves unversioned V1 data while dropping duplicate
     assert.throws(() => normalizeTodoData({ version: 2 }), /Unsupported TODO data version/);
 });
 
+test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 listAll enumerates durable bindings for claim reconciliation', async () => {
+    const workspaceIdentity = {
+        workspaceScopeIdentity: 'scope:fixture',
+        workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work/project'],
+        writableRootHostPaths: ['/work/project'],
+        cwd: '/work/project',
+    };
+    const state = makeState({
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}43001`]: {
+            version: 3,
+            state: 'pending',
+            providerId: 'codex',
+            pendingId: 'pending-1',
+            markerPath: '/tmp/pending-1.done',
+            createdAt: '2026-07-18T10:00:00.000Z',
+            excludedSessionIds: [],
+            updatedAtMs: 1,
+            ...workspaceIdentity,
+        },
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}43002`]: {
+            version: 3,
+            state: 'bound',
+            providerId: 'codex',
+            sessionId: 'session-1',
+            markerPath: '/tmp/pending-1.done',
+            runStartedAtMs: 1,
+            updatedAtMs: 2,
+            ...workspaceIdentity,
+        },
+        'unrelated-key': { nope: true },
+    });
+    state.memento.keys = () => Object.keys(state.values);
+    const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
+
+    const all = store.listAll();
+    assert.equal(all.length, 2, 'only binding-prefixed keys are enumerated');
+    const pending = all.find(record => record.state === 'pending');
+    const bound = all.find(record => record.state === 'bound');
+    assert.equal(pending.pendingId, 'pending-1');
+    assert.equal(bound.sessionId, 'session-1');
+    assert.equal(bound.markerPath, '/tmp/pending-1.done',
+        'the marker path links a pending claim to the bound session');
+
+    const noKeys = makeState({});
+    const storeWithoutKeys = new AiSessionTerminalBindingStore(
+        noKeys.memento, undefined, () => NOW);
+    assert.equal(storeWithoutKeys.listAll(), null,
+        'a memento without keys() reports "could not tell", never an empty list');
+});
+
 test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-PERSISTENCE-001 preserves workspace-bound records and rejects missing or oversized fields', async () => {
     const processId = 42001;
     const legacyProcessId = 42002;
     const missingProcessId = 42003;
+    const pollutedProcessId = 42005;
     const workspaceIdentity = {
         workspaceScopeIdentity: 'scope:fixture',
         workspaceNavigationIdentity: 'navigation:fixture',
@@ -361,7 +433,7 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
         cwd: '/work/project',
     };
     const state = makeState({
-        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${legacyProcessId}`]: {
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX}${legacyProcessId}`]: {
             version: 2,
             state: 'bound',
             providerId: 'kimi',
@@ -379,11 +451,30 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
             runStartedAtMs: 1,
             updatedAtMs: 2,
         },
+        [`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`]: {
+            version: 3,
+            state: 'bound',
+            providerId: 'codex',
+            sessionId: 'polluted-ordinary',
+            markerPath: '/tmp/polluted.done',
+            runStartedAtMs: 1,
+            updatedAtMs: 2,
+            ...workspaceIdentity,
+            writableRootHostPaths: [...workspaceIdentity.workspaceRootHostPaths],
+        },
     });
     const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
 
     assert.equal(store.get(legacyProcessId).sessionId, 'legacy');
+    assert.equal(store.get(legacyProcessId).version, 2);
     assert.equal(store.get(missingProcessId), null);
+    assert.equal(store.get(pollutedProcessId).version, 2);
+    await store.flush();
+    assert.equal(
+        state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX}${pollutedProcessId}`].version,
+        2
+    );
+    assert.equal(state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`], undefined);
     store.setPending(processId, {
         providerId: 'codex',
         markerPath: '/tmp/valid.done',
@@ -411,6 +502,12 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
     });
     await store.flush();
     assert.equal(new AiSessionTerminalBindingStore(state.memento).get(processId).sessionId, 'valid');
+    assert.equal(
+        state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_LEGACY_KEY_PREFIX}${processId}`].version,
+        2,
+        'ordinary terminal bindings must remain readable by the rollback release'
+    );
+    assert.equal(state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${processId}`], undefined);
     assert.equal(new AiSessionTerminalBindingStore(state.memento).get(42004), null);
 
     store.setReleased(processId, {
@@ -426,6 +523,180 @@ test('PERSIST-AI-SESSION-TERMINAL-BINDING-STORE-001 PERSIST-AI-SESSION-TERMINAL-
     assert.equal(store.get(processId), null);
 });
 
+test('PERSIST-AI-SESSION-TERMINAL-V3-001 reloads worktree bindings without losing writable roots', async () => {
+    const processId = 42101;
+    const identity = {
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature', '/repos/backend'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+    };
+    const state = makeState();
+    const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
+
+    store.setBound(processId, {
+        providerId: 'codex',
+        sessionId: 'worktree-session',
+        markerPath: '/tmp/worktree.done',
+        runStartedAtMs: NOW,
+        ...identity,
+    });
+    await store.flush();
+
+    assert.equal(state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${processId}`].version, 3);
+    assert.deepEqual(new AiSessionTerminalBindingStore(state.memento).get(processId), {
+        version: 3,
+        state: 'bound',
+        providerId: 'codex',
+        sessionId: 'worktree-session',
+        markerPath: '/tmp/worktree.done',
+        runStartedAtMs: NOW,
+        updatedAtMs: NOW,
+        ...identity,
+    });
+});
+
+test('PERSIST-AI-SESSION-TERMINAL-V3-001 persists the strict-isolation marker through pending and bound records', async () => {
+    const processId = 42111;
+    const identity = {
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend', '/repos/backend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        isolatedRoots: true,
+        cwd: '/managed/frontend-feature',
+    };
+    const state = makeState();
+    const store = new AiSessionTerminalBindingStore(state.memento, undefined, () => NOW);
+
+    store.setPending(processId, {
+        providerId: 'codex',
+        pendingId: 'pending-isolated',
+        createdAt: '2026-08-14T00:00:00Z',
+        markerPath: '/tmp/isolated.done',
+        excludedSessionIds: [],
+        ...identity,
+    });
+    await store.flush();
+    const stored = state.values[`${AI_SESSION_TERMINAL_PROCESS_BINDING_KEY_PREFIX}${processId}`];
+    assert.ok(stored, 'a strictly isolated identity must survive the store whitelist');
+    assert.equal(stored.isolatedRoots, true);
+
+    const reloadedPending = new AiSessionTerminalBindingStore(state.memento).get(processId);
+    assert.equal(reloadedPending.state, 'pending');
+    assert.equal(reloadedPending.isolatedRoots, true,
+        'reloads keep the marker instead of downgrading the session to legacy scope');
+
+    store.setBound(processId, {
+        providerId: 'codex',
+        sessionId: 'isolated-session',
+        markerPath: '/tmp/isolated.done',
+        runStartedAtMs: NOW,
+        ...identity,
+    });
+    await store.flush();
+    const reloadedBound = new AiSessionTerminalBindingStore(state.memento).get(processId);
+    assert.equal(reloadedBound.state, 'bound');
+    assert.equal(reloadedBound.isolatedRoots, true);
+});
+
+test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 dual-reads v2 and reloads v3 worktree bindings', async () => {
+    const legacyProcessId = 42201;
+    const processId = 42202;
+    const writtenLegacyProcessId = 42203;
+    const pollutedProcessId = 42204;
+    const recoveryToken = '0123456789abcdef0123456789abcdef';
+    const legacy = {
+        version: 2,
+        layout: 'session',
+        workspaceScopeIdentity: 'scope:legacy',
+        workspaceNavigationIdentity: 'navigation:legacy',
+        workspaceRootHostPaths: ['/work/legacy'],
+        cwd: '/work/legacy',
+        sessionName: 'legacy-session',
+        provider: 'codex',
+        sessionId: 'legacy',
+        terminalNamePrefix: 'Codex: legacy',
+    };
+    const state = makeState({
+        [`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${legacyProcessId}`]: legacy,
+        [`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`]: {
+            ...legacy,
+            version: 3,
+            sessionId: 'polluted-ordinary',
+            writableRootHostPaths: [...legacy.workspaceRootHostPaths],
+        },
+        [`${AI_SESSION_TMUX_ATTACH_RECOVERY_BINDING_KEY_PREFIX}${recoveryToken}`]: {
+            version: 1,
+            processId: pollutedProcessId,
+            binding: {
+                ...legacy,
+                version: 3,
+                sessionId: 'polluted-ordinary',
+                writableRootHostPaths: [...legacy.workspaceRootHostPaths],
+            },
+        },
+    });
+    const store = new TmuxAttachBindingStore(state.memento);
+    assert.deepEqual(store.get(legacyProcessId), legacy);
+    assert.equal(store.get(pollutedProcessId).version, 2);
+    await store.flush();
+    assert.equal(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${pollutedProcessId}`].version,
+        2
+    );
+    assert.equal(state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${pollutedProcessId}`], undefined);
+    store.setRecovery(recoveryToken, 42205, legacy);
+    await store.flush();
+    assert.deepEqual(store.getRecovery(recoveryToken), { processId: 42205, binding: legacy },
+        'an internal legacy read must not queue a stale migration after a newer recovery write');
+    store.set(writtenLegacyProcessId, legacy);
+    await store.flush();
+    assert.deepEqual(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}${writtenLegacyProcessId}`],
+        legacy,
+        'ordinary attach bindings must remain readable by the rollback release'
+    );
+    assert.equal(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${writtenLegacyProcessId}`],
+        undefined
+    );
+
+    const current = {
+        version: 3,
+        layout: 'session',
+        workspaceScopeIdentity: 'scope:worktree',
+        workspaceNavigationIdentity: 'navigation:worktree',
+        workspaceRootHostPaths: ['/repos/frontend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+        sessionName: 'worktree-session',
+        provider: 'codex',
+        sessionId: 'worktree',
+        terminalNamePrefix: 'Codex: worktree',
+    };
+    store.set(processId, current);
+    await store.flush();
+    assert.deepEqual(
+        state.values[`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_KEY_PREFIX}${processId}`],
+        current
+    );
+    assert.deepEqual(new TmuxAttachBindingStore(state.memento).get(processId), current);
+});
+
 test('RUNTIME-TMUX-STORE-001 ignores corrupt, oversized, partially written, and stale binding files', async t => {
     const fixture = createRuntimeFilesystemFixture(t, 'agent-pivot-persistence-tmux-');
     const binding = makeTmuxKnownBinding('persistence', { lastSeenAtMs: NOW });
@@ -433,8 +704,37 @@ test('RUNTIME-TMUX-STORE-001 ignores corrupt, oversized, partially written, and 
     await store.setKnown(binding);
     assert.deepEqual(await store.listKnown(), [binding]);
 
+    const worktreeBinding = {
+        ...makeTmuxKnownBinding('persistence-worktree', { lastSeenAtMs: NOW }),
+        version: 3,
+        workspaceRootHostPaths: ['/repos/frontend'],
+        writableRootHostPaths: ['/managed/frontend-feature'],
+        worktreeKey: {
+            repositoryKey: '/repos/frontend/.git',
+            canonicalWorktreePath: '/managed/frontend-feature',
+        },
+        cwd: '/managed/frontend-feature',
+    };
+    await store.setKnown(worktreeBinding);
+    assert.deepEqual(
+        (await new TmuxRuntimeBindingStore(fixture.root, () => NOW).listKnown())
+            .find(candidate => candidate.sessionId === 'persistence-worktree'),
+        worktreeBinding
+    );
+    await store.removeKnown('codex', 'persistence-worktree');
+
     const [recordName] = fs.readdirSync(fixture.root).filter(name => name.endsWith('.json'));
     const recordPath = fixture.resolve(recordName);
+    fs.writeFileSync(recordPath, JSON.stringify({
+        ...binding,
+        version: 3,
+        writableRootHostPaths: [...binding.workspaceRootHostPaths],
+    }), 'utf8');
+    const migrated = await new TmuxRuntimeBindingStore(fixture.root, () => NOW).listKnown();
+    assert.equal(migrated[0].version, 2);
+    assert.equal(JSON.parse(fs.readFileSync(recordPath, 'utf8')).version, 2,
+        'legacy-equivalent runtime files must be repaired for rollback');
+
     fs.writeFileSync(recordPath, '{"version":1', 'utf8');
     fs.writeFileSync(fixture.resolve('.interrupted.tmp'), JSON.stringify(binding), 'utf8');
     assert.deepEqual(await new TmuxRuntimeBindingStore(fixture.root, () => NOW).listKnown(), []);

@@ -217,6 +217,32 @@ async function main() {
     ];
     const lifecycle = {
         activationDisposed: false,
+        seededGlobalState: mode === 'restored-provisioning' ? {
+            'agentPivot.worktreeProvisioning.v1': [{
+                version: 1,
+                operationId: 'request-restored',
+                projectId: 'project',
+                providerId: 'codex',
+                setupCommand: [],
+                plan: {
+                    repositoryKey: '/repo/.git', commandCwd: '/repo',
+                    baseRef: 'refs/heads/main', taskName: 'Restored task',
+                    slug: 'restored-task', branchName: 'agent-pivot/restored-task',
+                    worktreePath: '/repo/.worktrees/restored-task',
+                },
+                completedSteps: ['worktree'],
+                worktreeKey: {
+                    repositoryKey: '/repo/.git',
+                    canonicalWorktreePath: '/repo/.worktrees/restored-task',
+                },
+                row: {
+                    kind: 'provisioning', operationId: 'request-restored',
+                    repositoryKey: '/repo/.git', taskName: 'Restored task',
+                    proposedPath: '/repo/.worktrees/restored-task', stage: 'setting-up',
+                    completedSteps: ['worktree'], retryable: false, cancellable: true,
+                },
+            }],
+        } : undefined,
         activeOpenTerminalListeners: 0,
         forceTmuxMode: mode === 'fallback-choice',
         lateResourceAcquisitions: [],
@@ -358,7 +384,10 @@ async function main() {
         return loaded;
     };
     const state = (synchronized = false) => ({
-        get: (_key, fallback) => fallback,
+        get: (key, fallback) => lifecycle.seededGlobalState
+            && Object.prototype.hasOwnProperty.call(lifecycle.seededGlobalState, key)
+            ? lifecycle.seededGlobalState[key]
+            : fallback,
         update: async () => undefined,
         ...(synchronized
             ? { setKeysForSync: keys => synchronizedGlobalStateKeySets.push(keys.slice()) }

@@ -28,6 +28,13 @@ export interface AiSessionDashboardControllerOptions<
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
     beginProjection: (reason: string) => TProjection;
+    /**
+     * The worktree-group aggregate revision of the rendered workspace
+     * bucket (PRD §6.4 decision J), for settlement revision gating.
+     */
+    getWorktreeGroupsAggregateRevision?: (
+        navigationIdentity: string | null
+    ) => number | null;
     postMessage: (message: unknown) => Thenable<boolean>;
     refresh: (reason: string) => void;
     logError: (message: string, error: unknown) => void;
@@ -143,20 +150,24 @@ export class AiSessionDashboardController<
             if (this.shouldSkipUnchangedMessage(reason)) {
                 this.lastPostedIncrementalMessageSignature = signature;
             }
-            this.options.postMessage(message).then(delivered => {
+            // Await delivery so callers that gate pending UI on the
+            // authoritative replacement can rely on the full-refresh
+            // fallback having actually run when refreshNow resolves.
+            try {
+                const delivered = await this.options.postMessage(message);
                 if (!delivered) {
                     this.lastPostedIncrementalMessageSignature = null;
                     if (fallbackToFullRefresh) {
                         this.options.refresh('ai-session-update-not-delivered');
                     }
                 }
-            }, error => {
+            } catch (error) {
                 this.lastPostedIncrementalMessageSignature = null;
                 this.options.logError('Failed to post AI session update message.', error);
                 if (fallbackToFullRefresh) {
                     this.options.refresh('ai-session-update-post-error');
                 }
-            });
+            }
         } catch (error) {
             this.options.logError('Failed to update AI sessions incrementally.', error);
             if (fallbackToFullRefresh) {
@@ -185,6 +196,10 @@ export class AiSessionDashboardController<
     ): AiSessionsUpdatedMessage {
         const startedAt = this.nowMs();
         const cards = this.options.getCards(projection);
+        // Derive the rendered identity once and use it for BOTH the
+        // presentation identity and the aggregate revision, so they can
+        // never describe different workspaces (ARCH guard contract).
+        const renderedIdentity = getRenderedCurrentWorkspaceNavigationIdentity(cards);
         const runningCardAnimation = this.options.getRunningCardAnimation();
         const runningIconAnimation = this.options.getRunningIconAnimation();
         const message = buildAiSessionsUpdatedMessage({
@@ -199,9 +214,11 @@ export class AiSessionDashboardController<
             presentation: buildAiSessionPresentationState(
                 false,
                 projection,
-                getRenderedCurrentWorkspaceNavigationIdentity(cards),
+                renderedIdentity,
                 runningCardAnimation,
                 runningIconAnimation,
+                this.options.getWorktreeGroupsAggregateRevision?.(
+                    renderedIdentity) ?? null,
             ),
         });
         this.options.logDiagnostic?.({

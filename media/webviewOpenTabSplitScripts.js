@@ -12,11 +12,11 @@ function initOpenTabSplit() {
     // innerHTML replacements, so replacements never have to replay it.
     var OPEN_TAB_PANE_MIN_PX = 72;
     // Expanded CURRENT WINDOW cards carry fixed AI-session chrome (module
-    // header, tabs, provider controls); the pane minimum rises so the chrome
-    // and one session row stay reachable. Measured against the sidebar fit
-    // layout (360px/240px widths) and mirrored as the min-height of the
-    // expanded rules in media/styles.scss.
-    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 263;
+    // header, surface tabs, chat tabs, provider controls); the pane minimum
+    // rises so the chrome and one session row stay reachable. Measured
+    // against the sidebar fit layout (360px/240px widths) and mirrored as
+    // the min-height of the expanded rules in media/styles.scss.
+    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
     var OPEN_TAB_KEY_STEP_PX = 24;
     var OPEN_TAB_STATE_KEY = 'openTab';
 

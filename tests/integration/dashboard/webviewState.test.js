@@ -3368,3 +3368,48 @@ test('TODO-TODO-ORDERING-INTERACTION-001 constrains TODO drag state and posts ex
     assert.equal(harness.rootElement.__agentPivotDnDInitialized, undefined);
     assert.equal(harness.rootElement.__agentPivotDnD, undefined);
 });
+
+test('WORKTREE-GROUPS-UI-001 the anchor menu carries the main-checkout key only when unambiguous', () => {
+    const base = {
+        id: 'anchor-coverage',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktrees: [],
+        worktreeSnapshotRevision: 1,
+        worktreeRepositoryCount: 1,
+    };
+    const mainKey = { repositoryKey: '/repos/alpha/.git', canonicalWorktreePath: '/alpha/main' };
+    const otherKey = { repositoryKey: '/repos/beta/.git', canonicalWorktreePath: '/beta/main' };
+    const single = webviewModules.content.getAiSessionsDiv({
+        ...base,
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [mainKey],
+            sessions: [],
+            activity: 'idle',
+        },
+    });
+    assert.match(single, /data-worktree-anchor="true"/);
+    assert.match(single, /data-can-branch-create="true"/,
+        'single-root anchors can seed New worktree from Current');
+    assert.match(single, /data-worktree-repository-key="\/repos\/alpha\/\.git"/);
+    const multi = webviewModules.content.getAiSessionsDiv({
+        ...base,
+        worktreeAnchor: {
+            entries: [
+                { repositoryLabel: 'alpha', branch: 'main' },
+                { repositoryLabel: 'beta', branch: '1.0' },
+            ],
+            worktreeKeys: [mainKey, otherKey],
+            sessions: [],
+            activity: 'idle',
+        },
+    });
+    assert.match(multi, /data-worktree-anchor="true"/);
+    assert.match(multi, /data-can-branch-create="false"/,
+        'multi-root anchors never guess a branch seed');
+    assert.doesNotMatch(multi, /data-worktree-repository-key="\/repos\/alpha/,
+        'no key leaks onto a multi-root anchor');
+});

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "ba6ab556e44a249788892a6fcba7277e2f927a58",
+        "head": "4d183f22412d93eaec6eb3c3978ffc3c28e7c8d2",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -388,7 +388,9 @@
             "5e55660b1986ba36929466ec8f989cfaf9657ef8",
             "1a83abc5e2b2776c6710340bb5957c406846cd85",
             "fb26f43a24d692aa68cc780a6d70a04d681e77c8",
-            "447174a1dfda119d17c4abf2ae9f9d362f3e5d81"
+            "447174a1dfda119d17c4abf2ae9f9d362f3e5d81",
+            "4f050c556ae6e660737eb194e92f934eee87d5a5",
+            "9c7001d4a8d72cde9a59996be87c10c74a7b69a6"
         ]
     },
     "capabilities": [
@@ -2162,7 +2164,12 @@
             "id": "MAIN-WORKTREE-CHANGES-PANEL",
             "title": "In-conversation worktree changes panel",
             "requirement": "The AI conversation view shows the session task's git changes in place: an immutable per-member baseline is frozen before any physical side effect and persisted with the provisioning intent, provisioning branches from the frozen commit rather than a moved base ref, the telemetry strip carries a Changes button whose counts never render unknown as zero, and a read-only sidebar tab presents the task result relative to each worktree baseline plus the uncommitted working changes grouped the way Source Control groups them.",
-            "commits": [],
+            "commits": [
+                "beca4aba9d9123a06a1d6e237907c8bd7b3b48be",
+                "98a8dc8a54a331ee46f1c7733f3fd89fa6c4d96c",
+                "545ac1208432dce8267f09d2e3c1cff19df6e248",
+                "4d183f22412d93eaec6eb3c3978ffc3c28e7c8d2"
+            ],
             "behaviors": [
                 "WORKTREE-GROUPS-BASELINE-001",
                 "WORKTREE-CHANGES-COLLECT-001",

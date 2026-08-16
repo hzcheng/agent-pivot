@@ -75,12 +75,16 @@ If push reports HTTP 408, `unexpected EOF`, or an RPC disconnect:
 4. Honor approval gates exactly. If the user said "merge after I approve", stop until that approval is present in the conversation.
 5. If draft and user approved/asked to merge, run `gh pr ready <n>`.
 6. Merge with the repository's expected strategy, or default to merge commit:
-   - `gh pr merge <n> --merge --delete-branch`
+   - `gh pr merge <n> --merge`
+   - Keep the feature branch by default: a worktree-backed branch is a
+     long-lived work surface reused across consecutive fixes, so deleting
+     the remote branch breaks that loop. Pass `--delete-branch` only when
+     the user explicitly asks for branch cleanup.
 7. GitHub GraphQL can return `unexpected EOF` after a successful mutation. Always re-check:
    - `gh pr view <n> --json state,mergedAt,mergeCommit,isDraft`
    - `git fetch origin <base> --prune`
    - `git log --oneline -1 origin/<base>`
-8. If `--delete-branch` did not run because of a transient API failure, delete the remote feature branch explicitly after confirming the PR is merged:
+8. When the user did request branch cleanup and `--delete-branch` did not run because of a transient API failure, delete the remote feature branch explicitly after confirming the PR is merged:
    - `git push origin --delete <branch>`
    - `git ls-remote --heads origin <branch>`
 
@@ -89,5 +93,5 @@ If push reports HTTP 408, `unexpected EOF`, or an RPC disconnect:
 - Never merge a PR whose target repository or base branch is ambiguous.
 - Never merge a PR without an explicit in-conversation approval for that PR; green checks are not approval.
 - Never treat an API transport error as failure or success without checking PR state.
-- Never delete the local worktree or branch until the merge commit is confirmed.
+- Never delete the remote branch, local branch, or worktree unless the user explicitly asks; even then, never delete the local worktree or branch until the merge commit is confirmed.
 - Do not force push or force update refs unless the user explicitly asks.

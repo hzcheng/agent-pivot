@@ -113,7 +113,11 @@ test('ARCH-SESSION-WORKTREE-001 caches resolutions briefly and rejects non-absol
 
 test('ARCH-SESSION-WORKTREE-001 resolveKey returns the manifest-compatible WorktreeKey', async t => {
     const { repo } = await createRepo(t);
-    const resolver = new ConversationWorktreeResolver({ now: Date.now });
+    const resolver = new ConversationWorktreeResolver({
+        now: Date.now,
+        canonicalizePath: candidate =>
+            fs.promises.realpath(candidate).catch(() => candidate),
+    });
 
     const key = await resolver.resolveKey(repo);
     assert.deepEqual(key, {

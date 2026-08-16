@@ -36,6 +36,9 @@ export interface ConversationTelemetryControllerOptions {
     getCurrentRequestId: () => number;
     isSuspended: () => boolean;
     rebuildLatestDocument: () => void;
+    /** Fires after each successful telemetry publish (changes-panel PRD
+     * §5.4: the telemetry cycle is the changes collector's fallback). */
+    onDidPublish?: (target: ConversationViewerTarget) => void;
     setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
     clearTimer?: (handle: TimerHandle) => void;
 }
@@ -182,6 +185,7 @@ export class ConversationTelemetryController {
             && this.options.getSubscriptionGeneration() === generation) {
             this.options.rebuildLatestDocument();
         }
+        this.options.onDidPublish?.(target);
     }
 
     private scheduleRefresh(): void {
@@ -314,6 +318,12 @@ const SUBAGENTS_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
     + '<circle cx="8" cy="3" r="1.7"/><circle cx="3.5" cy="12.5" r="1.7"/>'
     + '<circle cx="12.5" cy="12.5" r="1.7"/><path d="M8 4.7v3M8 7.7 4.5 11M8 7.7l3.5 3.3"/></svg>';
 
+const CHANGES_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.35"'
+    + ' stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.7"/>'
+    + '<circle cx="4.5" cy="12.5" r="1.7"/><circle cx="11.5" cy="6.5" r="1.7"/>'
+    + '<path d="M4.5 5.2v5.6M11.5 8.2c0 2.4-3.4 2-4.6 3"/></svg>';
+
 function clampPercent(value: number): number {
     return Math.max(0, Math.min(100, value));
 }
@@ -381,7 +391,7 @@ export function renderConversationTelemetry(
     const worktreeTitle = worktree
         ? worktree.missing
             ? `Worktree path no longer exists: ${worktree.worktreeRoot} (branch ${worktree.branch})`
-            : `Working in worktree: ${worktree.worktreeRoot} (branch ${worktree.branch}) · Click to show changes in Source Control`
+            : `Working in worktree: ${worktree.worktreeRoot} (branch ${worktree.branch}) · Click to open in Source Control`
         : '';
     const modelTitle = telemetry?.model
         ? `Model · ${telemetry.model}`
@@ -459,6 +469,16 @@ export function renderConversationTelemetry(
             title="0 comments — click to review"
             data-tooltip="0 comments — click to review">
             ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value>0</span>
+        </button>
+        <button type="button"
+            class="conversation-telemetry-changes conversation-telemetry-tooltip"
+            data-telemetry-changes
+            aria-pressed="false"
+            aria-label="No changes — click to view"
+            title="No changes — click to view"
+            data-tooltip="No changes — click to view"
+            hidden>
+            ${CHANGES_ICON_SVG}<span data-telemetry-changes-value>0 · ↑0</span>
         </button>
         <button type="button"
             class="conversation-telemetry-subagents conversation-telemetry-tooltip"

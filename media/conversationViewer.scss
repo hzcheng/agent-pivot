@@ -1118,7 +1118,7 @@ body[data-conversation-loading='true'] .conversation-messages {
 .conversation-sidebar-tabs {
     display: grid;
     flex: 0 0 auto;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     gap: 0.25rem;
     padding: 0.2rem 0.4rem;
     border-bottom: 1px solid var(--vscode-panel-border);
@@ -2852,4 +2852,177 @@ body.vscode-high-contrast-light {
     .hljs-template-variable {
         color: #e45649;
     }
+}
+
+// ── Changes panel (worktree changes, changes-panel PRD) ──────────
+
+.conversation-changes {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-height: 0;
+    padding: 0.3rem 0.5rem;
+
+    &[hidden] {
+        display: none;
+    }
+}
+
+.conversation-changes-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+
+    select {
+        flex: 1;
+        min-width: 0;
+        background: var(--vscode-dropdown-background);
+        border: 1px solid var(--vscode-dropdown-border, transparent);
+        color: var(--vscode-dropdown-foreground);
+        font-size: 0.85em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
+.conversation-changes-cross-member {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8em;
+    margin: 0;
+}
+
+.conversation-changes-task {
+    border: 1px solid var(--vscode-panel-border, transparent);
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.45rem 0.55rem;
+}
+
+.conversation-changes-task-title {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.78em;
+    text-transform: uppercase;
+}
+
+.conversation-changes-task-summary {
+    font-size: 0.9em;
+}
+
+.conversation-changes-task-note {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.78em;
+}
+
+.conversation-changes-working {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.conversation-changes-working-header {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.78em;
+    margin: 0.2rem 0;
+    text-transform: uppercase;
+}
+
+.conversation-changes-group-header {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8em;
+    padding: 0.25rem 0 0.1rem;
+}
+
+.conversation-changes-group-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.conversation-changes-file {
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    display: flex;
+    font: inherit;
+    gap: 0.4rem;
+    overflow: hidden;
+    padding: 0.15rem 0.2rem;
+    text-align: left;
+    width: 100%;
+
+    &:hover,
+    &:focus-visible {
+        background: var(--vscode-list-hoverBackground);
+    }
+}
+
+.conversation-changes-file-status {
+    border-radius: 3px;
+    flex: none;
+    font-size: 0.72em;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.15rem 0.3rem;
+}
+
+.conversation-changes-file-status-merge {
+    color: var(--vscode-gitlens-mergedChangesIconColor, var(--vscode-editorWarning-foreground));
+}
+
+.conversation-changes-file-status-staged {
+    color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.conversation-changes-file-status-changes {
+    color: var(--vscode-gitDecoration-modifiedResourceForeground);
+}
+
+.conversation-changes-file-status-untracked {
+    color: var(--vscode-gitDecoration-untrackedResourceForeground);
+}
+
+.conversation-changes-file-path {
+    direction: rtl;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-empty,
+.conversation-changes-unavailable {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.85em;
+    margin: 0.3rem 0;
+}
+
+.conversation-changes-footer {
+    border-top: 1px solid var(--vscode-panel-border, transparent);
+    padding-top: 0.4rem;
+}
+
+.conversation-changes-action {
+    background: var(--vscode-button-secondaryBackground, transparent);
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    cursor: pointer;
+    font-size: 0.85em;
+    padding: 0.25rem 0.6rem;
+
+    &:disabled {
+        cursor: default;
+        opacity: 0.5;
+    }
+
+    &:hover:not(:disabled) {
+        background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground));
+    }
+}
+
+.conversation-telemetry-changes[disabled] {
+    opacity: 0.55;
 }

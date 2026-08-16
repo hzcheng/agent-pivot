@@ -22,6 +22,10 @@ import type {
 import { ConversationBookmarkController } from './bookmarkController';
 import { ConversationTelemetryController } from './conversationTelemetryController';
 import {
+    ConversationChangesController,
+    ConversationChangesControllerOptions,
+} from './conversationChangesController';
+import {
     ConversationSessionStatus,
     ConversationSessionStatusController,
 } from './sessionStatusController';
@@ -135,6 +139,14 @@ export interface ConversationViewerOptions {
     showWorktreeInSourceControl?: (
         worktreeRoot: string
     ) => PromiseLike<void> | Promise<void> | void;
+    /**
+     * Changes-panel wiring (changes-panel PRD); absent disables the
+     * Changes button and sidebar tab.
+     */
+    changes?: Omit<
+        ConversationChangesControllerOptions,
+        'getPanel' | 'getTarget' | 'getSubscriptionGeneration' | 'isSuspended'
+    >;
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
@@ -289,6 +301,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
     private readonly sessionStatusController: ConversationSessionStatusController;
+    private readonly changesController?: ConversationChangesController;
 
     constructor(private readonly options: ConversationViewerOptions) {
         this.telemetryController = new ConversationTelemetryController({
@@ -299,9 +312,21 @@ export class ConversationViewer implements ConversationViewerApi {
             getCurrentRequestId: () => this.currentRequestId,
             isSuspended: () => this.suspended,
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
+            onDidPublish: target => {
+                void this.changesController?.onTelemetryRefreshed(target);
+            },
             setTimer: options.setTimer,
             clearTimer: options.clearTimer,
         });
+        if (options.changes) {
+            this.changesController = new ConversationChangesController({
+                ...options.changes,
+                getPanel: () => this.panel,
+                getTarget: () => this.target,
+                getSubscriptionGeneration: () => this.subscriptionGeneration,
+                isSuspended: () => this.suspended,
+            });
+        }
         this.sessionStatusController = new ConversationSessionStatusController({
             readStatus: options.readSessionStatus,
             getPanel: () => this.panel,
@@ -602,6 +627,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 generation,
                 this.effectiveSessionId(activeTarget)
             );
+            void this.changesController?.activate(activeTarget)
+                .catch(() => undefined);
             // Heal status updates that were discarded by the Webview while
             // this target transition was in flight.
             void this.sessionStatusController.republish();
@@ -728,6 +755,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 this.subscriptionGeneration,
                 this.effectiveSessionId(target)
             );
+            void this.changesController?.activate(target)
+                .catch(() => undefined);
             // Replay statuses that were skipped while the viewer was
             // suspended.
             void this.sessionStatusController.republish();
@@ -761,6 +790,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.outlineController.reset(target.interactionId);
         this.stale = false;
         this.telemetryController.reset();
+        this.changesController?.reset();
         this.latestPublication = undefined;
         this.appliedContentSignature = undefined;
         this.commentController.reset();
@@ -896,6 +926,36 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.options.showWorktreeInSourceControl?.(
                 parsed.worktreeRoot
             );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-refresh') {
+            await this.changesController?.handleRefresh();
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-select') {
+            this.changesController?.handleSelect(parsed.memberId);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-open-file') {
+            await this.changesController?.handleOpenFile({
+                memberId: parsed.memberId,
+                item: {
+                    group: parsed.group,
+                    xy: parsed.xy,
+                    path: parsed.path,
+                    ...(parsed.originalPath
+                        ? { originalPath: parsed.originalPath }
+                        : {}),
+                },
+            });
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-review') {
+            await this.changesController?.handleReview(parsed.memberId);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-open-scm') {
+            await this.changesController?.handleOpenScm(parsed.memberId);
             return;
         }
         if (parsed.type === 'conversation-viewer-send-selection') {

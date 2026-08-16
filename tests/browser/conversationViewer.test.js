@@ -57,6 +57,10 @@ const conversationSidebarScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationSidebarScripts.js'),
     'utf8'
 );
+const conversationChangesScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationChangesScripts.js'),
+    'utf8'
+);
 const conversationReconcileScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationReconcileScripts.js'),
     'utf8'
@@ -1626,6 +1630,13 @@ async function openHostViewerDocument(t, options = {}) {
             await route.fulfill({
                 contentType: 'text/javascript',
                 body: conversationSidebarScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationChangesScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationChangesScript,
             });
             return;
         }
@@ -4667,7 +4678,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'c2ca7e89d1fbdb33aea2fb6c35cff7e25329ce708a69242a847391804ad80a40',
+        'a3d917dc7de5dc298bffccc7ec021bd62cf5f8d92c35bb988e8666b1c2391e16',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -11598,4 +11609,209 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         commentId: 'comment-1',
         tag: 'convention',
     });
+});
+
+function changesFixture(overrides = {}) {
+    return {
+        kind: 'ready',
+        aggregate: {
+            completeness: 'complete', workingItemCount: 4,
+            workingPartial: false, aheadCount: 2,
+            aheadPartial: false, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 3,
+            aheadCount: 2, truncated: false,
+        }, {
+            memberId: 'm-web', repoLabel: 'web',
+            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
+            availability: 'available', workingItemCount: 1,
+            aheadCount: 0, truncated: false,
+        }],
+        selectedMemberId: 'm-api',
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 5,
+            items: [
+                { group: 'changes', xy: ' M', path: 'src/auth/login.ts' },
+                { group: 'staged', xy: 'M ', path: 'src/auth/session.ts' },
+                { group: 'untracked', xy: '??', path: 'src/auth/login.test.ts' },
+            ],
+            truncated: false,
+        },
+        collectedAt: 1724000000000,
+        ...overrides,
+    };
+}
+
+async function sendChanges(page, changes, generationOverride) {
+    const generation = generationOverride || await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    await sendPage(page, {
+        type: 'conversation-viewer-changes',
+        version: 1,
+        subscriptionGeneration: generation,
+        changes,
+    });
+}
+
+test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, groups, and posts intents', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const changesButton = page.locator('[data-telemetry-changes]');
+
+    assert.equal(await changesButton.isVisible(), false,
+        'the Changes button stays hidden before the first state');
+
+    await sendChanges(page, changesFixture());
+
+    assert.equal(await changesButton.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(),
+        '4 · ↑2'
+    );
+    const tooltip = await changesButton.getAttribute('title');
+    assert.ok(tooltip.includes('api (agent-pivot/fix-login) · 3 uncommitted · ↑2'));
+    assert.ok(tooltip.includes('web (agent-pivot/fix-login-ui) · 1 uncommitted · ↑0'));
+
+    // The button opens the sidebar on the Changes tab, like its siblings.
+    await changesButton.click();
+    assert.equal(
+        await page.locator('[data-conversation-changes]').isVisible(), true);
+    assert.equal(
+        await changesButton.getAttribute('aria-pressed'), 'true');
+
+    // Member dropdown lists both worktrees with counts.
+    const options = await page.locator(
+        '[data-changes-member-select] option').allInnerTexts();
+    assert.equal(options.length, 2);
+    assert.ok(options[0].includes('api'));
+    assert.ok(options[0].includes('3 · ↑2'));
+
+    // Cross-member hint.
+    assert.equal(
+        await page.locator('[data-changes-cross-member]').innerText(),
+        '1 changes in 1 other repository');
+
+    // Task result layer with the containment note and review entry.
+    assert.equal(
+        await page.locator('[data-changes-task-summary]').innerText(),
+        '5 files · 2 commits');
+    assert.ok(await page.locator('[data-changes-task]').innerText()
+        .then(text => text.includes('Includes committed and uncommitted changes')));
+
+    // Working groups render in the SCM order with the untracked group split.
+    const groupHeaders = await page.locator(
+        '.conversation-changes-group-header').allInnerTexts();
+    assert.deepEqual(groupHeaders, ['Staged Changes', 'Changes', 'Untracked Changes']);
+    const rows = await page.locator('.conversation-changes-file').allInnerTexts();
+    assert.equal(rows.length, 3);
+    assert.ok(rows.some(row => row.includes('src/auth/login.test.ts')));
+
+    // Clicking a file posts the exact open-file intent.
+    await page.locator('.conversation-changes-file', {
+        hasText: 'src/auth/login.ts',
+    }).first().click();
+    const openFile = (await postedMessages(page)).at(-1);
+    assert.deepEqual(openFile, {
+        type: 'conversation-viewer-changes-open-file',
+        version: 1,
+        memberId: 'm-api',
+        group: 'changes',
+        xy: ' M',
+        path: 'src/auth/login.ts',
+        originalPath: undefined,
+    });
+
+    // Review + refresh + SCM + member switch intents.
+    await page.locator('[data-changes-review]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-review', version: 1, memberId: 'm-api',
+    });
+    await page.locator('[data-changes-refresh]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-refresh', version: 1,
+    });
+    await page.locator('[data-changes-open-scm]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-open-scm', version: 1, memberId: 'm-api',
+    });
+    await page.locator('[data-changes-member-select]').selectOption('m-web');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select', version: 1, memberId: 'm-web',
+    });
+});
+
+test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zero-washing', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture({
+        aggregate: {
+            completeness: 'partial', workingItemCount: 3,
+            workingPartial: true, aheadCount: 2,
+            aheadPartial: true, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 3,
+            aheadCount: 2, truncated: false,
+        }, {
+            memberId: 'm-gone', repoLabel: 'gone', branchName: '',
+            worktreePath: '/wt/gone', availability: 'unreadable',
+            workingItemCount: 0, truncated: false,
+        }],
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 5,
+            items: [], truncated: false,
+        },
+    }));
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(),
+        '3+ · ↑?',
+        'partial state is marked, never rendered as a plain number');
+    const tooltip = await page.locator('[data-telemetry-changes]')
+        .getAttribute('title');
+    assert.ok(tooltip.includes('Partial'));
+
+    // Retired: disabled button, no zero, explanatory panel.
+    await sendChanges(page, changesFixture({
+        kind: 'retired',
+        aggregate: {
+            completeness: 'unavailable', workingItemCount: 0,
+            workingPartial: false, aheadPartial: false,
+            allUnreadable: true,
+        },
+        members: [],
+        selectedMemberId: undefined,
+        detail: undefined,
+    }));
+    const retiredButton = page.locator('[data-telemetry-changes]');
+    assert.equal(await retiredButton.isDisabled(), true);
+    assert.ok((await retiredButton.getAttribute('title'))
+        .includes('has been deleted'));
+    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-sidebar-tab="changes"]').click();
+    assert.ok((await page.locator('[data-changes-unavailable]').innerText())
+        .includes('deleted'));
+
+    // Stale generations are ignored.
+    await sendChanges(page, changesFixture({
+        aggregate: {
+            completeness: 'complete', workingItemCount: 9,
+            workingPartial: false, aheadCount: 9,
+            aheadPartial: false, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-x', repoLabel: 'x', branchName: 'b',
+            worktreePath: '/wt/x', availability: 'available',
+            workingItemCount: 9, aheadCount: 9, truncated: false,
+        }],
+        selectedMemberId: 'm-x',
+        detail: undefined,
+    }), 999);
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(), '—',
+        'a stale generation never overwrites the current state');
 });

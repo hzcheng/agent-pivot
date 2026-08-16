@@ -12,12 +12,14 @@
         var outlineRoot = options.outlineRoot;
         var commentsRoot = options.commentsRoot;
         var subagentsRoot = options.subagentsRoot;
+        var changesRoot = options.changesRoot;
         var outlineQuery = options.outlineQuery;
         var subagentsRunningOnlyQuery = options.subagentsRunningOnlyQuery
             || function () { return false; };
         var telemetryPosition = options.telemetryPosition;
         var telemetryComments = options.telemetryComments;
         var telemetrySubagents = options.telemetrySubagents;
+        var telemetryChanges = options.telemetryChanges;
         var commentsPanelMinWidth = 192;
         var commentsPanelMaxWidth = 420;
         var conversationMinWidth = 320;
@@ -116,6 +118,10 @@
                 telemetrySubagents.setAttribute('aria-pressed',
                     state.commentsPanelOpen && state.sidebarView === 'subagents' ? 'true' : 'false');
             }
+            if (telemetryChanges) {
+                telemetryChanges.setAttribute('aria-pressed',
+                    state.commentsPanelOpen && state.sidebarView === 'changes' ? 'true' : 'false');
+            }
         }
 
         function applyCommentsPanelLayout() {
@@ -134,6 +140,9 @@
             outlineRoot.hidden = state.sidebarView !== 'outline';
             commentsRoot.hidden = state.sidebarView !== 'comments';
             subagentsRoot.hidden = state.sidebarView !== 'subagents';
+            if (changesRoot) {
+                changesRoot.hidden = state.sidebarView !== 'changes';
+            }
             commentsResizer.setAttribute('aria-valuemax', String(
                 availableCommentsPanelMaxWidth()
             ));
@@ -149,7 +158,7 @@
 
         function setSidebarView(view, open, persist) {
             if (view !== 'outline' && view !== 'comments'
-                && view !== 'subagents') return;
+                && view !== 'subagents' && view !== 'changes') return;
             state.sidebarView = view;
             state.commentsPanelOpen = open;
             applyCommentsPanelLayout();
@@ -273,7 +282,8 @@
             }
             if (savedCommentsPanel.view === 'outline'
                 || savedCommentsPanel.view === 'comments'
-                || savedCommentsPanel.view === 'subagents') {
+                || savedCommentsPanel.view === 'subagents'
+                || savedCommentsPanel.view === 'changes') {
                 state.sidebarView = savedCommentsPanel.view;
             }
         }

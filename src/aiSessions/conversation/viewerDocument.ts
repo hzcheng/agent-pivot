@@ -88,6 +88,9 @@ export function renderConversationViewerDocument(
     const subagentsScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationSubagentsScripts.js')
     );
+    const changesScript = panel.webview.asWebviewUri(
+        options.mediaUri('conversationChangesScripts.js')
+    );
     const telemetryScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationTelemetryScripts.js')
     );
@@ -283,6 +286,18 @@ export function renderConversationViewerDocument(
                     <svg viewBox="0 0 16 16" width="14" height="14"
                         aria-hidden="true" fill="none" stroke="currentColor"
                         stroke-width="1.3"><path d="M3 3.5h10a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5H8l-3 2.2v-2.2H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/></svg>
+                </button>
+                <button type="button" role="tab" data-sidebar-tab="changes"
+                    id="conversation-changes-tab"
+                    aria-controls="conversation-changes-panel"
+                    aria-selected="false" aria-label="Changes" title="Changes">
+                    <svg viewBox="0 0 16 16" width="14" height="14"
+                        aria-hidden="true" fill="none" stroke="currentColor"
+                        stroke-width="1.3" stroke-linecap="round">
+                        <circle cx="4.5" cy="3.5" r="1.6"/>
+                        <circle cx="4.5" cy="12.5" r="1.6"/>
+                        <circle cx="11.5" cy="6.5" r="1.6"/>
+                        <path d="M4.5 5.1v5.8M11.5 8.1c0 2.4-3.4 2-4.6 3"/></svg>
                 </button>
                 <button type="button" role="tab" data-sidebar-tab="subagents"
                     id="conversation-subagents-tab"
@@ -523,6 +538,50 @@ export function renderConversationViewerDocument(
                 <p class="conversation-subagents-empty" data-subagents-empty
                     hidden>No subagents recorded for this Session.</p>
             </section>
+            <section id="conversation-changes-panel"
+                class="conversation-changes" data-conversation-changes
+                role="tabpanel" aria-labelledby="conversation-changes-tab"
+                hidden>
+                <div class="conversation-changes-toolbar">
+                    <select class="conversation-changes-member-select"
+                        data-changes-member-select
+                        aria-label="Worktree to inspect"></select>
+                    <button type="button"
+                        class="conversation-icon-button"
+                        data-changes-refresh title="Refresh"
+                        aria-label="Refresh">${CONVERSATION_NAV_ICON_LATEST}</button>
+                </div>
+                <p class="conversation-changes-cross-member"
+                    data-changes-cross-member hidden></p>
+                <div class="conversation-changes-task"
+                    data-changes-task hidden>
+                    <div class="conversation-changes-task-title"
+                        >Task result compared with start</div>
+                    <div class="conversation-changes-task-summary"
+                        data-changes-task-summary></div>
+                    <div class="conversation-changes-task-note"
+                        >Includes committed and uncommitted changes</div>
+                    <button type="button"
+                        class="conversation-changes-action"
+                        data-changes-review>Review this repository</button>
+                </div>
+                <div class="conversation-changes-working"
+                    data-changes-working>
+                    <div class="conversation-changes-working-header"
+                        data-changes-working-header>Uncommitted now</div>
+                    <div data-changes-groups></div>
+                    <p class="conversation-changes-empty"
+                        data-changes-empty hidden>No changes</p>
+                </div>
+                <p class="conversation-changes-unavailable"
+                    data-changes-unavailable hidden></p>
+                <div class="conversation-changes-footer">
+                    <button type="button"
+                        class="conversation-changes-action"
+                        data-changes-open-scm
+                        >Open this worktree in Source Control</button>
+                </div>
+            </section>
         </aside>
     </div>
     <div class="conversation-add-comment" data-add-comment hidden>
@@ -552,6 +611,9 @@ export function renderConversationViewerDocument(
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         subagentsScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        changesScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         telemetryScript.toString()

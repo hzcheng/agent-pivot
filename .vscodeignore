@@ -55,6 +55,7 @@ media/brand/**
 !media/conversationTelemetryScripts.js
 !media/conversationCommentsScripts.js
 !media/conversationSidebarScripts.js
+!media/conversationChangesScripts.js
 !media/conversationReconcileScripts.js
 !media/conversationFindScripts.js
 !media/conversationViewerScripts.js

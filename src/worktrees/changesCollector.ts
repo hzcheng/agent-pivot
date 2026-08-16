@@ -46,6 +46,12 @@ export interface MemberChangesSnapshot {
     truncated: boolean;
     /** Commits on HEAD since the baseline; absent when unknown. */
     aheadCount?: number;
+    /**
+     * Task-result file count (changes-panel PRD §5.3): files whose net
+     * content differs between the baseline and the current worktree
+     * (committed + uncommitted, untracked excluded). Absent when unknown.
+     */
+    taskFileCount?: number;
     collectedAt: number;
 }
 
@@ -229,6 +235,17 @@ export class ChangesCollector {
             }
         } catch (_error) {
             // ahead stays unknown; the aggregate layer renders '↑?'.
+        }
+        try {
+            const diff = await this.execGit([
+                '-C', worktreePath,
+                'diff', '--name-only', '-z', baseline.commitSha,
+            ], worktreePath);
+            snapshot.taskFileCount = diff.stdout.split('\0')
+                .filter(token => token && token.length <= MAX_PATH_LENGTH)
+                .length;
+        } catch (_error) {
+            // taskFileCount stays unknown; the task layer hides itself.
         }
         return snapshot;
     }

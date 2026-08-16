@@ -168,6 +168,8 @@ function createVscode(lifecycle) {
             onDidChangeWorkspaceFolders: () => trackedListener('workspace-folders-listener'),
             onWillSaveTextDocument: () => trackedListener('save-document-listener'),
             openTextDocument: async () => ({}),
+            registerTextDocumentContentProvider: () =>
+                trackedListener('git-diff-content-provider'),
         },
         commands: {
             registerCommand: (command, callback) => {

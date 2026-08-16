@@ -40,6 +40,12 @@ import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserve
 import KimiSessionService from './services/kimiSessionService';
 import ClaudeSessionService from './services/claudeSessionService';
 import { showWorktreeInSourceControl } from './services/sourceControl';
+import { watchRepositories } from './services/sourceControl';
+import {
+    openTaskResultReview,
+    openWorkingChangeDiff,
+    registerGitDiffContentProvider,
+} from './services/gitChangesDiff';
 import ProjectWindowColorService from './services/projectWindowColorService';
 import AiSessionAliasStore from './aiSessions/aliasStore';
 import AiSessionProfileStore from './aiSessions/sessionProfileStore';
@@ -404,6 +410,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const activationStartedAtMs = monotonicNowMs();
     const outputChannel = vscode.window.createOutputChannel('Agent Pivot');
     context.subscriptions.push(outputChannel);
+    context.subscriptions.push(registerGitDiffContentProvider());
     const dashboardDiagnostics = new DashboardDiagnostics({
         outputChannel,
         globalStoragePath: context.globalStoragePath,
@@ -2235,6 +2242,48 @@ async function initializeDashboard(
         },
         showWorktreeInSourceControl: (worktreeRoot: string) =>
             showWorktreeInSourceControl(worktreeRoot),
+        changes: {
+            // PRD §4.1: the session's persisted identity first — view
+            // models carry worktreeKey/cwd; a tool call's transient cwd
+            // never participates.
+            resolveSessionIdentity: async target => {
+                const actionTarget = getCurrentWorkspaceActionTarget(target.projectId);
+                if (!actionTarget) {
+                    return undefined;
+                }
+                const navigationIdentity = actionTarget.workspace.navigationIdentity;
+                const active = (actionTarget.sessions.activeSessions || [])
+                    .find(session =>
+                        session.provider === target.provider
+                        && session.sessionId === target.sessionId);
+                const history = (
+                    actionTarget.sessions.sessionsByProvider[target.provider] || []
+                ).find(session => session.id === target.sessionId);
+                const worktreeKey = active?.worktreeKey ?? history?.worktreeKey;
+                if (worktreeKey) {
+                    return { worktreeKey, navigationIdentity };
+                }
+                const cwd = history?.cwd || history?.workDir;
+                if (cwd) {
+                    return { cwd, navigationIdentity };
+                }
+                return undefined;
+            },
+            findGroupByWorktreeKey: (navigationIdentity, key) =>
+                worktreeGroupManifestStore.findGroupByWorktreeKey(
+                    navigationIdentity, key),
+            listRetiredIdentities: navigationIdentity =>
+                worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+            openWorkingChangeDiff: (worktreePath, item) =>
+                openWorkingChangeDiff(worktreePath, item),
+            openTaskResultReview: (worktreePath, baselineSha, title) =>
+                openTaskResultReview(worktreePath, baselineSha, title),
+            showWorktreeInSourceControl: worktreeRoot =>
+                showWorktreeInSourceControl(worktreeRoot),
+            watchRepositoryChanges: (paths, onChange) =>
+                watchRepositories(paths, onChange),
+            onError: (message, error) => logError(message, error),
+        },
         insertIntoActiveTerminal: async text => {
             const terminal = vscode.window.activeTerminal;
             if (!terminal) {

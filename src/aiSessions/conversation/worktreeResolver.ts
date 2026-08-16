@@ -2,7 +2,6 @@
 
 import { execFile } from 'child_process';
 import * as path from 'path';
-import * as fs from 'fs';
 import type { WorktreeKey } from '../../worktrees/types';
 
 export interface ConversationWorktreeInfo {
@@ -19,6 +18,13 @@ export interface WorktreeResolverOptions {
         args: string[],
         cwd: string
     ) => Promise<{ stdout: string; stderr: string }>;
+    /**
+     * Canonicalizer for the manifest-compatible WorktreeKey (symlink
+     * resolution). Injected by composition: this module stays in the
+     * Codex reachable graph, which forbids filesystem imports
+     * (ARCH-AI-SESSION-CONVERSATION-BOUNDARY-001).
+     */
+    canonicalizePath?: (candidatePath: string) => Promise<string>;
     cacheTtlMs?: number;
     maxCacheEntries?: number;
 }
@@ -165,6 +171,8 @@ export class ConversationWorktreeResolver {
         if (!branch) {
             return undefined;
         }
+        const canonicalize = this.options.canonicalizePath
+            || (candidate => Promise.resolve(path.resolve(candidate)));
         const key = {
             repositoryKey: await canonicalize(absoluteCommonDir),
             canonicalWorktreePath: await canonicalize(toplevel),
@@ -186,12 +194,4 @@ function isUsableCandidatePath(candidatePath: unknown): candidatePath is string 
     return typeof candidatePath === 'string'
         && path.isAbsolute(candidatePath)
         && candidatePath.length <= MAX_PATH_LENGTH;
-}
-
-async function canonicalize(candidatePath: string): Promise<string> {
-    try {
-        return await fs.promises.realpath(candidatePath);
-    } catch (_error) {
-        return path.resolve(candidatePath);
-    }
 }

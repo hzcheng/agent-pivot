@@ -119,9 +119,37 @@
     var telemetrySubagents = document.querySelector(
         '[data-telemetry-subagents]'
     );
+    var telemetryChanges = document.querySelector(
+        '[data-telemetry-changes]'
+    );
+    var telemetryChangesValue = document.querySelector(
+        '[data-telemetry-changes-value]'
+    );
     var telemetrySection = document.querySelector(
         '[data-conversation-telemetry]'
     );
+    var changesRoot = document.querySelector('[data-conversation-changes]');
+    var changesMemberSelect = document.querySelector(
+        '[data-changes-member-select]'
+    );
+    var changesRefresh = document.querySelector('[data-changes-refresh]');
+    var changesCrossMember = document.querySelector(
+        '[data-changes-cross-member]'
+    );
+    var changesTask = document.querySelector('[data-changes-task]');
+    var changesTaskSummary = document.querySelector(
+        '[data-changes-task-summary]'
+    );
+    var changesReview = document.querySelector('[data-changes-review]');
+    var changesWorkingHeader = document.querySelector(
+        '[data-changes-working-header]'
+    );
+    var changesGroups = document.querySelector('[data-changes-groups]');
+    var changesEmpty = document.querySelector('[data-changes-empty]');
+    var changesUnavailable = document.querySelector(
+        '[data-changes-unavailable]'
+    );
+    var changesOpenScm = document.querySelector('[data-changes-open-scm]');
     var closeSubagent = document.querySelector(
         '[data-action="close-subagent"]'
     );
@@ -213,10 +241,17 @@
     );
     var sidebarUiAvailable = !!sidebarToggle
         && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
-        && sidebarTabs.length === 3 && !!outlineRoot
+        && sidebarTabs.length >= 3 && !!outlineRoot
         && !!outlineSearch
         && !!outlineList && !!outlineEmpty && !!outlinePartial
         && !!outlineBookmarksOnly;
+    var changesUiAvailable = sidebarUiAvailable
+        && !!changesRoot && !!changesMemberSelect && !!changesRefresh
+        && !!changesTask && !!changesTaskSummary && !!changesReview
+        && !!changesWorkingHeader && !!changesGroups && !!changesEmpty
+        && !!changesUnavailable && !!changesOpenScm && !!changesCrossMember
+        && !!telemetryChanges
+        && !!window.__agentPivotConversationChanges;
     var bookmarkUiAvailable = sidebarUiAvailable
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
@@ -337,6 +372,7 @@
         outlineRoot: outlineRoot,
         commentsRoot: commentsRoot,
         subagentsRoot: subagentsRoot,
+        changesRoot: changesRoot,
         outlineQuery: function () {
             return outlineController.query();
         },
@@ -346,7 +382,28 @@
         telemetryPosition: position,
         telemetryComments: telemetryComments,
         telemetrySubagents: telemetrySubagents,
+        telemetryChanges: telemetryChanges,
     });
+    var changesController = changesUiAvailable
+        ? window.__agentPivotConversationChanges.create({
+            post: post,
+            telemetryChanges: telemetryChanges,
+            telemetryChangesValue: telemetryChangesValue,
+            memberSelect: changesMemberSelect,
+            refreshButton: changesRefresh,
+            crossMemberNote: changesCrossMember,
+            taskRoot: changesTask,
+            taskSummary: changesTaskSummary,
+            reviewButton: changesReview,
+            workingHeader: changesWorkingHeader,
+            groupsRoot: changesGroups,
+            emptyRoot: changesEmpty,
+            unavailableRoot: changesUnavailable,
+            openScmButton: changesOpenScm,
+            updateToggle: sidebarController.updateToggle,
+            subscriptionGeneration: state.subscriptionGeneration,
+        })
+        : null;
     var outlineController = window.__agentPivotConversationOutline.create({
         available: sidebarUiAvailable,
         bookmarkAvailable: bookmarkUiAvailable,
@@ -409,6 +466,15 @@
                 sidebarController.setView('comments', false, true);
             } else {
                 sidebarController.setView('comments', true, true);
+            }
+        });
+    }
+    if (changesUiAvailable) {
+        telemetryChanges.addEventListener('click', function () {
+            if (sidebarController.isPanelOpen() && sidebarController.getView() === 'changes') {
+                sidebarController.setView('changes', false, true);
+            } else {
+                sidebarController.setView('changes', true, true);
             }
         });
     }
@@ -1830,6 +1896,7 @@
         }
         if (commentsController.applyLocateResult(event.data)) return;
         if (telemetryController.apply(event.data)) return;
+        if (changesController && changesController.apply(event.data)) return;
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
         if (applyLoadingNotice(event.data)) return;

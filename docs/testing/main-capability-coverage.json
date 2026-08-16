@@ -2157,6 +2157,23 @@
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-WORKTREE-CHANGES-PANEL",
+            "title": "In-conversation worktree changes panel",
+            "requirement": "The AI conversation view shows the session task's git changes in place: an immutable per-member baseline is frozen before any physical side effect and persisted with the provisioning intent, provisioning branches from the frozen commit rather than a moved base ref, the telemetry strip carries a Changes button whose counts never render unknown as zero, and a read-only sidebar tab presents the task result relative to each worktree baseline plus the uncommitted working changes grouped the way Source Control groups them.",
+            "commits": [],
+            "behaviors": [
+                "WORKTREE-GROUPS-BASELINE-001",
+                "WORKTREE-CHANGES-COLLECT-001",
+                "WORKTREE-CHANGES-PANEL-001"
+            ],
+            "prGates": [
+                "test:deterministic:run",
+                "test:browser:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
         }
     ]
 }

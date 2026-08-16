@@ -136,6 +136,22 @@ export interface AiSessionCreationControllerCommonOptions {
         navigationIdentity: string;
         claimId: string;
     }) => Promise<void>;
+    /**
+     * Deletion admission (PRD §6.4 decision J): wraps the whole admission
+     * phase of a worktree session creation — claim persistence AND runtime
+     * creation — inside the shared per-group mutex, and throws
+     * WorktreeGroupManifestError('group-leased') when the group is being
+     * deleted. Every worktree session creation must go through it, not
+     * only retired-path ones: otherwise a session could slip in after the
+     * deletion's blocker scan and start inside a deleted worktree.
+     */
+    withWorktreeDeletionAdmission?: <T>(
+        scope: {
+            workspaceNavigationIdentity: string;
+            worktreeKey: WorktreeKey;
+        },
+        operation: () => Promise<T>
+    ) => Promise<T>;
 }
 
 export interface AiSessionCreationRuntimeControllerOptions extends AiSessionCreationControllerCommonOptions {
@@ -437,34 +453,56 @@ export class AiSessionCreationController {
         };
         // PRD §6.4: on a retired path the pending generation claim must be
         // durable before any terminal/provider side effect; a claim write
-        // failure rejects the creation outright.
+        // failure rejects the creation outright. The whole admission phase
+        // (claim + runtime creation) runs inside the per-group deletion
+        // admission mutex (decision J) so a session can never slip between
+        // a deletion's blocker scan and its journal write.
         let generationClaimId: string | null = null;
-        if (directoryScope.worktreeKey && options.prepareGenerationClaim) {
-            try {
-                generationClaimId = await options.prepareGenerationClaim({
-                    navigationIdentity: directoryScope.workspaceNavigationIdentity,
+        const createWithAdmission = async ()
+            : Promise<AiSessionRuntimeActionResult<vscode.Terminal> | null> => {
+            if (directoryScope.worktreeKey && options.prepareGenerationClaim) {
+                try {
+                    generationClaimId = await options.prepareGenerationClaim({
+                        navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                        worktreeKey: { ...directoryScope.worktreeKey },
+                        pendingId,
+                        provider: providerId,
+                        launchMarkerPath: markerPath,
+                    });
+                } catch (error) {
+                    options.logRuntimeFailure?.('create-generation-claim', error, 'vscode');
+                    if (options.showErrorMessage) {
+                        await options.showErrorMessage(
+                            'Could not record the worktree session claim; the session was not started.');
+                    } else {
+                        await options.showWarningMessage(
+                            'Could not record the worktree session claim; the session was not started.');
+                    }
+                    options.refresh();
+                    return null;
+                }
+            }
+            return coordinator.create(request);
+        };
+        let result: AiSessionRuntimeActionResult<vscode.Terminal> | null;
+        try {
+            result = directoryScope.worktreeKey && options.withWorktreeDeletionAdmission
+                ? await options.withWorktreeDeletionAdmission({
+                    workspaceNavigationIdentity: directoryScope.workspaceNavigationIdentity,
                     worktreeKey: { ...directoryScope.worktreeKey },
-                    pendingId,
-                    provider: providerId,
-                    launchMarkerPath: markerPath,
-                });
-            } catch (error) {
-                options.logRuntimeFailure?.('create-generation-claim', error, 'vscode');
-                if (options.showErrorMessage) {
-                    await options.showErrorMessage(
-                        'Could not record the worktree session claim; the session was not started.');
-                } else {
+                }, createWithAdmission)
+                : await createWithAdmission();
+        } catch (error) {
+            if ((error as { code?: string })?.code === 'group-leased') {
+                // The group is being deleted: refuse before side effects.
+                options.logRuntimeFailure?.('create-group-leased', error, 'vscode');
+                if (options.showWarningMessage) {
                     await options.showWarningMessage(
-                        'Could not record the worktree session claim; the session was not started.');
+                        'This group is being deleted; the session was not started.');
                 }
                 options.refresh();
                 return false;
             }
-        }
-        let result: AiSessionRuntimeActionResult<vscode.Terminal>;
-        try {
-            result = await coordinator.create(request);
-        } catch (error) {
             // PRD §6.4: only a proven-not-started failure may discard the
             // claim. Timeouts, post-launch failures, and uncertain recovery
             // keep it — claim reconciliation can still re-attach the
@@ -483,6 +521,10 @@ export class AiSessionCreationController {
                 await options.showWarningMessage('Could not start the AI session runtime.');
             }
             options.refresh();
+            return false;
+        }
+        if (result === null) {
+            // Claim persistence refused the creation before side effects.
             return false;
         }
         // Cancelled/settings outcomes happen before any launch side effect;

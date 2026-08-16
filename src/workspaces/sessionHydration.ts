@@ -343,11 +343,14 @@ function parseSessionCreatedAtMs(session: CodexSession): number | undefined {
 
 /**
  * Scope-outdated judgment (PRD §6.3 决策 D): a live group session's
- * persisted writable roots no longer cover the group's expected scope.
- * The expected scope maps every ready, non-detached member's visible
- * repository bindings into its worktree; comparison is normalized and
- * case/path-separator safe. Unknown persisted scope means no hint —
- * never a guess.
+ * persisted writable roots no longer MATCH the group's expected scope —
+ * a member added after the start leaves the session unable to write it,
+ * and a member removed after the start leaves the session with write
+ * access to a worktree that no longer belongs to the task. Both
+ * directions flag the row. The expected scope maps every ready,
+ * non-detached member's visible repository bindings into its worktree;
+ * comparison is normalized and case/path-separator safe. Unknown
+ * persisted scope means no hint — never a guess.
  */
 export function isGroupSessionScopeOutdated(
     runtime: {
@@ -378,7 +381,9 @@ export function isGroupSessionScopeOutdated(
         return false;
     }
     // Cross-platform comparison keys (Windows case/separator-insensitive).
+    // Cross-platform comparison keys (Windows case/separator-insensitive).
     const persistedSet = new Set(persisted.map(getWorkspaceHostPathComparisonKey));
+    const expectedSet = new Set<string>();
     for (const member of group.members) {
         // New members enter the expected scope only once ready (PRD §6.3).
         if (member.state !== 'ready' || member.detached || !member.worktreeKey) {
@@ -399,9 +404,19 @@ export function isGroupSessionScopeOutdated(
             continue;
         }
         for (const candidatePath of mapped) {
-            if (!persistedSet.has(getWorkspaceHostPathComparisonKey(candidatePath))) {
-                return true;
-            }
+            expectedSet.add(getWorkspaceHostPathComparisonKey(candidatePath));
+        }
+    }
+    for (const candidate of expectedSet) {
+        if (!persistedSet.has(candidate)) {
+            return true;
+        }
+    }
+    // Removed members leave stale write access behind (PRD §6.3): any
+    // persisted root outside the expected scope outdates the session too.
+    for (const candidate of persistedSet) {
+        if (!expectedSet.has(candidate)) {
+            return true;
         }
     }
     return false;

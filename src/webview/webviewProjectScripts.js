@@ -302,6 +302,22 @@ function initProjects() {
         if (!aiSessionPresentationStateStore.adopt(message)) return;
         aiSessionPresentationDom.apply(message);
         aiSessionControls.reconcileAiSessionAttentionAcknowledgements();
+        // Track the worktree-group aggregate revision the webview has
+        // actually rendered (PRD §6.4 decision J): deletion settlements
+        // bind a minimum revision, and pending UI may only clear once a
+        // presentation at or beyond it has been applied.
+        if (typeof message.worktreeGroupsAggregateRevision === 'number'
+            && message.workspaceNavigationIdentity) {
+            var applied = window.__agentPivotWorktreeGroupAggregateRevision
+                || { identity: '', revision: 0 };
+            if (applied.identity !== message.workspaceNavigationIdentity
+                || message.worktreeGroupsAggregateRevision > applied.revision) {
+                window.__agentPivotWorktreeGroupAggregateRevision = {
+                    identity: message.workspaceNavigationIdentity,
+                    revision: message.worktreeGroupsAggregateRevision,
+                };
+            }
+        }
     }
 
     function readInitialAiSessionPresentationState() {

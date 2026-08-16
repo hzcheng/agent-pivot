@@ -85,7 +85,9 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 admission rechecks blockers and freezes
     ]);
     state.sessions.set(group.members[0].memberId, [{ provider: 'codex', sessionId: 's1' }]);
     const outcome = await controller.beginDeletion(
-        WORKSPACE, group.groupId, 'member', [group.members[0].memberId]);
+        WORKSPACE, group.groupId, 'member', [group.members[0].memberId], {
+            replacementPrimaryMemberId: group.members[1].memberId,
+        });
     assert.equal(outcome.kind, 'started');
     assert.equal(outcome.journal.targets[0].affectedSessions.length, 1);
     // Journal persisted before ANY physical removal happened.

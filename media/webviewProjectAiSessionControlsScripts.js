@@ -1939,7 +1939,20 @@ function initProjectAiSessionControls(options) {
         // replacement lands (member row gone, or the Retry/abandon banner
         // visible) — the restore hook retires it.
         pending.awaitingReplacement = true;
+        if (typeof message.minimumAggregateRevision === 'number') {
+            // Decision J: the pending UI may only clear once a rendered
+            // presentation at or beyond this aggregate revision applied.
+            pending.minimumAggregateRevision = message.minimumAggregateRevision;
+        }
         return true;
+    }
+
+    function worktreeGroupAggregateRevisionReached(minimum) {
+        if (typeof minimum !== 'number') {
+            return true;
+        }
+        var applied = window.__agentPivotWorktreeGroupAggregateRevision;
+        return !!applied && applied.revision >= minimum;
     }
 
     function captureWorktreeGroupDeletionCard(projectDiv) {
@@ -1969,12 +1982,20 @@ function initProjectAiSessionControls(options) {
                 '.ai-session-worktree-member-detail[data-member-id="'
                 + CSS.escape(state.memberId) + '"]');
             var banner = section && section.querySelector('.ai-session-worktree-deletion');
-            if (memberGone || banner) {
+            var pendingEntry = state.requestId
+                ? pendingWorktreeGroupDeletionRequests.get(state.requestId)
+                : null;
+            var revisionPending = pendingEntry
+                && !worktreeGroupAggregateRevisionReached(
+                    pendingEntry.minimumAggregateRevision);
+            if ((memberGone || banner) && !revisionPending) {
                 if (state.requestId) {
                     pendingWorktreeGroupDeletionRequests.delete(state.requestId);
                 }
                 pendingWorktreeGroupDeletionRequests.forEach((entry, requestId) => {
-                    if (entry.awaitingReplacement && entry.groupId === state.groupId) {
+                    if (entry.awaitingReplacement && entry.groupId === state.groupId
+                        && worktreeGroupAggregateRevisionReached(
+                            entry.minimumAggregateRevision)) {
                         pendingWorktreeGroupDeletionRequests.delete(requestId);
                     }
                 });

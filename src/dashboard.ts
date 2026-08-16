@@ -1601,27 +1601,26 @@ async function initializeDashboard(
             worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
         isWorktreeRetiredStoreCorrupt: navigationIdentity =>
             worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
-        // New session admission on a grouped worktree shares the deletion
-        // admission mutex (PRD §6.4, decision J): the claim — the durable
-        // admission marker — is persisted under the same lock that
-        // beginDeletion holds from blocker recheck to journal write, and a
-        // group leased by an active deletion journal refuses the session
-        // before any terminal/provider side effect.
-        createWorktreeGenerationClaim: (navigationIdentity, input) => {
+        // Every worktree session creation — retired path or not — runs its
+        // whole admission phase (lease check, claim persistence, runtime
+        // creation) under the shared per-group deletion admission mutex
+        // (PRD §6.4, decision J). The claim write itself stays a plain
+        // store call: it always happens inside the admission wrapper.
+        createWorktreeGenerationClaim: (navigationIdentity, input) =>
+            worktreeGroupManifestStore.createGenerationClaim(navigationIdentity, input),
+        withWorktreeDeletionAdmission: (scope, operation) => {
             const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
-                navigationIdentity, input.worktreeKey);
+                scope.workspaceNavigationIdentity, scope.worktreeKey);
             if (!group) {
-                return worktreeGroupManifestStore.createGenerationClaim(
-                    navigationIdentity, input);
+                return operation();
             }
             return worktreeDeletionController.withAdmissionLock(
-                navigationIdentity, group.groupId, async () => {
+                scope.workspaceNavigationIdentity, group.groupId, async () => {
                     if (worktreeGroupManifestStore.isGroupDeletionLeased(
-                        navigationIdentity, group.groupId)) {
+                        scope.workspaceNavigationIdentity, group.groupId)) {
                         throw new WorktreeGroupManifestError('group-leased');
                     }
-                    return worktreeGroupManifestStore.createGenerationClaim(
-                        navigationIdentity, input);
+                    return operation();
                 });
         },
         removeWorktreeGenerationClaim: (navigationIdentity, claimId) =>
@@ -1760,6 +1759,12 @@ async function initializeDashboard(
     let managedWorktreeRemovalController: ManagedWorktreeRemovalController;
     let worktreeDeletionController: WorktreeDeletionController;
     const reconciledDeletionIdentities = new Set<string>();
+    const currentWorktreeGroupsAggregateRevision = () => {
+        const identity = getCurrentOpenWorkspace()?.navigationIdentity;
+        return identity
+            ? worktreeGroupManifestStore.getAggregateRevision(identity)
+            : null;
+    };
     let currentAiSessionRefreshReason = 'refresh';
     const worktreeGroupCreationController = new WorktreeGroupCreationController({
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
@@ -1987,6 +1992,10 @@ async function initializeDashboard(
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: projection => getOpenWorkspaceCards(projection),
+        getWorktreeGroupsAggregateRevision: navigationIdentity =>
+            navigationIdentity
+                ? worktreeGroupManifestStore.getAggregateRevision(navigationIdentity)
+                : null,
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         beginProjection: reason => {
@@ -2837,6 +2846,7 @@ async function initializeDashboard(
                     getRenderedCurrentWorkspaceNavigationIdentity(cards),
                     getEffectiveRunningCardAnimation(configuration),
                     getEffectiveRunningIconAnimation(configuration),
+                    currentWorktreeGroupsAggregateRevision(),
                 ),
             );
         },
@@ -2954,6 +2964,19 @@ async function initializeDashboard(
             if (identity && !reconciledDeletionIdentities.has(identity)) {
                 reconciledDeletionIdentities.add(identity);
                 void worktreeDeletionController.reconcileAfterRestart(identity)
+                    .then(() => {
+                        // 'unknown' observations keep journals pending;
+                        // unmark the identity so the NEXT certain snapshot
+                        // retries instead of leaving the group leased for
+                        // the rest of this activation.
+                        const stillPending = worktreeGroupManifestStore
+                            .listDeletionJournals(identity)
+                            .some(entry => entry.targets.some(target =>
+                                target.status === 'pending'));
+                        if (stillPending) {
+                            reconciledDeletionIdentities.delete(identity);
+                        }
+                    })
                     .catch(error => logError('worktree deletion reconciliation', error));
             }
         }
@@ -3873,6 +3896,7 @@ async function initializeDashboard(
             openWorkspaceDashboardController.getCurrentRenderedWorkspaceNavigationIdentity(),
             getEffectiveRunningCardAnimation(configuration),
             getEffectiveRunningIconAnimation(configuration),
+            currentWorktreeGroupsAggregateRevision(),
         );
         try {
             void provider.postMessage(message).then(undefined, error => {

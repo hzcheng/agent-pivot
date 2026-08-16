@@ -805,8 +805,8 @@ for (const mutation of [
         expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
         mutate: source => replaceFixtureSource(
             source,
-            'getRenderedCurrentWorkspaceNavigationIdentity(cards),',
-            'projection.presentation.workspaceNavigationIdentity,'
+            'const renderedIdentity = getRenderedCurrentWorkspaceNavigationIdentity(cards);',
+            'const renderedIdentity = projection.presentation.workspaceNavigationIdentity;'
         ),
     },
     {

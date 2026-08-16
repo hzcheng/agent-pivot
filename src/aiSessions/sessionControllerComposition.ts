@@ -87,6 +87,19 @@ export interface SessionControllerCompositionOptions {
         workspaceNavigationIdentity: string,
         claimId: string
     ) => Promise<boolean>;
+    /**
+     * Shared deletion admission (PRD §6.4 decision J): runs the given
+     * admission-phase operation under the per-group mutex and throws
+     * group-leased when the group is being deleted. Applies to EVERY
+     * worktree session creation.
+     */
+    withWorktreeDeletionAdmission?: <T>(
+        scope: {
+            workspaceNavigationIdentity: string;
+            worktreeKey: WorktreeKey;
+        },
+        operation: () => Promise<T>
+    ) => Promise<T>;
     getActiveEditorUri: () => vscode.Uri | undefined;
     isWorkspaceTrusted: () => boolean;
     getRegisteredAiSessionProvider: (providerId: AiSessionProviderId) => AiSessionProvider;
@@ -519,6 +532,13 @@ export function createSessionControllerComposition(
             });
             return claim.claimId;
         },
+        // Every worktree session creation — not only retired-path ones —
+        // enters the shared deletion admission mutex, so a session can
+        // never slip between a deletion's blocker scan and its journal
+        // write (PRD §6.4 decision J).
+        ...(options.withWorktreeDeletionAdmission
+            ? { withWorktreeDeletionAdmission: options.withWorktreeDeletionAdmission }
+            : {}),
         discardGenerationClaim: async ({ navigationIdentity, claimId }) => {
             await options.removeWorktreeGenerationClaim?.(navigationIdentity, claimId);
         },

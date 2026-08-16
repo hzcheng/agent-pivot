@@ -1431,3 +1431,69 @@ test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 keeps the first run start when co
     reader.read();
     assert.deepEqual(calls, [['a@100']]);
 });
+
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 every worktree session creation enters the deletion admission mutex', async () => {
+    // No retired identity: prepareGenerationClaim returns null, but the
+    // admission wrapper must still run around claim + create.
+    const order = [];
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => {
+            order.push('claim');
+            return null;
+        },
+        withWorktreeDeletionAdmission: async (scope, operation) => {
+            order.push('admission-enter');
+            const result = await operation();
+            order.push('admission-exit');
+            return result;
+        },
+        runtimeCoordinator: {
+            create: async () => {
+                order.push('create');
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+    assert.equal(await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    }), true);
+    assert.deepEqual(order, ['admission-enter', 'claim', 'create', 'admission-exit'],
+        'claim persistence and runtime creation both run inside the admission lock');
+});
+
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 a leased group refuses the session before any side effect', async () => {
+    let creates = 0;
+    let claims = 0;
+    const fixture = makeQuickCreateController({
+        prepareGenerationClaim: async () => {
+            claims += 1;
+            return 'claim-1';
+        },
+        withWorktreeDeletionAdmission: async () => {
+            const error = new Error('group-leased');
+            error.code = 'group-leased';
+            throw error;
+        },
+        runtimeCoordinator: {
+            create: async () => {
+                creates += 1;
+                return { status: 'started', backend: 'vscode' };
+            },
+            getActive: () => [],
+            getPending: () => [],
+        },
+    });
+    // The legacy quick-create boolean always reports true; the lease
+    // guarantee is zero side effects plus a user-visible warning.
+    await fixture.controller.createSessionQuick('p', 'kimi', undefined, {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    });
+    assert.equal(creates, 0, 'no runtime was created');
+    assert.equal(claims, 0, 'no claim is written once the lease check fails');
+    assert.ok(fixture.effects.some(effect =>
+        effect[0] === 'warning' && /being deleted/.test(effect[1])));
+});

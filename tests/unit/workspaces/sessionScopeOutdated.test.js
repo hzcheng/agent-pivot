@@ -190,3 +190,19 @@ test('WORKTREE-GROUPS-ADD-REPO-001 Windows paths compare case- and separator-ins
     });
     assert.equal(isGroupSessionScopeOutdated(missing, group, snapshot, workspace), true);
 });
+
+test('WORKTREE-GROUPS-ADD-REPO-001 a removed member leaves stale write access flagged', () => {
+    // The session started when beta was a member; beta was removed from
+    // the group since — the persisted extra root must flag the session.
+    const stale = runtime({
+        writableRootHostPaths: [
+            ALPHA_KEY.canonicalWorktreePath,
+            '/beta/.worktrees/fix/src',
+        ],
+    });
+    // Group now has ONLY alpha (beta removed).
+    const group = groupWithBeta('ready');
+    group[0].members.pop();
+    assert.equal(isGroupSessionScopeOutdated(stale, group, SNAPSHOT, WORKSPACE), true,
+        'persisted roots beyond the expected scope outdate the session');
+});

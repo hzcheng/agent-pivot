@@ -222,20 +222,20 @@ async function executeMemberDeletion(
     if (!navigationIdentity) {
         return fail('workspace-unavailable');
     }
-    // Stale card: the group drifted since the preview (rename / member
-    // change / another deletion). Fail closed; the user re-previews.
+    const mode = request.mode || 'member';
+    // Read once for mode-specific derivation; the store re-validates the
+    // bound revision AND the exact target identities atomically inside
+    // its write queue (decision G), so a group that drifted between this
+    // read and the write fails closed with group-changed.
     const group = deps.store.listGroups(navigationIdentity)
         .find(candidate => candidate.groupId === request.groupId);
-    if (!group || group.revision !== request.baseRevision) {
+    if (!group) {
         return fail('group-changed');
     }
-    const mode = request.mode || 'member';
     let memberIds: readonly string[] | undefined;
     if (mode === 'member') {
         memberIds = [request.memberId!];
     } else if (mode === 'visible-only') {
-        // The host re-derives the visible set from the authoritative
-        // manifest — the card's snapshot may be stale.
         memberIds = group.members
             .filter(candidate => !candidate.detached)
             .map(candidate => candidate.memberId);
@@ -250,9 +250,12 @@ async function executeMemberDeletion(
     try {
         const outcome = await deps.controller.beginDeletion(
             navigationIdentity, request.groupId, mode, memberIds,
-            request.replacementPrimaryMemberId
-                ? { replacementPrimaryMemberId: request.replacementPrimaryMemberId }
-                : undefined);
+            {
+                ...(request.replacementPrimaryMemberId
+                    ? { replacementPrimaryMemberId: request.replacementPrimaryMemberId }
+                    : {}),
+                expectedRevision: request.baseRevision,
+            });
         if (outcome.kind === 'blocked') {
             return fail(outcome.errorCode);
         }
@@ -380,6 +383,31 @@ export async function handleDiscardWorktreeGenerationClaim(
         errorCode = 'workspace-unavailable';
     } else {
         try {
+            // The discard is bound to the card's group and to the claim's
+            // live state (PRD §6.4 用户显式处理): only a PENDING claim
+            // whose worktree belongs to this group may be released — a
+            // stale card can never remove a promoted generation proof or
+            // another group's blocker.
+            const claim = deps.store.listGenerationClaims(navigationIdentity)
+                .find(candidate => candidate.claimId === request.claimId);
+            const group = deps.store.listGroups(navigationIdentity)
+                .find(candidate => candidate.groupId === request.groupId);
+            const belongsToGroup = !!group && !!claim && group.members.some(member =>
+                member.worktreeKey
+                && member.worktreeKey.repositoryKey === claim.worktreeKey.repositoryKey
+                && member.worktreeKey.canonicalWorktreePath
+                    === claim.worktreeKey.canonicalWorktreePath);
+            if (!claim || claim.state !== 'pending' || !belongsToGroup) {
+                await deps.postMessage({
+                    type: 'worktree-group-deletion-settlement', version: 1,
+                    requestId: request.requestId,
+                    projectId: request.projectId,
+                    groupId: request.groupId,
+                    status: 'failed',
+                    errorCode: 'claim-not-found',
+                } as WorktreeGroupDeletionSettlement);
+                return;
+            }
             const removed = await deps.store.removeGenerationClaim(
                 navigationIdentity, request.claimId);
             if (!removed) {

@@ -144,7 +144,9 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 preview reports blockers, history counts
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 delete executes the journaled flow and settles once', async () => {
     const { store, group, deps, posted, removed } = await fixture();
     const target = group.members[0];
-    await handleDeleteWorktreeGroupMember(deleteRequest(group, target), deps);
+    await handleDeleteWorktreeGroupMember(deleteRequest(group, target, {
+        replacementPrimaryMemberId: group.members[1].memberId,
+    }), deps);
     const statuses = posted
         .filter(message => message.type === 'worktree-group-deletion-settlement')
         .map(message => message.status);
@@ -187,7 +189,9 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 partial execution settles partial and Re
     const { store, group, deps, posted } = await fixture({ failRemove });
     const target = group.members[0];
     failRemove.add(target.memberId);
-    await handleDeleteWorktreeGroupMember(deleteRequest(group, target), deps);
+    await handleDeleteWorktreeGroupMember(deleteRequest(group, target, {
+        replacementPrimaryMemberId: group.members[1].memberId,
+    }), deps);
     let settled = posted[posted.length - 1];
     assert.equal(settled.status, 'partial');
     const journal = store.listDeletionJournals(WORKSPACE)[0];
@@ -214,7 +218,9 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 abandon keeps the remaining member and a
     const { store, group, deps, posted } = await fixture({ failRemove });
     const target = group.members[0];
     failRemove.add(target.memberId);
-    await handleDeleteWorktreeGroupMember(deleteRequest(group, target), deps);
+    await handleDeleteWorktreeGroupMember(deleteRequest(group, target, {
+        replacementPrimaryMemberId: group.members[1].memberId,
+    }), deps);
     const journal = store.listDeletionJournals(WORKSPACE)[0];
     await handleAbandonWorktreeGroupDeletion({
         type: 'abandon-worktree-group-deletion',
@@ -236,7 +242,9 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 abandon keeps the remaining member and a
 
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 replays re-receive the recorded settlement without re-executing', async () => {
     const { store, group, deps, posted, removed } = await fixture();
-    const request = deleteRequest(group, group.members[0]);
+    const request = deleteRequest(group, group.members[0], {
+        replacementPrimaryMemberId: group.members[1].memberId,
+    });
     await handleDeleteWorktreeGroupMember(request, deps);
     const revisionAfterFirst = store.getAggregateRevision(WORKSPACE);
     await handleDeleteWorktreeGroupMember(request, deps);
@@ -255,7 +263,8 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 an orphan claim blocks until explicitly 
     const target = group.members[0];
     // Simulate a previous deletion + a pending session claim on the path.
     const first = await store.beginDeletion(WORKSPACE, {
-        groupId: group.groupId, mode: 'member', memberIds: [target.memberId], nowMs: 100,
+        groupId: group.groupId, mode: 'member', memberIds: [target.memberId],
+        replacementPrimaryMemberId: group.members[1].memberId, nowMs: 100,
     });
     await store.checkpointDeletedMember(WORKSPACE, first.operationId, target.memberId, 110);
     const retired = store.listRetiredIdentities(WORKSPACE)[0];

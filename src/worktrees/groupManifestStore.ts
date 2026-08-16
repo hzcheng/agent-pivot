@@ -123,6 +123,11 @@ export interface NewWorktreeGroup {
     /** Index into `members` that should become the primary (must be ready). */
     primaryMemberIndex?: number;
     members: NewWorktreeGroupMember[];
+    /**
+     * Derive binding (PRD §6.2): the source group and the revision the
+     * bases were taken from; validated atomically inside the store queue.
+     */
+    expectedRevisionOf?: { groupId: string; revision: number };
 }
 
 /**
@@ -209,6 +214,16 @@ export class WorktreeGroupManifestStore {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
             const bucket = this.getBucket(manifest, workspaceIdentity);
+            if (input.expectedRevisionOf) {
+                // Derive binding (decision G): the source group must still
+                // be exactly the previewed revision — validated atomically
+                // inside the store queue, never by a pre-read.
+                const source = bucket.groups.find(candidate =>
+                    candidate.groupId === input.expectedRevisionOf!.groupId);
+                if (!source || source.revision !== input.expectedRevisionOf.revision) {
+                    throw new WorktreeGroupManifestError('group-changed');
+                }
+            }
             if (bucket.groups.length >= MAX_GROUPS_PER_WORKSPACE) {
                 throw new WorktreeGroupManifestError('store-full');
             }
@@ -383,7 +398,8 @@ export class WorktreeGroupManifestStore {
     addPlannedMembers(
         workspaceIdentity: string,
         groupId: string,
-        inputs: readonly NewWorktreeGroupMember[]
+        inputs: readonly NewWorktreeGroupMember[],
+        options?: { expectedRevision?: number; expectedSlug?: string }
     ): Promise<WorktreeGroup> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
@@ -392,6 +408,18 @@ export class WorktreeGroupManifestStore {
             const group = bucket.groups.find(candidate => candidate.groupId === groupId);
             if (!group) {
                 throw new WorktreeGroupManifestError('group-not-found');
+            }
+            // Add-repo binding (PRD §6.3): the group revision and locked
+            // slug are validated atomically inside the store queue — a
+            // rename racing the confirm can never mix an old slug into
+            // new member branches.
+            if (options?.expectedRevision !== undefined
+                && group.revision !== options.expectedRevision) {
+                throw new WorktreeGroupManifestError('group-changed');
+            }
+            if (options?.expectedSlug !== undefined
+                && group.suggestedSlug !== options.expectedSlug) {
+                throw new WorktreeGroupManifestError('group-changed');
             }
             if (!inputs.length) {
                 throw new WorktreeGroupManifestError('invalid-record');
@@ -804,7 +832,11 @@ export class WorktreeGroupManifestStore {
         });
     }
 
-    /** Compensating delete for failed starts and authoritative cleanup. */
+    /**
+     * Compensating delete for failed starts and explicit user discard.
+     * Only PENDING claims leave through this path: a promoted claim is a
+     * generation proof and may only be released with its retired record.
+     */
     removeGenerationClaim(workspaceIdentity: string, claimId: string): Promise<boolean> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
@@ -813,6 +845,9 @@ export class WorktreeGroupManifestStore {
                 candidate.claimId === claimId);
             if (index < 0) {
                 return false;
+            }
+            if (bucket.generationClaims[index].state !== 'pending') {
+                throw new WorktreeGroupManifestError('invalid-record');
             }
             bucket.generationClaims.splice(index, 1);
             await this.commitBucket(manifest, bucket);
@@ -997,6 +1032,14 @@ export class WorktreeGroupManifestStore {
              * lands in the same write as the deletion marks.
              */
             replacementPrimaryMemberId?: string;
+            /**
+             * The group revision the confirmation was made against
+             * (decision G). Validated atomically inside the store queue:
+             * for group mode this also pins the exact member set, so a
+             * member added after the confirmation can never be deleted
+             * unreviewed.
+             */
+            expectedRevision?: number;
             nowMs: number;
         }
     ): Promise<DeletionJournalEntry> {
@@ -1008,6 +1051,10 @@ export class WorktreeGroupManifestStore {
                 throw new WorktreeGroupManifestError('group-not-found');
             }
             assertGroupNotLeased(bucket, group.groupId);
+            if (input.expectedRevision !== undefined
+                && group.revision !== input.expectedRevision) {
+                throw new WorktreeGroupManifestError('group-changed');
+            }
             const nowMs = requireTimestamp(input.nowMs);
             const members = resolveDeletionTargets(group, input.mode, input.memberIds);
             // Invariant 1: a pending generation claim ALWAYS blocks the
@@ -1068,6 +1115,17 @@ export class WorktreeGroupManifestStore {
             // and fail to parse on reload.
             if (group.primaryMemberId
                 && members.some(member => member.memberId === group.primaryMemberId)) {
+                // Decision I is a store-level invariant, not a UI
+                // convention: deleting the primary while operationally
+                // usable (ready, non-detached) survivors exist REQUIRES a
+                // replacement — a headless usable group is never written.
+                const survivors = group.members.filter(candidate =>
+                    !members.some(member => member.memberId === candidate.memberId)
+                    && candidate.state === 'ready' && !candidate.detached);
+                if (survivors.length > 0
+                    && input.replacementPrimaryMemberId === undefined) {
+                    throw new WorktreeGroupManifestError('primary-not-ready');
+                }
                 if (input.replacementPrimaryMemberId !== undefined) {
                     const replacement = group.members.find(candidate =>
                         candidate.memberId === input.replacementPrimaryMemberId);
@@ -1202,10 +1260,11 @@ export class WorktreeGroupManifestStore {
             target.errorCode = code;
             member.state = 'ready';
             member.lastError = code;
-            if (!group!.primaryMemberId
-                && journal.originalPrimaryMemberId === member.memberId) {
+            if (journal.originalPrimaryMemberId === member.memberId) {
                 // The interrupted member was the primary: restore it so a
-                // transient failure does not silently strip the role.
+                // transient failure does not silently strip the role —
+                // the lease guarantees nothing else changed the primary
+                // while the journal was active.
                 group!.primaryMemberId = member.memberId;
             }
             bumpRevision(group!);
@@ -1301,7 +1360,7 @@ export class WorktreeGroupManifestStore {
                         member.state = 'ready';
                     }
                     member.lastError = undefined;
-                    if (group && !group.primaryMemberId
+                    if (group
                         && journal.originalPrimaryMemberId === member.memberId) {
                         group.primaryMemberId = member.memberId;
                     }
@@ -1747,6 +1806,17 @@ function sanitizeAggregateCrossInvariants(
             }
             seenRetirementIds.add(target.retirementId);
             if (!member) {
+                journalConflict = true;
+                continue;
+            }
+            // The frozen target identity must BE the member's identity:
+            // a journal entry pointing at member A but describing
+            // worktree B would let reconciliation delete B while the
+            // manifest shows A — quarantine instead of executing.
+            if (target.repositoryKey !== member.repositoryKey
+                || target.branchName !== member.branchName
+                || target.canonicalWorktreePath !== (
+                    member.worktreeKey?.canonicalWorktreePath || member.path)) {
                 journalConflict = true;
                 continue;
             }

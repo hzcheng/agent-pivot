@@ -14,6 +14,10 @@ function initAiSessionPresentationStateStore(options) {
                 || message.workspaceScopeIdentity === null)
             && (typeof message.workspaceNavigationIdentity === 'string'
                 || message.workspaceNavigationIdentity === null)
+            && (typeof message.worktreeGroupsAggregateRevision === 'undefined'
+                || message.worktreeGroupsAggregateRevision === null
+                || (Number.isSafeInteger(message.worktreeGroupsAggregateRevision)
+                    && message.worktreeGroupsAggregateRevision >= 0))
             && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
             && Number.isSafeInteger(message.activeAttentionCount)
             && message.activeAttentionCount >= 0

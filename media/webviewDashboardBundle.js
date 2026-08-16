@@ -2539,6 +2539,10 @@ function initAiSessionPresentationStateStore(options) {
                 || message.workspaceScopeIdentity === null)
             && (typeof message.workspaceNavigationIdentity === 'string'
                 || message.workspaceNavigationIdentity === null)
+            && (typeof message.worktreeGroupsAggregateRevision === 'undefined'
+                || message.worktreeGroupsAggregateRevision === null
+                || (Number.isSafeInteger(message.worktreeGroupsAggregateRevision)
+                    && message.worktreeGroupsAggregateRevision >= 0))
             && Number.isSafeInteger(message.attentionCount) && message.attentionCount >= 0
             && Number.isSafeInteger(message.activeAttentionCount)
             && message.activeAttentionCount >= 0
@@ -6302,7 +6306,20 @@ function initProjectAiSessionControls(options) {
         // replacement lands (member row gone, or the Retry/abandon banner
         // visible) — the restore hook retires it.
         pending.awaitingReplacement = true;
+        if (typeof message.minimumAggregateRevision === 'number') {
+            // Decision J: the pending UI may only clear once a rendered
+            // presentation at or beyond this aggregate revision applied.
+            pending.minimumAggregateRevision = message.minimumAggregateRevision;
+        }
         return true;
+    }
+
+    function worktreeGroupAggregateRevisionReached(minimum) {
+        if (typeof minimum !== 'number') {
+            return true;
+        }
+        var applied = window.__agentPivotWorktreeGroupAggregateRevision;
+        return !!applied && applied.revision >= minimum;
     }
 
     function captureWorktreeGroupDeletionCard(projectDiv) {
@@ -6332,12 +6349,20 @@ function initProjectAiSessionControls(options) {
                 '.ai-session-worktree-member-detail[data-member-id="'
                 + CSS.escape(state.memberId) + '"]');
             var banner = section && section.querySelector('.ai-session-worktree-deletion');
-            if (memberGone || banner) {
+            var pendingEntry = state.requestId
+                ? pendingWorktreeGroupDeletionRequests.get(state.requestId)
+                : null;
+            var revisionPending = pendingEntry
+                && !worktreeGroupAggregateRevisionReached(
+                    pendingEntry.minimumAggregateRevision);
+            if ((memberGone || banner) && !revisionPending) {
                 if (state.requestId) {
                     pendingWorktreeGroupDeletionRequests.delete(state.requestId);
                 }
                 pendingWorktreeGroupDeletionRequests.forEach((entry, requestId) => {
-                    if (entry.awaitingReplacement && entry.groupId === state.groupId) {
+                    if (entry.awaitingReplacement && entry.groupId === state.groupId
+                        && worktreeGroupAggregateRevisionReached(
+                            entry.minimumAggregateRevision)) {
                         pendingWorktreeGroupDeletionRequests.delete(requestId);
                     }
                 });
@@ -7576,6 +7601,22 @@ function initProjects() {
         if (!aiSessionPresentationStateStore.adopt(message)) return;
         aiSessionPresentationDom.apply(message);
         aiSessionControls.reconcileAiSessionAttentionAcknowledgements();
+        // Track the worktree-group aggregate revision the webview has
+        // actually rendered (PRD §6.4 decision J): deletion settlements
+        // bind a minimum revision, and pending UI may only clear once a
+        // presentation at or beyond it has been applied.
+        if (typeof message.worktreeGroupsAggregateRevision === 'number'
+            && message.workspaceNavigationIdentity) {
+            var applied = window.__agentPivotWorktreeGroupAggregateRevision
+                || { identity: '', revision: 0 };
+            if (applied.identity !== message.workspaceNavigationIdentity
+                || message.worktreeGroupsAggregateRevision > applied.revision) {
+                window.__agentPivotWorktreeGroupAggregateRevision = {
+                    identity: message.workspaceNavigationIdentity,
+                    revision: message.worktreeGroupsAggregateRevision,
+                };
+            }
+        }
     }
 
     function readInitialAiSessionPresentationState() {

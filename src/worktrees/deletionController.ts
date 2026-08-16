@@ -107,7 +107,11 @@ export class WorktreeDeletionController {
         groupId: string,
         mode: DeletionOperationMode,
         memberIds?: readonly string[],
-        options?: { replacementPrimaryMemberId?: string }
+        options?: {
+            replacementPrimaryMemberId?: string;
+            /** The revision the user confirmed; store-validated atomically. */
+            expectedRevision?: number;
+        }
     ): Promise<BeginDeletionOutcome> {
         return this.withAdmissionLock(workspaceIdentity, groupId, async () => {
             const store = this.options.store;
@@ -140,6 +144,9 @@ export class WorktreeDeletionController {
                 affectedSessions,
                 ...(options?.replacementPrimaryMemberId
                     ? { replacementPrimaryMemberId: options.replacementPrimaryMemberId }
+                    : {}),
+                ...(options?.expectedRevision !== undefined
+                    ? { expectedRevision: options.expectedRevision }
                     : {}),
                 nowMs: this.nowMs(),
             });

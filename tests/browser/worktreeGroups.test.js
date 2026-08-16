@@ -567,7 +567,7 @@ test('WORKTREE-GROUPS-UI-001 set-primary settlements drive the button pending st
     const groupHtml = () =>
         `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${sessionHtml()}</div>`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${sessionHtml()}</div>`
         + `</div></div>`;
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
@@ -680,7 +680,7 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
     });
     const groupHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${sessionHtml}</div>`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${sessionHtml}</div>`
         + `</div></div>`;
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
@@ -729,7 +729,7 @@ async function openGroupActionsPage(t, sessionHtml, replacementHtml) {
     const groupHtml = () =>
         `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${sessionHtml()}</div>`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${sessionHtml()}</div>`
         + `</div></div>`;
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
@@ -916,7 +916,7 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
         'settled keeps the editor pending until the replacement lands');
     const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${surface({
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${surface({
             selectedSurface: 'worktree',
             worktreeGroups: [renamedGroup()],
         })}</div></div></div>`;
@@ -1083,7 +1083,7 @@ test('WORKTREE-GROUPS-RENAME-001 the editor freezes the base revision it opened 
 
     const rev2Html = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${surface({
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${surface({
             selectedSurface: 'worktree',
             worktreeGroups: [groupRow({ revision: 2 })],
         })}</div></div></div>`;
@@ -1148,6 +1148,31 @@ function twoMemberGroup(overrides) {
         ],
         ...(overrides || {}),
     });
+}
+
+
+async function postAggregateRevisionPresentation(page, aggregateRevision, projectionRevision) {
+    await page.evaluate(input => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'ai-session-presentation-state',
+            version: 1,
+            projectionRevision: input.projectionRevision,
+            workspaceScopeIdentity: 'scope:current',
+            workspaceNavigationIdentity: 'navigation:current',
+            worktreeGroupsAggregateRevision: input.aggregateRevision,
+            attentionCount: 0,
+            activeAttentionCount: 0,
+            runningSessionCount: 0,
+            runningCardAnimation: 'current',
+            runningIconAnimation: 'current',
+            // The direct-presentation path requires revealFocused: true;
+            // with no sessions in the harness it reveals nothing.
+            revealFocused: true,
+            focusedTarget: null,
+            attentionSessions: [],
+            sessions: [],
+        } }));
+    }, { aggregateRevision, projectionRevision });
 }
 
 async function expandMemberDetails(page, groupId) {
@@ -1253,9 +1278,12 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 removes a member through the card settle
     await postSettlement('settled');
     assert.equal(await card.count(), 1,
         'settled keeps the card until the authoritative replacement');
+    // The rendered aggregate must reach the settlement's bound revision
+    // before any replacement may retire the pending card (decision J).
+    await postAggregateRevisionPresentation(page, 3, 900);
     const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withoutMember()}</div></div></div>`;
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutMember()}</div></div></div>`;
     assert.equal(await applyUpdate(renamedHtml), true);
     assert.equal(await card.count(), 0,
         'the replacement with the member gone retires the card');
@@ -1415,9 +1443,10 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 a partial settlement surfaces the Retry 
             },
         }));
     }, deleteRequest.requestId);
+    await postAggregateRevisionPresentation(page, 2, 901);
     const bannerHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withBanner()}</div></div></div>`;
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withBanner()}</div></div></div>`;
     assert.equal(await applyUpdate(bannerHtml), true);
     assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 0,
         'the card retires when the banner takes over');
@@ -1574,9 +1603,10 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card 
             },
         }));
     }, deleteRequest.requestId);
+    await postAggregateRevisionPresentation(page, 2, 902);
     const clearedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withoutGroup()}</div></div></div>`;
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutGroup()}</div></div></div>`;
     assert.equal(await applyUpdate(clearedHtml), true);
     assert.equal(await page.locator('.ai-session-worktree-task-group').count(), 0,
         'the group row is gone');
@@ -1915,7 +1945,7 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 adopts a cluster through the card settleme
     assert.equal(await card.count(), 1, 'settled keeps the card until the replacement');
     const adoptedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${withoutSuggestion()}</div></div></div>`;
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutSuggestion()}</div></div></div>`;
     assert.equal(await applyUpdate(adoptedHtml), true);
     assert.equal(await page.locator('.ai-session-worktree-adopt-card').count(), 0,
         'the replacement with the suggestion gone retires the card');
@@ -1960,4 +1990,70 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 a failed adopt re-enables the card in plac
     assert.match(
         await page.locator('[data-ai-session-live-region]').textContent(),
         /could not adopt/i);
+});
+
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 pending clears only after the rendered aggregate reaches the settlement revision', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup()],
+    });
+    const withoutMember = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [twoMemberGroup({ members: [member()] })],
+    });
+    const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
+    await expandMemberDetails(page, 'g-1');
+    await page.locator('[data-action="preview-group-member-deletion"][data-member-id="m-2"]')
+        .evaluate(button => button.click());
+    const previewRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-preview',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'ready',
+                member: {
+                    memberId: 'm-2', repositoryLabel: 'beta',
+                    path: '/beta/.worktrees/fix-login-2',
+                    branchName: 'agent-pivot/fix-login-2',
+                    blocker: null, historyCount: 0, isPrimary: false,
+                },
+                groupRevision: 1,
+            },
+        }));
+    }, previewRequest.requestId);
+    await page.locator('[data-action="confirm-group-member-deletion"]')
+        .evaluate(button => button.click());
+    const deleteRequest = await page.evaluate(() => window.__postedMessages.at(-1));
+    // Settle with a minimum revision beyond anything rendered so far.
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', {
+            data: {
+                type: 'worktree-group-deletion-settlement',
+                version: 1,
+                requestId,
+                projectId: 'project-a',
+                groupId: 'g-1',
+                status: 'settled',
+                minimumAggregateRevision: 99,
+            },
+        }));
+    }, deleteRequest.requestId);
+    // The authoritative replacement shows the member gone, but no
+    // presentation at revision ≥ 99 has been rendered: the card must stay.
+    const clearedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutMember()}</div></div></div>`;
+    assert.equal(await applyUpdate(clearedHtml), true);
+    assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 1,
+        'the pending card survives a replacement below the bound revision');
+    // A presentation at the bound revision lands: the NEXT replacement
+    // retires the card.
+    await postAggregateRevisionPresentation(page, 99, 903);
+    assert.equal(await applyUpdate(clearedHtml), true);
+    assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 0,
+        'once the rendered aggregate reaches the bound revision, the card retires');
 });

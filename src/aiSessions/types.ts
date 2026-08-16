@@ -418,6 +418,13 @@ export interface AiSessionPresentationStateMessage {
     projectionRevision: number;
     workspaceScopeIdentity: string | null;
     workspaceNavigationIdentity: string | null;
+    /**
+     * The worktree-group aggregate revision this presentation was built
+     * from (PRD §6.4 decision J): deletion settlements bind a minimum, and
+     * the webview clears pending state only once a rendered presentation
+     * at or beyond it has applied.
+     */
+    worktreeGroupsAggregateRevision?: number | null;
     attentionCount: number;
     activeAttentionCount: number;
     runningSessionCount: number;

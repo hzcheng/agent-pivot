@@ -596,31 +596,6 @@ export class WorktreeGroupCreationController {
             !== (previewSnapshot.addRepo?.targetGroupId ?? null)) {
             return { kind: 'failed', errorCode: 'preview-stale' };
         }
-        if (previewSnapshot.derive && target) {
-            // Derive binding (decision G): the source group must be exactly
-            // the revision the bases were previewed from — a rename, member
-            // change, or merge meanwhile makes this confirm group-changed.
-            const source = this.options.manifestStore
-                .listGroups(target.workspace.navigationIdentity)
-                .find(candidate =>
-                    candidate.groupId === previewSnapshot.derive!.sourceGroupId);
-            if (!source || source.revision !== previewSnapshot.derive.sourceRevision) {
-                return { kind: 'failed', errorCode: 'group-changed' };
-            }
-        }
-        if (previewSnapshot.addRepo && target) {
-            // Add-repo binding (PRD §6.3): the target group must be exactly
-            // the previewed revision with the locked slug.
-            const targetGroup = this.options.manifestStore
-                .listGroups(target.workspace.navigationIdentity)
-                .find(candidate =>
-                    candidate.groupId === previewSnapshot.addRepo!.targetGroupId);
-            if (!targetGroup
-                || targetGroup.revision !== previewSnapshot.addRepo.targetRevision
-                || targetGroup.suggestedSlug !== previewSnapshot.addRepo.slug) {
-                return { kind: 'failed', errorCode: 'group-changed' };
-            }
-        }
         const displayName = request.displayName.trim();
         const slug = slugifyTaskName(displayName);
         if (!displayName || !slug) {
@@ -684,6 +659,8 @@ export class WorktreeGroupCreationController {
             if (previewSnapshot.addRepo) {
                 // Add repo (PRD §6.3): members join the existing group in
                 // one aggregate write (decision F: validate-all-then-write).
+                // The bound revision and locked slug are validated
+                // atomically inside the store queue.
                 group = await this.options.manifestStore.addPlannedMembers(
                     navigationIdentity,
                     previewSnapshot.addRepo.targetGroupId,
@@ -692,12 +669,26 @@ export class WorktreeGroupCreationController {
                         branchName: member.branchName,
                         path: member.worktreePath,
                         state: 'provisioning' as const,
-                    })));
+                    })),
+                    {
+                        expectedRevision: previewSnapshot.addRepo.targetRevision,
+                        expectedSlug: previewSnapshot.addRepo.slug,
+                    });
                 newMembers = group.members.slice(-members.length);
             } else {
                 group = await this.options.manifestStore.createGroup(navigationIdentity, {
                     displayName,
                     suggestedSlug: slug,
+                    // Derive binding (decision G): the source revision is
+                    // validated atomically inside the store queue.
+                    ...(previewSnapshot.derive
+                        ? {
+                            expectedRevisionOf: {
+                                groupId: previewSnapshot.derive.sourceGroupId,
+                                revision: previewSnapshot.derive.sourceRevision,
+                            },
+                        }
+                        : {}),
                     // Members start in provisioning (not planned): any member
                     // reconciliation sees as provisioning without a live
                     // operation crashed mid-creation and self-heals to

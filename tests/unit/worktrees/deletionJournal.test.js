@@ -69,6 +69,7 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 beginDeletion freezes identity before a
         groupId: group.groupId,
         mode: 'member',
         memberIds: [group.members[0].memberId],
+        replacementPrimaryMemberId: group.members[1].memberId,
         affectedSessions: {
             [group.members[0].memberId]: [
                 { provider: 'codex', sessionId: 's-1' },
@@ -168,7 +169,8 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 lease blocks group mutations until the 
         { displayName: 'other', suggestedSlug: 'other' });
     const journal = await store.beginDeletion(WORKSPACE, {
         groupId: group.groupId, mode: 'member',
-        memberIds: [group.members[0].memberId], nowMs: 100,
+        memberIds: [group.members[0].memberId],
+        replacementPrimaryMemberId: group.members[1].memberId, nowMs: 100,
     });
     const gid = group.groupId;
     await rejectsCode(store.renameGroup(WORKSPACE, gid, 'new name'), 'group-leased');
@@ -204,6 +206,7 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 checkpoint writes retired identity from
     const journal = await store.beginDeletion(WORKSPACE, {
         groupId: group.groupId, mode: 'member',
         memberIds: [target.memberId],
+        replacementPrimaryMemberId: group.members[1].memberId,
         affectedSessions: { [target.memberId]: [{ provider: 'codex', sessionId: 's-1' }] },
         nowMs: 1000,
     });
@@ -465,21 +468,47 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 deleting the primary can atomically nam
     assert.equal(store.listGroups(WORKSPACE)[0].primaryMemberId, other.memberId);
 });
 
-test('WORKTREE-GROUPS-DELETE-JOURNAL-001 deleting the primary without replacement clears it', async () => {
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 deleting the primary requires a replacement while survivors exist', async () => {
     const store = new WorktreeGroupManifestStore(memento());
     const group = await createGroup(store, [
         readyMember('alpha', 'a'),
         readyMember('beta', 'b'),
     ]);
-    const journal = await store.beginDeletion(WORKSPACE, {
+    // Store-level invariant (decision I): with ready survivors, deleting
+    // the primary without a replacement is refused — never headless.
+    await rejectsCode(store.beginDeletion(WORKSPACE, {
         groupId: group.groupId, mode: 'member',
         memberIds: [group.primaryMemberId], nowMs: 100,
+    }), 'primary-not-ready');
+    // With no ready survivors the primary may go null.
+    const solo = await createGroup(store, [], {});
+    const soloGroup = await createGroup(store, [readyMember('gamma', 'c')], {
+        displayName: 'solo', suggestedSlug: 'solo',
     });
-    assert.equal(store.listGroups(WORKSPACE)[0].primaryMemberId, null);
-    // Failing the deletion restores the original primary.
+    const journal = await store.beginDeletion(WORKSPACE, {
+        groupId: soloGroup.groupId, mode: 'group', nowMs: 100,
+    });
+    assert.equal(store.listGroups(WORKSPACE)
+        .find(candidate => candidate.groupId === soloGroup.groupId)
+        .primaryMemberId, null);
+    void solo;
+    // Failing a replacement-bound deletion restores the original primary.
+    const restore = await createGroup(store, [
+        readyMember('delta', 'd'),
+        readyMember('epsilon', 'e'),
+    ], { displayName: 'restore', suggestedSlug: 'restore' });
+    const journal2 = await store.beginDeletion(WORKSPACE, {
+        groupId: restore.groupId, mode: 'member',
+        memberIds: [restore.primaryMemberId],
+        replacementPrimaryMemberId: restore.members.find(
+            member => member.memberId !== restore.primaryMemberId).memberId,
+        nowMs: 200,
+    });
     await store.failDeletionMember(
-        WORKSPACE, journal.operationId, group.primaryMemberId, 'git-timeout');
-    assert.equal(store.listGroups(WORKSPACE)[0].primaryMemberId, group.primaryMemberId);
+        WORKSPACE, journal2.operationId, restore.primaryMemberId, 'git-timeout');
+    assert.equal(store.listGroups(WORKSPACE)
+        .find(candidate => candidate.groupId === restore.groupId)
+        .primaryMemberId, restore.primaryMemberId);
 });
 
 test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members can never join a deletion', async () => {
@@ -506,6 +535,79 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members can never join a deletio
     assert.equal(journal.targets.length, 1);
     assert.equal(journal.targets[0].memberId, group.members[0].memberId);
 });
+
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 expectedRevision pins the confirmed member set atomically', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [
+        readyMember('alpha', 'a'),
+        readyMember('beta', 'b'),
+    ]);
+    // The confirmation was made at revision R; a member joined meanwhile.
+    await store.addMember(WORKSPACE, group.groupId, readyMember('gamma', 'c'));
+    // Group mode with the stale bound revision refuses: the new member
+    // would otherwise be deleted unreviewed.
+    await rejectsCode(store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'group', nowMs: 100,
+        expectedRevision: group.revision,
+    }), 'group-changed');
+    assert.equal(store.listGroups(WORKSPACE)[0].members.length, 3);
+    assert.equal(store.listDeletionJournals(WORKSPACE).length, 0);
+    // With the current revision the whole current set is deleted.
+    const current = store.listGroups(WORKSPACE)[0];
+    const journal = await store.beginDeletion(WORKSPACE, {
+        groupId: current.groupId, mode: 'group', nowMs: 100,
+        expectedRevision: current.revision,
+    });
+    assert.equal(journal.targets.length, 3);
+});
+
+test('WORKTREE-GROUPS-DELETE-JOURNAL-001 a journal target that does not match its member quarantines the bucket', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const group = await createGroup(store, [
+        readyMember('alpha', 'a'),
+        readyMember('beta', 'b'),
+    ]);
+    const journal = await store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'member',
+        memberIds: [group.members[0].memberId],
+        replacementPrimaryMemberId: group.members[1].memberId,
+        nowMs: 100,
+    });
+    // Corrupt the persisted blob: the target keeps A's memberId but now
+    // describes B's worktree — a deletion would remove the wrong tree.
+    const backing = memento();
+    const raw = JSON.parse(JSON.stringify(
+        // Re-persist through a real store write to get the blob shape.
+        await (async () => {
+            const probe = new WorktreeGroupManifestStore(backing);
+            const probeGroup = await createGroup(probe, [
+                readyMember('alpha', 'a'),
+                readyMember('beta', 'b'),
+            ]);
+            await probe.beginDeletion(WORKSPACE, {
+                groupId: probeGroup.groupId, mode: 'member',
+                memberIds: [probeGroup.members[0].memberId],
+                replacementPrimaryMemberId: probeGroup.members[1].memberId,
+                nowMs: 100,
+            });
+            return backing;
+        })()));
+    void raw;
+    const blob = JSON.parse(JSON.stringify(backingValues(backing)));
+    blob[WORKSPACE].deletionJournal[0].targets[0].canonicalWorktreePath =
+        '/repos/beta/.worktrees/b';
+    const corrupted = new WorktreeGroupManifestStore(memento({
+        'agentPivot.worktreeGroups.v1': blob,
+    }));
+    assert.ok(corrupted.isRetiredStoreCorrupt(WORKSPACE),
+        'a target/member identity mismatch quarantines the bucket');
+    assert.ok(corrupted.isGroupDeletionLeased(WORKSPACE, group.groupId));
+    void journal;
+});
+
+function backingValues(backing) {
+    return backing.get('agentPivot.worktreeGroups.v1', {});
+}
 
 test('WORKTREE-GROUPS-DELETE-JOURNAL-001 aggregate revision advances on every commit', async () => {
     const store = new WorktreeGroupManifestStore(memento());

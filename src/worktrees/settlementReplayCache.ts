@@ -39,10 +39,8 @@ export function createSettlementReplayCache<T>(limit = 64): SettlementReplayCach
                     tombstones.push(oldest.value);
                     tombstoneSet.add(oldest.value);
                     if (tombstones.length > MAX_TOMBSTONES) {
-                        const dropped = tombstones.splice(
-                            0, tombstones.length - MAX_TOMBSTONES);
+                        tombstones.splice(0, tombstones.length - MAX_TOMBSTONES);
                         tombstoneSet = new Set(tombstones);
-                        void dropped;
                     }
                 }
             }

@@ -43,6 +43,8 @@ interface ChangesMemberSource {
 interface ResolvedChangeSet {
     kind: 'ready' | 'retired' | 'unavailable';
     members: ChangesMemberSource[];
+    /** Primary member of the owning group (default selection anchor). */
+    primaryMemberId?: string;
 }
 
 export interface ConversationChangesControllerOptions {
@@ -106,6 +108,8 @@ export class ConversationChangesController {
     private collecting?: Promise<void>;
     private pendingCollect = false;
     private state?: ConversationChangesState;
+    /** Last selected member per session identity (PRD §5.3 选中持久化). */
+    private readonly lastSelectionBySession = new Map<string, string>();
     private readonly collector: ChangesCollector;
     private readonly now: () => number;
 
@@ -143,7 +147,15 @@ export class ConversationChangesController {
             changeSet,
             snapshots: new Map(),
         };
-        active.selectedMemberId = changeSet.members[0]?.memberId;
+        const remembered = this.lastSelectionBySession.get(
+            sessionKey(target));
+        active.selectedMemberId = changeSet.members.find(member =>
+            member.memberId === remembered)?.memberId
+            ?? (changeSet.primaryMemberId && changeSet.members.some(
+                member => member.memberId === changeSet.primaryMemberId)
+                ? changeSet.primaryMemberId
+                : undefined)
+            ?? changeSet.members[0]?.memberId;
         this.active = active;
         this.state = undefined;
         if (changeSet.kind !== 'ready') {
@@ -191,6 +203,16 @@ export class ConversationChangesController {
             return;
         }
         active.selectedMemberId = memberId;
+        if (this.active === active) {
+            const key = sessionKey(active.target);
+            this.lastSelectionBySession.set(key, memberId);
+            if (this.lastSelectionBySession.size > 64) {
+                const oldest = this.lastSelectionBySession.keys().next().value;
+                if (oldest) {
+                    this.lastSelectionBySession.delete(oldest);
+                }
+            }
+        }
         this.publishState(active);
     }
 
@@ -271,7 +293,13 @@ export class ConversationChangesController {
                 .filter(member => member.state === 'ready' && member.worktreeKey)
                 .map(member => memberSource(member));
             return members.length
-                ? { kind: 'ready', members }
+                ? {
+                    kind: 'ready',
+                    members,
+                    ...(group.primaryMemberId
+                        ? { primaryMemberId: group.primaryMemberId }
+                        : {}),
+                }
                 : { kind: 'unavailable', members: [] };
         }
         // Retired check must precede the live fallback (PRD §4.1): a
@@ -450,4 +478,8 @@ function repoLabelFromKey(repositoryKey: string): string {
 function isContainedIn(root: string, candidate: string): boolean {
     const relative = path.relative(root, candidate);
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function sessionKey(target: ConversationViewerTarget): string {
+    return `${target.projectId}:${target.provider}:${target.sessionId}`;
 }

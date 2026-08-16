@@ -210,3 +210,17 @@ test('WORKTREE-CHANGES-PANEL-001 review requires a verified baseline and open-sc
     await controller.handleOpenScm('member-1');
     assert.deepEqual(scm, [WT_PATH]);
 });
+
+test('WORKTREE-CHANGES-PANEL-001 remembers the selected member across reactivation', async () => {
+    const { posted, controller } = fixture();
+    await controller.activate(TARGET);
+    controller.handleSelect('member-1');
+    // Reactivating the same session is a no-op (state kept)…
+    const before = posted.length;
+    await controller.activate(TARGET);
+    assert.equal(posted.length, before);
+    // …and after a reset the remembered selection wins over the default.
+    controller.reset();
+    await controller.activate(TARGET);
+    assert.equal(lastChanges(posted).selectedMemberId, 'member-1');
+});

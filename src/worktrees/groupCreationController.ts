@@ -899,11 +899,9 @@ export class WorktreeGroupCreationController {
             // The member record may be gone (dismissed after a spurious
             // downgrade raced the operation); the physical worktree is
             // re-seeded by reconciliation and never lost.
-            const outcomeSummary = outcome.kind === 'succeeded'
-                ? 'succeeded'
-                : `${outcome.kind}/${outcome.errorCode}`;
+            const errorCode = 'errorCode' in outcome ? outcome.errorCode : '-';
             this.options.onError?.(
-                `Failed to persist worktree group member outcome: groupId=${groupId} memberId=${input.memberId} outcome=${outcomeSummary}`,
+                `Failed to persist worktree group member outcome: groupId=${groupId} memberId=${input.memberId} outcome=${outcome.kind}/${errorCode}`,
                 error);
         }
     }

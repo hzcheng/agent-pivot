@@ -302,6 +302,115 @@ test('WORKTREE-GROUPS-CREATE-001 a failed member stays in the group with its err
         member.repositoryKey === '/alpha/.git').state, 'ready');
 });
 
+test('WORKTREE-GROUPS-CREATE-001 a failed member settlement is logged with its error code', async () => {
+    const logged = [];
+    const current = fixture({
+        onError: (message, error) => logged.push([message, error]),
+        startMemberOperation: async input => {
+            if (input.plan.repositoryKey === '/beta/.git') {
+                return {
+                    kind: 'partial',
+                    operationId: input.operationId,
+                    worktreeKey: {
+                        repositoryKey: '/beta/.git',
+                        canonicalWorktreePath: input.plan.worktreePath,
+                    },
+                    errorCode: 'branch-conflict',
+                    completedSteps: ['worktree'],
+                };
+            }
+            await current.options.manifestStore.updateMember(
+                workspace.navigationIdentity, input.groupId, input.memberId, {
+                    state: 'ready',
+                    worktreeKey: {
+                        repositoryKey: input.plan.repositoryKey,
+                        canonicalWorktreePath: input.plan.worktreePath,
+                    },
+                });
+            return {
+                kind: 'succeeded', operationId: input.operationId,
+                worktreeKey: {}, plan: input.plan,
+            };
+        },
+    });
+    const result = await current.controller.confirm({
+        projectId: 'project',
+        previewId: await previewIdFor(current),
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(result.kind, 'created');
+    const group = current.manifestStore
+        .listGroups(workspace.navigationIdentity)[0];
+    const failed = group.members.find(member =>
+        member.repositoryKey === '/beta/.git');
+    const entry = logged.find(([message]) =>
+        message.includes('settled without success'));
+    assert.ok(entry, 'a non-success settlement must reach the diagnostic sink');
+    assert.ok(entry[0].includes('kind=partial'));
+    assert.ok(entry[0].includes('error=branch-conflict'));
+    assert.ok(entry[0].includes('completedSteps=worktree'));
+    assert.ok(entry[0].includes(`groupId=${group.groupId}`));
+    assert.ok(entry[0].includes(`memberId=${failed.memberId}`));
+});
+
+test('WORKTREE-GROUPS-CREATE-001 a settlement persist failure is logged without rejecting confirm', async () => {
+    const logged = [];
+    const current = fixture({
+        onError: (message, error) => logged.push([message, error]),
+        startMemberOperation: async input => {
+            if (input.plan.repositoryKey === '/beta/.git') {
+                return {
+                    kind: 'partial',
+                    operationId: input.operationId,
+                    worktreeKey: {
+                        repositoryKey: '/beta/.git',
+                        canonicalWorktreePath: input.plan.worktreePath,
+                    },
+                    errorCode: 'setup-failed',
+                    completedSteps: ['worktree'],
+                };
+            }
+            await current.options.manifestStore.updateMember(
+                workspace.navigationIdentity, input.groupId, input.memberId, {
+                    state: 'ready',
+                    worktreeKey: {
+                        repositoryKey: input.plan.repositoryKey,
+                        canonicalWorktreePath: input.plan.worktreePath,
+                    },
+                });
+            return {
+                kind: 'succeeded', operationId: input.operationId,
+                worktreeKey: {}, plan: input.plan,
+            };
+        },
+    });
+    // The settle-time state write races a dismissed record: updateMember
+    // throws, and runMember must log instead of swallowing silently.
+    const originalUpdateMember = current.manifestStore.updateMember.bind(
+        current.manifestStore);
+    current.manifestStore.updateMember = async (identity, groupId, memberId, patch) => {
+        if (patch && patch.state === 'failed') {
+            throw new Error('member-not-found');
+        }
+        return originalUpdateMember(identity, groupId, memberId, patch);
+    };
+    const result = await current.controller.confirm({
+        projectId: 'project',
+        previewId: await previewIdFor(current),
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(result.kind, 'created',
+        'a settle persist failure never rejects the whole confirm');
+    const entry = logged.find(([message]) =>
+        message.includes('Failed to persist worktree group member outcome'));
+    assert.ok(entry, 'a settlement persist failure must reach the diagnostic sink');
+    assert.ok(entry[0].includes('outcome=partial/setup-failed'));
+    assert.ok(entry[1] instanceof Error);
+    assert.equal(entry[1].message, 'member-not-found');
+});
+
 test('WORKTREE-GROUPS-CREATE-001 confirm rejects forged or duplicate member sets', async () => {
     const current = fixture();
     const duplicate = await current.controller.confirm({

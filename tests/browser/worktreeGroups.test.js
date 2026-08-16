@@ -56,6 +56,7 @@ const projectScript = fs.readFileSync(
 );
 
 const alphaMainKey = { repositoryKey: '/alpha/.git', canonicalWorktreePath: '/alpha/main' };
+const betaMainKey = { repositoryKey: '/beta/.git', canonicalWorktreePath: '/beta/main' };
 const alphaLoginKey = {
     repositoryKey: '/alpha/.git',
     canonicalWorktreePath: '/alpha/.worktrees/fix-login',
@@ -203,8 +204,13 @@ test('WORKTREE-GROUPS-UI-001 renders the anchor row with labeled real branches a
 test('WORKTREE-GROUPS-UI-001 the anchor menu launches main-checkout sessions and never offers removal', async t => {
     const sessionHtml = () => surface({
         worktreeAnchor: {
-            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
-            worktreeKeys: [alphaMainKey],
+            // Multi-root anchor: no single main checkout, so the menu
+            // offers the plain new-worktree entry and no branch seed.
+            entries: [
+                { repositoryLabel: 'alpha', branch: 'main' },
+                { repositoryLabel: 'beta', branch: 'main' },
+            ],
+            worktreeKeys: [alphaMainKey, betaMainKey],
             sessions: [],
             activity: 'idle',
         },
@@ -220,6 +226,8 @@ test('WORKTREE-GROUPS-UI-001 the anchor menu launches main-checkout sessions and
         .isVisible(), true, 'per-provider creation is offered');
     assert.equal(await menu.locator('[data-action="worktree-create-with-options"]')
         .isVisible(), true, 'the full-options creation entry is offered');
+    assert.equal(await menu.locator('[data-action="worktree-new"]').isVisible(), true,
+        'multi-root anchors offer the plain new-worktree entry');
     assert.equal(await menu.locator('[data-action="worktree-remove"]').isHidden(), true,
         'the anchor can never be removed');
     assert.equal(await menu.locator('[data-action="worktree-branch-create"]')
@@ -1536,6 +1544,12 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card 
     const withoutGroup = () => surface({
         selectedSurface: 'worktree',
         worktreeGroups: [],
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [alphaMainKey],
+            sessions: [],
+            activity: 'idle',
+        },
     });
     const sessionHtml = () => surface({
         selectedSurface: 'worktree',
@@ -1632,10 +1646,8 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card 
         'the card retired with the group');
     assert.equal(await page.evaluate(() => {
         const active = document.activeElement;
-        return !!(active && (active.closest('.ai-session-worktree-anchor')
-            || active.getAttribute('data-action') === 'create-isolated-session'
-            || active.classList.contains('ai-session-worktree-header')));
-    }), true, 'focus falls to the next group, the Current anchor, or the New button');
+        return !!(active && active.closest('.ai-session-worktree-anchor'));
+    }), true, 'focus falls to the next group or the Current anchor');
 });
 
 test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members block whole-group deletion with a visible-only alternative', async t => {
@@ -2097,4 +2109,46 @@ test('WORKTREE-GROUPS-UI-001 the actions menu closes when the webview loses focu
     });
     assert.equal(await menu.evaluate(el => el.classList.contains('visible')), false,
         'the menu closes on webview blur');
+});
+
+test('WORKTREE-GROUPS-UI-001 a single-root anchor menu offers branch-seeded worktree creation', async t => {
+    const sessionHtml = () => surface({
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [alphaMainKey],
+            sessions: [],
+            activity: 'idle',
+        },
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const branchItem = menu.locator('[data-action="worktree-branch-create"]');
+    assert.equal(await branchItem.isVisible(), true,
+        'single-root anchors offer New worktree from Current');
+    assert.match(await branchItem.textContent(), /New worktree from Current/);
+    assert.equal(await menu.locator('[data-action="worktree-new"]').isHidden(), true,
+        'the plain entry hides when the seeded one exists');
+    await branchItem.evaluate(item => item.click());
+    const openRequest = (await page.evaluate(() => window.__postedMessages))
+        .find(message => message.type === 'open-worktree-group-form');
+    assert.deepEqual(openRequest, {
+        type: 'open-worktree-group-form',
+        version: 1,
+        projectId: 'project-a',
+        seedRepositoryKey: '/alpha/.git',
+        seedWorktreePath: '/alpha/main',
+    }, 'the seeded form opens from the current branch');
+    // Sessions created from the anchor menu stay keyless (main checkout).
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-provider-create"][data-provider="kimi"]')
+        .evaluate(item => item.click());
+    const created = (await page.evaluate(() => window.__postedMessages))
+        .filter(message => message.type === 'create-ai-session-quick');
+    assert.equal(created.length, 1);
+    assert.equal(created[0].provider, 'kimi');
+    assert.equal(created[0].worktreeKey, undefined,
+        'anchor sessions never carry the main-checkout worktree key');
 });

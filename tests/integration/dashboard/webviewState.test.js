@@ -814,8 +814,8 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
         /data-ai-session-surface-panel="chats"[\s\S]*?ai-session-live-region/
     )[0];
     const surfaceBar = html.match(/ai-session-surface-bar[\s\S]*?data-ai-session-surface-panel/)[0];
-    assert.match(surfaceBar, /data-action="create-isolated-session"/,
-        'New Worktree creation lives on the surface bar next to the tabs');
+    assert.doesNotMatch(surfaceBar, /data-action="create-isolated-session"/,
+        'no standalone New-worktree button: creation lives in the row menus');
     assert.doesNotMatch(worktreePanel, /data-action="create-isolated-session"/);
     assert.match(worktreePanel, /data-action="ai-session-worktree-menu"/,
         'each worktree row exposes one unified actions menu');
@@ -882,7 +882,8 @@ test('WORKTREE-PROVISIONING-UI-001 renders authoritative progress, retry, and ca
         worktreeRepositoryCount: 1,
     });
 
-    assert.match(html, /data-action="create-isolated-session"[^>]*disabled/);
+    assert.doesNotMatch(html, /data-action="create-isolated-session"/,
+        'no standalone New-worktree button: creation lives in the row menus');
     assert.match(html, /data-provisioning-operation-id="operation-active"/);
     assert.match(html, /Creating worktree/);
     assert.match(html, /Fix &lt;login&gt;/);

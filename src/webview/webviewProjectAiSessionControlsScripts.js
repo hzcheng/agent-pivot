@@ -245,23 +245,6 @@ function initProjectAiSessionControls(options) {
             );
             return true;
         }
-        var isolatedCreateAction = target.closest('[data-action="create-isolated-session"]');
-        if (isolatedCreateAction) {
-            // M2: the inline group creation form opens at the top of the
-            // Worktree surface, so follow it there immediately.
-            selectAiSessionSurfaceDom(projectDiv, 'worktree');
-            writeAiSessionSurfaceState(window.vscode, projectId, 'worktree');
-            window.vscode.postMessage({
-                type: 'select-ai-session-surface',
-                version: 1,
-                projectId: projectId,
-                surface: 'worktree',
-            });
-            if (worktreeGroupForm) {
-                worktreeGroupForm.openForm(projectId, null);
-            }
-            return true;
-        }
         var isolatedRetryAction = target.closest(
             '[data-action="retry-isolated-session"][data-operation-id]'
         );
@@ -793,6 +776,7 @@ function initProjectAiSessionControls(options) {
             worktreePath: group.getAttribute('data-worktree-path') || '',
             groupId: button.getAttribute('data-group-id')
                 || group.getAttribute('data-group-id') || '',
+            anchor: button.getAttribute('data-worktree-anchor') === 'true',
             quickProvider: button.getAttribute('data-quick-provider') || '',
             canResume: button.getAttribute('data-can-resume') === 'true',
             canRemove: button.getAttribute('data-can-remove') === 'true',
@@ -817,6 +801,11 @@ function initProjectAiSessionControls(options) {
         branchItem.textContent = 'New worktree from '
             + (button.getAttribute('data-worktree-name') || 'this branch');
         branchItem.hidden = !menu.__context.canBranchCreate || !hasWorktreeTarget;
+        // "New worktree…" opens the plain creation form: it replaces the
+        // removed surface-level button, and covers multi-root anchors where
+        // a single seeded branch makes no sense.
+        var newWorktreeItem = menu.querySelector('[data-action="worktree-new"]');
+        newWorktreeItem.hidden = !menu.__context.anchor || !branchItem.hidden;
         var renameItem = menu.querySelector('[data-action="worktree-group-rename"]');
         renameItem.hidden = !menu.__context.groupId;
         var deriveItem = menu.querySelector('[data-action="worktree-group-derive"]');
@@ -876,9 +865,9 @@ function initProjectAiSessionControls(options) {
         var originButton = menu ? menu.__originButton : null;
         if (!menu || !context || !context.projectId) return;
         var action = item.getAttribute('data-action');
-        // The Current anchor has no worktree target: session creation then
-        // launches a plain main-checkout session (no key in the payload).
-        var worktreeKey = context.repositoryKey && context.worktreePath
+        // The Current anchor launches plain main-checkout sessions even
+        // when it carries the main checkout's key for branch seeding.
+        var worktreeKey = !context.anchor && context.repositoryKey && context.worktreePath
             ? {
                 repositoryKey: context.repositoryKey,
                 canonicalWorktreePath: context.worktreePath,
@@ -915,6 +904,21 @@ function initProjectAiSessionControls(options) {
                     repositoryKey: context.repositoryKey,
                     worktreePath: context.worktreePath,
                 });
+            }
+        } else if (action === 'worktree-new' && context.anchor) {
+            // Replaces the removed surface-level New-worktree button:
+            // follow the form into the Worktree surface immediately.
+            var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(context.projectId);
+            selectAiSessionSurfaceDom(projectDiv, 'worktree');
+            writeAiSessionSurfaceState(window.vscode, context.projectId, 'worktree');
+            window.vscode.postMessage({
+                type: 'select-ai-session-surface',
+                version: 1,
+                projectId: context.projectId,
+                surface: 'worktree',
+            });
+            if (worktreeGroupForm) {
+                worktreeGroupForm.openForm(context.projectId, null);
             }
         } else if (action === 'worktree-group-rename' && context.groupId) {
             startWorktreeGroupRename(context.projectId, context.groupId);
@@ -2018,14 +2022,12 @@ function initProjectAiSessionControls(options) {
                 if (!section) {
                     // The whole group left with its last member: park
                     // focus on the next group header, else the Current
-                    // anchor, else the New button (PRD §6.4 focus rule).
+                    // anchor (PRD §6.4 focus rule).
                     var nextHeader = projectDiv.querySelector(
                         '.ai-session-worktree-group .ai-session-worktree-header');
                     var anchor = projectDiv.querySelector(
                         '.ai-session-worktree-anchor .ai-session-worktree-header');
-                    var createButton = projectDiv.querySelector(
-                        '[data-action="create-isolated-session"]');
-                    var focusTarget = nextHeader || anchor || createButton;
+                    var focusTarget = nextHeader || anchor;
                     if (focusTarget && typeof focusTarget.focus === 'function') {
                         focusTarget.focus({ preventScroll: true });
                     }

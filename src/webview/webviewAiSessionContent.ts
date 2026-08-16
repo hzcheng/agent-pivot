@@ -191,7 +191,6 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         ${getReadyWorktrees(project.worktrees).length
             ? `<button type="button" class="ai-session-worktree-collapse-all" data-action="toggle-all-ai-session-worktrees" data-collapse-all-state="expanded" aria-label="Collapse all worktrees" data-tooltip="Collapse all worktrees"><span class="ai-session-worktree-collapse-all-icon" data-icon="collapse">${Icons.foldAll}</span><span class="ai-session-worktree-collapse-all-icon" data-icon="expand">${Icons.unfoldAll}</span></button>`
             : ''}
-        <button type="button" class="ai-session-create-isolated-button" data-action="create-isolated-session" aria-label="New worktree" data-tooltip="New worktree"${provisioningWorktrees.some(row => row.stage !== 'failed') ? ' disabled' : ''}>${Icons.gitBranchAdd}</button>
     </div>
     ${getWorktreeSurfacePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, selectedSurface, provisioningWorktrees)}
     <div id="ai-session-chats-${escapeAttribute(project.id || 'project')}" class="ai-session-surface-panel ai-session-chats-surface" role="tabpanel" data-ai-session-surface-panel="chats" aria-labelledby="ai-session-surface-chats-tab-${escapeAttribute(project.id || 'project')}"${selectedSurface === 'chats' ? '' : ' hidden'}>
@@ -783,20 +782,28 @@ function getWorktreeAnchorHtml(
     const quickLabel = quickCreateProfile
         ? `New ${providerLabel} session with profile ${quickCreateProfile}`
         : `New ${providerLabel} session`;
+    // With exactly one main checkout the anchor can also seed "New
+    // worktree from Current" with its branch; multi-root anchors open the
+    // plain creation form instead (the form's repository list disambiguates).
+    const singleMainKey = anchor.worktreeKeys.length === 1
+        ? anchor.worktreeKeys[0]
+        : null;
     const moreLabel = 'Actions for Current';
     const more = `<button type="button" class="ai-session-worktree-more" data-action="ai-session-worktree-menu" aria-label="${escapeAttribute(moreLabel)}" data-tooltip="${escapeAttribute(moreLabel)}" aria-haspopup="menu" aria-expanded="false"
+        data-worktree-anchor="true"
+        ${singleMainKey ? `data-worktree-repository-key="${escapeAttribute(singleMainKey.repositoryKey)}" data-worktree-path="${escapeAttribute(singleMainKey.canonicalWorktreePath)}"` : ''}
         data-worktree-name="Current"
         data-worktree-head-kind="branch"
         data-can-resume="true"
         data-can-remove="false"
-        data-can-branch-create="false"
+        data-can-branch-create="${singleMainKey ? 'true' : 'false'}"
         data-quick-provider="${escapeAttribute(quickCreateProvider)}"
         data-quick-label="${escapeAttribute(quickLabel)}"
         data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`;
     // The per-repository branch detail lives on the fast hover tooltip; the
     // row itself stays a single compact line (annotation: the inline summary
     // squeezed the "Current" title away).
-    return `<section class="ai-session-worktree-group ai-session-worktree-anchor" data-worktree-anchor data-worktree-activity="${anchor.activity}">
+    return `<section class="ai-session-worktree-group ai-session-worktree-anchor" data-worktree-anchor data-worktree-activity="${anchor.activity}"${singleMainKey ? ` data-worktree-repository-key="${escapeAttribute(singleMainKey.repositoryKey)}" data-worktree-path="${escapeAttribute(singleMainKey.canonicalWorktreePath)}"` : ''}>
         <div class="ai-session-worktree-toolbar">
             <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="true" aria-label="${escapeAttribute(ariaLabel)}" data-tooltip="${escapeAttribute(tooltipSummary)}">
                 <span class="ai-session-worktree-indicator" aria-hidden="true">${anchor.activity === 'idle' ? '○' : '●'}</span>
@@ -1249,6 +1256,7 @@ export function getAiSessionWorktreeMenu() {
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="kimi">New Kimi session</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-provider-create" data-provider="claude">New Claude session</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-create-with-options">New session with options…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-new">New worktree…</div>
     <div class="custom-context-menu-separator" role="separator" data-worktree-session-separator></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-branch-create"></div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group</div>

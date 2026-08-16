@@ -121,6 +121,7 @@ async function openQuickCreatePage(t, options = {}) {
             worktreeRepositoryCount: 1,
             bareWorktreeCount: 0,
         } : {}),
+        ...(options.anchor ? { worktreeAnchor: options.anchor } : {}),
     }));
     const secondPanel = getAiSessionsDiv(getSessionSurface('project-b', 'kimi'));
 
@@ -257,12 +258,29 @@ test('WORKTREE-PROVISIONING-UI-001 a failed row shows a readable reason and can 
     });
 });
 
-test('WORKTREE-PROVISIONING-PROTOCOL-001 the new-worktree button opens the inline group creation form', async t => {
-    const page = await openQuickCreatePage(t);
+test('WORKTREE-PROVISIONING-PROTOCOL-001 the anchor menu opens the inline group creation form', async t => {
+    const page = await openQuickCreatePage(t, {
+        anchor: {
+            entries: [{ repositoryLabel: 'repo', branch: 'main' }],
+            worktreeKeys: [
+                { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo' },
+                { repositoryKey: '/repo2/.git', canonicalWorktreePath: '/repo2' },
+            ],
+            sessions: [],
+            activity: 'idle',
+        },
+    });
     const project = page.locator('.project[data-id="project-a"]');
-    const button = project.locator('[data-action="create-isolated-session"]');
+    assert.equal(await project.locator('[data-action="create-isolated-session"]').count(), 0,
+        'the standalone new-worktree button is gone');
 
-    await button.click();
+    await project.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const newWorktreeItem = menu.locator('[data-action="worktree-new"]');
+    assert.equal(await newWorktreeItem.isVisible(), true,
+        'multi-root anchors offer the plain new-worktree entry');
+    await newWorktreeItem.evaluate(item => item.click());
     const messages = await postedMessages(page);
     assert.deepEqual(messages[0], {
         type: 'select-ai-session-surface', version: 1,
@@ -276,8 +294,13 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 the new-worktree button opens the inlin
         type: 'open-worktree-group-form', version: 1,
         projectId: 'project-a',
     }, 'M2 replaces the QuickPick/InputBox sequence with the inline form');
-    assert.equal(await button.isDisabled(), true,
-        'only one form instance: the button disables while the form is open');
+    // Only one form instance: invoking the entry again is a no-op.
+    await project.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-new"]')
+        .evaluate(item => item.click());
+    assert.equal((await postedMessages(page))
+        .filter(message => message.type === 'open-worktree-group-form').length, 1);
 
     await page.evaluate(() => {
         window.dispatchEvent(new MessageEvent('message', { data: {

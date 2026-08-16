@@ -2063,6 +2063,44 @@ body .project {
         min-height: 72px;
     }
 
+    // --- Collapse reclamation -------------------------------------------
+    // A collapsed region never holds space it cannot use; the freed space
+    // goes to the other region.
+    //
+    // The collapsed OPEN WINDOWS title bar docks to the panel bottom (a
+    // stable "drawer" position) instead of hovering under CURRENT WINDOW.
+    .open-other-windows-group.collapsed {
+        flex: 0 0 auto;
+        margin-top: auto;
+    }
+
+    // While OPEN WINDOWS is collapsed, CURRENT WINDOW is uncapped. The
+    // wrapper state class is synced by webviewOpenTabSplitScripts.js because
+    // webviews older than Chrome 105 cannot match :has() for sibling state.
+    .sticky-groups-wrapper.open-windows-collapsed .open-current-workspace-group {
+        max-height: none;
+    }
+
+    // A dragged share is suspended whenever either region collapses: a
+    // collapsed CURRENT WINDOW card falls back to content size (still
+    // half-capped) so OPEN WINDOWS packs upward, and a collapsed OPEN
+    // WINDOWS lets CURRENT WINDOW re-flow instead of pinning it to a
+    // percentage of a space it no longer shares. The share persists and is
+    // restored once both regions are expanded again.
+    .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group:not(.current-card-expanded) {
+        flex: 0 0 auto;
+        height: auto;
+        max-height: 50%;
+        min-height: 0;
+    }
+
+    .sticky-groups-wrapper.open-tab-split-manual.open-windows-collapsed .open-current-workspace-group {
+        flex: 0 0 auto;
+        height: auto;
+        max-height: none;
+        min-height: 0;
+    }
+
     // Expanded CURRENT WINDOW card: the group class `current-card-expanded`
     // is rendered host-side and kept in sync by the webview toggle handler
     // (older webview Chromium cannot match :has()). The AI session surface is
@@ -2152,6 +2190,17 @@ body .project {
                     overflow-y: auto;
                 }
             }
+        }
+
+        // Collapse reclamation in the fit layout: while OPEN WINDOWS is
+        // collapsed, the expanded card fills all freed space instead of the
+        // half-pane pin or a dragged share. Equal specificity with the fit
+        // rules above, resolved by source order — keep this block last.
+        .sticky-groups-wrapper.open-windows-collapsed .open-current-workspace-group.current-card-expanded {
+            flex: 1 1 auto;
+            height: auto;
+            max-height: none;
+            min-height: 283px;
         }
     }
 

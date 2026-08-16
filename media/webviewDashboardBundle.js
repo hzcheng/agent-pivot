@@ -1680,10 +1680,26 @@ function initOpenTabSplit() {
             return;
         }
         var otherGroup = findOtherGroup();
-        resizer.hidden = Boolean(
+        var otherCollapsed = Boolean(
             otherGroup && otherGroup.classList.contains('collapsed')
         );
+        // Reclaim the collapsed region's space: the wrapper state class lets
+        // CSS uncap CURRENT WINDOW and dock the collapsed bar (webview
+        // Chromium too old for :has() cannot select by sibling state). Synced
+        // here because this hook runs after every optimistic toggle and every
+        // authoritative replacement.
+        var wrapper = findWrapper();
+        if (wrapper && wrapper.classList) {
+            wrapper.classList.toggle('open-windows-collapsed', otherCollapsed);
+        }
         var currentGroup = findCurrentGroup();
+        var currentCardExpanded = Boolean(
+            currentGroup && currentGroup.classList.contains('current-card-expanded')
+        );
+        // The separator only participates while both regions show content: a
+        // collapsed CURRENT WINDOW card is content-sized and never holds a
+        // dragged share; a collapsed OPEN WINDOWS leaves nothing to split.
+        resizer.hidden = otherCollapsed || !currentCardExpanded;
         var split = measureSplit();
         if (!resizer.hidden && currentGroup && split
             && typeof currentGroup.getBoundingClientRect === 'function' && split.inner > 0) {

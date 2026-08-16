@@ -814,8 +814,8 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
         /data-ai-session-surface-panel="chats"[\s\S]*?ai-session-live-region/
     )[0];
     const surfaceBar = html.match(/ai-session-surface-bar[\s\S]*?data-ai-session-surface-panel/)[0];
-    assert.match(surfaceBar, /data-action="create-isolated-session"/,
-        'New Worktree creation lives on the surface bar next to the tabs');
+    assert.doesNotMatch(surfaceBar, /data-action="create-isolated-session"/,
+        'no standalone New-worktree button: creation lives in the row menus');
     assert.doesNotMatch(worktreePanel, /data-action="create-isolated-session"/);
     assert.match(worktreePanel, /data-action="ai-session-worktree-menu"/,
         'each worktree row exposes one unified actions menu');
@@ -882,7 +882,8 @@ test('WORKTREE-PROVISIONING-UI-001 renders authoritative progress, retry, and ca
         worktreeRepositoryCount: 1,
     });
 
-    assert.match(html, /data-action="create-isolated-session"[^>]*disabled/);
+    assert.doesNotMatch(html, /data-action="create-isolated-session"/,
+        'no standalone New-worktree button: creation lives in the row menus');
     assert.match(html, /data-provisioning-operation-id="operation-active"/);
     assert.match(html, /Creating worktree/);
     assert.match(html, /Fix &lt;login&gt;/);
@@ -3366,4 +3367,49 @@ test('TODO-TODO-ORDERING-INTERACTION-001 constrains TODO drag state and posts ex
     harness.context.disposeDnD(harness.rootElement);
     assert.equal(harness.rootElement.__agentPivotDnDInitialized, undefined);
     assert.equal(harness.rootElement.__agentPivotDnD, undefined);
+});
+
+test('WORKTREE-GROUPS-UI-001 the anchor menu carries the main-checkout key only when unambiguous', () => {
+    const base = {
+        id: 'anchor-coverage',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktrees: [],
+        worktreeSnapshotRevision: 1,
+        worktreeRepositoryCount: 1,
+    };
+    const mainKey = { repositoryKey: '/repos/alpha/.git', canonicalWorktreePath: '/alpha/main' };
+    const otherKey = { repositoryKey: '/repos/beta/.git', canonicalWorktreePath: '/beta/main' };
+    const single = webviewModules.content.getAiSessionsDiv({
+        ...base,
+        worktreeAnchor: {
+            entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
+            worktreeKeys: [mainKey],
+            sessions: [],
+            activity: 'idle',
+        },
+    });
+    assert.match(single, /data-worktree-anchor="true"/);
+    assert.match(single, /data-can-branch-create="true"/,
+        'single-root anchors can seed New worktree from Current');
+    assert.match(single, /data-worktree-repository-key="\/repos\/alpha\/\.git"/);
+    const multi = webviewModules.content.getAiSessionsDiv({
+        ...base,
+        worktreeAnchor: {
+            entries: [
+                { repositoryLabel: 'alpha', branch: 'main' },
+                { repositoryLabel: 'beta', branch: '1.0' },
+            ],
+            worktreeKeys: [mainKey, otherKey],
+            sessions: [],
+            activity: 'idle',
+        },
+    });
+    assert.match(multi, /data-worktree-anchor="true"/);
+    assert.match(multi, /data-can-branch-create="false"/,
+        'multi-root anchors never guess a branch seed');
+    assert.doesNotMatch(multi, /data-worktree-repository-key="\/repos\/alpha/,
+        'no key leaks onto a multi-root anchor');
 });

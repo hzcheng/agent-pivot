@@ -3300,6 +3300,12 @@ body.steward-sidebar {
             }
         }
 
+        .ai-session-worktree-panel-bar {
+            display: flex;
+            justify-content: flex-end;
+            padding: 0 2px 2px;
+        }
+
         .ai-session-worktree-collapse-all {
             display: inline-flex;
             align-items: center;

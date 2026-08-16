@@ -7,6 +7,7 @@ const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 
 const { getAiSessionsDiv } = require('../../out/webview/webviewAiSessionContent');
+const { getAiSessionWorktreeMenu } = require('../../out/webview/webviewAiSessionContent');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 const readScript = name => fs.readFileSync(
@@ -27,6 +28,18 @@ function surface(overrides) {
         kimiSessions: [],
         claudeSessions: [],
         activeAiSessions: [],
+        worktreeAnchor: {
+            entries: [
+                { repositoryLabel: 'alpha', branch: 'main' },
+                { repositoryLabel: 'beta', branch: 'main' },
+            ],
+            worktreeKeys: [
+                { repositoryKey: '/alpha/.git', canonicalWorktreePath: '/alpha/main' },
+                { repositoryKey: '/beta/.git', canonicalWorktreePath: '/beta/main' },
+            ],
+            sessions: [],
+            activity: 'idle',
+        },
         worktrees: [],
         worktreeSnapshotRevision: 1,
         worktreeRepositoryCount: 2,
@@ -72,6 +85,7 @@ async function openFormPage(t) {
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
         <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${groupHtml}</div></div>
+        ${getAiSessionWorktreeMenu()}
     </body></html>`);
     await page.addStyleTag({ content: styles });
     await page.evaluate(() => {
@@ -116,11 +130,13 @@ async function postHostMessage(page, message) {
 }
 
 async function openBootstrappedForm(page) {
-    await page.locator('[data-action="create-isolated-session"]')
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
         .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-new"]')
+        .evaluate(item => item.click());
     const openRequest = (await postedMessages(page))
         .find(message => message.type === 'open-worktree-group-form');
-    assert.ok(openRequest, 'the new-worktree button opens the inline form');
+    assert.ok(openRequest, 'the anchor menu opens the inline form');
     assert.equal(openRequest.version, 1);
     await postHostMessage(page, {
         type: 'worktree-group-form-state',
@@ -301,8 +317,10 @@ test('WORKTREE-GROUPS-CREATE-UI-001 Esc keeps unsubmitted input and stale previe
     await page.locator('[data-group-form-name]').press('Escape');
     assert.equal(await page.locator('[data-worktree-group-form]').count(), 0,
         'Esc closes the form');
-    await page.locator('[data-action="create-isolated-session"]')
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
         .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-new"]')
+        .evaluate(item => item.click());
     await postHostMessage(page, {
         type: 'worktree-group-form-state',
         version: 1,
@@ -321,8 +339,10 @@ test('WORKTREE-GROUPS-CREATE-UI-001 branch-from-here seeds the repository and ba
     await page.evaluate(() => {
         window.__groupFormSeed = true;
     });
-    await page.locator('[data-action="create-isolated-session"]')
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
         .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-new"]')
+        .evaluate(item => item.click());
     await postHostMessage(page, {
         type: 'worktree-group-form-state',
         version: 1,
@@ -357,12 +377,18 @@ test('WORKTREE-GROUPS-CREATE-UI-001 select-all and Clear drive the member checkb
         'clearing every repository previews an empty selection');
 });
 
-test('WORKTREE-GROUPS-CREATE-UI-001 confirm failures render human text and the new button tracks the form', async t => {
+test('WORKTREE-GROUPS-CREATE-UI-001 confirm failures render human text and the form stays single-instance', async t => {
     const page = await openFormPage(t);
-    const createButton = page.locator('[data-action="create-isolated-session"]');
     await openBootstrappedForm(page);
-    assert.equal(await createButton.isDisabled(), true,
-        'only one form instance: the new button disables while open');
+    // Only one form instance: invoking the menu entry while the form is
+    // open is a no-op (no second open request, the card survives).
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-new"]')
+        .evaluate(item => item.click());
+    assert.equal((await postedMessages(page))
+        .filter(message => message.type === 'open-worktree-group-form').length, 1);
+    assert.equal(await page.locator('[data-worktree-group-form]').count(), 1);
 
     await page.locator('[data-group-form-name]').fill('Fix login');
     await page.waitForTimeout(350);
@@ -386,8 +412,14 @@ test('WORKTREE-GROUPS-CREATE-UI-001 confirm failures render human text and the n
 
     await page.locator('[data-group-form-action="close"]')
         .evaluate(button => button.click());
-    assert.equal(await createButton.isDisabled(), false,
-        'closing the form re-enables the new button');
+    // Closing the form frees the menu entry to reopen it.
+    await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
+        .evaluate(button => button.click());
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-new"]')
+        .evaluate(item => item.click());
+    assert.equal((await postedMessages(page))
+        .filter(message => message.type === 'open-worktree-group-form').length, 2,
+        'the menu entry reopens the form after close');
 });
 
 test('WORKTREE-GROUPS-CREATE-UI-001 an empty setup command in the preview is authoritative', async t => {

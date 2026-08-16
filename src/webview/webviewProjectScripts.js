@@ -687,6 +687,13 @@ function initProjects() {
         }
     });
 
+    // VS Code forwards no outside clicks into the webview: dismiss open
+    // menus when the sidebar loses focus instead (e.g. editor clicks).
+    window.addEventListener('blur', () => {
+        contextMenus.closeContextMenus();
+        aiSessionControls.closeAiSessionWorktreeMenu();
+    });
+
     document.addEventListener('change', onChangeEvent);
     document.addEventListener('submit', e => todoControls.onTodoFormSubmit(e));
 

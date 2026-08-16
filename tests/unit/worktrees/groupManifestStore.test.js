@@ -903,3 +903,91 @@ test('WORKTREE-GROUPS-RENAME-001 rename derives the slug and writes name, slug, 
         error => error.code === 'invalid-record');
     assert.equal(store.listGroups(WORKSPACE)[0].revision, short.revision);
 });
+
+function baseline(sha) {
+    return {
+        commitSha: sha || 'a'.repeat(40),
+        capturedAt: 1724000000000,
+        source: { kind: 'branch', fullRef: 'refs/heads/main' },
+    };
+}
+
+test('WORKTREE-GROUPS-BASELINE-001 member baseline round-trips and stays immutable', async () => {
+    const backing = memento();
+    const store = new WorktreeGroupManifestStore(backing);
+    const member = { ...plannedMember('alpha', 'fix-login'), baseline: baseline() };
+    const group = await createGroup(store, [member]);
+
+    const persisted = store.listGroups(WORKSPACE)[0].members[0];
+    assert.deepEqual(persisted.baseline, baseline());
+
+    // A fresh store instance re-reads the persisted baseline intact.
+    const reloaded = new WorktreeGroupManifestStore(backing);
+    assert.deepEqual(reloaded.listGroups(WORKSPACE)[0].members[0].baseline,
+        baseline());
+
+    // Set-once: filling a baseline on a member without one is allowed…
+    const without = await store.addMember(WORKSPACE, group.groupId,
+        plannedMember('beta', 'add-baseline'));
+    const added = without.members.find(candidate =>
+        candidate.repositoryKey.includes('beta'));
+    const filled = await store.updateMember(
+        WORKSPACE, group.groupId, added.memberId, { baseline: baseline('b'.repeat(40)) });
+    assert.equal(filled.members.find(candidate =>
+        candidate.memberId === added.memberId).baseline.commitSha, 'b'.repeat(40));
+
+    // …but an existing baseline can never be moved or replaced.
+    await assert.rejects(
+        store.updateMember(WORKSPACE, group.groupId, added.memberId,
+            { baseline: baseline('c'.repeat(40)) }),
+        error => error.code === 'invalid-record');
+    // Re-asserting the identical baseline is a no-op, not an error.
+    const reaffirmed = await store.updateMember(
+        WORKSPACE, group.groupId, added.memberId,
+        { baseline: baseline('b'.repeat(40)) });
+    assert.equal(reaffirmed.members.find(candidate =>
+        candidate.memberId === added.memberId).baseline.commitSha, 'b'.repeat(40));
+    assert.equal(store.listGroups(WORKSPACE)[0].members[0].baseline.commitSha,
+        'a'.repeat(40), 'the original member baseline is untouched');
+});
+
+test('WORKTREE-GROUPS-BASELINE-001 rejects malformed baselines instead of guessing', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const corrupt = [
+        { ...baseline(), commitSha: 'not-a-sha' },
+        { ...baseline(), capturedAt: -1 },
+        { ...baseline(), source: { kind: 'branch' } },
+        { ...baseline(), source: { kind: 'weird', fullRef: 'refs/heads/main' } },
+    ];
+    for (const bad of corrupt) {
+        await assert.rejects(
+            createGroup(store, [{ ...plannedMember('alpha', 'fix-login'), baseline: bad }]),
+            error => error.code === 'invalid-record');
+    }
+    await assert.rejects(
+        store.updateMember(WORKSPACE, 'group-x', 'member-x',
+            { baseline: { ...baseline(), commitSha: 'zzz' } }),
+        error => error.code === 'group-not-found');
+
+    // A persisted record with a corrupt baseline is dropped on read, never
+    // silently repaired.
+    const values = new Map();
+    const backing = {
+        values,
+        get(key, fallback) {
+            return values.has(key) ? values.get(key) : fallback;
+        },
+        async update(key, value) {
+            values.set(key, JSON.parse(JSON.stringify(value)));
+        },
+    };
+    const writer = new WorktreeGroupManifestStore(backing);
+    await createGroup(writer, [{ ...plannedMember('alpha', 'fix-login'), baseline: baseline() }]);
+    const key = 'agentPivot.worktreeGroups.v1';
+    const raw = JSON.parse(JSON.stringify(values.get(key)));
+    raw[WORKSPACE].groups[0].members[0].baseline = { commitSha: 'nope' };
+    values.set(key, raw);
+    const reader = new WorktreeGroupManifestStore(backing);
+    assert.equal(reader.listGroups(WORKSPACE).length, 0,
+        'the corrupt-baseline record is dropped, not guessed');
+});

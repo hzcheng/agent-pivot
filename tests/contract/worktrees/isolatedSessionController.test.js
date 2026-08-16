@@ -96,6 +96,11 @@ function fixture(overrides = {}) {
             };
         },
         validateCreatedWorktree: async () => undefined,
+        resolveBaseCommit: async (_cwd, baseRef) => ({
+            commitSha: 'a'.repeat(40),
+            capturedAt: 1724000000000,
+            source: { kind: 'branch', fullRef: baseRef },
+        }),
     };
     const controller = new IsolatedSessionController({
         getWorkspaceTarget: projectId => projectId === 'project' ? target : null,
@@ -364,6 +369,11 @@ test('WORKTREE-GROUPS-CREATE-001 a failed group member retries its exact confirm
                 };
             },
             validateCreatedWorktree: async () => undefined,
+            resolveBaseCommit: async (_cwd, baseRef) => ({
+                commitSha: 'a'.repeat(40),
+                capturedAt: 1724000000000,
+                source: { kind: 'branch', fullRef: baseRef },
+            }),
         },
     });
     const failed = await current.controller.startGroupMember({
@@ -1135,6 +1145,11 @@ test('WORKTREE-ISOLATED-SESSION-001 reallocates after a pre-create branch collis
                 };
             },
             validateCreatedWorktree: async () => undefined,
+            resolveBaseCommit: async (_cwd, baseRef) => ({
+                commitSha: 'a'.repeat(40),
+                capturedAt: 1724000000000,
+                source: { kind: 'branch', fullRef: baseRef },
+            }),
         },
     });
 

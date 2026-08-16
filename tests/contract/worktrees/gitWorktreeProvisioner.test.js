@@ -201,3 +201,61 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 rejects a durable path whose branch cha
             && error.code === 'worktree-create-failed'
     );
 });
+
+test('WORKTREE-GROUPS-BASELINE-001 resolveBaseCommit classifies branch, tag, and commit bases', async t => {
+    const fixture = await repositoryFixture(t);
+    const provisioner = new GitWorktreeProvisioner();
+    const headSha = git(fixture.repositoryPath, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryPath, ['tag', '-a', 'v1.0', '-m', 'release']);
+
+    const branch = await provisioner.resolveBaseCommit(fixture.repositoryPath, 'main');
+    assert.equal(branch.commitSha, headSha);
+    assert.deepEqual(branch.source, { kind: 'branch', fullRef: 'refs/heads/main' });
+    assert.ok(Number.isSafeInteger(branch.capturedAt));
+
+    const tag = await provisioner.resolveBaseCommit(fixture.repositoryPath, 'v1.0');
+    assert.equal(tag.commitSha, headSha,
+        'an annotated tag resolves to the tagged commit');
+    assert.deepEqual(tag.source, { kind: 'tag', fullRef: 'refs/tags/v1.0' });
+
+    const commit = await provisioner.resolveBaseCommit(fixture.repositoryPath, headSha);
+    assert.equal(commit.commitSha, headSha);
+    assert.deepEqual(commit.source, { kind: 'commit' },
+        'a raw SHA has no movable base ref');
+
+    assert.equal(await provisioner.resolveBaseCommit(
+        fixture.repositoryPath, 'does-not-exist'), undefined,
+        'an unresolvable base refuses capture instead of guessing');
+});
+
+test('WORKTREE-GROUPS-BASELINE-001 createWorktree branches from the frozen baseline, not the moved base', async t => {
+    const fixture = await repositoryFixture(t);
+    const provisioner = new GitWorktreeProvisioner();
+    const plan = planFor(fixture, 'frozen-baseline');
+
+    // Capture the baseline, then advance the base branch: provisioning must
+    // still start from the frozen SHA (changes-panel PRD §4.2).
+    const baseline = await provisioner.resolveBaseCommit(plan.commandCwd, plan.baseRef);
+    plan.baseline = baseline;
+    await fs.promises.writeFile(path.join(fixture.repositoryPath, 'advanced.txt'), 'advanced\n');
+    git(fixture.repositoryPath, ['add', 'advanced.txt']);
+    git(fixture.repositoryPath, ['commit', '-m', 'base advances mid-provisioning']);
+    const advancedSha = git(fixture.repositoryPath, ['rev-parse', 'HEAD']);
+    assert.notEqual(advancedSha, baseline.commitSha);
+
+    const key = await provisioner.createWorktree(plan, () => false);
+    assert.equal(git(plan.worktreePath, ['rev-parse', 'HEAD']), baseline.commitSha,
+        'git worktree add used the frozen SHA, not the advanced base ref');
+    assert.equal(git(plan.worktreePath, ['branch', '--show-current']), plan.branchName);
+
+    // The reconcile path (retry after a crash) verifies the anchor too.
+    assert.deepEqual(await provisioner.createWorktree(plan, () => false), key);
+
+    // A worktree whose HEAD diverged from the recorded baseline fails the
+    // post-creation anchor check (branch still checked out, but moved).
+    git(plan.worktreePath, ['reset', '--hard', advancedSha]);
+    await assert.rejects(
+        provisioner.createWorktree(plan, () => false),
+        error => error instanceof GitWorktreeProvisioningError
+            && error.code === 'worktree-create-failed');
+});

@@ -2,6 +2,8 @@
 
 import { execFile } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
+import type { WorktreeKey } from '../../worktrees/types';
 
 export interface ConversationWorktreeInfo {
     branch: string;
@@ -50,6 +52,10 @@ export type ResolveWorktree = (
     candidatePath: string
 ) => Promise<ConversationWorktreeInfo | undefined>;
 
+export type ResolveWorktreeKey = (
+    candidatePath: string
+) => Promise<WorktreeKey | undefined>;
+
 /**
  * Resolves the git worktree that contains a candidate path (a session's
  * current working directory or a path extracted from tool activity).
@@ -59,6 +65,7 @@ export class ConversationWorktreeResolver {
     private readonly cache = new Map<string, {
         readAt: number;
         value?: ConversationWorktreeInfo;
+        key?: WorktreeKey;
     }>();
 
     constructor(private readonly options: WorktreeResolverOptions) {}
@@ -66,9 +73,7 @@ export class ConversationWorktreeResolver {
     async resolve(
         candidatePath: string
     ): Promise<ConversationWorktreeInfo | undefined> {
-        if (typeof candidatePath !== 'string'
-            || !candidatePath.startsWith('/')
-            || candidatePath.length > MAX_PATH_LENGTH) {
+        if (!isUsableCandidatePath(candidatePath)) {
             return undefined;
         }
         const cached = this.cache.get(candidatePath);
@@ -78,7 +83,7 @@ export class ConversationWorktreeResolver {
                 < (this.options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS)) {
             return cached.value ? { ...cached.value } : undefined;
         }
-        const value = await this.query(candidatePath);
+        const queried = await this.query(candidatePath);
         if (this.cache.size
             >= (this.options.maxCacheEntries ?? DEFAULT_MAX_CACHE_ENTRIES)) {
             const oldest = this.cache.keys().next().value;
@@ -86,13 +91,43 @@ export class ConversationWorktreeResolver {
                 this.cache.delete(oldest);
             }
         }
-        this.cache.set(candidatePath, { readAt: now, value });
-        return value ? { ...value } : undefined;
+        this.cache.set(candidatePath, {
+            readAt: now,
+            value: queried?.info,
+            key: queried?.key,
+        });
+        return queried?.info ? { ...queried.info } : undefined;
+    }
+
+    /**
+     * Resolves the manifest-compatible WorktreeKey for a candidate path
+     * (changes-panel PRD §4.1): repositoryKey is the canonical common
+     * git dir (symlinks resolved), matching WorktreeKey semantics, NOT
+     * `dirname(commonDir)`; canonicalWorktreePath is the canonical
+     * worktree root. Shares the resolve() cache.
+     */
+    async resolveKey(
+        candidatePath: string
+    ): Promise<WorktreeKey | undefined> {
+        if (!isUsableCandidatePath(candidatePath)) {
+            return undefined;
+        }
+        const cached = this.cache.get(candidatePath);
+        const now = this.options.now();
+        if (cached
+            && now - cached.readAt
+                < (this.options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS)) {
+            return cached.key ? { ...cached.key } : undefined;
+        }
+        await this.resolve(candidatePath);
+        return this.cache.get(candidatePath)?.key
+            ? { ...this.cache.get(candidatePath)!.key! }
+            : undefined;
     }
 
     private async query(
         candidatePath: string
-    ): Promise<ConversationWorktreeInfo | undefined> {
+    ): Promise<{ info: ConversationWorktreeInfo; key: WorktreeKey } | undefined> {
         const execGit = this.options.execGit || defaultExecGit;
         let stdout: string;
         try {
@@ -130,10 +165,33 @@ export class ConversationWorktreeResolver {
         if (!branch) {
             return undefined;
         }
-        return {
-            branch: branch.slice(0, 128),
-            worktreeRoot: toplevel,
-            repoRoot: path.dirname(absoluteCommonDir),
+        const key = {
+            repositoryKey: await canonicalize(absoluteCommonDir),
+            canonicalWorktreePath: await canonicalize(toplevel),
         };
+        return {
+            info: {
+                branch: branch.slice(0, 128),
+                worktreeRoot: toplevel,
+                repoRoot: path.dirname(absoluteCommonDir),
+            },
+            key,
+        };
+    }
+}
+
+function isUsableCandidatePath(candidatePath: unknown): candidatePath is string {
+    // Windows absolute paths (C:\… / C:/…) are valid candidates; the host
+    // path API decides what is absolute on this platform.
+    return typeof candidatePath === 'string'
+        && path.isAbsolute(candidatePath)
+        && candidatePath.length <= MAX_PATH_LENGTH;
+}
+
+async function canonicalize(candidatePath: string): Promise<string> {
+    try {
+        return await fs.promises.realpath(candidatePath);
+    } catch (_error) {
+        return path.resolve(candidatePath);
     }
 }

@@ -919,6 +919,17 @@ export class IsolatedSessionController {
                 .filter(row => row.operationId !== ignoredOperationId)
                 .map(row => row.proposedPath)
                 .filter((value): value is string => !!value)),
+        }).then(async plan => {
+            // Baseline capture (changes-panel PRD §4.2): freeze the base
+            // ref before any physical side effect. Without a frozen
+            // baseline the plan is rejected — never provisioned from a
+            // moving base.
+            const baseline = await this.provisioner.resolveBaseCommit(
+                plan.commandCwd, plan.baseRef);
+            if (!baseline) {
+                throw new WorktreeProvisioningPlanError('base-ref-unavailable');
+            }
+            return { ...plan, baseline };
         });
     }
 

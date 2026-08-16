@@ -5,7 +5,8 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import type { GitCommandResult, RunGitCommand } from './gitWorktreeDiscovery';
 import type { WorktreeProvisioningPlan } from './provisioningPlan';
-import type { WorktreeKey } from './types';
+import type { MemberBaseline, WorktreeKey } from './types';
+import { isBaselineCommitSha } from './baseline';
 
 const MAX_GIT_ERROR_LENGTH = 512;
 const PROVISIONING_GIT_TIMEOUT_MS = 60_000;
@@ -82,6 +83,69 @@ export class GitWorktreeProvisioner {
     }
 
     /**
+     * Freezes a base ref into an immutable baseline (changes-panel PRD
+     * §4.2): resolves `baseRef^{commit}` and classifies the source as
+     * branch / tag / commit. Returns undefined when the ref does not
+     * resolve to a commit — callers must then refuse to start creation
+     * rather than provision from a moving or unknown base.
+     */
+    async resolveBaseCommit(
+        commandCwd: string,
+        baseRef: string
+    ): Promise<MemberBaseline | undefined> {
+        if (!isSafeAbsolutePath(commandCwd) || !isSafeRevision(baseRef)) {
+            return undefined;
+        }
+        const shaResult = await this.runGit(commandCwd, [
+            '-C', commandCwd, 'rev-parse', '--verify', '--quiet',
+            `${baseRef}^{commit}`,
+        ]);
+        if (shaResult.exitCode !== 0) {
+            return undefined;
+        }
+        const commitSha = shaResult.stdout.trim();
+        if (!isBaselineCommitSha(commitSha)) {
+            return undefined;
+        }
+        const fullRefResult = await this.runGit(commandCwd, [
+            '-C', commandCwd, 'rev-parse', '--verify', '--quiet',
+            '--symbolic-full-name', baseRef,
+        ]);
+        const fullRef = fullRefResult.exitCode === 0
+            ? fullRefResult.stdout.trim()
+            : '';
+        let source: MemberBaseline['source'];
+        if (fullRef.startsWith('refs/heads/')
+            || fullRef.startsWith('refs/remotes/')) {
+            source = { kind: 'branch', fullRef };
+        } else if (fullRef.startsWith('refs/tags/')) {
+            source = { kind: 'tag', fullRef };
+        } else {
+            source = { kind: 'commit' };
+        }
+        return { commitSha, capturedAt: Date.now(), source };
+    }
+
+    /**
+     * Post-creation anchor check (changes-panel PRD §4.2 step 4): the
+     * new worktree's HEAD must be the frozen baseline commit. A mismatch
+     * means the physical state diverged from the recorded intent.
+     */
+    async verifyBaselineHead(
+        worktreePath: string,
+        baseline: MemberBaseline
+    ): Promise<boolean> {
+        if (!isSafeAbsolutePath(worktreePath)) {
+            return false;
+        }
+        const head = await this.runGit(worktreePath, [
+            '-C', worktreePath, 'rev-parse', '--verify', '--quiet', 'HEAD',
+        ]);
+        return head.exitCode === 0
+            && head.stdout.trim() === baseline.commitSha;
+    }
+
+    /**
      * Local branches offered as base-ref candidates in the group creation
      * form (PRD §6.1: 本地分支 + 记忆的基准, remote-only branches excluded).
      */
@@ -139,6 +203,7 @@ export class GitWorktreeProvisioner {
         }
         const existing = await this.reconcileCreatedWorktree(plan);
         if (existing) {
+            await this.assertBaselineHead(plan, existing);
             return existing;
         }
         if (!(await this.isBranchAvailable(plan.commandCwd, plan.branchName))) {
@@ -154,12 +219,16 @@ export class GitWorktreeProvisioner {
         if (isCancelled()) {
             throw new GitWorktreeProvisioningError('cancelled');
         }
+        // The worktree branches from the frozen baseline SHA, never from
+        // the (possibly advanced) short base ref (changes-panel PRD §4.2).
+        const startPoint = plan.baseline?.commitSha ?? plan.baseRef;
         const result = await this.runGit(plan.commandCwd, [
             '-C', plan.commandCwd, 'worktree', 'add', '-b', plan.branchName,
-            '--', plan.worktreePath, plan.baseRef,
+            '--', plan.worktreePath, startPoint,
         ]);
         const reconciled = await this.reconcileCreatedWorktree(plan);
         if (reconciled) {
+            await this.assertBaselineHead(plan, reconciled);
             return reconciled;
         }
         if (result.timedOut) {
@@ -183,6 +252,19 @@ export class GitWorktreeProvisioner {
         if (!reconciled
             || reconciled.repositoryKey !== key.repositoryKey
             || reconciled.canonicalWorktreePath !== key.canonicalWorktreePath) {
+            throw new GitWorktreeProvisioningError('worktree-create-failed');
+        }
+    }
+
+    private async assertBaselineHead(
+        plan: WorktreeProvisioningPlan,
+        key: WorktreeKey
+    ): Promise<void> {
+        if (!plan.baseline) {
+            return;
+        }
+        if (!(await this.verifyBaselineHead(
+            key.canonicalWorktreePath, plan.baseline))) {
             throw new GitWorktreeProvisioningError('worktree-create-failed');
         }
     }

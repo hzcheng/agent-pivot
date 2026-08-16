@@ -18,6 +18,7 @@ import type {
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
 } from './types';
+import type { MemberBaseline } from './types';
 
 const MAX_GROUP_MEMBERS = 16;
 const MAX_PREVIEW_MEMO_ENTRIES = 200;
@@ -91,6 +92,15 @@ export interface WorktreeGroupCreationControllerOptions {
     preflightPlan: (
         plan: WorktreeProvisioningPlan
     ) => Promise<'ok' | string>;
+    /**
+     * Freezes a member's base ref into an immutable baseline commit
+     * (changes-panel PRD §4.2). Confirm resolves it before any physical
+     * side effect; when it returns undefined the member must not start.
+     */
+    resolveBaseCommit?: (
+        commandCwd: string,
+        baseRef: string
+    ) => Promise<MemberBaseline | undefined>;
     /** Resource-scoped setup resolution (PRD §6.1). */
     getSetupCommand: (repositoryKey: string) => readonly string[];
     getWorktreeDirectory: () => string;
@@ -654,6 +664,24 @@ export class WorktreeGroupCreationController {
                 return { kind: 'failed', errorCode: 'invalid-members' };
             }
         }
+        // Baseline capture (changes-panel PRD §4.2): freeze every member's
+        // base ref into an immutable commit SHA BEFORE any physical side
+        // effect, and persist it with the member intent below. A member
+        // whose base cannot be frozen aborts the whole confirm — nothing
+        // may start from a moving or unknown base.
+        const baselines = new Map<string, MemberBaseline>();
+        if (this.options.resolveBaseCommit) {
+            for (const member of members) {
+                const repository = repositories.find(candidate =>
+                    candidate.repositoryKey === member.repositoryKey)!;
+                const baseline = await this.options.resolveBaseCommit(
+                    repositoryCommandCwd(repository), member.baseRef);
+                if (!baseline) {
+                    return { kind: 'failed', errorCode: 'base-ref-unavailable' };
+                }
+                baselines.set(member.repositoryKey, baseline);
+            }
+        }
         const navigationIdentity = target.workspace.navigationIdentity;
         // Preview tokens are single-use: consume atomically (synchronously,
         // before the first manifest await) so a replayed or concurrent
@@ -675,6 +703,9 @@ export class WorktreeGroupCreationController {
                         branchName: member.branchName,
                         path: member.worktreePath,
                         state: 'provisioning' as const,
+                        ...(baselines.has(member.repositoryKey)
+                            ? { baseline: baselines.get(member.repositoryKey)! }
+                            : {}),
                     })),
                     {
                         expectedRevision: previewSnapshot.addRepo.targetRevision,
@@ -704,6 +735,9 @@ export class WorktreeGroupCreationController {
                         branchName: member.branchName,
                         path: member.worktreePath,
                         state: 'provisioning' as const,
+                        ...(baselines.has(member.repositoryKey)
+                            ? { baseline: baselines.get(member.repositoryKey)! }
+                            : {}),
                     })),
                 });
                 newMembers = group.members;
@@ -736,6 +770,9 @@ export class WorktreeGroupCreationController {
                     slug,
                     branchName: confirmed.branchName,
                     worktreePath: confirmed.worktreePath,
+                    ...(baselines.has(confirmed.repositoryKey)
+                        ? { baseline: baselines.get(confirmed.repositoryKey)! }
+                        : {}),
                 },
                 // Execute the frozen preview argv — exactly what the user
                 // reviewed — never a config value re-read later.

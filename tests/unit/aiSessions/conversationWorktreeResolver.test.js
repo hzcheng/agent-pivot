@@ -110,3 +110,34 @@ test('ARCH-SESSION-WORKTREE-001 caches resolutions briefly and rejects non-absol
     assert.deepEqual(second, first);
     assert.equal(gitCalls, 1, 'the second resolve hits the cache');
 });
+
+test('ARCH-SESSION-WORKTREE-001 resolveKey returns the manifest-compatible WorktreeKey', async t => {
+    const { repo } = await createRepo(t);
+    const resolver = new ConversationWorktreeResolver({ now: Date.now });
+
+    const key = await resolver.resolveKey(repo);
+    assert.deepEqual(key, {
+        repositoryKey: await fs.promises.realpath(path.join(repo, '.git')),
+        canonicalWorktreePath: await fs.promises.realpath(repo),
+    }, 'repositoryKey is the canonical common git dir — never dirname(commonDir)');
+
+    // Linked worktree: the common dir still points at the main checkout's
+    // .git, while the worktree path is the linked root.
+    const linked = path.join(path.dirname(repo), 'linked');
+    git(repo, ['worktree', 'add', '-b', 'linked-branch', linked]);
+    const linkedKey = await resolver.resolveKey(linked);
+    assert.deepEqual(linkedKey, {
+        repositoryKey: await fs.promises.realpath(path.join(repo, '.git')),
+        canonicalWorktreePath: await fs.promises.realpath(linked),
+    });
+
+    // Missing paths resolve to undefined rather than throwing.
+    assert.equal(await resolver.resolveKey(path.join(repo, 'gone')), undefined);
+});
+
+test('ARCH-SESSION-WORKTREE-001 resolveKey rejects unusable candidates', async () => {
+    const resolver = new ConversationWorktreeResolver({ now: Date.now });
+    assert.equal(await resolver.resolveKey('relative/path'), undefined);
+    assert.equal(await resolver.resolveKey(''), undefined);
+    assert.equal(await resolver.resolveKey(undefined), undefined);
+});

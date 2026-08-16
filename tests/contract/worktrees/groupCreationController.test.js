@@ -887,3 +887,57 @@ test('WORKTREE-GROUPS-CREATE-001 retry and dismiss follow the member lifecycle',
         await current.controller.dismissMember('project', created.groupId, 'missing'),
         'unavailable');
 });
+
+test('WORKTREE-GROUPS-BASELINE-001 confirm freezes member baselines before any side effect', async () => {
+    const captured = [];
+    const current = fixture({
+        resolveBaseCommit: async (commandCwd, baseRef) => {
+            captured.push([commandCwd, baseRef]);
+            return {
+                commitSha: 'f'.repeat(40),
+                capturedAt: 1724000000000,
+                source: { kind: 'branch', fullRef: baseRef },
+            };
+        },
+    });
+    const result = await current.controller.confirm({
+        projectId: 'project',
+        previewId: await previewIdFor(current),
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.equal(result.kind, 'created');
+    assert.deepEqual(captured.map(entry => entry[1]),
+        ['refs/heads/main', 'refs/heads/main'],
+        'every member base ref is frozen at confirm time');
+
+    const group = current.manifestStore.listGroups(workspace.navigationIdentity)[0];
+    assert.ok(group.members.every(member =>
+        member.baseline && member.baseline.commitSha === 'f'.repeat(40)),
+        'the baseline is persisted with the member intent');
+    assert.ok(current.started.every(input =>
+        input.plan.baseline && input.plan.baseline.commitSha === 'f'.repeat(40)),
+        'the frozen SHA rides the plan so worktree add never uses a moved ref');
+});
+
+test('WORKTREE-GROUPS-BASELINE-001 confirm refuses to start when a base cannot be frozen', async () => {
+    const current = fixture({
+        resolveBaseCommit: async commandCwd =>
+            commandCwd === '/alpha' ? undefined : {
+                commitSha: 'f'.repeat(40),
+                capturedAt: 1724000000000,
+                source: { kind: 'branch', fullRef: 'refs/heads/main' },
+            },
+    });
+    const result = await current.controller.confirm({
+        projectId: 'project',
+        previewId: await previewIdFor(current),
+        displayName: 'Fix login',
+        members: confirmedMembers(),
+    });
+    assert.deepEqual(result, { kind: 'failed', errorCode: 'base-ref-unavailable' });
+    assert.equal(current.started.length, 0,
+        'no physical side effect starts without a frozen baseline');
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 0,
+        'no manifest intent is persisted either');
+});

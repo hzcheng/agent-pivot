@@ -63,6 +63,34 @@ export interface WorktreeSnapshotContent {
     truncatedWorktreeCount: number;
 }
 
+// ── Member Baseline (task-start anchor) ─────────────────────────
+
+/**
+ * What the group's base ref resolved to when the member was created.
+ * - branch: fully-qualified ref (refs/heads/… or refs/remotes/…); the
+ *   ref may advance after capture (base-moved / behind detection).
+ * - tag: fixed starting point; a force-moved tag only warrants a
+ *   source-changed notice, never branch-style behind wording.
+ * - commit: detached / raw SHA base; no movable base exists.
+ */
+export type WorktreeBaselineSource =
+  | { kind: 'branch'; fullRef: string }
+  | { kind: 'tag'; fullRef: string }
+  | { kind: 'commit' };
+
+/**
+ * Immutable task-start anchor for a group member (changes-panel PRD
+ * §4.2): captured before any physical side effect and persisted with
+ * the provisioning intent. Absent means the baseline is unknown
+ * (adopted / legacy / capture-failed) — never guessed from HEAD.
+ */
+export interface MemberBaseline {
+    /** Frozen base commit SHA (`baseRef^{commit}` at capture time). */
+    commitSha: string;
+    capturedAt: number;
+    source: WorktreeBaselineSource;
+}
+
 export type WorktreeSnapshotState =
   | { kind: 'uninitialized' }
   | { kind: 'loading' }

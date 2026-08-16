@@ -1762,6 +1762,11 @@ async function initializeDashboard(
                         branchName: info.plan.branchName,
                         path: info.worktreeKey.canonicalWorktreePath,
                         state: 'ready',
+                        // The baseline was frozen into the plan before any
+                        // physical side effect (changes-panel PRD §4.2).
+                        ...(info.plan.baseline
+                            ? { baseline: info.plan.baseline }
+                            : {}),
                     }],
                 });
             } catch (error) {
@@ -1793,6 +1798,8 @@ async function initializeDashboard(
         isPathAvailable: worktreePath =>
             worktreeGroupProvisioner.isPathAvailable(worktreePath),
         preflightPlan: plan => worktreeGroupProvisioner.preflightPlan(plan),
+        resolveBaseCommit: (commandCwd, baseRef) =>
+            worktreeGroupProvisioner.resolveBaseCommit(commandCwd, baseRef),
         // Resource-scoped per repository (PRD §6.1): a cross-repo group can
         // mix Node/Java/Go stacks, so each member reads its own folder's
         // setup override.

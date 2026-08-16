@@ -1,7 +1,12 @@
 'use strict';
 
 import { randomBytes } from 'crypto';
-import type { WorktreeKey } from './types';
+import type { MemberBaseline, WorktreeKey } from './types';
+import {
+    cloneMemberBaseline,
+    memberBaselinesEqual,
+    parseMemberBaseline,
+} from './baseline';
 import { slugifyTaskName } from './provisioningPlan';
 import type {
     DeletionDiagnosticEntry,
@@ -58,6 +63,13 @@ export interface WorktreeGroupMember {
     /** Planned path before creation; the actual worktree path once ready. */
     path: string;
     state: WorktreeGroupMemberState;
+    /**
+     * Immutable task-start anchor (changes-panel PRD §4.2): captured
+     * before any physical side effect, persisted with the provisioning
+     * intent. Absent means unknown (adopted / legacy / capture-failed) —
+     * never guessed from a later HEAD.
+     */
+    baseline?: MemberBaseline;
     /** The repository is currently outside the open workspace (§7). */
     detached?: boolean;
     /** Machine-readable error code for failed members (humanized in the UI). */
@@ -114,6 +126,8 @@ export interface NewWorktreeGroupMember {
     branchName: string;
     path: string;
     state: WorktreeGroupMemberState;
+    /** Frozen task-start anchor (changes-panel PRD §4.2); immutable once set. */
+    baseline?: MemberBaseline;
     lastError?: string;
 }
 
@@ -336,7 +350,8 @@ export class WorktreeGroupManifestStore {
         groupId: string,
         memberId: string,
         patch: Partial<Pick<WorktreeGroupMember,
-            'state' | 'worktreeKey' | 'branchName' | 'path' | 'lastError' | 'detached'>>
+            'state' | 'worktreeKey' | 'branchName' | 'path' | 'lastError'
+            | 'detached' | 'baseline'>>
     ): Promise<WorktreeGroup> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
@@ -378,6 +393,16 @@ export class WorktreeGroupManifestStore {
             }
             if (patch.detached !== undefined) {
                 member.detached = patch.detached || undefined;
+            }
+            if (patch.baseline !== undefined) {
+                // The baseline is immutable (changes-panel PRD §4.2): it
+                // may be filled in once for a member that lacks it, but
+                // never moved or replaced.
+                if (member.baseline
+                    && !memberBaselinesEqual(member.baseline, patch.baseline)) {
+                    throw new WorktreeGroupManifestError('invalid-record');
+                }
+                member.baseline = sanitizeBaseline(patch.baseline);
             }
             if (group.primaryMemberId === member.memberId && member.state !== 'ready') {
                 group.primaryMemberId = null;
@@ -2046,6 +2071,16 @@ function parseMember(value: unknown): WorktreeGroupMember | null {
     if (state === 'ready' && !worktreeKey) {
         return null;
     }
+    let baseline: MemberBaseline | undefined;
+    if (candidate.baseline !== undefined) {
+        // A present-but-corrupt baseline drops the record: the task-start
+        // anchor must never be silently reset or guessed (PRD §4.2).
+        const parsed = parseMemberBaseline(candidate.baseline);
+        if (!parsed) {
+            return null;
+        }
+        baseline = parsed;
+    }
     return {
         memberId: candidate.memberId as string,
         repositoryKey: candidate.repositoryKey as string,
@@ -2053,6 +2088,7 @@ function parseMember(value: unknown): WorktreeGroupMember | null {
         branchName: candidate.branchName as string,
         path: candidate.path as string,
         state,
+        ...(baseline ? { baseline } : {}),
         ...(candidate.detached === true ? { detached: true } : {}),
         ...(isSafeText(candidate.lastError, MAX_ERROR_LENGTH)
             ? { lastError: candidate.lastError as string }
@@ -2077,11 +2113,22 @@ function sanitizeMember(input: NewWorktreeGroupMember): Omit<WorktreeGroupMember
         branchName: requireBranchName(input.branchName),
         path: requirePath(input.path),
         state: input.state,
+        ...(input.baseline
+            ? { baseline: sanitizeBaseline(input.baseline) }
+            : {}),
         ...(input.lastError
             ? { lastError: requireShortText(input.lastError, MAX_ERROR_LENGTH, 'invalid-record') }
             : {}),
     };
     return member;
+}
+
+function sanitizeBaseline(input: MemberBaseline): MemberBaseline {
+    const parsed = parseMemberBaseline(input);
+    if (!parsed) {
+        throw new WorktreeGroupManifestError('invalid-record');
+    }
+    return parsed;
 }
 
 function cloneGroup(group: WorktreeGroup): WorktreeGroup {
@@ -2090,6 +2137,9 @@ function cloneGroup(group: WorktreeGroup): WorktreeGroup {
         members: group.members.map(member => ({
             ...member,
             ...(member.worktreeKey ? { worktreeKey: { ...member.worktreeKey } } : {}),
+            ...(member.baseline
+                ? { baseline: cloneMemberBaseline(member.baseline) }
+                : {}),
         })),
     };
 }

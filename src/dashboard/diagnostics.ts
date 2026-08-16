@@ -27,7 +27,9 @@ export default class DashboardDiagnostics {
 
     logError(message: string, error: unknown) {
         this.options.outputChannel.appendLine(message);
-        this.options.outputChannel.appendLine(error instanceof Error ? `${error.stack || error.message}` : String(error));
+        if (error !== undefined) {
+            this.options.outputChannel.appendLine(error instanceof Error ? `${error.stack || error.message}` : String(error));
+        }
     }
 
     logOpenWorkspaceBridgeError(_error: unknown) {

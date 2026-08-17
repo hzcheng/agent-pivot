@@ -418,6 +418,9 @@ function createAvailableConversationCapability(
             );
         },
         setKeyboardFocus: options.setConversationFocusContext,
+        onDiagnostic: options.onDiagnostic
+            ? event => options.onDiagnostic(event as never)
+            : undefined,
         setTimer: options.setTimer,
         clearTimer: options.clearTimer,
     }));

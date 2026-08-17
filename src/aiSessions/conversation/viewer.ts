@@ -157,6 +157,8 @@ export interface ConversationViewerOptions {
     setKeyboardFocus?: (
         focused: boolean
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Diagnostics sink for load/switch failures (never throws). */
+    onDiagnostic?: (event: Record<string, unknown>) => void;
     setTimer?: (callback: () => void, delayMs: number) => unknown;
     clearTimer?: (handle: unknown) => void;
 }
@@ -593,6 +595,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         const panel = reveal ? this.ensurePanel() : this.panel;
         if (!panel || (!reveal && panel !== followedPanel)) {
+            this.emitDiagnostic('load-target-no-panel');
             return false;
         }
         panel.title = 'AI Conversation';
@@ -776,6 +779,21 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         this.clear(undefined);
+    }
+
+    private emitDiagnostic(reason: string, detail?: Record<string, unknown>) {
+        try {
+            this.options.onDiagnostic?.({
+                event: 'conversation-viewer',
+                reason,
+                sessionId: this.target?.sessionId,
+                provider: this.target?.provider,
+                generation: this.subscriptionGeneration,
+                ...detail,
+            });
+        } catch (_error) {
+            // Diagnostics never break the viewer.
+        }
     }
 
     private replaceTarget(target: ConversationViewerTarget): number {
@@ -986,12 +1004,16 @@ export class ConversationViewer implements ConversationViewerApi {
                 || parsed.projectId !== target.projectId
                 || parsed.provider !== target.provider
                 || parsed.sessionId !== target.sessionId) {
+                this.emitDiagnostic('resync-dropped-stale', {
+                    requestGeneration: parsed.subscriptionGeneration,
+                });
                 return;
             }
             const publication = this.latestPublication;
             if (publication
                 && publication.requestId !== this.syncRebuildRequestId) {
                 this.syncRebuildRequestId = publication.requestId;
+                this.emitDiagnostic('resync-rebuild');
                 this.rebuildLatestDocument();
             }
             return;
@@ -1899,6 +1921,7 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.deliverPublication(publication, replaceDocument);
             return;
         }
+        this.emitDiagnostic('publish-failure', { updateKind, replaceDocument });
         this.latestPublication = undefined;
         panel.webview.html = this.renderDocument(
             undefined,

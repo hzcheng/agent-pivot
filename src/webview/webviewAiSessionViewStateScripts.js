@@ -352,25 +352,58 @@ function focusAiSessionConversationOrigin(message) {
     if (!projectDiv) {
         return false;
     }
-    selectAiSessionSurfaceDom(projectDiv, 'chats');
-    writeAiSessionSurfaceState(window.vscode, origin.projectId, 'chats');
+    var rowSelector = '[data-session-provider][data-session-id]';
+    var matches = candidate =>
+        candidate.getAttribute('data-session-provider') === origin.provider
+        && candidate.getAttribute('data-session-id') === origin.sessionId;
+    // The view follows the session to the surface it lives on (same probe as
+    // revealAiSessionInWorkspace): closing a conversation viewed from a
+    // worktree group must not yank the Worktree surface back to Chats.
+    var worktreeRow = Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="worktree"] ' + rowSelector
+    )).find(matches);
+    var surface = worktreeRow ? 'worktree' : 'chats';
+    selectAiSessionSurfaceDom(projectDiv, surface);
+    writeAiSessionSurfaceState(window.vscode, origin.projectId, surface);
     if (window.vscode && typeof window.vscode.postMessage === 'function') {
         window.vscode.postMessage({
             type: 'select-ai-session-surface',
             version: 1,
             projectId: origin.projectId,
-            surface: 'chats',
+            surface: surface,
         });
+    }
+    if (worktreeRow) {
+        var group = worktreeRow.closest('.ai-session-worktree-group');
+        if (group) {
+            setAiSessionWorktreeGroupExpanded(projectDiv, group, true);
+            writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+        }
+        var worktreeAction = worktreeRow.querySelector('.ai-session-primary-action');
+        if (worktreeAction && typeof worktreeAction.focus === 'function') {
+            worktreeAction.focus({ preventScroll: true });
+        }
+        worktreeRow.scrollIntoView({ block: 'nearest' });
+        if (worktreeAction && document.activeElement === worktreeAction) {
+            return true;
+        }
+        var worktreeSurfaceTab = Array.from(projectDiv.querySelectorAll(
+            '[data-ai-session-surface-tab]'
+        )).find(candidate =>
+            candidate.getAttribute('data-ai-session-surface-tab') === 'worktree'
+        );
+        if (worktreeSurfaceTab && typeof worktreeSurfaceTab.focus === 'function') {
+            worktreeSurfaceTab.focus({ preventScroll: true });
+            return document.activeElement === worktreeSurfaceTab;
+        }
+        return false;
     }
     selectAiSessionTabDom(projectDiv, 'active');
     writeAiSessionTabState(window.vscode, origin.projectId, 'active');
     var row = Array.from(projectDiv.querySelectorAll(
         '.active-ai-session-row[data-session-focused]'
         + '[data-session-provider][data-session-id]'
-    )).find(candidate =>
-        candidate.getAttribute('data-session-provider') === origin.provider
-        && candidate.getAttribute('data-session-id') === origin.sessionId
-    );
+    )).find(matches);
     if (row) {
         var header = row.querySelector('.ai-session-primary-action');
         if (header && typeof header.focus === 'function') {

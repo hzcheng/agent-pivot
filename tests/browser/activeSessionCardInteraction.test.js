@@ -2925,6 +2925,79 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card 
     );
 });
 
+test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the worktree surface when the session lives there', async t => {
+    // Annotation feedback: closing the conversation viewer must not switch
+    // the panel back to Chats when the origin session lives in a worktree
+    // group — the view follows the session instead.
+    const worktreeKey = {
+        repositoryKey: '/alpha/.git',
+        canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+    };
+    const markup = `<div class="open-current-workspace-group">
+        <div class="project workspace-card" data-id="project-a" data-current-workspace
+            data-codex-expanded data-workspace-scope-identity="scope-project-a"
+            data-workspace-navigation-identity="navigation-project-a">
+            ${getAiSessionsDiv({
+                id: 'project-a',
+                activeAiSessionProvider: 'codex',
+                selectedAiSessionProviders: ['codex'],
+                activeAiSessionTab: 'active',
+                selectedSurface: 'worktree',
+                codexSessions: [],
+                kimiSessions: [],
+                claudeSessions: [],
+                activeAiSessions: [{
+                    key: 'codex:s-w1', provider: 'codex', sessionId: 's-w1',
+                    name: 'Worktree session', executionState: 'running',
+                    focused: false, needsAttention: false, pending: false,
+                    backend: 'vscode', attached: true, worktreeKey,
+                }],
+                worktreeGroups: [{
+                    kind: 'group', groupId: 'g-1', displayName: 'fix-login',
+                    revision: 1, activity: 'active', sessions: [],
+                    members: [{
+                        memberId: 'm-1', repositoryKey: '/alpha/.git',
+                        repositoryLabel: 'alpha', branchName: 'agent-pivot/fix-login',
+                        path: '/alpha/.worktrees/fix-login', status: 'ready',
+                        isPrimary: true, worktreeKey,
+                    }],
+                    chips: [{ label: 'a', title: 'alpha' }],
+                    hasDetachedMembers: false, needsPrimarySelection: false,
+                    canCreateSession: true, mergeCandidateGroupIds: [],
+                }],
+                worktrees: [],
+                worktreeSnapshotRevision: 1,
+                worktreeRepositoryCount: 1,
+                bareWorktreeCount: 0,
+            })}
+        </div>
+    </div>`;
+    const page = await openCardPage(t, [], { width: 360, height: 900 }, markup);
+    const worktreeTab = page.locator('[data-ai-session-surface-tab="worktree"]');
+    const chatsTab = page.locator('[data-ai-session-surface-tab="chats"]');
+    assert.equal(await worktreeTab.getAttribute('aria-selected'), 'true',
+        'the fixture starts on the worktree surface');
+
+    await postHostMessage(page, focusOrigin({ provider: 'codex', sessionId: 's-w1' }));
+
+    assert.equal(await worktreeTab.getAttribute('aria-selected'), 'true',
+        'closing the conversation keeps the worktree surface');
+    assert.equal(await chatsTab.getAttribute('aria-selected'), 'false');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'select-ai-session-surface',
+        version: 1,
+        projectId: 'project-a',
+        surface: 'worktree',
+    }, 'the host persists the worktree surface for future renders');
+    const originAction = page.locator(
+        '[data-ai-session-surface-panel="worktree"]'
+        + ' .codex-session-row[data-session-provider="codex"][data-session-id="s-w1"]'
+        + ' .ai-session-primary-action'
+    );
+    assert.equal(await originAction.evaluate(node => document.activeElement === node), true,
+        'the origin row regains focus inside the worktree panel');
+});
+
 test('ACTIVE-SESSION-CONVERSATION-FOCUS-002 falls back to ACTIVE for a stale same-project origin and ignores malformed or wrong-project messages', async t => {
     const page = await openCardPage(t, [
         session('codex', 'session-a', true),

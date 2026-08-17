@@ -47,8 +47,41 @@ body {
         flex: 0 0 auto;
     }
 
+    // The task segment (worktree group name) stays quiet next to the
+    // workspace and session names.
+    [data-conversation-task-name] {
+        flex: 0 1 auto;
+        color: var(--vscode-descriptionForeground);
+    }
+
     [data-conversation-display-name] {
         font-style: italic;
+    }
+
+    // The session name is a button (click renames the session); reset the
+    // button chrome so it keeps reading as the identity text. No
+    // `font: inherit` shorthand here — it would override the italic above.
+    .conversation-display-name-button {
+        padding: 0;
+        border: 0;
+        background: none;
+        color: inherit;
+        font-family: inherit;
+        font-size: inherit;
+        font-weight: inherit;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+
+        &:hover {
+            text-decoration: underline;
+        }
+
+        &:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: 1px;
+        }
     }
 
     span {

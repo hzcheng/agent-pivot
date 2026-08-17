@@ -234,6 +234,13 @@ export interface ConversationViewerCloseSubagentMessage {
     version: 1;
 }
 
+/** Click the session name in the header: ask the Host to rename the
+ * current session (the Host owns the rename UX and persistence). */
+export interface ConversationViewerRenameSessionMessage {
+    type: 'conversation-viewer-rename-session';
+    version: 1;
+}
+
 export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
@@ -245,6 +252,7 @@ export type ConversationViewerMessage =
     | ConversationViewerFocusMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
+    | ConversationViewerRenameSessionMessage
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
     | ConversationViewerLocateCommentMessage
@@ -415,13 +423,15 @@ export function parseConversationViewerMessage(
         }
         return value as unknown as ConversationViewerOpenSubagentMessage;
     }
-    if (value.type === 'conversation-viewer-close-subagent') {
+    if (value.type === 'conversation-viewer-close-subagent'
+        || value.type === 'conversation-viewer-rename-session') {
         if (keys.length !== 2
             || !hasOwn(value, 'type')
             || !hasOwn(value, 'version')) {
             return undefined;
         }
-        return value as unknown as ConversationViewerCloseSubagentMessage;
+        return value as unknown as ConversationViewerCloseSubagentMessage
+            | ConversationViewerRenameSessionMessage;
     }
     if (value.type === 'conversation-viewer-locate-comment') {
         if (!hasExactKeys(value, [

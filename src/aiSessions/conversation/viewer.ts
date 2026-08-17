@@ -147,6 +147,14 @@ export interface ConversationViewerOptions {
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Rename the current session; the host owns the actual rename UX and
+     * persistence, the refreshed authority updates the viewer header. */
+    renameSession?: (
+        target: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >
+    ) => PromiseLike<void> | Promise<void> | void;
     writeClipboardText?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
@@ -213,6 +221,9 @@ export interface ConversationViewerApi extends AiSessionDisposable {
 export interface ConversationViewerAuthorityMetadata {
     displayName: string;
     duplicateDisplayName: boolean;
+    /** Worktree task group display name; empty when the session is
+     * group-less. */
+    taskName?: string;
 }
 
 interface RetainedConversationPage {
@@ -253,6 +264,7 @@ export interface ConversationViewerPageMessage {
         ConversationViewerTarget,
         'projectId' | 'provider' | 'sessionId' | 'interactionId'
             | 'displayName' | 'duplicateDisplayName' | 'workspaceName'
+            | 'taskName'
     >;
     comments: ConversationCommentSnapshot;
     projectComments: ProjectCommentSnapshot;
@@ -736,11 +748,16 @@ export class ConversationViewer implements ConversationViewerApi {
             const displayName = boundedConversationDisplayName(
                 authority.displayName
             );
+            const taskName = typeof authority.taskName === 'string'
+                ? authority.taskName
+                : '';
             metadataChanged = target.displayName !== displayName
                 || target.duplicateDisplayName
-                    !== authority.duplicateDisplayName;
+                    !== authority.duplicateDisplayName
+                || (target.taskName || '') !== taskName;
             target.displayName = displayName;
             target.duplicateDisplayName = authority.duplicateDisplayName;
+            target.taskName = taskName || undefined;
         }
         const wasSuspended = this.suspended;
         if (wasSuspended
@@ -970,6 +987,17 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-changes-open-scm') {
             await this.changesController?.handleOpenScm(parsed.memberId);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-rename-session') {
+            const target = this.target;
+            if (target) {
+                await this.options.renameSession?.({
+                    projectId: target.projectId,
+                    provider: target.provider,
+                    sessionId: target.sessionId,
+                });
+            }
             return;
         }
         if (parsed.type === 'conversation-viewer-send-selection') {
@@ -2367,6 +2395,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 displayName: target.displayName,
                 duplicateDisplayName: target.duplicateDisplayName,
                 workspaceName: target.workspaceName,
+                ...(target.taskName ? { taskName: target.taskName } : {}),
             },
             comments: this.commentController.snapshot,
             projectComments: this.projectCommentController.snapshot,

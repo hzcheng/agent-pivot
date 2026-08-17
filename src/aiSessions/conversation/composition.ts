@@ -141,6 +141,13 @@ export interface ConversationCapabilityOptions {
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Rename the viewer's current session (host owns the rename UX). */
+    renameSession?: (
+        target: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >
+    ) => PromiseLike<void> | Promise<void> | void;
     submitPrompt: (
         target: ConversationViewerTarget,
         prompt: string
@@ -395,6 +402,7 @@ function createAvailableConversationCapability(
         projectCommentStore: options.projectCommentStore,
         bookmarkStore: options.bookmarkStore,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        renameSession: options.renameSession,
         changes: options.changes
             ? {
                 ...options.changes,
@@ -636,6 +644,7 @@ function createAvailableConversationCapability(
                         ConversationAuthoritativeTarget & {
                             conversationDisplayName?: string;
                             duplicateConversationDisplayName?: boolean;
+                            conversationTaskName?: string;
                         };
                     const trimmedName = String(
                         authoritativeTarget.name || ''
@@ -647,6 +656,7 @@ function createAvailableConversationCapability(
                         duplicateDisplayName:
                             displayMetadata.duplicateConversationDisplayName
                                 === true,
+                        taskName: displayMetadata.conversationTaskName || '',
                     };
                 });
             } catch (_error) {
@@ -1380,6 +1390,7 @@ async function resolveLatestConversationTarget(
     const displayMetadata = authoritativeTarget as ConversationAuthoritativeTarget & {
         conversationDisplayName?: string;
         duplicateConversationDisplayName?: boolean;
+        conversationTaskName?: string;
     };
     const trimmedName = String(authoritativeTarget.name || '').trim();
     return {
@@ -1397,6 +1408,9 @@ async function resolveLatestConversationTarget(
                 || (trimmedName || `${target.provider} conversation`),
             duplicateDisplayName:
                 displayMetadata.duplicateConversationDisplayName === true,
+            ...(displayMetadata.conversationTaskName
+                ? { taskName: displayMetadata.conversationTaskName }
+                : {}),
             ...(subagent ? { subagent } : {}),
         },
         snapshot,

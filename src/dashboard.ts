@@ -160,6 +160,9 @@ import {
 import {
     withConversationDisplayMetadata,
 } from './aiSessions/conversation/displayMetadata';
+import type {
+    ConversationAuthoritativeTarget,
+} from './aiSessions/conversation/displayMetadata';
 import {
     submitConversationPrompt,
 } from './aiSessions/conversation/submission';
@@ -258,6 +261,7 @@ import {
 } from './worktrees/gitRepositoryStateMonitor';
 import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
 import { worktreeKeysEqual } from './worktrees/types';
+import type { WorktreeKey } from './worktrees/types';
 import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
 import {
     WorktreeGroupManifestError,
@@ -2187,15 +2191,37 @@ async function initializeDashboard(
         services: aiSessionServices,
         resolveTarget: (projectId, providerId, sessionId) => {
             const target = getCurrentWorkspaceActionTarget(projectId);
+            // The conversation header reads project · task · session: the
+            // task segment is the worktree group the session belongs to,
+            // resolved from the view model so it always matches the
+            // dashboard row the user opened it from.
+            const withTaskName = <TTarget extends ConversationAuthoritativeTarget>(
+                resolved: TTarget,
+                worktreeKey: WorktreeKey | undefined
+            ): TTarget => {
+                if (!worktreeKey) {
+                    return resolved;
+                }
+                const group = (target?.sessions.worktreeGroups || [])
+                    .find(candidate => candidate.members.some(member =>
+                        member.worktreeKey
+                        && worktreeKeysEqual(member.worktreeKey, worktreeKey)));
+                return group
+                    ? { ...resolved, conversationTaskName: group.displayName }
+                    : resolved;
+            };
             const activeSessions = target?.sessions.activeSessions || [];
             const activeSession = activeSessions.find(session =>
                 session.provider === providerId
                 && session.sessionId === sessionId
             );
             if (activeSession) {
-                return withConversationDisplayMetadata(
-                    activeSession,
-                    activeSessions
+                return withTaskName(
+                    withConversationDisplayMetadata(
+                        activeSession,
+                        activeSessions
+                    ),
+                    activeSession.worktreeKey
                 );
             }
             // History rows resolve too (PRD §6.4): a session whose runtime
@@ -2206,15 +2232,18 @@ async function initializeDashboard(
                 target?.sessions.sessionsByProvider[providerId] || []
             ).find(session => session.id === sessionId);
             return historySession
-                ? withConversationDisplayMetadata(
-                    {
-                        provider: providerId,
-                        sessionId: historySession.id,
-                        name: historySession.name,
-                        focused: false,
-                        executionState: 'stopped',
-                    },
-                    activeSessions
+                ? withTaskName(
+                    withConversationDisplayMetadata(
+                        {
+                            provider: providerId,
+                            sessionId: historySession.id,
+                            name: historySession.name,
+                            focused: false,
+                            executionState: 'stopped',
+                        },
+                        activeSessions
+                    ),
+                    historySession.worktreeKey
                 )
                 : null;
         },
@@ -2224,6 +2253,11 @@ async function initializeDashboard(
         resolveWorkspaceName: projectId =>
             getCurrentWorkspaceActionTarget(projectId)
                 ?.workspace.displayName || '',
+        renameSession: renameTarget =>
+            aiSessionCommandController.renameSession(
+                renameTarget.provider,
+                renameTarget.sessionId
+            ),
         getWorkspaceRootHostPaths: () =>
             getCurrentWorkspaceActionTargetWithoutCardId()
                 ?.workspace.roots.map(root => root.hostPath) || [],

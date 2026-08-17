@@ -42,6 +42,12 @@
     var conversationWorkspaceName = document.querySelector(
         '[data-conversation-workspace-name]'
     );
+    var conversationTaskName = document.querySelector(
+        '[data-conversation-task-name]'
+    );
+    var conversationTaskSeparator = document.querySelector(
+        '[data-conversation-task-separator]'
+    );
     var telemetryRoot = document.querySelector('[data-conversation-telemetry]');
     var telemetryProvider = document.querySelector('[data-telemetry-provider]');
     var telemetryModel = document.querySelector('[data-telemetry-model]');
@@ -787,6 +793,7 @@
         ];
         var allowed = new Set(required.concat(['duplicateDisplayName']));
         allowed.add('workspaceName');
+        allowed.add('taskName');
         return Object.keys(value).every(function (key) {
             return allowed.has(key);
         }) && required.every(function (key) {
@@ -802,7 +809,25 @@
             && typeof value.displayName === 'string'
             && value.displayName.length <= 640
             && (value.duplicateDisplayName === undefined
-                || typeof value.duplicateDisplayName === 'boolean');
+                || typeof value.duplicateDisplayName === 'boolean')
+            && (value.taskName === undefined
+                || (typeof value.taskName === 'string'
+                    && value.taskName.length <= 640));
+    }
+
+    // The identity line reads project · task · session; the task segment
+    // only renders when the session belongs to a worktree task group.
+    function applyConversationTaskName(target) {
+        var taskName = target && typeof target.taskName === 'string'
+            ? target.taskName
+            : '';
+        if (conversationTaskName) {
+            conversationTaskName.textContent = taskName;
+            conversationTaskName.hidden = !taskName;
+        }
+        if (conversationTaskSeparator) {
+            conversationTaskSeparator.hidden = !taskName;
+        }
     }
 
     function validCommentSnapshot(value) {
@@ -1049,6 +1074,9 @@
         if (conversationWorkspaceName
             && typeof message.target.workspaceName === 'string') {
             conversationWorkspaceName.textContent = message.target.workspaceName;
+        }
+        if (validPageTarget(message.target)) {
+            applyConversationTaskName(message.target);
         }
         return true;
     }
@@ -1538,6 +1566,9 @@
             && typeof message.target.workspaceName === 'string') {
             conversationWorkspaceName.textContent = message.target.workspaceName;
         }
+        if (validPageTarget(message.target)) {
+            applyConversationTaskName(message.target);
+        }
         updatePosition(message);
         var latestInteraction = message.outline[message.outline.length - 1];
         var latestInteractionRendered = latestInteraction
@@ -1675,6 +1706,14 @@
             });
         });
     });
+    if (conversationDisplayName) {
+        conversationDisplayName.addEventListener('click', function () {
+            post({
+                type: 'conversation-viewer-rename-session',
+                version: 1,
+            });
+        });
+    }
     if (sidebarUiAvailable) {
         sidebarController.attach();
         outlineController.attach();

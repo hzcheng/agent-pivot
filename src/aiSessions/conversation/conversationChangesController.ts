@@ -187,10 +187,54 @@ export class ConversationChangesController {
     }
 
     async handleRefresh(): Promise<void> {
-        const target = this.active?.target;
-        if (target) {
-            await this.collectAndPublish(target);
+        const active = this.active;
+        if (!active) {
+            return;
         }
+        // Membership is re-resolved on refresh: add-repo, group merge, or
+        // adopt changes the member set without any session switch.
+        const changeSet = await this.resolveChangeSet(active.target);
+        if (this.active !== active) {
+            return;
+        }
+        const oldPaths = active.changeSet.members
+            .map(member => member.worktreePath).join('\0');
+        const newPaths = changeSet.members
+            .map(member => member.worktreePath).join('\0');
+        const oldIds = active.changeSet.members
+            .map(member => member.memberId).join('\0');
+        const newIds = changeSet.members
+            .map(member => member.memberId).join('\0');
+        active.changeSet = changeSet;
+        if (oldPaths !== newPaths) {
+            active.watcher?.dispose();
+            active.watcher = changeSet.kind === 'ready'
+                && changeSet.members.length
+                ? this.options.watchRepositoryChanges?.(
+                    changeSet.members.map(member => member.worktreePath),
+                    () => this.handleExternalChange(active.target))
+                : undefined;
+        }
+        if (oldIds !== newIds) {
+            if (!changeSet.members.some(member =>
+                member.memberId === active.selectedMemberId)) {
+                const remembered = this.lastSelectionBySession.get(
+                    sessionKey(active.target));
+                active.selectedMemberId = changeSet.members.find(member =>
+                    member.memberId === remembered)?.memberId
+                    ?? (changeSet.primaryMemberId && changeSet.members.some(
+                        member =>
+                            member.memberId === changeSet.primaryMemberId)
+                        ? changeSet.primaryMemberId
+                        : undefined)
+                    ?? changeSet.members[0]?.memberId;
+            }
+        }
+        if (changeSet.kind !== 'ready') {
+            this.publishState(active);
+            return;
+        }
+        await this.collectAndPublish(active.target);
     }
 
     handleSelect(memberId: string): void {

@@ -241,3 +241,51 @@ test('WORKTREE-CHANGES-PANEL-001 publishes with the current generation, not the 
     assert.equal(posted.at(-1).subscriptionGeneration, 8);
     assert.equal(posted.at(-1).changes.kind, 'ready');
 });
+
+test('WORKTREE-CHANGES-PANEL-001 refresh re-resolves membership changes', async () => {
+    let secondGroup = false;
+    const { posted, controller } = fixture({
+        findGroupByWorktreeKey: () => secondGroup
+            ? {
+                groupId: 'group-1',
+                primaryMemberId: 'member-2',
+                members: [{
+                    memberId: 'member-2',
+                    repositoryKey: REPO_KEY,
+                    worktreeKey: {
+                        repositoryKey: REPO_KEY,
+                        canonicalWorktreePath: WT_PATH,
+                    },
+                    branchName: 'agent-pivot/fix-login',
+                    path: WT_PATH,
+                    state: 'ready',
+                    baseline: BASELINE,
+                }],
+            }
+            : {
+                groupId: 'group-1',
+                members: [{
+                    memberId: 'member-1',
+                    repositoryKey: REPO_KEY,
+                    worktreeKey: {
+                        repositoryKey: REPO_KEY,
+                        canonicalWorktreePath: WT_PATH,
+                    },
+                    branchName: 'agent-pivot/fix-login',
+                    path: WT_PATH,
+                    state: 'ready',
+                    baseline: BASELINE,
+                }],
+            },
+    });
+    await controller.activate(TARGET);
+    assert.equal(lastChanges(posted).members[0].memberId, 'member-1');
+
+    secondGroup = true;
+    await controller.handleRefresh();
+    const state = lastChanges(posted);
+    assert.equal(state.members[0].memberId, 'member-2',
+        'a member swap surfaces without reopening the conversation');
+    assert.equal(state.selectedMemberId, 'member-2',
+        'a vanished selection falls back to a live member');
+});

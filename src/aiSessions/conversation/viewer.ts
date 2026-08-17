@@ -754,6 +754,11 @@ export class ConversationViewer implements ConversationViewerApi {
             );
             void this.changesController?.activate(target)
                 .catch(() => undefined);
+            // activate() early-returns for the same session, but the panel
+            // slept while suspended — force a fresh collection so the
+            // changes view never shows pre-suspend data (PRD §5.4).
+            void this.changesController?.handleRefresh()
+                .catch(() => undefined);
             // Replay statuses that were skipped while the viewer was
             // suspended.
             void this.sessionStatusController.republish();

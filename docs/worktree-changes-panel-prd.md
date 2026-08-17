@@ -276,6 +276,17 @@ P0 采用可证明正确的事件驱动方案，自定义 watcher 优化后置�
 - **P1**：behind / base-moved（仅 branch source）、last commit、commit 列表；增删行数（numstat）；智能默认选择五级优先级 + 按 session 持久化；tab 独立宽度与首开加宽；自建 watcher + 分类失效 + 精细 Stale 状态机；live-region 计数通知；binary/submodule 精细展示；Too many changes 精细截断；跨仓库统一 Review all、next-member 导航、目录折叠与搜索。
 - **P2**：保守 merged 检测（文案限 "HEAD is contained in base" / "Base has moved" / Unknown，**不推断 squash merged**；"可清理"仅在删除预检确认干净、无活动 session、无阻断项后出现）；与 worktree 清理流程联动；展示偏好设置；Adopt member 的显式"选择 baseline"能力。
 
+### v3 后体验迭代（2026-08-17，dogfooding 反馈）
+
+| 决策点 | 结论 |
+| --- | --- |
+| worktree telemetry 芯片 | 删除。其"我在哪"职责由 Changes 按钮 tooltip（路径）与面板 member 下拉（title 显示完整路径）承担；"Open in Source Control" 在 Changes 工具栏的图标按钮上 |
+| 侧边栏 tab 行 | 删除。telemetry 右侧四个按钮即视图切换器；面板打开且对应该视图时按钮显示 pressed 背景；Escape 仅在焦点位于面板内时关闭 |
+| 按钮数字格式 | 只保留裸数字 `4 · 2`（无 ↑ 箭头、无 — 减号）；ahead 未知显示 `?`；retired 不显示数字 |
+| retired 按钮 | 保持可点击（样式区分），否则用户无法打开面板看到删除说明 |
+| 文件列表 | 按目录的 tree view（对齐 SCM view as tree），行内只显示 basename，hover 显示完整路径 |
+| diff 协议 bug | open-file 的 porcelain XY 校验曾拒绝带空格的 ' M'/'M '（最常见状态）导致点击静默失败；已修复并锁定全部 XY 形态 |
+
 ## 10. 决策记录
 
 ### v1 批注闭环（2026-08-16）

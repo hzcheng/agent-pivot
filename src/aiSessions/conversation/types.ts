@@ -255,6 +255,8 @@ export interface ConversationChangesMemberView {
     /** SCM resource-row count; a staged+unstaged file counts twice. */
     workingItemCount: number;
     aheadCount?: number;
+    /** Task-result net file count (baseline → current worktree). */
+    taskFileCount?: number;
     truncated: boolean;
     /** Repository outside the open workspace (detached member). */
     detached?: boolean;

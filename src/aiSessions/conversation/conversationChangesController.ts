@@ -439,6 +439,9 @@ function memberView(
         ...(snapshot?.aheadCount !== undefined
             ? { aheadCount: snapshot.aheadCount }
             : {}),
+        ...(snapshot?.taskFileCount !== undefined
+            ? { taskFileCount: snapshot.taskFileCount }
+            : {}),
         truncated: snapshot?.truncated ?? false,
         ...(member.detached ? { detached: true } : {}),
     };

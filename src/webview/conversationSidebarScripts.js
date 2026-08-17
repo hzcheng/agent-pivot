@@ -8,7 +8,6 @@
         var commentsWorkspace = options.commentsWorkspace;
         var commentsResizer = options.commentsResizer;
         var sidebarRoot = options.sidebarRoot;
-        var sidebarTabs = options.sidebarTabs;
         var outlineRoot = options.outlineRoot;
         var commentsRoot = options.commentsRoot;
         var subagentsRoot = options.subagentsRoot;
@@ -100,12 +99,6 @@
                 state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
             sidebarToggle.setAttribute('title',
                 state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
-            sidebarTabs.forEach(function (tab) {
-                var selected = tab.getAttribute('data-sidebar-tab')
-                    === state.sidebarView;
-                tab.setAttribute('aria-selected', selected ? 'true' : 'false');
-                tab.tabIndex = selected ? 0 : -1;
-            });
             if (telemetryPosition) {
                 telemetryPosition.setAttribute('aria-pressed',
                     state.commentsPanelOpen && state.sidebarView === 'outline' ? 'true' : 'false');
@@ -179,40 +172,6 @@
                     !state.commentsPanelOpen,
                     true
                 );
-            });
-            sidebarTabs.forEach(function (tab) {
-                tab.addEventListener('click', function () {
-                    setSidebarView(
-                        tab.getAttribute('data-sidebar-tab'),
-                        true,
-                        true
-                    );
-                });
-                tab.addEventListener('keydown', function (event) {
-                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End']
-                        .includes(event.key)) return;
-                    var current = sidebarTabs.indexOf(tab);
-                    var nextIndex = current;
-                    if (event.key === 'Home') nextIndex = 0;
-                    else if (event.key === 'End') {
-                        nextIndex = sidebarTabs.length - 1;
-                    } else if (event.key === 'ArrowLeft') {
-                        nextIndex = Math.max(0, current - 1);
-                    } else {
-                        nextIndex = Math.min(
-                            sidebarTabs.length - 1,
-                            current + 1
-                        );
-                    }
-                    event.preventDefault();
-                    var nextTab = sidebarTabs[nextIndex];
-                    setSidebarView(
-                        nextTab.getAttribute('data-sidebar-tab'),
-                        true,
-                        true
-                    );
-                    nextTab.focus();
-                });
             });
             var resizingPointerId = null;
             commentsResizer.addEventListener('pointerdown', function (event) {

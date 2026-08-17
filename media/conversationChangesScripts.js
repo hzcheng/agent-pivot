@@ -51,7 +51,7 @@
             return exactKeys(member, [
                 'memberId', 'repoLabel', 'branchName', 'worktreePath',
                 'availability', 'workingItemCount', 'truncated',
-            ], ['aheadCount', 'detached'])
+            ], ['aheadCount', 'taskFileCount', 'detached'])
                 && typeof member.memberId === 'string'
                 && member.memberId.length > 0
                 && member.memberId.length <= 128
@@ -64,6 +64,9 @@
                 && (member.aheadCount === undefined
                     || (Number.isSafeInteger(member.aheadCount)
                         && member.aheadCount >= 0))
+                && (member.taskFileCount === undefined
+                    || (Number.isSafeInteger(member.taskFileCount)
+                        && member.taskFileCount >= 0))
                 && typeof member.truncated === 'boolean';
         }
 
@@ -128,32 +131,49 @@
 
         function aheadText(aggregate) {
             if (aggregate.allUnreadable) {
-                return '↑—';
+                return '';
             }
             if (aggregate.aheadPartial) {
-                return aggregate.aheadCount === undefined ? '↑—' : '↑?';
+                return '?';
             }
-            return '↑' + (aggregate.aheadCount || 0);
+            return String(aggregate.aheadCount || 0);
         }
 
-        function memberTooltipLine(member) {
+        function memberTooltipLines(member) {
             var label = member.branchName
                 ? member.repoLabel + ' (' + member.branchName + ')'
                 : member.repoLabel;
+            var lines = [label];
             if (member.availability === 'unreadable') {
-                return label + ' · unreadable\n  ' + member.worktreePath;
+                lines.push('  Unreadable');
+            } else if (member.availability === 'historyRewritten') {
+                lines.push('  History rewritten — baseline is no longer an ancestor');
+            } else if (member.availability === 'baselineUnavailable') {
+                lines.push('  Uncommitted: ' + member.workingItemCount);
+                lines.push('  Baseline unavailable (no recorded task start)');
+            } else {
+                if (member.taskFileCount !== undefined
+                    || member.aheadCount !== undefined) {
+                    lines.push('  Task result: '
+                        + (member.taskFileCount === undefined
+                            ? '? files'
+                            : member.taskFileCount + ' files')
+                        + ' · '
+                        + (member.aheadCount === undefined
+                            ? '? commits'
+                            : member.aheadCount + ' commits')
+                        + ' since start');
+                }
+                lines.push('  Uncommitted: ' + member.workingItemCount
+                    + (member.truncated ? ' (list truncated)' : ''));
             }
-            if (member.availability === 'historyRewritten') {
-                return label + ' · history rewritten\n  ' + member.worktreePath;
-            }
-            var ahead = member.aheadCount === undefined ? '↑—' : '↑' + member.aheadCount;
-            return label + ' · ' + member.workingItemCount + ' uncommitted · '
-                + ahead + '\n  ' + member.worktreePath;
+            lines.push('  ' + member.worktreePath);
+            return lines;
         }
 
         function buttonSummary(aggregate) {
             return workingText(aggregate) + ' uncommitted · '
-                + aheadText(aggregate).slice(1) + ' commits since baseline';
+                + aheadText(aggregate) + ' commits since baseline';
         }
 
         function renderButton(state) {
@@ -167,11 +187,12 @@
                 return;
             }
             var retired = state.kind === 'retired' || aggregate.allUnreadable;
-            button.disabled = !!retired;
+            // Retired stays clickable: the panel carries the explanation
+            // (PRD §7.3) — a disabled button would hide it entirely.
             button.classList.toggle(
                 'conversation-telemetry-changes-unavailable', !!retired);
             var text = retired
-                ? '—'
+                ? ''
                 : workingText(aggregate) + ' · ' + aheadText(aggregate);
             if (buttonValue) {
                 buttonValue.textContent = text;
@@ -187,7 +208,9 @@
                 lines = ['Changes · ' + buttonSummary(aggregate)];
                 state.members.slice(0, MAX_TOOLTIP_MEMBER_LINES)
                     .forEach(function (member) {
-                        lines.push(memberTooltipLine(member));
+                        memberTooltipLines(member).forEach(function (line) {
+                            lines.push(line);
+                        });
                     });
                 if (aggregate.workingPartial || aggregate.aheadPartial) {
                     lines.push('Partial: some worktrees are unknown '
@@ -411,12 +434,11 @@
                 }
             }
             var content = !unavailable && state.kind === 'ready';
-            [taskRoot,
-                openScmButton && openScmButton.parentNode,
-                memberSelect && memberSelect.parentNode]
-                .forEach(function (root) {
-                    if (root) root.hidden = !content;
-                });
+            // The toolbar (select + actions) stays visible in every state;
+            // only the task-result row and lists degrade.
+            if (taskRoot) {
+                taskRoot.hidden = !content;
+            }
             if (!content) return;
             renderMemberSelect(state);
 

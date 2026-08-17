@@ -2240,8 +2240,6 @@ async function initializeDashboard(
                 { selection: new vscode.Range(position, position) }
             );
         },
-        showWorktreeInSourceControl: (worktreeRoot: string) =>
-            showWorktreeInSourceControl(worktreeRoot),
         changes: {
             // PRD §4.1: the session's persisted identity first — view
             // models carry worktreeKey/cwd; a tool call's transient cwd

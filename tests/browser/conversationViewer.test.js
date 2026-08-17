@@ -212,11 +212,6 @@ async function openViewerPage(t, options = {}) {
                     <div class="conversation-telemetry-provider"
                         data-telemetry-provider data-provider="codex"
                         title="Provider · Codex"></div>
-                    <button type="button" class="conversation-telemetry-worktree"
-                        data-telemetry-worktree data-worktree-root="" title=""
-                        hidden>
-                        <span data-telemetry-worktree-branch></span>
-                    </button>
                     <div class="conversation-telemetry-model"
                         data-telemetry-model hidden>
                         <strong data-telemetry-model-value></strong>
@@ -2059,7 +2054,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     });
 
     await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-sidebar-tab="subagents"]').click();
+    await page.locator('[data-telemetry-subagents]').click();
     const entry = page.locator('[data-subagent-id="a11111111"]');
     const finishedEntry = page.locator('[data-subagent-id="a22222222"]');
     assert.match(await entry.innerText(), /Explore the parser/);
@@ -2107,7 +2102,8 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         true,
         'the filter must survive a document rebuild'
     );
-    await rebuilt.page.locator('[data-sidebar-tab="subagents"]').click();
+    // The subagents view is restored from saved state — clicking the pill
+    // again would toggle the panel closed (the pills are the switchers now).
     assert.equal(
         await rebuilt.page.locator('[data-subagent-id="a22222222"]').count(),
         0
@@ -2136,8 +2132,8 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     await rebuilt.page.locator('[data-action="toggle-sidebar"]').click();
     await counter.click();
     assert.equal(
-        await rebuilt.page.locator('[data-sidebar-tab="subagents"]')
-            .getAttribute('aria-selected'),
+        await rebuilt.page.locator('[data-telemetry-subagents]')
+            .getAttribute('aria-pressed'),
         'true'
     );
     assert.equal(
@@ -2238,7 +2234,7 @@ test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sid
 
     const sidebar = page.locator('[data-conversation-sidebar]');
     const telemetrySubagents = page.locator('[data-telemetry-subagents]');
-    const subagentsTab = page.locator('[data-sidebar-tab="subagents"]');
+    const subagentsTab = page.locator('[data-telemetry-subagents]');
 
     // Sidebar starts closed
     assert.equal(await sidebar.isHidden(), true);
@@ -2246,7 +2242,7 @@ test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sid
     // Click telemetry subagents pill → sidebar opens with subagents tab
     await telemetrySubagents.click();
     assert.equal(await sidebar.isVisible(), true);
-    assert.equal(await subagentsTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await subagentsTab.getAttribute('aria-pressed'), 'true');
     assert.equal(await telemetrySubagents.getAttribute('aria-pressed'), 'true');
 
     // Click same pill again → sidebar closes (toggle)
@@ -2257,7 +2253,7 @@ test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sid
     // Click again → reopens, verifying the toggle is reversible
     await telemetrySubagents.click();
     assert.equal(await sidebar.isVisible(), true);
-    assert.equal(await subagentsTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await subagentsTab.getAttribute('aria-pressed'), 'true');
     assert.equal(await telemetrySubagents.getAttribute('aria-pressed'), 'true');
 });
 
@@ -2514,19 +2510,27 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
         interactionId: 'input-4',
     });
 
-    const outlineTab = page.locator('[data-sidebar-tab="outline"]');
-    await outlineTab.focus();
-    await outlineTab.press('ArrowRight');
+    // The telemetry pills are the view switchers (no sidebar tab row):
+    // clicking the comments pill while the outline is open switches views.
+    const outlinePill = page.locator('[data-conversation-position]');
+    await outlinePill.focus();
+    await page.locator('[data-telemetry-comments]').click();
     assert.equal(await outline.isHidden(), true);
     assert.equal(await comments.isVisible(), true);
     assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(
-        await page.evaluate(() =>
-            document.activeElement?.getAttribute('data-sidebar-tab')
-        ),
-        'comments'
+        await page.locator('[data-telemetry-comments]')
+            .getAttribute('aria-pressed'),
+        'true',
+        'the active view\'s pill reads pressed'
     );
+    assert.equal(
+        await outlinePill.getAttribute('aria-pressed'),
+        'false'
+    );
+    // Escape closes the panel only when focus is inside it.
+    await page.locator('[data-conversation-comments] button').first().focus();
     await page.keyboard.press('Escape');
     assert.equal(await sidebar.isHidden(), true);
     assert.equal(
@@ -2538,7 +2542,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     await sidebarToggle.click();
     assert.equal(await comments.isVisible(), true);
     assert.equal(await outline.isHidden(), true);
-    await page.locator('[data-sidebar-tab="outline"]').click();
+    await page.locator('[data-conversation-position]').click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
 });
@@ -2571,7 +2575,6 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
     assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
     const outlineLayout = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
-        const tabs = document.querySelector('.conversation-sidebar-tabs');
         const search = outline.querySelector('[data-outline-search]');
         const sort = outline.querySelector('[data-outline-sort]');
         const selectedItem = outline.querySelector(
@@ -2589,7 +2592,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         const starRect = star.getBoundingClientRect();
         const previewRect = preview.getBoundingClientRect();
         return {
-            tabsHeight: tabs.getBoundingClientRect().height,
+            headerHeight: searchRect.top - outlineRect.top,
             sortAlignedWithSearch:
                 Math.abs(sortRect.top - searchRect.top) < 1,
             previewInset: previewRect.left - outlineRect.left,
@@ -2599,8 +2602,8 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         };
     });
     assert.ok(
-        outlineLayout.tabsHeight >= 28 && outlineLayout.tabsHeight <= 34,
-        `outline tabs should stay compact, got ${outlineLayout.tabsHeight}px`
+        outlineLayout.headerHeight <= 40,
+        `the outline content should start near the panel top, got ${outlineLayout.headerHeight}px`
     );
     assert.ok(
         outlineLayout.previewInset >= 11
@@ -3748,13 +3751,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             true,
             `${label}: Outline should remain available`
         );
-        await page.locator('[data-sidebar-tab="comments"]').click();
+        await page.locator('[data-telemetry-comments]').click();
         assert.equal(
             await page.locator('[data-conversation-comments]').isVisible(),
             true,
             `${label}: Comments should remain available`
         );
-        await page.locator('[data-sidebar-tab="subagents"]').click();
+        await page.locator('[data-telemetry-subagents]').click();
         assert.equal(
             await page.locator('[data-conversation-subagents]').isVisible(),
             true,
@@ -4678,7 +4681,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '682a5290a42a4dcc483ba26c42fdd66e9fb1c602dda7e737873f7c1a1061a99c',
+        '83bb16532ad36ebc9fabd1f614e37ba0654cf071d75139e045a4f847a8d750c8',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -5167,7 +5170,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     assert.equal(await pill.isVisible(), true);
     assert.equal(await pill.innerText(), '0');
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     await page.locator('[data-comment-action="new"]').click();
     await page.locator('[data-comment-input]').fill(
         'Check the rollout constraint.'
@@ -5196,11 +5199,11 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     assert.equal(await pill.isVisible(), true);
     assert.equal(await pill.innerText(), '1/1');
 
-    await page.locator('[data-sidebar-tab="outline"]').click();
+    await page.locator('[data-conversation-position]').click();
     await pill.click();
     assert.equal(
-        await page.locator('[data-sidebar-tab="comments"]')
-            .getAttribute('aria-selected'),
+        await page.locator('[data-telemetry-comments]')
+            .getAttribute('aria-pressed'),
         'true'
     );
     await toolbarSend.click();
@@ -5267,7 +5270,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         },
     });
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     const projectSection = page.locator('[data-project-comments]');
     const projectHeader = page.locator('[data-project-comments-header]');
     assert.equal(await projectSection.isVisible(), true);
@@ -5681,7 +5684,7 @@ test('PROJECT-COMMENTS-UI-001 keeps the workspace composer fully visible when th
         },
     });
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     const projectSection = page.locator('[data-project-comments]');
     const projectHeader = page.locator('[data-project-comments-header]');
 
@@ -10542,109 +10545,6 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 fol
     }
 });
 
-test('CONVERSATION-TELEMETRY-001 renders the worktree chip, degrades missing paths, and posts open-worktree on click', async t => {
-    const page = await openViewerPage(t);
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 1,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            worktree: {
-                branch: 'feat/worktree',
-                worktreeRoot: '/repo/.worktree/feat-worktree',
-                repoRoot: '/repo',
-            },
-            rateLimits: [],
-        },
-    });
-
-    const chip = page.locator('[data-telemetry-worktree]');
-    assert.equal(await chip.isVisible(), true);
-    assert.equal(
-        await page.locator('[data-telemetry-worktree-branch]').textContent(),
-        'feat/worktree'
-    );
-    assert.match(
-        await chip.getAttribute('title'),
-        /Click to show changes in Source Control/
-    );
-    assert.equal(
-        await page.locator('[data-conversation-telemetry]').isVisible(),
-        true
-    );
-
-    await chip.click();
-    assert.deepEqual(await postedMessages(page), [
-        {
-            type: 'conversation-viewer-focus',
-            version: 1,
-            focused: true,
-        },
-        {
-            type: 'conversation-viewer-open-worktree',
-            version: 1,
-            worktreeRoot: '/repo/.worktree/feat-worktree',
-        },
-    ]);
-
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 2,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            worktree: {
-                branch: 'feat/gone',
-                worktreeRoot: '/repo/.worktree/feat-gone',
-                repoRoot: '/repo',
-                missing: true,
-            },
-            rateLimits: [],
-        },
-    });
-    assert.equal(
-        await chip.getAttribute('class'),
-        'conversation-telemetry-worktree conversation-telemetry-worktree-missing'
-    );
-    assert.match(await chip.getAttribute('title'), /no longer exists/);
-
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 3,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            model: 'gpt-5.6-sol',
-            rateLimits: [],
-        },
-    });
-    assert.equal(await chip.isHidden(), true);
-
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 4,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            worktree: { branch: 42 },
-            rateLimits: [],
-        },
-    });
-    assert.equal(
-        await page.locator('[data-telemetry-model-value]').textContent(),
-        'gpt-5.6-sol',
-        'malformed worktree telemetry must be rejected as a whole'
-    );
-});
 
 test('CONVERSATION-TOOL-CALL-VISIBILITY-001 renders collapsible tool calls and strips hostile attributes', async t => {
     const page = await openViewerPage(t, {});
@@ -10716,7 +10616,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finish
     });
 
     await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-sidebar-tab="subagents"]').click();
+    await page.locator('[data-telemetry-subagents]').click();
     const ids = await page.locator('[data-subagent-id]').evaluateAll(
         elements => elements.map(element =>
             element.getAttribute('data-subagent-id'))
@@ -11205,7 +11105,6 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
     );
     const orderedLeftEdges = await page.locator([
         '[data-telemetry-model]',
-        '[data-telemetry-worktree]',
         '[data-telemetry-context]',
         '[data-telemetry-limit]',
         '[data-conversation-position]',
@@ -11217,7 +11116,7 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
     assert.deepEqual(
         orderedLeftEdges,
         [...orderedLeftEdges].sort((a, b) => a - b),
-        'telemetry must follow model, branch, usage, then quick-entry order'
+        'telemetry must follow model, usage, then quick-entry order'
     );
 
     await page.emulateMedia({ forcedColors: 'active' });
@@ -11488,7 +11387,7 @@ test('TMP repro add flow from closed sidebar', async t => {
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     await page.locator('[data-project-comments-header]')
         .locator('[data-project-comment-action="open-composer"]').click();
     console.log('TMP composer visible:',
@@ -11546,7 +11445,8 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         },
     });
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    // The saved state restores the open comments view; clicking the
+    // comments pill here would toggle the panel closed.
     const card = page.locator('[data-comment-id="comment-1"]');
 
     // Session cards carry the same bottom tags row: a display-only status
@@ -11623,7 +11523,7 @@ function changesFixture(overrides = {}) {
             memberId: 'm-api', repoLabel: 'api',
             branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
             availability: 'available', workingItemCount: 3,
-            aheadCount: 2, truncated: false,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
         }, {
             memberId: 'm-web', repoLabel: 'web',
             branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
@@ -11669,11 +11569,16 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
     assert.equal(await changesButton.isVisible(), true);
     assert.equal(
         await page.locator('[data-telemetry-changes-value]').innerText(),
-        '4 · ↑2'
+        '4 · 2',
+        'the button carries bare numbers — no arrows or dashes'
     );
     const tooltip = await changesButton.getAttribute('title');
-    assert.ok(tooltip.includes('api (agent-pivot/fix-login) · 3 uncommitted · ↑2'));
-    assert.ok(tooltip.includes('web (agent-pivot/fix-login-ui) · 1 uncommitted · ↑0'));
+    assert.ok(tooltip.includes('api (agent-pivot/fix-login)'));
+    assert.ok(tooltip.includes('Task result: 5 files · 2 commits since start'));
+    assert.ok(tooltip.includes('Uncommitted: 3'));
+    assert.ok(tooltip.includes('/wt/api'),
+        'hover reveals the worktree path');
+    assert.ok(tooltip.includes('web (agent-pivot/fix-login-ui)'));
 
     // The button opens the sidebar on the Changes tab, like its siblings.
     await changesButton.click();
@@ -11794,7 +11699,7 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
     }));
     assert.equal(
         await page.locator('[data-telemetry-changes-value]').innerText(),
-        '3+ · ↑?',
+        '3+ · ?',
         'partial state is marked, never rendered as a plain number');
     const tooltip = await page.locator('[data-telemetry-changes]')
         .getAttribute('title');
@@ -11813,11 +11718,14 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         detail: undefined,
     }));
     const retiredButton = page.locator('[data-telemetry-changes]');
-    assert.equal(await retiredButton.isDisabled(), true);
+    assert.equal(await retiredButton.isDisabled(), false,
+        'retired stays clickable so the panel can explain itself');
+    assert.equal(await retiredButton.getAttribute('class')
+        .then(c => c.includes('conversation-telemetry-changes-unavailable')),
+        true);
     assert.ok((await retiredButton.getAttribute('title'))
         .includes('has been deleted'));
-    await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-sidebar-tab="changes"]').click();
+    await retiredButton.click();
     assert.ok((await page.locator('[data-changes-unavailable]').innerText())
         .includes('deleted'));
 
@@ -11837,6 +11745,6 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         detail: undefined,
     }), 999);
     assert.equal(
-        await page.locator('[data-telemetry-changes-value]').innerText(), '—',
+        await page.locator('[data-telemetry-changes-value]').innerText(), '',
         'a stale generation never overwrites the current state');
 });

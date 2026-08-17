@@ -128,9 +128,6 @@ export interface ConversationCapabilityOptions {
     clearTimer: typeof clearTimeout;
     onDiagnostic: (event: SanitizedConversationDiagnostic) => void;
     getWorkspaceRootHostPaths?: () => readonly string[];
-    showWorktreeInSourceControl?: (
-        worktreeRoot: string
-    ) => PromiseLike<void> | Promise<void> | void;
     /**
      * Changes-panel wiring (changes-panel PRD): session identity
      * resolution, manifest access, and diff/SCM actions. Absent disables
@@ -397,7 +394,6 @@ function createAvailableConversationCapability(
         commentStore: options.commentStore,
         projectCommentStore: options.projectCommentStore,
         bookmarkStore: options.bookmarkStore,
-        showWorktreeInSourceControl: options.showWorktreeInSourceControl,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         changes: options.changes
             ? {

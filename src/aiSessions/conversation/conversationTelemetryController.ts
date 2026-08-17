@@ -277,12 +277,6 @@ function providerLabel(provider: AiSessionProviderId): string {
         : provider === 'claude' ? 'Claude' : 'Codex';
 }
 
-const WORKTREE_ICON_SVG = '<svg viewBox="0 0 16 16" width="11" height="11"'
-    + ' aria-hidden="true" fill="none" stroke="currentColor"'
-    + ' stroke-width="1.4"><circle cx="4.5" cy="3.5" r="1.8"/>'
-    + '<circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/>'
-    + '<path d="M4.5 5.3v5.4M11.5 7.3c0 2.4-2.6 2.8-4.7 3"/></svg>';
-
 const MODEL_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
     + ' fill="none" stroke="currentColor" stroke-width="1.35"'
     + ' stroke-linecap="round" stroke-linejoin="round">'
@@ -357,8 +351,6 @@ export function renderConversationTelemetry(
     const providerTitle = `Provider · ${providerLabel(provider)}`;
     const hasContext = Boolean(telemetry?.context);
     const hasModel = Boolean(telemetry?.model);
-    const worktree = telemetry?.worktree;
-    const hasWorktree = Boolean(worktree);
     const limits = telemetry?.rateLimits || [];
     const context = telemetry?.context;
     const contextPercent = context
@@ -391,11 +383,6 @@ export function renderConversationTelemetry(
             <strong data-telemetry-limit-value>${escapeHtml(visibleValue)}</strong>
         </div>`;
     }).join('');
-    const worktreeTitle = worktree
-        ? worktree.missing
-            ? `Worktree path no longer exists: ${worktree.worktreeRoot} (branch ${worktree.branch})`
-            : `Working in worktree: ${worktree.worktreeRoot} (branch ${worktree.branch}) · Click to open in Source Control`
-        : '';
     const modelTitle = telemetry?.model
         ? `Model · ${telemetry.model}`
         : 'Model';
@@ -419,23 +406,6 @@ export function renderConversationTelemetry(
                 telemetry?.model || ''
             )}</strong>
         </div>
-        <button type="button"
-            class="conversation-telemetry-worktree conversation-telemetry-tooltip${worktree?.missing
-                ? ' conversation-telemetry-worktree-missing'
-                : ''}"
-            data-telemetry-worktree
-            data-worktree-root="${escapeAttribute(
-                worktree?.worktreeRoot || ''
-            )}"
-            aria-label="${escapeAttribute(worktreeTitle)}"
-            title="${escapeAttribute(worktreeTitle)}"
-            data-tooltip="${escapeAttribute(worktreeTitle)}"${hasWorktree
-                ? ''
-                : ' hidden'}>
-            ${WORKTREE_ICON_SVG}<span data-telemetry-worktree-branch>${escapeHtml(
-                worktree?.branch || ''
-            )}</span>
-        </button>
         <span class="conversation-telemetry-divider" aria-hidden="true"></span>
         <div class="conversation-telemetry-usage conversation-telemetry-context conversation-telemetry-tooltip"
             data-telemetry-context role="meter" aria-valuemin="0"

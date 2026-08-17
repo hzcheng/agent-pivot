@@ -176,12 +176,6 @@ export interface ConversationViewerChangesOpenScmMessage {
     memberId: string;
 }
 
-export interface ConversationViewerOpenWorktreeMessage {
-    type: 'conversation-viewer-open-worktree';
-    version: 1;
-    worktreeRoot: string;
-}
-
 export interface ConversationViewerSendSelectionMessage {
     type: 'conversation-viewer-send-selection';
     version: 1;
@@ -242,7 +236,6 @@ export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
-    | ConversationViewerOpenWorktreeMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerSwitchSessionMessage
     | ConversationViewerRequestSyncMessage
@@ -305,19 +298,6 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
-    }
-    if (value.type === 'conversation-viewer-open-worktree') {
-        if (keys.length !== 3
-            || !hasOwn(value, 'type')
-            || !hasOwn(value, 'version')
-            || !hasOwn(value, 'worktreeRoot')
-            || typeof value.worktreeRoot !== 'string'
-            || !value.worktreeRoot
-            || value.worktreeRoot.length > 1024
-            || /[\u0000-\u001f\u007f]/.test(value.worktreeRoot)) {
-            return undefined;
-        }
-        return value as unknown as ConversationViewerOpenWorktreeMessage;
     }
     if (value.type === 'conversation-viewer-send-selection') {
         if (keys.length !== 3

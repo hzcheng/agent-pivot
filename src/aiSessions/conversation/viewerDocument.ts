@@ -269,46 +269,6 @@ export function renderConversationViewerDocument(
         <aside id="conversation-sidebar"
             class="conversation-sidebar" data-conversation-sidebar
             aria-label="Conversation side panel" hidden>
-            <div class="conversation-sidebar-tabs" role="tablist"
-                aria-label="Conversation side panel">
-                <button type="button" role="tab" data-sidebar-tab="outline"
-                    id="conversation-outline-tab"
-                    aria-controls="conversation-outline-panel"
-                    aria-selected="true" aria-label="Outline" title="Outline">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg>
-                </button>
-                <button type="button" role="tab" data-sidebar-tab="comments"
-                    id="conversation-comments-tab"
-                    aria-controls="conversation-comments-panel"
-                    aria-selected="false" aria-label="Comments" title="Comments">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3"><path d="M3 3.5h10a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5H8l-3 2.2v-2.2H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/></svg>
-                </button>
-                <button type="button" role="tab" data-sidebar-tab="subagents"
-                    id="conversation-subagents-tab"
-                    aria-controls="conversation-subagents-panel"
-                    aria-selected="false" aria-label="Subagents"
-                    title="Subagents">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3"><circle cx="8" cy="3.4" r="1.7"/><circle cx="3.4" cy="12.2" r="1.7"/><circle cx="12.6" cy="12.2" r="1.7"/><path d="M8 5.1v2.2M8 7.3l-3.3 3.2M8 7.3l3.3 3.2"/></svg>
-                </button>
-                <button type="button" role="tab" data-sidebar-tab="changes"
-                    id="conversation-changes-tab"
-                    aria-controls="conversation-changes-panel"
-                    aria-selected="false" aria-label="Changes" title="Changes">
-                    <svg viewBox="0 0 24 24" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.8" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <circle cx="6" cy="5" r="2.1"/><circle cx="6" cy="19" r="2.1"/>
-                        <circle cx="15" cy="7.5" r="2.1"/>
-                        <path d="M6 7.1v9.8"/><path d="M6 15.5c0-3.2 2.9-5.3 6.8-5.8"/></svg>
-                </button>
-            </div>
             <section id="conversation-outline-panel"
                 class="conversation-outline" data-conversation-outline
                 role="tabpanel" aria-labelledby="conversation-outline-tab">

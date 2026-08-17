@@ -136,9 +136,6 @@ export interface ConversationViewerOptions {
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
-    showWorktreeInSourceControl?: (
-        worktreeRoot: string
-    ) => PromiseLike<void> | Promise<void> | void;
     /**
      * Changes-panel wiring (changes-panel PRD); absent disables the
      * Changes button and sidebar tab.
@@ -920,12 +917,6 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-open-link') {
             await this.openLink(parsed.href);
-            return;
-        }
-        if (parsed.type === 'conversation-viewer-open-worktree') {
-            await this.options.showWorktreeInSourceControl?.(
-                parsed.worktreeRoot
-            );
             return;
         }
         if (parsed.type === 'conversation-viewer-changes-refresh') {

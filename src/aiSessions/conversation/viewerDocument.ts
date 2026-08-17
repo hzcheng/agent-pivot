@@ -300,13 +300,13 @@ export function renderConversationViewerDocument(
                     id="conversation-changes-tab"
                     aria-controls="conversation-changes-panel"
                     aria-selected="false" aria-label="Changes" title="Changes">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
+                    <svg viewBox="0 0 24 24" width="14" height="14"
                         aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3" stroke-linecap="round">
-                        <rect x="3.4" y="2.4" width="9.2" height="11.2" rx="1.4"/>
-                        <path d="M5.9 6.2h2.4M7.1 5v2.4"/>
-                        <path d="M5.9 10.8h2.4"/>
-                        <path d="M10.1 6.2h1M10.1 10.8h1" opacity="0.35"/></svg>
+                        stroke-width="1.8" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="6" cy="5" r="2.1"/><circle cx="6" cy="19" r="2.1"/>
+                        <circle cx="15" cy="7.5" r="2.1"/>
+                        <path d="M6 7.1v9.8"/><path d="M6 15.5c0-3.2 2.9-5.3 6.8-5.8"/></svg>
                 </button>
             </div>
             <section id="conversation-outline-panel"
@@ -548,8 +548,26 @@ export function renderConversationViewerDocument(
                         aria-label="Worktree to inspect"></select>
                     <button type="button"
                         class="conversation-icon-button"
+                        data-changes-open-scm title="Open in Source Control"
+                        aria-label="Open in Source Control"
+                        ><svg viewBox="0 0 16 16" width="13" height="13"
+                            aria-hidden="true" fill="none"
+                            stroke="currentColor" stroke-width="1.3"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9.5 3.5H13v3.5"/><path d="M13 3.5 8.2 8.3"/>
+                            <path d="M11.5 9.3v2.4a1.3 1.3 0 0 1-1.3 1.3H4.3A1.3 1.3 0 0 1 3 11.7V5.8a1.3 1.3 0 0 1 1.3-1.3h2.4"/></svg>
+                    </button>
+                    <button type="button"
+                        class="conversation-icon-button"
                         data-changes-refresh title="Refresh"
-                        aria-label="Refresh">${CONVERSATION_NAV_ICON_LATEST}</button>
+                        aria-label="Refresh"
+                        ><svg viewBox="0 0 16 16" width="13" height="13"
+                            aria-hidden="true" fill="none"
+                            stroke="currentColor" stroke-width="1.3"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.7"/>
+                            <path d="M13.6 2.1v2.6h-2.6"/></svg>
+                    </button>
                 </div>
                 <p class="conversation-changes-cross-member"
                     data-changes-cross-member hidden></p>
@@ -570,12 +588,6 @@ export function renderConversationViewerDocument(
                 </div>
                 <p class="conversation-changes-unavailable"
                     data-changes-unavailable hidden></p>
-                <div class="conversation-changes-footer">
-                    <button type="button"
-                        class="conversation-changes-action"
-                        data-changes-open-scm
-                        >Open in Source Control</button>
-                </div>
             </section>
         </aside>
     </div>

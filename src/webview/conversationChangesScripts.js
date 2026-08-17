@@ -271,9 +271,12 @@
             row.appendChild(statusBadge(item));
             var name = document.createElement('span');
             name.className = 'conversation-changes-file-path';
+            // Tree view (PRD 体验反馈): show the basename; the full path
+            // stays available on hover.
+            var base = item.path.split('/').pop();
             name.textContent = item.originalPath
                 ? item.originalPath + ' → ' + item.path
-                : item.path;
+                : base;
             row.appendChild(name);
             row.addEventListener('click', function () {
                 post({
@@ -289,15 +292,94 @@
             return row;
         }
 
+        var collapsedFolders = {};
+
+        function folderKey(group, folderPath) {
+            return group + ':' + folderPath;
+        }
+
+        function buildTree(items) {
+            var root = { dirs: {}, dirOrder: [], files: [] };
+            items.forEach(function (item) {
+                var segments = item.path.split('/');
+                var node = root;
+                var prefix = '';
+                for (var index = 0; index < segments.length - 1; index += 1) {
+                    prefix = prefix ? prefix + '/' + segments[index] : segments[index];
+                    if (!node.dirs[segments[index]]) {
+                        node.dirs[segments[index]] = {
+                            name: segments[index],
+                            fullPath: prefix,
+                            dirs: {},
+                            dirOrder: [],
+                            files: [],
+                        };
+                        node.dirOrder.push(segments[index]);
+                    }
+                    node = node.dirs[segments[index]];
+                }
+                node.files.push(item);
+            });
+            return root;
+        }
+
+        function sortTree(node) {
+            node.dirOrder.sort();
+            node.files.sort(function (left, right) {
+                return left.path < right.path ? -1
+                    : left.path > right.path ? 1 : 0;
+            });
+            node.dirOrder.forEach(function (name) {
+                sortTree(node.dirs[name]);
+            });
+        }
+
+        function renderTreeNode(group, node, container, memberId, depth) {
+            node.dirOrder.forEach(function (name) {
+                var dir = node.dirs[name];
+                var key = folderKey(group, dir.fullPath);
+                var collapsed = !!collapsedFolders[key];
+                var folderRow = document.createElement('button');
+                folderRow.type = 'button';
+                folderRow.className = 'conversation-changes-folder';
+                folderRow.style.paddingLeft = (0.2 + depth * 0.7) + 'rem';
+                folderRow.setAttribute('aria-expanded',
+                    collapsed ? 'false' : 'true');
+                folderRow.title = dir.fullPath;
+                var chevron = document.createElement('span');
+                chevron.className = 'conversation-changes-folder-chevron';
+                chevron.textContent = collapsed ? '▸' : '▾';
+                folderRow.appendChild(chevron);
+                var label = document.createElement('span');
+                label.className = 'conversation-changes-folder-name';
+                label.textContent = name;
+                folderRow.appendChild(label);
+                var children = document.createElement('div');
+                children.hidden = collapsed;
+                folderRow.addEventListener('click', function () {
+                    collapsedFolders[key] = !collapsed;
+                    children.hidden = !children.hidden;
+                    chevron.textContent = children.hidden ? '▸' : '▾';
+                    folderRow.setAttribute('aria-expanded',
+                        children.hidden ? 'false' : 'true');
+                });
+                container.appendChild(folderRow);
+                container.appendChild(children);
+                renderTreeNode(group, dir, children, memberId, depth + 1);
+            });
+            node.files.forEach(function (item) {
+                var row = renderFileRow(memberId, item);
+                row.style.paddingLeft = (0.2 + depth * 0.7) + 'rem';
+                container.appendChild(row);
+            });
+        }
+
         function renderGroups(detail) {
             if (!groupsRoot) return;
             clearChildren(groupsRoot);
             GROUPS.forEach(function (group) {
                 var items = detail.items.filter(function (item) {
                     return item.group === group;
-                }).sort(function (left, right) {
-                    return left.path < right.path ? -1
-                        : left.path > right.path ? 1 : 0;
                 });
                 if (!items.length) return;
                 var section = document.createElement('div');
@@ -308,9 +390,9 @@
                 section.appendChild(header);
                 var list = document.createElement('div');
                 list.className = 'conversation-changes-group-list';
-                items.forEach(function (item) {
-                    list.appendChild(renderFileRow(detail.memberId, item));
-                });
+                var tree = buildTree(items);
+                sortTree(tree);
+                renderTreeNode(group, tree, list, detail.memberId, 0);
                 section.appendChild(list);
                 groupsRoot.appendChild(section);
             });

@@ -318,14 +318,14 @@ const SUBAGENTS_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
     + '<circle cx="8" cy="3" r="1.7"/><circle cx="3.5" cy="12.5" r="1.7"/>'
     + '<circle cx="12.5" cy="12.5" r="1.7"/><path d="M8 4.7v3M8 7.7 4.5 11M8 7.7l3.5 3.3"/></svg>';
 
-// Diff glyph: a document carrying +/− marks — distinct from the branch
-// icon used by the worktree button.
-const CHANGES_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
-    + ' fill="none" stroke="currentColor" stroke-width="1.3"'
-    + ' stroke-linecap="round"><rect x="3.4" y="2.4" width="9.2"'
-    + ' height="11.2" rx="1.4"/>'
-    + '<path d="M5.9 6.2h2.4M7.1 5v2.4"/><path d="M5.9 10.8h2.4"/>'
-    + '<path d="M10.1 6.2h1M10.1 10.8h1" opacity="0.35"/></svg>';
+// Git branch glyph in the dashboard's house icon style (same geometry as
+// webviewIcons.gitBranchAdd without the plus).
+const CHANGES_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.8"'
+    + ' stroke-linecap="round" stroke-linejoin="round">'
+    + '<circle cx="6" cy="5" r="2.1"/><circle cx="6" cy="19" r="2.1"/>'
+    + '<circle cx="15" cy="7.5" r="2.1"/>'
+    + '<path d="M6 7.1v9.8"/><path d="M6 15.5c0-3.2 2.9-5.3 6.8-5.8"/></svg>';
 
 function clampPercent(value: number): number {
     return Math.max(0, Math.min(100, value));

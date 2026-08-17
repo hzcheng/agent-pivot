@@ -575,3 +575,26 @@ test('CONVERSATION-COPY-ACTIONS-001 validates code and message copy payloads', (
         payload: { kind: 'message', messageId: '' },
     }), undefined);
 });
+
+test('WORKTREE-CHANGES-PANEL-001 parses open-file intents with every porcelain XY shape', () => {
+    const base = {
+        type: 'conversation-viewer-changes-open-file',
+        version: 1,
+        memberId: 'member-1',
+        group: 'changes',
+        path: 'src/a.ts',
+    };
+    // Space-bearing XY codes are the common case (' M', 'M ', ' D'):
+    for (const xy of [' M', 'M ', ' D', 'MM', 'A ', 'R ']) {
+        const message = { ...base, xy };
+        assert.deepEqual(parseConversationViewerMessage(message), message,
+            `xy '${xy}' must parse`);
+    }
+    const renamed = { ...base, xy: 'R ', originalPath: 'src/old.ts' };
+    assert.deepEqual(parseConversationViewerMessage(renamed), renamed);
+    assert.equal(parseConversationViewerMessage({ ...base, xy: 'bad' }), undefined);
+    assert.equal(parseConversationViewerMessage({ ...base, xy: '' }), undefined);
+    assert.equal(parseConversationViewerMessage({ ...base, group: 'weird' }), undefined);
+    assert.equal(parseConversationViewerMessage({ ...base, memberId: '../evil' }),
+        undefined);
+});

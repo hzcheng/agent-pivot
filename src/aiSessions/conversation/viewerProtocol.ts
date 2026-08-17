@@ -360,7 +360,7 @@ export function parseConversationViewerMessage(
         if (!isChangesMemberId(value.memberId)
             || !CHANGES_GROUPS.includes(value.group as ConversationChangesGroup)
             || typeof value.xy !== 'string'
-            || !/^[!A-Z?]{2}$/u.test(value.xy.replace(/ /g, '.'))
+            || !/^[!A-Z? .]{2}$/u.test(value.xy)
             || !isChangesFilePath(value.path)
             || (value.originalPath !== undefined
                 && !isChangesFilePath(value.originalPath))) {

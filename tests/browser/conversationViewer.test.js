@@ -11708,11 +11708,35 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
     assert.deepEqual(groupHeaders, ['Staged Changes', 'Changes', 'Untracked Changes']);
     const rows = await page.locator('.conversation-changes-file').allInnerTexts();
     assert.equal(rows.length, 3);
-    assert.ok(rows.some(row => row.includes('src/auth/login.test.ts')));
+    // Tree view: file rows show basenames, folders render above them.
+    assert.ok(rows.some(row => row.includes('login.test.ts')));
+    const folders = await page.locator(
+        '.conversation-changes-folder').allInnerTexts();
+    assert.ok(folders.some(text => text.includes('src'))
+        && folders.some(text => text.includes('auth')));
+
+    // Collapsing a folder hides its files without losing the row state.
+    // (Scoped to the Changes group: 'login.ts' also matches
+    // 'login.test.ts' under Untracked.)
+    const changesGroup = page.locator('.conversation-changes-group', {
+        has: page.locator('.conversation-changes-group-header', {
+            hasText: /^Changes$/,
+        }),
+    });
+    const authFolder = changesGroup.locator('.conversation-changes-folder', {
+        hasText: 'auth',
+    });
+    const loginRow = changesGroup.locator('.conversation-changes-file', {
+        hasText: 'login.ts',
+    });
+    await authFolder.click();
+    assert.equal(await loginRow.isVisible(), false);
+    await authFolder.click();
+    assert.equal(await loginRow.isVisible(), true);
 
     // Clicking a file posts the exact open-file intent.
     await page.locator('.conversation-changes-file', {
-        hasText: 'src/auth/login.ts',
+        hasText: 'login.ts',
     }).first().click();
     const openFile = (await postedMessages(page)).at(-1);
     assert.deepEqual(openFile, {

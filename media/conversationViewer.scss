@@ -2970,7 +2970,38 @@ body.vscode-high-contrast-light {
 }
 
 .conversation-changes-file-path {
-    direction: rtl;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-folder {
+    align-items: center;
+    background: none;
+    border: none;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    display: flex;
+    font: inherit;
+    font-size: 0.85em;
+    gap: 0.25rem;
+    overflow: hidden;
+    padding: 0.12rem 0.2rem;
+    text-align: left;
+    width: 100%;
+
+    &:hover,
+    &:focus-visible {
+        background: var(--vscode-list-hoverBackground);
+    }
+}
+
+.conversation-changes-folder-chevron {
+    flex: none;
+    font-size: 0.8em;
+}
+
+.conversation-changes-folder-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2981,10 +3012,6 @@ body.vscode-high-contrast-light {
     color: var(--vscode-descriptionForeground);
     font-size: 0.85em;
     margin: 0.3rem 0;
-}
-
-.conversation-changes-footer {
-    padding: 0.15rem 0.2rem;
 }
 
 .conversation-changes-action {

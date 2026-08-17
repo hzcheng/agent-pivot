@@ -1,6 +1,14 @@
 # Architecture Harness and Repository Refactor Program
 
-Status: proposed execution charter v2; implementation is not approved yet
+Status: proposed execution charter v3; implementation is not approved yet
+
+v3 revisions: milestone-based waiver retirement, a declared-manifest edge
+policy for import-free webview scripts, an explicit approval gate and
+re-partition process for the initial module registry, Stage 2 delivery as a
+reviewable PR series with a registry-only first PR, the debt-baseline file
+renamed to avoid the performance-baseline name collision, explicit scope
+decisions for companion extension source, and a stale-proof PR-declaration
+check mechanism.
 
 Baseline: `c783d76e` on `agent-pivot/arch-refact`, observed 2026-08-17
 
@@ -166,6 +174,10 @@ either requires a new plan and approval. Pure moves, generated outputs, mirrored
 webview assets, tests, contracts, and audit records are counted and reported
 separately. They do not justify mixing another semantic concern into the slice.
 
+Harness and tooling changes (guard scripts, policy schemas, check runners) are
+not production lines, but they follow the same reviewability rule: one harness
+concern per PR, small enough to review line by line.
+
 ## 6. Architecture Vocabulary
 
 - **Product Capability:** an existing user-facing `MAIN-*` capability used by
@@ -197,8 +209,8 @@ separately. They do not justify mixing another semantic concern into the slice.
 - **Architecture contract:** a versioned, machine-checkable record connecting
   an invariant to its authority, enforcement, tests, and evidence.
 - **Waiver:** a precise, temporary exception for a known violation, with an
-  owner, rationale, tracking reference, and expiry. A waiver is debt data, not
-  an architecture API.
+  owner, rationale, tracking reference, and a retirement milestone. A waiver
+  is debt data, not an architecture API.
 - **Ratchet:** a rule that allows legacy debt to stay equal or shrink, but never
   grow or change identity invisibly.
 - **Strict mode:** the state in which an architecture module has no legacy
@@ -259,8 +271,8 @@ mechanism are explicit.
 19. Diagnostics identify capability, module, operation/request, entity,
     state/stage, error code, and recoverability where applicable, while
     redacting sensitive content.
-20. Temporary waivers are exact, owned, time-bounded, and mechanically
-    ratcheted. Wildcards and permanent allowlists are forbidden.
+20. Temporary waivers are exact, owned, bound to a retirement milestone, and
+    mechanically ratcheted. Wildcards and permanent allowlists are forbidden.
 
 The expected role direction inside a module is:
 
@@ -307,7 +319,7 @@ docs/testing/
 docs/architecture/changes/
   ARCH-CHANGE-<sequence>.md
 .ci/
-  architecture-baseline.json
+  architecture-debt-baseline.json
 scripts/architecture/
   loadArchitecturePolicy.js
   buildDependencyGraph.js
@@ -328,6 +340,10 @@ tests/architecture/
   protocols.test.js
   guardMutationTests.test.js
 ```
+
+The debt-baseline file is deliberately named to stay distinct from the
+existing performance-oriented `test:architecture-baseline` lane and
+`.ci/conversation-performance.json`.
 
 `scripts/run-architecture-guards.js` remains the stable public runner while
 implementation is incrementally extracted behind it. Existing guard IDs and
@@ -436,25 +452,37 @@ A waiver must be precise and temporary:
 {
   "id": "ARCH-WAIVER-001",
   "contract": "ARCH-WORKTREE-SESSION-LIFECYCLE-001",
-  "fingerprint": "<deterministic violation fingerprint>",
+  "fingerprints": ["<deterministic violation fingerprint>"],
   "owner": "repository-owner",
-  "reason": "Exact legacy path pending migration wave W3.",
+  "reason": "Exact legacy paths pending migration wave W3.",
   "tracking": "ARCH-CHANGE-003",
   "createdAt": "2026-08-17",
-  "expiresAt": "2026-09-30"
+  "retiresWith": "WAVE-W3",
+  "expiresAt": null
 }
 ```
 
-Expired, unowned, wildcard, unmatched, duplicate, or unused waivers fail CI.
-Moving a violation to another path produces a new fingerprint and therefore
-cannot pass as unchanged debt.
+A waiver is invalid and fails CI when it is unowned, wildcarded, duplicated,
+unmatched to an active baseline fingerprint, or lists a fingerprint that is no
+longer present (unused debt). Retirement is milestone-based: when the wave or
+architecture change named in `retiresWith` completes in the program ledger
+while any covered fingerprint persists, CI fails. Debt burn-down tracks
+migration state, not wall-clock time, so a bare calendar date never turns CI
+red without a code change; an optional `expiresAt` may raise a review warning
+but never fails on its own. Moving a violation to another path produces a new
+fingerprint and therefore cannot pass as unchanged debt.
 
 The baseline and waiver ledger have different jobs but a strict relationship:
 the baseline is the mechanically generated set of exact violation fingerprints;
-the waiver ledger provides reviewable ownership and expiry metadata. Every
-active baseline fingerprint must have exactly one waiver, and every waiver must
-match exactly one active baseline fingerprint. Neither file may contain an
-entry absent from the other.
+the waiver ledger provides reviewable ownership and retirement metadata. Every
+active baseline fingerprint is covered by exactly one active waiver, and every
+fingerprint a waiver lists is an active baseline fingerprint. Neither file may
+contain a fingerprint absent from the other. Because initial rule-by-rule
+capture can produce hundreds of fingerprints, waiver skeletons are generated by
+repository scripts from the baseline — owners fill in reason, tracking, and
+retirement milestone — and one waiver record may cover an explicitly enumerated
+set of fingerprints produced by the same rule in the same owning scope (no
+wildcards); each fingerprint still appears individually in the baseline.
 
 ### 8.5 Program Ledger
 
@@ -475,9 +503,17 @@ missing P0/P1 owner.
 
 The closed-world guard must:
 
-- enumerate every in-scope production source file, including extension source;
+- enumerate every in-scope production source file; Stage 1A must record an
+  explicit in-scope or out-of-scope decision, with rationale, for the companion
+  extension source (`extensions/attention-ui-bridge`, `shared/attention-bridge`)
+  — separate compile units with their own tsconfigs — and for `spikes/`;
 - require exactly one architecture module and exactly one role per file;
 - resolve all static local imports, re-exports, and type-only imports;
+- govern import-free browser-side webview script families through a declared
+  manifest (bundle membership, load order, and permitted cross-script symbols):
+  at the baseline commit all 37 `src/webview/*.js` files contain zero static
+  `import`/`require` edges, so the module graph alone cannot police them, and
+  an undeclared cross-file reference fails validation;
 - reject unclassified, multiply classified, unresolved-local, forbidden, and
   cross-module deep-import edges;
 - require every new public entrypoint and allowed module dependency to be
@@ -526,9 +562,10 @@ coverage, false-positive risk, false-negative risk, and migration plan.
 The program uses two enforcement modes:
 
 - **Legacy module:** record only violations produced by an implemented,
-  reviewed rule in `.ci/architecture-baseline.json`. A change may keep or remove
-  the exact fingerprints but may not add, move, generalize, or replace them.
-  Every fingerprint has exactly one active waiver with ownership and expiry.
+  reviewed rule in `.ci/architecture-debt-baseline.json`. A change may keep or
+  remove the exact fingerprints but may not add, move, generalize, or replace
+  them. Every fingerprint is covered by exactly one active waiver with
+  ownership and a retirement milestone.
 - **Strict module:** remove all baseline entries and waivers for the module.
   New violations and exceptions are zero-tolerance.
 
@@ -560,6 +597,14 @@ fails. A product PR cannot bundle and consume a relaxation. Tightening may
 travel with the migration that removes the final bypass when the diff only
 reduces debt and keeps the commit independently reviewable.
 
+CI recognizes a fourth classification: **registry re-partition** — splitting,
+merging, or renaming architecture modules, or re-assigning files between them,
+without broadening any allowed edge, writer set, or waiver. Re-partitioning the
+deliberately coarse initial registry is an expected first-class operation, not
+a design failure. It still requires an Architecture Change record and owner
+approval, but its evidence burden is the machine-generated registry diff plus
+proof that no edge, writer, or waiver was broadened.
+
 Baseline and waiver files are generated or updated only through repository
 scripts with exact reasons and references. Manual broadening fails validation.
 
@@ -577,7 +622,11 @@ Every implementation PR declares in its checked PR body:
 - focused and environment verification performed.
 
 CI compares the declaration with the actual diff and generated architecture
-impact report. New files must already be classified. Cross-module changes must
+impact report. Because editing a PR body does not retrigger workflows, this
+comparison runs in the merge-approval gate (or via an on-demand recheck
+command) against the current head commit rather than as a push-triggered
+check; a declaration is stale until regenerated for the head being approved.
+New files must already be classified. Cross-module changes must
 name the coordinator or public API that owns the interaction. The declaration
 does not replace enforcement; it makes semantic intent visible to the owner
 before approval.
@@ -739,7 +788,8 @@ Do not edit files. Recheck current HEAD and produce a repository-wide census:
 
 1. authoritative, generated, stale, and historical architecture documents;
 2. production source roots, file kinds, and proposed architecture-module
-   ownership candidates;
+   ownership candidates, with an explicit in-scope or out-of-scope decision
+   (and rationale) for `spikes/`, `extensions/`, and `shared/`;
 3. complete local import/re-export/type-import graph and module cycles;
 4. existing `MAIN-*` product capabilities and their relation to source areas;
 5. mutable state, persistence, protocol, composition, and external-side-effect
@@ -755,8 +805,9 @@ Do not edit files. Recheck current HEAD and produce a repository-wide census:
 Every assertion cites repository-relative source, test, contract, or workflow
 evidence. Separate facts, interpretations, hypotheses, and decisions.
 
-Checkpoint: the user approves or changes the pilot and eval set. Do not write
-implementation code or Harness v0 yet.
+Checkpoint: the user approves or changes the pilot, the eval set, and the
+initial coarse module registry (candidate module list with source-root
+ownership). Do not write implementation code or Harness v0 yet.
 
 ### Stage 1B — Read-Only Pilot Deep Dive and Harness RFC
 
@@ -778,7 +829,9 @@ entire repository in one context window. Produce:
 11. current bug-convergence scorecard results;
 12. target module boundary, public APIs, roles, and allowed dependency matrix;
 13. normalized Harness v0 schemas and validation rules;
-14. closed-world, mutation, ratchet, and anti-self-amendment guard design;
+14. closed-world, mutation, ratchet, and anti-self-amendment guard design,
+    including the declared-manifest edge policy for import-free webview script
+    families;
 15. CI commands, runtime budgets, and impact reporting;
 16. ordered migration slices with verification and rollback points;
 17. trade-offs with at least one rejected alternative.
@@ -800,7 +853,13 @@ reviewable.
 ### Stage 2 — Harness Kernel
 
 Establish a green baseline after `npm ci`, then implement only the enforcement
-foundation:
+foundation.
+
+Two prerequisites land before the numbered work: (a) the approved initial
+module registry as its own registry-only PR — deliberately coarse and
+directory-aligned, with later re-partitioning governed by Section 8.9; and
+(b) one existing or newly approved `MAIN-*` product capability (for example
+`MAIN-ARCHITECTURE-HARNESS`) to own harness implementation commits.
 
 1. Add strict schemas and cross-file validation for module, invariant, waiver,
    program-ledger, and architecture-change records.
@@ -817,6 +876,11 @@ foundation:
 8. Add local focused and full CI commands with measured runtime budgets.
 9. Wire the full gate into `test:ci:linux` without weakening an existing gate.
 10. Add the Architecture Change classification and anti-self-amendment gate.
+
+Stage 2 ships as an ordered series of small, independently reviewable PRs
+(policy schemas and dependency graph; closed-world and boundary guards;
+baseline, waivers, and ratchets; impact reports and the anti-self-amendment
+gate), never as one kernel PR.
 
 Exit gate: current behavior is green; every production file has exactly one
 module and role; every local edge is resolved and evaluated; only illegal edges
@@ -913,7 +977,7 @@ The repository-wide program is complete only when:
 - every P0/P1 invariant has an authority, behavior owner, failure semantics,
   and suitable enforcement;
 - every architecture module is in strict mode;
-- the legacy architecture baseline and temporary waiver ledger are empty;
+- the legacy architecture debt baseline and temporary waiver ledger are empty;
 - illegal dependency, unclassified file, multi-writer, bypass, ambiguous crash
   state, and uncontrolled protocol-family counts are zero;
 - persisted schemas and external protocols have compatibility fixtures;
@@ -1042,7 +1106,7 @@ Stage 1 establishes reproducible collection commands and approved targets for:
 - maximum mutation fanout for representative operations;
 - files and modules changed to add a representative extension;
 - controlled guard mutation kill rate, ultimately 100%;
-- exact architecture baseline and waiver counts, ultimately zero;
+- exact architecture debt baseline and waiver counts, ultimately zero;
 - architecture guard local and CI runtime;
 - bug-convergence time, files inspected, incorrect hypotheses, diagnostic
   completeness, deterministic reproduction, and recurrence;
@@ -1062,7 +1126,7 @@ The program is delivered through short-lived PRs based on the latest
 `origin/main`:
 
 1. charter and approved investigation artifacts;
-2. Harness kernel;
+2. Harness kernel, as an ordered PR series (Section 12, Stage 2);
 3. pilot safety net;
 4. one or more bounded pilot migration slices;
 5. pilot strict-mode completion;
@@ -1241,6 +1305,12 @@ Stop after the Stage 1A report and ask for approval of the pilot and Stage 1B
 scope. Do not perform the pilot deep dive, design final Harness v0, or make any
 implementation change until that checkpoint is approved.
 ```
+
+Prompts for later slices must additionally require `git fetch origin main`, a
+fresh short-lived worktree per slice, and revalidation of the approved boundary
+and metric baseline against current `origin/main` (Section 16). The chat
+rollout reference in the prompt is optional history; this document and the
+versioned findings remain the authoritative handoff.
 
 ## 21. Immediate Decision
 

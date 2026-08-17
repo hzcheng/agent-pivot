@@ -318,6 +318,7 @@
     line-height: 1.35;
     text-align: left;
     white-space: pre-line;
+    overflow-wrap: anywhere;
 }
 
 .conversation-telemetry-position::before,

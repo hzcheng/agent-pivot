@@ -229,8 +229,10 @@
             var aria = state.members.length === 1
                 ? tooltip.split('\n')[0] + ' — click to view'
                 : 'Changes · ' + buttonSummary(aggregate) + ' — click to view';
+            // No title attribute: the custom data-tooltip is the single
+            // popup — a native title would stack a second one on top.
+            button.removeAttribute('title');
             button.setAttribute('aria-label', retired ? tooltip : aria);
-            button.title = tooltip;
             button.setAttribute('data-tooltip', tooltip);
             updateToggle();
         }

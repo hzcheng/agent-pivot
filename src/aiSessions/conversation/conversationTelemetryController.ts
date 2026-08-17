@@ -457,7 +457,6 @@ export function renderConversationTelemetry(
             data-telemetry-changes
             aria-pressed="false"
             aria-label="No changes — click to view"
-            title="No changes — click to view"
             data-tooltip="No changes — click to view"
             hidden>
             ${CHANGES_ICON_SVG}<span data-telemetry-changes-value>0 · ↑0</span>

@@ -11572,7 +11572,9 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
         '4 · 2',
         'the button carries bare numbers — no arrows or dashes'
     );
-    const tooltip = await changesButton.getAttribute('title');
+    const tooltip = await changesButton.getAttribute('data-tooltip');
+    assert.equal(await changesButton.getAttribute('title'), null,
+        'no native title — the custom tooltip is the single popup');
     assert.ok(tooltip.includes('api (agent-pivot/fix-login)'));
     assert.ok(tooltip.includes('Task result: 5 files · 2 commits since start'));
     assert.ok(tooltip.includes('Uncommitted: 3'));
@@ -11763,7 +11765,7 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         '3+',
         'partial working state keeps its + marker; unknown ahead is omitted');
     const tooltip = await page.locator('[data-telemetry-changes]')
-        .getAttribute('title');
+        .getAttribute('data-tooltip');
     assert.ok(tooltip.includes('Partial'));
 
     // Retired: disabled button, no zero, explanatory panel.
@@ -11784,7 +11786,7 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
     assert.equal(await retiredButton.getAttribute('class')
         .then(c => c.includes('conversation-telemetry-changes-unavailable')),
         true);
-    assert.ok((await retiredButton.getAttribute('title'))
+    assert.ok((await retiredButton.getAttribute('data-tooltip'))
         .includes('has been deleted'));
     await retiredButton.click();
     assert.ok((await page.locator('[data-changes-unavailable]').innerText())

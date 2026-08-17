@@ -138,6 +138,14 @@ interface KimiConversationIndex extends AiSessionDisposable {
     /** approval request id → gated tool_call_id, for ApprovalResponse. */
     approvalTracker?: Map<string, string>;
     pendingThinking?: { position: number; text: string } | null;
+    /**
+     * Raw buffered text deltas of the open run. The Kimi wire streams
+     * token-sized ContentPart deltas; each delta must not render as its own
+     * line. Persisted across incremental loads like pendingThinking; once
+     * published, entryIndex points at the trailing assistant block so the
+     * next load replaces it instead of appending.
+     */
+    pendingText?: { text: string; entryIndex?: number } | null;
     /** Whether the most recent load read incrementally from the cache. */
     lastReadContinuation: boolean;
     revision: number;
@@ -700,6 +708,35 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             // Consecutive think deltas merge into one block per run.
             let pendingThinking: { position: number; text: string } | null =
                 (continuing && previous?.pendingThinking) || null;
+            // Consecutive text deltas merge into one block per run; the raw
+            // buffer normalizes once per published block so whitespace-only
+            // deltas (e.g. a space between words) survive.
+            let pendingText: { text: string; entryIndex?: number } | null =
+                (continuing && previous?.pendingText) || null;
+            const publishText = (): void => {
+                if (!pendingText || openInteractionIndex === undefined) {
+                    return;
+                }
+                const text = visibleMessage(pendingText.text);
+                if (!text) {
+                    return;
+                }
+                const interaction = interactions[openInteractionIndex];
+                if (pendingText.entryIndex !== undefined) {
+                    // The run already rendered in a previous load: replace
+                    // its trailing block instead of appending a new one.
+                    interaction.assistantMarkdown[pendingText.entryIndex] = text;
+                    return;
+                }
+                appendConversationAssistantText(interaction, text);
+                pendingText.entryIndex = interaction.assistantMarkdown.length - 1;
+            };
+            // A non-text event closes the run; the next delta starts a new
+            // block.
+            const flushText = (): void => {
+                publishText();
+                pendingText = null;
+            };
             const flushThinking = (): void => {
                 if (!pendingThinking || openInteractionIndex === undefined) {
                     pendingThinking = null;
@@ -723,6 +760,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 }
                 if (event.type === 'TurnBegin') {
                     flushThinking();
+                    flushText();
                     const payload = asRecord(event.payload);
                     const userInput = payload?.user_input;
                     const visibleInput = typeof userInput === 'string'
@@ -784,6 +822,12 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         : undefined;
                     if (openInteractionIndex !== undefined
                         && thinkText !== undefined) {
+                        if (thinkText === '') {
+                            // Streaming keep-alives must not split the
+                            // surrounding text run.
+                            return;
+                        }
+                        flushText();
                         if (!pendingThinking) {
                             pendingThinking = {
                                 position: interactions[openInteractionIndex]
@@ -798,16 +842,16 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     if (openInteractionIndex !== undefined
                         && payload?.type === 'text'
                         && typeof payload.text === 'string') {
-                        const text = visibleMessage(payload.text);
-                        if (text) {
-                            appendConversationAssistantText(
-                                interactions[openInteractionIndex],
-                                text
-                            );
+                        if (!pendingText) {
+                            pendingText = { text: '' };
                         }
+                        pendingText.text += payload.text;
+                        return;
                     }
+                    flushText();
                 } else if (event.type === 'PlanDisplay') {
                     flushThinking();
+                    flushText();
                     stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     if (openInteractionIndex !== undefined
@@ -834,6 +878,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     }
                 } else if (event.type === 'QuestionRequest') {
                     flushThinking();
+                    flushText();
                     stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     if (openInteractionIndex !== undefined) {
@@ -885,6 +930,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     }
                 } else if (event.type === 'ApprovalRequest') {
                     flushThinking();
+                    flushText();
                     stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     if (openInteractionIndex !== undefined) {
@@ -985,6 +1031,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     }
                 } else if (event.type === 'ToolCall') {
                     flushThinking();
+                    flushText();
                     stampActivity(envelope);
                     const payload = asRecord(event.payload);
                     const toolFunction = asRecord(payload?.function);
@@ -1105,6 +1152,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 state: ConversationResponseState
             ): void => {
                 flushThinking();
+                flushText();
                 if (openInteractionIndex === undefined) {
                     return;
                 }
@@ -1154,6 +1202,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 };
             }
             const partial = continuing ? previous.partial : result.partial;
+            // Publish the in-progress text run so a streaming answer stays
+            // visible between loads; the buffer itself stays open for later
+            // deltas.
+            publishText();
             const changed = !previous
                 || previous.source.identity !== source.identity
                 || previous.source.portableFirstHash
@@ -1177,6 +1229,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.questionTracker = questionTracker;
                 previous.approvalTracker = approvalTracker;
                 previous.pendingThinking = pendingThinking;
+                previous.pendingText = pendingText;
                 previous.lastReadContinuation = continuing;
                 previous.revision = revision;
                 previous.partial = partial;
@@ -1192,6 +1245,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     questionTracker,
                     approvalTracker,
                     pendingThinking,
+                    pendingText,
                     lastReadContinuation: continuing,
                     revision,
                     partial,

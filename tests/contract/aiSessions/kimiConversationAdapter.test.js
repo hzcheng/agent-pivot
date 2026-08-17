@@ -139,6 +139,67 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes only visible t
     assert.equal(new Set(appended.interactions.map(item => item.id)).size, 4);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi merges streamed text deltas into one block across incremental loads', async t => {
+    const source = await createFixture(t);
+    // The Kimi wire streams token-sized text deltas interleaved with empty
+    // think parts; each delta must not become its own rendered line.
+    const deltaRecords = chunks => chunks.flatMap(chunk => [
+        JSON.stringify({
+            timestamp: 4000,
+            message: { type: 'ContentPart', payload: { type: 'think', think: '' } },
+        }),
+        JSON.stringify({
+            timestamp: 4000,
+            message: { type: 'ContentPart', payload: { type: 'text', text: chunk } },
+        }),
+    ]);
+    await fs.promises.appendFile(source.sourcePath, [
+        JSON.stringify({
+            timestamp: 4000,
+            message: { type: 'TurnBegin', payload: { user_input: 'stream' } },
+        }),
+        ...deltaRecords(['**', '3', 'c']),
+        '',
+    ].join('\n'));
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    const readLastPage = async () => {
+        const outline = await adapter.readOutline(sessionId);
+        const page = await adapter.readPage({
+            provider: 'kimi',
+            sessionId,
+            anchorInteractionId: outline.interactions.at(-1).id,
+            direction: 'around',
+        });
+        const lastId = outline.interactions.at(-1).id;
+        return page.messages.filter(message => message.interactionId === lastId);
+    };
+    const firstMessages = await readLastPage();
+    assert.deepEqual(
+        firstMessages.filter(message => message.role === 'assistant')
+            .map(message => message.markdown),
+        ['**3c'],
+        'a partial delta run still renders as one block'
+    );
+
+    await fs.promises.appendFile(source.sourcePath, [
+        ...deltaRecords([' ', '完成', '**']),
+        JSON.stringify({
+            timestamp: 4001,
+            message: { type: 'TurnEnd', payload: {} },
+        }),
+        '',
+    ].join('\n'));
+    const secondMessages = await readLastPage();
+    assert.deepEqual(
+        secondMessages.filter(message => message.role === 'assistant')
+            .map(message => message.markdown),
+        ['**3c 完成**'],
+        'deltas merge across incremental loads and whitespace-only deltas survive'
+    );
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 CONVERSATION-PLAN-QUESTION-VISIBILITY-001 Kimi surfaces PlanDisplay markdown as plan blocks', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [

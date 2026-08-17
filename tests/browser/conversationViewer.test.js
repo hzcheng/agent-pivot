@@ -11699,8 +11699,8 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
     }));
     assert.equal(
         await page.locator('[data-telemetry-changes-value]').innerText(),
-        '3+ · ?',
-        'partial state is marked, never rendered as a plain number');
+        '3+',
+        'partial working state keeps its + marker; unknown ahead is omitted');
     const tooltip = await page.locator('[data-telemetry-changes]')
         .getAttribute('title');
     assert.ok(tooltip.includes('Partial'));
@@ -11729,6 +11729,35 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
     assert.ok((await page.locator('[data-changes-unavailable]').innerText())
         .includes('deleted'));
 
+    // Baseline-unavailable members explain themselves and hide Review.
+    await sendChanges(page, changesFixture({
+        aggregate: {
+            completeness: 'partial', workingItemCount: 1,
+            workingPartial: false, aheadPartial: true, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-legacy', repoLabel: 'legacy', branchName: 'old/task',
+            worktreePath: '/wt/legacy', availability: 'baselineUnavailable',
+            workingItemCount: 1, truncated: false,
+        }],
+        selectedMemberId: 'm-legacy',
+        detail: {
+            memberId: 'm-legacy', availability: 'baselineUnavailable',
+            items: [{ group: 'changes', xy: ' M', path: 'src/keep.ts' }],
+            truncated: false,
+        },
+    }));
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(),
+        '1',
+        'unknown ahead is omitted from the button entirely');
+    assert.equal(
+        await page.locator('[data-changes-task-summary]').innerText(),
+        'No recorded task start — only uncommitted changes are shown');
+    assert.equal(
+        await page.locator('[data-changes-review]').isHidden(), true,
+        'a review action without a baseline is hidden, not dead');
+
     // Stale generations are ignored.
     await sendChanges(page, changesFixture({
         aggregate: {
@@ -11745,6 +11774,6 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         detail: undefined,
     }), 999);
     assert.equal(
-        await page.locator('[data-telemetry-changes-value]').innerText(), '',
+        await page.locator('[data-telemetry-changes-value]').innerText(), '1',
         'a stale generation never overwrites the current state');
 });

@@ -131,10 +131,10 @@
 
         function aheadText(aggregate) {
             if (aggregate.allUnreadable) {
-                return '';
+                return null;
             }
             if (aggregate.aheadPartial) {
-                return '?';
+                return null;
             }
             return String(aggregate.aheadCount || 0);
         }
@@ -172,8 +172,12 @@
         }
 
         function buttonSummary(aggregate) {
-            return workingText(aggregate) + ' uncommitted · '
-                + aheadText(aggregate) + ' commits since baseline';
+            var ahead = aheadText(aggregate);
+            return ahead === null
+                ? workingText(aggregate) + ' uncommitted'
+                    + ' · commits unknown (no recorded task start)'
+                : workingText(aggregate) + ' uncommitted · '
+                    + ahead + ' commits since baseline';
         }
 
         function renderButton(state) {
@@ -191,9 +195,12 @@
             // (PRD §7.3) — a disabled button would hide it entirely.
             button.classList.toggle(
                 'conversation-telemetry-changes-unavailable', !!retired);
+            var ahead = aheadText(aggregate);
             var text = retired
                 ? ''
-                : workingText(aggregate) + ' · ' + aheadText(aggregate);
+                : ahead === null
+                    ? workingText(aggregate)
+                    : workingText(aggregate) + ' · ' + ahead;
             if (buttonValue) {
                 buttonValue.textContent = text;
             } else {
@@ -475,15 +482,19 @@
                     taskSummary.textContent = detail.taskFileCount + ' files · '
                         + (detail.aheadCount || 0) + ' commits';
                 } else if (detail.availability === 'baselineUnavailable') {
-                    taskSummary.textContent = 'Baseline unavailable';
+                    taskSummary.textContent = 'No recorded task start'
+                        + ' — only uncommitted changes are shown';
                 } else if (detail.availability === 'historyRewritten') {
-                    taskSummary.textContent = 'History rewritten';
+                    taskSummary.textContent = 'History rewritten'
+                        + ' — the recorded task start is no longer an ancestor';
                 } else {
                     taskSummary.textContent = '';
                 }
             }
             if (reviewButton) {
-                reviewButton.disabled = !showTask
+                // No baseline (or nothing to review) hides the action
+                // entirely — a dead Review link reads as a bug.
+                reviewButton.hidden = !showTask
                     || !(detail.taskFileCount > 0 || (detail.aheadCount || 0) > 0);
             }
 

@@ -13,8 +13,6 @@
         var telemetryContextProgress = options.telemetryContextProgress;
         var telemetryContextValue = options.telemetryContextValue;
         var telemetryLimits = options.telemetryLimits;
-        var telemetryWorktree = options.telemetryWorktree;
-        var telemetryWorktreeBranch = options.telemetryWorktreeBranch;
         var scroll = options.scroll;
         var captureAnchor = options.captureAnchor;
         var restoreViewport = options.restoreViewport;
@@ -213,8 +211,7 @@
                 || !telemetryRoot || !telemetryProvider
                 || !telemetryModel || !telemetryModelValue
                 || !telemetryContext || !telemetryContextProgress
-                || !telemetryContextValue || !telemetryLimits
-                || !telemetryWorktree || !telemetryWorktreeBranch) {
+                || !telemetryContextValue || !telemetryLimits) {
                 return false;
             }
             state.latestTelemetryRequestId = message.requestId;
@@ -225,7 +222,6 @@
                 // The quick-entry pills keep the bar visible even without
                 // usage data; only the usage widgets stay hidden.
                 telemetryModel.hidden = true;
-                telemetryWorktree.hidden = true;
                 telemetryContext.hidden = true;
                 telemetryLimits.replaceChildren();
                 telemetryRoot.hidden = false;
@@ -241,26 +237,6 @@
                 telemetryModel,
                 telemetry.model ? 'Model · ' + telemetry.model : 'Model'
             );
-            var worktree = telemetry.worktree;
-            telemetryWorktree.hidden = !worktree;
-            if (worktree) {
-                telemetryWorktreeBranch.textContent = worktree.branch;
-                telemetryWorktree.setAttribute(
-                    'data-worktree-root',
-                    worktree.worktreeRoot
-                );
-                telemetryWorktree.classList.toggle(
-                    'conversation-telemetry-worktree-missing',
-                    !!worktree.missing
-                );
-                var worktreeTitle = worktree.missing
-                    ? 'Worktree path no longer exists: '
-                        + worktree.worktreeRoot + ' (branch ' + worktree.branch + ')'
-                    : 'Working in worktree: ' + worktree.worktreeRoot
-                        + ' (branch ' + worktree.branch + ')'
-                        + ' · Click to show changes in Source Control';
-                setTooltip(telemetryWorktree, worktreeTitle);
-            }
             telemetryContext.hidden = !telemetry.context;
             if (telemetry.context) {
                 var percent = Math.max(0, Math.min(
@@ -297,7 +273,6 @@
                 'Provider · ' + providerLabel(target.provider)
             );
             telemetryModel.hidden = true;
-            telemetryWorktree.hidden = true;
             telemetryContext.hidden = true;
             telemetryLimits.replaceChildren();
             return true;

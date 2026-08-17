@@ -296,3 +296,28 @@ test('WORKTREE-PROVISIONING-RECOVERY-001 serializes replacements', async () => {
     assert.equal(writes.length, 2);
     assert.equal(store.read()[0].operationId, 'second');
 });
+
+test('WORKTREE-GROUPS-BASELINE-001 round-trips plan baselines and rejects corrupt ones', async () => {
+    const baseline = {
+        commitSha: 'a'.repeat(40),
+        capturedAt: 1724000000000,
+        source: { kind: 'tag', fullRef: 'refs/tags/v1.0' },
+    };
+    const state = memento();
+    const store = new WorktreeProvisioningStore(state);
+    const withBaseline = record('operation-baseline');
+    withBaseline.plan.baseline = baseline;
+    await store.replaceLive([withBaseline]);
+
+    const restored = store.read();
+    assert.equal(restored.length, 1);
+    assert.deepEqual(restored[0].plan.baseline, baseline,
+        'the frozen task-start anchor survives recovery persistence');
+
+    // A present-but-corrupt baseline invalidates the record rather than
+    // being silently dropped — a retry must never run from a guessed base.
+    const corruptRecord = record('operation-corrupt');
+    corruptRecord.plan.baseline = { commitSha: 'not-a-sha' };
+    const corrupt = memento([corruptRecord]);
+    assert.deepEqual(new WorktreeProvisioningStore(corrupt).read(), []);
+});

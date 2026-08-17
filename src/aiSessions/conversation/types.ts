@@ -238,6 +238,65 @@ export interface ConversationPublicError {
     retryAfterMs?: number;
 }
 
+// ── Worktree changes panel (changes-panel PRD) ──────────────────
+
+export type ConversationChangesAvailability =
+  | 'available'
+  | 'baselineUnavailable'
+  | 'historyRewritten'
+  | 'unreadable';
+
+export interface ConversationChangesMemberView {
+    memberId: string;
+    repoLabel: string;
+    branchName: string;
+    worktreePath: string;
+    availability: ConversationChangesAvailability;
+    /** SCM resource-row count; a staged+unstaged file counts twice. */
+    workingItemCount: number;
+    aheadCount?: number;
+    /** Task-result net file count (baseline → current worktree). */
+    taskFileCount?: number;
+    truncated: boolean;
+    /** Repository outside the open workspace (detached member). */
+    detached?: boolean;
+}
+
+export interface ConversationChangesFileItem {
+    group: 'merge' | 'staged' | 'changes' | 'untracked';
+    xy: string;
+    path: string;
+    originalPath?: string;
+}
+
+export interface ConversationChangesDetail {
+    memberId: string;
+    availability: ConversationChangesAvailability;
+    baselineSha?: string;
+    aheadCount?: number;
+    taskFileCount?: number;
+    items: ConversationChangesFileItem[];
+    truncated: boolean;
+}
+
+export interface ConversationChangesAggregateView {
+    completeness: 'complete' | 'partial' | 'unavailable';
+    workingItemCount: number;
+    workingPartial: boolean;
+    aheadCount?: number;
+    aheadPartial: boolean;
+    allUnreadable: boolean;
+}
+
+export interface ConversationChangesState {
+    kind: 'ready' | 'retired' | 'unavailable';
+    aggregate: ConversationChangesAggregateView;
+    members: ConversationChangesMemberView[];
+    selectedMemberId?: string;
+    detail?: ConversationChangesDetail;
+    collectedAt: number;
+}
+
 export class ConversationError extends Error {
     constructor(
         readonly code: ConversationPublicError['code'],

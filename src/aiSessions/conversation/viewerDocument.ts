@@ -88,6 +88,9 @@ export function renderConversationViewerDocument(
     const subagentsScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationSubagentsScripts.js')
     );
+    const changesScript = panel.webview.asWebviewUri(
+        options.mediaUri('conversationChangesScripts.js')
+    );
     const telemetryScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationTelemetryScripts.js')
     );
@@ -266,37 +269,9 @@ export function renderConversationViewerDocument(
         <aside id="conversation-sidebar"
             class="conversation-sidebar" data-conversation-sidebar
             aria-label="Conversation side panel" hidden>
-            <div class="conversation-sidebar-tabs" role="tablist"
-                aria-label="Conversation side panel">
-                <button type="button" role="tab" data-sidebar-tab="outline"
-                    id="conversation-outline-tab"
-                    aria-controls="conversation-outline-panel"
-                    aria-selected="true" aria-label="Outline" title="Outline">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3"><path d="M2.5 4h11M2.5 8h7M2.5 12h9"/></svg>
-                </button>
-                <button type="button" role="tab" data-sidebar-tab="comments"
-                    id="conversation-comments-tab"
-                    aria-controls="conversation-comments-panel"
-                    aria-selected="false" aria-label="Comments" title="Comments">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3"><path d="M3 3.5h10a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5H8l-3 2.2v-2.2H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/></svg>
-                </button>
-                <button type="button" role="tab" data-sidebar-tab="subagents"
-                    id="conversation-subagents-tab"
-                    aria-controls="conversation-subagents-panel"
-                    aria-selected="false" aria-label="Subagents"
-                    title="Subagents">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3"><circle cx="8" cy="3.4" r="1.7"/><circle cx="3.4" cy="12.2" r="1.7"/><circle cx="12.6" cy="12.2" r="1.7"/><path d="M8 5.1v2.2M8 7.3l-3.3 3.2M8 7.3l3.3 3.2"/></svg>
-                </button>
-            </div>
             <section id="conversation-outline-panel"
                 class="conversation-outline" data-conversation-outline
-                role="tabpanel" aria-labelledby="conversation-outline-tab">
+                role="region" aria-label="Outline">
                 <div class="conversation-outline-toolbar">
                     <label class="conversation-outline-search-field">
                         <svg viewBox="0 0 16 16" width="14" height="14"
@@ -348,7 +323,7 @@ export function renderConversationViewerDocument(
             </section>
             <section id="conversation-comments-panel"
                 class="conversation-comments" data-conversation-comments
-                role="tabpanel" aria-labelledby="conversation-comments-tab"
+                role="region" aria-label="Comments"
                 hidden>
                 <div class="conversation-comments-filter-bar"
                     data-comments-filter-bar role="group"
@@ -507,7 +482,7 @@ export function renderConversationViewerDocument(
             </section>
             <section id="conversation-subagents-panel"
                 class="conversation-subagents" data-conversation-subagents
-                role="tabpanel" aria-labelledby="conversation-subagents-tab"
+                role="region" aria-label="Subagents"
                 hidden>
                 <div class="conversation-subagents-header">
                     <label class="conversation-subagents-filter"
@@ -522,6 +497,57 @@ export function renderConversationViewerDocument(
                     data-subagents-list></ol>
                 <p class="conversation-subagents-empty" data-subagents-empty
                     hidden>No subagents recorded for this Session.</p>
+            </section>
+            <section id="conversation-changes-panel"
+                class="conversation-changes" data-conversation-changes
+                role="region" aria-label="Changes"
+                hidden>
+                <div class="conversation-changes-toolbar">
+                    <select class="conversation-changes-member-select"
+                        data-changes-member-select
+                        aria-label="Worktree to inspect"></select>
+                    <button type="button"
+                        class="conversation-icon-button"
+                        data-changes-open-scm title="Open in Source Control"
+                        aria-label="Open in Source Control"
+                        ><svg viewBox="0 0 16 16" width="13" height="13"
+                            aria-hidden="true" fill="none"
+                            stroke="currentColor" stroke-width="1.3"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9.5 3.5H13v3.5"/><path d="M13 3.5 8.2 8.3"/>
+                            <path d="M11.5 9.3v2.4a1.3 1.3 0 0 1-1.3 1.3H4.3A1.3 1.3 0 0 1 3 11.7V5.8a1.3 1.3 0 0 1 1.3-1.3h2.4"/></svg>
+                    </button>
+                    <button type="button"
+                        class="conversation-icon-button"
+                        data-changes-refresh title="Refresh"
+                        aria-label="Refresh"
+                        ><svg viewBox="0 0 16 16" width="13" height="13"
+                            aria-hidden="true" fill="none"
+                            stroke="currentColor" stroke-width="1.3"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.7"/>
+                            <path d="M13.6 2.1v2.6h-2.6"/></svg>
+                    </button>
+                </div>
+                <p class="conversation-changes-cross-member"
+                    data-changes-cross-member hidden></p>
+                <div class="conversation-changes-task" data-changes-task
+                    title="Net result vs task start — includes committed and uncommitted changes"
+                    hidden>
+                    <span class="conversation-changes-task-summary"
+                        data-changes-task-summary></span>
+                    <button type="button"
+                        class="conversation-changes-action"
+                        data-changes-review>Review</button>
+                </div>
+                <div class="conversation-changes-working"
+                    data-changes-working>
+                    <div data-changes-groups></div>
+                    <p class="conversation-changes-empty"
+                        data-changes-empty hidden>No changes</p>
+                </div>
+                <p class="conversation-changes-unavailable"
+                    data-changes-unavailable hidden></p>
             </section>
         </aside>
     </div>
@@ -552,6 +578,9 @@ export function renderConversationViewerDocument(
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         subagentsScript.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        changesScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         telemetryScript.toString()

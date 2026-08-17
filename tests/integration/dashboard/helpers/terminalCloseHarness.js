@@ -60,6 +60,7 @@ function createHarnessVscode(listeners, commands) {
             onDidChangeConfiguration: callback => { listeners.configuration = callback; return disposable(); },
             onDidChangeWorkspaceFolders: callback => { listeners.workspaceFolders = callback; return disposable(); },
             onWillSaveTextDocument: () => disposable(), openTextDocument: async () => ({}),
+            registerTextDocumentContentProvider: () => disposable(),
         },
         commands: {
             registerCommand: (id, callback) => { commands.set(id, callback); return disposable(() => commands.delete(id)); },

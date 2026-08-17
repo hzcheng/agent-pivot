@@ -55,6 +55,8 @@ import {
     parseConversationViewerRestoreTarget,
 } from './viewerRestoreState';
 import { ConversationWorktreeResolver } from './worktreeResolver';
+import type { ConversationChangesControllerOptions } from './conversationChangesController';
+import { ChangesCollector } from '../../worktrees/changesCollector';
 import { readCodexRolloutTelemetry } from '../codexRolloutWorkdir';
 import CodexRolloutGoalTurnsReader from '../codexRolloutGoalTurns';
 import {
@@ -126,9 +128,16 @@ export interface ConversationCapabilityOptions {
     clearTimer: typeof clearTimeout;
     onDiagnostic: (event: SanitizedConversationDiagnostic) => void;
     getWorkspaceRootHostPaths?: () => readonly string[];
-    showWorktreeInSourceControl?: (
-        worktreeRoot: string
-    ) => PromiseLike<void> | Promise<void> | void;
+    /**
+     * Changes-panel wiring (changes-panel PRD): session identity
+     * resolution, manifest access, and diff/SCM actions. Absent disables
+     * the Changes button and sidebar tab.
+     */
+    changes?: Omit<
+        ConversationChangesControllerOptions,
+        'getPanel' | 'getTarget' | 'getSubscriptionGeneration'
+        | 'isSuspended' | 'resolveWorktreeKey' | 'collector'
+    >;
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
@@ -230,8 +239,12 @@ function createAvailableConversationCapability(
     }));
     const worktreeResolver = new ConversationWorktreeResolver({
         now: options.now,
+        canonicalizePath: candidatePath =>
+            fs.promises.realpath(candidatePath)
+                .catch(() => path.resolve(candidatePath)),
     });
     const codexGoalTurns = new CodexRolloutGoalTurnsReader();
+    const changesCollector = new ChangesCollector({ now: options.now });
     const codexAdapter = ownership.own(factories.createCodexAdapter({
         client: codexClient,
         watchSessionChanges: onDidChange =>
@@ -381,8 +394,15 @@ function createAvailableConversationCapability(
         commentStore: options.commentStore,
         projectCommentStore: options.projectCommentStore,
         bookmarkStore: options.bookmarkStore,
-        showWorktreeInSourceControl: options.showWorktreeInSourceControl,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        changes: options.changes
+            ? {
+                ...options.changes,
+                resolveWorktreeKey: candidatePath =>
+                    worktreeResolver.resolveKey(candidatePath),
+                collector: changesCollector,
+            }
+            : undefined,
         followAdjacentConversation: (direction, currentTarget) => {
             const intentGeneration = ++viewerIntentGeneration;
             return followAdjacentConversation(
@@ -398,6 +418,9 @@ function createAvailableConversationCapability(
             );
         },
         setKeyboardFocus: options.setConversationFocusContext,
+        onDiagnostic: options.onDiagnostic
+            ? event => options.onDiagnostic(event as never)
+            : undefined,
         setTimer: options.setTimer,
         clearTimer: options.clearTimer,
     }));

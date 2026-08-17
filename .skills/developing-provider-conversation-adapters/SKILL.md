@@ -56,6 +56,13 @@ must parse it from there — stub handshakes that keep the old `serverInfo`
 shape pass every test while the real server leaves the gate permanently
 off.
 
+Codex item ids are only unique WITHIN a turn: resume/compact epochs
+restart per-item numbering (verified on a live resumed 0.147 thread —
+`exec_command_0` reappears in later turns after a `resume` marker in the
+rollout). Any thread-wide duplicate-id invariant fail-closes long-lived
+resumed sessions; key item identity as `turnId · itemId`, keep same-turn
+duplicates fail-closed, and never infer projection drift from id reuse.
+
 Subagent transcripts reuse the provider's main record envelope; Claude
 subagent files consist entirely of `isSidechain: true` records, so any
 main-conversation sidechain filter must be relaxed for subagent sources.

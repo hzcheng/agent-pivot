@@ -58,6 +58,7 @@ function createVscode(listeners, commands) {
             getConfiguration: () => configuration, updateWorkspaceFolders: () => true,
             onDidChangeConfiguration: () => disposable(), onDidChangeWorkspaceFolders: () => disposable(),
             onWillSaveTextDocument: () => disposable(), openTextDocument: async () => ({}),
+            registerTextDocumentContentProvider: () => disposable(),
         },
         commands: {
             registerCommand: (id, callback) => { commands.set(id, callback); return disposable(() => commands.delete(id)); },

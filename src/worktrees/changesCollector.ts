@@ -1,0 +1,300 @@
+'use strict';
+
+import { execFile } from 'child_process';
+import type { MemberBaseline } from './types';
+
+const GIT_TIMEOUT_MS = 5_000;
+const MAX_GIT_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_STATUS_ENTRIES = 5_000;
+const MAX_PATH_LENGTH = 4 * 1024;
+
+/**
+ * SCM-aligned working groups (changes-panel PRD §4.3): the four groups
+ * Source Control shows, in its fixed order.
+ */
+export type WorkingChangeGroup = 'merge' | 'staged' | 'changes' | 'untracked';
+
+export const WORKING_CHANGE_GROUP_ORDER: readonly WorkingChangeGroup[] = [
+    'merge', 'staged', 'changes', 'untracked',
+];
+
+export interface WorkingChangeItem {
+    group: WorkingChangeGroup;
+    /** Two-letter porcelain XY code (e.g. 'MM'), or '??' for untracked. */
+    xy: string;
+    path: string;
+    /** Rename source (porcelain -z emits to-path first, then from-path). */
+    originalPath?: string;
+}
+
+export type MemberChangesAvailability =
+  | 'available'
+  | 'baselineUnavailable'
+  | 'historyRewritten'
+  | 'unreadable';
+
+export interface MemberChangesSnapshot {
+    availability: MemberChangesAvailability;
+    /** Parsed working items (bounded by MAX_STATUS_ENTRIES per group). */
+    workingItems: WorkingChangeItem[];
+    /**
+     * SCM resource-row count (changes-panel PRD §4.3): one file that is
+     * both staged and unstaged counts twice — never call this "files".
+     */
+    workingItemCount: number;
+    /** True when the raw status output hit the entry cap. */
+    truncated: boolean;
+    /** Commits on HEAD since the baseline; absent when unknown. */
+    aheadCount?: number;
+    /**
+     * Task-result file count (changes-panel PRD §5.3): files whose net
+     * content differs between the baseline and the current worktree
+     * (committed + uncommitted, untracked excluded). Absent when unknown.
+     */
+    taskFileCount?: number;
+    collectedAt: number;
+}
+
+export type ExecGit = (
+    args: string[],
+    cwd: string
+) => Promise<{ stdout: string; stderr: string }>;
+
+export interface ChangesCollectorOptions {
+    execGit?: ExecGit;
+    now?: () => number;
+    maxStatusEntries?: number;
+}
+
+function defaultExecGit(args: string[], cwd: string) {
+    return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        execFile('git', args, {
+            cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: MAX_GIT_OUTPUT_BYTES,
+        }, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve({ stdout, stderr });
+        });
+    });
+}
+
+const UNMERGED_XY = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+
+/**
+ * Classifies one porcelain XY pair the way Source Control groups it
+ * (changes-panel PRD §4.3): a file staged AND modified again appears in
+ * both 'staged' and 'changes', matching the SCM resource model.
+ */
+export function classifyPorcelainXY(x: string, y: string): WorkingChangeGroup[] {
+    if (x === '?' || y === '?') {
+        return ['untracked'];
+    }
+    if (x === '!' || y === '!') {
+        return [];
+    }
+    if (UNMERGED_XY.has(x + y)) {
+        return ['merge'];
+    }
+    const groups: WorkingChangeGroup[] = [];
+    if (x !== ' ' && x !== '.') {
+        groups.push('staged');
+    }
+    if (y !== ' ' && y !== '.') {
+        groups.push('changes');
+    }
+    return groups;
+}
+
+/**
+ * Parses `git status --porcelain=v1 -z` output. The -z format is
+ * unambiguous for spaces/newlines in paths; rename entries carry the
+ * to-path first, then the from-path (the non-z `from -> to` order is
+ * reversed under -z).
+ */
+export function parsePorcelainZ(input: string): { xy: string; path: string; originalPath?: string }[] {
+    const entries: { xy: string; path: string; originalPath?: string }[] = [];
+    const tokens = input.split('\0');
+    let index = 0;
+    while (index < tokens.length) {
+        const record = tokens[index];
+        index += 1;
+        if (!record) {
+            continue;
+        }
+        if (record.length < 4 || record[2] !== ' ') {
+            // Malformed record: stop rather than guess at path boundaries.
+            break;
+        }
+        const xy = record.slice(0, 2);
+        const entryPath = record.slice(3);
+        if (!entryPath || entryPath.length > MAX_PATH_LENGTH) {
+            continue;
+        }
+        let originalPath: string | undefined;
+        if (xy[0] === 'R' || xy[0] === 'C' || xy[1] === 'R' || xy[1] === 'C') {
+            const from = tokens[index];
+            index += 1;
+            if (typeof from === 'string' && from
+                && from.length <= MAX_PATH_LENGTH) {
+                originalPath = from;
+            }
+        }
+        entries.push({ xy, path: entryPath, ...(originalPath ? { originalPath } : {}) });
+    }
+    return entries;
+}
+
+/**
+ * Collects one member worktree's change snapshot (changes-panel PRD
+ * §4.3): working four-group status self-collected with
+ * `--untracked-files=all` (independent of the user's SCM untracked
+ * setting), plus the ahead count against the frozen baseline with an
+ * ancestry check. Git failures degrade to 'unreadable' — never throw,
+ * never report unknown as zero.
+ */
+export class ChangesCollector {
+    private readonly execGit: ExecGit;
+    private readonly now: () => number;
+    private readonly maxStatusEntries: number;
+
+    constructor(options: ChangesCollectorOptions = {}) {
+        this.execGit = options.execGit || defaultExecGit;
+        this.now = options.now || Date.now;
+        this.maxStatusEntries = options.maxStatusEntries ?? MAX_STATUS_ENTRIES;
+    }
+
+    async collect(
+        worktreePath: string,
+        baseline?: MemberBaseline
+    ): Promise<MemberChangesSnapshot> {
+        const collectedAt = this.now();
+        let statusOutput: string;
+        try {
+            const result = await this.execGit([
+                '-C', worktreePath,
+                'status', '--porcelain=v1', '-z', '--untracked-files=all',
+            ], worktreePath);
+            statusOutput = result.stdout;
+        } catch (_error) {
+            return {
+                availability: 'unreadable',
+                workingItems: [],
+                workingItemCount: 0,
+                truncated: false,
+                collectedAt,
+            };
+        }
+        const parsed = parsePorcelainZ(statusOutput);
+        const truncated = parsed.length > this.maxStatusEntries;
+        const workingItems: WorkingChangeItem[] = [];
+        for (const entry of parsed.slice(0, this.maxStatusEntries)) {
+            for (const group of classifyPorcelainXY(entry.xy[0], entry.xy[1])) {
+                workingItems.push({
+                    group,
+                    xy: entry.xy,
+                    path: entry.path,
+                    ...(entry.originalPath
+                        ? { originalPath: entry.originalPath }
+                        : {}),
+                });
+            }
+        }
+        const snapshot: MemberChangesSnapshot = {
+            availability: baseline ? 'available' : 'baselineUnavailable',
+            workingItems,
+            workingItemCount: workingItems.length,
+            truncated,
+            collectedAt,
+        };
+        if (!baseline) {
+            return snapshot;
+        }
+        try {
+            // merge-base --is-ancestor exits 1 (execFile rejects) when the
+            // baseline is no longer an ancestor of HEAD.
+            await this.execGit([
+                '-C', worktreePath,
+                'merge-base', '--is-ancestor', baseline.commitSha, 'HEAD',
+            ], worktreePath);
+        } catch (_error) {
+            // Rebase / reset / unrelated history (PRD §4.2): the baseline
+            // is no longer an ancestor — report it, never fake a count.
+            snapshot.availability = 'historyRewritten';
+            return snapshot;
+        }
+        try {
+            const ahead = await this.execGit([
+                '-C', worktreePath,
+                'rev-list', '--count', `${baseline.commitSha}..HEAD`,
+            ], worktreePath);
+            const count = Number.parseInt(ahead.stdout.trim(), 10);
+            if (Number.isSafeInteger(count) && count >= 0) {
+                snapshot.aheadCount = count;
+            }
+        } catch (_error) {
+            // ahead stays unknown; the aggregate layer renders '↑?'.
+        }
+        try {
+            const diff = await this.execGit([
+                '-C', worktreePath,
+                'diff', '--name-only', '-z', baseline.commitSha,
+            ], worktreePath);
+            snapshot.taskFileCount = diff.stdout.split('\0')
+                .filter(token => token && token.length <= MAX_PATH_LENGTH)
+                .length;
+        } catch (_error) {
+            // taskFileCount stays unknown; the task layer hides itself.
+        }
+        return snapshot;
+    }
+}
+
+export type AggregateCompleteness = 'complete' | 'partial' | 'unavailable';
+
+export interface ChangesAggregate {
+    completeness: AggregateCompleteness;
+    /** Sum of workingItemCount over readable members. */
+    workingItemCount: number;
+    /** True when ≥1 readable member exists but ≥1 is unreadable. */
+    workingPartial: boolean;
+    /** Sum of known ahead counts; undefined when none are known. */
+    aheadCount?: number;
+    /** True when ≥1 member has an unknown ahead (baseline missing etc.). */
+    aheadPartial: boolean;
+    /** True when every member is unreadable (retired / git gone). */
+    allUnreadable: boolean;
+}
+
+/**
+ * Cross-member aggregation (changes-panel PRD §4.3): unknown is never
+ * rendered as zero — partial states surface as `3+`, `↑?`, `↑—` in the
+ * UI layer.
+ */
+export function aggregateMemberChanges(
+    members: readonly MemberChangesSnapshot[]
+): ChangesAggregate {
+    const readable = members.filter(member => member.availability !== 'unreadable');
+    const unreadable = members.length - readable.length;
+    const workingPartial = readable.length > 0 && unreadable > 0;
+    const knownAhead = readable.filter(member =>
+        member.availability === 'available' && member.aheadCount !== undefined);
+    const aheadPartial = readable.some(member =>
+        member.availability !== 'available' || member.aheadCount === undefined);
+    return {
+        completeness: readable.length === 0
+            ? 'unavailable'
+            : workingPartial || aheadPartial
+                ? 'partial'
+                : 'complete',
+        workingItemCount: readable.reduce((sum, member) =>
+            sum + member.workingItemCount, 0),
+        workingPartial,
+        aheadCount: knownAhead.length
+            ? knownAhead.reduce((sum, member) => sum + (member.aheadCount ?? 0), 0)
+            : undefined,
+        aheadPartial,
+        allUnreadable: members.length > 0 && readable.length === 0,
+    };
+}

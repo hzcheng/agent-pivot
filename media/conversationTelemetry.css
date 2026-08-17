@@ -24,10 +24,10 @@
 
 .conversation-telemetry-provider,
 .conversation-telemetry-model,
-.conversation-telemetry-worktree,
 .conversation-telemetry-position,
 .conversation-telemetry-subagents,
-.conversation-telemetry-comments {
+.conversation-telemetry-comments,
+.conversation-telemetry-changes {
     height: 1.75rem;
     box-sizing: border-box;
     border: 1px solid color-mix(
@@ -77,8 +77,7 @@
     color: #d97757;
 }
 
-.conversation-telemetry-model,
-.conversation-telemetry-worktree {
+.conversation-telemetry-model {
     display: inline-flex;
     min-width: 0;
     flex: 0 1 auto;
@@ -91,8 +90,7 @@
     max-width: 15rem;
 }
 
-.conversation-telemetry-model > svg,
-.conversation-telemetry-worktree > svg {
+.conversation-telemetry-model > svg {
     width: .9rem;
     height: .9rem;
     flex: 0 0 auto;
@@ -102,8 +100,7 @@
     );
 }
 
-.conversation-telemetry-model strong,
-.conversation-telemetry-worktree [data-telemetry-worktree-branch] {
+.conversation-telemetry-model strong {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -116,30 +113,27 @@
     letter-spacing: .01em;
 }
 
-.conversation-telemetry-worktree {
-    max-width: 13rem;
-    font: inherit;
-    cursor: pointer;
+.conversation-telemetry-position[aria-pressed="true"],
+.conversation-telemetry-subagents[aria-pressed="true"],
+.conversation-telemetry-comments[aria-pressed="true"],
+.conversation-telemetry-changes[aria-pressed="true"] {
+    border-color: var(--vscode-focusBorder);
+    background: color-mix(
+        in srgb,
+        var(--vscode-focusBorder) 14%,
+        transparent
+    );
 }
 
-.conversation-telemetry-worktree:hover,
 .conversation-telemetry-position:hover,
 .conversation-telemetry-subagents:hover,
-.conversation-telemetry-comments:hover {
+.conversation-telemetry-comments:hover,
+.conversation-telemetry-changes:hover {
     border-color: var(--vscode-focusBorder);
     background: var(
         --vscode-toolbar-hoverBackground,
         var(--vscode-list-hoverBackground)
     );
-}
-
-.conversation-telemetry-worktree-missing {
-    opacity: .62;
-}
-
-.conversation-telemetry-worktree-missing
-    [data-telemetry-worktree-branch] {
-    text-decoration: line-through;
 }
 
 .conversation-telemetry-divider {
@@ -246,7 +240,8 @@
 
 .conversation-telemetry-position,
 .conversation-telemetry-subagents,
-.conversation-telemetry-comments {
+.conversation-telemetry-comments,
+.conversation-telemetry-changes {
     display: inline-flex;
     min-width: 1.75rem;
     flex: 0 0 auto;
@@ -262,7 +257,8 @@
 
 .conversation-telemetry-position > svg,
 .conversation-telemetry-subagents > svg,
-.conversation-telemetry-comments > svg {
+.conversation-telemetry-comments > svg,
+.conversation-telemetry-changes > svg {
     width: .92rem;
     height: .92rem;
     flex: 0 0 auto;
@@ -322,6 +318,7 @@
     line-height: 1.35;
     text-align: left;
     white-space: pre-line;
+    overflow-wrap: anywhere;
 }
 
 .conversation-telemetry-position::before,
@@ -329,14 +326,17 @@
 .conversation-telemetry-comments::before,
 .conversation-telemetry-comments::after,
 .conversation-telemetry-subagents::before,
-.conversation-telemetry-subagents::after {
+.conversation-telemetry-subagents::after,
+.conversation-telemetry-changes::before,
+.conversation-telemetry-changes::after {
     right: 0;
     left: auto;
 }
 
 .conversation-telemetry-position::before,
 .conversation-telemetry-comments::before,
-.conversation-telemetry-subagents::before {
+.conversation-telemetry-subagents::before,
+.conversation-telemetry-changes::before {
     right: .65rem;
 }
 
@@ -377,10 +377,6 @@
         max-width: 6rem;
     }
 
-    .conversation-telemetry-worktree
-        [data-telemetry-worktree-branch] {
-        max-width: 5rem;
-    }
 }
 
 @media (max-width: 360px) {
@@ -392,15 +388,13 @@
 
     .conversation-telemetry-provider,
     .conversation-telemetry-model,
-    .conversation-telemetry-worktree,
     .conversation-telemetry-position,
     .conversation-telemetry-subagents,
     .conversation-telemetry-comments {
         height: 1.65rem;
     }
 
-    .conversation-telemetry-model,
-    .conversation-telemetry-worktree {
+    .conversation-telemetry-model {
         width: 1.65rem;
         flex-basis: 1.65rem;
         justify-content: center;
@@ -408,8 +402,6 @@
     }
 
     .conversation-telemetry-model strong,
-    .conversation-telemetry-worktree
-        [data-telemetry-worktree-branch],
     .conversation-telemetry-usage strong {
         display: none;
     }
@@ -440,7 +432,6 @@
 }
 
 @media (max-width: 220px) {
-    .conversation-telemetry-worktree,
     .conversation-telemetry-divider {
         display: none;
     }
@@ -449,7 +440,6 @@
 @media (forced-colors: active) {
     .conversation-telemetry-provider,
     .conversation-telemetry-model,
-    .conversation-telemetry-worktree,
     .conversation-telemetry-position,
     .conversation-telemetry-subagents,
     .conversation-telemetry-comments {
@@ -464,7 +454,8 @@
 
     .conversation-telemetry-position[aria-pressed="true"],
     .conversation-telemetry-subagents[aria-pressed="true"],
-    .conversation-telemetry-comments[aria-pressed="true"] {
+    .conversation-telemetry-comments[aria-pressed="true"],
+    .conversation-telemetry-changes[aria-pressed="true"] {
         border-color: Highlight;
         color: Highlight;
     }

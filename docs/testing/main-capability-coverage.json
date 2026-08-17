@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "ba6ab556e44a249788892a6fcba7277e2f927a58",
+        "head": "aa40b009ba32eab805ac3d11c340825079f8a509",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -388,7 +388,25 @@
             "5e55660b1986ba36929466ec8f989cfaf9657ef8",
             "1a83abc5e2b2776c6710340bb5957c406846cd85",
             "fb26f43a24d692aa68cc780a6d70a04d681e77c8",
-            "447174a1dfda119d17c4abf2ae9f9d362f3e5d81"
+            "447174a1dfda119d17c4abf2ae9f9d362f3e5d81",
+            "4f050c556ae6e660737eb194e92f934eee87d5a5",
+            "9c7001d4a8d72cde9a59996be87c10c74a7b69a6",
+            "12f0fed3ac765d6d26d02fb0ef6d45258d5ef785",
+            "f80f0f2ee789839dc832b4a4c0df0df087ccc01d",
+            "849d87f9a99ec20c0a49537bd8d11884c33b5bc2",
+            "9dd1e968cec5c623e06503fb0ff71c4d8fcc15b8",
+            "252e680c75fdb14c7c0fe6ff305088a7e8141afb",
+            "8f58208aa39fcf6c92d834dc2b53ca58e9f17d00",
+            "6b356402329ee59625f334f99ecaccc8a7e6d164",
+            "734d514c1d547e2991252ca2a221a5980bbaa972",
+            "ab2c0b3c82ac2ab0454a4ff4776aa5c560481042",
+            "f152dd9cc781a4d2d104ef4173c95a2ae61aa6ee",
+            "94c1bafe00103954038f38cf24c0a8b686623c10",
+            "838cef483c47e0ead3969d8354c355a18b78c2ab",
+            "ef8c2512740e9850eb907b97f1e9c21657de6141",
+            "bbdddd86e704b20776364fe0592816b7d81d8cba",
+            "c96e7c64349e222b936028f53dfdadb7d5bda8aa",
+            "98edde499337cf10e858efc3de2839d476506f23"
         ]
     },
     "capabilities": [
@@ -1474,7 +1492,8 @@
                 "2a6ed05a8160df4018e20a09dc09d76378d9a82e",
                 "18281dc9400c3800e88f68d866f4cb827b4e54e6",
                 "534b86f41a7a8a172332d0b67e9d16a944e9df5c",
-                "ba6ab556e44a249788892a6fcba7277e2f927a58"
+                "ba6ab556e44a249788892a6fcba7277e2f927a58",
+                "aa40b009ba32eab805ac3d11c340825079f8a509"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",
@@ -1851,7 +1870,8 @@
                 "d9815935b7ab437c1f0a7b318a7c704c73dd3da8",
                 "2b8b84f23b83e4bd05c008f171561895596b4661",
                 "67b228102695e6e1f3d03fd57c47495d2ab90cc5",
-                "f6775a1a2e74527be5983a051cf3974581814ce6"
+                "f6775a1a2e74527be5983a051cf3974581814ce6",
+                "6d2e4a699102a51e6fa14a4bf02b078970e70fad"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -2150,6 +2170,42 @@
             ],
             "behaviors": [
                 "AI-SESSION-QUICK-CREATE-001"
+            ],
+            "prGates": [
+                "test:deterministic:run",
+                "test:browser:run"
+            ],
+            "scheduledJobs": [],
+            "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-WORKTREE-CHANGES-PANEL",
+            "title": "In-conversation worktree changes panel",
+            "requirement": "The AI conversation view shows the session task's git changes in place: an immutable per-member baseline is frozen before any physical side effect and persisted with the provisioning intent, provisioning branches from the frozen commit rather than a moved base ref, the telemetry strip carries a Changes button whose counts never render unknown as zero, and a read-only sidebar tab presents the task result relative to each worktree baseline plus the uncommitted working changes grouped the way Source Control groups them.",
+            "commits": [
+                "beca4aba9d9123a06a1d6e237907c8bd7b3b48be",
+                "98a8dc8a54a331ee46f1c7733f3fd89fa6c4d96c",
+                "545ac1208432dce8267f09d2e3c1cff19df6e248",
+                "4d183f22412d93eaec6eb3c3978ffc3c28e7c8d2",
+                "f04533baf6666c209edaf3c1e5845c8b3957cee7",
+                "9df45c1b4a24fbee1edb17e95f7810ee9e5994c9",
+                "15834188da7ed74df2fc74f8108baccd1de9cf3d",
+                "6b6820a4e56ac979630486183f8442b0602bd3a2",
+                "565afae9edb09c0798a0eac440b1f460332aa401",
+                "835e598afa45a5c43994e575bc61f3e1d06dcee4",
+                "e8d151a06f44fe44c83f67e731621ea401816129",
+                "124a599ad04b4154acec1416b2c26d220c197aa8",
+                "54c566c1ce08c2fd8475715696c1c6df0f4255f0",
+                "aca331a6788dfe81e474a42952f6d55cd5faee66",
+                "70039ba891864d9c98616c3bf03ac32ce35dac37",
+                "73e96b7ba54483c1250b0d3aa58d2bc7d33fe64c",
+                "f7a968b0242728dbdc61500531e07ed71f2df2a0",
+                "e332a22ca94bd7e9ad0614fe36c554a9f4209c6b"
+            ],
+            "behaviors": [
+                "WORKTREE-GROUPS-BASELINE-001",
+                "WORKTREE-CHANGES-COLLECT-001",
+                "WORKTREE-CHANGES-PANEL-001"
             ],
             "prGates": [
                 "test:deterministic:run",

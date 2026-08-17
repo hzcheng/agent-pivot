@@ -57,6 +57,10 @@ const conversationSidebarScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationSidebarScripts.js'),
     'utf8'
 );
+const conversationChangesScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationChangesScripts.js'),
+    'utf8'
+);
 const conversationReconcileScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationReconcileScripts.js'),
     'utf8'
@@ -208,11 +212,6 @@ async function openViewerPage(t, options = {}) {
                     <div class="conversation-telemetry-provider"
                         data-telemetry-provider data-provider="codex"
                         title="Provider · Codex"></div>
-                    <button type="button" class="conversation-telemetry-worktree"
-                        data-telemetry-worktree data-worktree-root="" title=""
-                        hidden>
-                        <span data-telemetry-worktree-branch></span>
-                    </button>
                     <div class="conversation-telemetry-model"
                         data-telemetry-model hidden>
                         <strong data-telemetry-model-value></strong>
@@ -978,6 +977,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applyi
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-telemetry',
+        applyError: 'sanitize unavailable',
     });
 });
 
@@ -1629,6 +1629,13 @@ async function openHostViewerDocument(t, options = {}) {
             });
             return;
         }
+        if (pathname === '/conversationChangesScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationChangesScript,
+            });
+            return;
+        }
         if (pathname === '/conversationReconcileScripts.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
@@ -2048,7 +2055,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     });
 
     await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-sidebar-tab="subagents"]').click();
+    await page.locator('[data-telemetry-subagents]').click();
     const entry = page.locator('[data-subagent-id="a11111111"]');
     const finishedEntry = page.locator('[data-subagent-id="a22222222"]');
     assert.match(await entry.innerText(), /Explore the parser/);
@@ -2096,7 +2103,8 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         true,
         'the filter must survive a document rebuild'
     );
-    await rebuilt.page.locator('[data-sidebar-tab="subagents"]').click();
+    // The subagents view is restored from saved state — clicking the pill
+    // again would toggle the panel closed (the pills are the switchers now).
     assert.equal(
         await rebuilt.page.locator('[data-subagent-id="a22222222"]').count(),
         0
@@ -2125,8 +2133,8 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     await rebuilt.page.locator('[data-action="toggle-sidebar"]').click();
     await counter.click();
     assert.equal(
-        await rebuilt.page.locator('[data-sidebar-tab="subagents"]')
-            .getAttribute('aria-selected'),
+        await rebuilt.page.locator('[data-telemetry-subagents]')
+            .getAttribute('aria-pressed'),
         'true'
     );
     assert.equal(
@@ -2227,7 +2235,7 @@ test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sid
 
     const sidebar = page.locator('[data-conversation-sidebar]');
     const telemetrySubagents = page.locator('[data-telemetry-subagents]');
-    const subagentsTab = page.locator('[data-sidebar-tab="subagents"]');
+    const subagentsTab = page.locator('[data-telemetry-subagents]');
 
     // Sidebar starts closed
     assert.equal(await sidebar.isHidden(), true);
@@ -2235,7 +2243,7 @@ test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sid
     // Click telemetry subagents pill → sidebar opens with subagents tab
     await telemetrySubagents.click();
     assert.equal(await sidebar.isVisible(), true);
-    assert.equal(await subagentsTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await subagentsTab.getAttribute('aria-pressed'), 'true');
     assert.equal(await telemetrySubagents.getAttribute('aria-pressed'), 'true');
 
     // Click same pill again → sidebar closes (toggle)
@@ -2246,7 +2254,7 @@ test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sid
     // Click again → reopens, verifying the toggle is reversible
     await telemetrySubagents.click();
     assert.equal(await sidebar.isVisible(), true);
-    assert.equal(await subagentsTab.getAttribute('aria-selected'), 'true');
+    assert.equal(await subagentsTab.getAttribute('aria-pressed'), 'true');
     assert.equal(await telemetrySubagents.getAttribute('aria-pressed'), 'true');
 });
 
@@ -2503,19 +2511,27 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
         interactionId: 'input-4',
     });
 
-    const outlineTab = page.locator('[data-sidebar-tab="outline"]');
-    await outlineTab.focus();
-    await outlineTab.press('ArrowRight');
+    // The telemetry pills are the view switchers (no sidebar tab row):
+    // clicking the comments pill while the outline is open switches views.
+    const outlinePill = page.locator('[data-conversation-position]');
+    await outlinePill.focus();
+    await page.locator('[data-telemetry-comments]').click();
     assert.equal(await outline.isHidden(), true);
     assert.equal(await comments.isVisible(), true);
     assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(
-        await page.evaluate(() =>
-            document.activeElement?.getAttribute('data-sidebar-tab')
-        ),
-        'comments'
+        await page.locator('[data-telemetry-comments]')
+            .getAttribute('aria-pressed'),
+        'true',
+        'the active view\'s pill reads pressed'
     );
+    assert.equal(
+        await outlinePill.getAttribute('aria-pressed'),
+        'false'
+    );
+    // Escape closes the panel only when focus is inside it.
+    await page.locator('[data-conversation-comments] button').first().focus();
     await page.keyboard.press('Escape');
     assert.equal(await sidebar.isHidden(), true);
     assert.equal(
@@ -2527,7 +2543,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     await sidebarToggle.click();
     assert.equal(await comments.isVisible(), true);
     assert.equal(await outline.isHidden(), true);
-    await page.locator('[data-sidebar-tab="outline"]').click();
+    await page.locator('[data-conversation-position]').click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
 });
@@ -2560,7 +2576,6 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
     assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
     const outlineLayout = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
-        const tabs = document.querySelector('.conversation-sidebar-tabs');
         const search = outline.querySelector('[data-outline-search]');
         const sort = outline.querySelector('[data-outline-sort]');
         const selectedItem = outline.querySelector(
@@ -2578,7 +2593,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         const starRect = star.getBoundingClientRect();
         const previewRect = preview.getBoundingClientRect();
         return {
-            tabsHeight: tabs.getBoundingClientRect().height,
+            headerHeight: searchRect.top - outlineRect.top,
             sortAlignedWithSearch:
                 Math.abs(sortRect.top - searchRect.top) < 1,
             previewInset: previewRect.left - outlineRect.left,
@@ -2588,8 +2603,8 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         };
     });
     assert.ok(
-        outlineLayout.tabsHeight >= 28 && outlineLayout.tabsHeight <= 34,
-        `outline tabs should stay compact, got ${outlineLayout.tabsHeight}px`
+        outlineLayout.headerHeight <= 40,
+        `the outline content should start near the panel top, got ${outlineLayout.headerHeight}px`
     );
     assert.ok(
         outlineLayout.previewInset >= 11
@@ -3737,13 +3752,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             true,
             `${label}: Outline should remain available`
         );
-        await page.locator('[data-sidebar-tab="comments"]').click();
+        await page.locator('[data-telemetry-comments]').click();
         assert.equal(
             await page.locator('[data-conversation-comments]').isVisible(),
             true,
             `${label}: Comments should remain available`
         );
-        await page.locator('[data-sidebar-tab="subagents"]').click();
+        await page.locator('[data-telemetry-subagents]').click();
         assert.equal(
             await page.locator('[data-conversation-subagents]').isVisible(),
             true,
@@ -4667,7 +4682,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'c2ca7e89d1fbdb33aea2fb6c35cff7e25329ce708a69242a847391804ad80a40',
+        '8a7392a219578d8656d7536763ea539e177b0756cab7ab68355f8268cf32c562',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -5156,7 +5171,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     assert.equal(await pill.isVisible(), true);
     assert.equal(await pill.innerText(), '0');
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     await page.locator('[data-comment-action="new"]').click();
     await page.locator('[data-comment-input]').fill(
         'Check the rollout constraint.'
@@ -5185,11 +5200,11 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     assert.equal(await pill.isVisible(), true);
     assert.equal(await pill.innerText(), '1/1');
 
-    await page.locator('[data-sidebar-tab="outline"]').click();
+    await page.locator('[data-conversation-position]').click();
     await pill.click();
     assert.equal(
-        await page.locator('[data-sidebar-tab="comments"]')
-            .getAttribute('aria-selected'),
+        await page.locator('[data-telemetry-comments]')
+            .getAttribute('aria-pressed'),
         'true'
     );
     await toolbarSend.click();
@@ -5256,7 +5271,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         },
     });
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     const projectSection = page.locator('[data-project-comments]');
     const projectHeader = page.locator('[data-project-comments-header]');
     assert.equal(await projectSection.isVisible(), true);
@@ -5670,7 +5685,7 @@ test('PROJECT-COMMENTS-UI-001 keeps the workspace composer fully visible when th
         },
     });
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     const projectSection = page.locator('[data-project-comments]');
     const projectHeader = page.locator('[data-project-comments-header]');
 
@@ -10531,109 +10546,6 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 fol
     }
 });
 
-test('CONVERSATION-TELEMETRY-001 renders the worktree chip, degrades missing paths, and posts open-worktree on click', async t => {
-    const page = await openViewerPage(t);
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 1,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            worktree: {
-                branch: 'feat/worktree',
-                worktreeRoot: '/repo/.worktree/feat-worktree',
-                repoRoot: '/repo',
-            },
-            rateLimits: [],
-        },
-    });
-
-    const chip = page.locator('[data-telemetry-worktree]');
-    assert.equal(await chip.isVisible(), true);
-    assert.equal(
-        await page.locator('[data-telemetry-worktree-branch]').textContent(),
-        'feat/worktree'
-    );
-    assert.match(
-        await chip.getAttribute('title'),
-        /Click to show changes in Source Control/
-    );
-    assert.equal(
-        await page.locator('[data-conversation-telemetry]').isVisible(),
-        true
-    );
-
-    await chip.click();
-    assert.deepEqual(await postedMessages(page), [
-        {
-            type: 'conversation-viewer-focus',
-            version: 1,
-            focused: true,
-        },
-        {
-            type: 'conversation-viewer-open-worktree',
-            version: 1,
-            worktreeRoot: '/repo/.worktree/feat-worktree',
-        },
-    ]);
-
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 2,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            worktree: {
-                branch: 'feat/gone',
-                worktreeRoot: '/repo/.worktree/feat-gone',
-                repoRoot: '/repo',
-                missing: true,
-            },
-            rateLimits: [],
-        },
-    });
-    assert.equal(
-        await chip.getAttribute('class'),
-        'conversation-telemetry-worktree conversation-telemetry-worktree-missing'
-    );
-    assert.match(await chip.getAttribute('title'), /no longer exists/);
-
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 3,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            model: 'gpt-5.6-sol',
-            rateLimits: [],
-        },
-    });
-    assert.equal(await chip.isHidden(), true);
-
-    await sendPage(page, {
-        type: 'conversation-viewer-telemetry',
-        version: 1,
-        requestId: 4,
-        subscriptionGeneration: 1,
-        telemetry: {
-            provider: 'codex',
-            sessionId: 'session-telemetry',
-            worktree: { branch: 42 },
-            rateLimits: [],
-        },
-    });
-    assert.equal(
-        await page.locator('[data-telemetry-model-value]').textContent(),
-        'gpt-5.6-sol',
-        'malformed worktree telemetry must be rejected as a whole'
-    );
-});
 
 test('CONVERSATION-TOOL-CALL-VISIBILITY-001 renders collapsible tool calls and strips hostile attributes', async t => {
     const page = await openViewerPage(t, {});
@@ -10705,7 +10617,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finish
     });
 
     await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-sidebar-tab="subagents"]').click();
+    await page.locator('[data-telemetry-subagents]').click();
     const ids = await page.locator('[data-subagent-id]').evaluateAll(
         elements => elements.map(element =>
             element.getAttribute('data-subagent-id'))
@@ -11194,7 +11106,6 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
     );
     const orderedLeftEdges = await page.locator([
         '[data-telemetry-model]',
-        '[data-telemetry-worktree]',
         '[data-telemetry-context]',
         '[data-telemetry-limit]',
         '[data-conversation-position]',
@@ -11206,7 +11117,7 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
     assert.deepEqual(
         orderedLeftEdges,
         [...orderedLeftEdges].sort((a, b) => a - b),
-        'telemetry must follow model, branch, usage, then quick-entry order'
+        'telemetry must follow model, usage, then quick-entry order'
     );
 
     await page.emulateMedia({ forcedColors: 'active' });
@@ -11477,7 +11388,7 @@ test('TMP repro add flow from closed sidebar', async t => {
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
     await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    await page.locator('[data-telemetry-comments]').click();
     await page.locator('[data-project-comments-header]')
         .locator('[data-project-comment-action="open-composer"]').click();
     console.log('TMP composer visible:',
@@ -11535,7 +11446,8 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         },
     });
 
-    await page.locator('[data-sidebar-tab="comments"]').click();
+    // The saved state restores the open comments view; clicking the
+    // comments pill here would toggle the panel closed.
     const card = page.locator('[data-comment-id="comment-1"]');
 
     // Session cards carry the same bottom tags row: a display-only status
@@ -11598,4 +11510,370 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and ta
         commentId: 'comment-1',
         tag: 'convention',
     });
+});
+
+function changesFixture(overrides = {}) {
+    return {
+        kind: 'ready',
+        aggregate: {
+            completeness: 'complete', workingItemCount: 4,
+            workingPartial: false, aheadCount: 2,
+            aheadPartial: false, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 3,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }, {
+            memberId: 'm-web', repoLabel: 'web',
+            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
+            availability: 'available', workingItemCount: 1,
+            aheadCount: 0, truncated: false,
+        }],
+        selectedMemberId: 'm-api',
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 5,
+            items: [
+                { group: 'changes', xy: ' M', path: 'src/auth/login.ts' },
+                { group: 'staged', xy: 'M ', path: 'src/auth/session.ts' },
+                { group: 'untracked', xy: '??', path: 'src/auth/login.test.ts' },
+            ],
+            truncated: false,
+        },
+        collectedAt: 1724000000000,
+        ...overrides,
+    };
+}
+
+async function sendChanges(page, changes, generationOverride) {
+    const generation = generationOverride || await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    await sendPage(page, {
+        type: 'conversation-viewer-changes',
+        version: 1,
+        subscriptionGeneration: generation,
+        changes,
+    });
+}
+
+test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, groups, and posts intents', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const changesButton = page.locator('[data-telemetry-changes]');
+
+    assert.equal(await changesButton.isVisible(), false,
+        'the Changes button stays hidden before the first state');
+
+    await sendChanges(page, changesFixture());
+
+    assert.equal(await changesButton.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(),
+        '4 · 2',
+        'the button carries bare numbers — no arrows or dashes'
+    );
+    const tooltip = await changesButton.getAttribute('data-tooltip');
+    assert.equal(await changesButton.getAttribute('title'), null,
+        'no native title — the custom tooltip is the single popup');
+    assert.ok(tooltip.includes('api (agent-pivot/fix-login)'));
+    assert.ok(tooltip.includes('Task result: 5 files · 2 commits since start'));
+    assert.ok(tooltip.includes('Uncommitted: 3'));
+    assert.ok(tooltip.includes('/wt/api'),
+        'hover reveals the worktree path');
+    assert.ok(tooltip.includes('web (agent-pivot/fix-login-ui)'));
+
+    // The button opens the sidebar on the Changes tab, like its siblings.
+    await changesButton.click();
+    assert.equal(
+        await page.locator('[data-conversation-changes]').isVisible(), true);
+    assert.equal(
+        await changesButton.getAttribute('aria-pressed'), 'true');
+
+    // Member dropdown lists both worktrees as plain repo + branch —
+    // counts and arrows carry no weight here (they live in the tooltip).
+    const options = await page.locator(
+        '[data-changes-member-select] option').allInnerTexts();
+    assert.deepEqual(options, [
+        'api · ⎇ agent-pivot/fix-login',
+        'web · ⎇ agent-pivot/fix-login-ui',
+    ]);
+
+    // Cross-member hint.
+    assert.equal(
+        await page.locator('[data-changes-cross-member]').innerText(),
+        '+1 in web');
+
+    // Task result layer with the containment note and review entry.
+    assert.equal(
+        await page.locator('[data-changes-task-summary]').innerText(),
+        '5 files · 2 commits');
+    assert.ok((await page.locator('[data-changes-task]')
+        .getAttribute('title'))
+        .includes('includes committed and uncommitted changes'));
+
+    // Working groups render in the SCM order with the untracked group split.
+    const groupHeaders = await page.locator(
+        '.conversation-changes-group-header').allInnerTexts();
+    assert.deepEqual(groupHeaders, ['Staged Changes', 'Changes', 'Untracked Changes']);
+    const rows = await page.locator('.conversation-changes-file').allInnerTexts();
+    assert.equal(rows.length, 3);
+    // Tree view: file rows show basenames, folders render above them.
+    assert.ok(rows.some(row => row.includes('login.test.ts')));
+    const folders = await page.locator(
+        '.conversation-changes-folder').allInnerTexts();
+    assert.ok(folders.some(text => text.includes('src'))
+        && folders.some(text => text.includes('auth')));
+
+    // Collapsing a folder hides its files without losing the row state.
+    // (Scoped to the Changes group: 'login.ts' also matches
+    // 'login.test.ts' under Untracked.)
+    const changesGroup = page.locator('.conversation-changes-group', {
+        has: page.locator('.conversation-changes-group-header', {
+            hasText: /^Changes$/,
+        }),
+    });
+    const authFolder = changesGroup.locator('.conversation-changes-folder', {
+        hasText: 'auth',
+    });
+    const loginRow = changesGroup.locator('.conversation-changes-file', {
+        hasText: 'login.ts',
+    });
+    await authFolder.click();
+    assert.equal(await loginRow.isVisible(), false);
+    await authFolder.click();
+    assert.equal(await loginRow.isVisible(), true);
+
+    // Clicking a file posts the exact open-file intent.
+    await page.locator('.conversation-changes-file', {
+        hasText: 'login.ts',
+    }).first().click();
+    const openFile = (await postedMessages(page)).at(-1);
+    assert.deepEqual(openFile, {
+        type: 'conversation-viewer-changes-open-file',
+        version: 1,
+        memberId: 'm-api',
+        group: 'changes',
+        xy: ' M',
+        path: 'src/auth/login.ts',
+        originalPath: undefined,
+    });
+
+    // Review + refresh + SCM + member switch intents.
+    await page.locator('[data-changes-review]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-review', version: 1, memberId: 'm-api',
+    });
+    await page.locator('[data-changes-refresh]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-refresh', version: 1,
+    });
+    await page.locator('[data-changes-open-scm]').click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-open-scm', version: 1, memberId: 'm-api',
+    });
+    await page.locator('[data-changes-member-select]').selectOption('m-web');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select', version: 1, memberId: 'm-web',
+    });
+});
+
+test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is open', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+    const select = page.locator('[data-changes-member-select]');
+    await select.focus();
+    await page.evaluate(() => {
+        window.__firstOption = document
+            .querySelector('[data-changes-member-select]').options[0];
+    });
+
+    // Repeated state pushes while the dropdown has focus (i.e. is open)
+    // must leave its DOM untouched — rebuilding closes the native popup.
+    await sendChanges(page, changesFixture({
+        collectedAt: 1724000005000,
+    }));
+    await sendChanges(page, changesFixture({
+        collectedAt: 1724000010000,
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 9,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }, {
+            memberId: 'm-web', repoLabel: 'web',
+            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
+            availability: 'available', workingItemCount: 1,
+            aheadCount: 0, truncated: false,
+        }],
+    }));
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-changes-member-select]').options[0]
+            === window.__firstOption), true,
+        'option element identity is preserved while the dropdown is focused');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement === document
+            .querySelector('[data-changes-member-select]')), true);
+
+    // Once the dropdown loses focus, a changed member set rebuilds.
+    await page.locator('[data-changes-refresh]').focus();
+    await sendChanges(page, changesFixture({
+        collectedAt: 1724000015000,
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 9,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }],
+    }));
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-changes-member-select]').options[0]
+            === window.__firstOption), false,
+        'after blur a changed member set rebuilds the options');
+    assert.equal((await select.inputValue()), 'm-api');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 scrolls long change lists instead of clipping them', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const manyItems = Array.from({ length: 60 }, (_unused, index) => ({
+        group: 'changes',
+        xy: ' M',
+        path: `src/deeply/nested/directory/structure/file-${String(index).padStart(2, '0')}.ts`,
+    }));
+    await sendChanges(page, changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 60,
+            items: manyItems,
+            truncated: false,
+        },
+    }));
+    await page.locator('[data-telemetry-changes]').click();
+    const groups = page.locator('[data-changes-groups]');
+    const metrics = await groups.evaluate(element => ({
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+        overflowY: getComputedStyle(element).overflowY,
+    }));
+    assert.equal(metrics.overflowY, 'auto');
+    assert.ok(metrics.scrollHeight > metrics.clientHeight,
+        'the list scrolls internally instead of overflowing the panel');
+    // The last file is reachable by scrolling to the bottom.
+    await groups.evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+    });
+    assert.equal(
+        await page.locator('.conversation-changes-file', {
+            hasText: 'file-59.ts',
+        }).isVisible(),
+        true);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zero-washing', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture({
+        aggregate: {
+            completeness: 'partial', workingItemCount: 3,
+            workingPartial: true, aheadCount: 2,
+            aheadPartial: true, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 3,
+            aheadCount: 2, truncated: false,
+        }, {
+            memberId: 'm-gone', repoLabel: 'gone', branchName: '',
+            worktreePath: '/wt/gone', availability: 'unreadable',
+            workingItemCount: 0, truncated: false,
+        }],
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 5,
+            items: [], truncated: false,
+        },
+    }));
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(),
+        '3+',
+        'partial working state keeps its + marker; unknown ahead is omitted');
+    const tooltip = await page.locator('[data-telemetry-changes]')
+        .getAttribute('data-tooltip');
+    assert.ok(tooltip.includes('Partial'));
+
+    // Retired: disabled button, no zero, explanatory panel.
+    await sendChanges(page, changesFixture({
+        kind: 'retired',
+        aggregate: {
+            completeness: 'unavailable', workingItemCount: 0,
+            workingPartial: false, aheadPartial: false,
+            allUnreadable: true,
+        },
+        members: [],
+        selectedMemberId: undefined,
+        detail: undefined,
+    }));
+    const retiredButton = page.locator('[data-telemetry-changes]');
+    assert.equal(await retiredButton.isDisabled(), false,
+        'retired stays clickable so the panel can explain itself');
+    assert.equal(await retiredButton.getAttribute('class')
+        .then(c => c.includes('conversation-telemetry-changes-unavailable')),
+        true);
+    assert.ok((await retiredButton.getAttribute('data-tooltip'))
+        .includes('has been deleted'));
+    await retiredButton.click();
+    assert.ok((await page.locator('[data-changes-unavailable]').innerText())
+        .includes('deleted'));
+
+    // Baseline-unavailable members explain themselves and hide Review.
+    await sendChanges(page, changesFixture({
+        aggregate: {
+            completeness: 'partial', workingItemCount: 1,
+            workingPartial: false, aheadPartial: true, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-legacy', repoLabel: 'legacy', branchName: 'old/task',
+            worktreePath: '/wt/legacy', availability: 'baselineUnavailable',
+            workingItemCount: 1, truncated: false,
+        }],
+        selectedMemberId: 'm-legacy',
+        detail: {
+            memberId: 'm-legacy', availability: 'baselineUnavailable',
+            items: [{ group: 'changes', xy: ' M', path: 'src/keep.ts' }],
+            truncated: false,
+        },
+    }));
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(),
+        '1',
+        'unknown ahead is omitted from the button entirely');
+    assert.equal(
+        await page.locator('[data-changes-task-summary]').innerText(),
+        'No recorded task start — only uncommitted changes are shown');
+    assert.equal(
+        await page.locator('[data-changes-review]').isHidden(), true,
+        'a review action without a baseline is hidden, not dead');
+
+    // Stale generations are ignored.
+    await sendChanges(page, changesFixture({
+        aggregate: {
+            completeness: 'complete', workingItemCount: 9,
+            workingPartial: false, aheadCount: 9,
+            aheadPartial: false, allUnreadable: false,
+        },
+        members: [{
+            memberId: 'm-x', repoLabel: 'x', branchName: 'b',
+            worktreePath: '/wt/x', availability: 'available',
+            workingItemCount: 9, aheadCount: 9, truncated: false,
+        }],
+        selectedMemberId: 'm-x',
+        detail: undefined,
+    }), 999);
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(), '1',
+        'a stale generation never overwrites the current state');
 });

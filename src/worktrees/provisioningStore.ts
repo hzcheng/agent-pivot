@@ -4,6 +4,7 @@ import * as path from 'path';
 import type { WorktreeProvisioningCompletedStep } from './provisioningController';
 import type { WorktreeProvisioningPlan } from './provisioningPlan';
 import type { ProvisioningWorktreeRow, WorktreeKey } from './types';
+import { parseMemberBaseline } from './baseline';
 import { normalizeWorktreeSetupCommand } from './worktreeSetupRunner';
 import { isManagedWorktreePath } from './provisioningPlan';
 
@@ -325,6 +326,17 @@ function parsePlan(value: unknown): WorktreeProvisioningPlan | null {
         || String(value.branchName).startsWith('-')) {
         return null;
     }
+    // Baseline is optional for backward compatibility with recovery
+    // records written before the baseline contract existed; a present-
+    // but-corrupt baseline invalidates the record (never guessed).
+    let baseline: WorktreeProvisioningPlan['baseline'];
+    if (value.baseline !== undefined) {
+        const parsed = parseMemberBaseline(value.baseline);
+        if (!parsed) {
+            return null;
+        }
+        baseline = parsed;
+    }
     return {
         repositoryKey: value.repositoryKey,
         commandCwd: value.commandCwd,
@@ -333,6 +345,7 @@ function parsePlan(value: unknown): WorktreeProvisioningPlan | null {
         slug: value.slug,
         branchName: value.branchName,
         worktreePath: value.worktreePath,
+        ...(baseline ? { baseline } : {}),
     };
 }
 

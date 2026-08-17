@@ -36,6 +36,9 @@ export interface ConversationTelemetryControllerOptions {
     getCurrentRequestId: () => number;
     isSuspended: () => boolean;
     rebuildLatestDocument: () => void;
+    /** Fires after each successful telemetry publish (changes-panel PRD
+     * §5.4: the telemetry cycle is the changes collector's fallback). */
+    onDidPublish?: (target: ConversationViewerTarget) => void;
     setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
     clearTimer?: (handle: TimerHandle) => void;
 }
@@ -182,6 +185,7 @@ export class ConversationTelemetryController {
             && this.options.getSubscriptionGeneration() === generation) {
             this.options.rebuildLatestDocument();
         }
+        this.options.onDidPublish?.(target);
     }
 
     private scheduleRefresh(): void {
@@ -273,12 +277,6 @@ function providerLabel(provider: AiSessionProviderId): string {
         : provider === 'claude' ? 'Claude' : 'Codex';
 }
 
-const WORKTREE_ICON_SVG = '<svg viewBox="0 0 16 16" width="11" height="11"'
-    + ' aria-hidden="true" fill="none" stroke="currentColor"'
-    + ' stroke-width="1.4"><circle cx="4.5" cy="3.5" r="1.8"/>'
-    + '<circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/>'
-    + '<path d="M4.5 5.3v5.4M11.5 7.3c0 2.4-2.6 2.8-4.7 3"/></svg>';
-
 const MODEL_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
     + ' fill="none" stroke="currentColor" stroke-width="1.35"'
     + ' stroke-linecap="round" stroke-linejoin="round">'
@@ -314,6 +312,15 @@ const SUBAGENTS_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
     + '<circle cx="8" cy="3" r="1.7"/><circle cx="3.5" cy="12.5" r="1.7"/>'
     + '<circle cx="12.5" cy="12.5" r="1.7"/><path d="M8 4.7v3M8 7.7 4.5 11M8 7.7l3.5 3.3"/></svg>';
 
+// Git branch glyph in the dashboard's house icon style (same geometry as
+// webviewIcons.gitBranchAdd without the plus).
+const CHANGES_ICON_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.8"'
+    + ' stroke-linecap="round" stroke-linejoin="round">'
+    + '<circle cx="6" cy="5" r="2.1"/><circle cx="6" cy="19" r="2.1"/>'
+    + '<circle cx="15" cy="7.5" r="2.1"/>'
+    + '<path d="M6 7.1v9.8"/><path d="M6 15.5c0-3.2 2.9-5.3 6.8-5.8"/></svg>';
+
 function clampPercent(value: number): number {
     return Math.max(0, Math.min(100, value));
 }
@@ -344,8 +351,6 @@ export function renderConversationTelemetry(
     const providerTitle = `Provider · ${providerLabel(provider)}`;
     const hasContext = Boolean(telemetry?.context);
     const hasModel = Boolean(telemetry?.model);
-    const worktree = telemetry?.worktree;
-    const hasWorktree = Boolean(worktree);
     const limits = telemetry?.rateLimits || [];
     const context = telemetry?.context;
     const contextPercent = context
@@ -378,11 +383,6 @@ export function renderConversationTelemetry(
             <strong data-telemetry-limit-value>${escapeHtml(visibleValue)}</strong>
         </div>`;
     }).join('');
-    const worktreeTitle = worktree
-        ? worktree.missing
-            ? `Worktree path no longer exists: ${worktree.worktreeRoot} (branch ${worktree.branch})`
-            : `Working in worktree: ${worktree.worktreeRoot} (branch ${worktree.branch}) · Click to show changes in Source Control`
-        : '';
     const modelTitle = telemetry?.model
         ? `Model · ${telemetry.model}`
         : 'Model';
@@ -406,23 +406,6 @@ export function renderConversationTelemetry(
                 telemetry?.model || ''
             )}</strong>
         </div>
-        <button type="button"
-            class="conversation-telemetry-worktree conversation-telemetry-tooltip${worktree?.missing
-                ? ' conversation-telemetry-worktree-missing'
-                : ''}"
-            data-telemetry-worktree
-            data-worktree-root="${escapeAttribute(
-                worktree?.worktreeRoot || ''
-            )}"
-            aria-label="${escapeAttribute(worktreeTitle)}"
-            title="${escapeAttribute(worktreeTitle)}"
-            data-tooltip="${escapeAttribute(worktreeTitle)}"${hasWorktree
-                ? ''
-                : ' hidden'}>
-            ${WORKTREE_ICON_SVG}<span data-telemetry-worktree-branch>${escapeHtml(
-                worktree?.branch || ''
-            )}</span>
-        </button>
         <span class="conversation-telemetry-divider" aria-hidden="true"></span>
         <div class="conversation-telemetry-usage conversation-telemetry-context conversation-telemetry-tooltip"
             data-telemetry-context role="meter" aria-valuemin="0"
@@ -468,6 +451,15 @@ export function renderConversationTelemetry(
             title="0 running of 0 subagents — click to view"
             data-tooltip="0 running of 0 subagents — click to view">
             ${SUBAGENTS_ICON_SVG}<span data-telemetry-subagents-value>0/0</span>
+        </button>
+        <button type="button"
+            class="conversation-telemetry-changes conversation-telemetry-tooltip"
+            data-telemetry-changes
+            aria-pressed="false"
+            aria-label="No changes — click to view"
+            data-tooltip="No changes — click to view"
+            hidden>
+            ${CHANGES_ICON_SVG}<span data-telemetry-changes-value>0 · ↑0</span>
         </button>
     </section>`;
 }

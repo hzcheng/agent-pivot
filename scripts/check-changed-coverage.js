@@ -24,6 +24,10 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // scripts with their own unit tests (coverage, changed-coverage, tslint) are
     // deliberately NOT listed here.
     'scripts/check-behavior-contracts.js',
+    // Dev-only probes and rendered-output verifiers (scripts/dev/*) are run
+    // manually with `node scripts/dev/<name>.js` during dogfooding; no suite
+    // requires them, and they carry no production behavior.
+    /^scripts\/dev\/[^/]+\.js$/,
     // Webview browser scripts are loaded by the Webview document itself, so the
     // deterministic Node suites never require them. tests/browser exercises them
     // in Chromium through Playwright, outside this c8 run. Their TypeScript

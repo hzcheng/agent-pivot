@@ -22,6 +22,10 @@ import type {
 import { ConversationBookmarkController } from './bookmarkController';
 import { ConversationTelemetryController } from './conversationTelemetryController';
 import {
+    ConversationChangesController,
+    ConversationChangesControllerOptions,
+} from './conversationChangesController';
+import {
     ConversationSessionStatus,
     ConversationSessionStatusController,
 } from './sessionStatusController';
@@ -132,9 +136,14 @@ export interface ConversationViewerOptions {
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
-    showWorktreeInSourceControl?: (
-        worktreeRoot: string
-    ) => PromiseLike<void> | Promise<void> | void;
+    /**
+     * Changes-panel wiring (changes-panel PRD); absent disables the
+     * Changes button and sidebar tab.
+     */
+    changes?: Omit<
+        ConversationChangesControllerOptions,
+        'getPanel' | 'getTarget' | 'getSubscriptionGeneration' | 'isSuspended'
+    >;
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
@@ -148,6 +157,8 @@ export interface ConversationViewerOptions {
     setKeyboardFocus?: (
         focused: boolean
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Diagnostics sink for load/switch failures (never throws). */
+    onDiagnostic?: (event: Record<string, unknown>) => void;
     setTimer?: (callback: () => void, delayMs: number) => unknown;
     clearTimer?: (handle: unknown) => void;
 }
@@ -289,6 +300,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
     private readonly sessionStatusController: ConversationSessionStatusController;
+    private readonly changesController?: ConversationChangesController;
 
     constructor(private readonly options: ConversationViewerOptions) {
         this.telemetryController = new ConversationTelemetryController({
@@ -299,9 +311,21 @@ export class ConversationViewer implements ConversationViewerApi {
             getCurrentRequestId: () => this.currentRequestId,
             isSuspended: () => this.suspended,
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
+            onDidPublish: target => {
+                void this.changesController?.onTelemetryRefreshed(target);
+            },
             setTimer: options.setTimer,
             clearTimer: options.clearTimer,
         });
+        if (options.changes) {
+            this.changesController = new ConversationChangesController({
+                ...options.changes,
+                getPanel: () => this.panel,
+                getTarget: () => this.target,
+                getSubscriptionGeneration: () => this.subscriptionGeneration,
+                isSuspended: () => this.suspended,
+            });
+        }
         this.sessionStatusController = new ConversationSessionStatusController({
             readStatus: options.readSessionStatus,
             getPanel: () => this.panel,
@@ -571,6 +595,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         const panel = reveal ? this.ensurePanel() : this.panel;
         if (!panel || (!reveal && panel !== followedPanel)) {
+            this.emitDiagnostic('load-target-no-panel');
             return false;
         }
         panel.title = 'AI Conversation';
@@ -602,6 +627,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 generation,
                 this.effectiveSessionId(activeTarget)
             );
+            void this.changesController?.activate(activeTarget)
+                .catch(() => undefined);
             // Heal status updates that were discarded by the Webview while
             // this target transition was in flight.
             void this.sessionStatusController.republish();
@@ -728,6 +755,13 @@ export class ConversationViewer implements ConversationViewerApi {
                 this.subscriptionGeneration,
                 this.effectiveSessionId(target)
             );
+            void this.changesController?.activate(target)
+                .catch(() => undefined);
+            // activate() early-returns for the same session, but the panel
+            // slept while suspended — force a fresh collection so the
+            // changes view never shows pre-suspend data (PRD §5.4).
+            void this.changesController?.handleRefresh()
+                .catch(() => undefined);
             // Replay statuses that were skipped while the viewer was
             // suspended.
             void this.sessionStatusController.republish();
@@ -747,6 +781,21 @@ export class ConversationViewer implements ConversationViewerApi {
         this.clear(undefined);
     }
 
+    private emitDiagnostic(reason: string, detail?: Record<string, unknown>) {
+        try {
+            this.options.onDiagnostic?.({
+                event: 'conversation-viewer',
+                reason,
+                sessionId: this.target?.sessionId,
+                provider: this.target?.provider,
+                generation: this.subscriptionGeneration,
+                ...detail,
+            });
+        } catch (_error) {
+            // Diagnostics never break the viewer.
+        }
+    }
+
     private replaceTarget(target: ConversationViewerTarget): number {
         this.authoritativeLoadInFlight = undefined;
         this.authoritativeRefreshPending = false;
@@ -761,6 +810,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.outlineController.reset(target.interactionId);
         this.stale = false;
         this.telemetryController.reset();
+        this.changesController?.reset();
         this.latestPublication = undefined;
         this.appliedContentSignature = undefined;
         this.commentController.reset();
@@ -892,10 +942,34 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.openLink(parsed.href);
             return;
         }
-        if (parsed.type === 'conversation-viewer-open-worktree') {
-            await this.options.showWorktreeInSourceControl?.(
-                parsed.worktreeRoot
-            );
+        if (parsed.type === 'conversation-viewer-changes-refresh') {
+            await this.changesController?.handleRefresh();
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-select') {
+            this.changesController?.handleSelect(parsed.memberId);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-open-file') {
+            await this.changesController?.handleOpenFile({
+                memberId: parsed.memberId,
+                item: {
+                    group: parsed.group,
+                    xy: parsed.xy,
+                    path: parsed.path,
+                    ...(parsed.originalPath
+                        ? { originalPath: parsed.originalPath }
+                        : {}),
+                },
+            });
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-review') {
+            await this.changesController?.handleReview(parsed.memberId);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-open-scm') {
+            await this.changesController?.handleOpenScm(parsed.memberId);
             return;
         }
         if (parsed.type === 'conversation-viewer-send-selection') {
@@ -930,12 +1004,20 @@ export class ConversationViewer implements ConversationViewerApi {
                 || parsed.projectId !== target.projectId
                 || parsed.provider !== target.provider
                 || parsed.sessionId !== target.sessionId) {
+                this.emitDiagnostic('resync-dropped-stale', {
+                    requestGeneration: parsed.subscriptionGeneration,
+                });
                 return;
             }
             const publication = this.latestPublication;
             if (publication
                 && publication.requestId !== this.syncRebuildRequestId) {
                 this.syncRebuildRequestId = publication.requestId;
+                this.emitDiagnostic('resync-rebuild', {
+                    ...(parsed.applyError
+                        ? { applyError: parsed.applyError }
+                        : {}),
+                });
                 this.rebuildLatestDocument();
             }
             return;
@@ -1843,6 +1925,7 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.deliverPublication(publication, replaceDocument);
             return;
         }
+        this.emitDiagnostic('publish-failure', { updateKind, replaceDocument });
         this.latestPublication = undefined;
         panel.webview.html = this.renderDocument(
             undefined,

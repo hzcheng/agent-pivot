@@ -2,6 +2,7 @@
 
 import type { ProvisioningWorktreeRow, WorktreeKey } from './types';
 import type { WorktreeProvisioningPlan } from './provisioningPlan';
+import { cloneMemberBaseline } from './baseline';
 
 export type WorktreeProvisioningCompletedStep = 'worktree' | 'setup';
 
@@ -409,7 +410,12 @@ function cloneRow(row: ProvisioningWorktreeRow): ProvisioningWorktreeRow {
 }
 
 function clonePlan(plan: WorktreeProvisioningPlan): WorktreeProvisioningPlan {
-    return { ...plan };
+    return {
+        ...plan,
+        ...(plan.baseline
+            ? { baseline: cloneMemberBaseline(plan.baseline) }
+            : {}),
+    };
 }
 
 function isSafeOperationId(value: string): boolean {

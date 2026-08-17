@@ -27,10 +27,6 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         href: 'https://example.test',
     }, {
-        type: 'conversation-viewer-open-worktree',
-        version: 1,
-        worktreeRoot: '/repo/.worktree/feature-x',
-    }, {
         type: 'conversation-viewer-send-selection',
         version: 1,
         text: 'quoted selection',
@@ -220,21 +216,6 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-select-interaction',
             version: 1,
             interactionId: 'input\u0000private',
-        },
-        {
-            type: 'conversation-viewer-open-worktree',
-            version: 1,
-        },
-        {
-            type: 'conversation-viewer-open-worktree',
-            version: 1,
-            worktreeRoot: '/repo\u0000private',
-        },
-        {
-            type: 'conversation-viewer-open-worktree',
-            version: 1,
-            worktreeRoot: '/repo',
-            extra: true,
         },
         {
             type: 'conversation-viewer-send-selection',
@@ -574,4 +555,27 @@ test('CONVERSATION-COPY-ACTIONS-001 validates code and message copy payloads', (
         ...messageCopy,
         payload: { kind: 'message', messageId: '' },
     }), undefined);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 parses open-file intents with every porcelain XY shape', () => {
+    const base = {
+        type: 'conversation-viewer-changes-open-file',
+        version: 1,
+        memberId: 'member-1',
+        group: 'changes',
+        path: 'src/a.ts',
+    };
+    // Space-bearing XY codes are the common case (' M', 'M ', ' D'):
+    for (const xy of [' M', 'M ', ' D', 'MM', 'A ', 'R ']) {
+        const message = { ...base, xy };
+        assert.deepEqual(parseConversationViewerMessage(message), message,
+            `xy '${xy}' must parse`);
+    }
+    const renamed = { ...base, xy: 'R ', originalPath: 'src/old.ts' };
+    assert.deepEqual(parseConversationViewerMessage(renamed), renamed);
+    assert.equal(parseConversationViewerMessage({ ...base, xy: 'bad' }), undefined);
+    assert.equal(parseConversationViewerMessage({ ...base, xy: '' }), undefined);
+    assert.equal(parseConversationViewerMessage({ ...base, group: 'weird' }), undefined);
+    assert.equal(parseConversationViewerMessage({ ...base, memberId: '../evil' }),
+        undefined);
 });

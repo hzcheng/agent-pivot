@@ -139,10 +139,41 @@ export interface ConversationViewerCopyMessage {
     };
 }
 
-export interface ConversationViewerOpenWorktreeMessage {
-    type: 'conversation-viewer-open-worktree';
+const CHANGES_GROUPS = ['merge', 'staged', 'changes', 'untracked'] as const;
+export type ConversationChangesGroup = typeof CHANGES_GROUPS[number];
+
+export interface ConversationViewerChangesSelectMessage {
+    type: 'conversation-viewer-changes-select';
     version: 1;
-    worktreeRoot: string;
+    memberId: string;
+}
+
+export interface ConversationViewerChangesRefreshMessage {
+    type: 'conversation-viewer-changes-refresh';
+    version: 1;
+}
+
+export interface ConversationViewerChangesOpenFileMessage {
+    type: 'conversation-viewer-changes-open-file';
+    version: 1;
+    memberId: string;
+    group: ConversationChangesGroup;
+    /** Two-letter porcelain code (e.g. 'MM'); decides the diff sides. */
+    xy: string;
+    path: string;
+    originalPath?: string;
+}
+
+export interface ConversationViewerChangesReviewMessage {
+    type: 'conversation-viewer-changes-review';
+    version: 1;
+    memberId: string;
+}
+
+export interface ConversationViewerChangesOpenScmMessage {
+    type: 'conversation-viewer-changes-open-scm';
+    version: 1;
+    memberId: string;
 }
 
 export interface ConversationViewerSendSelectionMessage {
@@ -166,6 +197,8 @@ export interface ConversationViewerRequestSyncMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
+    /** Sanitized first line of the apply failure that triggered this. */
+    applyError?: string;
 }
 
 export interface ConversationViewerAppliedFrame {
@@ -205,7 +238,6 @@ export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
-    | ConversationViewerOpenWorktreeMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerSwitchSessionMessage
     | ConversationViewerRequestSyncMessage
@@ -219,7 +251,12 @@ export type ConversationViewerMessage =
     | ConversationViewerProjectCommentMutationMessage
     | ConversationViewerSendProjectCommentMessage
     | ConversationViewerBookmarkMutationMessage
-    | ConversationViewerCopyMessage;
+    | ConversationViewerCopyMessage
+    | ConversationViewerChangesSelectMessage
+    | ConversationViewerChangesRefreshMessage
+    | ConversationViewerChangesOpenFileMessage
+    | ConversationViewerChangesReviewMessage
+    | ConversationViewerChangesOpenScmMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
@@ -264,19 +301,6 @@ export function parseConversationViewerMessage(
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
     }
-    if (value.type === 'conversation-viewer-open-worktree') {
-        if (keys.length !== 3
-            || !hasOwn(value, 'type')
-            || !hasOwn(value, 'version')
-            || !hasOwn(value, 'worktreeRoot')
-            || typeof value.worktreeRoot !== 'string'
-            || !value.worktreeRoot
-            || value.worktreeRoot.length > 1024
-            || /[\u0000-\u001f\u007f]/.test(value.worktreeRoot)) {
-            return undefined;
-        }
-        return value as unknown as ConversationViewerOpenWorktreeMessage;
-    }
     if (value.type === 'conversation-viewer-send-selection') {
         if (keys.length !== 3
             || !hasOwn(value, 'type')
@@ -289,6 +313,43 @@ export function parseConversationViewerMessage(
         }
         return value as unknown as ConversationViewerSendSelectionMessage;
     }
+    if (value.type === 'conversation-viewer-changes-select'
+        || value.type === 'conversation-viewer-changes-review'
+        || value.type === 'conversation-viewer-changes-open-scm') {
+        if (!hasExactKeys(value, ['type', 'version', 'memberId'])
+            || !isChangesMemberId(value.memberId)) {
+            return undefined;
+        }
+        return value as unknown as
+            | ConversationViewerChangesSelectMessage
+            | ConversationViewerChangesReviewMessage
+            | ConversationViewerChangesOpenScmMessage;
+    }
+    if (value.type === 'conversation-viewer-changes-refresh') {
+        if (keys.length !== 2) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerChangesRefreshMessage;
+    }
+    if (value.type === 'conversation-viewer-changes-open-file') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'memberId', 'group', 'xy', 'path',
+        ]) && !hasExactKeys(value, [
+            'type', 'version', 'memberId', 'group', 'xy', 'path', 'originalPath',
+        ])) {
+            return undefined;
+        }
+        if (!isChangesMemberId(value.memberId)
+            || !CHANGES_GROUPS.includes(value.group as ConversationChangesGroup)
+            || typeof value.xy !== 'string'
+            || !/^[!A-Z? .]{2}$/u.test(value.xy)
+            || !isChangesFilePath(value.path)
+            || (value.originalPath !== undefined
+                && !isChangesFilePath(value.originalPath))) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerChangesOpenFileMessage;
+    }
     if (value.type === 'conversation-viewer-switch-session') {
         if (!hasExactKeys(value, ['type', 'version', 'direction'])
             || (value.direction !== 'previous'
@@ -298,10 +359,16 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerSwitchSessionMessage;
     }
     if (value.type === 'conversation-viewer-request-sync') {
-        if (!hasExactKeys(value, [
+        const syncKeys = [
             'type', 'version', 'subscriptionGeneration',
             'projectId', 'provider', 'sessionId',
-        ])
+        ];
+        if (!(hasExactKeys(value, syncKeys)
+                || hasExactKeys(value, [...syncKeys, 'applyError']))
+            || (value.applyError !== undefined
+                && (typeof value.applyError !== 'string'
+                    || value.applyError.length > 200
+                    || /[\0-\u001f\u007f]/.test(value.applyError)))
             || !isPositiveSafeInteger(value.subscriptionGeneration)
             || !isConversationViewerTargetId(value.projectId)
             || !isAiSessionProvider(value.provider)
@@ -557,6 +624,20 @@ function isAppliedFrameInventory(
 
 function hasOwn(value: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function isChangesMemberId(value: unknown): value is string {
+    return typeof value === 'string'
+        && value.length > 0
+        && value.length <= 128
+        && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function isChangesFilePath(value: unknown): value is string {
+    return typeof value === 'string'
+        && value.length > 0
+        && value.length <= 4096
+        && !/[\0]/.test(value);
 }
 
 function isRequestId(value: unknown): value is string {

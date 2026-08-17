@@ -2958,7 +2958,7 @@
   {
     "id": "WEBVIEW-OPEN-TAB-SPLIT-001",
     "domain": "webview",
-    "title": "OPEN tab splits CURRENT WINDOW and OPEN WINDOWS into independent scroll regions with a draggable, keyboard-accessible, persisted separator that collapsed regions release and reclaim space from",
+    "title": "OPEN tab splits CURRENT WINDOW and OPEN WINDOWS into independent scroll regions with a draggable, keyboard-accessible, persisted separator",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -6618,6 +6618,68 @@
       "src/webview/webviewAiSessionContent.ts",
       "src/webview/webviewProjectAiSessionControlsScripts.js",
       "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-BASELINE-001",
+    "domain": "persistence",
+    "title": "Group member baseline is frozen at confirm, persisted immutably, and provisioning branches from the frozen commit",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupManifestStore.test.js",
+      "tests/unit/worktrees/provisioningStore.test.js",
+      "tests/contract/worktrees/gitWorktreeProvisioner.test.js",
+      "tests/contract/worktrees/groupCreationController.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/baseline.ts",
+      "src/worktrees/types.ts",
+      "src/worktrees/groupManifestStore.ts",
+      "src/worktrees/provisioningPlan.ts",
+      "src/worktrees/provisioningStore.ts",
+      "src/worktrees/provisioningController.ts",
+      "src/worktrees/gitWorktreeProvisioner.ts",
+      "src/worktrees/groupCreationController.ts",
+      "src/worktrees/isolatedSessionController.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-CHANGES-COLLECT-001",
+    "domain": "persistence",
+    "title": "Member changes collection parses porcelain -z into the four SCM groups, always includes untracked, ancestry-checks ahead counts, and aggregates unknown explicitly",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/changesCollector.test.js",
+      "tests/contract/worktrees/changesCollector.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/changesCollector.ts"
+    ]
+  },
+  {
+    "id": "WORKTREE-CHANGES-PANEL-001",
+    "domain": "webview",
+    "title": "Conversation Changes button and sidebar tab render the task result plus SCM-grouped working changes with explicit partial/retired degradation, and post exact select/refresh/open/review/SCM intents",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationChangesController.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/conversationChangesController.ts",
+      "src/aiSessions/conversation/conversationTelemetryController.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/webview/conversationChangesScripts.js",
+      "src/webview/conversationSidebarScripts.js",
+      "src/services/gitChangesDiff.ts",
+      "src/services/sourceControl.ts",
+      "media/conversationViewer.scss"
     ]
   }
 ]

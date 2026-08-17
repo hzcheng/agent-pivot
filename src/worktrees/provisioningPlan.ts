@@ -2,7 +2,7 @@
 
 import * as path from 'path';
 import { createHash } from 'crypto';
-import type { WorktreeRepositorySnapshot } from './types';
+import type { MemberBaseline, WorktreeRepositorySnapshot } from './types';
 
 const MAX_TASK_NAME_LENGTH = 200;
 const MAX_SUFFIX = 999;
@@ -15,6 +15,13 @@ export interface WorktreeProvisioningPlan {
     slug: string;
     branchName: string;
     worktreePath: string;
+    /**
+     * Frozen task-start anchor (changes-panel PRD §4.2): resolved from
+     * `baseRef` before any physical side effect; `git worktree add` uses
+     * this SHA so a base branch advancing mid-provisioning can never
+     * silently move the member's starting point.
+     */
+    baseline?: MemberBaseline;
 }
 
 export interface WorktreeProvisioningPlanOptions {

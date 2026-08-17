@@ -90,11 +90,13 @@ Existing mechanisms include:
 
 Observed facts at the baseline commit:
 
-- approximately 348 production TypeScript/JavaScript files under `src/`;
+- approximately 348 production TypeScript/JavaScript files under `src/`
+  (114,059 lines; verified at the Stage 1A census);
 - 433 behavior contracts, including 24 architecture-domain entries;
 - 31 existing `MAIN-*` product capabilities;
-- 12 validators registered in `scripts/run-architecture-guards.js`, while only
-  a subset currently has an explicit negative mutation test;
+- 12 validators registered in `scripts/run-architecture-guards.js`; all 12
+  have explicit negative mutation tests (135 controlled mutations, verified at
+  the Stage 1A census).
 - architecture documentation with stale hand-maintained counts, demonstrating
   that prose cannot be the only source of structural truth.
 

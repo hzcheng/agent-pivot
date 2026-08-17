@@ -1,0 +1,70 @@
+{
+  "version": 0,
+  "status": "draft — approved at the Stage 1B exit gate; Stage 2 normalizes IDs, structured fields, and enforcement mappings before this becomes canonical docs/testing/architecture-invariants.json entries",
+  "approvedAt": "2026-08-17",
+  "module": "MOD-WORKTREE-LIFECYCLE",
+  "invariants": [
+    {
+      "id": "ARCH-WORKTREE-PREVIEW-TOKEN-001",
+      "priority": "P0",
+      "kind": "state-machine",
+      "statement": "A preview token is consumed exactly once, after validation and before the first await, so a replayed or concurrent confirm deterministically receives preview-stale.",
+      "authority": "WorktreeGroupCreationController.confirm",
+      "linearizationPoint": "The token delete precedes baseline resolution.",
+      "note": "P5: comment and code currently disagree (groupCreationController.ts:686-689 vs :673-684); handled as an immediate standalone bug fix, not inside a migration slice."
+    },
+    {
+      "id": "ARCH-WORKTREE-MEMBER-WRITER-001",
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "Manifest member state transitions have exactly one logical writer family routed through the lifecycle coordinator; finalize, failure settlement, and reconciliation demotion may not write around it.",
+      "authority": "lifecycle coordinator (to be established in slice S2)",
+      "currentBypasses": ["dashboard.ts:1749-1757", "groupCreationController.ts:963", "groupManifestReconciliation.ts:69"]
+    },
+    {
+      "id": "ARCH-WORKTREE-CLAIM-ORDER-001",
+      "priority": "P0",
+      "kind": "recovery",
+      "statement": "A generation claim is durable before any terminal or provider side effect; claim removal requires proven-not-started evidence or an explicit user discard; ambiguity never auto-discards.",
+      "authority": "session creation admission path",
+      "linearizationPoint": "createGenerationClaim commitBucket precedes coordinator.create."
+    },
+    {
+      "id": "ARCH-WORKTREE-TOMBSTONE-FIRST-001",
+      "priority": "P0",
+      "kind": "recovery",
+      "statement": "Dismissal persists the tombstone before removing any live row, context, or manifest member; a failed tombstone write refuses the whole dismissal.",
+      "authority": "isolatedSessionController dismissal path"
+    },
+    {
+      "id": "ARCH-WORKTREE-BASELINE-FREEZE-001",
+      "priority": "P1",
+      "kind": "persistence",
+      "statement": "The base ref is frozen to an immutable commit SHA before git worktree add; a group never provisions from a moving ref.",
+      "authority": "WorktreeGroupCreationController.confirm"
+    },
+    {
+      "id": "ARCH-WORKTREE-RESTART-RECOVERY-001",
+      "priority": "P1",
+      "kind": "recovery",
+      "statement": "Every crash window between the seven linearization points has deterministic restart reconciliation: interrupted work demotes to failed/interrupted, tombstones prune only with positive evidence, unknown deletion observation keeps the lease.",
+      "authority": "reconciliation controllers (manifest, provisioning, deletion journal, claims)"
+    },
+    {
+      "id": "ARCH-WORKTREE-PROTOCOL-ENVELOPE-001",
+      "priority": "P1",
+      "kind": "protocol",
+      "statement": "Every pilot mutation message carries a correlation envelope (requestId, version) and a documented exactly-once mechanism (replay cache or single-use token); fire-and-forget mutation families are migrated or explicitly waived.",
+      "authority": "webview protocol layer",
+      "currentGaps": ["confirm has no replay cache", "set-primary/merge/adopt/discard-claim have none", "merge has no requestId", "no family has a timeout"]
+    },
+    {
+      "id": "ARCH-WORKTREE-IDENTITY-CODEC-001",
+      "priority": "P1",
+      "kind": "identity",
+      "statement": "Domain identities (WorktreeKey, composite session identity, safe ids) use one canonical codec and equality policy owned by the domain layer; persisted encodings stay stable per usage context.",
+      "authority": "MOD-WORKTREE-LIFECYCLE domain layer (slice S1)",
+      "currentDuplicates": ["WorktreeKey equality x4", "WorktreeKey string encodings x4 (one separator-less)", "provider::sessionId join x5+", "isSafeId regex x10"]
+    }
+  ]
+}

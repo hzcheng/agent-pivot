@@ -1,6 +1,12 @@
 # Agent Pivot: Current Architecture State
 
-> Living reference, last reconciled against `main` at 1.0.3 (2026-08, PR #129).
+> **Stale.** This document is classified as historical by the Stage 1A census
+> (2026-08-17). Its hand-maintained counts are disproven (src is ~114k lines,
+> not 69k; `dashboard.ts` is 4,063 lines, not 1.9k). Authoritative census data
+> lives in `docs/architecture/stage-1a-census.md`. The module map and backlog
+> below are kept for historical reference only.
+>
+> Historical note: last reconciled against `main` at 1.0.3 (2026-08, PR #129).
 > Update this file when module ownership moves, when a work line completes, or
 > when the backlog changes. The historical plan it supersedes is
 > `docs/optimization-plan.md` (archived, with an epilogue mapping plan items to

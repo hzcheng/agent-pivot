@@ -1136,10 +1136,10 @@ The program is delivered through short-lived PRs based on the latest
 
 Harness v0 merges early so concurrent work is protected. Each implementation
 slice uses a fresh topic branch off the latest `origin/main`, checked out
-serially in the dedicated program worktree `.worktrees/arch-refact` (one
-branch at a time; rerun `npm ci` when a branch switch changes dependencies).
-The whole program lives in this one worktree; an additional worktree requires
-an explicit parallelism need.
+serially in the worktree the program already occupies (one branch at a time;
+rerun `npm ci` when a branch switch changes dependencies). The whole program
+lives in that one worktree; an additional worktree requires an explicit
+parallelism need.
 
 The program ledger is updated only with evidence from merged or reviewed
 changes. Before starting a dependent slice, rebase the plan against current
@@ -1311,8 +1311,8 @@ implementation change until that checkpoint is approved.
 ```
 
 Prompts for later slices must additionally require `git fetch origin main`, a
-fresh topic branch per slice checked out in the program worktree, and
-revalidation of the approved boundary and metric baseline against current
+fresh topic branch per slice checked out in the program's current worktree,
+and revalidation of the approved boundary and metric baseline against current
 `origin/main` (Section 16). The chat
 rollout reference in the prompt is optional history; this document and the
 versioned findings remain the authoritative handoff.

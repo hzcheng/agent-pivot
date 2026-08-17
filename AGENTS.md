@@ -5,18 +5,21 @@ making any change.
 
 ## Non-negotiables
 
-1. **Never edit files directly in the primary checkout on `main`.** Do all
-   work in the dedicated program worktree `.worktrees/arch-refact`, one
-   branch at a time (serial):
+1. **Never edit files directly in the primary checkout on `main`.** Work in
+   a feature worktree, and confine each line of work to the worktree you are
+   already in — switch branches inside it serially instead of creating more
+   worktrees:
    ```sh
    git fetch origin main
-   git -C .worktrees/arch-refact switch -c <branch> origin/main
+   git switch -c <branch> origin/main   # inside your current worktree
    ```
-   Create an additional worktree only when genuine parallelism requires it.
-   Run `npm ci` inside the worktree before verifying anything — npm
-   silently resolves binaries from the primary checkout's `node_modules`
-   otherwise. Dirty files in the primary checkout are user changes; do not
-   revert them. Details: skill `protecting-main-with-worktrees`.
+   Create an additional worktree only when genuine parallelism requires it
+   (for example, an independent urgent fix while this worktree carries
+   unmerged work). Run `npm ci` inside the worktree before verifying
+   anything — npm silently resolves binaries from the primary checkout's
+   `node_modules` otherwise. Dirty files in the primary checkout are user
+   changes; do not revert them. Details: skill
+   `protecting-main-with-worktrees`.
 
 2. **Never push directly to `main`.** Publish through a PR against
    `origin/main` in `hzcheng/agent-pivot`. This repo has two remotes

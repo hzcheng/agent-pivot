@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "73e96b7ba54483c1250b0d3aa58d2bc7d33fe64c",
+        "head": "f7a968b0242728dbdc61500531e07ed71f2df2a0",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -402,7 +402,8 @@
             "ab2c0b3c82ac2ab0454a4ff4776aa5c560481042",
             "f152dd9cc781a4d2d104ef4173c95a2ae61aa6ee",
             "94c1bafe00103954038f38cf24c0a8b686623c10",
-            "838cef483c47e0ead3969d8354c355a18b78c2ab"
+            "838cef483c47e0ead3969d8354c355a18b78c2ab",
+            "ef8c2512740e9850eb907b97f1e9c21657de6141"
         ]
     },
     "capabilities": [
@@ -2192,7 +2193,8 @@
                 "54c566c1ce08c2fd8475715696c1c6df0f4255f0",
                 "aca331a6788dfe81e474a42952f6d55cd5faee66",
                 "70039ba891864d9c98616c3bf03ac32ce35dac37",
-                "73e96b7ba54483c1250b0d3aa58d2bc7d33fe64c"
+                "73e96b7ba54483c1250b0d3aa58d2bc7d33fe64c",
+                "f7a968b0242728dbdc61500531e07ed71f2df2a0"
             ],
             "behaviors": [
                 "WORKTREE-GROUPS-BASELINE-001",

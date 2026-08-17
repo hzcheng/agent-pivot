@@ -11673,6 +11673,67 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
     });
 });
 
+test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is open', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+    const select = page.locator('[data-changes-member-select]');
+    await select.focus();
+    await page.evaluate(() => {
+        window.__firstOption = document
+            .querySelector('[data-changes-member-select]').options[0];
+    });
+
+    // Repeated state pushes while the dropdown has focus (i.e. is open)
+    // must leave its DOM untouched — rebuilding closes the native popup.
+    await sendChanges(page, changesFixture({
+        collectedAt: 1724000005000,
+    }));
+    await sendChanges(page, changesFixture({
+        collectedAt: 1724000010000,
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 9,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }, {
+            memberId: 'm-web', repoLabel: 'web',
+            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
+            availability: 'available', workingItemCount: 1,
+            aheadCount: 0, truncated: false,
+        }],
+    }));
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-changes-member-select]').options[0]
+            === window.__firstOption), true,
+        'option element identity is preserved while the dropdown is focused');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement === document
+            .querySelector('[data-changes-member-select]')), true);
+
+    // Once the dropdown loses focus, the next push rebuilds normally.
+    await page.locator('[data-changes-refresh]').focus();
+    await sendChanges(page, changesFixture({
+        collectedAt: 1724000015000,
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 9,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }, {
+            memberId: 'm-web', repoLabel: 'web',
+            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
+            availability: 'available', workingItemCount: 1,
+            aheadCount: 0, truncated: false,
+        }],
+    }));
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-changes-member-select]').options[0]
+            === window.__firstOption), false,
+        'after blur the next push rebuilds the options');
+    assert.equal((await select.inputValue()), 'm-api');
+});
+
 test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zero-washing', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture({

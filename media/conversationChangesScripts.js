@@ -27,6 +27,7 @@
         var updateToggle = options.updateToggle || function () {};
         var subscriptionGeneration = options.subscriptionGeneration;
         var latestState = null;
+        var lastSelectSignature = '';
 
         function exactKeys(value, required, optional) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -249,9 +250,21 @@
 
         function renderMemberSelect(state) {
             if (!memberSelect) return;
+            // Never touch an open native dropdown: rebuilding its <option>s
+            // closes the popup, and the periodic state push made that
+            // flicker forever.
+            if (document.activeElement === memberSelect) {
+                return;
+            }
             var selected = state.selectedMemberId
                 || (state.members[0] && state.members[0].memberId) || '';
-            var previous = memberSelect.value;
+            var signature = state.members.map(function (member) {
+                return member.memberId + '|' + memberOptionText(member);
+            }).join('\u0001') + '|' + selected;
+            // Skip the rebuild entirely when nothing visible changed.
+            if (signature === lastSelectSignature) {
+                return;
+            }
             memberSelect.textContent = '';
             state.members.forEach(function (member) {
                 var option = document.createElement('option');
@@ -260,9 +273,10 @@
                 memberSelect.appendChild(option);
             });
             memberSelect.value = state.members.some(function (member) {
-                return member.memberId === previous;
-            }) && previous === selected ? previous : selected;
+                return member.memberId === selected;
+            }) ? selected : '';
             memberSelect.disabled = state.members.length <= 1;
+            lastSelectSignature = signature;
             var selectedMember = state.members.filter(function (member) {
                 return member.memberId === selected;
             })[0];

@@ -757,9 +757,11 @@ function captureAiSessionListScrolls(projectDiv) {
         if (!panel) return;
         var key = panel.getAttribute('data-ai-session-surface-panel')
             || panel.getAttribute('data-ai-session-panel');
-        var scrollTop = Math.max(0, Number(list.scrollTop) || 0);
-        if (key && scrollTop > 0) {
-            scrolls.push({ key: key, scrollTop: scrollTop });
+        // Record every keyed panel list, including scrollTop 0: a capture
+        // taken while the list is momentarily hidden reads 0, and skipping
+        // it would leave the replacement DOM to snap back to the top.
+        if (key) {
+            scrolls.push({ key: key, scrollTop: Math.max(0, Number(list.scrollTop) || 0) });
         }
     });
     return scrolls;

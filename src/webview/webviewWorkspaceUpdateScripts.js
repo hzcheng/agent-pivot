@@ -104,6 +104,12 @@ function applyWorkspaceUpdate(message, options) {
         OPEN_TAB_CURRENT_ITEM_SELECTOR,
         'data-workspace-scope-identity'
     );
+    // The creation form re-renders after the replacement (reconcileDom), so
+    // its focus must be captured while the old DOM is still mounted.
+    if (window.__agentPivotWorktreeGroupForm
+        && typeof window.__agentPivotWorktreeGroupForm.captureFocus === 'function') {
+        window.__agentPivotWorktreeGroupForm.captureFocus();
+    }
     currentGroup.replaceWith(replacement);
     restoreOpenTabListScroll(
         queryOpenTabList(replacement, '.group-list'),
@@ -303,20 +309,43 @@ function applyOpenWorkspacesUpdate(message, options) {
         ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
         : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
+    // This path replaces the whole wrapper, so beyond the other-windows list
+    // it must also carry the current-workspace list scroll (path A keeps it
+    // across workspace-updated) and the window position.
+    var currentListScroll = captureOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
     var otherListScroll = captureOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         OPEN_TAB_OTHER_ITEM_SELECTOR,
         'data-workspace-navigation-identity'
     );
+    var windowScrollY = typeof window.scrollY === 'number' ? window.scrollY : 0;
+    // Capture the open creation form's focus before destroying its slot.
+    if (window.__agentPivotWorktreeGroupForm
+        && typeof window.__agentPivotWorktreeGroupForm.captureFocus === 'function') {
+        window.__agentPivotWorktreeGroupForm.captureFocus();
+    }
     wrapper.innerHTML = holder ? holder.innerHTML : message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
+        restoreOpenTabListScroll(
+            queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
+            currentListScroll,
+            OPEN_TAB_CURRENT_ITEM_SELECTOR,
+            'data-workspace-scope-identity'
+        );
         restoreOpenTabListScroll(
             queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
             otherListScroll,
             OPEN_TAB_OTHER_ITEM_SELECTOR,
             'data-workspace-navigation-identity'
         );
+        if (typeof window.scrollTo === 'function') {
+            window.scrollTo(0, windowScrollY);
+        }
         if (typeof restoreAiSessionTabsFromState === 'function') {
             restoreAiSessionTabsFromState(document, window.vscode);
         }
@@ -325,11 +354,20 @@ function applyOpenWorkspacesUpdate(message, options) {
         return false;
     }
     restoreOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
+        currentListScroll,
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
+    restoreOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         otherListScroll,
         OPEN_TAB_OTHER_ITEM_SELECTOR,
         'data-workspace-navigation-identity'
     );
+    if (typeof window.scrollTo === 'function') {
+        window.scrollTo(0, windowScrollY);
+    }
     if (window.__agentPivotDashboard) {
         window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
     }

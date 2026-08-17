@@ -297,6 +297,10 @@ function initProjects() {
             aiSessionsUpdate.findCurrentWorkspaceDiv(projectId),
     });
     aiSessionControls.setWorktreeGroupForm(worktreeGroupForm);
+    // The authoritative update paths capture the open form's focus through
+    // this global before replacing the DOM (same convention as
+    // window.__agentPivotWorktreeGroupRename).
+    window.__agentPivotWorktreeGroupForm = worktreeGroupForm;
 
     function applyValidatedAiSessionPresentationState(message) {
         if (!aiSessionPresentationStateStore.adopt(message)) return;

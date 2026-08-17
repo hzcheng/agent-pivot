@@ -136,7 +136,11 @@ export class AiSessionDashboardController<
         try {
             const message = this.buildUpdatedMessage(reason, projection);
             const signature = this.getIncrementalMessageSignature(message);
-            if (this.shouldSkipUnchangedMessage(reason) && signature === this.lastPostedIncrementalMessageSignature) {
+            // Skip the post whenever the rendered content is unchanged,
+            // regardless of the refresh reason: the Webview would replace its
+            // DOM with identical HTML, which needlessly drops input focus,
+            // in-progress IME compositions, and scroll positions.
+            if (signature === this.lastPostedIncrementalMessageSignature) {
                 this.options.logDiagnostic?.({
                     event: 'ai-session-message-skip',
                     reason,
@@ -147,9 +151,7 @@ export class AiSessionDashboardController<
                 return;
             }
 
-            if (this.shouldSkipUnchangedMessage(reason)) {
-                this.lastPostedIncrementalMessageSignature = signature;
-            }
+            this.lastPostedIncrementalMessageSignature = signature;
             // Await delivery so callers that gate pending UI on the
             // authoritative replacement can rely on the full-refresh
             // fallback having actually run when refreshNow resolves.
@@ -298,10 +300,6 @@ export class AiSessionDashboardController<
         const minIntervalMs = Math.max(this.options.watcherRefreshMinIntervalMs || 0, this.options.debounceMs);
         const elapsedMs = Math.max(0, this.nowMs() - this.lastWatcherRefreshAtMs);
         return Math.max(this.options.debounceMs, minIntervalMs - elapsedMs);
-    }
-
-    private shouldSkipUnchangedMessage(reason: string): boolean {
-        return reason === 'watcher' || reason === 'attention';
     }
 
     private getIncrementalMessageSignature(message: AiSessionsUpdatedMessage): string {

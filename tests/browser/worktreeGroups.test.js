@@ -751,6 +751,75 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
         'a refresh must not snap the worktree panel back to the top');
 });
 
+test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list and window scroll', async t => {
+    // Regression: applyOpenWorkspacesUpdate replaces the whole wrapper but
+    // only restored the other-windows list scroll, so every refresh snapped
+    // the current workspace list (and the window) back to the top.
+    const card = `<div class="project workspace-card" data-id="project-a" data-current-workspace
+        data-codex-expanded data-workspace-scope-identity="scope:current"
+        data-workspace-navigation-identity="navigation:current"
+        style="height: 1600px">${surface({ selectedSurface: 'worktree' })}</div>`;
+    const currentGroup = `<div class="open-current-workspace-group current-card-expanded">`
+        + `<div class="group-list">${card}</div></div>`;
+    const otherGroup = `<div class="open-other-windows-group" data-other-windows-status="ready">`
+        + `<div class="project workspace-card" data-id="project-a"`
+        + ` data-open-workspace-list-card data-open-workspace-current`
+        + ` data-workspace-navigation-identity="navigation:current"></div></div>`;
+    const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
+        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${currentGroup}${otherGroup}</div></div>
+        <div style="height: 1600px"></div>
+    </body></html>`);
+    await page.addStyleTag({ content: styles });
+    await page.addStyleTag({ content: `
+        html, body { margin: 0; }
+        .open-current-workspace-group .group-list { max-height: 100px; overflow-y: auto; }
+    ` });
+    await page.evaluate(() => {
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+    });
+    await page.addScriptTag({ content: viewStateScript });
+    await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: workspaceUpdateScript });
+
+    const before = await page.evaluate(() => {
+        const list = document.querySelector('.open-current-workspace-group .group-list');
+        list.scrollTop = 80;
+        window.scrollTo(0, 120);
+        return { list: list.scrollTop, window: window.scrollY };
+    });
+    assert.ok(before.list > 0, 'the current workspace list is scrollable in this fixture');
+    assert.ok(before.window > 0, 'the window is scrollable in this fixture');
+
+    const applied = await page.evaluate(
+        replacementHtml => applyOpenWorkspacesUpdate({
+            type: 'open-workspaces-updated',
+            version: 3,
+            semanticRevision: 'scroll-regression-1',
+            currentWorkspaceCount: 1,
+            navigationWorkspaceCount: 0,
+            otherWindowsStatus: 'ready',
+            html: replacementHtml,
+            searchCatalog: {
+                version: 3, sessions: [], worktrees: [],
+                openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
+            },
+        }),
+        currentGroup + otherGroup
+    );
+    assert.equal(applied, true, 'the authoritative replacement applies');
+
+    const after = await page.evaluate(() => ({
+        list: document.querySelector('.open-current-workspace-group .group-list').scrollTop,
+        window: window.scrollY,
+    }));
+    assert.equal(after.list, before.list,
+        'an open-workspaces refresh must not snap the current workspace list back to the top');
+    assert.equal(after.window, before.window,
+        'an open-workspaces refresh must not reset the window scroll position');
+});
+
 async function openGroupActionsPage(t, sessionHtml, replacementHtml) {
     const groupHtml = () =>
         `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`

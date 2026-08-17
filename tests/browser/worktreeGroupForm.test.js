@@ -76,11 +76,35 @@ test.after(async () => {
     await browser.close();
 });
 
-async function openFormPage(t) {
-    const groupHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
+function currentGroupHtml() {
+    return `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">${surface()}</div>`
+        + ` data-codex-expanded data-workspace-scope-identity="scope:current"`
+        + ` data-workspace-navigation-identity="navigation:current">${surface()}</div>`
         + `</div></div>`;
+}
+
+function presentationMessage(projectionRevision) {
+    return {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision,
+        workspaceScopeIdentity: 'scope:current',
+        workspaceNavigationIdentity: 'navigation:current',
+        attentionCount: 0,
+        activeAttentionCount: 0,
+        runningSessionCount: 0,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: false,
+        focusedTarget: null,
+        sessions: [],
+        attentionSessions: [],
+    };
+}
+
+async function openFormPage(t) {
+    const groupHtml = currentGroupHtml();
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
@@ -601,6 +625,78 @@ test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and value while previews 
         return element.selectionStart;
     }), 'Fix login'.length,
         'the caret stays at the end of the typed text');
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and caret through authoritative replacements', async t => {
+    // Regression: ai-sessions-updated and open-workspaces-updated replace the
+    // DOM subtree that hosts the form slot. The form focus must be captured
+    // before the replacement and restored by the reconcile re-render, or
+    // every background refresh interrupts typing.
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+
+    const input = page.locator('[data-group-form-name]');
+    await input.evaluate(element => element.focus());
+    await page.keyboard.type('Fix');
+
+    // Path A: ai-sessions-updated replaces the current-workspace group.
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 3,
+        sequence: 1,
+        projectionRevision: 1,
+        generatedAt: '2026-08-17T00:00:00.000Z',
+        currentWorkspaceCount: 1,
+        html: currentGroupHtml(),
+        searchCatalog: {
+            version: 3, sessions: [], worktrees: [], openWorkspaces: [],
+            savedProjects: [], todos: [],
+        },
+        presentation: presentationMessage(1),
+    });
+    assert.equal(await input.inputValue(), 'Fix',
+        'the ai-sessions replacement keeps the unsubmitted input');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+        && document.activeElement.hasAttribute('data-group-form-name')), true,
+        'the ai-sessions replacement keeps the name input focused');
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-group-form-name]').selectionStart), 'Fix'.length,
+        'the caret survives the ai-sessions replacement');
+
+    // Typing continues without any re-focus.
+    await page.keyboard.type(' login');
+
+    // Path B: open-workspaces-updated replaces the whole wrapper.
+    await postHostMessage(page, {
+        type: 'open-workspaces-updated',
+        version: 3,
+        semanticRevision: 'form-focus-2',
+        projectionRevision: 2,
+        currentWorkspaceCount: 1,
+        navigationWorkspaceCount: 0,
+        otherWindowsStatus: 'ready',
+        html: currentGroupHtml()
+            + '<div class="open-other-windows-group" data-other-windows-status="ready">'
+            + '<div class="project workspace-card" data-id="project-a"'
+            + ' data-open-workspace-list-card data-open-workspace-current'
+            + ' data-workspace-navigation-identity="navigation:current"></div>'
+            + '</div>',
+        searchCatalog: {
+            version: 3, sessions: [], worktrees: [],
+            openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
+        },
+        presentation: presentationMessage(2),
+    });
+    assert.equal(await input.inputValue(), 'Fix login',
+        'the open-workspaces replacement keeps the unsubmitted input');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+        && document.activeElement.hasAttribute('data-group-form-name')), true,
+        'the open-workspaces replacement keeps the name input focused');
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-group-form-name]').selectionStart), 'Fix login'.length,
+        'the caret survives the open-workspaces replacement');
 });
 
 test('WORKTREE-GROUPS-CREATE-UI-001 the form survives external DOM replacement and its slot scrolls', async t => {

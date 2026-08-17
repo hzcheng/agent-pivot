@@ -650,8 +650,11 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 invalidates and refreshes for 
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(invalidated, ['codex', 'codex']);
     assert.deepEqual(reasons, ['new-session', 'new-session']);
+    // Both delays still invalidate and rebuild, but the second build is
+    // byte-identical to the first, so it is skipped instead of posting a
+    // redundant replacement (skip now applies to every refresh reason).
     assert.deepEqual(messages.map(message => message.type), [
-        'ai-sessions-updated', 'ai-sessions-updated',
+        'ai-sessions-updated',
     ]);
     assert.ok(messages.every(message => message.searchCatalog.todos[0].todoId === 'fixture-todo'));
     controller.dispose();

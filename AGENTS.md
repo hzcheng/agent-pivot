@@ -5,21 +5,20 @@ making any change.
 
 ## Non-negotiables
 
-1. **Never edit files directly in the primary checkout on `main`.** Work in
-   a feature worktree, and confine each line of work to the worktree you are
-   already in — switch branches inside it serially instead of creating more
-   worktrees:
+1. **Never edit files directly in the primary checkout on `main`.** Each
+   line of work runs in its own worktree on that worktree's branch: make
+   every commit for the job on that branch and cut serial PRs from it as
+   earlier ones merge. Do not switch branches inside the worktree, do not
+   spread one job across worktrees, and do not start another worktree for
+   the same job:
    ```sh
    git fetch origin main
-   git switch -c <branch> origin/main   # inside your current worktree
+   git worktree add -b <branch> .worktree/<topic> origin/main   # once per job
    ```
-   Create an additional worktree only when genuine parallelism requires it
-   (for example, an independent urgent fix while this worktree carries
-   unmerged work). Run `npm ci` inside the worktree before verifying
-   anything — npm silently resolves binaries from the primary checkout's
-   `node_modules` otherwise. Dirty files in the primary checkout are user
-   changes; do not revert them. Details: skill
-   `protecting-main-with-worktrees`.
+   Run `npm ci` inside the worktree before verifying anything — npm
+   silently resolves binaries from the primary checkout's `node_modules`
+   otherwise. Dirty files in the primary checkout are user changes; do not
+   revert them. Details: skill `protecting-main-with-worktrees`.
 
 2. **Never push directly to `main`.** Publish through a PR against
    `origin/main` in `hzcheng/agent-pivot`. This repo has two remotes

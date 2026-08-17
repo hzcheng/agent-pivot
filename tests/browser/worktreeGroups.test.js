@@ -298,6 +298,94 @@ test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a memb
         'no merge affordance without a same-slug candidate');
 });
 
+test('WORKTREE-GROUPS-UI-001 collapses repository chips beyond four into an accessible +N marker', async t => {
+    // PRD §10 / annotation feedback: the task name must keep its space —
+    // chips beyond four collapse into a +N marker whose tooltip and
+    // accessible name list every collapsed repository in full.
+    const page = await openSurfacePage(surface({
+        worktreeGroups: [
+            groupRow({
+                chips: [
+                    { label: 'a', title: 'alpha' },
+                    { label: 'b', title: 'beta' },
+                    { label: 'g', title: 'gamma' },
+                    { label: 'd', title: 'delta' },
+                    { label: 'e', title: 'epsilon' },
+                    { label: 'z', title: 'zeta' },
+                ],
+            }),
+            groupRow({
+                groupId: 'g-4',
+                displayName: 'four-chip-task',
+                chips: [
+                    { label: 'a', title: 'alpha' },
+                    { label: 'b', title: 'beta' },
+                    { label: 'g', title: 'gamma' },
+                    { label: 'd', title: 'delta' },
+                ],
+            }),
+        ],
+    }), 320);
+    t.after(() => page.close());
+
+    const row = page.locator('.ai-session-worktree-task-group').first();
+    assert.deepEqual(await row.locator('.ai-session-repo-chip').allTextContents(),
+        ['a', 'b', 'g', 'd', '+2'],
+        'only four chips render inline; the rest collapse into +N');
+    const more = row.locator('.ai-session-repo-chip-more');
+    assert.equal(await more.count(), 1);
+    assert.equal(await more.getAttribute('data-tooltip'), 'epsilon\nzeta',
+        'the +N hover tooltip lists every collapsed repository in full');
+    assert.equal(await more.getAttribute('aria-label'),
+        '2 more repositories: epsilon, zeta',
+        'the +N marker carries a complete accessible name (hover is not the only carrier)');
+    assert.equal(await row.locator('.ai-session-repo-chip').first().getAttribute('aria-label'), 'alpha',
+        'each visible chip keeps its full-name accessible name');
+
+    const fourChipRow = page.locator('.ai-session-worktree-task-group').nth(1);
+    assert.deepEqual(await fourChipRow.locator('.ai-session-repo-chip').allTextContents(),
+        ['a', 'b', 'g', 'd'], 'four chips still render inline');
+    assert.equal(await fourChipRow.locator('.ai-session-repo-chip-more').count(), 0,
+        'no +N marker at exactly four chips');
+});
+
+test('WORKTREE-GROUPS-UI-001 keeps the task name readable beside repository chips', async t => {
+    // Annotation feedback: chips squeezed the task name away in multi-root
+    // workspaces; the title keeps a readable floor and chips shrink first
+    // (their full names stay available on hover tooltips).
+    const page = await openSurfacePage(surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow({
+            displayName: 'fix-the-authentication-login-flow-regression',
+            chips: [
+                { label: 'agent-pivot', title: 'agent-pivot' },
+                { label: 'agent-platform', title: 'agent-platform' },
+                { label: 'infrastructure', title: 'infrastructure' },
+                { label: 'documentation', title: 'documentation' },
+            ],
+        })],
+        activeAiSessions: [liveSession()],
+    }), 320);
+    t.after(() => page.close());
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
+    });
+
+    const layout = await page.evaluate(() => {
+        const title = document.querySelector(
+            '.ai-session-worktree-task-group .ai-session-worktree-title');
+        return {
+            titleWidth: title.getBoundingClientRect().width,
+            documentWidth: document.documentElement.scrollWidth,
+            viewportWidth: document.documentElement.clientWidth,
+        };
+    });
+    assert.ok(layout.titleWidth >= 40,
+        `the task name keeps a readable floor beside the chips (got ${layout.titleWidth}px)`);
+    assert.ok(layout.documentWidth <= layout.viewportWidth + 1,
+        `no horizontal overflow (document ${layout.documentWidth}px)`);
+});
+
 test('WORKTREE-GROUPS-UI-001 shows the merge affordance and stable discriminator when needed', async t => {
     const page = await openSurfacePage(surface({
         worktreeGroups: [
@@ -749,6 +837,75 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
         document.querySelector('.ai-session-worktree-list').scrollTop);
     assert.equal(after, before,
         'a refresh must not snap the worktree panel back to the top');
+});
+
+test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list and window scroll', async t => {
+    // Regression: applyOpenWorkspacesUpdate replaces the whole wrapper but
+    // only restored the other-windows list scroll, so every refresh snapped
+    // the current workspace list (and the window) back to the top.
+    const card = `<div class="project workspace-card" data-id="project-a" data-current-workspace
+        data-codex-expanded data-workspace-scope-identity="scope:current"
+        data-workspace-navigation-identity="navigation:current"
+        style="height: 1600px">${surface({ selectedSurface: 'worktree' })}</div>`;
+    const currentGroup = `<div class="open-current-workspace-group current-card-expanded">`
+        + `<div class="group-list">${card}</div></div>`;
+    const otherGroup = `<div class="open-other-windows-group" data-other-windows-status="ready">`
+        + `<div class="project workspace-card" data-id="project-a"`
+        + ` data-open-workspace-list-card data-open-workspace-current`
+        + ` data-workspace-navigation-identity="navigation:current"></div></div>`;
+    const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
+        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${currentGroup}${otherGroup}</div></div>
+        <div style="height: 1600px"></div>
+    </body></html>`);
+    await page.addStyleTag({ content: styles });
+    await page.addStyleTag({ content: `
+        html, body { margin: 0; }
+        .open-current-workspace-group .group-list { max-height: 100px; overflow-y: auto; }
+    ` });
+    await page.evaluate(() => {
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+    });
+    await page.addScriptTag({ content: viewStateScript });
+    await page.addScriptTag({ content: scrollStateScript });
+    await page.addScriptTag({ content: workspaceUpdateScript });
+
+    const before = await page.evaluate(() => {
+        const list = document.querySelector('.open-current-workspace-group .group-list');
+        list.scrollTop = 80;
+        window.scrollTo(0, 120);
+        return { list: list.scrollTop, window: window.scrollY };
+    });
+    assert.ok(before.list > 0, 'the current workspace list is scrollable in this fixture');
+    assert.ok(before.window > 0, 'the window is scrollable in this fixture');
+
+    const applied = await page.evaluate(
+        replacementHtml => applyOpenWorkspacesUpdate({
+            type: 'open-workspaces-updated',
+            version: 3,
+            semanticRevision: 'scroll-regression-1',
+            currentWorkspaceCount: 1,
+            navigationWorkspaceCount: 0,
+            otherWindowsStatus: 'ready',
+            html: replacementHtml,
+            searchCatalog: {
+                version: 3, sessions: [], worktrees: [],
+                openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
+            },
+        }),
+        currentGroup + otherGroup
+    );
+    assert.equal(applied, true, 'the authoritative replacement applies');
+
+    const after = await page.evaluate(() => ({
+        list: document.querySelector('.open-current-workspace-group .group-list').scrollTop,
+        window: window.scrollY,
+    }));
+    assert.equal(after.list, before.list,
+        'an open-workspaces refresh must not snap the current workspace list back to the top');
+    assert.equal(after.window, before.window,
+        'an open-workspaces refresh must not reset the window scroll position');
 });
 
 async function openGroupActionsPage(t, sessionHtml, replacementHtml) {

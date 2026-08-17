@@ -2193,8 +2193,11 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
     let page = null;
     const deliveredEnvelopes = [];
     const deliveryPromises = [];
-    let resolveSecondDelivery;
-    const secondDelivery = new Promise(resolve => { resolveSecondDelivery = resolve; });
+    const diagnostics = [];
+    let resolveFirstDelivery;
+    const firstDelivery = new Promise(resolve => { resolveFirstDelivery = resolve; });
+    let resolveAttentionReplaySkip;
+    const attentionReplaySkipped = new Promise(resolve => { resolveAttentionReplaySkip = resolve; });
     const dashboardController = new AiSessionDashboardController({
         providerIds: ['kimi'],
         isVisible: () => true,
@@ -2213,11 +2216,19 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
             deliveredEnvelopes.push(message);
             const delivery = postHostMessage(page, message).then(() => true);
             deliveryPromises.push(delivery);
-            if (deliveredEnvelopes.length === 2) resolveSecondDelivery();
+            if (deliveredEnvelopes.length === 1) resolveFirstDelivery();
             return delivery;
         },
         refresh() {},
         logError: (_message, error) => { throw error; },
+        logDiagnostic: event => {
+            diagnostics.push(event);
+            // The stale bridge replay rebuilds byte-identical content, so the
+            // refresh is skipped instead of posting a redundant replacement.
+            if (event.event === 'ai-session-message-skip' && event.reason === 'attention') {
+                resolveAttentionReplaySkip();
+            }
+        },
         debounceMs: 0,
         watcherRefreshMinIntervalMs: 0,
         newSessionRefreshDelaysMs: [],
@@ -2351,20 +2362,17 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
 
     await row(page, 'kimi', sessionId).locator('.ai-session-primary-action').click();
     await page.evaluate(() => Promise.all(window.__hostAttentionSettlements));
-    let deliveryTimeout;
-    try {
-        await Promise.race([
-            secondDelivery,
+    const waitForEnvelope = (promise, label) => {
+        let timeout;
+        return Promise.race([
+            promise,
             new Promise((_, reject) => {
-                deliveryTimeout = setTimeout(
-                    () => reject(new Error('timed out waiting for the final v3 attention envelope')),
-                    BROWSER_CONDITION_TIMEOUT_MS
-                );
+                timeout = setTimeout(() => reject(new Error(label)), BROWSER_CONDITION_TIMEOUT_MS);
             }),
-        ]);
-    } finally {
-        clearTimeout(deliveryTimeout);
-    }
+        ]).finally(() => clearTimeout(timeout));
+    };
+    await waitForEnvelope(firstDelivery, 'timed out waiting for the v3 attention-clearing envelope');
+    await waitForEnvelope(attentionReplaySkipped, 'timed out waiting for the stale replay skip');
     await Promise.all(deliveryPromises);
 
     assert.deepEqual(acknowledgementResults.map(message => message.outcome), ['committed'],
@@ -2373,7 +2381,10 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         'the Host acknowledges the complete presentation owner, not only the row fallback');
     assert.deepEqual(attentionController.getEffectiveAggregate().sessions, [],
         'a stale bridge aggregate must not resurrect acknowledged owner events');
-    assert.ok(deliveredEnvelopes.length >= 2);
+    assert.ok(deliveredEnvelopes.length >= 1);
+    // The clearing envelope is delivered and applied; the stale replay never
+    // reaches the page at all (its unchanged rebuild is skipped), so the
+    // acknowledged events can never resurrect.
     assert.ok(deliveredEnvelopes.every(message =>
         message.version === 3 && message.presentation.attentionSessions.length === 0
     ));
@@ -2912,6 +2923,79 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card 
             .evaluate(header => document.activeElement === header),
         false
     );
+});
+
+test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the worktree surface when the session lives there', async t => {
+    // Annotation feedback: closing the conversation viewer must not switch
+    // the panel back to Chats when the origin session lives in a worktree
+    // group — the view follows the session instead.
+    const worktreeKey = {
+        repositoryKey: '/alpha/.git',
+        canonicalWorktreePath: '/alpha/.worktrees/fix-login',
+    };
+    const markup = `<div class="open-current-workspace-group">
+        <div class="project workspace-card" data-id="project-a" data-current-workspace
+            data-codex-expanded data-workspace-scope-identity="scope-project-a"
+            data-workspace-navigation-identity="navigation-project-a">
+            ${getAiSessionsDiv({
+                id: 'project-a',
+                activeAiSessionProvider: 'codex',
+                selectedAiSessionProviders: ['codex'],
+                activeAiSessionTab: 'active',
+                selectedSurface: 'worktree',
+                codexSessions: [],
+                kimiSessions: [],
+                claudeSessions: [],
+                activeAiSessions: [{
+                    key: 'codex:s-w1', provider: 'codex', sessionId: 's-w1',
+                    name: 'Worktree session', executionState: 'running',
+                    focused: false, needsAttention: false, pending: false,
+                    backend: 'vscode', attached: true, worktreeKey,
+                }],
+                worktreeGroups: [{
+                    kind: 'group', groupId: 'g-1', displayName: 'fix-login',
+                    revision: 1, activity: 'active', sessions: [],
+                    members: [{
+                        memberId: 'm-1', repositoryKey: '/alpha/.git',
+                        repositoryLabel: 'alpha', branchName: 'agent-pivot/fix-login',
+                        path: '/alpha/.worktrees/fix-login', status: 'ready',
+                        isPrimary: true, worktreeKey,
+                    }],
+                    chips: [{ label: 'a', title: 'alpha' }],
+                    hasDetachedMembers: false, needsPrimarySelection: false,
+                    canCreateSession: true, mergeCandidateGroupIds: [],
+                }],
+                worktrees: [],
+                worktreeSnapshotRevision: 1,
+                worktreeRepositoryCount: 1,
+                bareWorktreeCount: 0,
+            })}
+        </div>
+    </div>`;
+    const page = await openCardPage(t, [], { width: 360, height: 900 }, markup);
+    const worktreeTab = page.locator('[data-ai-session-surface-tab="worktree"]');
+    const chatsTab = page.locator('[data-ai-session-surface-tab="chats"]');
+    assert.equal(await worktreeTab.getAttribute('aria-selected'), 'true',
+        'the fixture starts on the worktree surface');
+
+    await postHostMessage(page, focusOrigin({ provider: 'codex', sessionId: 's-w1' }));
+
+    assert.equal(await worktreeTab.getAttribute('aria-selected'), 'true',
+        'closing the conversation keeps the worktree surface');
+    assert.equal(await chatsTab.getAttribute('aria-selected'), 'false');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'select-ai-session-surface',
+        version: 1,
+        projectId: 'project-a',
+        surface: 'worktree',
+    }, 'the host persists the worktree surface for future renders');
+    const originAction = page.locator(
+        '[data-ai-session-surface-panel="worktree"]'
+        + ' .codex-session-row[data-session-provider="codex"][data-session-id="s-w1"]'
+        + ' .ai-session-primary-action'
+    );
+    assert.equal(await originAction.evaluate(node => document.activeElement === node), true,
+        'the origin row regains focus inside the worktree panel');
 });
 
 test('ACTIVE-SESSION-CONVERSATION-FOCUS-002 falls back to ACTIVE for a stale same-project origin and ignores malformed or wrong-project messages', async t => {

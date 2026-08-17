@@ -171,10 +171,17 @@ export function renderConversationViewerDocument(
             <span data-conversation-workspace-name>${escapeHtml(
                 target.workspaceName || ''
             )}</span>
-            <span class="conversation-identity-separator" aria-hidden="true">·</span>
-            <span data-conversation-display-name>${escapeHtml(
-                target.displayName + duplicateId
+            <span class="conversation-identity-separator"
+                data-conversation-task-separator aria-hidden="true"${target.taskName ? '' : ' hidden'}>·</span>
+            <span data-conversation-task-name${target.taskName ? '' : ' hidden'}>${escapeHtml(
+                target.taskName || ''
             )}</span>
+            <span class="conversation-identity-separator" aria-hidden="true">·</span>
+            <button type="button" class="conversation-display-name-button"
+                data-conversation-display-name data-action="rename-session"
+                title="Rename session" aria-label="Rename session">${escapeHtml(
+                target.displayName + duplicateId
+            )}</button>
         </div>
         <div class="conversation-session-status" data-conversation-session-status
             role="group" aria-label="Global AI session status">

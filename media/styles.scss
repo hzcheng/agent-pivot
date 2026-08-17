@@ -3714,7 +3714,10 @@ body.steward-sidebar {
         }
 
         .ai-session-worktree-title {
-            min-width: 0;
+            // Keep a readable floor for the task name: repository chips
+            // (shrinkable, full names on their tooltips) absorb the squeeze
+            // instead of crushing the title away (annotation feedback).
+            min-width: 10ch;
             flex: 1 1 auto;
             overflow: hidden;
             font-size: 10px;
@@ -3804,6 +3807,9 @@ body.steward-sidebar {
         .ai-session-repo-chip {
             display: inline-flex;
             align-items: center;
+            // Chips shrink before the task name does; the full repository
+            // name stays available on the chip's hover tooltip.
+            flex: 0 1 auto;
             min-width: 0;
             max-width: 64px;
             padding: 0 4px;
@@ -3815,6 +3821,12 @@ body.steward-sidebar {
             font-family: var(--vscode-editor-font-family, monospace);
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        // The +N collapse marker never ellipsizes: it is the only visible
+        // hint that more repositories exist (PRD §10).
+        .ai-session-repo-chip-more {
+            flex: 0 0 auto;
         }
 
         // The anchor row keeps its title fully visible; branch details live

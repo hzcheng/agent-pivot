@@ -9,6 +9,9 @@ export interface ConversationAuthoritativeTarget {
     name?: string;
     conversationDisplayName?: string;
     duplicateConversationDisplayName?: boolean;
+    /** Worktree task group display name resolved from the session's
+     * worktree key; empty/undefined when the session belongs to no group. */
+    conversationTaskName?: string;
     focused: boolean;
     executionState?: string;
 }

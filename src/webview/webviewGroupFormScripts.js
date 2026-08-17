@@ -16,6 +16,10 @@ function initWorktreeGroupForm(options) {
     var PREVIEW_DEBOUNCE_MS = 300;
     var statesByProject = new Map();
     var nextRequestSerial = 0;
+    // Focus captured BEFORE an authoritative replacement destroys the form
+    // slot; renderForm prefers it over the live DOM read (which can only see
+    // document.body once the old slot is gone).
+    var replacementFocusByProject = new Map();
 
     function nextRequestId(prefix) {
         nextRequestSerial = nextRequestSerial >= Number.MAX_SAFE_INTEGER
@@ -719,6 +723,24 @@ function initWorktreeGroupForm(options) {
         }
     }
 
+    // Called by the authoritative update paths while the old DOM is still
+    // mounted (focus is global, so at most one open form holds it).
+    function captureFocus() {
+        var entries = statesByProject.entries();
+        for (var step = entries.next(); !step.done; step = entries.next()) {
+            var projectId = step.value[0];
+            var state = step.value[1];
+            if (!state.open) {
+                continue;
+            }
+            var slot = formSlot(projectId);
+            var focus = slot && captureFormFocus(slot);
+            if (focus) {
+                replacementFocusByProject.set(projectId, focus);
+            }
+        }
+    }
+
     function renderForm(projectId) {
         var state = getState(projectId);
         var slot = formSlot(projectId);
@@ -726,12 +748,17 @@ function initWorktreeGroupForm(options) {
             return;
         }
         if (!state || !state.open) {
+            replacementFocusByProject.delete(projectId);
             slot.hidden = true;
             slot.innerHTML = '';
             syncCreateButton(projectId, false);
             return;
         }
-        var focus = captureFormFocus(slot);
+        var focus = replacementFocusByProject.get(projectId) || null;
+        replacementFocusByProject.delete(projectId);
+        if (!focus) {
+            focus = captureFormFocus(slot);
+        }
         var membersHtml = state.bootstrapping
             ? '<div class="ai-session-group-form-loading">Loading repositories\u2026</div>'
             : (state.repositories.length
@@ -1067,6 +1094,7 @@ function initWorktreeGroupForm(options) {
         },
         onClick: onClick,
         reconcileDom: reconcileDom,
+        captureFocus: captureFocus,
         applyFormState: applyFormState,
         applyPreview: applyPreview,
         applyCreationSettlement: applyCreationSettlement,

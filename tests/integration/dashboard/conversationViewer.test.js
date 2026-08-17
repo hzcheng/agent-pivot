@@ -316,6 +316,7 @@ function createViewer(options = {}) {
         },
         openLocalFile: options.openLocalFile,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        renameSession: options.renameSession,
         writeClipboardText: options.writeClipboardText,
         followAdjacentConversation: options.followAdjacentConversation,
         setKeyboardFocus: options.setKeyboardFocus,
@@ -329,6 +330,39 @@ function createViewer(options = {}) {
     });
     return { viewer, panel, watchDisposals, restoredTargets, openedUris };
 }
+
+test('CONVERSATION-VIEWER-RENAME-001 forwards the rename intent for the current target and ignores malformed envelopes', async () => {
+    const renamed = [];
+    const { viewer, panel } = createViewer({
+        renameSession: async renameTarget => {
+            renamed.push(renameTarget);
+        },
+    });
+    await viewer.open(target('session-a', 'input-a'));
+
+    await panel.receive({
+        type: 'conversation-viewer-rename-session',
+        version: 1,
+    });
+    assert.deepEqual(renamed, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }], 'the Host rename flow receives the current session identity');
+
+    // Malformed envelopes never reach the rename UX.
+    await panel.receive({
+        type: 'conversation-viewer-rename-session',
+        version: 1,
+        sessionId: 'session-spoofed',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-rename-session',
+        version: 2,
+    });
+    assert.equal(renamed.length, 1,
+        'malformed or spoofed envelopes are dropped by the protocol validator');
+});
 
 test('CONVERSATION-TELEMETRY-CONTROLLER-001 refreshes telemetry while the visible conversation is otherwise idle', async () => {
     const timers = new Map();

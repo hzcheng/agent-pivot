@@ -79,6 +79,9 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         focused: false,
     }, {
+        type: 'conversation-viewer-rename-session',
+        version: 1,
+    }, {
         type: 'conversation-viewer-locate-comment',
         version: 1,
         ...target,
@@ -211,6 +214,17 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-latest',
             version: 1,
             extra: true,
+        },
+        // The rename intent carries no payload: a spoofed session identity
+        // must never parse (the Host derives the target from the viewer).
+        {
+            type: 'conversation-viewer-rename-session',
+            version: 1,
+            sessionId: 'session-spoofed',
+        },
+        {
+            type: 'conversation-viewer-rename-session',
+            version: 2,
         },
         {
             type: 'conversation-viewer-select-interaction',

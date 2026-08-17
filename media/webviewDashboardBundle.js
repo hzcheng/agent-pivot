@@ -434,25 +434,58 @@ function focusAiSessionConversationOrigin(message) {
     if (!projectDiv) {
         return false;
     }
-    selectAiSessionSurfaceDom(projectDiv, 'chats');
-    writeAiSessionSurfaceState(window.vscode, origin.projectId, 'chats');
+    var rowSelector = '[data-session-provider][data-session-id]';
+    var matches = candidate =>
+        candidate.getAttribute('data-session-provider') === origin.provider
+        && candidate.getAttribute('data-session-id') === origin.sessionId;
+    // The view follows the session to the surface it lives on (same probe as
+    // revealAiSessionInWorkspace): closing a conversation viewed from a
+    // worktree group must not yank the Worktree surface back to Chats.
+    var worktreeRow = Array.from(projectDiv.querySelectorAll(
+        '[data-ai-session-surface-panel="worktree"] ' + rowSelector
+    )).find(matches);
+    var surface = worktreeRow ? 'worktree' : 'chats';
+    selectAiSessionSurfaceDom(projectDiv, surface);
+    writeAiSessionSurfaceState(window.vscode, origin.projectId, surface);
     if (window.vscode && typeof window.vscode.postMessage === 'function') {
         window.vscode.postMessage({
             type: 'select-ai-session-surface',
             version: 1,
             projectId: origin.projectId,
-            surface: 'chats',
+            surface: surface,
         });
+    }
+    if (worktreeRow) {
+        var group = worktreeRow.closest('.ai-session-worktree-group');
+        if (group) {
+            setAiSessionWorktreeGroupExpanded(projectDiv, group, true);
+            writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
+        }
+        var worktreeAction = worktreeRow.querySelector('.ai-session-primary-action');
+        if (worktreeAction && typeof worktreeAction.focus === 'function') {
+            worktreeAction.focus({ preventScroll: true });
+        }
+        worktreeRow.scrollIntoView({ block: 'nearest' });
+        if (worktreeAction && document.activeElement === worktreeAction) {
+            return true;
+        }
+        var worktreeSurfaceTab = Array.from(projectDiv.querySelectorAll(
+            '[data-ai-session-surface-tab]'
+        )).find(candidate =>
+            candidate.getAttribute('data-ai-session-surface-tab') === 'worktree'
+        );
+        if (worktreeSurfaceTab && typeof worktreeSurfaceTab.focus === 'function') {
+            worktreeSurfaceTab.focus({ preventScroll: true });
+            return document.activeElement === worktreeSurfaceTab;
+        }
+        return false;
     }
     selectAiSessionTabDom(projectDiv, 'active');
     writeAiSessionTabState(window.vscode, origin.projectId, 'active');
     var row = Array.from(projectDiv.querySelectorAll(
         '.active-ai-session-row[data-session-focused]'
         + '[data-session-provider][data-session-id]'
-    )).find(candidate =>
-        candidate.getAttribute('data-session-provider') === origin.provider
-        && candidate.getAttribute('data-session-id') === origin.sessionId
-    );
+    )).find(matches);
     if (row) {
         var header = row.querySelector('.ai-session-primary-action');
         if (header && typeof header.focus === 'function') {
@@ -839,9 +872,11 @@ function captureAiSessionListScrolls(projectDiv) {
         if (!panel) return;
         var key = panel.getAttribute('data-ai-session-surface-panel')
             || panel.getAttribute('data-ai-session-panel');
-        var scrollTop = Math.max(0, Number(list.scrollTop) || 0);
-        if (key && scrollTop > 0) {
-            scrolls.push({ key: key, scrollTop: scrollTop });
+        // Record every keyed panel list, including scrollTop 0: a capture
+        // taken while the list is momentarily hidden reads 0, and skipping
+        // it would leave the replacement DOM to snap back to the top.
+        if (key) {
+            scrolls.push({ key: key, scrollTop: Math.max(0, Number(list.scrollTop) || 0) });
         }
     });
     return scrolls;
@@ -1004,6 +1039,12 @@ function applyWorkspaceUpdate(message, options) {
         OPEN_TAB_CURRENT_ITEM_SELECTOR,
         'data-workspace-scope-identity'
     );
+    // The creation form re-renders after the replacement (reconcileDom), so
+    // its focus must be captured while the old DOM is still mounted.
+    if (window.__agentPivotWorktreeGroupForm
+        && typeof window.__agentPivotWorktreeGroupForm.captureFocus === 'function') {
+        window.__agentPivotWorktreeGroupForm.captureFocus();
+    }
     currentGroup.replaceWith(replacement);
     restoreOpenTabListScroll(
         queryOpenTabList(replacement, '.group-list'),
@@ -1203,20 +1244,43 @@ function applyOpenWorkspacesUpdate(message, options) {
         ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
         : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
+    // This path replaces the whole wrapper, so beyond the other-windows list
+    // it must also carry the current-workspace list scroll (path A keeps it
+    // across workspace-updated) and the window position.
+    var currentListScroll = captureOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
     var otherListScroll = captureOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         OPEN_TAB_OTHER_ITEM_SELECTOR,
         'data-workspace-navigation-identity'
     );
+    var windowScrollY = typeof window.scrollY === 'number' ? window.scrollY : 0;
+    // Capture the open creation form's focus before destroying its slot.
+    if (window.__agentPivotWorktreeGroupForm
+        && typeof window.__agentPivotWorktreeGroupForm.captureFocus === 'function') {
+        window.__agentPivotWorktreeGroupForm.captureFocus();
+    }
     wrapper.innerHTML = holder ? holder.innerHTML : message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
+        restoreOpenTabListScroll(
+            queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
+            currentListScroll,
+            OPEN_TAB_CURRENT_ITEM_SELECTOR,
+            'data-workspace-scope-identity'
+        );
         restoreOpenTabListScroll(
             queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
             otherListScroll,
             OPEN_TAB_OTHER_ITEM_SELECTOR,
             'data-workspace-navigation-identity'
         );
+        if (typeof window.scrollTo === 'function') {
+            window.scrollTo(0, windowScrollY);
+        }
         if (typeof restoreAiSessionTabsFromState === 'function') {
             restoreAiSessionTabsFromState(document, window.vscode);
         }
@@ -1225,11 +1289,20 @@ function applyOpenWorkspacesUpdate(message, options) {
         return false;
     }
     restoreOpenTabListScroll(
+        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
+        currentListScroll,
+        OPEN_TAB_CURRENT_ITEM_SELECTOR,
+        'data-workspace-scope-identity'
+    );
+    restoreOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         otherListScroll,
         OPEN_TAB_OTHER_ITEM_SELECTOR,
         'data-workspace-navigation-identity'
     );
+    if (typeof window.scrollTo === 'function') {
+        window.scrollTo(0, windowScrollY);
+    }
     if (window.__agentPivotDashboard) {
         window.__agentPivotDashboard.replaceSearchCatalog(message.searchCatalog);
     }
@@ -3322,6 +3395,10 @@ function initWorktreeGroupForm(options) {
     var PREVIEW_DEBOUNCE_MS = 300;
     var statesByProject = new Map();
     var nextRequestSerial = 0;
+    // Focus captured BEFORE an authoritative replacement destroys the form
+    // slot; renderForm prefers it over the live DOM read (which can only see
+    // document.body once the old slot is gone).
+    var replacementFocusByProject = new Map();
 
     function nextRequestId(prefix) {
         nextRequestSerial = nextRequestSerial >= Number.MAX_SAFE_INTEGER
@@ -4025,6 +4102,24 @@ function initWorktreeGroupForm(options) {
         }
     }
 
+    // Called by the authoritative update paths while the old DOM is still
+    // mounted (focus is global, so at most one open form holds it).
+    function captureFocus() {
+        var entries = statesByProject.entries();
+        for (var step = entries.next(); !step.done; step = entries.next()) {
+            var projectId = step.value[0];
+            var state = step.value[1];
+            if (!state.open) {
+                continue;
+            }
+            var slot = formSlot(projectId);
+            var focus = slot && captureFormFocus(slot);
+            if (focus) {
+                replacementFocusByProject.set(projectId, focus);
+            }
+        }
+    }
+
     function renderForm(projectId) {
         var state = getState(projectId);
         var slot = formSlot(projectId);
@@ -4032,12 +4127,17 @@ function initWorktreeGroupForm(options) {
             return;
         }
         if (!state || !state.open) {
+            replacementFocusByProject.delete(projectId);
             slot.hidden = true;
             slot.innerHTML = '';
             syncCreateButton(projectId, false);
             return;
         }
-        var focus = captureFormFocus(slot);
+        var focus = replacementFocusByProject.get(projectId) || null;
+        replacementFocusByProject.delete(projectId);
+        if (!focus) {
+            focus = captureFormFocus(slot);
+        }
         var membersHtml = state.bootstrapping
             ? '<div class="ai-session-group-form-loading">Loading repositories\u2026</div>'
             : (state.repositories.length
@@ -4373,6 +4473,7 @@ function initWorktreeGroupForm(options) {
         },
         onClick: onClick,
         reconcileDom: reconcileDom,
+        captureFocus: captureFocus,
         applyFormState: applyFormState,
         applyPreview: applyPreview,
         applyCreationSettlement: applyCreationSettlement,
@@ -7630,6 +7731,10 @@ function initProjects() {
             aiSessionsUpdate.findCurrentWorkspaceDiv(projectId),
     });
     aiSessionControls.setWorktreeGroupForm(worktreeGroupForm);
+    // The authoritative update paths capture the open form's focus through
+    // this global before replacing the DOM (same convention as
+    // window.__agentPivotWorktreeGroupRename).
+    window.__agentPivotWorktreeGroupForm = worktreeGroupForm;
 
     function applyValidatedAiSessionPresentationState(message) {
         if (!aiSessionPresentationStateStore.adopt(message)) return;

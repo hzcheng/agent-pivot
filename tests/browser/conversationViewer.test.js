@@ -201,7 +201,15 @@ async function openViewerPage(t, options = {}) {
                 data-conversation-target='{"projectId":"project-1","provider":"codex","sessionId":"session-telemetry"}'>
                 <header>
                     <span data-conversation-workspace-name>Test Workspace</span>
-                    <span data-conversation-display-name>Original session</span>
+                    <span class="conversation-identity-separator"
+                        data-conversation-task-separator aria-hidden="true"
+                        hidden>·</span>
+                    <span data-conversation-task-name hidden></span>
+                    <span class="conversation-identity-separator"
+                        aria-hidden="true">·</span>
+                    <button type="button" class="conversation-display-name-button"
+                        data-conversation-display-name data-action="rename-session"
+                        title="Rename session" aria-label="Rename session">Original session</button>
                     <span data-conversation-position>Input 0 of 0</span>
                     <button type="button" data-action="previous">Previous</button>
                     <button type="button" data-action="next">Next</button>
@@ -1554,6 +1562,12 @@ async function renderHostViewerDocument(options = {}) {
         expectedRevision: 'r1',
         displayName: 'Host document',
         duplicateDisplayName: false,
+        ...(options.workspaceName !== undefined
+            ? { workspaceName: options.workspaceName }
+            : {}),
+        ...(options.taskName !== undefined
+            ? { taskName: options.taskName }
+            : {}),
     });
     return panel.webview.html;
 }
@@ -1896,6 +1910,93 @@ test('CONVERSATION-SESSION-REBIND-001 updates the identity without replacing foc
         await page.locator('[data-test-local-draft]').evaluate(
             element => element === document.activeElement
         ),
+        true
+    );
+});
+
+test('CONVERSATION-VIEWER-HEADER-001 renders the identity line as project · task · session and posts a rename intent on click', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        workspaceName: 'Agent Pivot',
+        taskName: 'fix-login',
+    });
+    assert.equal(
+        await page.locator('[data-conversation-workspace-name]').innerText(),
+        'Agent Pivot'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-task-name]').innerText(),
+        'fix-login',
+        'the task segment renders between the project and session names'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-task-separator]').isHidden(),
+        false
+    );
+    const sessionName = page.locator('[data-conversation-display-name]');
+    assert.equal(await sessionName.innerText(), 'Host document');
+
+    await sessionName.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-rename-session',
+        version: 1,
+    }, 'clicking the session name asks the Host to rename the session');
+});
+
+test('CONVERSATION-VIEWER-HEADER-001 hides the task segment for group-less sessions', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        workspaceName: 'Agent Pivot',
+    });
+    assert.equal(
+        await page.locator('[data-conversation-task-name]').isHidden(),
+        true
+    );
+    assert.equal(
+        await page.locator('[data-conversation-task-separator]').isHidden(),
+        true
+    );
+});
+
+test('CONVERSATION-VIEWER-HEADER-001 applies task name updates from authoritative pages', async t => {
+    const page = await openViewerPage(t);
+    const target = {
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-telemetry',
+        interactionId: 'input-4',
+        displayName: 'Original session',
+        workspaceName: 'Test Workspace',
+    };
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        target: { ...target, taskName: 'fix-login' },
+    });
+    assert.equal(
+        await page.locator('[data-conversation-task-name]').innerText(),
+        'fix-login'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-task-name]').isHidden(),
+        false
+    );
+    assert.equal(
+        await page.locator('[data-conversation-task-separator]').isHidden(),
+        false
+    );
+
+    // A later page without a group hides the segment again (e.g. the
+    // session's worktree left its task group).
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 3,
+        target,
+    });
+    assert.equal(
+        await page.locator('[data-conversation-task-name]').isHidden(),
+        true
+    );
+    assert.equal(
+        await page.locator('[data-conversation-task-separator]').isHidden(),
         true
     );
 });
@@ -4642,6 +4743,88 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        clearConversationLoading();\n',
             '        state.atLatest = message.atLatest;\n'
                 + '        state.initialized = true;\n'
+        )
+        // Strips for the project · task · session header additions
+        // (CONVERSATION-VIEWER-HEADER-001): the task segment, its page-target
+        // plumbing, and the click-to-rename binding.
+        .replace(
+            '    var conversationWorkspaceName = document.querySelector(\n'
+                + "        '[data-conversation-workspace-name]'\n"
+                + '    );\n'
+                + '    var conversationTaskName = document.querySelector(\n'
+                + "        '[data-conversation-task-name]'\n"
+                + '    );\n'
+                + '    var conversationTaskSeparator = document.querySelector(\n'
+                + "        '[data-conversation-task-separator]'\n"
+                + '    );\n'
+                + "    var telemetryRoot = document.querySelector('[data-conversation-telemetry]');\n",
+            '    var conversationWorkspaceName = document.querySelector(\n'
+                + "        '[data-conversation-workspace-name]'\n"
+                + '    );\n'
+                + "    var telemetryRoot = document.querySelector('[data-conversation-telemetry]');\n"
+        )
+        .replace(
+            "        allowed.add('workspaceName');\n"
+                + "        allowed.add('taskName');\n",
+            "        allowed.add('workspaceName');\n"
+        )
+        .replace(
+            '            && (value.duplicateDisplayName === undefined\n'
+                + "                || typeof value.duplicateDisplayName === 'boolean')\n"
+                + '            && (value.taskName === undefined\n'
+                + "                || (typeof value.taskName === 'string'\n"
+                + '                    && value.taskName.length <= 640));\n'
+                + '    }\n'
+                + '\n'
+                + '    // The identity line reads project · task · session; the task segment\n'
+                + '    // only renders when the session belongs to a worktree task group.\n'
+                + '    function applyConversationTaskName(target) {\n'
+                + "        var taskName = target && typeof target.taskName === 'string'\n"
+                + '            ? target.taskName\n'
+                + "            : '';\n"
+                + '        if (conversationTaskName) {\n'
+                + '            conversationTaskName.textContent = taskName;\n'
+                + '            conversationTaskName.hidden = !taskName;\n'
+                + '        }\n'
+                + '        if (conversationTaskSeparator) {\n'
+                + '            conversationTaskSeparator.hidden = !taskName;\n'
+                + '        }\n'
+                + '    }\n'
+                + '\n'
+                + '    function validCommentSnapshot(value) {\n',
+            '            && (value.duplicateDisplayName === undefined\n'
+                + "                || typeof value.duplicateDisplayName === 'boolean');\n"
+                + '    }\n'
+                + '\n'
+                + '    function validCommentSnapshot(value) {\n'
+        )
+        .replace(
+            '        if (validPageTarget(message.target)) {\n'
+                + '            applyConversationTaskName(message.target);\n'
+                + '        }\n'
+                + '        return true;\n',
+            '        return true;\n'
+        )
+        .replace(
+            '        if (validPageTarget(message.target)) {\n'
+                + '            applyConversationTaskName(message.target);\n'
+                + '        }\n'
+                + '        updatePosition(message);\n',
+            '        updatePosition(message);\n'
+        )
+        .replace(
+            '    });\n'
+                + '    if (conversationDisplayName) {\n'
+                + "        conversationDisplayName.addEventListener('click', function () {\n"
+                + '            post({\n'
+                + "                type: 'conversation-viewer-rename-session',\n"
+                + '                version: 1,\n'
+                + '            });\n'
+                + '        });\n'
+                + '    }\n'
+                + '    if (sidebarUiAvailable) {\n',
+            '    });\n'
+                + '    if (sidebarUiAvailable) {\n'
         );
     const previousOutlineScript = conversationOutlineScript
         .replace(

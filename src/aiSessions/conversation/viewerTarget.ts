@@ -11,6 +11,9 @@ export interface ConversationViewerTarget {
     expectedRevision: string;
     displayName: string;
     duplicateDisplayName: boolean;
+    /** Display name of the worktree task group the session belongs to, when
+     * any; rendered between the workspace name and the session name. */
+    taskName?: string;
     /** When set, the viewer renders this subagent's transcript instead of
      * the main session; sessionId stays the real (parent) session id. */
     subagent?: { id: string; label: string };

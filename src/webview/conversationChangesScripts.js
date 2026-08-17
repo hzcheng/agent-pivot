@@ -142,13 +142,14 @@
                 ? member.repoLabel + ' (' + member.branchName + ')'
                 : member.repoLabel;
             if (member.availability === 'unreadable') {
-                return label + ' · unreadable';
+                return label + ' · unreadable\n  ' + member.worktreePath;
             }
             if (member.availability === 'historyRewritten') {
-                return label + ' · history rewritten';
+                return label + ' · history rewritten\n  ' + member.worktreePath;
             }
             var ahead = member.aheadCount === undefined ? '↑—' : '↑' + member.aheadCount;
-            return label + ' · ' + member.workingItemCount + ' uncommitted · ' + ahead;
+            return label + ' · ' + member.workingItemCount + ' uncommitted · '
+                + ahead + '\n  ' + member.worktreePath;
         }
 
         function buttonSummary(aggregate) {
@@ -233,6 +234,12 @@
                 return member.memberId === previous;
             }) && previous === selected ? previous : selected;
             memberSelect.disabled = state.members.length <= 1;
+            var selectedMember = state.members.filter(function (member) {
+                return member.memberId === selected;
+            })[0];
+            memberSelect.title = selectedMember
+                ? selectedMember.worktreePath
+                : '';
         }
 
         function clearChildren(root) {

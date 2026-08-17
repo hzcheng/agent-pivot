@@ -287,18 +287,6 @@ export function renderConversationViewerDocument(
                         aria-hidden="true" fill="none" stroke="currentColor"
                         stroke-width="1.3"><path d="M3 3.5h10a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5H8l-3 2.2v-2.2H3a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5z"/></svg>
                 </button>
-                <button type="button" role="tab" data-sidebar-tab="changes"
-                    id="conversation-changes-tab"
-                    aria-controls="conversation-changes-panel"
-                    aria-selected="false" aria-label="Changes" title="Changes">
-                    <svg viewBox="0 0 16 16" width="14" height="14"
-                        aria-hidden="true" fill="none" stroke="currentColor"
-                        stroke-width="1.3" stroke-linecap="round">
-                        <circle cx="4.5" cy="3.5" r="1.6"/>
-                        <circle cx="4.5" cy="12.5" r="1.6"/>
-                        <circle cx="11.5" cy="6.5" r="1.6"/>
-                        <path d="M4.5 5.1v5.8M11.5 8.1c0 2.4-3.4 2-4.6 3"/></svg>
-                </button>
                 <button type="button" role="tab" data-sidebar-tab="subagents"
                     id="conversation-subagents-tab"
                     aria-controls="conversation-subagents-panel"
@@ -307,6 +295,18 @@ export function renderConversationViewerDocument(
                     <svg viewBox="0 0 16 16" width="14" height="14"
                         aria-hidden="true" fill="none" stroke="currentColor"
                         stroke-width="1.3"><circle cx="8" cy="3.4" r="1.7"/><circle cx="3.4" cy="12.2" r="1.7"/><circle cx="12.6" cy="12.2" r="1.7"/><path d="M8 5.1v2.2M8 7.3l-3.3 3.2M8 7.3l3.3 3.2"/></svg>
+                </button>
+                <button type="button" role="tab" data-sidebar-tab="changes"
+                    id="conversation-changes-tab"
+                    aria-controls="conversation-changes-panel"
+                    aria-selected="false" aria-label="Changes" title="Changes">
+                    <svg viewBox="0 0 16 16" width="14" height="14"
+                        aria-hidden="true" fill="none" stroke="currentColor"
+                        stroke-width="1.3" stroke-linecap="round">
+                        <rect x="3.4" y="2.4" width="9.2" height="11.2" rx="1.4"/>
+                        <path d="M5.9 6.2h2.4M7.1 5v2.4"/>
+                        <path d="M5.9 10.8h2.4"/>
+                        <path d="M10.1 6.2h1M10.1 10.8h1" opacity="0.35"/></svg>
                 </button>
             </div>
             <section id="conversation-outline-panel"

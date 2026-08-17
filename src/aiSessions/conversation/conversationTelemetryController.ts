@@ -318,11 +318,14 @@ const SUBAGENTS_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
     + '<circle cx="8" cy="3" r="1.7"/><circle cx="3.5" cy="12.5" r="1.7"/>'
     + '<circle cx="12.5" cy="12.5" r="1.7"/><path d="M8 4.7v3M8 7.7 4.5 11M8 7.7l3.5 3.3"/></svg>';
 
+// Diff glyph: a document carrying +/− marks — distinct from the branch
+// icon used by the worktree button.
 const CHANGES_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
-    + ' fill="none" stroke="currentColor" stroke-width="1.35"'
-    + ' stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.7"/>'
-    + '<circle cx="4.5" cy="12.5" r="1.7"/><circle cx="11.5" cy="6.5" r="1.7"/>'
-    + '<path d="M4.5 5.2v5.6M11.5 8.2c0 2.4-3.4 2-4.6 3"/></svg>';
+    + ' fill="none" stroke="currentColor" stroke-width="1.3"'
+    + ' stroke-linecap="round"><rect x="3.4" y="2.4" width="9.2"'
+    + ' height="11.2" rx="1.4"/>'
+    + '<path d="M5.9 6.2h2.4M7.1 5v2.4"/><path d="M5.9 10.8h2.4"/>'
+    + '<path d="M10.1 6.2h1M10.1 10.8h1" opacity="0.35"/></svg>';
 
 function clampPercent(value: number): number {
     return Math.max(0, Math.min(100, value));
@@ -471,6 +474,15 @@ export function renderConversationTelemetry(
             ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value>0</span>
         </button>
         <button type="button"
+            class="conversation-telemetry-subagents conversation-telemetry-tooltip"
+            data-telemetry-subagents
+            aria-pressed="false"
+            aria-label="0 running of 0 subagents — click to view"
+            title="0 running of 0 subagents — click to view"
+            data-tooltip="0 running of 0 subagents — click to view">
+            ${SUBAGENTS_ICON_SVG}<span data-telemetry-subagents-value>0/0</span>
+        </button>
+        <button type="button"
             class="conversation-telemetry-changes conversation-telemetry-tooltip"
             data-telemetry-changes
             aria-pressed="false"
@@ -479,15 +491,6 @@ export function renderConversationTelemetry(
             data-tooltip="No changes — click to view"
             hidden>
             ${CHANGES_ICON_SVG}<span data-telemetry-changes-value>0 · ↑0</span>
-        </button>
-        <button type="button"
-            class="conversation-telemetry-subagents conversation-telemetry-tooltip"
-            data-telemetry-subagents
-            aria-pressed="false"
-            aria-label="0 running of 0 subagents — click to view"
-            title="0 running of 0 subagents — click to view"
-            data-tooltip="0 running of 0 subagents — click to view">
-            ${SUBAGENTS_ICON_SVG}<span data-telemetry-subagents-value>0/0</span>
         </button>
     </section>`;
 }

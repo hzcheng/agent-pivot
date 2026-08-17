@@ -26,9 +26,10 @@ job.
    - identify the intended repository remote and base branch from the user request, local tracking branch, or remote default
 
 2. If the user asks for a worktree under the current project, place it under
-   `.worktree/<topic>` — worktree creation happens once per line of work.
-   - Do not add `.worktree/` to tracked `.gitignore` unless the user explicitly wants a repo change.
-   - Prefer local ignore: `printf '.worktree/\n' >> .git/info/exclude` if needed.
+   `.worktrees/<topic>` (plural — the product's own default and the layout in
+   use) — worktree creation happens once per line of work.
+   - Do not add `.worktrees/` to tracked `.gitignore` unless the user explicitly wants a repo change.
+   - Prefer local ignore: `printf '.worktrees/\n' >> .git/info/exclude` if needed.
 
 3. Create from the protected base:
    - `git fetch <remote> <base>`

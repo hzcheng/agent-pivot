@@ -13,7 +13,7 @@ making any change.
    the same job:
    ```sh
    git fetch origin main
-   git worktree add -b <branch> .worktree/<topic> origin/main   # once per job
+   git worktree add -b <branch> .worktrees/<topic> origin/main  # once per job
    ```
    Run `npm ci` inside the worktree before verifying anything — npm
    silently resolves binaries from the primary checkout's `node_modules`

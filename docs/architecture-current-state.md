@@ -76,7 +76,7 @@
 
 ## Conventions For Contributors (human or agent)
 
-1. Work in `.worktree/<topic>` off `origin/main`; `npm ci` inside the worktree; never push to `main` directly.
+1. Work in `.worktrees/<topic>` off `origin/main`; `npm ci` inside the worktree; never push to `main` directly.
 2. Every PR: English title/body, `## Skill harvest` section, capability audit commit (`scripts/regenerate-capability-audit.js`), full local gate suite green.
 3. Merges require the owner approval comment (the `merge-approval` status must be green); agents never self-approve.
 4. Webview scripts keep `src/webview` and `media/` byte-identical; TS-side webview code has no mirror.

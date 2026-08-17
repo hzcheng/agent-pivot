@@ -1134,10 +1134,11 @@ The program is delivered through short-lived PRs based on the latest
 5. pilot strict-mode completion;
 6. subsequent module safety-net and migration slices.
 
-Harness v0 merges early so concurrent work is protected. Each implementation
-slice uses a new feature worktree after `git fetch origin main` and `npm ci`.
-Do not keep the entire program on `agent-pivot/arch-refact` after the charter
-and initial investigation work is handed off.
+Harness v0 merges early so concurrent work is protected. The whole program
+runs on the program worktree's branch (`agent-pivot/arch-refact`): every
+slice commits there, and PRs are cut serially from that branch as earlier
+ones merge, each rebased onto the latest `origin/main` first. No branch
+switching and no additional worktrees inside the program.
 
 The program ledger is updated only with evidence from merged or reviewed
 changes. Before starting a dependent slice, rebase the plan against current
@@ -1308,9 +1309,10 @@ scope. Do not perform the pilot deep dive, design final Harness v0, or make any
 implementation change until that checkpoint is approved.
 ```
 
-Prompts for later slices must additionally require `git fetch origin main`, a
-fresh short-lived worktree per slice, and revalidation of the approved boundary
-and metric baseline against current `origin/main` (Section 16). The chat
+Prompts for later slices must additionally require `git fetch origin main`,
+rebasing the program branch onto it, work committed on the program branch in
+the program worktree, and revalidation of the approved boundary and metric
+baseline against current `origin/main` (Section 16). The chat
 rollout reference in the prompt is optional history; this document and the
 versioned findings remain the authoritative handoff.
 

@@ -5,13 +5,17 @@ making any change.
 
 ## Non-negotiables
 
-1. **Never edit files directly in the primary checkout on `main`.** Do all
-   work in a feature worktree:
+1. **Never edit files directly in the primary checkout on `main`.** Each
+   line of work runs in its own worktree on that worktree's branch: make
+   every commit for the job on that branch and cut serial PRs from it as
+   earlier ones merge. Do not switch branches inside the worktree, do not
+   spread one job across worktrees, and do not start another worktree for
+   the same job:
    ```sh
    git fetch origin main
-   git worktree add -b <branch> .worktree/<topic> origin/main
+   git worktree add -b <branch> .worktrees/<topic> origin/main  # once per job
    ```
-   Run `npm ci` inside the new worktree before verifying anything — npm
+   Run `npm ci` inside the worktree before verifying anything — npm
    silently resolves binaries from the primary checkout's `node_modules`
    otherwise. Dirty files in the primary checkout are user changes; do not
    revert them. Details: skill `protecting-main-with-worktrees`.

@@ -582,6 +582,32 @@
 
         return {
             apply: apply,
+            // Session switches advance the viewer's generation without a
+            // document rebuild — adopt it and drop the old session's
+            // state, or every later changes message is rejected as stale.
+            resetSession: function (generation) {
+                subscriptionGeneration = generation;
+                latestState = null;
+                lastSelectSignature = '';
+                collapsedFolders = {};
+                if (button) {
+                    button.hidden = true;
+                    button.classList.remove(
+                        'conversation-telemetry-changes-unavailable');
+                    updateToggle();
+                }
+                if (groupsRoot) {
+                    clearChildren(groupsRoot);
+                }
+                // Self-heal any ordering race: the host publishes the new
+                // session's state right after the switch page, but this
+                // controller only adopts the new generation when that page
+                // arrives — an early push would be dropped. Pull instead.
+                post({
+                    type: 'conversation-viewer-changes-refresh',
+                    version: 1,
+                });
+            },
             getSelectedMemberId: function () {
                 return latestState && latestState.selectedMemberId;
             },

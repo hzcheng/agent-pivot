@@ -1018,6 +1018,9 @@
             nextCommentTarget,
             message.subscriptionGeneration
         );
+        if (changesController) {
+            changesController.resetSession(message.subscriptionGeneration);
+        }
         commentTarget = nextCommentTarget;
         restoreTarget = {
             projectId: message.target.projectId,

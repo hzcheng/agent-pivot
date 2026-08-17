@@ -1,0 +1,105 @@
+{
+  "version": 0,
+  "status": "draft — approved as the coarse registry at the Stage 1A checkpoint; Stage 2 normalizes paths and proves exact-once coverage before this becomes canonical docs/testing/architecture-modules.json",
+  "approvedAt": "2026-08-17",
+  "baselineCommit": "afb60eb1",
+  "scopeDecisions": {
+    "extensions/attention-ui-bridge": "in-scope as MOD-ATTENTION-BRIDGE-EXT",
+    "shared/attention-bridge": "in-scope as MOD-ATTENTION-BRIDGE-EXT",
+    "spikes": "out-of-scope (non-production experiments)",
+    "media": "generated output, excluded from classification",
+    "scripts": "harness/tooling, governed by reviewability rule, not production classification"
+  },
+  "modules": [
+    {
+      "id": "MOD-AI-SESSION-RUNTIME",
+      "purpose": "AI session runtime backends (direct terminal and tmux), runtime coordination, ownership and recovery.",
+      "sourceRoots": ["src/aiSessions/ (tmux*, runtime*, terminalService*, directTerminal* families)"],
+      "productCapabilities": ["MAIN-RUNTIME-OWNERSHIP", "MAIN-TMUX-FOCUS", "MAIN-TMUX-NAMING", "MAIN-TMUX-CLEANUP", "MAIN-RUNTIME-SESSION-RECOVERY"]
+    },
+    {
+      "id": "MOD-AI-SESSION-CONTROL",
+      "purpose": "Session controllers (create, command, archive, resume, terminal command) and their composition.",
+      "sourceRoots": ["src/aiSessions/ (sessionControllerComposition and controller families)"],
+      "productCapabilities": ["MAIN-AI-SESSION-QUICK-CREATE", "MAIN-AI-SESSION-QUICK-SWITCH"]
+    },
+    {
+      "id": "MOD-AI-SESSION-CONVERSATION",
+      "purpose": "Conversation provider adapters, coordinator, viewer, and viewer protocol. Active feature area: no restructuring while it is being built.",
+      "sourceRoots": ["src/aiSessions/conversation/"],
+      "productCapabilities": ["MAIN-AI-SESSION-CONVERSATION-OUTLINE"]
+    },
+    {
+      "id": "MOD-AI-SESSION-ATTENTION",
+      "purpose": "Attention pipeline: aggregation, queue, monitor, payload, status bar.",
+      "sourceRoots": ["src/aiSessions/ (attention* families)"],
+      "productCapabilities": ["MAIN-WORKSPACE-ATTENTION", "MAIN-ATTENTION-LIFECYCLE-HARDENING"]
+    },
+    {
+      "id": "MOD-AI-SESSION-NOTIFY",
+      "purpose": "Stop-notification pipeline and the only outbound network egress.",
+      "sourceRoots": ["src/aiSessions/notify/", "src/aiSessions/notifyIntegration/", "src/aiSessions/notifyConfiguration.ts"],
+      "productCapabilities": ["MAIN-SESSION-STOP-NOTIFICATION"]
+    },
+    {
+      "id": "MOD-AI-SESSION-PROVIDER",
+      "purpose": "Provider session services (codex, kimi, claude) moved from src/services/ per approved decision D4.",
+      "sourceRoots": ["src/services/{codex,kimi,claude}SessionService.ts (pending move)"],
+      "productCapabilities": ["MAIN-AI-SESSION-QUICK-CREATE (shared)"]
+    },
+    {
+      "id": "MOD-WORKTREE-LIFECYCLE",
+      "purpose": "Worktree group and member lifecycle, provisioning, generation claims, deletion journal.",
+      "sourceRoots": ["src/worktrees/"],
+      "productCapabilities": ["MAIN-WORKTREE-CHANGES-PANEL (shared)"]
+    },
+    {
+      "id": "MOD-WORKSPACE-IDENTITY",
+      "purpose": "Workspace identity, hydration, and session scoping.",
+      "sourceRoots": ["src/workspaces/"],
+      "productCapabilities": ["MAIN-WORKSPACE-IDENTITY", "MAIN-WORKSPACE-SCOPE", "MAIN-WORKSPACE-HYDRATION"]
+    },
+    {
+      "id": "MOD-OPEN-WORKSPACE",
+      "purpose": "Open-workspace bridge client and protocol.",
+      "sourceRoots": ["src/openWorkspaces/"],
+      "productCapabilities": ["MAIN-OPEN-WORKSPACE-PROTOCOL", "MAIN-OTHER-WINDOWS"]
+    },
+    {
+      "id": "MOD-PROJECT-CATALOG",
+      "purpose": "Project CRUD, favorites, remote resolution, plus legacy project/color/file services per D4.",
+      "sourceRoots": ["src/projects/", "src/services/ (projectService, colorService, fileService, projectWindowColorService, projectCatalogSyncService; ntc.ts stays exempt)"],
+      "productCapabilities": ["MAIN-PROJECT-CATALOG-CONSISTENCY", "MAIN-WORKSPACE-SAVE"]
+    },
+    {
+      "id": "MOD-SKILL-MANAGEMENT",
+      "purpose": "Skills central store, scope actions, discovery, panel.",
+      "sourceRoots": ["src/skills/"],
+      "productCapabilities": ["MAIN-AI-SKILL-MANAGEMENT"]
+    },
+    {
+      "id": "MOD-TODO",
+      "purpose": "Todo store, service, panel.",
+      "sourceRoots": ["src/todos/"],
+      "productCapabilities": ["MAIN-TODO-CONTINUOUS-EXPERIENCE"]
+    },
+    {
+      "id": "MOD-PROMPT-LIBRARY",
+      "purpose": "Prompt library service and webview content.",
+      "sourceRoots": ["src/prompts/"],
+      "productCapabilities": ["MAIN-AI-PROMPT-LIBRARY"]
+    },
+    {
+      "id": "MOD-DASHBOARD-SHELL",
+      "purpose": "Dashboard view provider, message routing, webview content/scripts, root composition (dashboard.ts), and the shared type/constant kernel (models.ts, constants.ts).",
+      "sourceRoots": ["src/dashboard/", "src/webview/", "src/dashboard.ts", "src/models.ts", "src/constants.ts", "src/sponsor.ts"],
+      "productCapabilities": ["MAIN-WORKSPACE-WEBVIEW", "MAIN-DASHBOARD-WEBVIEW-RECOVERY", "MAIN-WORKSPACE-SEARCH", "MAIN-WORKSPACE-NAVIGATION", "MAIN-SPONSOR-ENTRY"]
+    },
+    {
+      "id": "MOD-ATTENTION-BRIDGE-EXT",
+      "purpose": "Companion attention UI bridge extension and shared bridge protocol (separate compile units).",
+      "sourceRoots": ["extensions/attention-ui-bridge/", "shared/attention-bridge/"],
+      "productCapabilities": ["MAIN-OPEN-WORKSPACE-PROTOCOL (shared)"]
+    }
+  ]
+}

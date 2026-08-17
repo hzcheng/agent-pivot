@@ -197,6 +197,8 @@ export interface ConversationViewerRequestSyncMessage {
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
+    /** Sanitized first line of the apply failure that triggered this. */
+    applyError?: string;
 }
 
 export interface ConversationViewerAppliedFrame {
@@ -357,10 +359,16 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerSwitchSessionMessage;
     }
     if (value.type === 'conversation-viewer-request-sync') {
-        if (!hasExactKeys(value, [
+        const syncKeys = [
             'type', 'version', 'subscriptionGeneration',
             'projectId', 'provider', 'sessionId',
-        ])
+        ];
+        if (!(hasExactKeys(value, syncKeys)
+                || hasExactKeys(value, [...syncKeys, 'applyError']))
+            || (value.applyError !== undefined
+                && (typeof value.applyError !== 'string'
+                    || value.applyError.length > 200
+                    || /[\0-\u001f\u007f]/.test(value.applyError)))
             || !isPositiveSafeInteger(value.subscriptionGeneration)
             || !isConversationViewerTargetId(value.projectId)
             || !isAiSessionProvider(value.provider)

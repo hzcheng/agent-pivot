@@ -1013,7 +1013,11 @@ export class ConversationViewer implements ConversationViewerApi {
             if (publication
                 && publication.requestId !== this.syncRebuildRequestId) {
                 this.syncRebuildRequestId = publication.requestId;
-                this.emitDiagnostic('resync-rebuild');
+                this.emitDiagnostic('resync-rebuild', {
+                    ...(parsed.applyError
+                        ? { applyError: parsed.applyError }
+                        : {}),
+                });
                 this.rebuildLatestDocument();
             }
             return;

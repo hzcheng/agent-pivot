@@ -1826,7 +1826,7 @@
         );
         return true;
     }
-    function requestConversationResync(page) {
+    function requestConversationResync(page, applyError) {
         // Correlate the request to the page that failed to apply: the
         // Host rebuilds only while it still owns that generation and
         // session, and ignores requests stranded by a newer switch. One
@@ -1852,14 +1852,22 @@
         resyncRequestedGeneration = generation;
         // Dropped deltas must not suppress the rebuilt full publication.
         state.appliedHtmlSignature = undefined;
-        post({
+        var message = {
             type: 'conversation-viewer-request-sync',
             version: 1,
             subscriptionGeneration: generation,
             projectId: target.projectId,
             provider: target.provider,
             sessionId: target.sessionId,
-        });
+        };
+        if (applyError) {
+            // Sanitized, bounded: the first line of the apply failure tells
+            // the Host which page application path keeps failing.
+            message.applyError = String(
+                applyError && applyError.message || applyError
+            ).split('\n')[0].slice(0, 200);
+        }
+        post(message);
     }
 
     window.addEventListener('message', function (event) {
@@ -1878,7 +1886,7 @@
         try {
             applyPage(event.data);
         } catch (_applyError) {
-            requestConversationResync(event.data);
+            requestConversationResync(event.data, _applyError);
         }
     });
     if (followNoticeClose) {

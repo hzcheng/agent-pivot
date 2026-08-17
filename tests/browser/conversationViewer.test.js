@@ -977,6 +977,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applyi
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-telemetry',
+        applyError: 'sanitize unavailable',
     });
 });
 
@@ -4681,7 +4682,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '31135c340c633b980b72871446ee541ff3335980625c7a5445a06c359699ed83',
+        '8a7392a219578d8656d7536763ea539e177b0756cab7ab68355f8268cf32c562',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(

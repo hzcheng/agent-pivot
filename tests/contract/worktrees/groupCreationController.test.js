@@ -738,6 +738,82 @@ test('WORKTREE-GROUPS-CREATE-001 a preview token is single-use across replays an
         'concurrent confirms settle exactly once');
 });
 
+test('WORKTREE-GROUPS-CREATE-001 a confirm parked in baseline resolution never provisions twice', async () => {
+    let baselineGateOpen = false;
+    const parked = [];
+    const current = fixture({
+        resolveBaseCommit: (commandCwd, baseRef) => {
+            const baseline = {
+                commitSha: 'f'.repeat(40),
+                capturedAt: 1724000000000,
+                source: { kind: 'branch', fullRef: baseRef },
+            };
+            if (baselineGateOpen) { return Promise.resolve(baseline); }
+            return new Promise(resolve => parked.push(() => resolve(baseline)));
+        },
+    });
+    const previewId = await previewIdFor(current);
+    const first = current.controller.confirm({
+        projectId: 'project', previewId,
+        displayName: 'Fix login', members: confirmedMembers(),
+    });
+    const second = current.controller.confirm({
+        projectId: 'project', previewId,
+        displayName: 'Fix login', members: confirmedMembers(),
+    });
+    // Both confirms pass validation and park on their first member inside
+    // the baseline-resolution await window.
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(parked.length, 2,
+        'both confirms reach the baseline-resolution window');
+    baselineGateOpen = true;
+    for (const release of parked) { release(); }
+    const outcomes = (await Promise.all([first, second]))
+        .map(outcome => outcome.kind === 'created' ? 'created' : outcome.errorCode)
+        .sort();
+    assert.deepEqual(outcomes, ['created', 'preview-stale'],
+        'the token is consumed atomically, so the parked confirm loses as preview-stale');
+    assert.equal(current.manifestStore.listGroups(workspace.navigationIdentity).length, 1,
+        'exactly one group is provisioned');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 an in-flight confirm never consumes a newer preview snapshot', async () => {
+    let baselineGateOpen = false;
+    const parked = [];
+    const current = fixture({
+        resolveBaseCommit: (commandCwd, baseRef) => {
+            const baseline = {
+                commitSha: 'f'.repeat(40),
+                capturedAt: 1724000000000,
+                source: { kind: 'branch', fullRef: baseRef },
+            };
+            if (baselineGateOpen) { return Promise.resolve(baseline); }
+            return new Promise(resolve => parked.push(() => resolve(baseline)));
+        },
+    });
+    const previewId = await previewIdFor(current);
+    const inFlight = current.controller.confirm({
+        projectId: 'project', previewId,
+        displayName: 'Fix login', members: confirmedMembers(),
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(parked.length, 1,
+        'the confirm parks in baseline resolution');
+    // A newer preview replaces the snapshot while the confirm is parked.
+    const newerPreviewId = await previewIdFor(current);
+    baselineGateOpen = true;
+    for (const release of parked) { release(); }
+    const stale = await inFlight;
+    assert.equal(stale.errorCode, 'preview-stale',
+        'the confirm bound to the superseded preview loses');
+    const confirmed = await current.controller.confirm({
+        projectId: 'project', previewId: newerPreviewId,
+        displayName: 'Fix login', members: confirmedMembers(),
+    });
+    assert.equal(confirmed.kind, 'created',
+        'the newer preview snapshot survives the in-flight confirm');
+});
+
 test('WORKTREE-GROUPS-CREATE-001 a full tombstone bucket refuses the dismiss as store-full', async () => {
     const current = fixture({
         startMemberOperation: async input => ({

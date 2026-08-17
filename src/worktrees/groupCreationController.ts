@@ -683,9 +683,14 @@ export class WorktreeGroupCreationController {
             }
         }
         const navigationIdentity = target.workspace.navigationIdentity;
-        // Preview tokens are single-use: consume atomically (synchronously,
-        // before the first manifest await) so a replayed or concurrent
-        // confirm can never provision the same plan twice.
+        // Preview tokens are single-use: consume atomically — synchronously,
+        // before the first manifest await — so a replayed or concurrent
+        // confirm can never provision the same plan twice. Baseline
+        // resolution above awaits, so consumption must re-validate identity:
+        // a superseded or already-consumed snapshot fails closed as stale.
+        if (this.previewSnapshots.get(request.projectId) !== previewSnapshot) {
+            return { kind: 'failed', errorCode: 'preview-stale' };
+        }
         this.previewSnapshots.delete(request.projectId);
         let group: WorktreeGroup;
         let newMembers: WorktreeGroup['members'];

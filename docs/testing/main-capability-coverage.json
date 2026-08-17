@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "aa40b009ba32eab805ac3d11c340825079f8a509",
+        "head": "0fed732eee67b22fe3e041711a80f16b213fc52b",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -406,7 +406,8 @@
             "ef8c2512740e9850eb907b97f1e9c21657de6141",
             "bbdddd86e704b20776364fe0592816b7d81d8cba",
             "c96e7c64349e222b936028f53dfdadb7d5bda8aa",
-            "98edde499337cf10e858efc3de2839d476506f23"
+            "98edde499337cf10e858efc3de2839d476506f23",
+            "3829b1e86bb097a62dc3afc49cbb517747c92e74"
         ]
     },
     "capabilities": [
@@ -580,7 +581,8 @@
                 "e670a7b0b7d2d81297e1386eb7b5f809de181ee0",
                 "ecdfa526e6a26c7c154b1d7bb0374219ffa0a36d",
                 "74140c81d3fdf8bb2c09c2684a47fa0a12ae701d",
-                "a3176e7580c734b7c12ee2217ddbd0bd7dbe83d8"
+                "a3176e7580c734b7c12ee2217ddbd0bd7dbe83d8",
+                "bb7ff16c4a79e62015446e44022d85c3e35c399a"
             ],
             "behaviors": [
                 "PERSIST-AI-SESSION-PROJECT-HYDRATION-CONTROLLER-001",
@@ -1380,7 +1382,8 @@
                 "6f22284edc8b8e3b4e71dcf8abb5b46569164abc",
                 "94c139ff153d9c39e809814de35605d62b44e363",
                 "1432fa2bd99d405c9660ecabc7fb93e4d78525a9",
-                "8e52aa457221dec03adea53f6147bf06f43ec752"
+                "8e52aa457221dec03adea53f6147bf06f43ec752",
+                "0fa63b5a531435bc58451057bb4bfda9c3d83059"
             ],
             "behaviors": [
                 "RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001",
@@ -1871,7 +1874,9 @@
                 "2b8b84f23b83e4bd05c008f171561895596b4661",
                 "67b228102695e6e1f3d03fd57c47495d2ab90cc5",
                 "f6775a1a2e74527be5983a051cf3974581814ce6",
-                "6d2e4a699102a51e6fa14a4bf02b078970e70fad"
+                "6d2e4a699102a51e6fa14a4bf02b078970e70fad",
+                "46a7343292593e6f4894ba2634d0cae2226b51f3",
+                "0fed732eee67b22fe3e041711a80f16b213fc52b"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",

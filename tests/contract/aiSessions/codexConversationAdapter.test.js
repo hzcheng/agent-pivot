@@ -3748,55 +3748,73 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 demotes least-recently-viewed f
     assert.ok(entry.characters > 0);
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 treats a cross-epoch item collision as staleness, never as a protocol failure', async t => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 tolerates cross-turn item id reuse from resume epochs', async t => {
     const harness = createWindowedHarness(t);
     await harness.adapter.readOutline(sessionId);
 
-    // A response-spanning item projected into different turns at
-    // different fetch times: the tail fetch (cold start) recorded it in
-    // turn 119's full chunk, but the live full fetch now returns the same
-    // item inside turn 60.
-    const migrated = {
+    // codex restarts per-item numbering after resume/compact epochs
+    // (verified on a live resumed 0.147 thread: exec_command_0 reappears
+    // in later turns), so an item id is only unique within its turn.
+    // A same-id item in another turn is a NEW item, not drift — reads
+    // must succeed instead of failing the whole conversation.
+    const reused = {
         id: 'shared-reasoning-1',
         type: 'reasoning',
-        summary: ['migrated reasoning'],
+        summary: ['reused after a resume epoch'],
     };
-    harness.state.turns[60].items.push(migrated);
+    harness.state.turns[60].items.push(reused);
     const entry = harness.adapter.loadedConversationCache.get(sessionId);
     assert.equal(entry.turns[119].kind, 'full',
         'the tail chunk is materialized at cold start');
     entry.turns[119].itemIds.push('shared-reasoning-1');
 
-    await assert.rejects(
-        harness.adapter.readPage({
-            provider: 'codex',
-            sessionId,
-            anchorInteractionId: 'turn-user-60',
-            direction: 'around',
-            limit: 10,
-        }),
-        error => error.name === 'ConversationError'
-            && error.code === 'staleRevision'
-    );
-    assert.equal(harness.adapter.paginatedReadsDisabled, false,
-        'a transient collision must not circuit-break the accelerator');
-    assert.equal(
-        harness.adapter.loadedConversationCache.has(sessionId),
-        false,
-        'the mixed-epoch entry is invalidated'
-    );
-
-    // The next read re-walks a consistent snapshot and succeeds.
-    const outline = await harness.adapter.readOutline(sessionId);
-    assert.equal(outline.totalInteractions, 120);
-    const paged = await harness.adapter.readPage({
+    const pagedFirst = await harness.adapter.readPage({
         provider: 'codex',
         sessionId,
         anchorInteractionId: 'turn-user-60',
         direction: 'around',
         limit: 10,
     });
-    assert.ok(paged.interactionStates.some(
+    assert.ok(pagedFirst.interactionStates.some(
         state => state.interactionId === 'turn-user-60'
     ));
+    assert.equal(harness.adapter.paginatedReadsDisabled, false);
+    assert.equal(
+        harness.adapter.loadedConversationCache.has(sessionId),
+        true,
+        'legitimate epoch reuse never invalidates the cache entry'
+    );
+});
+
+test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 same-turn duplicate item ids still fail closed after epoch scoping', async () => {
+    const thread = createLargeThread();
+    // Two items sharing one id inside a single turn remains a protocol
+    // anomaly — only cross-turn reuse (resume/compact epoch restarts) is
+    // legitimate.
+    thread.thread.turns[0].items.push(
+        JSON.parse(JSON.stringify(thread.thread.turns[0].items[0]))
+    );
+    const { adapter } = createAdapter(thread);
+    await assert.rejects(
+        adapter.readOutline(sessionId),
+        error => error.name === 'ConversationError'
+            && error.code === 'unsupportedVersion'
+            && error.reason === 'unsupportedCodexProtocol'
+    );
+});
+
+test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 resume epochs reuse item ids across turns without failing', async () => {
+    const thread = createLargeThread();
+    // A second turn reusing the first turn's item ids models a resume
+    // epoch restart (verified on a live resumed codex 0.147 thread).
+    const firstTurn = thread.thread.turns[0];
+    thread.thread.turns.push({
+        id: 'turn-resumed-epoch',
+        status: 'completed',
+        items: firstTurn.items.map(item => JSON.parse(JSON.stringify(item))),
+    });
+    const { adapter } = createAdapter(thread);
+    const outline = await adapter.readOutline(sessionId);
+    assert.ok(outline.interactions.length >= 1,
+        'the conversation reads instead of failing on epoch id reuse');
 });

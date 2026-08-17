@@ -401,10 +401,23 @@ function appendTurnTiming(
     return true;
 }
 
+/**
+ * Item identity scope (verified on a live resumed session, codex 0.147):
+ * resume/compact epochs restart per-item numbering (`exec_command_0`
+ * reappears in later turns), so item ids are only unique WITHIN one turn.
+ * Every item-id set in this module keys items as `turnId · itemId`;
+ * duplicate ids across turns are legitimate, while a duplicate inside one
+ * turn remains a protocol anomaly that fails closed.
+ */
+function scopedItemKey(turnId: string, itemId: string): string {
+    return `${turnId}${itemId}`;
+}
+
 // Mutable state shared across the per-turn normalization passes of one
-// thread. `itemIds` rejects duplicate item ids thread-wide; `newItemIds`
-// collects the ids contributed by the current turn so a cached turn chunk
-// can be re-normalized without tripping its own ids.
+// thread. `itemIds` rejects duplicate item ids within one turn (scoped
+// keys, see scopedItemKey); `newItemIds` collects the scoped keys
+// contributed by the current turn so a cached turn chunk can be
+// re-normalized without tripping its own ids.
 interface NormalizeTurnContext {
     interactions: ConversationInteraction[];
     itemIds: Set<string>;
@@ -466,17 +479,24 @@ function normalizeTurnItems(
         timingAssigned = true;
         return currentInteractionIndex;
     };
+    // Same-turn duplicate = anomaly; cross-turn id reuse after a
+    // resume/compact epoch restart is legitimate (scopedItemKey).
+    const turnItemKeys = new Set<string>();
     for (const rawItem of turn.items) {
         const item = asRecord(rawItem);
+        const itemKey = typeof item?.id === 'string'
+            ? scopedItemKey(turn.id as string, item.id)
+            : '';
         if (!item
             || typeof item.id !== 'string'
             || !item.id
-            || itemIds.has(item.id)
+            || turnItemKeys.has(itemKey)
             || typeof item.type !== 'string') {
             throw protocolError();
         }
-        itemIds.add(item.id);
-        context.newItemIds.push(item.id);
+        turnItemKeys.add(itemKey);
+        itemIds.add(itemKey);
+        context.newItemIds.push(itemKey);
         if (item.type === 'userMessage') {
             currentInteractionIndex = undefined;
             if (!Array.isArray(item.content)) {
@@ -871,9 +891,11 @@ function skeletonTurnInteractions(
         }
     }
     const itemIds = userItem
-        ? (agentItemId ? [userItem.id as string, agentItemId]
-            : [userItem.id as string])
-        : (agentItemId ? [agentItemId] : []);
+        ? (agentItemId
+            ? [scopedItemKey(turn.id as string, userItem.id as string),
+                scopedItemKey(turn.id as string, agentItemId)]
+            : [scopedItemKey(turn.id as string, userItem.id as string)])
+        : (agentItemId ? [scopedItemKey(turn.id as string, agentItemId)] : []);
     if (!userItem) {
         // Goal-continuation turn: the app-server stripped its internal
         // user message, so project the same synthesized `/goal`
@@ -2599,8 +2621,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             if (item
                 && typeof item.id === 'string'
                 && item.id
-                && itemIds.has(item.id)
-                && !ownIds.has(item.id)) {
+                && itemIds.has(scopedItemKey(turn.id as string, item.id))
+                && !ownIds.has(scopedItemKey(turn.id as string, item.id))) {
                 throw new ConversationError('staleRevision');
             }
         }

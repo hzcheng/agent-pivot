@@ -238,16 +238,15 @@
         }
 
         function memberOptionText(member) {
-            var counts = member.availability === 'unreadable'
-                ? 'unreadable'
-                : member.workingItemCount + ' · '
-                    + (member.aheadCount === undefined
-                        ? '↑—' : '↑' + member.aheadCount);
+            // The dropdown's only job is identifying the worktree — repo
+            // and branch suffice; counts live in the tooltip and panel.
             var label = member.branchName
                 ? member.repoLabel + ' · ⎇ ' + member.branchName
                 : member.repoLabel;
-            return label + (member.detached ? ' (outside workspace)' : '')
-                + ' · ' + counts;
+            if (member.availability === 'unreadable') {
+                label += ' · unreadable';
+            }
+            return label + (member.detached ? ' (outside workspace)' : '');
         }
 
         function renderMemberSelect(state) {

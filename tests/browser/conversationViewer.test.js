@@ -11589,12 +11589,14 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
     assert.equal(
         await changesButton.getAttribute('aria-pressed'), 'true');
 
-    // Member dropdown lists both worktrees with counts.
+    // Member dropdown lists both worktrees as plain repo + branch —
+    // counts and arrows carry no weight here (they live in the tooltip).
     const options = await page.locator(
         '[data-changes-member-select] option').allInnerTexts();
-    assert.equal(options.length, 2);
-    assert.ok(options[0].includes('api'));
-    assert.ok(options[0].includes('3 · ↑2'));
+    assert.deepEqual(options, [
+        'api · ⎇ agent-pivot/fix-login',
+        'web · ⎇ agent-pivot/fix-login-ui',
+    ]);
 
     // Cross-member hint.
     assert.equal(
@@ -11713,7 +11715,7 @@ test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is 
         document.activeElement === document
             .querySelector('[data-changes-member-select]')), true);
 
-    // Once the dropdown loses focus, the next push rebuilds normally.
+    // Once the dropdown loses focus, a changed member set rebuilds.
     await page.locator('[data-changes-refresh]').focus();
     await sendChanges(page, changesFixture({
         collectedAt: 1724000015000,
@@ -11722,17 +11724,12 @@ test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is 
             branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
             availability: 'available', workingItemCount: 9,
             aheadCount: 2, taskFileCount: 5, truncated: false,
-        }, {
-            memberId: 'm-web', repoLabel: 'web',
-            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
-            availability: 'available', workingItemCount: 1,
-            aheadCount: 0, truncated: false,
         }],
     }));
     assert.equal(await page.evaluate(() =>
         document.querySelector('[data-changes-member-select]').options[0]
             === window.__firstOption), false,
-        'after blur the next push rebuilds the options');
+        'after blur a changed member set rebuilds the options');
     assert.equal((await select.inputValue()), 'm-api');
 });
 

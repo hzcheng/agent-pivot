@@ -298,6 +298,94 @@ test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a memb
         'no merge affordance without a same-slug candidate');
 });
 
+test('WORKTREE-GROUPS-UI-001 collapses repository chips beyond four into an accessible +N marker', async t => {
+    // PRD §10 / annotation feedback: the task name must keep its space —
+    // chips beyond four collapse into a +N marker whose tooltip and
+    // accessible name list every collapsed repository in full.
+    const page = await openSurfacePage(surface({
+        worktreeGroups: [
+            groupRow({
+                chips: [
+                    { label: 'a', title: 'alpha' },
+                    { label: 'b', title: 'beta' },
+                    { label: 'g', title: 'gamma' },
+                    { label: 'd', title: 'delta' },
+                    { label: 'e', title: 'epsilon' },
+                    { label: 'z', title: 'zeta' },
+                ],
+            }),
+            groupRow({
+                groupId: 'g-4',
+                displayName: 'four-chip-task',
+                chips: [
+                    { label: 'a', title: 'alpha' },
+                    { label: 'b', title: 'beta' },
+                    { label: 'g', title: 'gamma' },
+                    { label: 'd', title: 'delta' },
+                ],
+            }),
+        ],
+    }), 320);
+    t.after(() => page.close());
+
+    const row = page.locator('.ai-session-worktree-task-group').first();
+    assert.deepEqual(await row.locator('.ai-session-repo-chip').allTextContents(),
+        ['a', 'b', 'g', 'd', '+2'],
+        'only four chips render inline; the rest collapse into +N');
+    const more = row.locator('.ai-session-repo-chip-more');
+    assert.equal(await more.count(), 1);
+    assert.equal(await more.getAttribute('data-tooltip'), 'epsilon\nzeta',
+        'the +N hover tooltip lists every collapsed repository in full');
+    assert.equal(await more.getAttribute('aria-label'),
+        '2 more repositories: epsilon, zeta',
+        'the +N marker carries a complete accessible name (hover is not the only carrier)');
+    assert.equal(await row.locator('.ai-session-repo-chip').first().getAttribute('aria-label'), 'alpha',
+        'each visible chip keeps its full-name accessible name');
+
+    const fourChipRow = page.locator('.ai-session-worktree-task-group').nth(1);
+    assert.deepEqual(await fourChipRow.locator('.ai-session-repo-chip').allTextContents(),
+        ['a', 'b', 'g', 'd'], 'four chips still render inline');
+    assert.equal(await fourChipRow.locator('.ai-session-repo-chip-more').count(), 0,
+        'no +N marker at exactly four chips');
+});
+
+test('WORKTREE-GROUPS-UI-001 keeps the task name readable beside repository chips', async t => {
+    // Annotation feedback: chips squeezed the task name away in multi-root
+    // workspaces; the title keeps a readable floor and chips shrink first
+    // (their full names stay available on hover tooltips).
+    const page = await openSurfacePage(surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [groupRow({
+            displayName: 'fix-the-authentication-login-flow-regression',
+            chips: [
+                { label: 'agent-pivot', title: 'agent-pivot' },
+                { label: 'agent-platform', title: 'agent-platform' },
+                { label: 'infrastructure', title: 'infrastructure' },
+                { label: 'documentation', title: 'documentation' },
+            ],
+        })],
+        activeAiSessions: [liveSession()],
+    }), 320);
+    t.after(() => page.close());
+    await page.evaluate(() => {
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
+    });
+
+    const layout = await page.evaluate(() => {
+        const title = document.querySelector(
+            '.ai-session-worktree-task-group .ai-session-worktree-title');
+        return {
+            titleWidth: title.getBoundingClientRect().width,
+            documentWidth: document.documentElement.scrollWidth,
+            viewportWidth: document.documentElement.clientWidth,
+        };
+    });
+    assert.ok(layout.titleWidth >= 40,
+        `the task name keeps a readable floor beside the chips (got ${layout.titleWidth}px)`);
+    assert.ok(layout.documentWidth <= layout.viewportWidth + 1,
+        `no horizontal overflow (document ${layout.documentWidth}px)`);
+});
+
 test('WORKTREE-GROUPS-UI-001 shows the merge affordance and stable discriminator when needed', async t => {
     const page = await openSurfacePage(surface({
         worktreeGroups: [

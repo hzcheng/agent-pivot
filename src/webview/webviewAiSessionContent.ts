@@ -14,6 +14,7 @@ import type {
     WorktreeAnchorViewModel,
     WorktreeGroupMemberStatus,
     WorktreeGroupRowViewModel,
+    WorktreeRepositoryChip,
     WorktreeRowViewModel,
 } from '../aiSessions/types';
 import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees/types';
@@ -832,6 +833,15 @@ function getWorktreeGroupRowsHtml(
 }
 
 /**
+ * One repository chip on a worktree group row (PRD §10): the shortest
+ * unique prefix inline, the full repository name on the hover tooltip and
+ * as the accessible name.
+ */
+function renderRepositoryChip(chip: WorktreeRepositoryChip): string {
+    return `<span class="ai-session-repo-chip" role="note" aria-label="${escapeAttribute(chip.title)}" data-tooltip="${escapeAttribute(chip.title)}">${escapeAttribute(chip.label)}</span>`;
+}
+
+/**
  * One manifest-backed worktree group row (PRD §10): display name plus
  * repository chips, sessions aggregated across members as the primary
  * content, and a secondary member summary line.
@@ -855,9 +865,19 @@ function getWorktreeGroupRowHtml(
     const discriminator = group.discriminator
         ? `<span class="ai-session-worktree-discriminator">${escapeAttribute(group.discriminator)}</span>`
         : '';
-    const chips = group.chips.map(chip =>
-        `<span class="ai-session-repo-chip" role="note" aria-label="${escapeAttribute(chip.title)}" data-tooltip="${escapeAttribute(chip.title)}">${escapeAttribute(chip.label)}</span>`
-    ).join('');
+    // PRD §10: at most four chips render inline; the rest collapse into a
+    // +N chip so the task name keeps its space. The +N chip names every
+    // collapsed repository in full — one tooltip line each plus a complete
+    // accessible name, since hover alone cannot carry the information.
+    const MAX_VISIBLE_CHIPS = 4;
+    const collapsedChips = group.chips.slice(MAX_VISIBLE_CHIPS);
+    const collapsedNames = collapsedChips.map(chip => chip.title);
+    const chips = group.chips.slice(0, MAX_VISIBLE_CHIPS)
+        .map(chip => renderRepositoryChip(chip))
+        .join('')
+        + (collapsedChips.length
+            ? `<span class="ai-session-repo-chip ai-session-repo-chip-more" role="note" aria-label="${escapeAttribute(`${collapsedChips.length} more repositories: ${collapsedNames.join(', ')}`)}" data-tooltip="${escapeAttribute(collapsedNames.join('\n'))}">+${collapsedChips.length}</span>`
+            : '');
     // Never fall back to a non-primary member silently: when the primary is
     // unavailable the user must explicitly choose a replacement.
     const primary = group.members.find(member => member.isPrimary && member.status === 'ready');

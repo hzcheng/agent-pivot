@@ -6,12 +6,14 @@ making any change.
 ## Non-negotiables
 
 1. **Never edit files directly in the primary checkout on `main`.** Do all
-   work in a feature worktree:
+   work in the dedicated program worktree `.worktrees/arch-refact`, one
+   branch at a time (serial):
    ```sh
    git fetch origin main
-   git worktree add -b <branch> .worktree/<topic> origin/main
+   git -C .worktrees/arch-refact switch -c <branch> origin/main
    ```
-   Run `npm ci` inside the new worktree before verifying anything — npm
+   Create an additional worktree only when genuine parallelism requires it.
+   Run `npm ci` inside the worktree before verifying anything — npm
    silently resolves binaries from the primary checkout's `node_modules`
    otherwise. Dirty files in the primary checkout are user changes; do not
    revert them. Details: skill `protecting-main-with-worktrees`.

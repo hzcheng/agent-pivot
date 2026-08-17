@@ -4678,7 +4678,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'a3d917dc7de5dc298bffccc7ec021bd62cf5f8d92c35bb988e8666b1c2391e16',
+        '682a5290a42a4dcc483ba26c42fdd66e9fb1c602dda7e737873f7c1a1061a99c',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -11692,14 +11692,15 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
     // Cross-member hint.
     assert.equal(
         await page.locator('[data-changes-cross-member]').innerText(),
-        '1 changes in 1 other repository');
+        '+1 in web');
 
     // Task result layer with the containment note and review entry.
     assert.equal(
         await page.locator('[data-changes-task-summary]').innerText(),
         '5 files · 2 commits');
-    assert.ok(await page.locator('[data-changes-task]').innerText()
-        .then(text => text.includes('Includes committed and uncommitted changes')));
+    assert.ok((await page.locator('[data-changes-task]')
+        .getAttribute('title'))
+        .includes('includes committed and uncommitted changes'));
 
     // Working groups render in the SCM order with the untracked group split.
     const groupHeaders = await page.locator(

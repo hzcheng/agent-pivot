@@ -176,6 +176,26 @@ async function main() {
             };
         });
         console.log(JSON.stringify(overflow));
+        // Icon parity: the changes glyph must render at the same size as
+        // its telemetry siblings.
+        const iconMetrics = await page.evaluate(() => {
+            const out = {};
+            for (const sel of ['position', 'comments', 'subagents', 'changes']) {
+                const btn = document.querySelector('[data-telemetry-' + sel + ']')
+                    || document.querySelector('[data-conversation-' + sel + ']');
+                const svg = btn && btn.querySelector('svg');
+                if (!btn || !svg) { out[sel] = null; continue; }
+                const b = btn.getBoundingClientRect();
+                const g = svg.getBoundingClientRect();
+                out[sel] = {
+                    buttonH: Math.round(b.height * 10) / 10,
+                    svgW: Math.round(g.width * 10) / 10,
+                    svgH: Math.round(g.height * 10) / 10,
+                };
+            }
+            return out;
+        });
+        console.log('telemetry icons:', JSON.stringify(iconMetrics));
         console.log(`screenshots written to ${outDir}`);
     } finally {
         await browser.close();

@@ -27,7 +27,8 @@
 .conversation-telemetry-worktree,
 .conversation-telemetry-position,
 .conversation-telemetry-subagents,
-.conversation-telemetry-comments {
+.conversation-telemetry-comments,
+.conversation-telemetry-changes {
     height: 1.75rem;
     box-sizing: border-box;
     border: 1px solid color-mix(
@@ -125,7 +126,8 @@
 .conversation-telemetry-worktree:hover,
 .conversation-telemetry-position:hover,
 .conversation-telemetry-subagents:hover,
-.conversation-telemetry-comments:hover {
+.conversation-telemetry-comments:hover,
+.conversation-telemetry-changes:hover {
     border-color: var(--vscode-focusBorder);
     background: var(
         --vscode-toolbar-hoverBackground,
@@ -246,7 +248,8 @@
 
 .conversation-telemetry-position,
 .conversation-telemetry-subagents,
-.conversation-telemetry-comments {
+.conversation-telemetry-comments,
+.conversation-telemetry-changes {
     display: inline-flex;
     min-width: 1.75rem;
     flex: 0 0 auto;
@@ -262,7 +265,8 @@
 
 .conversation-telemetry-position > svg,
 .conversation-telemetry-subagents > svg,
-.conversation-telemetry-comments > svg {
+.conversation-telemetry-comments > svg,
+.conversation-telemetry-changes > svg {
     width: .92rem;
     height: .92rem;
     flex: 0 0 auto;
@@ -329,14 +333,17 @@
 .conversation-telemetry-comments::before,
 .conversation-telemetry-comments::after,
 .conversation-telemetry-subagents::before,
-.conversation-telemetry-subagents::after {
+.conversation-telemetry-subagents::after,
+.conversation-telemetry-changes::before,
+.conversation-telemetry-changes::after {
     right: 0;
     left: auto;
 }
 
 .conversation-telemetry-position::before,
 .conversation-telemetry-comments::before,
-.conversation-telemetry-subagents::before {
+.conversation-telemetry-subagents::before,
+.conversation-telemetry-changes::before {
     right: .65rem;
 }
 

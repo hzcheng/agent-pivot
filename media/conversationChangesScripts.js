@@ -20,7 +20,6 @@
         var taskRoot = options.taskRoot;
         var taskSummary = options.taskSummary;
         var reviewButton = options.reviewButton;
-        var workingHeader = options.workingHeader;
         var groupsRoot = options.groupsRoot;
         var emptyRoot = options.emptyRoot;
         var unavailableRoot = options.unavailableRoot;
@@ -330,7 +329,7 @@
                 }
             }
             var content = !unavailable && state.kind === 'ready';
-            [taskRoot, workingHeader && workingHeader.parentNode,
+            [taskRoot,
                 openScmButton && openScmButton.parentNode,
                 memberSelect && memberSelect.parentNode]
                 .forEach(function (root) {
@@ -351,9 +350,10 @@
                 }, 0);
                 crossMemberNote.hidden = !(others.length && otherCount);
                 if (others.length && otherCount) {
-                    crossMemberNote.textContent = otherCount
-                        + ' changes in ' + others.length
-                        + ' other ' + (others.length === 1 ? 'repository' : 'repositories');
+                    crossMemberNote.textContent = '+' + otherCount + ' in '
+                        + others.map(function (member) {
+                            return member.repoLabel;
+                        }).join(', ');
                 }
             }
 
@@ -383,10 +383,6 @@
                     || !(detail.taskFileCount > 0 || (detail.aheadCount || 0) > 0);
             }
 
-            if (workingHeader) {
-                workingHeader.textContent = 'Uncommitted now · '
-                    + (detail ? detail.items.length : 0) + ' changes';
-            }
             if (detail) {
                 renderGroups(detail);
                 if (emptyRoot) {

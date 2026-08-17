@@ -141,9 +141,6 @@
         '[data-changes-task-summary]'
     );
     var changesReview = document.querySelector('[data-changes-review]');
-    var changesWorkingHeader = document.querySelector(
-        '[data-changes-working-header]'
-    );
     var changesGroups = document.querySelector('[data-changes-groups]');
     var changesEmpty = document.querySelector('[data-changes-empty]');
     var changesUnavailable = document.querySelector(
@@ -248,7 +245,7 @@
     var changesUiAvailable = sidebarUiAvailable
         && !!changesRoot && !!changesMemberSelect && !!changesRefresh
         && !!changesTask && !!changesTaskSummary && !!changesReview
-        && !!changesWorkingHeader && !!changesGroups && !!changesEmpty
+        && !!changesGroups && !!changesEmpty
         && !!changesUnavailable && !!changesOpenScm && !!changesCrossMember
         && !!telemetryChanges
         && !!window.__agentPivotConversationChanges;
@@ -395,7 +392,6 @@
             taskRoot: changesTask,
             taskSummary: changesTaskSummary,
             reviewButton: changesReview,
-            workingHeader: changesWorkingHeader,
             groupsRoot: changesGroups,
             emptyRoot: changesEmpty,
             unavailableRoot: changesUnavailable,

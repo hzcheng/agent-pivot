@@ -553,22 +553,17 @@ export function renderConversationViewerDocument(
                 </div>
                 <p class="conversation-changes-cross-member"
                     data-changes-cross-member hidden></p>
-                <div class="conversation-changes-task"
-                    data-changes-task hidden>
-                    <div class="conversation-changes-task-title"
-                        >Task result compared with start</div>
-                    <div class="conversation-changes-task-summary"
-                        data-changes-task-summary></div>
-                    <div class="conversation-changes-task-note"
-                        >Includes committed and uncommitted changes</div>
+                <div class="conversation-changes-task" data-changes-task
+                    title="Net result vs task start — includes committed and uncommitted changes"
+                    hidden>
+                    <span class="conversation-changes-task-summary"
+                        data-changes-task-summary></span>
                     <button type="button"
                         class="conversation-changes-action"
-                        data-changes-review>Review this repository</button>
+                        data-changes-review>Review</button>
                 </div>
                 <div class="conversation-changes-working"
                     data-changes-working>
-                    <div class="conversation-changes-working-header"
-                        data-changes-working-header>Uncommitted now</div>
                     <div data-changes-groups></div>
                     <p class="conversation-changes-empty"
                         data-changes-empty hidden>No changes</p>
@@ -579,7 +574,7 @@ export function renderConversationViewerDocument(
                     <button type="button"
                         class="conversation-changes-action"
                         data-changes-open-scm
-                        >Open this worktree in Source Control</button>
+                        >Open in Source Control</button>
                 </div>
             </section>
         </aside>

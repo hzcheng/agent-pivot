@@ -6681,5 +6681,34 @@
       "src/services/sourceControl.ts",
       "media/conversationViewer.scss"
     ]
+  },
+  {
+    "id": "ARCH-POLICY-SCHEMA-001",
+    "domain": "architecture",
+    "title": "The architecture module registry enforces its schema: unique well-formed module ids, resolvable mayDependOn and product capability references, and declared roles",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/architecture/policySchema.test.js"
+    ],
+    "evidence": [
+      "scripts/architecture/loadArchitecturePolicy.js",
+      "docs/testing/architecture-modules.json"
+    ]
+  },
+  {
+    "id": "ARCH-CLOSED-WORLD-001",
+    "domain": "architecture",
+    "title": "Every production source file is classified by exactly one architecture module and assigned exactly one role; unknown file kinds and stale patterns fail closed",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/architecture/closedWorld.test.js"
+    ],
+    "evidence": [
+      "scripts/architecture/checkClosedWorld.js",
+      "scripts/architecture/loadArchitecturePolicy.js",
+      "docs/testing/architecture-modules.json"
+    ]
   }
 ]

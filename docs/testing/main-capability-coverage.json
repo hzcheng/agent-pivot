@@ -2238,6 +2238,23 @@
             ],
             "scheduledJobs": [],
             "realEnvironmentRequired": false
+        },
+        {
+            "id": "MAIN-ARCHITECTURE-HARNESS",
+            "title": "Architecture policy harness",
+            "requirement": "Closed-world architecture classification and module registry schema validation stay enforced: every production file has exactly one module and role, and policy references resolve.",
+            "commits": [],
+            "behaviors": [
+                "ARCH-POLICY-SCHEMA-001",
+                "ARCH-CLOSED-WORLD-001"
+            ],
+            "prGates": [
+                "test:architecture-policy"
+            ],
+            "scheduledJobs": [
+                "quality-linux"
+            ],
+            "realEnvironmentRequired": false
         }
     ]
 }

@@ -224,3 +224,20 @@ test('WORKTREE-CHANGES-PANEL-001 remembers the selected member across reactivati
     await controller.activate(TARGET);
     assert.equal(lastChanges(posted).selectedMemberId, 'member-1');
 });
+
+test('WORKTREE-CHANGES-PANEL-001 publishes with the current generation, not the activation-time one', async () => {
+    let generation = 7;
+    const { posted, controller } = fixture({
+        getSubscriptionGeneration: () => generation,
+    });
+    await controller.activate(TARGET);
+    assert.equal(posted.at(-1).subscriptionGeneration, 7);
+
+    // The viewer bumped its generation (rebind/refresh) after activation;
+    // the next publish must carry the new generation or the webview drops
+    // it silently and the panel freezes.
+    generation = 8;
+    await controller.handleRefresh();
+    assert.equal(posted.at(-1).subscriptionGeneration, 8);
+    assert.equal(posted.at(-1).changes.kind, 'ready');
+});

@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
+const childProcess = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
@@ -35,6 +36,36 @@ function loadConversationViewer() {
 }
 
 const { ConversationViewer } = loadConversationViewer();
+const {
+    ChangesCollector,
+} = require('../../../out/worktrees/changesCollector');
+
+function git(cwd, args) {
+    return childProcess.execFileSync('git', ['-C', cwd, ...args], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+}
+
+async function worktreeChangesFixture(t) {
+    const sandbox = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'agent-pivot-changes-viewer-'));
+    const repo = path.join(sandbox, 'repository');
+    await fs.promises.mkdir(repo);
+    git(repo, ['init', '-b', 'main']);
+    git(repo, ['config', 'user.name', 'Agent Pivot Tests']);
+    git(repo, ['config', 'user.email', 'tests@example.invalid']);
+    await fs.promises.writeFile(path.join(repo, 'tracked.ts'), 'one\n');
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-m', 'fixture']);
+    const baselineSha = git(repo, ['rev-parse', 'HEAD']);
+    const worktreePath = path.join(sandbox, 'worktree');
+    git(repo, ['worktree', 'add', '-b', 'agent-pivot/task', worktreePath]);
+    await fs.promises.writeFile(path.join(worktreePath, 'changed.ts'), 'x\n');
+    t.after(async () =>
+        fs.promises.rm(sandbox, { recursive: true, force: true }));
+    return { repo, worktreePath, baselineSha };
+}
+
 const {
     ConversationError,
 } = require('../../../out/aiSessions/conversation/types');
@@ -292,6 +323,7 @@ function createViewer(options = {}) {
         showThinking: options.showThinking,
         commentStore: options.commentStore,
         bookmarkStore: options.bookmarkStore,
+        changes: options.changes,
         setTimer: options.setTimer,
         clearTimer: options.clearTimer,
     });
@@ -5001,4 +5033,70 @@ test('CONVERSATION-OVERSIZED-TURN-001 renders a bounded oversized turn with its 
         inputIndex >= 0 && omissionIndex > inputIndex && answerIndex > omissionIndex,
         `bounded turn order was ${inputIndex}/${omissionIndex}/${answerIndex}`
     );
+});
+
+test('WORKTREE-CHANGES-PANEL-001 the viewer publishes collected working items for a group session', async t => {
+    const fixture = await worktreeChangesFixture(t);
+    const baseline = {
+        commitSha: fixture.baselineSha,
+        capturedAt: Date.now(),
+        source: { kind: 'branch', fullRef: 'refs/heads/main' },
+    };
+    const worktreeKey = {
+        repositoryKey: await fs.promises.realpath(path.join(fixture.repo, '.git')),
+        canonicalWorktreePath: await fs.promises.realpath(fixture.worktreePath),
+    };
+    const { viewer, panel } = createViewer({
+        changes: {
+            resolveSessionIdentity: async () => ({
+                worktreeKey,
+                navigationIdentity: 'nav',
+            }),
+            resolveWorktreeKey: async () => undefined,
+            findGroupByWorktreeKey: () => ({
+                groupId: 'group-1',
+                primaryMemberId: 'member-1',
+                members: [{
+                    memberId: 'member-1',
+                    repositoryKey: worktreeKey.repositoryKey,
+                    worktreeKey,
+                    branchName: 'agent-pivot/task',
+                    path: worktreeKey.canonicalWorktreePath,
+                    state: 'ready',
+                    baseline,
+                }],
+            }),
+            listRetiredIdentities: () => [],
+            collector: new ChangesCollector(),
+            openWorkingChangeDiff: async () => {},
+            openTaskResultReview: async () => {},
+            showWorktreeInSourceControl: async () => {},
+        },
+    });
+    t.after(() => viewer.dispose());
+
+    await viewer.open({
+        projectId: 'project',
+        provider: 'codex',
+        sessionId: 'session-1',
+        workspaceName: 'Workspace',
+        interactionId: 'input-1',
+        expectedRevision: 'r1',
+        displayName: 'Task session',
+        duplicateDisplayName: false,
+    });
+
+    let state;
+    for (let attempt = 0; attempt < 50 && !state; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        state = panel.postedMessages
+            .filter(message => message.type === 'conversation-viewer-changes')
+            .at(-1)?.changes;
+    }
+    assert.ok(state, 'a changes state is published');
+    assert.equal(state.kind, 'ready');
+    assert.equal(state.aggregate.workingItemCount, 1);
+    assert.deepEqual(state.detail.items.map(item => item.path),
+        ['changed.ts'],
+        'the modified file reaches the webview');
 });

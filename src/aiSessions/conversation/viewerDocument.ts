@@ -271,7 +271,7 @@ export function renderConversationViewerDocument(
             aria-label="Conversation side panel" hidden>
             <section id="conversation-outline-panel"
                 class="conversation-outline" data-conversation-outline
-                role="tabpanel" aria-labelledby="conversation-outline-tab">
+                role="region" aria-label="Outline">
                 <div class="conversation-outline-toolbar">
                     <label class="conversation-outline-search-field">
                         <svg viewBox="0 0 16 16" width="14" height="14"
@@ -323,7 +323,7 @@ export function renderConversationViewerDocument(
             </section>
             <section id="conversation-comments-panel"
                 class="conversation-comments" data-conversation-comments
-                role="tabpanel" aria-labelledby="conversation-comments-tab"
+                role="region" aria-label="Comments"
                 hidden>
                 <div class="conversation-comments-filter-bar"
                     data-comments-filter-bar role="group"
@@ -482,7 +482,7 @@ export function renderConversationViewerDocument(
             </section>
             <section id="conversation-subagents-panel"
                 class="conversation-subagents" data-conversation-subagents
-                role="tabpanel" aria-labelledby="conversation-subagents-tab"
+                role="region" aria-label="Subagents"
                 hidden>
                 <div class="conversation-subagents-header">
                     <label class="conversation-subagents-filter"
@@ -500,7 +500,7 @@ export function renderConversationViewerDocument(
             </section>
             <section id="conversation-changes-panel"
                 class="conversation-changes" data-conversation-changes
-                role="tabpanel" aria-labelledby="conversation-changes-tab"
+                role="region" aria-label="Changes"
                 hidden>
                 <div class="conversation-changes-toolbar">
                     <select class="conversation-changes-member-select"

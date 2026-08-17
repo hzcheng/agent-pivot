@@ -90,7 +90,6 @@ export interface ConversationChangesControllerOptions {
 
 interface ActiveChanges {
     target: ConversationViewerTarget;
-    generation: number;
     changeSet: ResolvedChangeSet;
     snapshots: Map<string, MemberChangesSnapshot>;
     selectedMemberId?: string;
@@ -143,7 +142,6 @@ export class ConversationChangesController {
         const changeSet = await this.resolveChangeSet(target);
         const active: ActiveChanges = {
             target,
-            generation: this.options.getSubscriptionGeneration(),
             changeSet,
             snapshots: new Map(),
         };
@@ -404,10 +402,14 @@ export class ConversationChangesController {
             collectedAt: this.now(),
         };
         this.state = state;
+        // Stamp the CURRENT generation at publish time (PRD §5.4): the
+        // viewer advances its generation on every rebind/refresh, and a
+        // value captured at activate() would silently freeze the panel —
+        // the webview drops every message stamped with a stale generation.
         void Promise.resolve(panel.webview.postMessage({
             type: 'conversation-viewer-changes',
             version: 1,
-            subscriptionGeneration: active.generation,
+            subscriptionGeneration: this.options.getSubscriptionGeneration(),
             changes: state,
         }));
     }

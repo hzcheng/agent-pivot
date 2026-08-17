@@ -10,6 +10,12 @@ description: Use when working in this repository and main/master is protected, m
 Keep Agent Pivot's protected branches and the user's primary checkout clean by
 doing feature work in an isolated git worktree under the project.
 
+One line of work = one worktree = one branch: make every commit for the job
+on that worktree's branch, and cut serial PRs from that same branch as
+earlier ones merge. Do not switch branches inside the worktree, do not spread
+one job across worktrees, and do not create another worktree for the same
+job.
+
 ## Workflow
 
 1. Inspect state before creating anything:
@@ -19,7 +25,8 @@ doing feature work in an isolated git worktree under the project.
    - `git worktree list`
    - identify the intended repository remote and base branch from the user request, local tracking branch, or remote default
 
-2. If the user asks for a worktree under the current project, place it under `.worktree/<topic>`.
+2. If the user asks for a worktree under the current project, place it under
+   `.worktree/<topic>` — worktree creation happens once per line of work.
    - Do not add `.worktree/` to tracked `.gitignore` unless the user explicitly wants a repo change.
    - Prefer local ignore: `printf '.worktree/\n' >> .git/info/exclude` if needed.
 
@@ -43,6 +50,8 @@ doing feature work in an isolated git worktree under the project.
 ## Guardrails
 
 - Never push directly to `main`/`master` when the user said it is protected.
+- An open PR absorbs anything pushed to its branch: push the next slice's
+  commits only after the branch's previous PR has merged.
 - Never repair the `.gitignore` mistake by committing ignore-only churn to protected main.
 - Never assume `origin/main` when the repo also has `upstream` or the user named a different target.
 - If a feature branch tracks a deleted remote after merge, that is expected; remove the worktree after checking it is clean.

@@ -11734,6 +11734,45 @@ test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is 
     assert.equal((await select.inputValue()), 'm-api');
 });
 
+test('WORKTREE-CHANGES-PANEL-001 scrolls long change lists instead of clipping them', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const manyItems = Array.from({ length: 60 }, (_unused, index) => ({
+        group: 'changes',
+        xy: ' M',
+        path: `src/deeply/nested/directory/structure/file-${String(index).padStart(2, '0')}.ts`,
+    }));
+    await sendChanges(page, changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 60,
+            items: manyItems,
+            truncated: false,
+        },
+    }));
+    await page.locator('[data-telemetry-changes]').click();
+    const groups = page.locator('[data-changes-groups]');
+    const metrics = await groups.evaluate(element => ({
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+        overflowY: getComputedStyle(element).overflowY,
+    }));
+    assert.equal(metrics.overflowY, 'auto');
+    assert.ok(metrics.scrollHeight > metrics.clientHeight,
+        'the list scrolls internally instead of overflowing the panel');
+    // The last file is reachable by scrolling to the bottom.
+    await groups.evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+    });
+    assert.equal(
+        await page.locator('.conversation-changes-file', {
+            hasText: 'file-59.ts',
+        }).isVisible(),
+        true);
+});
+
 test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zero-washing', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture({

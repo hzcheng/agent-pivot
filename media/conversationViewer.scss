@@ -2861,6 +2861,7 @@ body.vscode-high-contrast-light {
     flex-direction: column;
     gap: 0.25rem;
     min-height: 0;
+    overflow: hidden;
     padding: 0.25rem 0.4rem;
 
     &[hidden] {
@@ -2911,6 +2912,14 @@ body.vscode-high-contrast-light {
     flex: 1;
     flex-direction: column;
     min-height: 0;
+}
+
+.conversation-changes-working [data-changes-groups] {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+    scrollbar-width: thin;
 }
 
 .conversation-changes-group-header {

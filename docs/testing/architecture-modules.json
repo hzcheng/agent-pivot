@@ -5,7 +5,7 @@
         "Approved at the Stage 1A checkpoint; normalized in Stage 2 from docs/architecture/drafts/architecture-modules.draft.json.",
         "Coarse phase: module boundaries are directory-aligned and publicEntrypoints declare the whole module surface; PR 2-2 introduces edge evaluation.",
         "Scope roots cover production TypeScript/JavaScript only. media/ is generated output, spikes/ is non-production, scripts/ and tests/ are harness code governed by the reviewability rule.",
-        "Roles are ordered: the first matching role wins. MOD-AI-SESSION-PROVIDER is the residual module for src/aiSessions root files — new files land there by default until re-partition."
+        "Roles form an exact partition: specific role globs must be disjoint; a role with include [\"**\"] is the remainder role (last position only) and catches the module's unclaimed files. Overlap between non-remainder roles fails CI."
     ],
     "scope": {
         "roots": [
@@ -65,10 +65,6 @@
                     ]
                 },
                 {
-                    "role": "domain",
-                    "include": []
-                },
-                {
                     "role": "presentation",
                     "include": [
                         "src/webview/**"
@@ -77,8 +73,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/dashboard/**",
-                        "src/sponsor.ts"
+                        "**"
                     ]
                 }
             ],
@@ -151,7 +146,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/aiSessions/conversation/**"
+                        "**"
                     ]
                 }
             ],
@@ -196,7 +191,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/aiSessions/attention*"
+                        "**"
                     ]
                 }
             ],
@@ -244,9 +239,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/aiSessions/notify/**",
-                        "src/aiSessions/notifyIntegration/**",
-                        "src/aiSessions/notifyConfiguration.ts"
+                        "**"
                     ]
                 }
             ],
@@ -321,15 +314,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/aiSessions/tmux*",
-                        "src/aiSessions/runtime*",
-                        "src/aiSessions/directTerminalRuntimeBackend.ts",
-                        "src/aiSessions/terminal*",
-                        "src/aiSessions/pendingTerminal*",
-                        "src/aiSessions/execution*",
-                        "src/aiSessions/runningQueue.ts",
-                        "src/aiSessions/launch*",
-                        "src/aiSessions/commandBuilders.ts"
+                        "**"
                     ]
                 }
             ],
@@ -387,14 +372,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/aiSessions/commandController.ts",
-                        "src/aiSessions/creationController.ts",
-                        "src/aiSessions/resumeController.ts",
-                        "src/aiSessions/terminalCommandController.ts",
-                        "src/aiSessions/aliasController.ts",
-                        "src/aiSessions/pinController.ts",
-                        "src/aiSessions/sessionProfileController.ts",
-                        "src/aiSessions/archive*"
+                        "**"
                     ]
                 }
             ],
@@ -484,10 +462,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/aiSessions/**",
-                        "src/services/codexSessionService.ts",
-                        "src/services/kimiSessionService.ts",
-                        "src/services/claudeSessionService.ts"
+                        "**"
                     ]
                 }
             ],
@@ -540,7 +515,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/worktrees/**"
+                        "**"
                     ]
                 }
             ],
@@ -586,7 +561,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/workspaces/**"
+                        "**"
                     ]
                 }
             ],
@@ -636,7 +611,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/openWorkspaces/**"
+                        "**"
                     ]
                 }
             ],
@@ -690,8 +665,7 @@
                         "src/projects/projectPathUtils.ts",
                         "src/projects/favoriteProjectOrder.ts",
                         "src/projects/projectNavigationProtocol.ts",
-                        "src/projects/projectCatalogSync.ts",
-                        "src/services/ntc.ts"
+                        "src/projects/projectCatalogSync.ts"
                     ]
                 },
                 {
@@ -704,7 +678,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/projects/**"
+                        "**"
                     ]
                 }
             ],
@@ -747,7 +721,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/skills/**"
+                        "**"
                     ]
                 }
             ],
@@ -788,7 +762,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/todos/**"
+                        "**"
                     ]
                 }
             ],
@@ -828,7 +802,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "src/prompts/**"
+                        "**"
                     ]
                 }
             ],
@@ -883,7 +857,7 @@
                 {
                     "role": "application",
                     "include": [
-                        "extensions/attention-ui-bridge/src/**"
+                        "**"
                     ]
                 }
             ],

@@ -6,17 +6,22 @@
         "strict is validated mechanically by scripts/architecture/checkProgramLedger.js: no baseline fingerprint or waiver naming the module, P0/P1 invariants have behavior owners, single-writer families declare writers, and the module stays classified exact-once.",
         "SCC cluster membership is cluster-level debt and does not block per-module strict (waiver ledger note)."
     ],
-    "states": ["legacy", "inventoried", "characterized", "guarded", "migrating", "strict"],
+    "states": [
+        "legacy",
+        "inventoried",
+        "characterized",
+        "guarded",
+        "migrating",
+        "strict"
+    ],
     "modules": {
         "MOD-WORKTREE-LIFECYCLE": {
-            "state": "strict",
-            "since": "pilot slices S1-S5 (PRs #262-#268)",
+            "state": "migrating",
+            "since": "pilot slices S1-S5 (PRs #262-#268); strict declaration #269 reverted per W1 review",
             "evidence": [
-                "docs/architecture/stage-1b-pilot-rfc.md",
-                "docs/architecture/changes/ARCH-CHANGE-001.md",
-                "docs/architecture/changes/ARCH-CHANGE-002.md"
+                "docs/architecture/stage-1b-pilot-rfc.md"
             ],
-            "nextAction": "none — pilot complete"
+            "nextAction": "W1 review repair R1-R10, then strict re-acceptance"
         }
     }
 }

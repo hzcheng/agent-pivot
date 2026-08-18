@@ -77,9 +77,10 @@ function readJson(rootDirectory, relativePath, errors) {
     }
 }
 
-function validatePatternList(owner, field, value, errors) {
-    if (!Array.isArray(value) || value.some(entry => typeof entry !== 'string' || entry.length === 0)) {
-        errors.push(`${owner}: ${field} must be an array of non-empty glob strings`);
+function validatePatternList(owner, field, value, errors, allowEmpty = false) {
+    if (!Array.isArray(value) || (!allowEmpty && value.length === 0)
+        || value.some(entry => typeof entry !== 'string' || entry.length === 0)) {
+        errors.push(`${owner}: ${field} must be ${allowEmpty ? 'an' : 'a non-empty'} array of non-empty glob strings`);
         return false;
     }
     return true;
@@ -134,7 +135,7 @@ function loadArchitecturePolicy(rootDirectory) {
             continue;
         }
         if (source.exclude !== undefined
-            && !validatePatternList(owner, 'source.exclude', source.exclude, errors)) {
+            && !validatePatternList(owner, 'source.exclude', source.exclude, errors, true)) {
             continue;
         }
         if (module.publicEntrypoints !== undefined
@@ -179,6 +180,7 @@ function loadArchitecturePolicy(rootDirectory) {
             roles: roles.map(roleEntry => ({
                 role: roleEntry.role,
                 include: roleEntry.include.map(compileGlob),
+                rawInclude: roleEntry.include.slice(),
             })),
         };
     }
@@ -211,8 +213,8 @@ function loadArchitecturePolicy(rootDirectory) {
                 + 'extend the policy deliberately or move it out of the production roots');
             continue;
         }
-        const owners = modules.filter(module =>
-            module._compiled.include.some(pattern => pattern.test(file))
+        const owners = modules.filter(module => module._compiled
+            && module._compiled.include.some(pattern => pattern.test(file))
             && !module._compiled.exclude.some(pattern => pattern.test(file)));
         if (owners.length === 0) {
             errors.push(`closed-world: ${file} is not classified by any module`);
@@ -224,13 +226,41 @@ function loadArchitecturePolicy(rootDirectory) {
             continue;
         }
         const module = owners[0];
-        const roleEntry = module._compiled.roles.find(candidate =>
-            candidate.include.some(pattern => pattern.test(file)));
-        if (!roleEntry) {
-            errors.push(`closed-world: ${file} has no role in module ${module.id}`);
+        // Exactly one role per file (red line 1): a role whose include is
+        // exactly ["**"] is the remainder role — it must be last and matches
+        // only module files no earlier role claimed. Overlap between
+        // non-remainder roles is an error, never silently first-match.
+        const roleMatchers = module._compiled.roles;
+        const remainderIndex = roleMatchers.findIndex(candidate =>
+            candidate.rawInclude.length === 1 && candidate.rawInclude[0] === '**');
+        if (remainderIndex !== -1 && remainderIndex !== roleMatchers.length - 1) {
+            errors.push(`module ${module.id}: the '**' remainder role must be the last role`);
             continue;
         }
-        classification.set(file, { moduleId: module.id, role: roleEntry.role });
+        const specific = remainderIndex === -1
+            ? roleMatchers
+            : roleMatchers.slice(0, remainderIndex);
+        const matches = specific.filter(candidate =>
+            candidate.include.some(pattern => pattern.test(file)));
+        if (matches.length > 1) {
+            errors.push(`closed-world: ${file} matches multiple roles in module ${module.id}: `
+                + matches.map(candidate => `${candidate.role} (via ${candidate.rawInclude.join(', ')})`)
+                    .join('; '));
+            continue;
+        }
+        if (matches.length === 1) {
+            classification.set(file, { moduleId: module.id, role: matches[0].role });
+            continue;
+        }
+        if (remainderIndex !== -1) {
+            classification.set(file, {
+                moduleId: module.id,
+                role: roleMatchers[remainderIndex].role,
+            });
+            continue;
+        }
+        errors.push(`closed-world: ${file} has no role in module ${module.id}`);
+        continue;
     }
 
     // ── Stale pattern detection: every declared pattern must match ────

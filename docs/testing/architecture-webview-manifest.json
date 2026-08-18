@@ -1,0 +1,103 @@
+{
+    "version": 1,
+    "title": "Webview script manifest (declared bundles, load order, permitted globals)",
+    "notes": [
+        "The 37 src/webview/*.js scripts carry no static imports; they couple through script load order and window globals. This manifest declares both, and scripts/architecture/checkWebviewManifest.js enforces them (charter v3 Section 8.6).",
+        "Membership is exact-once: every production webview script belongs to exactly one bundle. Load order is mirrored from the builders and drift-checked against them.",
+        "A cross-script global reference (window.__agentPivot* or vendor globals) must be declared in permittedGlobals; dynamic window[...] access fails closed.",
+        "Adding a global or reordering a bundle is a deliberate policy change visible in review."
+    ],
+    "bundles": [
+        {
+            "id": "dashboard",
+            "builtBy": "scripts/build-dashboard-webview-bundle.js",
+            "vendor": [
+                "node_modules/fitty/dist/fitty.min.js",
+                "node_modules/dragula/dist/dragula.min.js",
+                "node_modules/dom-autoscroller/dist/dom-autoscroller.min.js"
+            ],
+            "scripts": [
+                "src/webview/webviewScrollStateScripts.js",
+                "src/webview/webviewAiSessionViewStateScripts.js",
+                "src/webview/webviewWorkspaceUpdateScripts.js",
+                "src/webview/webviewTodoGroupScripts.js",
+                "src/webview/webviewProjectCollapseScripts.js",
+                "src/webview/webviewOpenTabSplitScripts.js",
+                "src/webview/webviewTodoControlScripts.js",
+                "src/webview/webviewProjectContextMenuScripts.js",
+                "src/webview/webviewProjectAiUpdateScripts.js",
+                "src/webview/webviewGroupFormScripts.js",
+                "src/webview/webviewProjectAiSessionControlsScripts.js",
+                "src/webview/webviewProjectScripts.js",
+                "src/webview/webviewSkillPanelScripts.js",
+                "src/webview/webviewProjectsPanelScripts.js",
+                "src/webview/webviewDashboardValidationScripts.js",
+                "src/webview/webviewDashboardSearchScripts.js",
+                "src/webview/webviewDashboardProjectsPanelScripts.js",
+                "src/webview/webviewDashboardTodoPanelScripts.js",
+                "src/webview/webviewDashboardAiPanelScripts.js",
+                "src/webview/webviewDashboardScripts.js",
+                "src/webview/webviewPromptProtocolScripts.js",
+                "src/webview/webviewPromptScripts.js",
+                "src/webview/webviewTodoRenderScripts.js",
+                "src/webview/webviewTodoScripts.js",
+                "src/webview/webviewDnDScripts.js",
+                "src/webview/webviewFilterScripts.js"
+            ]
+        },
+        {
+            "id": "conversation-viewer",
+            "builtBy": "src/aiSessions/conversation/viewerDocument.ts",
+            "vendor": ["media/purify.min.js"],
+            "lazyVendor": ["media/mermaid.min.js"],
+            "scripts": [
+                "src/webview/conversationReadingAnchorScripts.js",
+                "src/webview/conversationMermaidScripts.js",
+                "src/webview/conversationOutlineScripts.js",
+                "src/webview/conversationSubagentsScripts.js",
+                "src/webview/conversationChangesScripts.js",
+                "src/webview/conversationTelemetryScripts.js",
+                "src/webview/conversationCommentsScripts.js",
+                "src/webview/conversationSidebarScripts.js",
+                "src/webview/conversationReconcileScripts.js",
+                "src/webview/conversationFindScripts.js",
+                "src/webview/conversationViewerScripts.js"
+            ]
+        }
+    ],
+    "permittedGlobals": [
+        "window.__agentPivotAcknowledgeSession",
+        "window.__agentPivotAttentionAcknowledgementTimeoutMs",
+        "window.__agentPivotBatchAiSessions",
+        "window.__agentPivotContextMenus",
+        "window.__agentPivotConversationChanges",
+        "window.__agentPivotConversationComments",
+        "window.__agentPivotConversationFind",
+        "window.__agentPivotConversationMermaid",
+        "window.__agentPivotConversationOutline",
+        "window.__agentPivotConversationReadingAnchor",
+        "window.__agentPivotConversationReconcile",
+        "window.__agentPivotConversationSidebar",
+        "window.__agentPivotConversationSubagents",
+        "window.__agentPivotConversationTelemetry",
+        "window.__agentPivotDashboard",
+        "window.__agentPivotOpenTabSplit",
+        "window.__agentPivotPrompts",
+        "window.__agentPivotReadyDocumentGeneration",
+        "window.__agentPivotRevealPendingWorkspaceSession",
+        "window.__agentPivotRevealWorkspace",
+        "window.__agentPivotRevealWorkspaceSession",
+        "window.__agentPivotRevealWorkspaceWorktree",
+        "window.__agentPivotScrollState",
+        "window.__agentPivotSyncCollapseButton",
+        "window.__agentPivotTodo",
+        "window.__agentPivotWorktreeAdopt",
+        "window.__agentPivotWorktreeGroupAggregateRevision",
+        "window.__agentPivotWorktreeGroupDeletion",
+        "window.__agentPivotWorktreeGroupForm",
+        "window.__agentPivotWorktreeGroupRename",
+        "window.vscode",
+        "window.DOMPurify",
+        "window.mermaid"
+    ]
+}

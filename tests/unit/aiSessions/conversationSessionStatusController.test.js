@@ -42,7 +42,7 @@ function createHarness(options = {}) {
 }
 
 test('CONVERSATION-SESSION-STATUS-001 publishes only changed correlated statuses', async () => {
-    let status = { runningSessions: 2, attentionSessions: 1 };
+    let status = { runningSessions: 2, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1 };
     const { controller, posted } = createHarness({
         readStatus: () => status,
     });
@@ -53,23 +53,25 @@ test('CONVERSATION-SESSION-STATUS-001 publishes only changed correlated statuses
         version: 1,
         requestId: 7,
         subscriptionGeneration: 2,
-        status: { runningSessions: 2, attentionSessions: 1 },
+        status: { runningSessions: 2, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1 },
     }]);
 
     await controller.publish();
     assert.equal(posted.length, 1, 'unchanged status must not be reposted');
 
-    status = { runningSessions: 3, attentionSessions: 0 };
+    status = { runningSessions: 3, attentionSessions: 0, runningSessionsLocal: 0, attentionSessionsLocal: 0 };
     await controller.publish();
     assert.equal(posted.length, 2);
     assert.deepEqual(posted[1].status, {
         runningSessions: 3,
         attentionSessions: 0,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
     });
 });
 
 test('CONVERSATION-SESSION-STATUS-001 retries after delivery failure and rebuilds only when current', async () => {
-    const status = { runningSessions: 1, attentionSessions: 1 };
+    const status = { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 0 };
     const current = createHarness({
         readStatus: () => status,
         delivered: false,
@@ -94,7 +96,7 @@ test('CONVERSATION-SESSION-STATUS-001 retries after delivery failure and rebuild
 });
 
 test('CONVERSATION-SESSION-STATUS-001 skips publishing without a panel, reader, or while suspended', async () => {
-    const status = { runningSessions: 1, attentionSessions: 0 };
+    const status = { runningSessions: 1, attentionSessions: 0, runningSessionsLocal: 1, attentionSessionsLocal: 0 };
     const noPanel = createHarness({ readStatus: () => status, noPanel: true });
     await noPanel.controller.publish();
     assert.equal(noPanel.posted.length, 0);
@@ -111,7 +113,7 @@ test('CONVERSATION-SESSION-STATUS-001 skips publishing without a panel, reader, 
 });
 
 test('CONVERSATION-SESSION-STATUS-001 republishes after target transitions even when unchanged', async () => {
-    const status = { runningSessions: 1, attentionSessions: 1 };
+    const status = { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 0 };
     const { controller, posted } = createHarness({
         readStatus: () => status,
     });
@@ -126,7 +128,7 @@ test('CONVERSATION-SESSION-STATUS-001 republishes after target transitions even 
 });
 
 test('CONVERSATION-SESSION-STATUS-001 does not rebuild when the panel changed during a failed delivery', async () => {
-    const status = { runningSessions: 1, attentionSessions: 1 };
+    const status = { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 0 };
     const harness = createHarness({
         readStatus: () => status,
         delivered: false,
@@ -145,19 +147,58 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
     assert.deepEqual(sanitizeConversationSessionStatus(undefined), {
         runningSessions: 0,
         attentionSessions: 0,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
     });
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: 1.9,
         attentionSessions: -2,
-    }), { runningSessions: 1, attentionSessions: 0 });
+    }), {
+        runningSessions: 1,
+        attentionSessions: 0,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
+    });
+    assert.deepEqual(sanitizeConversationSessionStatus({
+        runningSessions: 2,
+        attentionSessions: 3,
+        runningSessionsLocal: 1.9,
+        attentionSessionsLocal: 1,
+    }), {
+        runningSessions: 2,
+        attentionSessions: 3,
+        runningSessionsLocal: 1,
+        attentionSessionsLocal: 1,
+    });
+    assert.deepEqual(sanitizeConversationSessionStatus({
+        runningSessions: 2,
+        attentionSessions: 3,
+        runningSessionsLocal: 5,
+        attentionSessionsLocal: 4,
+    }), {
+        runningSessions: 2,
+        attentionSessions: 3,
+        runningSessionsLocal: 2,
+        attentionSessionsLocal: 3,
+    }, 'local counts clamp to the total — a window can never exceed it');
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: Number.NaN,
         attentionSessions: Number.POSITIVE_INFINITY,
-    }), { runningSessions: 0, attentionSessions: 0 });
+    }), {
+        runningSessions: 0,
+        attentionSessions: 0,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
+    });
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: 100001,
         attentionSessions: 250000.8,
-    }), { runningSessions: 100000, attentionSessions: 100000 },
+    }), {
+        runningSessions: 100000,
+        attentionSessions: 100000,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
+    },
     'counts must clamp to the Webview validator bound');
 
     const throwing = createHarness({
@@ -168,23 +209,31 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
     assert.equal(throwing.controller.snapshot, undefined);
 
     const fractional = createHarness({
-        readStatus: () => ({ runningSessions: 2.7, attentionSessions: -1 }),
+        readStatus: () => ({
+            runningSessions: 2.7,
+            attentionSessions: -1,
+            runningSessionsLocal: 1.2,
+            attentionSessionsLocal: 0,
+        }),
     });
     assert.deepEqual(fractional.controller.snapshot, {
         runningSessions: 2,
         attentionSessions: 0,
+        runningSessionsLocal: 1,
+        attentionSessionsLocal: 0,
     });
 
-    assert.equal(formatConversationSessionStatusLabel('running', 0),
+    assert.equal(formatConversationSessionStatusLabel('running', 0, 0),
         'No AI sessions running');
-    assert.equal(formatConversationSessionStatusLabel('running', 1),
-        '1 AI session running across all windows');
-    assert.equal(formatConversationSessionStatusLabel('running', 4),
-        '4 AI sessions running across all windows');
-    assert.equal(formatConversationSessionStatusLabel('attention', 0),
+    assert.equal(formatConversationSessionStatusLabel('running', 1, 1),
+        '1 running in this window · 1 across all windows');
+    assert.equal(formatConversationSessionStatusLabel('running', 2, 4),
+        '2 running in this window · 4 across all windows');
+    assert.equal(formatConversationSessionStatusLabel('attention', 0, 0),
         'No AI sessions need attention');
-    assert.equal(formatConversationSessionStatusLabel('attention', 1),
-        '1 AI session needs attention across all windows');
-    assert.equal(formatConversationSessionStatusLabel('attention', 3),
-        '3 AI sessions need attention across all windows');
+    assert.equal(formatConversationSessionStatusLabel('attention', 1, 3),
+        '1 need attention in this window · 3 across all windows');
+    assert.equal(formatConversationSessionStatusLabel('attention', 5, 3),
+        '3 need attention in this window · 3 across all windows',
+        'labels clamp the local count to the total');
 });

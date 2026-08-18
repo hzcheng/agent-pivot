@@ -435,8 +435,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in 
     ]);
 });
 
-test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated global Session status', async () => {
-    let status = { runningSessions: 2, attentionSessions: 1 };
+test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated local/global Session status', async () => {
+    let status = {
+        runningSessions: 2,
+        attentionSessions: 1,
+        runningSessionsLocal: 1,
+        attentionSessionsLocal: 1,
+    };
     const { viewer, panel } = createViewer({
         readSessionStatus: () => status,
     });
@@ -446,16 +451,16 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated global
         'data-conversation-session-status'
     ));
     assert.ok(panel.webview.html.includes(
-        '2 AI sessions running across all windows'
+        '1 running in this window · 2 across all windows'
     ));
     assert.ok(panel.webview.html.includes(
-        '1 AI session needs attention across all windows'
+        '1 need attention in this window · 1 across all windows'
     ));
     assert.ok(panel.webview.html.includes(
-        'data-session-status-running-count>2</span>'
+        'data-session-status-running-count>1/2</span>'
     ));
     assert.ok(panel.webview.html.includes(
-        'data-session-status-attention-count>1</span>'
+        'data-session-status-attention-count>1/1</span>'
     ));
     assert.ok(panel.webview.html.includes(
         'data-session-status-request-id'
@@ -473,23 +478,37 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated global
     assert.deepEqual(message.status, {
         runningSessions: 2,
         attentionSessions: 1,
+        runningSessionsLocal: 1,
+        attentionSessionsLocal: 1,
     });
 
     await viewer.publishSessionStatus();
     assert.equal(statusMessages().length, 1,
         'an unchanged status must not be reposted');
 
-    status = { runningSessions: 3, attentionSessions: 0 };
+    status = {
+        runningSessions: 3,
+        attentionSessions: 0,
+        runningSessionsLocal: 2,
+        attentionSessionsLocal: 0,
+    };
     await viewer.publishSessionStatus();
     assert.equal(statusMessages().length, 2);
     assert.deepEqual(statusMessages()[1].status, {
         runningSessions: 3,
         attentionSessions: 0,
+        runningSessionsLocal: 2,
+        attentionSessionsLocal: 0,
     });
 });
 
 test('CONVERSATION-SESSION-STATUS-001 republishes the status after a retarget even when unchanged', async () => {
-    const status = { runningSessions: 1, attentionSessions: 1 };
+    const status = {
+        runningSessions: 1,
+        attentionSessions: 1,
+        runningSessionsLocal: 1,
+        attentionSessionsLocal: 1,
+    };
     const { viewer, panel } = createViewer({
         readSessionStatus: () => status,
     });

@@ -73,7 +73,10 @@ function runModuleBoundaryCheck(rootDirectory) {
                 + 'declare the edge in ' + REGISTRY_PATH + ' via an approved architecture change');
         }
         const entrypoints = entrypointMatchers.get(edge.targetModule) || [];
-        if (entrypoints.length > 0 && !entrypoints.some(pattern => pattern.test(edge.target))) {
+        // Review R9 (Important 6): the entrypoint check never fails open —
+        // the loader rejects empty entrypoint lists, and an empty matcher
+        // here still fails the edge rather than skipping the check.
+        if (!entrypoints.some(pattern => pattern.test(edge.target))) {
             errors.push(`module-boundary: ${edge.source} deep-imports ${edge.target}, which is not a `
                 + `declared public entrypoint of ${edge.targetModule}`);
         }

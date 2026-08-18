@@ -36,6 +36,7 @@ function twoModuleRegistry() {
                 title: 'Alpha',
                 purpose: 'Alpha files.',
                 source: { include: ['src/alpha/**'], exclude: [] },
+                publicEntrypoints: ['src/alpha/**'],
                 mayDependOn: [],
                 roles: [{ role: 'application', include: ['src/alpha/**'] }],
                 productCapabilities: ['MAIN-TEST-001'],
@@ -45,6 +46,7 @@ function twoModuleRegistry() {
                 title: 'Beta',
                 purpose: 'Beta files.',
                 source: { include: ['src/beta/**'], exclude: [] },
+                publicEntrypoints: ['src/beta/**'],
                 mayDependOn: [],
                 roles: [
                     { role: 'domain', include: ['src/beta/types.ts'] },
@@ -198,4 +200,23 @@ test('ARCH-CLOSED-WORLD-001 controlled mutation: an entrypoint outside the modul
         files: ['src/alpha/index.ts', 'src/beta/index.ts', 'src/beta/types.ts'],
     }));
     assert.ok(errors.some(e => e.includes('public entrypoint src/nope/**')));
+});
+
+test('ARCH-CLOSED-WORLD-001 controlled mutation: missing or empty publicEntrypoints fail closed (review R9)', () => {
+    const missing = twoModuleRegistry();
+    delete missing.modules[0].publicEntrypoints;
+    const { errors: missingErrors } = loadArchitecturePolicy(makeFixture({
+        registry: missing,
+        files: ['src/alpha/index.ts', 'src/beta/index.ts', 'src/beta/types.ts'],
+    }));
+    assert.ok(missingErrors.some(e => e.includes('MOD-ALPHA')
+        && e.includes('publicEntrypoints is required')), JSON.stringify(missingErrors));
+    const empty = twoModuleRegistry();
+    empty.modules[0].publicEntrypoints = [];
+    const { errors: emptyErrors } = loadArchitecturePolicy(makeFixture({
+        registry: empty,
+        files: ['src/alpha/index.ts', 'src/beta/index.ts', 'src/beta/types.ts'],
+    }));
+    assert.ok(emptyErrors.some(e => e.includes('MOD-ALPHA')
+        && e.includes('publicEntrypoints')), JSON.stringify(emptyErrors));
 });

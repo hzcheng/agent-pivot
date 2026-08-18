@@ -138,8 +138,14 @@ function loadArchitecturePolicy(rootDirectory) {
             && !validatePatternList(owner, 'source.exclude', source.exclude, errors, true)) {
             continue;
         }
-        if (module.publicEntrypoints !== undefined
-            && !validatePatternList(owner, 'publicEntrypoints', module.publicEntrypoints, errors)) {
+        // Review R9 (Important 6): every module must declare at least one
+        // public entrypoint — a missing or empty list is a schema failure,
+        // never fail-open.
+        if (module.publicEntrypoints === undefined) {
+            errors.push(`${owner}: publicEntrypoints is required (at least one entrypoint)`);
+            continue;
+        }
+        if (!validatePatternList(owner, 'publicEntrypoints', module.publicEntrypoints, errors)) {
             continue;
         }
         const roles = Array.isArray(module.roles) ? module.roles : [];

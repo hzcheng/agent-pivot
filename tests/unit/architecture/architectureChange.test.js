@@ -594,8 +594,9 @@ test('ARCH-CHANGE-GATE-001 parser accepts a valid machine-summary block and appl
     assert.equal(record.status, 'approved');
     assert.deepEqual(record.modules, ['MOD-A']);
     assert.deepEqual(record.delta, {
-        mayDependOnGrown: {}, baselineGrown: [],
-        waiversAdded: [], invariantChanges: [], rePartition: false, harnessWeakening: false,
+        mayDependOnGrown: {}, entrypointsGrown: {}, baselineGrown: [],
+        waiversAdded: [], invariantChanges: [], ledgerRegressions: [],
+        rePartition: false, harnessWeakening: false,
     });
 });
 
@@ -809,4 +810,181 @@ test('ARCH-CHANGE-GATE-001 collectArchitectureDiff reads records from the base r
     const { classification, errors } = classifyArchitectureChange(diff);
     assert.equal(classification, 'relaxing');
     assert.deepEqual(errors, []);
+});
+
+
+// ── review R9: entrypoint growth and ledger regressions (Important 6/9) ──
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: broadening public entrypoints is relaxing', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            entrypointsGrown: { 'MOD-A': ['src/a/newEntrypoint.ts'] },
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+
+    const covered = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            entrypointsGrown: { 'MOD-A': ['src/a/newEntrypoint.ts'] },
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], modulesChanged: true,
+        },
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({
+                delta: { entrypointsGrown: { 'MOD-A': ['src/a/newEntrypoint.ts'] } },
+            }),
+        }],
+    }));
+    assert.deepEqual(covered.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: a ledger state regression is relaxing', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-program.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, entrypointsGrown: {},
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [],
+            ledgerRegressions: ['MOD-A: strict -> migrating'],
+            modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+
+    const covered = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-program.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, entrypointsGrown: {},
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [],
+            ledgerRegressions: ['MOD-A: strict -> migrating'],
+            modulesChanged: true,
+        },
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({ delta: { ledgerRegressions: ['MOD-A: strict -> migrating'] } }),
+        }],
+    }));
+    assert.deepEqual(covered.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 a forward ledger transition with no other delta stays tightening', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-program.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, entrypointsGrown: {},
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], ledgerRegressions: [],
+            modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'tightening');
+    assert.deepEqual(result.errors, []);
+});
+
+
+// ── review R9: entrypoint and ledger policy deltas (collect level) ────
+
+test('ARCH-CHANGE-GATE-001 the policy delta computes entrypoint growth and ledger regressions', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-diff-ledger-'));
+    const write = (relative, value) => {
+        fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
+        fs.writeFileSync(path.join(root, relative),
+            typeof value === 'string' ? value : JSON.stringify(value, null, 4) + '\n');
+    };
+    write('src/alpha/a.ts', '// a\n');
+    const moduleEntry = entrypoints => ({
+        id: 'MOD-ALPHA', title: 'A', purpose: 'fixture',
+        source: { include: ['src/**'], exclude: [] }, publicEntrypoints: entrypoints,
+        mayDependOn: [], roles: [{ role: 'application', include: ['src/**'] }],
+        productCapabilities: ['MAIN-TEST-001'],
+    });
+    write('docs/testing/architecture-modules.json', {
+        version: 1, scope: { roots: ['src'] }, modules: [moduleEntry(['src/**'])],
+    });
+    write('docs/testing/main-capability-coverage.json',
+        { version: 1, capabilities: [{ id: 'MAIN-TEST-001' }] });
+    const ledger = modules => ({
+        version: 1,
+        states: ['legacy', 'inventoried', 'characterized', 'guarded', 'migrating', 'strict'],
+        modules,
+    });
+    write('docs/testing/architecture-program.json', ledger({
+        'MOD-ALPHA': { state: 'migrating', since: 'x', evidence: [], nextAction: 'y' },
+    }));
+    let changed = [
+        { status: 'M', path: 'docs/testing/architecture-modules.json' },
+        { status: 'M', path: 'docs/testing/architecture-program.json' },
+    ];
+    const git = {
+        changedFiles: () => changed,
+        listFiles: () => [],
+        fileAt: (ref, relativePath) => {
+            if (ref !== 'base') {
+                const absolute = path.join(root, relativePath);
+                return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : null;
+            }
+            if (relativePath.endsWith('architecture-modules.json')) {
+                return JSON.stringify({ version: 1, scope: { roots: ['src'] }, modules: [moduleEntry(['src/**'])] });
+            }
+            return JSON.stringify(ledger({
+                'MOD-ALPHA': { state: 'guarded', since: 'x', evidence: [], nextAction: 'y' },
+            }));
+        },
+    };
+    // Head broadens the entrypoints and regresses the ledger state.
+    write('docs/testing/architecture-modules.json', {
+        version: 1, scope: { roots: ['src'] }, modules: [moduleEntry(['src/**', 'src/new-entry.ts'])],
+    });
+    write('docs/testing/architecture-program.json', ledger({
+        'MOD-ALPHA': { state: 'inventoried', since: 'x', evidence: [], nextAction: 'y' },
+    }));
+    const report = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(report.policyDelta.entrypointsGrown, { 'MOD-ALPHA': ['src/new-entry.ts'] });
+    assert.deepEqual(report.policyDelta.ledgerRegressions, ['MOD-ALPHA: guarded -> inventoried']);
+    const { classification, errors } = classifyArchitectureChange(report);
+    assert.equal(classification, 'relaxing');
+    assert.ok(errors.length > 0);
+
+    // A forward ledger move alone stays tightening.
+    changed = [{ status: 'M', path: 'docs/testing/architecture-program.json' }];
+    write('docs/testing/architecture-modules.json', {
+        version: 1, scope: { roots: ['src'] }, modules: [moduleEntry(['src/**'])],
+    });
+    write('docs/testing/architecture-program.json', ledger({
+        'MOD-ALPHA': { state: 'strict', since: 'x', evidence: [], nextAction: 'y' },
+    }));
+    const forward = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(forward.policyDelta.ledgerRegressions, []);
+    assert.equal(classifyArchitectureChange(forward).classification, 'tightening');
+});
+
+test('ARCH-CHANGE-GATE-001 formatReport renders entrypoint and ledger sections', () => {
+    const text = formatReport({
+        baseRef: 'origin/main',
+        errors: [],
+        touchedModules: {},
+        newFiles: [],
+        removedFiles: [],
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            entrypointsGrown: { 'MOD-A': ['src/a/entry.ts'] },
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [],
+            ledgerRegressions: ['MOD-A: strict -> migrating'],
+            modulesChanged: true,
+        },
+    });
+    assert.ok(text.includes('entrypoints broadened: MOD-A += src/a/entry.ts'));
+    assert.ok(text.includes('ledger regression: MOD-A: strict -> migrating'));
 });

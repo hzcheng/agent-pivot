@@ -277,15 +277,8 @@ import {
     WorktreeGroupCreationController,
 } from './worktrees/groupCreationController';
 import {
-    acceptedWorktreeGroupCreationSettlement,
-    acceptedWorktreeGroupMemberSettlement,
-    parseConfirmWorktreeGroupRequest,
-    parseOpenWorktreeGroupFormRequest,
-    parsePreviewWorktreeGroupRequest,
-    parseWorktreeGroupMemberRequest,
-    settledWorktreeGroupCreationSettlement,
-    settledWorktreeGroupMemberSettlement,
-} from './worktrees/groupCreationProtocol';
+    createWorktreeGroupFormHandlers,
+} from './dashboard/worktreeGroupFormHandlers';
 import {
     normalizeWorktreeSetupCommand,
     WorktreeSetupRunner,
@@ -2507,6 +2500,12 @@ async function initializeDashboard(
         replayCache: worktreeGroupDeletionSettlements,
     };
 
+    const worktreeGroupFormHandlers = createWorktreeGroupFormHandlers({
+        controller: worktreeGroupCreationController,
+        postMessage: outgoing => provider.postMessage(outgoing),
+        getSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+        logError,
+    });
     const isolatedSessionHandlers = {
         'start-isolated-session': async (message: unknown) => {
             const request = parseIsolatedSessionRequest(message);
@@ -2548,158 +2547,7 @@ async function initializeDashboard(
                 request.operationId, request.projectId);
             await provider.postMessage(cancelledMutationSettlement(request, accepted));
         },
-        'open-worktree-group-form': async (message: unknown) => {
-            const request = parseOpenWorktreeGroupFormRequest(message);
-            if (!request) {
-                return;
-            }
-            // Add repo (PRD §6.3): the form lists only repositories not
-            // already in the group, locks the group name, and prechecks
-            // only the active editor's repository when eligible.
-            const addRepo = request.targetGroupId
-                ? await worktreeGroupCreationController.listAddRepoOptions(
-                    request.projectId, request.targetGroupId)
-                : null;
-            if (request.targetGroupId && !addRepo) {
-                return;
-            }
-            const repositories = addRepo
-                ? addRepo.options
-                : await worktreeGroupCreationController
-                    .listRepositoryOptions(request.projectId);
-            // Derive (PRD §6.2): prefill name, selection, and base refs
-            // from the source group; the group itself is never modified.
-            const derive = request.sourceGroupId
-                ? await worktreeGroupCreationController.deriveFormContext(
-                    request.projectId, request.sourceGroupId)
-                : null;
-            // Branch-from-here (PRD §6.1): resolve the seed worktree's
-            // branch so the form can prefill the base-ref override.
-            const seedWorktree = request.seedRepositoryKey
-                && request.seedWorktreePath
-                ? worktreeSnapshotCoordinator.getSnapshot()?.repositories
-                    .find(candidate =>
-                        candidate.repositoryKey === request.seedRepositoryKey)
-                    ?.worktrees.find(candidate =>
-                        candidate.key.canonicalWorktreePath
-                            === request.seedWorktreePath)
-                : undefined;
-            await provider.postMessage({
-                type: 'worktree-group-form-state',
-                version: 1,
-                projectId: request.projectId,
-                ...(addRepo
-                    ? {
-                        addRepo: {
-                            groupId: addRepo.group.groupId,
-                            displayName: addRepo.group.displayName,
-                        },
-                    }
-                    : {}),
-                ...(derive ? { derive } : {}),
-                ...(request.seedRepositoryKey && seedWorktree?.branchRef
-                    ? {
-                        seed: {
-                            repositoryKey: request.seedRepositoryKey,
-                            baseRef: seedWorktree.branchRef,
-                        },
-                    }
-                    : {}),
-                repositories,
-            });
-        },
-        'preview-worktree-group': async (message: unknown) => {
-            const request = parsePreviewWorktreeGroupRequest(message);
-            if (!request) {
-                return;
-            }
-            const preview = await worktreeGroupCreationController.preview(
-                request.projectId, request.displayName, request.selections,
-                request.sourceGroupId, request.targetGroupId);
-            await provider.postMessage({
-                type: 'worktree-group-preview',
-                version: 1,
-                requestId: request.requestId,
-                projectId: request.projectId,
-                previewId: preview.previewId,
-                slug: preview.slug,
-                ...(preview.formError ? { formError: preview.formError } : {}),
-                members: preview.members,
-            });
-        },
-        'confirm-worktree-group': async (message: unknown) => {
-            const request = parseConfirmWorktreeGroupRequest(message);
-            if (!request) {
-                return;
-            }
-            await provider.postMessage(
-                acceptedWorktreeGroupCreationSettlement(request));
-            // Every accepted request owes exactly one terminal settlement —
-            // the webview keeps its confirm button pending until it lands.
-            const result = await worktreeGroupCreationController.confirm({
-                projectId: request.projectId,
-                previewId: request.previewId,
-                displayName: request.displayName,
-                members: request.members,
-                ...(request.primaryRepositoryKey
-                    ? { primaryRepositoryKey: request.primaryRepositoryKey }
-                    : {}),
-                ...(request.targetGroupId
-                    ? { targetGroupId: request.targetGroupId }
-                    : {}),
-            }).catch(error => {
-                logError('Failed to confirm the worktree group creation.', error);
-                return { kind: 'failed' as const, errorCode: 'unexpected-error' };
-            });
-            await provider.postMessage(
-                settledWorktreeGroupCreationSettlement(request, result));
-        },
-        'retry-worktree-group-member': async (message: unknown) => {
-            const request = parseWorktreeGroupMemberRequest(message);
-            if (!request || request.type !== 'retry-worktree-group-member') {
-                return;
-            }
-            await provider.postMessage(
-                acceptedWorktreeGroupMemberSettlement(request));
-            const outcome = await worktreeGroupCreationController.retryMember(
-                request.projectId, request.groupId, request.memberId)
-                .catch(error => {
-                    logError('Failed to retry the worktree group member.', error);
-                    return {
-                        kind: 'failed' as const,
-                        operationId: request.memberId,
-                        errorCode: 'unexpected-error',
-                    };
-                });
-            await provider.postMessage(settledWorktreeGroupMemberSettlement(
-                request,
-                outcome.kind === 'succeeded'
-                    ? { kind: 'settled' }
-                    : { kind: 'failed', errorCode: outcome.errorCode }));
-        },
-        'dismiss-worktree-group-member': async (message: unknown) => {
-            const request = parseWorktreeGroupMemberRequest(message);
-            if (!request || request.type !== 'dismiss-worktree-group-member') {
-                return;
-            }
-            await provider.postMessage(
-                acceptedWorktreeGroupMemberSettlement(request));
-            const dismissed = await worktreeGroupCreationController.dismissMember(
-                request.projectId, request.groupId, request.memberId)
-                .catch(error => {
-                    logError('Failed to dismiss the worktree group member.', error);
-                    return 'unavailable' as const;
-                });
-            await provider.postMessage(settledWorktreeGroupMemberSettlement(
-                request,
-                dismissed === 'dismissed'
-                    ? { kind: 'settled' }
-                    : {
-                        kind: 'failed',
-                        errorCode: dismissed === 'store-full'
-                            ? 'store-full' : 'dismiss-unavailable',
-                    }));
-        },
+        ...worktreeGroupFormHandlers,
         'remove-managed-worktree': async (message: unknown) => {
             const request = parseManagedWorktreeRemovalRequest(message);
             if (!request) {

@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "99666fe7bd595cc977c7b7b583fdf1f3238b4413",
+        "head": "8d27256aaefe7d1eee5c021cf8058da9e2a58c8c",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -424,7 +424,8 @@
             "da3b97d09f3f6af8b735ed6988b3b7423f3bb0f3",
             "13bd18ac4e7f75a14926bd837d137c102f8ecc08",
             "cfb96fd65d4c9c5ed6453ae6f607290dbb86d6ff",
-            "15e02b1fc1d28814f08b3b734d6bf710ddebf640"
+            "15e02b1fc1d28814f08b3b734d6bf710ddebf640",
+            "45c402334a7218788172c849f46da67a73696268"
         ]
     },
     "capabilities": [
@@ -2231,13 +2232,15 @@
                 "f7a968b0242728dbdc61500531e07ed71f2df2a0",
                 "e332a22ca94bd7e9ad0614fe36c554a9f4209c6b",
                 "bb90d8af28fc1f539b638c11ec25c924ac90ed08",
-                "b76f4ba375337b0674dc846d119d5ce7f5c46ba8"
+                "b76f4ba375337b0674dc846d119d5ce7f5c46ba8",
+                "8d27256aaefe7d1eee5c021cf8058da9e2a58c8c"
             ],
             "behaviors": [
                 "WORKTREE-GROUPS-BASELINE-001",
                 "WORKTREE-CHANGES-COLLECT-001",
                 "WORKTREE-CHANGES-PANEL-001",
-                "WORKTREE-GROUPS-CREATE-001"
+                "WORKTREE-GROUPS-CREATE-001",
+                "WORKTREE-GROUPS-CREATE-HANDLER-001"
             ],
             "prGates": [
                 "test:deterministic:run",

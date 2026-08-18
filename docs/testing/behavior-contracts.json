@@ -2178,7 +2178,8 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/worktrees/gitWorktreeProvisioner.test.js"
+      "tests/contract/worktrees/gitWorktreeProvisioner.test.js",
+      "tests/contract/worktrees/groupCreationRealGit.test.js"
     ],
     "evidence": [
       "src/worktrees/gitWorktreeProvisioner.ts"
@@ -6795,6 +6796,20 @@
     "evidence": [
       "scripts/architecture/checkWebviewManifest.js",
       "docs/testing/architecture-webview-manifest.json"
+    ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-CREATE-HANDLER-001",
+    "domain": "session",
+    "title": "The worktree group form message family (open/preview/confirm/retry/dismiss) follows the accepted-to-settled chain: parse fail-closed, every accepted request owes exactly one terminal settlement, and the confirm family has no replay cache (the single-use preview token rejects replays)",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/worktreeGroupFormHandlers.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/worktreeGroupFormHandlers.ts",
+      "src/dashboard.ts"
     ]
   }
 ]

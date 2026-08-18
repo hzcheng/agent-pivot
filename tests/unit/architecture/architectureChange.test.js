@@ -305,6 +305,16 @@ test('ARCH-CHANGE-GATE-001 the policy delta covers invariants, baseline, and wai
     assert.deepEqual(report.policyDelta.writersGrown, { 'ARCH-TEST-001': ['src/alpha/b.ts'] });
     assert.deepEqual(report.policyDelta.waiversAdded, ['ARCH-WAIVER-009']);
     assert.deepEqual(report.policyDelta.baselineGrown, ['2:MOD-A->MOD-B']);
+
+    // An authority move (writer set shrinks while gaining the new authority
+    // file) is tightening, not broadening.
+    write('docs/testing/architecture-invariants.json', {
+        version: 1,
+        invariants: [{ ...invariant, writers: ['src/alpha/coordinator.ts'] }],
+    });
+    const moved = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(moved.policyDelta.writersGrown, {},
+        'a shrunk writer set with a replacement is not broadening');
 });
 
 test('ARCH-CHANGE-GATE-001 a self-diff against HEAD is a clean product-only report', () => {

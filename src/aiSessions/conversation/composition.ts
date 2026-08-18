@@ -56,7 +56,7 @@ import {
 } from './viewerRestoreState';
 import { ConversationWorktreeResolver } from './worktreeResolver';
 import type { ConversationChangesControllerOptions } from './conversationChangesController';
-import { ChangesCollector } from '../../worktrees/changesCollector';
+import { ChangesCollector } from '../../worktrees';
 import { readCodexRolloutTelemetry } from '../codexRolloutWorkdir';
 import CodexRolloutGoalTurnsReader from '../codexRolloutGoalTurns';
 import {

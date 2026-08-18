@@ -7,13 +7,13 @@ import {
     aggregateMemberChanges,
     ChangesCollector,
     MemberChangesSnapshot,
-} from '../../worktrees/changesCollector';
+} from '../../worktrees';
 import type {
     WorktreeGroup,
     WorktreeGroupMember,
-} from '../../worktrees/groupManifestStore';
-import type { RetiredWorktreeIdentity } from '../../worktrees/retiredWorktrees';
-import type { MemberBaseline, WorktreeKey } from '../../worktrees/types';
+} from '../../worktrees';
+import type { RetiredWorktreeIdentity } from '../../worktrees';
+import type { MemberBaseline, WorktreeKey } from '../../worktrees';
 import type {
     ConversationChangesFileItem,
     ConversationChangesMemberView,

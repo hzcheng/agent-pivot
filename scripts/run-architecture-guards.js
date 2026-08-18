@@ -342,6 +342,10 @@ function listFiles(root, relativeDirectory, extension) {
 function importModules(sourceFile) {
     return sourceFile.statements
         .filter(ts.isImportDeclaration)
+        // `import type` has no runtime footprint; reachability walks follow
+        // value edges only (a type-only import of a module entrypoint must
+        // not drag the module's runtime into the reachable set).
+        .filter(statement => !statement.importClause || !statement.importClause.isTypeOnly)
         .map(statement => statement.moduleSpecifier)
         .filter(ts.isStringLiteral)
         .map(moduleSpecifier => moduleSpecifier.text);
@@ -353,6 +357,7 @@ function moduleReferences(sourceFile) {
         if (ts.isExportDeclaration(node)
             && node.moduleSpecifier
             && ts.isStringLiteral(node.moduleSpecifier)) {
+            if (node.isTypeOnly) { return; }
             modules.push(node.moduleSpecifier.text);
             return;
         }

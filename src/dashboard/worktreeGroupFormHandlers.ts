@@ -1,4 +1,4 @@
-import type { WorktreeGroupCreationController } from '../worktrees/groupCreationController';
+import type { WorktreeGroupCreationController } from '../worktrees';
 import {
     acceptedWorktreeGroupCreationSettlement,
     acceptedWorktreeGroupMemberSettlement,
@@ -8,8 +8,8 @@ import {
     parseWorktreeGroupMemberRequest,
     settledWorktreeGroupCreationSettlement,
     settledWorktreeGroupMemberSettlement,
-} from '../worktrees/groupCreationProtocol';
-import type { WorktreeSnapshot } from '../worktrees/types';
+} from '../worktrees';
+import type { WorktreeSnapshot } from '../worktrees';
 
 export interface WorktreeGroupFormHandlersOptions {
     controller: WorktreeGroupCreationController;

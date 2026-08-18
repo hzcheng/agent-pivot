@@ -2,7 +2,7 @@
 
 import type { AiSessionProviderId } from '../models';
 import type { AiSessionRuntimeIdentity } from './runtimeTypes';
-import type { WorktreeKey } from '../worktrees/types';
+import type { WorktreeKey } from '../worktrees';
 import {
     cloneAiSessionRuntimeIdentity,
     getAiSessionRuntimeIdentityPersistenceFields,

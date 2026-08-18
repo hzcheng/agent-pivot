@@ -21,13 +21,13 @@ import type { OpenWorkspace } from './types';
 import { projectWorkspaceActiveSessions } from './activeSessionPresentation';
 import type { WorkspaceActiveSessionPresentation } from './activeSessionPresentation';
 import { getWorkspaceAiSessionCandidatePaths, hydrateWorkspaceAiSessions } from './sessionHydration';
-import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
-import type { WorktreeGroup } from '../worktrees/groupManifestStore';
-import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
+import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees';
+import type { WorktreeGroup } from '../worktrees';
+import type { DeletionJournalEntry } from '../worktrees';
 import type {
     GenerationClaim,
     RetiredWorktreeIdentity,
-} from '../worktrees/retiredWorktrees';
+} from '../worktrees';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label' | 'terminalCwdFields'>;
 

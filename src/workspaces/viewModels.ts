@@ -11,12 +11,12 @@ import type {
     WorkspaceAiSessionViewModel,
 } from '../aiSessions/types';
 import type { OpenWorkspace } from './types';
-import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
-import { worktreeKeysEqual } from '../worktrees/types';
+import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees';
+import { worktreeKeysEqual } from '../worktrees';
 import { isWorkspaceHostPathContained } from '../sessionAssignment';
-import type { WorktreeGroup } from '../worktrees/groupManifestStore';
+import type { WorktreeGroup } from '../worktrees';
 import { buildWorktreeGroupProjection } from './worktreeGroupProjection';
-import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
+import type { DeletionJournalEntry } from '../worktrees';
 
 export interface BuildWorkspaceAiSessionViewModelInput {
     workspace: OpenWorkspace;

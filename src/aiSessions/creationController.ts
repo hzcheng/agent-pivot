@@ -19,7 +19,7 @@ import type {
     AiSessionRuntimeSnapshot,
 } from './runtimeTypes';
 import type { AiSessionDirectoryScope, SessionProfileDecision, WorkspaceAiSessionActionTarget } from './types';
-import type { WorktreeKey } from '../worktrees/types';
+import type { WorktreeKey } from '../worktrees';
 import type { AiSessionCreationScopeTarget } from './worktreeCreationTarget';
 
 interface AiSessionCreationTarget {

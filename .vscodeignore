@@ -14,6 +14,9 @@ docs/superpowers/**
 tests/**
 coverage/**
 out/**
+!out/sessionAssignment.js
+!out/worktreeSessionAssignment.js
+!out/worktreeIdentity.js
 !out/workspaces/*.js
 !out/openWorkspaces/*.js
 out/**/*.map

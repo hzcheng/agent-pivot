@@ -127,6 +127,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/out/workspaces/viewModels.js',
     'extension/out/workspaces/worktreeGroupProjection.js',
     'extension/out/worktreeSessionAssignment.js',
+    'extension/out/worktreeIdentity.js',
     'extension/package.json',
     'extension/readme.md',
 ]);

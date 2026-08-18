@@ -24,8 +24,9 @@ making any change.
    `origin/main` in `hzcheng/agent-pivot`. This repo has two remotes
    (`origin` = fork, `upstream` = original project) — pass
    `--repo hzcheng/agent-pivot` to every `gh` command. Write PR titles, PR
-   bodies, and commit messages in English. Details: skill
-   `publishing-and-merging-github-prs`.
+   bodies, and commit messages in English. After opening or updating a PR,
+   verify it is mergeable with checks running — never leave a PR
+   conflicting or red. Details: skill `publishing-and-merging-github-prs`.
 
 3. **Load the matching skill before acting.** Project skills live in
    `.skills/` (canonical) and are mirrored into `.kimi/skills/`,

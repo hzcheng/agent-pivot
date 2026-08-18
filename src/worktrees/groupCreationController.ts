@@ -13,6 +13,7 @@ import type {
     WorktreeGroup,
     WorktreeGroupManifestStore,
 } from './groupManifestStore';
+import type { WorktreeMemberLifecycle } from './memberLifecycle';
 import type { WorktreeProvisioningOutcome } from './provisioningController';
 import type {
     WorktreeRepositorySnapshot,
@@ -106,6 +107,7 @@ export interface WorktreeGroupCreationControllerOptions {
     getWorktreeDirectory: () => string;
     getActiveEditorPath: () => string | undefined;
     manifestStore: WorktreeGroupManifestStore;
+    memberLifecycle: WorktreeMemberLifecycle;
     startMemberOperation: (input: {
         operationId: string;
         projectId: string;
@@ -811,12 +813,8 @@ export class WorktreeGroupCreationController {
             return { kind: 'failed', operationId: memberOperationId(memberId), errorCode: 'retry-unavailable' };
         }
         try {
-            await this.options.manifestStore.updateMember(
-                navigationIdentity, groupId, memberId, {
-                    state: 'provisioning',
-                    // The store treats undefined as "leave unchanged".
-                    lastError: '',
-                });
+            await this.options.memberLifecycle.readmitMemberForRetry(
+                navigationIdentity, groupId, memberId);
         } catch (_error) {
             return {
                 kind: 'failed',
@@ -893,7 +891,7 @@ export class WorktreeGroupCreationController {
             }
         }
         try {
-            await this.options.manifestStore.removeMember(
+            await this.options.memberLifecycle.removeFailedMember(
                 navigationIdentity, groupId, memberId);
         } catch (_error) {
             return 'unavailable';
@@ -965,11 +963,8 @@ export class WorktreeGroupCreationController {
             : '-';
         this.options.onError?.(
             `Worktree group member settled without success: kind=${outcome.kind} error=${outcome.errorCode} completedSteps=${completedSteps} groupId=${groupId} memberId=${memberId}`);
-        await this.options.manifestStore.updateMember(
-            navigationIdentity, groupId, memberId, {
-                state: 'failed',
-                lastError: outcome.errorCode,
-            });
+        await this.options.memberLifecycle.markMemberFailed(
+            navigationIdentity, groupId, memberId, outcome.errorCode);
         this.options.onDidChange?.();
     }
 }

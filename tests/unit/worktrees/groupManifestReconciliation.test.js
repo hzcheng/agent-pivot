@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { WorktreeGroupManifestStore } = require('../../../out/worktrees/groupManifestStore');
+const { WorktreeMemberLifecycle } = require('../../../out/worktrees/memberLifecycle');
 const {
     reconcileWorktreeGroupManifest,
 } = require('../../../out/worktrees/groupManifestReconciliation');
@@ -58,7 +59,7 @@ test('WORKTREE-GROUPS-003 seeds extension-created worktrees as one-worktree grou
             }),
         ],
     }]);
-    await reconcileWorktreeGroupManifest({ store, workspaceIdentity: WORKSPACE, snapshot: content });
+    await reconcileWorktreeGroupManifest({ store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content });
     const groups = store.listGroups(WORKSPACE);
     assert.equal(groups.length, 2,
         'same slug across repositories stays two separate authoritative groups');
@@ -80,9 +81,9 @@ test('WORKTREE-GROUPS-003 reconciliation is idempotent across repeated snapshots
             branchRef: 'refs/heads/agent-pivot/fix-login',
         })],
     }]);
-    await reconcileWorktreeGroupManifest({ store, workspaceIdentity: WORKSPACE, snapshot: content });
+    await reconcileWorktreeGroupManifest({ store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content });
     const first = store.listGroups(WORKSPACE);
-    await reconcileWorktreeGroupManifest({ store, workspaceIdentity: WORKSPACE, snapshot: content });
+    await reconcileWorktreeGroupManifest({ store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content });
     const second = store.listGroups(WORKSPACE);
     assert.deepEqual(second, first);
 });
@@ -120,7 +121,8 @@ test('WORKTREE-GROUPS-003 recovery records migrate renamed branches with their o
         },
     }];
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content, recoveryRecords,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store),
+        workspaceIdentity: WORKSPACE, snapshot: content, recoveryRecords,
     });
     const groups = store.listGroups(WORKSPACE);
     assert.equal(groups.length, 1,
@@ -173,7 +175,7 @@ test('WORKTREE-GROUPS-003 a recovery record bound to another navigation identity
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [foreignRecord],
     });
     const groups = store.listGroups(WORKSPACE);
@@ -217,7 +219,7 @@ test('WORKTREE-GROUPS-003 a foreign incomplete recovery still blocks ready seedi
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [foreignIncomplete],
     });
     assert.deepEqual(store.listGroups(WORKSPACE), [],
@@ -246,7 +248,7 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 in-flight members without a
     });
     const content = snapshot([]);
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         activeGroupMemberIds: [],
     });
     let group = store.listGroups(WORKSPACE)[0];
@@ -262,7 +264,7 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 in-flight members without a
         state: 'provisioning', lastError: '',
     });
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         activeGroupMemberIds: [group.members[0].memberId],
     });
     group = store.listGroups(WORKSPACE)[0];
@@ -325,7 +327,7 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 a snapshot refresh racing g
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [groupRecord],
         activeGroupMemberIds: [memberId],
     });
@@ -380,7 +382,7 @@ test('WORKTREE-GROUPS-003 a dismissed setup-incomplete tombstone still blocks re
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [tombstone],
     });
     assert.deepEqual(store.listGroups(WORKSPACE), [],
@@ -420,7 +422,7 @@ test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seedin
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [interruptedRecord],
     });
     assert.equal(store.listGroups(WORKSPACE).length, 0,
@@ -429,7 +431,7 @@ test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seedin
     // Once the record completes (or is dismissed and the worktree is
     // finished by hand), the next reconcile seeds it normally.
     await reconcileWorktreeGroupManifest({
-        store, workspaceIdentity: WORKSPACE, snapshot: content,
+        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [{ ...interruptedRecord, completedSteps: ['worktree', 'setup'] }],
     });
     assert.equal(store.listGroups(WORKSPACE).length, 1);

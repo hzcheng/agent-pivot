@@ -259,6 +259,7 @@ import {
     GitApiLike,
     GitRepositoryStateMonitor,
 } from './worktrees/gitRepositoryStateMonitor';
+import { WorktreeMemberLifecycle } from './worktrees/memberLifecycle';
 import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
 import { worktreeKeysEqual, worktreeKeysMatch, worktreeKeyTombstoneKey } from './worktrees/types';
 import type { WorktreeKey } from './worktrees/types';
@@ -1302,6 +1303,7 @@ async function initializeDashboard(
     );
     const worktreeSetupRunner = new WorktreeSetupRunner();
     const worktreeGroupManifestStore = new WorktreeGroupManifestStore(context.globalState);
+    const worktreeMemberLifecycle = new WorktreeMemberLifecycle(worktreeGroupManifestStore);
     const gitWorktreeDiscovery = new GitWorktreeDiscovery({
         getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
     });
@@ -1353,6 +1355,7 @@ async function initializeDashboard(
                     try {
                         await reconcileWorktreeGroupManifest({
                             store: worktreeGroupManifestStore,
+                            memberLifecycle: worktreeMemberLifecycle,
                             workspaceIdentity: workspace.navigationIdentity,
                             snapshot,
                             recoveryRecords: worktreeProvisioningStore.read(),
@@ -1742,13 +1745,10 @@ async function initializeDashboard(
                     // Group creation (M2): the group already exists with this
                     // member planned; mark the member ready and apply the
                     // confirmed primary choice once its member is ready.
-                    await worktreeGroupManifestStore.updateMember(
-                        bucket, info.groupId, info.memberId, {
-                            state: 'ready',
-                            worktreeKey: info.worktreeKey,
-                        });
+                    await worktreeMemberLifecycle.markMemberReady(
+                        bucket, info.groupId, info.memberId, info.worktreeKey);
                     if (info.preferredPrimary) {
-                        await worktreeGroupManifestStore.setPrimaryMember(
+                        await worktreeMemberLifecycle.assignPrimary(
                             bucket, info.groupId, info.memberId);
                     }
                     return;
@@ -1792,6 +1792,7 @@ async function initializeDashboard(
     };
     let currentAiSessionRefreshReason = 'refresh';
     const worktreeGroupCreationController = new WorktreeGroupCreationController({
+        memberLifecycle: worktreeMemberLifecycle,
         getWorkspaceTarget: getCurrentWorkspaceActionTarget,
         getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
         listLocalBranches: commandCwd =>
@@ -2074,7 +2075,7 @@ async function initializeDashboard(
                 const member = group?.members.find(candidate => candidate.worktreeKey
                     && worktreeKeysEqual(candidate.worktreeKey, removedKey));
                 if (group && member) {
-                    await worktreeGroupManifestStore.removeMember(
+                    await worktreeMemberLifecycle.removeMemberRecord(
                         workspaceIdentity, group.groupId, member.memberId);
                 }
             }
@@ -2699,7 +2700,7 @@ async function initializeDashboard(
                 return;
             }
             try {
-                await worktreeGroupManifestStore.setPrimaryMember(
+                await worktreeMemberLifecycle.assignPrimary(
                     target.workspace.navigationIdentity, request.groupId, request.memberId);
             } catch (error) {
                 logError('Failed to set the worktree group primary member.', error);

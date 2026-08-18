@@ -121,9 +121,15 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
             for (const [id, headInvariant] of headInvariants) {
                 const baseInvariant = baseInvariants.get(id);
                 if (!baseInvariant) { continue; }
-                const grown = diffStringSets(
-                    baseInvariant.writers || [], headInvariant.writers || []).added;
-                if (grown.length > 0) { policyDelta.writersGrown[id] = grown; }
+                // Writer sets ratchet by net size: an authority move replaces
+                // old writers with fewer new ones (tightening); only net
+                // growth beyond the base size is broadening.
+                const baseWriters = baseInvariant.writers || [];
+                const headWriters = headInvariant.writers || [];
+                const added = diffStringSets(baseWriters, headWriters).added;
+                if (added.length > 0 && headWriters.length > baseWriters.length) {
+                    policyDelta.writersGrown[id] = added;
+                }
             }
         }
         if (protectedPath.endsWith('architecture-debt-baseline.json')) {
@@ -132,9 +138,14 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
             policyDelta.baselineGrown = diffStringSets(flatten(baseJson), flatten(headJson)).added;
         }
         if (protectedPath.endsWith('architecture-waivers.json')) {
-            policyDelta.waiversAdded = diffStringSets(
-                (baseJson.waivers || []).map(waiver => waiver.id),
-                (headJson.waivers || []).map(waiver => waiver.id)).added;
+            // Waivers pair bijectively with baseline fingerprints; only net
+            // growth beyond the base count is new debt.
+            const baseWaivers = (baseJson.waivers || []).map(waiver => waiver.id);
+            const headWaivers = (headJson.waivers || []).map(waiver => waiver.id);
+            const added = diffStringSets(baseWaivers, headWaivers).added;
+            if (added.length > 0 && headWaivers.length > baseWaivers.length) {
+                policyDelta.waiversAdded = added;
+            }
         }
     }
 

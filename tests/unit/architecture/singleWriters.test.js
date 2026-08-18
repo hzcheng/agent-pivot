@@ -156,3 +156,122 @@ test('ARCH-INVARIANT-CATALOG-001 controlled mutation: a missing authority path i
     assert.ok(runSingleWriterCheck(root).errors
         .some(error => error.includes("authority.path") && error.includes('does not exist')));
 });
+
+
+// ── review R7: AST-hardened writer detection ─────────────────────────
+
+function familyWithKeys(keys) {
+    return validInvariant({
+        stateFamily: {
+            storePath: 'src/store.ts',
+            writeMethods: ['writeThing'],
+            persistenceKeys: keys,
+        },
+    });
+}
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: element access cannot launder a write', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            'src/bypass.ts': 'import { Store } from \'./store\';\n'
+                + 'export const evil = (s: Store) => s[\'writeThing\']();\n',
+        },
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('src/bypass.ts') && error.includes('element access')));
+});
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: destructuring cannot launder a write', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            'src/bypass.ts': 'import { Store } from \'./store\';\n'
+                + 'export const evil = (s: Store) => { const { writeThing } = s; writeThing(); };\n',
+        },
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('src/bypass.ts') && error.includes('destructures')));
+});
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: aliased destructuring cannot launder a write', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            'src/bypass.ts': 'import { Store } from \'./store\';\n'
+                + 'export const evil = (s: Store) => { const { writeThing: wt } = s; wt(); };\n',
+        },
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('src/bypass.ts') && error.includes('destructures')));
+});
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: bind extraction cannot launder a write', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            'src/bypass.ts': 'import { Store } from \'./store\';\n'
+                + 'export const evil = (s: Store) => { const write = s.writeThing.bind(s); write(); };\n',
+        },
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('src/bypass.ts') && error.includes('writeThing')));
+});
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: an import alias cannot launder a write', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            'src/bypass.ts': 'import { Store as Manifest } from \'./store\';\n'
+                + 'export const evil = (s: Manifest) => s.writeThing();\n',
+        },
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('src/bypass.ts') && error.includes('writeThing')));
+});
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: a persistence-key reference outside the store fails', () => {
+    const root = makeFixture({
+        invariants: [familyWithKeys(['agentPivot.fixture.v1'])],
+        sources: {
+            'src/store.ts': 'const KEY = \'agentPivot.fixture.v1\';\nexport class Store { writeThing() {} }\n',
+            'src/writer.ts': 'import { Store } from \'./store\';\nexport const run = (s: Store) => s.writeThing();\n',
+            'src/quiet.ts': 'export const nothing = 1;\n',
+            'src/bypass.ts': 'export const rawKey = \'agentPivot.fixture.v1\';\n',
+        },
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('src/bypass.ts') && error.includes('persistence key')));
+});
+
+test('ARCH-SINGLE-WRITER-001 a persistence key referenced only inside the store passes', () => {
+    const root = makeFixture({
+        invariants: [familyWithKeys(['agentPivot.fixture.v1'])],
+        sources: {
+            'src/store.ts': 'const KEY = \'agentPivot.fixture.v1\';\nexport class Store { writeThing() {} }\n',
+            'src/writer.ts': 'import { Store } from \'./store\';\nexport const run = (s: Store) => s.writeThing();\n',
+            'src/quiet.ts': 'export const nothing = 1;\n',
+        },
+    });
+    assert.deepEqual(runSingleWriterCheck(root).errors, []);
+});
+
+test('ARCH-INVARIANT-CATALOG-001 controlled mutation: malformed persistenceKeys are rejected', () => {
+    const empty = makeFixture({
+        invariants: [familyWithKeys([])],
+        sources: baseSources,
+    });
+    assert.ok(runSingleWriterCheck(empty).errors
+        .some(error => error.includes('persistenceKeys must be a non-empty array')));
+    const stale = makeFixture({
+        invariants: [familyWithKeys(['agentPivot.absent.v1'])],
+        sources: baseSources,
+    });
+    assert.ok(runSingleWriterCheck(stale).errors
+        .some(error => error.includes('persistence key') && error.includes('does not appear')));
+});

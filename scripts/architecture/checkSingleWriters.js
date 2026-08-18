@@ -5,16 +5,27 @@
  *
  * Validates the invariant catalog (docs/testing/architecture-invariants.json)
  * structurally and cross-file, then mechanically checks every invariant whose
- * enforcement includes "single-writer": a write-method call on the state
+ * enforcement includes "single-writer": a write-method touch on the state
  * family's store outside the declared writer set fails. The writer set is a
  * ratchet — it may only shrink during migration, never grow.
  *
- * Bypass check: the store's persistence key may not be referenced outside the
- * store file at all.
+ * The write-method scan is AST-based (review R7): property access
+ * (`store.updateMember(...)`), element access (`store['updateMember'](...)`),
+ * and destructuring (`const { updateMember } = store`, including aliased)
+ * are all detected, so renaming the receiver or re-binding the method cannot
+ * launder a write past the guard. What it cannot detect: a write through a
+ * mock-typed double in a file that never mentions the store module — such a
+ * file would also fail the module-boundary guard on the import edge, and the
+ * behavior owner tests pin the authority semantics.
+ *
+ * Bypass check: every literal in stateFamily.persistenceKeys may appear only
+ * inside the store file — a memento-key reference is a raw write path around
+ * the authority.
  */
 
 const fs = require('fs');
 const path = require('path');
+const ts = require('typescript');
 const { loadArchitecturePolicy } = require('./loadArchitecturePolicy');
 
 const INVARIANTS_PATH = path.join('docs', 'testing', 'architecture-invariants.json');
@@ -108,6 +119,26 @@ function validateCatalog(rootDirectory, policy) {
                     + 'with storePath and writeMethods');
             } else {
                 requirePath(owner, family.storePath, 'stateFamily.storePath');
+                if (family.persistenceKeys !== undefined) {
+                    if (!Array.isArray(family.persistenceKeys)
+                        || family.persistenceKeys.length === 0
+                        || family.persistenceKeys.some(key => typeof key !== 'string' || !key)) {
+                        errors.push(`${owner}: stateFamily.persistenceKeys must be a non-empty `
+                            + 'array of strings');
+                    } else {
+                        // A declared key that no longer exists in the store is
+                        // stale policy, not protection.
+                        const storeText = fs.existsSync(path.join(rootDirectory, family.storePath))
+                            ? fs.readFileSync(path.join(rootDirectory, family.storePath), 'utf8')
+                            : '';
+                        for (const key of family.persistenceKeys) {
+                            if (!storeText.includes(key)) {
+                                errors.push(`${owner}: persistence key '${key}' does not appear in `
+                                    + `${family.storePath} — stale or mistyped keys protect nothing`);
+                            }
+                        }
+                    }
+                }
             }
             if (!Array.isArray(invariant.writers) || invariant.writers.length === 0) {
                 errors.push(`${owner}: single-writer enforcement requires a non-empty writers set`);
@@ -117,7 +148,41 @@ function validateCatalog(rootDirectory, policy) {
     return { catalog, errors };
 }
 
-/** Scan declared state families for write-method calls outside the writers. */
+/**
+ * AST scan: every property access, element access, or destructuring binding
+ * that names a write method — resilient to import aliases, receiver renames,
+ * .bind extraction, and bracket access (review R7).
+ */
+function findWriteMethodTouches(file, text, writeMethods) {
+    const sourceFile = ts.createSourceFile(
+        file, text, ts.ScriptTarget.Latest, true,
+        file.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+    const touches = new Set();
+    const visit = node => {
+        if (ts.isPropertyAccessExpression(node) && writeMethods.has(node.name.text)) {
+            touches.add(`touches write method '${node.name.text}'`);
+        } else if (ts.isElementAccessExpression(node)) {
+            const argument = node.argumentExpression;
+            if (argument && (ts.isStringLiteral(argument)
+                || ts.isNoSubstitutionTemplateLiteral(argument))
+                && writeMethods.has(argument.text)) {
+                touches.add(`touches write method '${argument.text}' via element access`);
+            }
+        } else if (ts.isBindingElement(node)) {
+            const name = node.propertyName && ts.isIdentifier(node.propertyName)
+                ? node.propertyName.text
+                : (ts.isIdentifier(node.name) ? node.name.text : null);
+            if (name && writeMethods.has(name)) {
+                touches.add(`destructures write method '${name}'`);
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return [...touches].sort();
+}
+
+/** Scan declared state families for write-method touches outside the writers. */
 function checkWriters(rootDirectory, catalog, policy) {
     const errors = [];
     const invariants = (catalog.invariants || [])
@@ -127,17 +192,23 @@ function checkWriters(rootDirectory, catalog, policy) {
         const family = invariant.stateFamily;
         const writers = new Set([...invariant.writers, family.storePath]);
         const storeReference = path.basename(family.storePath).replace(/\.[^.]+$/, '');
-        const callPattern = new RegExp(
-            `\\.(?:${family.writeMethods.join('|')})\\s*\\(`);
+        const writeMethods = new Set(family.writeMethods);
+        const persistenceKeys = family.persistenceKeys || [];
         for (const file of policy.files) {
             if (writers.has(file)) { continue; }
             const text = fs.readFileSync(path.join(rootDirectory, file), 'utf8');
+            for (const key of persistenceKeys) {
+                if (text.includes(key)) {
+                    errors.push(`single-writer: ${file} references persistence key '${key}' of the `
+                        + `${family.storePath} state family outside the store — a raw storage write `
+                        + `bypasses the authority of ${invariant.id}`);
+                }
+            }
             // A same-named method on an unrelated store is not a bypass: the
             // file must also reference the state family's store.
             if (!text.includes(storeReference)) { continue; }
-            const match = callPattern.exec(text);
-            if (match) {
-                errors.push(`single-writer: ${file} calls '${match[0].slice(1, -1).trim()}' on the `
+            for (const touch of findWriteMethodTouches(file, text, writeMethods)) {
+                errors.push(`single-writer: ${file} ${touch} on the `
                     + `${family.storePath} state family outside the declared writers of `
                     + `${invariant.id} — route the write through the authority or land an `
                     + 'approved architecture change that amends the writer set');

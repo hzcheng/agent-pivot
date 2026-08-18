@@ -17,6 +17,7 @@ const {
     defaultGit,
 } = require('../architecture/reportArchitectureDiff');
 const { classifyArchitectureChange } = require('../architecture/checkArchitectureChange');
+const { isDocumentationPath } = require('./mainCapabilityCoverage');
 
 const CAPABILITY_AUDIT_PATH = 'docs/testing/main-capability-coverage.json';
 
@@ -24,8 +25,16 @@ function git(rootDirectory, args) {
     return execFileSync('git', args, { cwd: rootDirectory, encoding: 'utf8' }).trim();
 }
 
-/** Capability assignments for every commit in the range, from the audit file. */
-function capabilityAssignments(rootDirectory, commits) {
+/**
+ * Capability assignments for every commit in the range, from the audit file.
+ * A commit whose own diff touches only documentation paths needs no
+ * assignment — the audit commit itself always qualifies (it is registered
+ * into ignoredDocumentationCommits only by the next regeneration).
+ */
+function capabilityAssignments(rootDirectory, commits, options = {}) {
+    const listCommitFiles = options.listCommitFiles || (sha => git(rootDirectory, [
+        'show', '--name-only', '--format=', sha,
+    ]).split('\n').filter(Boolean));
     const auditPath = path.join(rootDirectory, CAPABILITY_AUDIT_PATH);
     if (!fs.existsSync(auditPath)) {
         return { assignedCapabilities: [], errors: [`${CAPABILITY_AUDIT_PATH} is missing at the PR head`] };
@@ -47,6 +56,8 @@ function capabilityAssignments(rootDirectory, commits) {
     const errors = [];
     for (const sha of commits) {
         if (documentationCommits.has(sha)) { continue; }
+        const files = listCommitFiles(sha);
+        if (files.length > 0 && files.every(isDocumentationPath)) { continue; }
         const capability = capabilityByCommit.get(sha);
         if (!capability) {
             errors.push(`commit ${sha} is not assigned to any MAIN-* capability in`

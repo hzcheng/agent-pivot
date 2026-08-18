@@ -192,14 +192,25 @@ test('ARCH-PR-CHANGE-IMPACT-GATE-001 capabilityAssignments maps commits and flag
         audit: { base: 'x', head: 'y', ignoredDocumentationCommits: ['d'.repeat(40)] },
         capabilities: [{ id: 'MAIN-TEST-001', commits: ['a'.repeat(40)] }],
     }));
-    const { assignedCapabilities, errors } = capabilityAssignments(root, [
-        'a'.repeat(40), 'd'.repeat(40), 'e'.repeat(40),
-    ]);
+    const filesByCommit = {
+        ['a'.repeat(40)]: ['src/alpha/a.ts'],
+        ['d'.repeat(40)]: ['docs/anything.md'],
+        ['e'.repeat(40)]: ['src/alpha/b.ts'],
+        // The audit commit of the current PR: not yet registered in the audit
+        // file, but its own diff is documentation-only.
+        ['f'.repeat(40)]: ['docs/testing/main-capability-coverage.json'],
+    };
+    const { assignedCapabilities, errors } = capabilityAssignments(
+        root,
+        ['a'.repeat(40), 'd'.repeat(40), 'e'.repeat(40), 'f'.repeat(40)],
+        { listCommitFiles: sha => filesByCommit[sha] || [] },
+    );
     assert.deepEqual(assignedCapabilities, ['MAIN-TEST-001']);
     assert.equal(errors.length, 1);
     assert.ok(errors[0].includes('e'.repeat(40)));
 
-    const missing = capabilityAssignments(root, ['f'.repeat(40)]);
+    const missing = capabilityAssignments(root, ['f'.repeat(40)],
+        { listCommitFiles: () => ['src/alpha/c.ts'] });
     assert.equal(missing.assignedCapabilities.length, 0);
 
     const noAudit = capabilityAssignments(fs.mkdtempSync(path.join(os.tmpdir(), 'impact-empty-')), ['a'.repeat(40)]);

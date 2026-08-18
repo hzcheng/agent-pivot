@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "6b7f25cd3c95201996caeb0879f7c7c00da4fd65",
+        "head": "7aa265837b767e4406b39b67b0e0a7c9e0573201",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -431,7 +431,10 @@
             "8177023cc05077c52c9d013a0945bbb88a50ac71",
             "6f8a932716f4ddfeef19ec73db3db7fe208881f9",
             "e98ea7f14b1c7d153526be0a3064797ee85ba6d2",
-            "1947acf22b7aa1834ad3925ddc71f89eb315319a"
+            "1947acf22b7aa1834ad3925ddc71f89eb315319a",
+            "496dbb7e3b5c6045c060ca2107c2cb434668db37",
+            "93c6e7aa8df4cddcca48803963be4179f65873e6",
+            "02177bb71f45a6426a23a60a82f40b722408ec3d"
         ]
     },
     "capabilities": [
@@ -2245,7 +2248,8 @@
                 "33dd08d563b7d9e1e04352c4869af6f10fad9b2e",
                 "1b69d7ed8be4f331227185c364ea43a1259a9688",
                 "fce4b85cacbaae9b3d7d74404c8f21ec6ace1b3d",
-                "6b7f25cd3c95201996caeb0879f7c7c00da4fd65"
+                "6b7f25cd3c95201996caeb0879f7c7c00da4fd65",
+                "7aa265837b767e4406b39b67b0e0a7c9e0573201"
             ],
             "behaviors": [
                 "WORKTREE-GROUPS-BASELINE-001",
@@ -2253,7 +2257,8 @@
                 "WORKTREE-CHANGES-PANEL-001",
                 "WORKTREE-GROUPS-CREATE-001",
                 "WORKTREE-GROUPS-CREATE-HANDLER-001",
-                "WORKTREE-GROUPS-MERGE-001"
+                "WORKTREE-GROUPS-MERGE-001",
+                "WORKTREE-GROUPS-REPLAY-001"
             ],
             "prGates": [
                 "test:deterministic:run",

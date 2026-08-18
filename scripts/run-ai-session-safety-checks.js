@@ -42,7 +42,7 @@ const AiSessionPinStore = require('../out/aiSessions/pinStore').default;
 const AiSessionPinController = require('../out/aiSessions/pinController').default;
 const providers = require('../out/aiSessions/providers');
 const workspaceSessionScope = require('../out/workspaces/sessionScope');
-const workspaceSessionAssignment = require('../out/workspaces/sessionAssignment');
+const workspaceSessionAssignment = require('../out/sessionAssignment');
 const workspaceSessionHydration = require('../out/workspaces/sessionHydration');
 const {
     AiSessionProjectionCoordinator,

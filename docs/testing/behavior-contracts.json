@@ -6843,5 +6843,19 @@
       "src/worktrees/groupDeletionHandler.ts",
       "src/worktrees/settlementReplayCache.ts"
     ]
+  },
+  {
+    "id": "ARCH-PROGRAM-LEDGER-001",
+    "domain": "architecture",
+    "title": "The program ledger validates module states and mechanically enforces strict-mode preconditions: no baseline fingerprint or waiver names the module, P0/P1 invariants have behavior owners, single-writer families declare writers",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/architecture/programLedger.test.js"
+    ],
+    "evidence": [
+      "scripts/architecture/checkProgramLedger.js",
+      "docs/testing/architecture-program.json"
+    ]
   }
 ]

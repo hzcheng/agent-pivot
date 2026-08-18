@@ -22,6 +22,7 @@ const PROTECTED_POLICY_PATHS = [
     'docs/testing/architecture-invariants.json',
     'docs/testing/architecture-waivers.json',
     'docs/testing/architecture-webview-manifest.json',
+    'docs/testing/architecture-program.json',
     '.ci/architecture-debt-baseline.json',
 ];
 

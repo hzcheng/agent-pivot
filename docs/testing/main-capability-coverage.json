@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "b76f4ba375337b0674dc846d119d5ce7f5c46ba8",
+        "head": "fd471497a9991819c63c8efbfac06f4bd385a240",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -2247,11 +2247,14 @@
             "title": "Architecture policy harness",
             "requirement": "Closed-world architecture classification and module registry schema validation stay enforced: every production file has exactly one module and role, and policy references resolve.",
             "commits": [
-                "a76abb00ff83dd937011ac4afcd1f60d88dc473e"
+                "a76abb00ff83dd937011ac4afcd1f60d88dc473e",
+                "fd471497a9991819c63c8efbfac06f4bd385a240"
             ],
             "behaviors": [
                 "ARCH-POLICY-SCHEMA-001",
-                "ARCH-CLOSED-WORLD-001"
+                "ARCH-CLOSED-WORLD-001",
+                "ARCH-MODULE-BOUNDARY-001",
+                "ARCH-MODULE-CYCLE-001"
             ],
             "prGates": [
                 "test:architecture-policy"

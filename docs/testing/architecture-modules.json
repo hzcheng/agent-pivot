@@ -38,10 +38,12 @@
                 "exclude": []
             },
             "publicEntrypoints": [
-                "src/dashboard/**",
-                "src/webview/**",
+                "src/dashboard.ts",
                 "src/models.ts",
-                "src/constants.ts"
+                "src/constants.ts",
+                "src/sponsor.ts",
+                "src/dashboard/**",
+                "src/webview/**"
             ],
             "mayDependOn": [
                 "MOD-AI-SESSION-ATTENTION",
@@ -281,7 +283,16 @@
             "publicEntrypoints": [
                 "src/aiSessions/tmux*",
                 "src/aiSessions/runtime*",
-                "src/aiSessions/terminalService.ts"
+                "src/aiSessions/directTerminalRuntimeBackend.ts",
+                "src/aiSessions/terminalService.ts",
+                "src/aiSessions/terminalBindingStore.ts",
+                "src/aiSessions/terminalCandidates.ts",
+                "src/aiSessions/terminalCwd.ts",
+                "src/aiSessions/pendingTerminal*",
+                "src/aiSessions/execution*",
+                "src/aiSessions/runningQueue.ts",
+                "src/aiSessions/launch*",
+                "src/aiSessions/commandBuilders.ts"
             ],
             "mayDependOn": [
                 "MOD-AI-SESSION-ATTENTION",
@@ -355,7 +366,15 @@
                 "exclude": []
             },
             "publicEntrypoints": [
-                "src/aiSessions/sessionControllerComposition.ts"
+                "src/aiSessions/sessionControllerComposition.ts",
+                "src/aiSessions/commandController.ts",
+                "src/aiSessions/creationController.ts",
+                "src/aiSessions/resumeController.ts",
+                "src/aiSessions/terminalCommandController.ts",
+                "src/aiSessions/aliasController.ts",
+                "src/aiSessions/pinController.ts",
+                "src/aiSessions/sessionProfileController.ts",
+                "src/aiSessions/archive*"
             ],
             "mayDependOn": [
                 "MOD-AI-SESSION-PROVIDER",
@@ -429,8 +448,7 @@
                 ]
             },
             "publicEntrypoints": [
-                "src/aiSessions/providers.ts",
-                "src/aiSessions/types.ts",
+                "src/aiSessions/**",
                 "src/services/codexSessionService.ts",
                 "src/services/kimiSessionService.ts",
                 "src/services/claudeSessionService.ts"
@@ -440,6 +458,7 @@
                 "MOD-AI-SESSION-CONTROL",
                 "MOD-AI-SESSION-RUNTIME",
                 "MOD-DASHBOARD-SHELL",
+                "MOD-SKILL-MANAGEMENT",
                 "MOD-TODO",
                 "MOD-WORKSPACE-IDENTITY",
                 "MOD-WORKTREE-LIFECYCLE"
@@ -599,6 +618,7 @@
                 "MOD-AI-SESSION-ATTENTION",
                 "MOD-AI-SESSION-PROVIDER",
                 "MOD-DASHBOARD-SHELL",
+                "MOD-SKILL-MANAGEMENT",
                 "MOD-TODO",
                 "MOD-WORKSPACE-IDENTITY"
             ],
@@ -650,7 +670,15 @@
             },
             "publicEntrypoints": [
                 "src/projects/**",
-                "src/services/projectService.ts"
+                "src/services/baseService.ts",
+                "src/services/projectService.ts",
+                "src/services/colorService.ts",
+                "src/services/fileService.ts",
+                "src/services/projectWindowColorService.ts",
+                "src/services/projectCatalogSyncService.ts",
+                "src/services/sourceControl.ts",
+                "src/services/gitChangesDiff.ts",
+                "src/services/ntc.ts"
             ],
             "mayDependOn": [
                 "MOD-AI-SESSION-ATTENTION",
@@ -822,6 +850,7 @@
                 "exclude": []
             },
             "publicEntrypoints": [
+                "extensions/attention-ui-bridge/src/**",
                 "shared/attention-bridge/**"
             ],
             "mayDependOn": [

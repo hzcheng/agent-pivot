@@ -6740,5 +6740,33 @@
       ".ci/architecture-debt-baseline.json",
       "docs/testing/architecture-waivers.json"
     ]
+  },
+  {
+    "id": "ARCH-INVARIANT-CATALOG-001",
+    "domain": "architecture",
+    "title": "The architecture invariant catalog validates its schema and every module, capability, and path reference resolves",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/architecture/singleWriters.test.js"
+    ],
+    "evidence": [
+      "scripts/architecture/checkSingleWriters.js",
+      "docs/testing/architecture-invariants.json"
+    ]
+  },
+  {
+    "id": "ARCH-SINGLE-WRITER-001",
+    "domain": "architecture",
+    "title": "A declared state family's write methods are only called from its declared writer set; same-named methods without a store reference are not bypasses",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/architecture/singleWriters.test.js"
+    ],
+    "evidence": [
+      "scripts/architecture/checkSingleWriters.js",
+      "docs/testing/architecture-invariants.json"
+    ]
   }
 ]

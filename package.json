@@ -606,7 +606,7 @@
         "test:tmux:smoke": "npm run test-compile && node scripts/run-ai-session-tmux-smoke-checks.js",
         "test:architecture-baseline": "node scripts/run-performance-architecture-baseline-checks.js",
         "test:architecture-guards": "node scripts/run-architecture-guards.js",
-        "test:architecture-policy": "node --test 'tests/unit/architecture/**/*.test.js' && node scripts/architecture/checkClosedWorld.js && node scripts/architecture/checkModuleBoundaries.js",
+        "test:architecture-policy": "node --test 'tests/unit/architecture/**/*.test.js' && node scripts/architecture/checkClosedWorld.js && node scripts/architecture/checkModuleBoundaries.js && node scripts/architecture/checkSingleWriters.js",
         "test:release-notes": "node scripts/run-release-notes-checks.js",
         "test:release-packaging": "node scripts/seed-release-packaging-stale-output.js && npm run package:release && node scripts/run-release-packaging-checks.js",
         "test:conversation-performance": "node scripts/run-conversation-performance-checks.js",

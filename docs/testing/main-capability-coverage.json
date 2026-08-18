@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "fd471497a9991819c63c8efbfac06f4bd385a240",
+        "head": "9cc798e174564d2cc3274b139d7c3fe64a875064",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -420,7 +420,8 @@
             "357082a4822ee89163c66805ebaa59000b7df731",
             "dd3efc003679aa153fe5018bd40110364573d91e",
             "64430b4980005eb195d4a0fff85fb8f716e65a21",
-            "cd361291398dd7ba884cfc37b45b807ba015bcf1"
+            "cd361291398dd7ba884cfc37b45b807ba015bcf1",
+            "da3b97d09f3f6af8b735ed6988b3b7423f3bb0f3"
         ]
     },
     "capabilities": [
@@ -2248,13 +2249,16 @@
             "requirement": "Closed-world architecture classification and module registry schema validation stay enforced: every production file has exactly one module and role, and policy references resolve.",
             "commits": [
                 "a76abb00ff83dd937011ac4afcd1f60d88dc473e",
-                "fd471497a9991819c63c8efbfac06f4bd385a240"
+                "fd471497a9991819c63c8efbfac06f4bd385a240",
+                "9cc798e174564d2cc3274b139d7c3fe64a875064"
             ],
             "behaviors": [
                 "ARCH-POLICY-SCHEMA-001",
                 "ARCH-CLOSED-WORLD-001",
                 "ARCH-MODULE-BOUNDARY-001",
-                "ARCH-MODULE-CYCLE-001"
+                "ARCH-MODULE-CYCLE-001",
+                "ARCH-INVARIANT-CATALOG-001",
+                "ARCH-SINGLE-WRITER-001"
             ],
             "prGates": [
                 "test:architecture-policy"

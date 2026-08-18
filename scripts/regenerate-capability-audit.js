@@ -351,6 +351,22 @@ function planCapabilityAudit(repositoryRoot, cli) {
     if (errors.length) {
         throw new AuditRegenerationError(errors);
     }
+    // Rebase residue (review R7 follow-up): a rebase rewrites commit SHAs, so
+    // assignments and documentation exemptions recorded against pre-rebase
+    // SHAs fall outside the audited range and would fail the post-write
+    // validation. Prune them from the regenerated manifest; the rebased
+    // commits arrive through fresh --assign targets.
+    const auditedHashes = new Set(listRange(repositoryRoot, manifest.audit.base, newHead));
+    const staleAssignments = [];
+    for (const capability of manifest.capabilities) {
+        for (const hash of capability.commits) {
+            if (!auditedHashes.has(hash)) {
+                staleAssignments.push({ capabilityId: capability.id, hash });
+            }
+        }
+    }
+    const staleExemptions = (manifest.audit.ignoredDocumentationCommits || [])
+        .filter(hash => !auditedHashes.has(hash));
     // Only documentation commits covered by the new head may be registered:
     // an exemption outside the audited range is itself a validation error.
     // Tail documentation commits beyond the head stay unregistered until a
@@ -367,10 +383,36 @@ function planCapabilityAudit(repositoryRoot, cli) {
         docsToIgnore,
         deferredDocs,
         assignedInRange,
+        staleAssignments,
+        staleExemptions,
         assignments,
         harvestDecision,
         behaviorAdditions: cli.behaviors.map(({ left, right }) => ({ capabilityId: left, behaviorId: right })),
     };
+}
+
+/** Removes one JSON string element from an array, preserving formatting. */
+function removeJsonStringFromArray(text, value) {
+    const needle = JSON.stringify(value);
+    const index = text.indexOf(needle);
+    if (index < 0) {
+        throw new AuditRegenerationError(`could not find ${needle} to prune`);
+    }
+    const afterIndex = index + needle.length;
+    const trailing = /^[ \t]*,\r?\n[ \t]*/.exec(text.slice(afterIndex));
+    if (trailing) {
+        // Not the last element: drop the value, comma, and line break.
+        return text.slice(0, index) + text.slice(afterIndex + trailing[0].length);
+    }
+    const preceding = /,[ \t]*\r?\n[ \t]*$/.exec(text.slice(0, index));
+    if (preceding) {
+        // Last element: drop the preceding comma and line break as well.
+        return text.slice(0, index - preceding[0].length) + text.slice(afterIndex);
+    }
+    // Only element: collapse to an empty array.
+    const openIndex = text.lastIndexOf('[', index);
+    const closeIndex = findMatchingBracket(text, openIndex);
+    return text.slice(0, openIndex + 1) + text.slice(closeIndex);
 }
 
 /** Applies the planned edits text-surgically, preserving manifest formatting. */
@@ -382,6 +424,12 @@ function applyCapabilityAuditPlan(originalText, plan) {
     );
     if (!text.includes(`"head": "${plan.newHead}"`)) {
         throw new AuditRegenerationError('could not replace audit.head in the coverage manifest');
+    }
+    for (const { hash } of plan.staleAssignments || []) {
+        text = removeJsonStringFromArray(text, hash);
+    }
+    for (const hash of plan.staleExemptions || []) {
+        text = removeJsonStringFromArray(text, hash);
     }
     for (const commit of plan.docsToIgnore) {
         const openIndex = arrayOpenIndex(text, '"ignoredDocumentationCommits"', 0, 'audit.ignoredDocumentationCommits');
@@ -440,6 +488,12 @@ function summarizePlan(plan, output) {
     output(`audit.head: ${plan.manifest.audit.head} -> ${plan.newHead}`);
     for (const hash of plan.assignedInRange) {
         output(`assign ${hash} -> ${plan.assignments.get(hash).capabilityId}`);
+    }
+    for (const { capabilityId, hash } of plan.staleAssignments || []) {
+        output(`prune stale assignment ${hash} from ${capabilityId} (rewritten by rebase)`);
+    }
+    for (const hash of plan.staleExemptions || []) {
+        output(`prune stale documentation exemption ${hash} (rewritten by rebase)`);
     }
     for (const commit of plan.docsToIgnore) {
         output(`ignore documentation commit ${commit.hash}: ${commit.subject}`);

@@ -373,3 +373,35 @@ test('ARCH-MAIN-CAPABILITY-CURRENCY-001 parseArguments reads the CLI surface', (
     assert.throws(() => parseArguments(['--bogus']), AuditRegenerationError);
     assert.throws(() => parseArguments(['--harvest']), AuditRegenerationError);
 });
+
+
+test('ARCH-MAIN-CAPABILITY-CURRENCY-001 prunes rebase-rewritten assignments and exemptions', t => {
+    const fixture = createRepository(t);
+    const implementation = fixture.implement('feat: second implementation', 3);
+    // Simulate the post-rebase state: the manifest still lists SHAs that a
+    // rebase rewrote away (they no longer exist in the audited range).
+    const staleAssignment = '9'.repeat(40);
+    const staleExemption = '8'.repeat(40);
+    fixture.write(COVERAGE_PATH, fixture.readCoverage()
+        .replace(
+            `                "${fixture.firstImplementation}"\n            ],`,
+            `                "${fixture.firstImplementation}",\n                "${staleAssignment}"\n            ],`)
+        .replace(
+            '"ignoredDocumentationCommits": []',
+            `"ignoredDocumentationCommits": [\n            "${staleExemption}"\n        ]`));
+
+    const output = [];
+    regenerateCapabilityAudit(fixture.repositoryRoot, cli({
+        assignments: [{ left: implementation, right: 'MAIN-DEMO-CAPABILITY' }],
+    }), line => output.push(line));
+
+    assert.ok(output.some(line => line.includes(`prune stale assignment ${staleAssignment}`)),
+        JSON.stringify(output));
+    assert.ok(output.some(line => line.includes(`prune stale documentation exemption ${staleExemption}`)),
+        JSON.stringify(output));
+    assert.ok(output.some(line => line.includes('validation passed')), JSON.stringify(output));
+    const edited = JSON.parse(fixture.readCoverage());
+    const capability = edited.capabilities.find(entry => entry.id === 'MAIN-DEMO-CAPABILITY');
+    assert.deepEqual(capability.commits, [fixture.firstImplementation, implementation]);
+    assert.deepEqual(edited.audit.ignoredDocumentationCommits, [fixture.seedAuditCommit]);
+});

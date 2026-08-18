@@ -71,6 +71,9 @@
                     "updateMember",
                     "setPrimaryMember",
                     "removeMember"
+                ],
+                "persistenceKeys": [
+                    "agentPivot.worktreeGroups.v1"
                 ]
             }
         },
@@ -142,6 +145,10 @@
                     "appendTombstones",
                     "deleteTombstones",
                     "pruneTombstones"
+                ],
+                "persistenceKeys": [
+                    "agentPivot.worktreeProvisioning.v1",
+                    "agentPivot.worktreeProvisioningTombstones.v1"
                 ]
             }
         },
@@ -317,6 +324,9 @@
                     "addMember",
                     "setRepositoryDetached",
                     "resetCorruptRetiredStore"
+                ],
+                "persistenceKeys": [
+                    "agentPivot.worktreeGroups.v1"
                 ]
             },
             "tracking": "ARCH-CHANGE-001"

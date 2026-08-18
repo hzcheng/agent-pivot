@@ -13,6 +13,7 @@ import {
     WorktreeGroupDeletionPreview,
     WorktreeGroupDeletionSettlement,
 } from './groupDeletionProtocol';
+import type { DiscardWorktreeGenerationClaimRequest } from './groupDeletionProtocol';
 import type { WorktreeGroupManifestStore } from './groupManifestStore';
 import { WorktreeGroupManifestError } from './groupManifestStore';
 import type { SettlementReplayCache } from './settlementReplayCache';
@@ -374,6 +375,34 @@ export async function handleDiscardWorktreeGenerationClaim(
     if (!request) {
         return;
     }
+    // Single-flight per request id: a replay — even a concurrent one —
+    // awaits and re-receives the first execution's terminal settlement.
+    const replayed = deps.replayCache.get(request.requestId);
+    if (replayed) {
+        await deps.postMessage(await replayed);
+        return;
+    }
+    if (deps.replayCache.isExpired(request.requestId)) {
+        // The settlement aged out of the bounded cache: re-executing could
+        // flip an old outcome, so expired replays fail closed.
+        await deps.postMessage({
+            type: 'worktree-group-deletion-settlement', version: 1,
+            requestId: request.requestId,
+            projectId: request.projectId,
+            groupId: request.groupId,
+            status: 'failed', errorCode: 'request-expired',
+        } as WorktreeGroupDeletionSettlement);
+        return;
+    }
+    const terminal = executeDiscardWorktreeGenerationClaim(request, deps);
+    deps.replayCache.remember(request.requestId, terminal);
+    await deps.postMessage(await terminal);
+}
+
+async function executeDiscardWorktreeGenerationClaim(
+    request: DiscardWorktreeGenerationClaimRequest,
+    deps: WorktreeGroupDeletionHandlerDeps
+): Promise<WorktreeGroupDeletionSettlement> {
     const navigationIdentity = deps.getNavigationIdentity(request.projectId);
     let status: 'settled' | 'failed' = 'settled';
     let errorCode: string | undefined;
@@ -394,15 +423,14 @@ export async function handleDiscardWorktreeGenerationClaim(
             const belongsToGroup = !!group && !!claim && group.members.some(member =>
                 member.worktreeKey && worktreeKeysEqual(member.worktreeKey, claim.worktreeKey));
             if (!claim || claim.state !== 'pending' || !belongsToGroup) {
-                await deps.postMessage({
+                return {
                     type: 'worktree-group-deletion-settlement', version: 1,
                     requestId: request.requestId,
                     projectId: request.projectId,
                     groupId: request.groupId,
                     status: 'failed',
                     errorCode: 'claim-not-found',
-                } as WorktreeGroupDeletionSettlement);
-                return;
+                } as WorktreeGroupDeletionSettlement;
             }
             const removed = await deps.store.removeGenerationClaim(
                 navigationIdentity, request.claimId);
@@ -416,7 +444,7 @@ export async function handleDiscardWorktreeGenerationClaim(
             errorCode = manifestErrorCode(error);
         }
     }
-    await deps.postMessage({
+    return {
         type: 'worktree-group-deletion-settlement', version: 1,
         requestId: request.requestId,
         projectId: request.projectId,
@@ -429,5 +457,5 @@ export async function handleDiscardWorktreeGenerationClaim(
                     deps.store.getAggregateRevision(navigationIdentity),
             }
             : {}),
-    } as WorktreeGroupDeletionSettlement);
+    } as WorktreeGroupDeletionSettlement;
 }

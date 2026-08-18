@@ -1,6 +1,7 @@
 'use strict';
 
 import { execFile } from 'child_process';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { WorkingChangeItem } from '../worktrees/changesCollector';
@@ -123,13 +124,18 @@ export async function openWorkingChangeDiff(
 /**
  * "Review this repository" (changes-panel PRD §5.3): one multi-diff of
  * baseline → current worktree for the selected member. Capability
- * detection: workbenches without `vscode.changes` fall back to opening
- * the first file's diff.
+ * detection: workbenches without `vscode.changes` fall back to a per-file
+ * list; the failure is logged, never swallowed silently.
+ *
+ * `vscode.changes` takes [label, original, modified] triples — the label
+ * URI names the entry, original is the baseline side, modified the
+ * worktree side. Anything else fails argument validation.
  */
 export async function openTaskResultReview(
     worktreePath: string,
     baselineSha: string,
-    title: string
+    title: string,
+    onError?: (message: string, error: unknown) => void
 ): Promise<void> {
     const files = await new Promise<string[]>(resolve => {
         execFile('git', [
@@ -149,15 +155,35 @@ export async function openTaskResultReview(
     if (!files.length) {
         return;
     }
-    const resources: [vscode.Uri, vscode.Uri][] = files.map(file => [
-        gitContentUri(worktreePath, baselineSha, file),
-        vscode.Uri.file(path.join(worktreePath, file)),
-    ]);
+    const resources: [vscode.Uri, vscode.Uri, vscode.Uri][] = files.map(file => {
+        const fileUri = vscode.Uri.file(path.join(worktreePath, file));
+        return [
+            fileUri,
+            gitContentUri(worktreePath, baselineSha, file),
+            // A deleted file has no working-tree document: render the
+            // modified side as empty content instead of a missing file.
+            existsSync(fileUri.fsPath)
+                ? fileUri
+                : gitContentUri(worktreePath, EMPTY_REF, file),
+        ];
+    });
     try {
         await vscode.commands.executeCommand('vscode.changes', title, resources);
-    } catch (_error) {
-        const [first] = resources;
+    } catch (error) {
+        onError?.(
+            'vscode.changes failed; falling back to a per-file diff list.',
+            error);
+        // Per-file diff list (changes-panel PRD §5.3 capability fallback):
+        // pick one file at a time, baseline → worktree.
+        const picked = await vscode.window.showQuickPick(
+            files.map((file, index) => ({ label: file, index })),
+            { placeHolder: title }
+        );
+        if (!picked) {
+            return;
+        }
+        const [, original, modified] = resources[picked.index];
         await vscode.commands.executeCommand(
-            'vscode.diff', first[0], first[1], files[0]);
+            'vscode.diff', original, modified, picked.label);
     }
 }

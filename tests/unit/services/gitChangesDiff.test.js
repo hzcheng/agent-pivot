@@ -1,10 +1,14 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
+const fs = require('node:fs');
 const Module = require('node:module');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
-function loadService(executed) {
+function loadService(executed, options = {}) {
     const fakeVscode = {
         Uri: {
             file: fsPath => ({
@@ -24,11 +28,14 @@ function loadService(executed) {
         commands: {
             executeCommand: async (command, ...args) => {
                 executed.push([command, ...args]);
-                if (command === 'vscode.changes') {
+                if (command === 'vscode.changes' && options.failChanges !== false) {
                     throw new Error('unknown command');
                 }
                 return undefined;
             },
+        },
+        window: {
+            showQuickPick: async () => options.quickPick,
         },
     };
     const previousLoad = Module._load;
@@ -110,4 +117,78 @@ test('WORKTREE-CHANGES-PANEL-001 renames carry the original path on the git side
     assert.equal(diffQuery(left).path, 'src/old.ts');
     assert.equal(diffQuery(right).path, 'src/new.ts');
     assert.equal(title, 'src/old.ts → src/new.ts');
+});
+
+async function repoFixture(t) {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-review-'));
+    const git = args => childProcess.execFileSync('git', ['-C', dir, ...args], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    git(['init', '-b', 'main']);
+    git(['config', 'user.name', 'Agent Pivot Tests']);
+    git(['config', 'user.email', 'tests@example.invalid']);
+    await fs.promises.writeFile(path.join(dir, 'a.txt'), 'a1\n');
+    await fs.promises.writeFile(path.join(dir, 'c.txt'), 'c1\n');
+    git(['add', '.']);
+    git(['commit', '-m', 'base']);
+    const baseline = git(['rev-parse', 'HEAD']);
+    // a.txt modified, c.txt deleted; untracked files never join a diff.
+    await fs.promises.writeFile(path.join(dir, 'a.txt'), 'a2\n');
+    await fs.promises.unlink(path.join(dir, 'c.txt'));
+    t.after(() => fs.promises.rm(dir, { recursive: true, force: true }));
+    return { dir, baseline };
+}
+
+function reviewEntries(executed) {
+    const call = executed.find(entry => entry[0] === 'vscode.changes');
+    return call ? call[2] : null;
+}
+
+test('WORKTREE-CHANGES-PANEL-001 task result review opens one multi-diff with [label, original, modified] triples', async t => {
+    const repo = await repoFixture(t);
+    const executed = [];
+    const service = loadService(executed, { failChanges: false });
+
+    await service.openTaskResultReview(repo.dir, repo.baseline, 'Task result');
+
+    assert.equal(executed.length, 1, 'the multi-diff opens without a diff fallback');
+    const [command, title, resources] = executed[0];
+    assert.equal(command, 'vscode.changes');
+    assert.equal(title, 'Task result');
+    // vscode.changes validates [label, original, modified] triples; pairs
+    // fail argument validation and silently opened only the first file.
+    assert.equal(resources.length, 2, 'a.txt modified + c.txt deleted');
+    for (const [label, original, modified] of resources) {
+        assert.equal(label.scheme, 'file', 'the label URI identifies the file');
+        assert.equal(diffQuery(original).ref, repo.baseline,
+            'the original side reads the baseline commit');
+    }
+    const modified = Object.fromEntries(
+        resources.map(entry => [path.basename(entry[0].fsPath), entry[2]]));
+    assert.equal(modified['a.txt'].scheme, 'file',
+        'an existing worktree file opens its working-tree document');
+    assert.equal(diffQuery(modified['c.txt']).ref, '~empty~',
+        'a deleted file renders an empty modified side instead of a missing file');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 task result review falls back to a per-file list and reports the failure', async t => {
+    const repo = await repoFixture(t);
+    const executed = [];
+    const errors = [];
+    const service = loadService(executed, {
+        failChanges: true,
+        quickPick: { label: 'c.txt', index: 1 },
+    });
+
+    await service.openTaskResultReview(repo.dir, repo.baseline, 'Task result',
+        (message, error) => errors.push([message, error]));
+
+    assert.equal(errors.length, 1,
+        'a rejected vscode.changes must reach the log sink, never vanish');
+    assert.equal(errors[0][1].message, 'unknown command');
+    const diff = executed.find(entry => entry[0] === 'vscode.diff');
+    assert.ok(diff, 'the picked file opens a single diff');
+    assert.equal(diffQuery(diff[1]).path, 'c.txt');
+    assert.equal(diffQuery(diff[2]).ref, '~empty~');
+    assert.equal(diff[3], 'c.txt');
 });

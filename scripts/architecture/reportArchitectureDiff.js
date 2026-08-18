@@ -228,6 +228,10 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
                     !== JSON.stringify(headInvariant.stateFamily)) {
                     change.stateFamilyChanged = true;
                 }
+                if (JSON.stringify(baseInvariant.participatingModules)
+                    !== JSON.stringify(headInvariant.participatingModules)) {
+                    change.participatingModulesChanged = true;
+                }
                 policyDelta.invariantChanges[id] = change;
             }
             for (const id of baseInvariants.keys()) {

@@ -35,6 +35,33 @@ const KINDS = ['product', 'state-machine', 'identity', 'persistence', 'protocol'
     'concurrency', 'recovery', 'dependency', 'performance', 'security'];
 const ENFORCEMENTS = ['module-boundary', 'single-writer', 'behavior', 'fault-matrix'];
 
+/** Top-level exported symbol names defined (never merely re-exported) in a file. */
+function definedExportedSymbols(rootDirectory, relativePath) {
+    const text = fs.readFileSync(path.join(rootDirectory, relativePath), 'utf8');
+    const sourceFile = ts.createSourceFile(
+        relativePath, text, ts.ScriptTarget.Latest, true,
+        relativePath.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+    const defined = new Set();
+    const isExported = node => node.modifiers
+        && node.modifiers.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword);
+    const visit = node => {
+        if (isExported(node) && node.name && ts.isIdentifier(node.name)
+            && (ts.isClassDeclaration(node) || ts.isFunctionDeclaration(node)
+                || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)
+                || ts.isEnumDeclaration(node))) {
+            defined.add(node.name.text);
+        }
+        if (ts.isVariableStatement(node) && isExported(node)) {
+            for (const declaration of node.declarationList.declarations) {
+                if (ts.isIdentifier(declaration.name)) { defined.add(declaration.name.text); }
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return defined;
+}
+
 function readJson(rootDirectory, relativePath, errors) {
     try {
         return JSON.parse(fs.readFileSync(path.join(rootDirectory, relativePath), 'utf8'));
@@ -99,6 +126,34 @@ function validateCatalog(rootDirectory, policy) {
             errors.push(`${owner}: authority.path is required`);
         } else {
             requirePath(owner, invariant.authority.path, 'authority.path');
+            // Review R9 (Important 3): the authority symbol must be defined
+            // in the authority file — a re-export is not an authority — and
+            // the file's module must be the invariant's module or an
+            // explicitly declared participant.
+            if (typeof invariant.authority.symbol === 'string' && invariant.authority.symbol
+                && fs.existsSync(path.join(rootDirectory, invariant.authority.path))) {
+                const defined = definedExportedSymbols(rootDirectory, invariant.authority.path);
+                if (!defined.has(invariant.authority.symbol)) {
+                    errors.push(`${owner}: authority.symbol '${invariant.authority.symbol}' is not `
+                        + `defined in ${invariant.authority.path} (a re-export is not an authority)`);
+                }
+            }
+            const authorityModule = policy.classification.get(invariant.authority.path)?.moduleId;
+            const participants = invariant.participatingModules || [];
+            if (authorityModule && authorityModule !== invariant.module
+                && !participants.includes(authorityModule)) {
+                errors.push(`${owner}: authority path ${invariant.authority.path} belongs to `
+                    + `${authorityModule}, not ${invariant.module} — declare the cross-module `
+                    + 'participation in participatingModules');
+            }
+        }
+        if (invariant.participatingModules !== undefined) {
+            if (!Array.isArray(invariant.participatingModules)
+                || invariant.participatingModules.length === 0
+                || invariant.participatingModules.some(moduleId => !moduleIds.has(moduleId))) {
+                errors.push(`${owner}: participatingModules must be a non-empty array of known `
+                    + 'module ids');
+            }
         }
         for (const enforcement of invariant.enforcement || []) {
             if (!ENFORCEMENTS.includes(enforcement)) {

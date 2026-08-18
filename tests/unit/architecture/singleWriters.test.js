@@ -12,24 +12,27 @@ const {
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
-function makeFixture({ invariants, sources }) {
+function makeFixture({ invariants, sources, twoModules = false }) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-writers-'));
     const writeJson = (relative, value) => {
         fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
         fs.writeFileSync(path.join(root, relative), JSON.stringify(value, null, 2));
     };
+    const moduleEntry = (id, glob) => ({
+        id,
+        title: id,
+        purpose: 'fixture',
+        source: { include: [glob], exclude: [] },
+        mayDependOn: [],
+        roles: [{ role: 'application', include: [glob] }],
+        productCapabilities: ['MAIN-TEST-001'],
+    });
     writeJson('docs/testing/architecture-modules.json', {
         version: 1,
         scope: { roots: ['src'] },
-        modules: [{
-            id: 'MOD-ALPHA',
-            title: 'Alpha',
-            purpose: 'fixture',
-            source: { include: ['src/**'], exclude: [] },
-            mayDependOn: [],
-            roles: [{ role: 'application', include: ['src/**'] }],
-            productCapabilities: ['MAIN-TEST-001'],
-        }],
+        modules: twoModules
+            ? [moduleEntry('MOD-ALPHA', 'src/alpha/**'), moduleEntry('MOD-BETA', 'src/beta/**')]
+            : [moduleEntry('MOD-ALPHA', 'src/**')],
     });
     writeJson('docs/testing/main-capability-coverage.json', {
         version: 1, capabilities: [{ id: 'MAIN-TEST-001' }],
@@ -274,4 +277,69 @@ test('ARCH-INVARIANT-CATALOG-001 controlled mutation: malformed persistenceKeys 
     });
     assert.ok(runSingleWriterCheck(stale).errors
         .some(error => error.includes('persistence key') && error.includes('does not appear')));
+});
+
+
+// ── review R9: authority rigor (Important 3) ─────────────────────────
+
+const twoModuleSources = {
+    'src/alpha/store.ts': 'export class Store { writeThing() {} }\n',
+    'src/alpha/writer.ts': 'import { Store } from \'./store\';\nexport const run = (s: Store) => s.writeThing();\n',
+    'src/beta/kernel.ts': 'export function sharedCodec() { return 1; }\n',
+    'src/beta/reExports.ts': 'export { sharedCodec } from \'./kernel\';\n',
+};
+
+function twoModuleInvariant(overrides = {}) {
+    return validInvariant({
+        authority: { path: 'src/beta/kernel.ts', symbol: 'sharedCodec' },
+        writers: ['src/alpha/writer.ts'],
+        participatingModules: ['MOD-BETA'],
+        behaviorOwners: ['src/alpha/store.ts'],
+        evidence: ['src/alpha/store.ts'],
+        stateFamily: { storePath: 'src/alpha/store.ts', writeMethods: ['writeThing'] },
+        ...overrides,
+    });
+}
+
+test('ARCH-INVARIANT-CATALOG-001 a declared cross-module authority passes', () => {
+    const root = makeFixture({
+        invariants: [twoModuleInvariant()],
+        sources: twoModuleSources,
+        twoModules: true,
+    });
+    assert.deepEqual(runSingleWriterCheck(root).errors, []);
+});
+
+test('ARCH-INVARIANT-CATALOG-001 controlled mutation: a re-exported authority symbol fails', () => {
+    const root = makeFixture({
+        invariants: [twoModuleInvariant({
+            authority: { path: 'src/beta/reExports.ts', symbol: 'sharedCodec' },
+        })],
+        sources: twoModuleSources,
+        twoModules: true,
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('reExports.ts') && error.includes('re-export is not an authority')));
+});
+
+test('ARCH-INVARIANT-CATALOG-001 controlled mutation: an undeclared cross-module authority fails', () => {
+    const invariant = twoModuleInvariant();
+    delete invariant.participatingModules;
+    const root = makeFixture({
+        invariants: [invariant],
+        sources: twoModuleSources,
+        twoModules: true,
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('MOD-BETA') && error.includes('participatingModules')));
+});
+
+test('ARCH-INVARIANT-CATALOG-001 controlled mutation: an unknown participating module fails', () => {
+    const root = makeFixture({
+        invariants: [twoModuleInvariant({ participatingModules: ['MOD-NOPE'] })],
+        sources: twoModuleSources,
+        twoModules: true,
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('participatingModules must be a non-empty array')));
 });

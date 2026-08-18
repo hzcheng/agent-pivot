@@ -44,6 +44,17 @@ const PROTECTED_HARNESS_FILES = [
     'scripts/run-architecture-guards.js',
     'scripts/lib/ciContracts.js',
     'package.json',
+    // The merge-approval gate and the Change Impact Declaration machinery
+    // (review R4): the last enforcement line must not be weakenable by an
+    // ordinary product change.
+    'scripts/run-merge-approval-gate.js',
+    'scripts/lib/mergeApprovals.js',
+    'scripts/lib/changeImpactDeclaration.js',
+    'scripts/lib/changeImpactContext.js',
+    'scripts/generate-change-impact-declaration.js',
+    'tests/unit/tooling/mergeApprovals.test.js',
+    'tests/unit/tooling/mergeApprovalGate.test.js',
+    'tests/unit/tooling/changeImpactDeclaration.test.js',
 ];
 
 function isHarnessPath(file) {
@@ -132,6 +143,7 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
 
     const touchedModules = new Map();
     const newFiles = [];
+    const newClassifiedFiles = [];
     const removedFiles = [];
     for (const entry of changed) {
         const assignment = policy.classification.get(entry.path);
@@ -141,9 +153,15 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
             }
             touchedModules.get(assignment.moduleId).push(entry.path);
         }
-        if (entry.status === 'A') { newFiles.push(entry.path); }
+        if (entry.status === 'A') {
+            newFiles.push(entry.path);
+            if (assignment) {
+                newClassifiedFiles.push({ path: entry.path, module: assignment.moduleId });
+            }
+        }
         if (entry.status === 'D') { removedFiles.push(entry.path); }
     }
+    newClassifiedFiles.sort((a, b) => a.path.localeCompare(b.path));
 
     const policyDelta = {
         mayDependOnGrown: {},
@@ -152,6 +170,7 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         waiversAdded: [],
         modulesChanged: false,
     };
+    const changedInvariantIds = [];
     for (const protectedPath of PROTECTED_POLICY_PATHS) {
         const baseText = git.fileAt(baseRef, protectedPath);
         const headText = git.fileAt('HEAD', protectedPath);
@@ -176,7 +195,13 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
             const headInvariants = indexBy(headJson.invariants, 'id');
             for (const [id, headInvariant] of headInvariants) {
                 const baseInvariant = baseInvariants.get(id);
-                if (!baseInvariant) { continue; }
+                if (!baseInvariant) {
+                    changedInvariantIds.push(id);
+                    continue;
+                }
+                if (JSON.stringify(baseInvariant) !== JSON.stringify(headInvariant)) {
+                    changedInvariantIds.push(id);
+                }
                 // Writer sets ratchet by net size: an authority move replaces
                 // old writers with fewer new ones (tightening); only net
                 // growth beyond the base size is broadening.
@@ -186,6 +211,9 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
                 if (added.length > 0 && headWriters.length > baseWriters.length) {
                     policyDelta.writersGrown[id] = added;
                 }
+            }
+            for (const id of baseInvariants.keys()) {
+                if (!headInvariants.has(id)) { changedInvariantIds.push(id); }
             }
         }
         if (protectedPath.endsWith('architecture-debt-baseline.json')) {
@@ -253,10 +281,12 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         errors: policy.errors,
         touchedModules: Object.fromEntries(touchedModules),
         newFiles: newFiles.sort(),
+        newClassifiedFiles,
         removedFiles: removedFiles.sort(),
         protectedTouched,
         harnessDelta,
         policyDelta,
+        changedInvariantIds: changedInvariantIds.sort(),
         baseRecords,
     };
 }

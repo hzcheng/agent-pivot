@@ -2,6 +2,16 @@
 
 <!-- What changed and why. Pull request titles and bodies are written in English. -->
 
+## Change impact declaration
+
+<!--
+Required; the merge-approval gate rejects pull requests without it.
+Run `node scripts/generate-change-impact-declaration.js` right before pushing
+and paste the generated block below, filling every newFiles reason first.
+The declaration binds the head SHA: regenerate it whenever the head moves
+(rebase, new commits), otherwise the gate rejects it as stale.
+-->
+
 ## Skill harvest
 
 <!--

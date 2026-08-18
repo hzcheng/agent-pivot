@@ -7,7 +7,10 @@
 // instead of silently opening them.
 
 const fs = require('node:fs');
+const { execFileSync } = require('node:child_process');
 const { evaluateMergeApproval } = require('./lib/mergeApprovals');
+const { evaluateChangeImpactDeclaration } = require('./lib/changeImpactDeclaration');
+const { collectChangeImpactContext } = require('./lib/changeImpactContext');
 
 const STATUS_CONTEXT = 'merge-approval';
 
@@ -62,6 +65,36 @@ async function listAllComments(token, repo, prNumber) {
     return comments;
 }
 
+function git(args) {
+    return execFileSync('git', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+}
+
+/**
+ * Fetch the PR head and base, check out the exact head being evaluated, and
+ * compare the PR body declaration with the regenerated impact report.
+ */
+function evaluateDeclarationForPullRequest({ pullRequest, prNumber }) {
+    const baseRefName = pullRequest.base?.ref;
+    const headSha = pullRequest.head?.sha;
+    if (!baseRefName || !headSha) {
+        return ['PR is missing base/head information for the declaration check'];
+    }
+    git(['fetch', 'origin', baseRefName, `pull/${prNumber}/head`]);
+    git(['-c', 'advice.detachedHead=false', 'checkout', headSha]);
+    const context = collectChangeImpactContext({
+        rootDirectory: process.cwd(),
+        baseRef: `origin/${baseRefName}`,
+    });
+    const { errors } = evaluateChangeImpactDeclaration({
+        body: pullRequest.body || '',
+        headSha,
+        classification: context.classification,
+        report: context.report,
+        assignedCapabilities: context.assignedCapabilities,
+    });
+    return [...context.errors, ...errors];
+}
+
 async function main() {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
     const repo = process.env.GITHUB_REPOSITORY;
@@ -91,10 +124,22 @@ async function main() {
         headCommittedAtMs,
     });
 
+    // Review R4 (charter 8.10): the PR body declaration is compared with the
+    // regenerated architecture impact for the exact head being approved.
+    // Git failures crash the job before posting, which blocks the merge
+    // (fail-closed); declaration mismatches post a failure status.
+    const declarationErrors = evaluateDeclarationForPullRequest({ pullRequest, prNumber });
+
+    const reasons = [];
+    if (!verdict.approved) { reasons.push(verdict.reason); }
+    reasons.push(...declarationErrors.slice(0, 3));
+    if (declarationErrors.length > 3) {
+        reasons.push(`+${declarationErrors.length - 3} more declaration errors`);
+    }
     const status = {
         context: STATUS_CONTEXT,
-        state: verdict.approved ? 'success' : 'failure',
-        description: verdict.reason.slice(0, 140),
+        state: verdict.approved && declarationErrors.length === 0 ? 'success' : 'failure',
+        description: (reasons.join(' | ') || 'approved by owner comment').slice(0, 140),
         target_url: verdict.commentUrl || payload.comment?.html_url || undefined,
     };
     await api(token, 'POST', `/repos/${repo}/statuses/${headSha}`, status);

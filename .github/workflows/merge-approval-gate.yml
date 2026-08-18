@@ -2,7 +2,9 @@ name: Merge approval gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # edited: declaration blocks bind the head SHA and are re-evaluated when
+    # the body changes.
+    types: [opened, synchronize, reopened, ready_for_review, edited]
   issue_comment:
     types: [created]
 
@@ -16,10 +18,15 @@ jobs:
   gate:
     name: gate
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The gate regenerates the architecture impact report for the PR
+          # base..head range and checks out the exact head being evaluated,
+          # so it needs full history.
+          fetch-depth: 0
       - name: Evaluate and post the merge-approval status
         run: node scripts/run-merge-approval-gate.js
         env:

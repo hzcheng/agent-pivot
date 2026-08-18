@@ -206,3 +206,48 @@ test('WORKTREE-MANAGED-CLEANUP-001 passes the removed key to refresh so the mani
     assert.deepEqual(refreshedKeys, [current.key],
         'the manifest retirement hook learns exactly which worktree was removed');
 });
+
+test('WORKTREE-MANAGED-CLEANUP-001 removes a worktree whose directory is already gone', async t => {
+    const current = await fixture(t);
+    // External deletion: the directory is gone but git still lists the
+    // stale administrative entry as prunable until a prune runs.
+    await fs.promises.rm(current.worktreePath, { recursive: true, force: true });
+    const stale = current.snapshot.repositories[0].worktrees[1];
+    stale.health = 'prunable';
+
+    assert.equal(await current.controller.getRemovalBlocker(current.key), null,
+        'a physically absent directory never blocks record cleanup');
+    assert.deepEqual(await current.controller.removeVerified(current.key),
+        { kind: 'removed' },
+        'verified removal short-circuits to the verified absence');
+    assert.ok(
+        !git(current.repositoryPath, ['worktree', 'list', '--porcelain'])
+            .includes('cleanup-task'),
+        'the stale git worktree metadata is pruned'
+    );
+
+    // Variant: the stale entry was already pruned from the snapshot.
+    const second = await fixture(t);
+    await fs.promises.rm(second.worktreePath, { recursive: true, force: true });
+    second.snapshot.repositories[0].worktrees.pop();
+    assert.equal(await second.controller.getRemovalBlocker(second.key), null);
+    assert.deepEqual(await second.controller.removeVerified(second.key),
+        { kind: 'removed' });
+});
+
+test('WORKTREE-MANAGED-CLEANUP-001 interactive removal of a missing directory confirms and succeeds', async t => {
+    const current = await fixture(t);
+    await fs.promises.rm(current.worktreePath, { recursive: true, force: true });
+    current.snapshot.repositories[0].worktrees[1].health = 'prunable';
+
+    const outcome = await current.controller.remove('project', current.key);
+
+    assert.equal(outcome.kind, 'succeeded');
+    assert.deepEqual(current.effects.map(effect => effect[0]), ['confirm', 'refresh'],
+        'the removal still confirms, then refreshes');
+    assert.ok(
+        !git(current.repositoryPath, ['worktree', 'list', '--porcelain'])
+            .includes('cleanup-task'),
+        'the stale git worktree metadata is pruned'
+    );
+});

@@ -1,6 +1,7 @@
 'use strict';
 
 import * as fs from 'fs';
+import * as path from 'path';
 import type { RunGitCommand } from './gitWorktreeDiscovery';
 import { runProvisioningGitCommand } from './gitWorktreeProvisioner';
 import type {
@@ -74,8 +75,16 @@ export class ManagedWorktreeRemovalController {
             if (blocked) {
                 return { kind: 'rejected', errorCode: blocked };
             }
-            const branch = initial!.worktree.branchRef?.replace(/^refs\/heads\//u, '')
-                || initial!.worktree.head.substring(0, 8);
+            // The confirm label tolerates a stale/prunable snapshot entry:
+            // a worktree whose directory is already gone still needs a
+            // readable name in the dialog.
+            const snapshotWorktree = this.options.getSnapshot()?.repositories
+                .find(candidate => candidate.repositoryKey === key.repositoryKey)
+                ?.worktrees.find(candidate => worktreeKeysEqual(candidate.key, key));
+            const branch = (initial?.worktree || snapshotWorktree)?.branchRef
+                ?.replace(/^refs\/heads\//u, '')
+                || initial?.worktree.head.substring(0, 8)
+                || path.basename(key.canonicalWorktreePath);
             const confirmation = await this.options.confirm(
                 `Remove the worktree “${branch}” at ${key.canonicalWorktreePath}? `
                     + 'Only clean, idle worktrees can be removed; the local branch is kept.',
@@ -88,6 +97,17 @@ export class ManagedWorktreeRemovalController {
             const currentBlocker = await this.getBlocker(current, key);
             if (currentBlocker) {
                 return { kind: 'rejected', errorCode: currentBlocker };
+            }
+            if (!(await this.pathExists(key.canonicalWorktreePath))) {
+                // The directory vanished (or was never there): prune stale
+                // git metadata and succeed — only record cleanup remains.
+                await this.pruneStaleMetadata(key);
+                try {
+                    await this.options.refresh(key, workspaceIdentity);
+                } catch (_error) {
+                    return { kind: 'partial', errorCode: 'worktree-removed-refresh-failed' };
+                }
+                return { kind: 'succeeded' };
             }
             const result = await this.runGit(current!.commandCwd, [
                 '-C', current!.commandCwd,
@@ -130,6 +150,14 @@ export class ManagedWorktreeRemovalController {
     async removeVerified(
         key: WorktreeKey
     ): Promise<{ kind: 'removed' } | { kind: 'failed'; errorCode: string }> {
+        if (!(await this.pathExists(key.canonicalWorktreePath))) {
+            // The directory is already gone (deleted externally): prune the
+            // stale git administrative entry and report the verified
+            // absence — a missing path is a certain observation, so record
+            // cleanup must not fail-closed (PRD §6.4).
+            await this.pruneStaleMetadata(key);
+            return { kind: 'removed' };
+        }
         const target = this.resolveTarget(key);
         const blocker = await this.getBlocker(target, key);
         if (blocker) {
@@ -169,8 +197,37 @@ export class ManagedWorktreeRemovalController {
         return commandCwd ? { repository, worktree, commandCwd } : null;
     }
 
+    /**
+     * Best-effort cleanup of the git administrative entry after the
+     * worktree directory disappeared externally. Skipped silently when the
+     * repository itself is out of view — the path is already gone either
+     * way.
+     */
+    private async pruneStaleMetadata(key: WorktreeKey): Promise<void> {
+        const snapshot = this.options.getSnapshot();
+        const repository = snapshot?.repositories.find(candidate =>
+            candidate.repositoryKey === key.repositoryKey);
+        const commandCwd = repository?.worktrees.find(candidate =>
+            candidate.isMain && !candidate.isBare)?.key.canonicalWorktreePath
+            || repository?.worktrees.find(candidate => !candidate.isBare)
+                ?.key.canonicalWorktreePath;
+        if (!commandCwd) {
+            return;
+        }
+        try {
+            await this.runGit(commandCwd, ['-C', commandCwd, 'worktree', 'prune']);
+        } catch (_error) { /* best-effort */ }
+    }
+
     private async getBlocker(target: RemovalTarget | null, key: WorktreeKey): Promise<string | null> {
         if (!target) {
+            // A physically absent directory is a certain observation:
+            // nothing blocks the removal; only record cleanup remains.
+            // Anything else (detached repository, truncated discovery)
+            // stays fail-closed.
+            if (!(await this.pathExists(key.canonicalWorktreePath))) {
+                return null;
+            }
             return 'worktree-not-removable';
         }
         if (this.options.isActive(key)) {

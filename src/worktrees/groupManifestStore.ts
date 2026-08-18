@@ -107,11 +107,15 @@ export type WorktreeGroupManifestErrorCode =
   | 'deletion-blocked'
   | 'member-detached'
   | 'store-corrupt'
-  | 'store-full';
+  | 'store-full'
+  | 'illegal-member-transition';
 
 export class WorktreeGroupManifestError extends Error {
-    constructor(readonly code: WorktreeGroupManifestErrorCode) {
-        super(code);
+    constructor(
+        readonly code: WorktreeGroupManifestErrorCode,
+        readonly detail?: string
+    ) {
+        super(detail ? `${code}: ${detail}` : code);
         this.name = 'WorktreeGroupManifestError';
         Object.setPrototypeOf(this, WorktreeGroupManifestError.prototype);
     }
@@ -120,6 +124,11 @@ export class WorktreeGroupManifestError extends Error {
 export type GenerationClaimResolution =
     | { kind: 'keep' }
     | { kind: 'promote'; provider: string; sessionId: string };
+
+/** Patchable member fields (updateMember / transitionMember). */
+export type WorktreeGroupMemberPatch = Partial<Pick<WorktreeGroupMember,
+    'state' | 'worktreeKey' | 'branchName' | 'path' | 'lastError'
+    | 'detached' | 'baseline'>>;
 
 export interface NewWorktreeGroupMember {
     repositoryKey: string;
@@ -346,13 +355,84 @@ export class WorktreeGroupManifestStore {
         });
     }
 
+    /** Shared patch application inside the write queue (updateMember/transitionMember). */
+    private applyMemberPatchUnlocked(
+        bucket: WorkspaceAggregate,
+        group: WorktreeGroup,
+        member: WorktreeGroupMember,
+        patch: WorktreeGroupMemberPatch
+    ): void {
+        if (patch.state !== undefined) {
+            member.state = patch.state;
+        }
+        if (patch.worktreeKey !== undefined) {
+            assertWorktreeKeysUnclaimed(
+                bucket.groups,
+                [{ ...member, worktreeKey: patch.worktreeKey }],
+                group.groupId);
+            member.worktreeKey = Object.freeze({ ...patch.worktreeKey });
+        }
+        if (patch.branchName !== undefined) {
+            member.branchName = requireBranchName(patch.branchName);
+        }
+        if (patch.path !== undefined) {
+            member.path = requirePath(patch.path);
+        }
+        if (patch.lastError !== undefined) {
+            member.lastError = patch.lastError
+                ? requireShortText(patch.lastError, MAX_ERROR_LENGTH, 'invalid-record')
+                : undefined;
+        }
+        if (patch.detached !== undefined) {
+            member.detached = patch.detached || undefined;
+        }
+        if (patch.baseline !== undefined) {
+            // The baseline is immutable (changes-panel PRD §4.2): it
+            // may be filled in once for a member that lacks it, but
+            // never moved or replaced.
+            if (member.baseline
+                && !memberBaselinesEqual(member.baseline, patch.baseline)) {
+                throw new WorktreeGroupManifestError('invalid-record');
+            }
+            member.baseline = sanitizeBaseline(patch.baseline);
+        }
+        if (group.primaryMemberId === member.memberId && member.state !== 'ready') {
+            group.primaryMemberId = null;
+        }
+    }
+
+    /**
+     * Shared member removal inside the write queue; returns null when the
+     * group disappeared with its last member.
+     */
+    private async removeMemberUnlocked(
+        manifest: ManifestShape,
+        bucket: WorkspaceAggregate,
+        group: WorktreeGroup,
+        member: WorktreeGroupMember
+    ): Promise<WorktreeGroup | null> {
+        group.members.splice(group.members.indexOf(member), 1);
+        if (group.primaryMemberId === member.memberId) {
+            group.primaryMemberId = null;
+        }
+        if (group.members.length === 0) {
+            // Empty groups disappear with their last member (PRD §4.2).
+            bucket.groups.splice(
+                bucket.groups.findIndex(candidate => candidate.groupId === group.groupId), 1);
+            await this.commitBucket(manifest, bucket);
+            return null;
+        }
+        bumpRevision(group);
+        assertGroupInvariants(group);
+        await this.commitBucket(manifest, bucket);
+        return cloneGroup(group);
+    }
+
     updateMember(
         workspaceIdentity: string,
         groupId: string,
         memberId: string,
-        patch: Partial<Pick<WorktreeGroupMember,
-            'state' | 'worktreeKey' | 'branchName' | 'path' | 'lastError'
-            | 'detached' | 'baseline'>>
+        patch: WorktreeGroupMemberPatch
     ): Promise<WorktreeGroup> {
         return this.enqueue(async () => {
             const manifest = this.readManifest();
@@ -371,42 +451,65 @@ export class WorktreeGroupManifestStore {
                 // could orphan the journal's frozen identity snapshot.
                 throw new WorktreeGroupManifestError('group-leased');
             }
-            if (patch.state !== undefined) {
-                member.state = patch.state;
+            this.applyMemberPatchUnlocked(bucket, group, member, patch);
+            bumpRevision(group);
+            assertGroupInvariants(group);
+            await this.commitBucket(manifest, bucket);
+            return cloneGroup(group);
+        });
+    }
+
+    /**
+     * Atomic member state transition (review R5, invariant
+     * ARCH-WORKTREE-MEMBER-WRITER-001): the expected-state check and the
+     * write commit inside the SAME write-queue entry, so concurrent
+     * transitions serialize — exactly one of two racing transitions can
+     * observe its legal pre-state. WorktreeMemberLifecycle routes every
+     * named transition here.
+     */
+    transitionMember(
+        workspaceIdentity: string,
+        groupId: string,
+        memberId: string,
+        options: {
+            expectedStates: readonly WorktreeGroupMemberState[],
+            transition: string,
+            patch?: WorktreeGroupMemberPatch,
+            remove?: boolean,
+            assignPrimary?: boolean,
+        }
+    ): Promise<WorktreeGroup | null> {
+        if (options.assignPrimary && (options.remove || options.patch !== undefined)) {
+            return Promise.reject(new WorktreeGroupManifestError('invalid-record'));
+        }
+        return this.enqueue(async () => {
+            const manifest = this.readManifest();
+            const bucket = this.getBucket(manifest, workspaceIdentity);
+            const group = bucket.groups.find(candidate => candidate.groupId === groupId);
+            if (!group) {
+                throw new WorktreeGroupManifestError('group-not-found');
             }
-            if (patch.worktreeKey !== undefined) {
-                assertWorktreeKeysUnclaimed(
-                    bucket.groups,
-                    [{ ...member, worktreeKey: patch.worktreeKey }],
-                    group.groupId);
-                member.worktreeKey = Object.freeze({ ...patch.worktreeKey });
+            const member = group.members.find(candidate => candidate.memberId === memberId);
+            const state = member?.state;
+            if (!state || !options.expectedStates.includes(state)) {
+                throw new WorktreeGroupManifestError(
+                    'illegal-member-transition',
+                    `${options.transition}: member ${memberId} is '${state ?? 'missing'}', `
+                    + `expected one of ${options.expectedStates.join(', ')}`);
             }
-            if (patch.branchName !== undefined) {
-                member.branchName = requireBranchName(patch.branchName);
+            if (options.assignPrimary) {
+                // Same lease rule as setPrimaryMember (decision J).
+                assertGroupNotLeased(bucket, groupId);
+            } else if (isJournalTarget(bucket, groupId, memberId)) {
+                throw new WorktreeGroupManifestError('group-leased');
             }
-            if (patch.path !== undefined) {
-                member.path = requirePath(patch.path);
+            if (options.remove) {
+                return this.removeMemberUnlocked(manifest, bucket, group, member);
             }
-            if (patch.lastError !== undefined) {
-                member.lastError = patch.lastError
-                    ? requireShortText(patch.lastError, MAX_ERROR_LENGTH, 'invalid-record')
-                    : undefined;
-            }
-            if (patch.detached !== undefined) {
-                member.detached = patch.detached || undefined;
-            }
-            if (patch.baseline !== undefined) {
-                // The baseline is immutable (changes-panel PRD §4.2): it
-                // may be filled in once for a member that lacks it, but
-                // never moved or replaced.
-                if (member.baseline
-                    && !memberBaselinesEqual(member.baseline, patch.baseline)) {
-                    throw new WorktreeGroupManifestError('invalid-record');
-                }
-                member.baseline = sanitizeBaseline(patch.baseline);
-            }
-            if (group.primaryMemberId === member.memberId && member.state !== 'ready') {
-                group.primaryMemberId = null;
+            if (options.assignPrimary) {
+                group.primaryMemberId = member.memberId;
+            } else {
+                this.applyMemberPatchUnlocked(bucket, group, member, options.patch ?? {});
             }
             bumpRevision(group);
             assertGroupInvariants(group);
@@ -503,8 +606,8 @@ export class WorktreeGroupManifestStore {
             if (!group) {
                 throw new WorktreeGroupManifestError('group-not-found');
             }
-            const index = group.members.findIndex(candidate => candidate.memberId === memberId);
-            if (index < 0) {
+            const member = group.members.find(candidate => candidate.memberId === memberId);
+            if (!member) {
                 throw new WorktreeGroupManifestError('member-not-found');
             }
             if (isJournalTarget(bucket, groupId, memberId)) {
@@ -512,21 +615,7 @@ export class WorktreeGroupManifestStore {
                 // journal; finish or abandon the operation first.
                 throw new WorktreeGroupManifestError('group-leased');
             }
-            group.members.splice(index, 1);
-            if (group.primaryMemberId === memberId) {
-                group.primaryMemberId = null;
-            }
-            if (group.members.length === 0) {
-                // Empty groups disappear with their last member (PRD §4.2).
-                bucket.groups.splice(
-                    bucket.groups.findIndex(candidate => candidate.groupId === groupId), 1);
-                await this.commitBucket(manifest, bucket);
-                return null;
-            }
-            bumpRevision(group);
-            assertGroupInvariants(group);
-            await this.commitBucket(manifest, bucket);
-            return cloneGroup(group);
+            return this.removeMemberUnlocked(manifest, bucket, group, member);
         });
     }
 

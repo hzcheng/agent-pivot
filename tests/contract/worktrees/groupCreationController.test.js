@@ -389,15 +389,16 @@ test('WORKTREE-GROUPS-CREATE-001 a settlement persist failure is logged without 
             };
         },
     });
-    // The settle-time state write races a dismissed record: updateMember
-    // throws, and runMember must log instead of swallowing silently.
-    const originalUpdateMember = current.manifestStore.updateMember.bind(
+    // The settle-time state write races a dismissed record: the atomic
+    // transitionMember write throws, and runMember must log instead of
+    // swallowing silently.
+    const originalTransitionMember = current.manifestStore.transitionMember.bind(
         current.manifestStore);
-    current.manifestStore.updateMember = async (identity, groupId, memberId, patch) => {
-        if (patch && patch.state === 'failed') {
+    current.manifestStore.transitionMember = async (identity, groupId, memberId, options) => {
+        if (options && options.patch && options.patch.state === 'failed') {
             throw new Error('member-not-found');
         }
-        return originalUpdateMember(identity, groupId, memberId, patch);
+        return originalTransitionMember(identity, groupId, memberId, options);
     };
     const result = await current.controller.confirm({
         projectId: 'project',

@@ -1,6 +1,7 @@
 'use strict';
 
 import type { WorktreeKey } from './types';
+import { WorktreeGroupManifestError } from './groupManifestStore';
 import type { WorktreeGroupManifestStore } from './groupManifestStore';
 
 export class IllegalMemberTransitionError extends Error {
@@ -13,6 +14,12 @@ export class IllegalMemberTransitionError extends Error {
  * they mean; the legal pre-states are enforced here at the state-owning
  * boundary instead of being re-remembered at every call site.
  *
+ * Every transition commits through the store's atomic `transitionMember`
+ * primitive (review R5): the expected-state check and the write happen
+ * inside the same write-queue entry, so racing transitions serialize and
+ * only one can observe its legal pre-state (no TOCTOU between the check
+ * and the write).
+ *
  * Legal transitions (see the Stage 1B RFC state machine):
  *   provisioning|failed   -> ready   (finalize; requires a worktree key; a
  *                                    live operation wins the demotion race)
@@ -22,32 +29,33 @@ export class IllegalMemberTransitionError extends Error {
  *   failed                  -> provisioning (retry readmission)
  *   failed                  -> removed  (dismiss)
  *   ready                   -> removed  (physical worktree was removed)
+ *
+ * The ready -> deleting -> ready/removed deletion sub-machine runs through
+ * the store's journal primitives (beginDeletion / checkpointDeletedMember /
+ * failDeletionMember), which are mechanically disjoint from this authority:
+ * the journal lease blocks generic transitions on members under deletion,
+ * and the journal primitives only act on members in the deleting state.
  */
 export class WorktreeMemberLifecycle {
     constructor(private readonly store: WorktreeGroupManifestStore) {}
 
-    private memberState(
-        workspaceIdentity: string,
-        groupId: string,
-        memberId: string
-    ): string | undefined {
-        return this.store.listGroups(workspaceIdentity)
-            .find(group => group.groupId === groupId)
-            ?.members.find(member => member.memberId === memberId)?.state;
-    }
-
-    private requireState(
+    private async transition(
         workspaceIdentity: string,
         groupId: string,
         memberId: string,
-        allowed: readonly string[],
-        transition: string
-    ): void {
-        const state = this.memberState(workspaceIdentity, groupId, memberId);
-        if (!state || !allowed.includes(state)) {
-            throw new IllegalMemberTransitionError(
-                `${transition}: member ${memberId} is '${state ?? 'missing'}', `
-                + `expected one of ${allowed.join(', ')}`);
+        options: Parameters<WorktreeGroupManifestStore['transitionMember']>[3]
+    ): Promise<void> {
+        try {
+            await this.store.transitionMember(workspaceIdentity, groupId, memberId, options);
+        } catch (error) {
+            if (error instanceof WorktreeGroupManifestError
+                && error.code === 'illegal-member-transition') {
+                // Preserve the authority's coded-error contract: the check
+                // now happens atomically inside the store queue, but the
+                // error type and message stay the lifecycle's own.
+                throw new IllegalMemberTransitionError(error.detail ?? error.message);
+            }
+            throw error;
         }
     }
 
@@ -61,12 +69,10 @@ export class WorktreeMemberLifecycle {
         memberId: string,
         worktreeKey: WorktreeKey
     ): Promise<void> {
-        this.requireState(
-            workspaceIdentity, groupId, memberId,
-            ['provisioning', 'failed'], 'mark-ready');
-        await this.store.updateMember(workspaceIdentity, groupId, memberId, {
-            state: 'ready',
-            worktreeKey,
+        await this.transition(workspaceIdentity, groupId, memberId, {
+            expectedStates: ['provisioning', 'failed'],
+            transition: 'mark-ready',
+            patch: { state: 'ready', worktreeKey },
         });
     }
 
@@ -81,11 +87,10 @@ export class WorktreeMemberLifecycle {
         memberId: string,
         lastError: string
     ): Promise<void> {
-        this.requireState(workspaceIdentity, groupId, memberId,
-            ['provisioning', 'planned', 'failed'], 'mark-failed');
-        await this.store.updateMember(workspaceIdentity, groupId, memberId, {
-            state: 'failed',
-            lastError,
+        await this.transition(workspaceIdentity, groupId, memberId, {
+            expectedStates: ['provisioning', 'planned', 'failed'],
+            transition: 'mark-failed',
+            patch: { state: 'failed', lastError },
         });
     }
 
@@ -95,11 +100,10 @@ export class WorktreeMemberLifecycle {
         groupId: string,
         memberId: string
     ): Promise<void> {
-        this.requireState(workspaceIdentity, groupId, memberId,
-            ['provisioning', 'planned'], 'demote-interrupted');
-        await this.store.updateMember(workspaceIdentity, groupId, memberId, {
-            state: 'failed',
-            lastError: 'interrupted',
+        await this.transition(workspaceIdentity, groupId, memberId, {
+            expectedStates: ['provisioning', 'planned'],
+            transition: 'demote-interrupted',
+            patch: { state: 'failed', lastError: 'interrupted' },
         });
     }
 
@@ -109,11 +113,14 @@ export class WorktreeMemberLifecycle {
         groupId: string,
         memberId: string
     ): Promise<void> {
-        this.requireState(workspaceIdentity, groupId, memberId, ['failed'], 'retry-readmit');
-        await this.store.updateMember(workspaceIdentity, groupId, memberId, {
-            state: 'provisioning',
-            // The store treats undefined as "leave unchanged".
-            lastError: '',
+        await this.transition(workspaceIdentity, groupId, memberId, {
+            expectedStates: ['failed'],
+            transition: 'retry-readmit',
+            patch: {
+                state: 'provisioning',
+                // The store treats undefined as "leave unchanged".
+                lastError: '',
+            },
         });
     }
 
@@ -123,8 +130,11 @@ export class WorktreeMemberLifecycle {
         groupId: string,
         memberId: string
     ): Promise<void> {
-        this.requireState(workspaceIdentity, groupId, memberId, ['failed'], 'dismiss-member');
-        await this.store.removeMember(workspaceIdentity, groupId, memberId);
+        await this.transition(workspaceIdentity, groupId, memberId, {
+            expectedStates: ['failed'],
+            transition: 'dismiss-member',
+            remove: true,
+        });
     }
 
     /** The physical worktree is gone: the member record is removed from any state. */
@@ -136,13 +146,16 @@ export class WorktreeMemberLifecycle {
         await this.store.removeMember(workspaceIdentity, groupId, memberId);
     }
 
-    /** Assign the primary member; the store enforces the ready invariant. */
+    /** Assign the primary member: the ready pre-state is enforced atomically. */
     async assignPrimary(
         workspaceIdentity: string,
         groupId: string,
         memberId: string
     ): Promise<void> {
-        this.requireState(workspaceIdentity, groupId, memberId, ['ready'], 'assign-primary');
-        await this.store.setPrimaryMember(workspaceIdentity, groupId, memberId);
+        await this.transition(workspaceIdentity, groupId, memberId, {
+            expectedStates: ['ready'],
+            transition: 'assign-primary',
+            assignPrimary: true,
+        });
     }
 }

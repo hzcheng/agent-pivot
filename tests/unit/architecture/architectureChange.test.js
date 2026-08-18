@@ -143,6 +143,67 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: registry re-partition without a 
     assert.deepEqual(withRecord.errors, []);
 });
 
+test('ARCH-CHANGE-GATE-001 controlled mutation: deleting a harness guard file fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['scripts/architecture/checkClosedWorld.js'],
+            deletedFiles: ['scripts/architecture/checkClosedWorld.js'],
+            removedGuardIds: [], removedInvocations: [], shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.some(error => error.includes('ARCH-CHANGE')));
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: removing a guard id from the runner fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['scripts/run-architecture-guards.js'],
+            deletedFiles: [], removedGuardIds: ['ARCH-PROTOCOL-001'],
+            removedInvocations: [], shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: removing a lane invocation fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['package.json'],
+            deletedFiles: [], removedGuardIds: [],
+            removedInvocations: ['package.json: node scripts/architecture/checkClosedWorld.js'],
+            shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: shrinking mutation tests fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['tests/unit/architecture/moduleBoundaries.test.js'],
+            deletedFiles: [], removedGuardIds: [], removedInvocations: [],
+            shrunkMutationTests: ['tests/unit/architecture/moduleBoundaries.test.js: 8 -> 4'],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
+test('ARCH-CHANGE-GATE-001 a guard change with intact wiring classifies as tightening (its own mutation tests are the kill mechanism)', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['scripts/run-architecture-guards.js'],
+            deletedFiles: [], removedGuardIds: [], removedInvocations: [],
+            shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'tightening');
+    assert.deepEqual(result.errors, []);
+});
+
 // ── collectArchitectureDiff with a fake git ──────────────────────────
 
 function fakeGit(root, { changed, atBase = {} }) {

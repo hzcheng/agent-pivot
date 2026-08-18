@@ -3,13 +3,16 @@
 /**
  * Anti-self-amendment gate (Harness v0, program Stage 2 PR 4; charter 8.9).
  *
- * Classifies a change by its impact on protected architecture policy:
- * - product-only: no protected policy file touched — passes;
- * - tightening: protected files touched, but the policy only narrows
- *   (baseline/waiver/dependency/writer removals) — passes;
+ * Classifies a change by its impact on protected architecture policy and the
+ * harness surface (review R2):
+ * - product-only: neither policy files nor the harness surface touched;
+ * - tightening: policy only narrows, or the harness surface changes without
+ *   weakening;
  * - relaxing or registry re-partition: baseline grew, waivers added,
- *   mayDependOn broadened, writer sets grew, or module structure changed —
- *   requires an added docs/architecture/changes/ARCH-CHANGE-*.md record.
+ *   mayDependOn broadened, writer sets grew, module structure changed, or
+ *   the harness surface weakened (a guard file deleted, a guard id removed,
+ *   a lane or workflow invocation removed, mutation tests shrank) — requires
+ *   an added docs/architecture/changes/ARCH-CHANGE-*.md record.
  *
  * An agent cannot legalize its own violation: the classification is computed
  * from the diff, not declared.
@@ -36,7 +39,15 @@ function classifyArchitectureChange(report) {
     }
     const hasArchChangeRecord = report.newFiles
         .some(file => ARCH_CHANGE_PATTERN.test(file));
-    if (report.protectedTouched.length === 0) {
+    const harness = report.harnessDelta || {
+        touched: [], deletedFiles: [], removedGuardIds: [],
+        removedInvocations: [], shrunkMutationTests: [],
+    };
+    const harnessWeakened = harness.deletedFiles.length > 0
+        || harness.removedGuardIds.length > 0
+        || harness.removedInvocations.length > 0
+        || harness.shrunkMutationTests.length > 0;
+    if (report.protectedTouched.length === 0 && harness.touched.length === 0) {
         return { classification: 'product-only', errors };
     }
 
@@ -45,7 +56,8 @@ function classifyArchitectureChange(report) {
     const grownWriters = Object.keys(delta.writersGrown).length > 0;
     const grownBaseline = delta.baselineGrown.length > 0;
     const addedWaivers = delta.waiversAdded.length > 0;
-    const relaxing = grownMayDependOn || grownWriters || grownBaseline || addedWaivers;
+    const relaxing = grownMayDependOn || grownWriters || grownBaseline || addedWaivers
+        || harnessWeakened;
     const rePartition = !relaxing && delta.modulesChanged
         && report.protectedTouched
             .some(file => file.endsWith('architecture-modules.json'));
@@ -56,7 +68,7 @@ function classifyArchitectureChange(report) {
     const classification = relaxing ? 'relaxing' : 're-partition';
     if (!hasArchChangeRecord) {
         errors.push(`anti-self-amendment: this change ${classification === 'relaxing' ? 'relaxes' : 're-partitions'} `
-            + 'architecture policy without an Architecture Change record — add '
+            + 'architecture policy or weakens the harness without an Architecture Change record — add '
             + 'docs/architecture/changes/ARCH-CHANGE-<seq>.md with evidence, alternatives, '
             + 'compatibility impact, migration, tests, and rollback');
     }

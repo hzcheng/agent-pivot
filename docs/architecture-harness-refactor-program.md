@@ -599,6 +599,25 @@ fails. A product PR cannot bundle and consume a relaxation. Tightening may
 travel with the migration that removes the final bypass when the diff only
 reduces debt and keeps the commit independently reviewable.
 
+The gate enforces the landing order mechanically (review R3):
+
+- the `ARCH-CHANGE-*` record must already exist in the PR base — it landed
+  through its own earlier, documentation-only PR. A record added in the same
+  PR that consumes the relaxation never authorizes it and fails the gate;
+- the record must carry exactly one fenced ```` ```arch-change ````
+  machine-summary block with a structured `id` (matching the filename),
+  `status: "approved"`, a non-empty `modules` list, and a declared `delta`
+  (`mayDependOnGrown`, `writersGrown`, `baselineGrown`, `waiversAdded`,
+  `rePartition`, `harnessWeakening`). An empty markdown file or a bare
+  filename match is not a candidate;
+- the declared delta must cover the actual policy delta computed from the
+  diff (subset semantics: a record may declare more than a consuming PR
+  realizes, never less);
+- owner approval timing holds transitively: a record present in the base
+  necessarily merged through an earlier PR whose merge-approval status was
+  green, which requires the owner comment to be newer than that PR's final
+  commit.
+
 CI recognizes a fourth classification: **registry re-partition** — splitting,
 merging, or renaming architecture modules, or re-assigning files between them,
 without broadening any allowed edge, writer set, or waiver. Re-partitioning the

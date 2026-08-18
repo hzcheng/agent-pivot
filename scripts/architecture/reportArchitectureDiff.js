@@ -16,6 +16,10 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 const { loadArchitecturePolicy } = require('./loadArchitecturePolicy');
+const {
+    ARCH_CHANGE_RECORD_PATTERN,
+    RECORDS_DIRECTORY,
+} = require('./architectureChangeRecords');
 
 const PROTECTED_POLICY_PATHS = [
     'docs/testing/architecture-modules.json',
@@ -81,6 +85,12 @@ function defaultGit(rootDirectory) {
                 return null;
             }
         },
+        listFiles(ref, prefix) {
+            const output = execFileSync(
+                'git', ['ls-tree', '-r', '--name-only', ref, '--', prefix],
+                { cwd: rootDirectory, encoding: 'utf8'});
+            return output.trim().split('\n').filter(Boolean);
+        },
     };
 }
 
@@ -105,11 +115,20 @@ function diffStringSets(baseValues, headValues) {
 }
 
 /**
- * Full impact report. git helpers: { changedFiles(baseRef), fileAt(ref, path) }.
+ * Full impact report. git helpers: { changedFiles(baseRef), fileAt(ref, path),
+ * listFiles(ref, prefix) }.
  */
 function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
     const policy = loadArchitecturePolicy(rootDirectory);
     const changed = git.changedFiles(baseRef);
+
+    // Architecture Change records that already exist in the base (review R3):
+    // only these can authorize a relaxation; records added by this change
+    // never count.
+    const baseRecords = git.listFiles(baseRef, RECORDS_DIRECTORY)
+        .filter(recordPath => ARCH_CHANGE_RECORD_PATTERN.test(recordPath))
+        .map(recordPath => ({ path: recordPath, text: git.fileAt(baseRef, recordPath) }))
+        .filter(record => record.text !== null);
 
     const touchedModules = new Map();
     const newFiles = [];
@@ -238,6 +257,7 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         protectedTouched,
         harnessDelta,
         policyDelta,
+        baseRecords,
     };
 }
 
@@ -254,6 +274,9 @@ function formatReport(report) {
     }
     if (report.protectedTouched.length > 0) {
         lines.push(`  protected policy files: ${report.protectedTouched.join(', ')}`);
+    }
+    if (report.baseRecords) {
+        lines.push(`  architecture change records in base: ${report.baseRecords.length}`);
     }
     const grown = Object.entries(report.policyDelta.mayDependOnGrown);
     for (const [id, edges] of grown) {

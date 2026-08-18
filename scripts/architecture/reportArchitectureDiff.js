@@ -26,6 +26,42 @@ const PROTECTED_POLICY_PATHS = [
     '.ci/architecture-debt-baseline.json',
 ];
 
+/**
+ * The harness surface (review R2): guard implementations, guard tests, and
+ * CI wiring. Changes here can never classify as product-only — a weakened
+ * guard, a removed mutation test, or a dropped CI invocation must fail.
+ */
+const PROTECTED_HARNESS_PREFIXES = [
+    'scripts/architecture/',
+    'tests/unit/architecture/',
+    '.github/workflows/',
+];
+const PROTECTED_HARNESS_FILES = [
+    'scripts/run-architecture-guards.js',
+    'scripts/lib/ciContracts.js',
+    'package.json',
+];
+
+function isHarnessPath(file) {
+    return PROTECTED_HARNESS_PREFIXES.some(prefix => file.startsWith(prefix))
+        || PROTECTED_HARNESS_FILES.includes(file);
+}
+
+/** Guard ids declared by the legacy runner. */
+function guardIdsOf(text) {
+    return new Set([...text.matchAll(/'(ARCH-[A-Z0-9-]+)'\(root\)/g)].map(m => m[1]));
+}
+
+/** Check/lane invocations (node scripts/... and npm run test:...) in text. */
+function invocationsOf(text) {
+    return new Set([...text.matchAll(/node\s+scripts\/[a-zA-Z0-9/.-]+|npm\s+run\s+test:[a-zA-Z0-9:-]+/g)]
+        .map(m => m[0].replace(/\s+/g, ' ')));
+}
+
+function mutationTestCountOf(text) {
+    return (text.match(/controlled mutation/g) || []).length;
+}
+
 function defaultGit(rootDirectory) {
     return {
         changedFiles(baseRef) {
@@ -154,6 +190,45 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         .map(entry => entry.path)
         .filter(file => PROTECTED_POLICY_PATHS.includes(file));
 
+    // Harness surface delta (review R2): deletions and removals of guard
+    // ids, lane invocations, workflow invocations, or mutation tests.
+    const harnessDelta = {
+        touched: [],
+        deletedFiles: [],
+        removedGuardIds: [],
+        removedInvocations: [],
+        shrunkMutationTests: [],
+    };
+    for (const entry of changed) {
+        if (!isHarnessPath(entry.path)) { continue; }
+        harnessDelta.touched.push(entry.path);
+        if (entry.status === 'D') {
+            harnessDelta.deletedFiles.push(entry.path);
+            continue;
+        }
+        if (entry.status !== 'M') { continue; }
+        const baseText = git.fileAt(baseRef, entry.path);
+        const headText = git.fileAt('HEAD', entry.path);
+        if (baseText === null || headText === null) { continue; }
+        if (entry.path === 'scripts/run-architecture-guards.js') {
+            const removed = [...guardIdsOf(baseText)]
+                .filter(id => !guardIdsOf(headText).has(id));
+            harnessDelta.removedGuardIds.push(...removed);
+        }
+        if (entry.path === 'package.json' || entry.path.startsWith('.github/workflows/')) {
+            const removed = [...invocationsOf(baseText)]
+                .filter(invocation => !invocationsOf(headText).has(invocation));
+            harnessDelta.removedInvocations.push(...removed.map(invocation => `${entry.path}: ${invocation}`));
+        }
+        if (entry.path.startsWith('tests/unit/architecture/')) {
+            const baseCount = mutationTestCountOf(baseText);
+            const headCount = mutationTestCountOf(headText);
+            if (headCount < baseCount) {
+                harnessDelta.shrunkMutationTests.push(`${entry.path}: ${baseCount} -> ${headCount}`);
+            }
+        }
+    }
+
     return {
         baseRef,
         errors: policy.errors,
@@ -161,6 +236,7 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         newFiles: newFiles.sort(),
         removedFiles: removedFiles.sort(),
         protectedTouched,
+        harnessDelta,
         policyDelta,
     };
 }
@@ -193,6 +269,21 @@ function formatReport(report) {
     if (report.policyDelta.waiversAdded.length > 0) {
         lines.push(`  waivers added: ${report.policyDelta.waiversAdded.join(', ')}`);
     }
+    if (report.harnessDelta && report.harnessDelta.touched.length > 0) {
+        lines.push(`  harness surface touched: ${report.harnessDelta.touched.join(', ')}`);
+        for (const file of report.harnessDelta.deletedFiles) {
+            lines.push(`  harness file deleted: ${file}`);
+        }
+        for (const id of report.harnessDelta.removedGuardIds) {
+            lines.push(`  guard removed: ${id}`);
+        }
+        for (const invocation of report.harnessDelta.removedInvocations) {
+            lines.push(`  invocation removed: ${invocation}`);
+        }
+        for (const entry of report.harnessDelta.shrunkMutationTests) {
+            lines.push(`  mutation tests shrank: ${entry}`);
+        }
+    }
     return lines.join('\n');
 }
 
@@ -212,8 +303,11 @@ if (require.main === module) { main(); }
 
 module.exports = {
     PROTECTED_POLICY_PATHS,
+    PROTECTED_HARNESS_PREFIXES,
+    PROTECTED_HARNESS_FILES,
     collectArchitectureDiff,
     defaultGit,
     diffStringSets,
     formatReport,
+    isHarnessPath,
 };

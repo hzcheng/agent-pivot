@@ -143,6 +143,67 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: registry re-partition without a 
     assert.deepEqual(withRecord.errors, []);
 });
 
+test('ARCH-CHANGE-GATE-001 controlled mutation: deleting a harness guard file fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['scripts/architecture/checkClosedWorld.js'],
+            deletedFiles: ['scripts/architecture/checkClosedWorld.js'],
+            removedGuardIds: [], removedInvocations: [], shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.some(error => error.includes('ARCH-CHANGE')));
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: removing a guard id from the runner fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['scripts/run-architecture-guards.js'],
+            deletedFiles: [], removedGuardIds: ['ARCH-PROTOCOL-001'],
+            removedInvocations: [], shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: removing a lane invocation fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['package.json'],
+            deletedFiles: [], removedGuardIds: [],
+            removedInvocations: ['package.json: node scripts/architecture/checkClosedWorld.js'],
+            shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: shrinking mutation tests fails', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['tests/unit/architecture/moduleBoundaries.test.js'],
+            deletedFiles: [], removedGuardIds: [], removedInvocations: [],
+            shrunkMutationTests: ['tests/unit/architecture/moduleBoundaries.test.js: 8 -> 4'],
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
+test('ARCH-CHANGE-GATE-001 a guard change with intact wiring classifies as tightening (its own mutation tests are the kill mechanism)', () => {
+    const result = classifyArchitectureChange(report({
+        harnessDelta: {
+            touched: ['scripts/run-architecture-guards.js'],
+            deletedFiles: [], removedGuardIds: [], removedInvocations: [],
+            shrunkMutationTests: [],
+        },
+    }));
+    assert.equal(result.classification, 'tightening');
+    assert.deepEqual(result.errors, []);
+});
+
 // ── collectArchitectureDiff with a fake git ──────────────────────────
 
 function fakeGit(root, { changed, atBase = {} }) {
@@ -315,6 +376,59 @@ test('ARCH-CHANGE-GATE-001 the policy delta covers invariants, baseline, and wai
     const moved = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
     assert.deepEqual(moved.policyDelta.writersGrown, {},
         'a shrunk writer set with a replacement is not broadening');
+});
+
+test('ARCH-CHANGE-GATE-001 the harness delta detects removed guard ids, invocations, and shrunk mutation tests', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-diff-harness-'));
+    fs.mkdirSync(path.join(root, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'docs/testing'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src/a.ts'), '// a\n');
+    fs.writeFileSync(path.join(root, 'docs/testing/architecture-modules.json'), JSON.stringify({
+        version: 1, scope: { roots: ['src'] },
+        modules: [{
+            id: 'MOD-ALPHA', title: 'A', purpose: 'fixture',
+            source: { include: ['src/**'], exclude: [] }, publicEntrypoints: ['src/**'],
+            mayDependOn: [], roles: [{ role: 'application', include: ['src/**'] }],
+            productCapabilities: ['MAIN-TEST-001'],
+        }],
+    }));
+    fs.writeFileSync(path.join(root, 'docs/testing/main-capability-coverage.json'),
+        JSON.stringify({ version: 1, capabilities: [{ id: 'MAIN-TEST-001' }] }));
+    const headGuards = "class G { 'ARCH-ONE-001'(root) {} }";
+    const baseGuards = "class G { 'ARCH-ONE-001'(root) {} 'ARCH-TWO-001'(root) {} }";
+    const headPkg = JSON.stringify({ scripts: { 'test:architecture-policy': "node scripts/architecture/checkClosedWorld.js" } });
+    const basePkg = JSON.stringify({ scripts: { 'test:architecture-policy': "node scripts/architecture/checkClosedWorld.js && node scripts/architecture/checkModuleBoundaries.js" } });
+    const headTests = '// controlled mutation\n';
+    const baseTests = '// controlled mutation\n// controlled mutation\n// controlled mutation\n';
+    const git = {
+        changedFiles: () => [
+            { status: 'M', path: 'scripts/run-architecture-guards.js' },
+            { status: 'M', path: 'package.json' },
+            { status: 'M', path: 'tests/unit/architecture/moduleBoundaries.test.js' },
+            { status: 'D', path: 'scripts/architecture/checkWebviewManifest.js' },
+        ],
+        fileAt: (ref, relativePath) => {
+            if (relativePath.endsWith('run-architecture-guards.js')) {
+                return ref === 'base' ? baseGuards : headGuards;
+            }
+            if (relativePath === 'package.json') { return ref === 'base' ? basePkg : headPkg; }
+            if (relativePath.endsWith('moduleBoundaries.test.js')) {
+                return ref === 'base' ? baseTests : headTests;
+            }
+            return null;
+        },
+    };
+    const report = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(report.harnessDelta.deletedFiles,
+        ['scripts/architecture/checkWebviewManifest.js']);
+    assert.deepEqual(report.harnessDelta.removedGuardIds, ['ARCH-TWO-001']);
+    assert.deepEqual(report.harnessDelta.removedInvocations,
+        ['package.json: node scripts/architecture/checkModuleBoundaries.js']);
+    assert.deepEqual(report.harnessDelta.shrunkMutationTests,
+        ['tests/unit/architecture/moduleBoundaries.test.js: 3 -> 1']);
+    const { classification, errors } = classifyArchitectureChange(report);
+    assert.equal(classification, 'relaxing');
+    assert.ok(errors.some(error => error.includes('ARCH-CHANGE')));
 });
 
 test('ARCH-CHANGE-GATE-001 a self-diff against HEAD is a clean product-only report', () => {

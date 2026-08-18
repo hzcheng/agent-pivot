@@ -41,7 +41,7 @@
             ],
             "priority": "P0",
             "kind": "concurrency",
-            "statement": "Manifest member state transitions route through WorktreeMemberLifecycle, which enforces the legal pre-states at the boundary; the store member-transition methods have exactly one writer.",
+            "statement": "Manifest member state transitions commit atomically through the store's transitionMember primitive inside its write queue (no TOCTOU between the pre-state check and the write); named transitions route through WorktreeMemberLifecycle, the single logical writer; the ready->deleting->ready/removed deletion sub-machine runs through the store's journal primitives (beginDeletion/checkpointDeletedMember/failDeletionMember), which are mechanically disjoint from lifecycle transitions via the journal lease.",
             "authority": {
                 "path": "src/worktrees/memberLifecycle.ts",
                 "symbol": "WorktreeMemberLifecycle"
@@ -67,6 +67,7 @@
             "stateFamily": {
                 "storePath": "src/worktrees/groupManifestStore.ts",
                 "writeMethods": [
+                    "transitionMember",
                     "updateMember",
                     "setPrimaryMember",
                     "removeMember"

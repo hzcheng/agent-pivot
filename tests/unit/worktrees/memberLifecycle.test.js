@@ -102,3 +102,124 @@ test('ARCH-WORKTREE-MEMBER-WRITER-001 a live finalize still wins the demotion ra
     await lifecycle.markMemberReady(WORKSPACE, groupId, memberId, key);
     assert.equal(memberState(store, groupId, memberId), 'ready');
 });
+
+
+// ── review R5: atomic transition concurrency matrix ──────────────────
+
+test('ARCH-WORKTREE-MEMBER-WRITER-001 racing readmit and dismiss: exactly one wins (review repro)', async () => {
+    const { store, lifecycle, groupId, memberId } = await fixture();
+    await lifecycle.markMemberFailed(WORKSPACE, groupId, memberId, 'setup-failed');
+
+    // The review's reproduction: failed -> provisioning racing
+    // failed -> removed must not both succeed.
+    const outcomes = await Promise.allSettled([
+        lifecycle.readmitMemberForRetry(WORKSPACE, groupId, memberId),
+        lifecycle.removeFailedMember(WORKSPACE, groupId, memberId),
+    ]);
+    const succeeded = outcomes.filter(outcome => outcome.status === 'fulfilled');
+    const rejected = outcomes.filter(outcome => outcome.status === 'rejected');
+    assert.equal(succeeded.length, 1, JSON.stringify(outcomes));
+    assert.equal(rejected.length, 1);
+    assert.match(String(rejected[0].reason), /illegal-member-transition|expected one of/);
+
+    const state = memberState(store, groupId, memberId);
+    if (state === undefined) {
+        // Dismiss won: the member (and the group) is gone, consistently.
+        assert.equal(store.listGroups(WORKSPACE).length, 0);
+    } else {
+        // Readmit won: the member is provisioning and still present.
+        assert.equal(state, 'provisioning');
+    }
+});
+
+test('ARCH-WORKTREE-MEMBER-WRITER-001 duplicate readmits: the second one fails closed', async () => {
+    const { store, lifecycle, groupId, memberId } = await fixture();
+    await lifecycle.markMemberFailed(WORKSPACE, groupId, memberId, 'setup-failed');
+
+    const outcomes = await Promise.allSettled([
+        lifecycle.readmitMemberForRetry(WORKSPACE, groupId, memberId),
+        lifecycle.readmitMemberForRetry(WORKSPACE, groupId, memberId),
+    ]);
+    assert.equal(outcomes.filter(outcome => outcome.status === 'fulfilled').length, 1);
+    assert.equal(outcomes.filter(outcome => outcome.status === 'rejected').length, 1);
+    assert.equal(memberState(store, groupId, memberId), 'provisioning');
+});
+
+test('ARCH-WORKTREE-MEMBER-WRITER-001 a live finalize always wins the demotion race', async () => {
+    const { store, lifecycle, groupId, memberId } = await fixture();
+    const key = { repositoryKey: '/alpha/.git', canonicalWorktreePath: '/alpha/.worktrees/fix-login' };
+
+    // mark-ready accepts provisioning|failed, demotion accepts
+    // provisioning|planned. Whichever order the queue serializes, the
+    // finalize always lands: demote-then-finalize means failed is a legal
+    // pre-state for the finalize; finalize-then-demote means the demotion
+    // correctly fails closed (a ready member cannot demote).
+    const outcomes = await Promise.allSettled([
+        lifecycle.markMemberReady(WORKSPACE, groupId, memberId, key),
+        lifecycle.demoteInterruptedMember(WORKSPACE, groupId, memberId),
+    ]);
+    assert.equal(outcomes[0].status, 'fulfilled', 'the finalize always lands');
+    if (outcomes[1].status === 'rejected') {
+        assert.match(String(outcomes[1].reason), /illegal-member-transition|expected one of/);
+    }
+    assert.equal(memberState(store, groupId, memberId), 'ready');
+});
+
+test('ARCH-WORKTREE-MEMBER-WRITER-001 settlement rewrite always wins against demotion', async () => {
+    const { store, lifecycle, groupId, memberId } = await fixture();
+
+    // mark-failed accepts provisioning|planned|failed, demotion accepts
+    // provisioning|planned. Either the settlement lands after the demotion
+    // (failed is legal) or before it (the demotion then fails closed) — in
+    // both serializations the settlement's outcome is the recorded one.
+    const outcomes = await Promise.allSettled([
+        lifecycle.markMemberFailed(WORKSPACE, groupId, memberId, 'setup-failed'),
+        lifecycle.demoteInterruptedMember(WORKSPACE, groupId, memberId),
+    ]);
+    assert.equal(outcomes[0].status, 'fulfilled', 'the settlement always lands');
+    if (outcomes[1].status === 'rejected') {
+        assert.match(String(outcomes[1].reason), /illegal-member-transition|expected one of/);
+    }
+    const member = store.listGroups(WORKSPACE)[0].members
+        .find(candidate => candidate.memberId === memberId);
+    assert.equal(member.state, 'failed');
+    assert.equal(member.lastError, 'setup-failed');
+});
+
+test('ARCH-WORKTREE-MEMBER-WRITER-001 dismiss racing finalize rejects the inconsistent one', async () => {
+    const { store, lifecycle, groupId, memberId } = await fixture();
+    await lifecycle.markMemberFailed(WORKSPACE, groupId, memberId, 'setup-failed');
+    const key = { repositoryKey: '/alpha/.git', canonicalWorktreePath: '/alpha/.worktrees/fix-login' };
+
+    // failed -> removed races failed -> ready (finalize accepts failed).
+    const outcomes = await Promise.allSettled([
+        lifecycle.removeFailedMember(WORKSPACE, groupId, memberId),
+        lifecycle.markMemberReady(WORKSPACE, groupId, memberId, key),
+    ]);
+    const succeeded = outcomes.filter(outcome => outcome.status === 'fulfilled').length;
+    assert.equal(succeeded, 1, JSON.stringify(outcomes));
+    const state = memberState(store, groupId, memberId);
+    assert.ok(state === undefined || state === 'ready', `unexpected final state ${state}`);
+});
+
+test('ARCH-WORKTREE-MEMBER-WRITER-001 transitionMember rejects contradictory option combos', async () => {
+    const { store, groupId, memberId } = await fixture();
+    await assert.rejects(
+        store.transitionMember(WORKSPACE, groupId, memberId, {
+            expectedStates: ['ready'],
+            transition: 'fixture',
+            assignPrimary: true,
+            patch: { state: 'ready' },
+        }),
+        /invalid-record/,
+    );
+    await assert.rejects(
+        store.transitionMember(WORKSPACE, groupId, memberId, {
+            expectedStates: ['ready'],
+            transition: 'fixture',
+            assignPrimary: true,
+            remove: true,
+        }),
+        /invalid-record/,
+    );
+});

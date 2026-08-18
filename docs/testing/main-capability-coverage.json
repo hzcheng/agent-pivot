@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "1b69d7ed8be4f331227185c364ea43a1259a9688",
+        "head": "19f2c80fd79ef0a9392595259e9367c09c26404c",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -427,7 +427,8 @@
             "15e02b1fc1d28814f08b3b734d6bf710ddebf640",
             "45c402334a7218788172c849f46da67a73696268",
             "d0639576ebd5e5fb1a207e991dc15f479ad935bb",
-            "88aed14d522c5f67189379584128227e8e8b953e"
+            "88aed14d522c5f67189379584128227e8e8b953e",
+            "8177023cc05077c52c9d013a0945bbb88a50ac71"
         ]
     },
     "capabilities": [
@@ -1522,7 +1523,8 @@
                 "bb67bbc1416b46a2038480649597aa553b0d7f7f",
                 "6cef6f649a14d34e27017d4a11fc88758c489b58",
                 "e67775d6c0f4827a62f002cd4812d353d6b6d0e7",
-                "17ab4dde576090e944e6ea67c3db8133929a3ffb"
+                "17ab4dde576090e944e6ea67c3db8133929a3ffb",
+                "19f2c80fd79ef0a9392595259e9367c09c26404c"
             ],
             "behaviors": [
                 "ARCH-CI-QUALITY-GATE-001",

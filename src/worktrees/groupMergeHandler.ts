@@ -131,8 +131,10 @@ async function executeMergeWorktreeGroups(
                 errorCode: /^[a-z0-9-]{1,64}$/u.test(code) ? code : 'merge-failed',
             });
     }
-    // Fire-and-forget, exactly as the inline handler did.
-    void deps.refreshNow();
+    // The pending merge resolves only through the authoritative
+    // replacement, so delivery must be awaited before the terminal
+    // settlement posts (review R6) — same ordering as rename/adopt/deletion.
+    await deps.refreshNow();
     return settledWorktreeGroupMergeSettlement(
         request, { kind: 'merged', groupId: chosen.groupId });
 }

@@ -82,6 +82,12 @@ function initProjectAiSessionControls(options) {
     var pendingManagedWorktreeRemovalRequests = new Map();
     var nextMergeWorktreeGroupsRequestId = 0;
     var pendingMergeWorktreeGroupsRequests = new Map();
+    // A per-document nonce keeps merge request ids unique across webview
+    // reloads (review R6): the host replay cache outlives the document, so
+    // without it a reloaded document's `worktree-merge-1` would correlate
+    // with the previous document's cached settlement and never execute.
+    // Same pattern as rename/adopt/deletion.
+    var worktreeMergeDocumentNonce = Math.random().toString(36).slice(2, 10);
     var nextSetGroupPrimaryRequestId = 0;
     var pendingSetGroupPrimaryRequests = new Map();
     var worktreeGroupForm = null;
@@ -959,7 +965,8 @@ function initProjectAiSessionControls(options) {
         if (pendingMergeWorktreeGroupsRequests.size > 0) return;
         nextMergeWorktreeGroupsRequestId = nextMergeWorktreeGroupsRequestId
             >= Number.MAX_SAFE_INTEGER ? 1 : nextMergeWorktreeGroupsRequestId + 1;
-        var requestId = 'worktree-merge-' + nextMergeWorktreeGroupsRequestId.toString(36);
+        var requestId = 'worktree-merge-' + worktreeMergeDocumentNonce
+            + '-' + nextMergeWorktreeGroupsRequestId.toString(36);
         actionElement.setAttribute('aria-disabled', 'true');
         pendingMergeWorktreeGroupsRequests.set(requestId, {
             actionElement: actionElement,

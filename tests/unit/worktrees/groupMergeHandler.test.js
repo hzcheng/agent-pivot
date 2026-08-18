@@ -116,6 +116,21 @@ test('WORKTREE-GROUPS-MERGE-001 the host re-derives candidates, merges with the 
     assert.equal(shown.refreshed, 1);
 });
 
+test('WORKTREE-GROUPS-MERGE-001 the merged settlement waits for the authoritative refresh (review R6)', async () => {
+    const { store, deps, posted } = await fixture();
+    let releaseRefresh;
+    deps.refreshNow = () => new Promise(resolve => { releaseRefresh = resolve; });
+    const groups = store.listGroups(WORKSPACE);
+    deps.pickResult = { label: 'Fix login (2)', groupId: groups[1].groupId };
+    const handler = handleMergeWorktreeGroups(mergeRequest(groups[0].groupId), deps);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(statuses(posted), ['accepted'],
+        'the terminal settlement is not posted before the refresh completes');
+    releaseRefresh();
+    await handler;
+    assert.deepEqual(statuses(posted), ['accepted', 'merged']);
+});
+
 test('WORKTREE-GROUPS-MERGE-001 a replay is settled from the cache and never re-executes', async () => {
     const { store, deps, posted } = await fixture();
     const groups = store.listGroups(WORKSPACE);

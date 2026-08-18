@@ -2,7 +2,7 @@
 
 /**
  * Webview declared-manifest enforcement (Harness v0, program Stage 2 PR 5;
- * charter v3 Section 8.6).
+ * charter v3 Section 8.6; symbol-level model from review R7).
  *
  * The 37 src/webview/*.js scripts carry no static imports, so the module
  * graph cannot police them. This check enforces the declared manifest
@@ -10,18 +10,28 @@
  * - membership: every production webview script belongs to exactly one bundle;
  * - load order: the manifest mirrors the builders (bundle inputPaths and the
  *   conversation viewer document) and drift in either direction fails;
- * - globals: every cross-script window.* reference must be declared in
- *   permittedGlobals, and dynamic window[...] access fails closed.
+ * - globals, closed-world: EVERY window.* or globalThis.* reference must be
+ *   declared — an undeclared custom property fails. Script-produced symbols
+ *   have exactly one producer (proven by an assignment in that file) and an
+ *   exact consumers set; producer and consumers share one bundle; a consumer
+ *   with a load-time (top-level) read must load after the producer. host /
+ *   vendor / builtin entries model symbols the scripts never produce.
+ * - evasion forms fail closed: dynamic window[...] / globalThis[...] access,
+ *   bare (unprefixed) references to declared globals, and script writes to
+ *   host/vendor/builtin symbols.
+ * - staleness: a declared symbol nobody references fails; a declared consumer
+ *   that never reads fails; an undeclared reader fails.
  */
 
 const fs = require('fs');
 const path = require('path');
+const ts = require('typescript');
 
 const MANIFEST_PATH = path.join('docs', 'testing', 'architecture-webview-manifest.json');
 const BUNDLE_BUILDER = path.join('scripts', 'build-dashboard-webview-bundle.js');
 const VIEWER_DOCUMENT = path.join('src', 'aiSessions', 'conversation', 'viewerDocument.ts');
-const GLOBAL_REFERENCE = /window\.(__agentPivot[A-Za-z0-9]*|vscode|mermaid|DOMPurify|fitty|dragula|domAutoscroller)\b/g;
-const DYNAMIC_GLOBAL_ACCESS = /window\s*\[/g;
+const SYMBOL_PATTERN = /^window\.[A-Za-z_$][A-Za-z0-9_$]*$/;
+const PRODUCER_KINDS = ['host', 'vendor', 'builtin'];
 
 function readJson(rootDirectory, relativePath, errors) {
     try {
@@ -32,7 +42,7 @@ function readJson(rootDirectory, relativePath, errors) {
     }
 }
 
-function checkBundleOrder(rootDirectory, errors) {
+function checkBundleOrder(rootDirectory) {
     const builderText = fs.readFileSync(path.join(rootDirectory, BUNDLE_BUILDER), 'utf8');
     const builderOrder = [...builderText.matchAll(/'(src\/webview\/[^']+\.js)'/g)]
         .map(match => match[1]);
@@ -42,16 +52,119 @@ function checkBundleOrder(rootDirectory, errors) {
     return { builderOrder, viewerOrder };
 }
 
+/** window/globalThis usage in one script: writes, reads, load-time reads, dynamic access, bare references. */
+function analyzeScript(rootDirectory, script, declaredBareNames) {
+    const text = fs.readFileSync(path.join(rootDirectory, script), 'utf8');
+    const sourceFile = ts.createSourceFile(
+        script, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    const writes = new Set();
+    const reads = new Set();
+    const loadTimeReads = new Set();
+    const dynamicAccess = [];
+    const bareReferences = [];
+    const visit = node => {
+        if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+            && (node.expression.text === 'window' || node.expression.text === 'globalThis')) {
+            const symbol = `window.${node.name.text}`;
+            const parent = node.parent;
+            const isWrite = parent && ts.isBinaryExpression(parent)
+                && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                && parent.left === node;
+            if (isWrite) {
+                writes.add(symbol);
+            } else {
+                reads.add(symbol);
+                let enclosing = node.parent;
+                let deferred = false;
+                while (enclosing) {
+                    if (ts.isFunctionLike(enclosing)) { deferred = true; break; }
+                    enclosing = enclosing.parent;
+                }
+                if (!deferred) { loadTimeReads.add(symbol); }
+            }
+        } else if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression)
+            && (node.expression.text === 'window' || node.expression.text === 'globalThis')) {
+            dynamicAccess.push(`${node.expression.text}[...]`);
+        } else if (ts.isIdentifier(node) && declaredBareNames.has(node.text)) {
+            const parent = node.parent;
+            const isPropertyName = parent && ts.isPropertyAccessExpression(parent)
+                && parent.name === node;
+            const isAssignmentKey = parent && ts.isPropertyAssignment(parent)
+                && parent.name === node;
+            if (!isPropertyName && !isAssignmentKey) {
+                bareReferences.push(node.text);
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return {
+        writes, reads, loadTimeReads,
+        dynamicAccess: [...new Set(dynamicAccess)].sort(),
+        bareReferences: [...new Set(bareReferences)].sort(),
+    };
+}
+
+function validateGlobalsSchema(manifest, bundleOf, rootDirectory, errors) {
+    const globals = Array.isArray(manifest.globals) ? manifest.globals : [];
+    if (globals.length === 0) {
+        errors.push('webview-manifest: globals must be a non-empty array');
+        return new Map();
+    }
+    const seen = new Map();
+    for (const entry of globals) {
+        const label = `webview-manifest: global ${entry && entry.symbol ? entry.symbol : '<missing symbol>'}`;
+        if (!entry || typeof entry.symbol !== 'string' || !SYMBOL_PATTERN.test(entry.symbol)) {
+            errors.push(`${label}: symbol must match ${SYMBOL_PATTERN}`);
+            continue;
+        }
+        if (seen.has(entry.symbol)) {
+            errors.push(`${label}: duplicate symbol declaration`);
+            continue;
+        }
+        const producer = entry.producer;
+        const isScriptProducer = typeof producer === 'string'
+            && !PRODUCER_KINDS.includes(producer);
+        if (typeof producer !== 'string'
+            || (!isScriptProducer && !PRODUCER_KINDS.includes(producer))) {
+            errors.push(`${label}: producer must be a script path or one of ${PRODUCER_KINDS.join(', ')}`);
+            continue;
+        }
+        if (isScriptProducer) {
+            if (!bundleOf.has(producer)) {
+                errors.push(`${label}: producer ${producer} is not a bundle member`);
+            } else if (!fs.existsSync(path.join(rootDirectory, producer))) {
+                errors.push(`${label}: producer ${producer} does not exist`);
+            }
+            if (!Array.isArray(entry.consumers)) {
+                errors.push(`${label}: consumers must be an array of bundle member scripts`);
+            } else {
+                for (const consumer of entry.consumers) {
+                    if (!bundleOf.has(consumer)) {
+                        errors.push(`${label}: consumer ${consumer} is not a bundle member`);
+                    } else if (bundleOf.get(consumer) !== bundleOf.get(producer)) {
+                        errors.push(`${label}: consumer ${consumer} is in bundle `
+                            + `'${bundleOf.get(consumer)}' but the producer ${producer} is in `
+                            + `'${bundleOf.get(producer)}' (cross-bundle globals are forbidden)`);
+                    }
+                }
+            }
+        } else if (entry.consumers !== undefined) {
+            errors.push(`${label}: ${producer} symbols must not declare consumers`);
+        }
+        seen.set(entry.symbol, entry);
+    }
+    return seen;
+}
+
 function runWebviewManifestCheck(rootDirectory) {
     const errors = [];
     const manifest = readJson(rootDirectory, MANIFEST_PATH, errors);
     if (!manifest) { return { errors }; }
-    if (manifest.version !== 1) {
-        errors.push('webview-manifest: version must be 1');
+    if (manifest.version !== 2) {
+        errors.push('webview-manifest: version must be 2 (symbol-level globals, review R7)');
     }
     const bundles = Array.isArray(manifest.bundles) ? manifest.bundles : [];
-    const permittedGlobals = new Set(
-        Array.isArray(manifest.permittedGlobals) ? manifest.permittedGlobals : []);
 
     // Membership: exact-once over src/webview/*.js, and every entry exists.
     const membership = new Map();
@@ -80,7 +193,7 @@ function runWebviewManifestCheck(rootDirectory) {
     }
 
     // Load-order fidelity with the builders.
-    const { builderOrder, viewerOrder } = checkBundleOrder(rootDirectory, errors);
+    const { builderOrder, viewerOrder } = checkBundleOrder(rootDirectory);
     for (const bundle of bundles) {
         if (bundle.id === 'dashboard') {
             if (JSON.stringify(bundle.scripts) !== JSON.stringify(builderOrder)) {
@@ -96,22 +209,101 @@ function runWebviewManifestCheck(rootDirectory) {
         }
     }
 
-    // Cross-script globals must be declared; dynamic access fails closed.
+    // Symbol-level globals (review R7).
+    const globalsBySymbol = validateGlobalsSchema(manifest, membership, rootDirectory, errors);
+    const bundleIndex = new Map();
+    for (const bundle of bundles) {
+        (bundle.scripts || []).forEach((script, index) => bundleIndex.set(script, index));
+    }
+    const scriptGlobals = new Map([...globalsBySymbol]
+        .filter(([, entry]) => !PRODUCER_KINDS.includes(entry.producer)));
+    const declaredBareNames = new Set(
+        [...scriptGlobals.keys()].map(symbol => symbol.slice('window.'.length)));
+
+    const referencedSymbols = new Set();
+    const actualReaders = new Map();
+    const actualWriters = new Map();
     for (const script of scriptsOnDisk) {
-        const text = fs.readFileSync(path.join(rootDirectory, script), 'utf8');
-        DYNAMIC_GLOBAL_ACCESS.lastIndex = 0;
-        if (DYNAMIC_GLOBAL_ACCESS.test(text)) {
-            errors.push(`webview-manifest: ${script} uses dynamic window[...] access, `
+        const analysis = analyzeScript(rootDirectory, script, declaredBareNames);
+        for (const form of analysis.dynamicAccess) {
+            errors.push(`webview-manifest: ${script} uses dynamic ${form} access, `
                 + 'which evades the declared-global policy');
         }
-        GLOBAL_REFERENCE.lastIndex = 0;
-        let match;
-        while ((match = GLOBAL_REFERENCE.exec(text))) {
-            const global_ = `window.${match[1]}`;
-            if (!permittedGlobals.has(global_)) {
-                errors.push(`webview-manifest: ${script} references undeclared global `
-                    + `${global_} — declare it in ${MANIFEST_PATH}`);
+        for (const bare of analysis.bareReferences) {
+            errors.push(`webview-manifest: ${script} references the declared global `
+                + `window.${bare} without the window./globalThis. prefix — bare globals evade `
+                + 'the manifest policy');
+        }
+        for (const symbol of [...analysis.writes, ...analysis.reads]) {
+            referencedSymbols.add(symbol);
+        }
+        for (const symbol of analysis.writes) {
+            if (!actualWriters.has(symbol)) { actualWriters.set(symbol, new Set()); }
+            actualWriters.get(symbol).add(script);
+            const entry = globalsBySymbol.get(symbol);
+            if (!entry) {
+                errors.push(`webview-manifest: ${script} assigns undeclared global ${symbol}`
+                    + ` — declare it in ${MANIFEST_PATH}`);
+            } else if (PRODUCER_KINDS.includes(entry.producer)) {
+                errors.push(`webview-manifest: ${script} assigns ${symbol}, which is declared as `
+                    + `${entry.producer}-produced — a script must not spoof it`);
+            } else if (entry.producer !== script) {
+                errors.push(`webview-manifest: ${script} assigns ${symbol}, whose only declared `
+                    + `producer is ${entry.producer}`);
             }
+        }
+        for (const symbol of analysis.reads) {
+            if (!actualReaders.has(symbol)) { actualReaders.set(symbol, new Set()); }
+            actualReaders.get(symbol).add(script);
+            const entry = globalsBySymbol.get(symbol);
+            if (!entry) {
+                errors.push(`webview-manifest: ${script} references undeclared global `
+                    + `${symbol} — declare it in ${MANIFEST_PATH}`);
+                continue;
+            }
+            if (!PRODUCER_KINDS.includes(entry.producer)
+                && entry.producer !== script
+                && !(entry.consumers || []).includes(script)) {
+                errors.push(`webview-manifest: ${script} reads ${symbol} but is neither its `
+                    + 'producer nor a declared consumer');
+            }
+            if (!PRODUCER_KINDS.includes(entry.producer) && entry.producer !== script
+                && analysis.loadTimeReads.has(symbol)) {
+                const producerBundle = membership.get(entry.producer);
+                const consumerBundle = membership.get(script);
+                if (producerBundle && consumerBundle && producerBundle === consumerBundle
+                    && bundleIndex.get(entry.producer) > bundleIndex.get(script)) {
+                    errors.push(`webview-manifest: ${script} reads ${symbol} at load time but `
+                        + `loads before its producer ${entry.producer} in the ${producerBundle} `
+                        + 'bundle — defer the read or fix the load order');
+                }
+            }
+        }
+    }
+    for (const [symbol, entry] of globalsBySymbol) {
+        if (!referencedSymbols.has(symbol)) {
+            errors.push(`webview-manifest: ${symbol} is declared but never referenced — stale entry`);
+            continue;
+        }
+        if (PRODUCER_KINDS.includes(entry.producer)) { continue; }
+        const writers = actualWriters.get(symbol) || new Set();
+        if (!writers.has(entry.producer)) {
+            errors.push(`webview-manifest: ${entry.producer} never assigns ${symbol} `
+                + '— the declared producer must produce it');
+        }
+        const declaredConsumers = new Set(entry.consumers || []);
+        const readers = new Set(actualReaders.get(symbol) || []);
+        readers.delete(entry.producer);
+        const missing = [...readers].filter(script => !declaredConsumers.has(script));
+        const extra = [...declaredConsumers].filter(script => !readers.has(script)
+            && script !== entry.producer);
+        if (missing.length > 0) {
+            errors.push(`webview-manifest: ${symbol} is read by undeclared consumer(s): `
+                + missing.join(', '));
+        }
+        if (extra.length > 0) {
+            errors.push(`webview-manifest: ${symbol} declares consumer(s) that never read it: `
+                + extra.join(', '));
         }
     }
     return { errors };
@@ -126,7 +318,7 @@ function main() {
         return;
     }
     console.log('Webview manifest checks passed: exact-once membership, load-order '
-        + 'fidelity with both builders, and all cross-script globals declared.');
+        + 'fidelity with both builders, and closed-world symbol-level globals.');
 }
 
 if (require.main === module) { main(); }

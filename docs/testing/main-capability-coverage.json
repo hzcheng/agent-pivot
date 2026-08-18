@@ -2244,14 +2244,16 @@
                 "8d27256aaefe7d1eee5c021cf8058da9e2a58c8c",
                 "33dd08d563b7d9e1e04352c4869af6f10fad9b2e",
                 "1b69d7ed8be4f331227185c364ea43a1259a9688",
-                "fce4b85cacbaae9b3d7d74404c8f21ec6ace1b3d"
+                "fce4b85cacbaae9b3d7d74404c8f21ec6ace1b3d",
+                "2808223b86429bdc11bb7bf3e61d81e225e43a2f"
             ],
             "behaviors": [
                 "WORKTREE-GROUPS-BASELINE-001",
                 "WORKTREE-CHANGES-COLLECT-001",
                 "WORKTREE-CHANGES-PANEL-001",
                 "WORKTREE-GROUPS-CREATE-001",
-                "WORKTREE-GROUPS-CREATE-HANDLER-001"
+                "WORKTREE-GROUPS-CREATE-HANDLER-001",
+                "WORKTREE-GROUPS-MERGE-001"
             ],
             "prGates": [
                 "test:deterministic:run",

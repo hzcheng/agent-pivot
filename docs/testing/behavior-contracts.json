@@ -6710,5 +6710,35 @@
       "scripts/architecture/loadArchitecturePolicy.js",
       "docs/testing/architecture-modules.json"
     ]
+  },
+  {
+    "id": "ARCH-MODULE-BOUNDARY-001",
+    "domain": "architecture",
+    "title": "Every cross-module import edge is declared in mayDependOn and lands on a declared public entrypoint of the target module",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/architecture/moduleBoundaries.test.js"
+    ],
+    "evidence": [
+      "scripts/architecture/checkModuleBoundaries.js",
+      "scripts/architecture/buildDependencyGraph.js",
+      "docs/testing/architecture-modules.json"
+    ]
+  },
+  {
+    "id": "ARCH-MODULE-CYCLE-001",
+    "domain": "architecture",
+    "title": "Module-level value-edge cycles are ratcheted through an exact fingerprint baseline paired bijectively with the waiver ledger; new cycle debt fails and stale entries fail",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/architecture/moduleBoundaries.test.js"
+    ],
+    "evidence": [
+      "scripts/architecture/checkModuleBoundaries.js",
+      ".ci/architecture-debt-baseline.json",
+      "docs/testing/architecture-waivers.json"
+    ]
   }
 ]

@@ -30,7 +30,8 @@ function report(overrides = {}) {
         protectedTouched: [],
         policyDelta: {
             mayDependOnGrown: {},
-            writersGrown: {},
+            invariantChanges: {},
+            invariantsRemoved: [],
             baselineGrown: [],
             waiversAdded: [],
             modulesChanged: false,
@@ -53,7 +54,21 @@ test('ARCH-CHANGE-GATE-001 tightening (baseline shrink) passes without a record'
     const result = classifyArchitectureChange(report({
         protectedTouched: ['.ci/architecture-debt-baseline.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {}, waiversAdded: [],
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [], waiversAdded: [],
+            baselineGrown: [], modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'tightening');
+    assert.deepEqual(result.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 tightening (pure writer removal) passes without a record (review R9)', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-invariants.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            invariantChanges: { 'ARCH-X-001': { writersRemoved: ['src/old-writer.ts'] } },
+            invariantsRemoved: [], waiversAdded: [],
             baselineGrown: [], modulesChanged: true,
         },
     }));
@@ -65,7 +80,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: baseline growth without a record
     const result = classifyArchitectureChange(report({
         protectedTouched: ['.ci/architecture-debt-baseline.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {}, waiversAdded: [],
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [], waiversAdded: [],
             baselineGrown: ['2:MOD-A->MOD-B'], modulesChanged: true,
         },
     }));
@@ -77,7 +92,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: baseline growth without a record
         newFiles: RECORD,
         protectedTouched: ['.ci/architecture-debt-baseline.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {}, waiversAdded: [],
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [], waiversAdded: [],
             baselineGrown: ['2:MOD-A->MOD-B'], modulesChanged: true,
         },
     }));
@@ -90,7 +105,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: broadening mayDependOn without a
     const result = classifyArchitectureChange(report({
         protectedTouched: ['docs/testing/architecture-modules.json'],
         policyDelta: {
-            mayDependOnGrown: { 'MOD-A': ['MOD-B'] }, writersGrown: {},
+            mayDependOnGrown: { 'MOD-A': ['MOD-B'] }, invariantChanges: {}, invariantsRemoved: [],
             baselineGrown: [], waiversAdded: [], modulesChanged: true,
         },
     }));
@@ -98,12 +113,64 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: broadening mayDependOn without a
     assert.ok(result.errors.some(error => error.includes('ARCH-CHANGE')));
 });
 
+test('ARCH-CHANGE-GATE-001 controlled mutation: a same-size writer replacement is relaxing (review R9)', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-invariants.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            invariantChanges: {
+                'ARCH-X-001': {
+                    writersAdded: ['src/new-writer.ts'],
+                    writersRemoved: ['src/old-writer.ts'],
+                },
+            },
+            invariantsRemoved: [], baselineGrown: [], waiversAdded: [], modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: authority, statement, and state-family edits are relaxing (review R9)', () => {
+    for (const change of [
+        { authorityChanged: true },
+        { statementChanged: true },
+        { linearizationPointChanged: true },
+        { stateFamilyChanged: true },
+    ]) {
+        const result = classifyArchitectureChange(report({
+            protectedTouched: ['docs/testing/architecture-invariants.json'],
+            policyDelta: {
+                mayDependOnGrown: {},
+                invariantChanges: { 'ARCH-X-001': change },
+                invariantsRemoved: [], baselineGrown: [], waiversAdded: [], modulesChanged: true,
+            },
+        }));
+        assert.equal(result.classification, 'relaxing', JSON.stringify(change));
+        assert.ok(result.errors.length > 0, JSON.stringify(change));
+    }
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: removing an invariant is relaxing (review R9)', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-invariants.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, invariantChanges: {},
+            invariantsRemoved: ['ARCH-X-001'],
+            baselineGrown: [], waiversAdded: [], modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
 test('ARCH-CHANGE-GATE-001 controlled mutation: growing a writer set without a record fails', () => {
     const result = classifyArchitectureChange(report({
         protectedTouched: ['docs/testing/architecture-invariants.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: { 'ARCH-X-001': ['src/new-writer.ts'] },
-            baselineGrown: [], waiversAdded: [], modulesChanged: true,
+            mayDependOnGrown: {},
+            invariantChanges: { 'ARCH-X-001': { writersAdded: ['src/new-writer.ts'] } },
+            invariantsRemoved: [], baselineGrown: [], waiversAdded: [], modulesChanged: true,
         },
     }));
     assert.equal(result.classification, 'relaxing');
@@ -114,7 +181,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: adding a waiver without a record
     const result = classifyArchitectureChange(report({
         protectedTouched: ['docs/testing/architecture-waivers.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {},
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [],
             baselineGrown: [], waiversAdded: ['ARCH-WAIVER-009'], modulesChanged: true,
         },
     }));
@@ -126,7 +193,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: registry re-partition without a 
     const result = classifyArchitectureChange(report({
         protectedTouched: ['docs/testing/architecture-modules.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {},
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [],
             baselineGrown: [], waiversAdded: [], modulesChanged: true,
         },
     }));
@@ -138,7 +205,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: registry re-partition without a 
         newFiles: RECORD,
         protectedTouched: ['docs/testing/architecture-modules.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {},
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [],
             baselineGrown: [], waiversAdded: [], modulesChanged: true,
         },
     }));
@@ -293,7 +360,8 @@ test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
         baseRecords: [{ path: 'docs/architecture/changes/ARCH-CHANGE-001.md', text: 'x' }],
         policyDelta: {
             mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] },
-            writersGrown: { 'ARCH-X-001': ['src/writer.ts'] },
+            invariantChanges: { 'ARCH-X-001': { writersAdded: ['src/writer.ts'] } },
+            invariantsRemoved: [],
             baselineGrown: ['2:MOD-A->MOD-B'],
             waiversAdded: ['ARCH-WAIVER-009'],
             modulesChanged: true,
@@ -302,7 +370,7 @@ test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
     for (const fragment of [
         'MOD-ALPHA', 'src/alpha/new.ts', 'src/alpha/old.ts',
         'architecture-modules.json', 'mayDependOn broadened: MOD-ALPHA += MOD-BETA',
-        'writers broadened: ARCH-X-001 += src/writer.ts',
+        'invariant changed: ARCH-X-001 (writers += src/writer.ts)',
         'baseline grew: 2:MOD-A->MOD-B', 'waivers added: ARCH-WAIVER-009',
         'architecture change records in base: 1',
     ]) {
@@ -372,19 +440,46 @@ test('ARCH-CHANGE-GATE-001 the policy delta covers invariants, baseline, and wai
         { version: 1, rules: { 'module-cycle': { fingerprints: ['2:MOD-A->MOD-B'] } } });
 
     const report = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
-    assert.deepEqual(report.policyDelta.writersGrown, { 'ARCH-TEST-001': ['src/alpha/b.ts'] });
+    assert.deepEqual(report.policyDelta.invariantChanges, {
+        'ARCH-TEST-001': { writersAdded: ['src/alpha/b.ts'] },
+    });
     assert.deepEqual(report.policyDelta.waiversAdded, ['ARCH-WAIVER-009']);
     assert.deepEqual(report.policyDelta.baselineGrown, ['2:MOD-A->MOD-B']);
 
-    // An authority move (writer set shrinks while gaining the new authority
-    // file) is tightening, not broadening.
+    // Review R9 (Important 4): a same-size writer replacement is a semantic
+    // change, not a tightening — only a pure removal with an unchanged
+    // authority shrinks the writer set.
     write('docs/testing/architecture-invariants.json', {
         version: 1,
         invariants: [{ ...invariant, writers: ['src/alpha/coordinator.ts'] }],
     });
     const moved = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
-    assert.deepEqual(moved.policyDelta.writersGrown, {},
-        'a shrunk writer set with a replacement is not broadening');
+    assert.deepEqual(moved.policyDelta.invariantChanges, {
+        'ARCH-TEST-001': {
+            writersAdded: ['src/alpha/coordinator.ts'],
+            writersRemoved: ['src/alpha/a.ts'],
+        },
+    }, 'a replaced writer is detected as change, never silently tightening');
+    write('docs/testing/architecture-invariants.json', {
+        version: 1,
+        invariants: [{ ...invariant, writers: [] }],
+    });
+    const shrunk = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(shrunk.policyDelta.invariantChanges, {
+        'ARCH-TEST-001': { writersRemoved: ['src/alpha/a.ts'] },
+    }, 'a pure writer removal is the only tightening form');
+    // Authority, statement, and removal detection.
+    write('docs/testing/architecture-invariants.json', {
+        version: 1,
+        invariants: [{ ...invariant, authority: { path: 'src/alpha/a.ts', symbol: 'b' } }],
+    });
+    const authorityMoved = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(authorityMoved.policyDelta.invariantChanges, {
+        'ARCH-TEST-001': { authorityChanged: true },
+    });
+    write('docs/testing/architecture-invariants.json', { version: 1, invariants: [] });
+    const removed = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(removed.policyDelta.invariantsRemoved, ['ARCH-TEST-001']);
 });
 
 test('ARCH-CHANGE-GATE-001 the harness delta detects removed guard ids, invocations, and shrunk mutation tests', () => {
@@ -480,7 +575,8 @@ function relaxingReport({ delta = {}, baseRecords = [], newFiles = [] } = {}) {
         protectedTouched: ['docs/testing/architecture-modules.json'],
         policyDelta: {
             mayDependOnGrown: { 'MOD-A': ['MOD-B'] },
-            writersGrown: {}, baselineGrown: [], waiversAdded: [],
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [],
             modulesChanged: true,
             ...delta,
         },
@@ -498,8 +594,8 @@ test('ARCH-CHANGE-GATE-001 parser accepts a valid machine-summary block and appl
     assert.equal(record.status, 'approved');
     assert.deepEqual(record.modules, ['MOD-A']);
     assert.deepEqual(record.delta, {
-        mayDependOnGrown: {}, writersGrown: {}, baselineGrown: [],
-        waiversAdded: [], rePartition: false, harnessWeakening: false,
+        mayDependOnGrown: {}, baselineGrown: [],
+        waiversAdded: [], invariantChanges: [], rePartition: false, harnessWeakening: false,
     });
 });
 
@@ -576,7 +672,7 @@ test('ARCH-CHANGE-GATE-001 a re-partition requires a record declaring rePartitio
     const rePartitionReport = delta => report({
         protectedTouched: ['docs/testing/architecture-modules.json'],
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {}, baselineGrown: [],
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [], baselineGrown: [],
             waiversAdded: [], modulesChanged: true,
         },
         baseRecords: [{ path: RECORD_PATH, text: recordMarkdown({ delta }) }],
@@ -618,7 +714,7 @@ test('ARCH-CHANGE-GATE-001 coversPolicyDelta checks every delta dimension', () =
         text: recordMarkdown({
             delta: {
                 mayDependOnGrown: { 'MOD-A': ['MOD-B'] },
-                writersGrown: { 'ARCH-X-001': ['src/writer.ts'] },
+                invariantChanges: ['ARCH-X-001'],
                 baselineGrown: ['2:MOD-A->MOD-B'],
                 waiversAdded: ['ARCH-WAIVER-009'],
                 rePartition: true,
@@ -626,24 +722,46 @@ test('ARCH-CHANGE-GATE-001 coversPolicyDelta checks every delta dimension', () =
             },
         }),
     }).record;
-    const actualFor = overrides => ({
+    const actualFor = (overrides, relaxingInvariantIds = []) => ({
         policyDelta: {
-            mayDependOnGrown: {}, writersGrown: {}, baselineGrown: [],
+            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [], baselineGrown: [],
             waiversAdded: [], modulesChanged: true,
             ...overrides,
         },
         harnessWeakened: false,
         rePartition: false,
+        relaxingInvariantIds,
     });
     assert.equal(coversPolicyDelta(record, actualFor({ mayDependOnGrown: { 'MOD-A': ['MOD-B'] } })).covered, true);
     assert.equal(coversPolicyDelta(record, actualFor({ mayDependOnGrown: { 'MOD-A': ['MOD-Z'] } })).covered, false);
-    assert.equal(coversPolicyDelta(record, actualFor({ writersGrown: { 'ARCH-X-001': ['src/other.ts'] } })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({}, ['ARCH-X-001'])).covered, true);
+    assert.equal(coversPolicyDelta(record, actualFor({}, ['ARCH-X-002'])).covered, false);
     assert.equal(coversPolicyDelta(record, actualFor({ baselineGrown: ['2:MOD-X->MOD-Y'] })).covered, false);
     assert.equal(coversPolicyDelta(record, actualFor({ waiversAdded: ['ARCH-WAIVER-010'] })).covered, false);
     assert.equal(coversPolicyDelta(record, { ...actualFor({}), rePartition: false }).covered, true);
     assert.equal(coversPolicyDelta(
         parseArchitectureChangeRecord({ path: RECORD_PATH, text: recordMarkdown() }).record,
         { ...actualFor({}), rePartition: true }).covered, false);
+});
+
+test('ARCH-CHANGE-GATE-001 an invariant semantic change is covered only by a declared invariantChanges entry (review R9)', () => {
+    const invariantReport = (change, recordDelta) => classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-invariants.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            invariantChanges: { 'ARCH-X-001': change },
+            invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], modulesChanged: true,
+        },
+        baseRecords: [{ path: RECORD_PATH, text: recordMarkdown({ delta: recordDelta }) }],
+    }));
+    const covered = invariantReport({ authorityChanged: true }, { invariantChanges: ['ARCH-X-001'] });
+    assert.deepEqual(covered.errors, []);
+    const uncovered = invariantReport({ authorityChanged: true }, { invariantChanges: ['ARCH-X-002'] });
+    assert.ok(uncovered.errors.some(error => error.includes('invariant changed: ARCH-X-001')),
+        JSON.stringify(uncovered.errors));
+    const undeclared = invariantReport({ authorityChanged: true }, {});
+    assert.ok(undeclared.errors.length > 0);
 });
 
 test('ARCH-CHANGE-GATE-001 collectArchitectureDiff reads records from the base ref only', () => {

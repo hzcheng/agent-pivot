@@ -30,8 +30,8 @@ const ARCH_CHANGE_ID_PATTERN = /^ARCH-CHANGE-[A-Z0-9-]+$/;
 const RECORDS_DIRECTORY = 'docs/architecture/changes/';
 const BLOCK_PATTERN = /```arch-change\s*\r?\n([\s\S]*?)```/;
 
-const DELTA_MAP_KEYS = ['mayDependOnGrown', 'writersGrown'];
-const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded'];
+const DELTA_MAP_KEYS = ['mayDependOnGrown'];
+const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded', 'invariantChanges'];
 const DELTA_FLAG_KEYS = ['rePartition', 'harnessWeakening'];
 const DELTA_KEYS = [...DELTA_MAP_KEYS, ...DELTA_LIST_KEYS, ...DELTA_FLAG_KEYS];
 
@@ -122,9 +122,9 @@ function parseArchitectureChangeRecord({ path: recordPath, text }) {
 
     const delta = {
         mayDependOnGrown: rawDelta.mayDependOnGrown || {},
-        writersGrown: rawDelta.writersGrown || {},
         baselineGrown: rawDelta.baselineGrown || [],
         waiversAdded: rawDelta.waiversAdded || [],
+        invariantChanges: rawDelta.invariantChanges || [],
         rePartition: rawDelta.rePartition === true,
         harnessWeakening: rawDelta.harnessWeakening === true,
     };
@@ -162,16 +162,18 @@ function missingListEntries(actual, declared, label) {
 /**
  * Does the record's declared delta cover the actual policy delta?
  * coversPolicyDelta(record, actual) -> { covered, missing } where actual is
- * { policyDelta, harnessWeakened, rePartition }.
+ * { policyDelta, harnessWeakened, rePartition, relaxingInvariantIds }.
+ * Invariant coverage is by id: every invariant whose semantic fields changed
+ * (or that was removed) must be declared in the record's invariantChanges.
  */
 function coversPolicyDelta(record, actual) {
-    const { policyDelta, harnessWeakened, rePartition } = actual;
+    const { policyDelta, harnessWeakened, rePartition, relaxingInvariantIds } = actual;
     const { delta } = record;
     const missing = [
         ...missingMapEntries(policyDelta.mayDependOnGrown, delta.mayDependOnGrown, 'mayDependOn broadened'),
-        ...missingMapEntries(policyDelta.writersGrown, delta.writersGrown, 'writers broadened'),
         ...missingListEntries(policyDelta.baselineGrown, delta.baselineGrown, 'baseline grew'),
         ...missingListEntries(policyDelta.waiversAdded, delta.waiversAdded, 'waiver added'),
+        ...missingListEntries(relaxingInvariantIds || [], delta.invariantChanges, 'invariant changed'),
     ];
     if (rePartition && !delta.rePartition) {
         missing.push('registry re-partition not declared');

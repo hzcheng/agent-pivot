@@ -11,7 +11,12 @@ const {
 } = require('../../../scripts/architecture/checkArchitectureChange');
 const {
     collectArchitectureDiff,
+    defaultGit,
+    formatReport,
 } = require('../../../scripts/architecture/reportArchitectureDiff');
+const {
+    runArchitectureChangeCheck,
+} = require('../../../scripts/architecture/checkArchitectureChange');
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
@@ -207,4 +212,111 @@ test('ARCH-CHANGE-GATE-001 the report maps changed files to modules and detects 
     const { classification, errors } = classifyArchitectureChange(report);
     assert.equal(classification, 'relaxing');
     assert.ok(errors.some(error => error.includes('ARCH-CHANGE')));
+});
+'use strict';
+
+test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
+    const text = formatReport({
+        baseRef: 'origin/main',
+        errors: [],
+        touchedModules: { 'MOD-ALPHA': ['src/alpha/a.ts'] },
+        newFiles: ['src/alpha/new.ts'],
+        removedFiles: ['src/alpha/old.ts'],
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] },
+            writersGrown: { 'ARCH-X-001': ['src/writer.ts'] },
+            baselineGrown: ['2:MOD-A->MOD-B'],
+            waiversAdded: ['ARCH-WAIVER-009'],
+            modulesChanged: true,
+        },
+    });
+    for (const fragment of [
+        'MOD-ALPHA', 'src/alpha/new.ts', 'src/alpha/old.ts',
+        'architecture-modules.json', 'mayDependOn broadened: MOD-ALPHA += MOD-BETA',
+        'writers broadened: ARCH-X-001 += src/writer.ts',
+        'baseline grew: 2:MOD-A->MOD-B', 'waivers added: ARCH-WAIVER-009',
+    ]) {
+        assert.ok(text.includes(fragment), fragment);
+    }
+});
+
+test('ARCH-CHANGE-GATE-001 the policy delta covers invariants, baseline, and waivers', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-diff-delta-'));
+    const write = (relative, value) => {
+        fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
+        fs.writeFileSync(path.join(root, relative),
+            typeof value === 'string' ? value : JSON.stringify(value, null, 4) + '\n');
+    };
+    write('src/alpha/a.ts', '// a\n');
+    write('docs/testing/architecture-modules.json', {
+        version: 1, scope: { roots: ['src'] },
+        modules: [{
+            id: 'MOD-ALPHA', title: 'A', purpose: 'fixture',
+            source: { include: ['src/**'], exclude: [] }, publicEntrypoints: ['src/**'],
+            mayDependOn: [], roles: [{ role: 'application', include: ['src/**'] }],
+            productCapabilities: ['MAIN-TEST-001'],
+        }],
+    });
+    write('docs/testing/main-capability-coverage.json',
+        { version: 1, capabilities: [{ id: 'MAIN-TEST-001' }] });
+    const invariant = {
+        id: 'ARCH-TEST-001', module: 'MOD-ALPHA', productCapabilities: ['MAIN-TEST-001'],
+        priority: 'P1', kind: 'concurrency', statement: 'fixture',
+        authority: { path: 'src/alpha/a.ts', symbol: 'a' },
+        writers: ['src/alpha/a.ts'], linearizationPoint: 'x', enforcement: [],
+        behaviorOwners: [], guardOwners: [], evidence: [],
+    };
+    write('docs/testing/architecture-invariants.json', { version: 1, invariants: [invariant] });
+    write('docs/testing/architecture-waivers.json', { version: 1, waivers: [] });
+    write('.ci/architecture-debt-baseline.json', { version: 1, rules: { 'module-cycle': { fingerprints: [] } } });
+
+    const baseInvariant = { ...invariant };
+    const git = {
+        changedFiles: () => [
+            { status: 'M', path: 'docs/testing/architecture-invariants.json' },
+            { status: 'M', path: 'docs/testing/architecture-waivers.json' },
+            { status: 'M', path: '.ci/architecture-debt-baseline.json' },
+        ],
+        fileAt: (ref, relativePath) => {
+            if (ref !== 'base') {
+                const absolute = path.join(root, relativePath);
+                return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : null;
+            }
+            if (relativePath.endsWith('architecture-invariants.json')) {
+                return JSON.stringify({ version: 1, invariants: [baseInvariant] });
+            }
+            if (relativePath.endsWith('architecture-waivers.json')) {
+                return JSON.stringify({ version: 1, waivers: [] });
+            }
+            return JSON.stringify({ version: 1, rules: { 'module-cycle': { fingerprints: [] } } });
+        },
+    };
+    // Head adds a writer, a waiver, and a baseline fingerprint.
+    const headInvariants = { version: 1, invariants: [{ ...invariant, writers: ['src/alpha/a.ts', 'src/alpha/b.ts'] }] };
+    write('docs/testing/architecture-invariants.json', headInvariants);
+    write('docs/testing/architecture-waivers.json', {
+        version: 1, waivers: [{ id: 'ARCH-WAIVER-009', fingerprints: [], owner: 'o', reason: 'r', retiresWith: 'W' }],
+    });
+    write('.ci/architecture-debt-baseline.json',
+        { version: 1, rules: { 'module-cycle': { fingerprints: ['2:MOD-A->MOD-B'] } } });
+
+    const report = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(report.policyDelta.writersGrown, { 'ARCH-TEST-001': ['src/alpha/b.ts'] });
+    assert.deepEqual(report.policyDelta.waiversAdded, ['ARCH-WAIVER-009']);
+    assert.deepEqual(report.policyDelta.baselineGrown, ['2:MOD-A->MOD-B']);
+});
+
+test('ARCH-CHANGE-GATE-001 a self-diff against HEAD is a clean product-only report', () => {
+    const report = collectArchitectureDiff({
+        rootDirectory: repoRoot,
+        baseRef: 'HEAD',
+        git: defaultGit(repoRoot),
+    });
+    assert.deepEqual(report.errors, []);
+    assert.deepEqual(report.newFiles, []);
+    assert.deepEqual(report.protectedTouched, []);
+    const result = runArchitectureChangeCheck(repoRoot, 'HEAD');
+    assert.equal(result.classification, 'product-only');
+    assert.deepEqual(result.errors, []);
 });

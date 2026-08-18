@@ -652,6 +652,22 @@ name the coordinator or public API that owns the interaction. The declaration
 does not replace enforcement; it makes semantic intent visible to the owner
 before approval.
 
+The gate enforces the comparison mechanically (review R4):
+
+- the PR body carries exactly one fenced ```` ```change-impact-declaration
+  ```` JSON block, produced by `scripts/generate-change-impact-declaration.js`
+  for the current head; the block binds `headSha`, so a body edit cannot make
+  an old declaration look fresh for a new head;
+- the merge-approval gate checks out the exact head being approved,
+  regenerates the impact report for base..head, and compares: touched
+  architecture modules, changed invariant ids, capability assignments from
+  the main-capability audit (unaudited implementation commits fail), the
+  policy-delta classification, the baseline/waiver delta, and every new
+  classified file with a non-empty reason and a module matching the registry;
+- under-reporting, over-reporting, stale, or malformed declarations post a
+  failure status; the merge-approval status is green only when both the owner
+  approval and the declaration check pass.
+
 ## 9. Invariant Discovery Method
 
 Invariant discovery is performed from repository evidence, not generated from

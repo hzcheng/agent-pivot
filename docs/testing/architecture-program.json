@@ -16,12 +16,17 @@
   ],
   "modules": {
     "MOD-WORKTREE-LIFECYCLE": {
-      "state": "migrating",
-      "since": "pilot slices S1-S5 (PRs #262-#268); strict declaration #269 reverted per W1 review",
+      "state": "strict",
+      "since": "pilot slices S1-S5 (PRs #262-#268) + W1 review repairs R1-R9 (PRs #270-#282)",
       "evidence": [
-        "docs/architecture/stage-1b-pilot-rfc.md"
+        "docs/architecture/stage-1b-pilot-rfc.md",
+        "docs/architecture/changes/ARCH-CHANGE-001.md",
+        "docs/architecture/changes/ARCH-CHANGE-002.md",
+        "docs/architecture/changes/ARCH-CHANGE-003.md",
+        "docs/architecture/changes/ARCH-CHANGE-004.md",
+        "docs/architecture/changes/ARCH-CHANGE-005.md"
       ],
-      "nextAction": "W1 review repair R9/R10, then strict re-acceptance",
+      "nextAction": "none \u2014 pilot complete, strict re-accepted after the W1 review repairs",
       "target": {
         "publicEntrypoints": [
           "src/worktrees/index.ts"

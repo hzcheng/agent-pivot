@@ -6811,5 +6811,19 @@
       "src/dashboard/worktreeGroupFormHandlers.ts",
       "src/dashboard.ts"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-MERGE-001",
+    "domain": "session",
+    "title": "The worktree group merge handler drops malformed or unroutable messages, re-derives candidates host-side, binds both revisions captured when the dialog opened, and fails closed with a warning on drift",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupMergeHandler.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupMergeHandler.ts",
+      "src/dashboard.ts"
+    ]
   }
 ]

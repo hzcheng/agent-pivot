@@ -103,6 +103,9 @@
             "evidence": [
                 "src/aiSessions/creationController.ts",
                 "src/worktrees/groupManifestStore.ts"
+            ],
+            "participatingModules": [
+                "MOD-AI-SESSION-CONTROL"
             ]
         },
         {
@@ -248,7 +251,7 @@
             "kind": "identity",
             "statement": "Domain identities (WorktreeKey, composite session identity, safe ids) use one canonical codec and equality policy owned by the domain layer; persisted encodings stay stable per usage context.",
             "authority": {
-                "path": "src/worktrees/types.ts",
+                "path": "src/worktreeIdentity.ts",
                 "symbol": "worktreeKeysEqual"
             },
             "writers": [],
@@ -262,7 +265,10 @@
             ],
             "guardOwners": [],
             "evidence": [
-                "src/worktrees/types.ts"
+                "src/worktreeIdentity.ts"
+            ],
+            "participatingModules": [
+                "MOD-SHARED-KERNEL"
             ]
         },
         {

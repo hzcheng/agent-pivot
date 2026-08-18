@@ -127,7 +127,7 @@ function classifyArchitectureChange(report) {
     const relaxingInvariantIds = Object.entries(delta.invariantChanges || {})
         .filter(([, change]) => change.writersAdded || change.authorityChanged
             || change.statementChanged || change.linearizationPointChanged
-            || change.stateFamilyChanged)
+            || change.stateFamilyChanged || change.participatingModulesChanged)
         .map(([id]) => id);
     const removedInvariants = (delta.invariantsRemoved || []);
     const grownBaseline = delta.baselineGrown.length > 0;

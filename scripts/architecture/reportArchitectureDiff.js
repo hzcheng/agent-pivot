@@ -165,7 +165,8 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
 
     const policyDelta = {
         mayDependOnGrown: {},
-        writersGrown: {},
+        invariantChanges: {},
+        invariantsRemoved: [],
         baselineGrown: [],
         waiversAdded: [],
         modulesChanged: false,
@@ -199,21 +200,41 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
                     changedInvariantIds.push(id);
                     continue;
                 }
-                if (JSON.stringify(baseInvariant) !== JSON.stringify(headInvariant)) {
-                    changedInvariantIds.push(id);
+                const baseJsonText = JSON.stringify(baseInvariant);
+                if (baseJsonText === JSON.stringify(headInvariant)) { continue; }
+                changedInvariantIds.push(id);
+                // Review R9 (Important 4): every semantic field of an
+                // invariant is diffed separately. Only a pure writer removal
+                // with an unchanged authority is a tightening; a same-size
+                // writer replacement, an authority move, or a statement,
+                // linearization-point, or state-family change is a semantic
+                // architecture change and requires a record.
+                const change = {};
+                const writers = diffStringSets(
+                    baseInvariant.writers || [], headInvariant.writers || []);
+                if (writers.added.length > 0) { change.writersAdded = writers.added; }
+                if (writers.removed.length > 0) { change.writersRemoved = writers.removed; }
+                if (JSON.stringify(baseInvariant.authority)
+                    !== JSON.stringify(headInvariant.authority)) {
+                    change.authorityChanged = true;
                 }
-                // Writer sets ratchet by net size: an authority move replaces
-                // old writers with fewer new ones (tightening); only net
-                // growth beyond the base size is broadening.
-                const baseWriters = baseInvariant.writers || [];
-                const headWriters = headInvariant.writers || [];
-                const added = diffStringSets(baseWriters, headWriters).added;
-                if (added.length > 0 && headWriters.length > baseWriters.length) {
-                    policyDelta.writersGrown[id] = added;
+                if (baseInvariant.statement !== headInvariant.statement) {
+                    change.statementChanged = true;
                 }
+                if (baseInvariant.linearizationPoint !== headInvariant.linearizationPoint) {
+                    change.linearizationPointChanged = true;
+                }
+                if (JSON.stringify(baseInvariant.stateFamily)
+                    !== JSON.stringify(headInvariant.stateFamily)) {
+                    change.stateFamilyChanged = true;
+                }
+                policyDelta.invariantChanges[id] = change;
             }
             for (const id of baseInvariants.keys()) {
-                if (!headInvariants.has(id)) { changedInvariantIds.push(id); }
+                if (!headInvariants.has(id)) {
+                    changedInvariantIds.push(id);
+                    policyDelta.invariantsRemoved.push(id);
+                }
             }
         }
         if (protectedPath.endsWith('architecture-debt-baseline.json')) {
@@ -312,9 +333,18 @@ function formatReport(report) {
     for (const [id, edges] of grown) {
         lines.push(`  mayDependOn broadened: ${id} += ${edges.join(', ')}`);
     }
-    const writersGrown = Object.entries(report.policyDelta.writersGrown);
-    for (const [id, writers] of writersGrown) {
-        lines.push(`  writers broadened: ${id} += ${writers.join(', ')}`);
+    for (const [id, change] of Object.entries(report.policyDelta.invariantChanges || {})) {
+        const parts = [];
+        if (change.writersAdded) { parts.push(`writers += ${change.writersAdded.join(', ')}`); }
+        if (change.writersRemoved) { parts.push(`writers -= ${change.writersRemoved.join(', ')}`); }
+        if (change.authorityChanged) { parts.push('authority changed'); }
+        if (change.statementChanged) { parts.push('statement changed'); }
+        if (change.linearizationPointChanged) { parts.push('linearization point changed'); }
+        if (change.stateFamilyChanged) { parts.push('state family changed'); }
+        lines.push(`  invariant changed: ${id} (${parts.join('; ')})`);
+    }
+    for (const id of report.policyDelta.invariantsRemoved || []) {
+        lines.push(`  invariant removed: ${id}`);
     }
     if (report.policyDelta.baselineGrown.length > 0) {
         lines.push(`  baseline grew: ${report.policyDelta.baselineGrown.join(', ')}`);

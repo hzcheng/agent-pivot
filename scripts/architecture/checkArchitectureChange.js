@@ -53,7 +53,7 @@ function harnessWeakenedOf(harness) {
  * Change records present in the base. Returns the error list (empty when
  * authorized).
  */
-function authorizeWithBaseRecords(report, classification, harnessWeakened) {
+function authorizeWithBaseRecords(report, classification, harnessWeakened, relaxingInvariantIds) {
     const baseRecords = report.baseRecords || [];
     const candidates = [];
     const invalid = [];
@@ -66,6 +66,7 @@ function authorizeWithBaseRecords(report, classification, harnessWeakened) {
         policyDelta: report.policyDelta,
         harnessWeakened,
         rePartition: classification === 're-partition',
+        relaxingInvariantIds: [...relaxingInvariantIds].sort(),
     };
     let bestMissing = null;
     for (const record of candidates) {
@@ -120,10 +121,19 @@ function classifyArchitectureChange(report) {
 
     const delta = report.policyDelta;
     const grownMayDependOn = Object.keys(delta.mayDependOnGrown).length > 0;
-    const grownWriters = Object.keys(delta.writersGrown).length > 0;
+    // Review R9 (Important 4): only a pure writer removal with an unchanged
+    // authority is tightening; any addition, replacement, authority,
+    // statement, linearization-point, or state-family change is relaxing.
+    const relaxingInvariantIds = Object.entries(delta.invariantChanges || {})
+        .filter(([, change]) => change.writersAdded || change.authorityChanged
+            || change.statementChanged || change.linearizationPointChanged
+            || change.stateFamilyChanged)
+        .map(([id]) => id);
+    const removedInvariants = (delta.invariantsRemoved || []);
     const grownBaseline = delta.baselineGrown.length > 0;
     const addedWaivers = delta.waiversAdded.length > 0;
-    const relaxing = grownMayDependOn || grownWriters || grownBaseline || addedWaivers
+    const relaxing = grownMayDependOn || relaxingInvariantIds.length > 0
+        || removedInvariants.length > 0 || grownBaseline || addedWaivers
         || harnessWeakened;
     const rePartition = !relaxing && delta.modulesChanged
         && report.protectedTouched
@@ -133,7 +143,8 @@ function classifyArchitectureChange(report) {
         return { classification: 'tightening', errors };
     }
     const classification = relaxing ? 'relaxing' : 're-partition';
-    errors.push(...authorizeWithBaseRecords(report, classification, harnessWeakened));
+    errors.push(...authorizeWithBaseRecords(report, classification, harnessWeakened,
+        [...relaxingInvariantIds, ...removedInvariants]));
     return { classification, errors };
 }
 

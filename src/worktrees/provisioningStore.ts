@@ -4,6 +4,7 @@ import * as path from 'path';
 import type { WorktreeProvisioningCompletedStep } from './provisioningController';
 import type { WorktreeProvisioningPlan } from './provisioningPlan';
 import type { ProvisioningWorktreeRow, WorktreeKey } from './types';
+import { worktreeKeyTombstoneKey } from './types';
 import { parseMemberBaseline } from './baseline';
 import { normalizeWorktreeSetupCommand } from './worktreeSetupRunner';
 import { isManagedWorktreePath } from './provisioningPlan';
@@ -155,7 +156,8 @@ export class WorktreeProvisioningStore {
                 || (discoveredRepositoryKeys
                     && !discoveredRepositoryKeys.has(record.plan.repositoryKey))
                 || existingWorktreePaths.has(
-                    `${record.plan.repositoryKey} ${record.plan.worktreePath}`));
+                    worktreeKeyTombstoneKey(
+                        record.plan.repositoryKey, record.plan.worktreePath)));
             const keptIds = new Set(kept.map(record => record.operationId));
             pruned = tombstones
                 .filter(record => !keptIds.has(record.operationId))

@@ -17,6 +17,7 @@ import type {
     WorktreeRepositoryChip,
     WorktreeRowViewModel,
 } from '../aiSessions/types';
+import { worktreeKeysMatch } from '../worktrees/types';
 import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees/types';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { escapeAttribute } from './webviewHtmlEscape';
@@ -656,11 +657,6 @@ function getWorktreeLabel(worktree: ReadyWorktreeRow): string {
     return pathName || worktree.git.head.substring(0, 8) || 'worktree';
 }
 
-function worktreeKeysEqual(left: WorktreeKey | undefined, right: WorktreeKey): boolean {
-    return !!left
-        && left.repositoryKey === right.repositoryKey
-        && left.canonicalWorktreePath === right.canonicalWorktreePath;
-}
 
 function getWorktreeGroupsHtml(
     worktrees: readonly ReadyWorktreeRow[],
@@ -672,7 +668,7 @@ function getWorktreeGroupsHtml(
 ): string {
     const rendered: string[] = [];
     worktrees.forEach((worktree, index) => {
-        const matched = entries.filter(entry => worktreeKeysEqual(entry.worktreeKey, worktree.git.key));
+        const matched = entries.filter(entry => worktreeKeysMatch(entry.worktreeKey, worktree.git.key));
         if (tab === 'active' && !matched.length) {
             return;
         }
@@ -682,7 +678,7 @@ function getWorktreeGroupsHtml(
         ));
     });
     const unmanaged = entries.filter(entry => !entry.worktreeKey
-        || !worktrees.some(worktree => worktreeKeysEqual(entry.worktreeKey, worktree.git.key)));
+        || !worktrees.some(worktree => worktreeKeysMatch(entry.worktreeKey, worktree.git.key)));
     if (unmanaged.length) {
         rendered.push(getUnmanagedWorktreeGroupHtml(unmanaged, worktrees.length));
     }
@@ -761,7 +757,7 @@ function getWorktreeAnchorHtml(
 ): string {
     const keys = anchor.worktreeKeys || [];
     const matched = entries.filter(entry => keys.some(key =>
-        worktreeKeysEqual(entry.worktreeKey, key)));
+        worktreeKeysMatch(entry.worktreeKey, key)));
     const inlineSummary = anchor.entries
         .map(entry => `${entry.repositoryLabel}: ${entry.branch}`)
         .join(' · ');
@@ -857,7 +853,7 @@ function getWorktreeGroupRowHtml(
         .filter(member => !!member.worktreeKey)
         .map(member => member.worktreeKey) as WorktreeKey[];
     const matched = entries.filter(entry => memberKeys.some(key =>
-        worktreeKeysEqual(entry.worktreeKey, key)));
+        worktreeKeysMatch(entry.worktreeKey, key)));
     const name = group.displayName;
     const count = matched.length;
     const activity = group.activity === 'attention' ? 'needs attention'

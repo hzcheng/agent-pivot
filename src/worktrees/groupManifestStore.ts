@@ -1,6 +1,7 @@
 'use strict';
 
 import { randomBytes } from 'crypto';
+import { worktreeKeysEqual } from './types';
 import type { MemberBaseline, WorktreeKey } from './types';
 import {
     cloneMemberBaseline,
@@ -220,7 +221,7 @@ export class WorktreeGroupManifestStore {
     ): WorktreeGroup | null {
         const found = this.readAggregate(workspaceIdentity).groups.find(group =>
             group.members.some(member => member.worktreeKey
-                && worktreeKeyEquals(member.worktreeKey, key)));
+                && worktreeKeysEqual(member.worktreeKey, key)));
         return found ? cloneGroup(found) : null;
     }
 
@@ -1589,16 +1590,11 @@ function assertWorktreeKeysUnclaimed(
                 continue;
             }
             if (group.members.some(candidate => candidate.worktreeKey
-                && worktreeKeyEquals(candidate.worktreeKey, member.worktreeKey!))) {
+                && worktreeKeysEqual(candidate.worktreeKey, member.worktreeKey!))) {
                 throw new WorktreeGroupManifestError('worktree-key-claimed');
             }
         }
     }
-}
-
-function worktreeKeyEquals(left: WorktreeKey, right: WorktreeKey): boolean {
-    return left.repositoryKey === right.repositoryKey
-        && left.canonicalWorktreePath === right.canonicalWorktreePath;
 }
 
 function emptyAggregate(): WorkspaceAggregate {

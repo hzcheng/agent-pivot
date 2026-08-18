@@ -1,5 +1,6 @@
 'use strict';
 
+import { worktreeKeysEqual } from '../worktrees/types';
 import type { WorktreeDeletionController } from './deletionController';
 import {
     acceptedWorktreeGroupDeletionSettlement,
@@ -101,9 +102,7 @@ export async function handlePreviewWorktreeGroupDeletion(
     const blockingClaimsFor = (target: typeof member) =>
         deps.store.listGenerationClaims(navigationIdentity)
             .filter(claim => claim.state === 'pending' && target.worktreeKey
-                && claim.worktreeKey.repositoryKey === target.worktreeKey.repositoryKey
-                && claim.worktreeKey.canonicalWorktreePath
-                    === target.worktreeKey.canonicalWorktreePath)
+                && worktreeKeysEqual(claim.worktreeKey, target.worktreeKey))
             .map(claim => ({
                 claimId: claim.claimId,
                 ...(claim.creatingProvider ? { provider: claim.creatingProvider } : {}),
@@ -393,10 +392,7 @@ export async function handleDiscardWorktreeGenerationClaim(
             const group = deps.store.listGroups(navigationIdentity)
                 .find(candidate => candidate.groupId === request.groupId);
             const belongsToGroup = !!group && !!claim && group.members.some(member =>
-                member.worktreeKey
-                && member.worktreeKey.repositoryKey === claim.worktreeKey.repositoryKey
-                && member.worktreeKey.canonicalWorktreePath
-                    === claim.worktreeKey.canonicalWorktreePath);
+                member.worktreeKey && worktreeKeysEqual(member.worktreeKey, claim.worktreeKey));
             if (!claim || claim.state !== 'pending' || !belongsToGroup) {
                 await deps.postMessage({
                     type: 'worktree-group-deletion-settlement', version: 1,

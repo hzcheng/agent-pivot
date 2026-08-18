@@ -414,6 +414,42 @@ test('WORKTREE-GROUPS-UI-001 shows the merge affordance and stable discriminator
         'colliding display names carry a stable branch discriminator');
 });
 
+test('WORKTREE-GROUPS-UI-001 merge request ids carry a per-document nonce (review R6)', async t => {
+    const sessionHtml = () => surface({
+        selectedSurface: 'worktree',
+        worktreeGroups: [
+            groupRow({ mergeCandidateGroupIds: ['g-2'] }),
+            groupRow({ groupId: 'g-2', mergeCandidateGroupIds: ['g-1'] }),
+        ],
+    });
+    const firstDocument = await openGroupActionsPage(t, sessionHtml);
+    await firstDocument.page.locator(
+        '[data-action="merge-worktree-groups"][data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    const first = await firstDocument.page.evaluate(() => window.__postedMessages.at(-1));
+    assert.match(first.requestId, /^worktree-merge-[a-z0-9]+-1$/,
+        'the merge request id carries a per-document nonce');
+    assert.deepEqual({ ...first, requestId: '<nonce>' }, {
+        type: 'merge-worktree-groups',
+        version: 1,
+        requestId: '<nonce>',
+        projectId: 'project-a',
+        sourceGroupId: 'g-1',
+    });
+
+    // The host replay cache outlives the document: a rebuilt document must
+    // never regenerate the previous document's first request id and be
+    // answered from the stale cache without executing.
+    const secondDocument = await openGroupActionsPage(t, sessionHtml);
+    await secondDocument.page.locator(
+        '[data-action="merge-worktree-groups"][data-group-id="g-1"]')
+        .evaluate(button => button.click());
+    const second = await secondDocument.page.evaluate(() => window.__postedMessages.at(-1));
+    assert.match(second.requestId, /^worktree-merge-[a-z0-9]+-1$/);
+    assert.notEqual(second.requestId, first.requestId,
+        'a rebuilt document starts its own nonce-namespaced sequence');
+});
+
 test('WORKTREE-GROUPS-UI-001 flags legacy-scope sessions until restart', async t => {
     const page = await openSurfacePage(surface({
         worktreeGroups: [groupRow()],

@@ -269,12 +269,13 @@
             },
             "writers": [
                 "src/dashboard.ts",
-                "src/worktrees/groupCreationController.ts",
-                "src/worktrees/groupDeletionHandler.ts",
                 "src/worktrees/deletionController.ts",
                 "src/worktrees/groupAdoptHandler.ts",
-                "src/worktrees/groupRenameHandler.ts",
-                "src/worktrees/groupManifestReconciliation.ts"
+                "src/worktrees/groupCreationController.ts",
+                "src/worktrees/groupDeletionHandler.ts",
+                "src/worktrees/groupManifestReconciliation.ts",
+                "src/worktrees/groupMergeHandler.ts",
+                "src/worktrees/groupRenameHandler.ts"
             ],
             "linearizationPoint": "The versioned manifest commit succeeds.",
             "enforcement": [
@@ -313,7 +314,8 @@
                     "setRepositoryDetached",
                     "resetCorruptRetiredStore"
                 ]
-            }
+            },
+            "tracking": "ARCH-CHANGE-001"
         }
     ]
 }

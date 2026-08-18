@@ -262,6 +262,8 @@ import {
     GitRepositoryStateMonitor,
 } from './worktrees/gitRepositoryStateMonitor';
 import { WorktreeMemberLifecycle } from './worktrees/memberLifecycle';
+import { handleMergeWorktreeGroups } from './worktrees/groupMergeHandler';
+import type { MergeWorktreeGroupsPick } from './worktrees/groupMergeHandler';
 import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
 import { worktreeKeysEqual, worktreeKeysMatch, worktreeKeyTombstoneKey } from './worktrees/types';
 import type { WorktreeKey } from './worktrees/types';
@@ -2584,73 +2586,20 @@ async function initializeDashboard(
                 settledManagedWorktreeRemovalSettlement(request, outcome));
         },
         'merge-worktree-groups': async (message: unknown) => {
-            // Migration-suggested group → group merge (PRD §6.5): the webview
-            // submits only the source group; the host stays authoritative by
-            // re-deriving same-slug candidates and confirming via QuickPick.
-            const request = (message && typeof message === 'object')
-                ? message as { projectId?: unknown; sourceGroupId?: unknown }
-                : {};
-            if (typeof request.projectId !== 'string'
-                || typeof request.sourceGroupId !== 'string'
-                || !request.sourceGroupId) {
-                return;
-            }
-            const target = getCurrentWorkspaceActionTarget(request.projectId);
-            if (!target) {
-                return;
-            }
-            const bucket = target.workspace.navigationIdentity;
-            const groups = worktreeGroupManifestStore.listGroups(bucket);
-            const source = groups.find(group => group.groupId === request.sourceGroupId);
-            if (!source) {
-                return;
-            }
-            // M3 batch 8 (PRD §6.5): merge is no longer slug-gated — any
-            // other group is a candidate; same-slug groups sort first as
-            // the migration-era hint.
-            const candidates = groups
-                .filter(group => group.groupId !== source.groupId)
-                .sort((left, right) =>
-                    Number(right.suggestedSlug === source.suggestedSlug)
-                    - Number(left.suggestedSlug === source.suggestedSlug));
-            if (candidates.length === 0) {
-                return;
-            }
-            type MergePick = vscode.QuickPickItem & { groupId: string };
-            const picks: MergePick[] = candidates.map(group => ({
-                label: group.displayName,
-                description: group.members.map(member => member.branchName).join(' · '),
-                groupId: group.groupId,
-            }));
-            const chosen = await vscode.window.showQuickPick(picks, {
-                placeHolder: `Merge "${source.displayName}" into…`,
-            });
-            if (!chosen) {
-                return;
-            }
-            // Double revision binding (decision G): the revisions captured
-            // when the dialog opened must still hold at the write.
-            const expectedRevisions = {
-                targetRevision: chosen.groupId
-                    ? groups.find(group => group.groupId === chosen.groupId)?.revision ?? -1
-                    : -1,
-                sourceRevision: source.revision,
-            };
-            try {
-                await worktreeGroupManifestStore.mergeGroups(
-                    bucket, chosen.groupId, source.groupId, expectedRevisions);
-            } catch (error) {
-                const code = (error as { code?: string })?.code || 'merge-failed';
-                void vscode.window.showWarningMessage(
-                    code === 'repository-conflict'
-                        ? 'These groups cannot be merged: both contain a worktree of the same repository. Remove one of them first.'
-                        : code === 'group-changed'
-                            ? 'A group changed while the merge was open. Review and try again.'
-                            : 'The groups could not be merged. Try again.');
-                return;
-            }
-            void aiSessionDashboardController.refreshNow('worktree-groups-merged', {
-                fallbackToFullRefresh: false,
+            await handleMergeWorktreeGroups(message, {
+                getNavigationIdentity: projectId =>
+                    getCurrentWorkspaceActionTarget(projectId)
+                        ?.workspace.navigationIdentity || null,
+                store: worktreeGroupManifestStore,
+                showQuickPick: (items, placeHolder) =>
+                    vscode.window.showQuickPick<MergeWorktreeGroupsPick>(
+                        items, { placeHolder }),
+                showWarning: warning => {
+                    void vscode.window.showWarningMessage(warning);
+                },
+                refreshNow: () => aiSessionDashboardController.refreshNow(
+                    'worktree-groups-merged', { fallbackToFullRefresh: false }),
+                logError,
             });
         },
         'rename-worktree-group': async (message: unknown) => {

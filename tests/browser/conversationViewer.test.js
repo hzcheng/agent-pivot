@@ -11795,33 +11795,40 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
         .getAttribute('title'))
         .includes('includes committed and uncommitted changes'));
 
-    // Working groups render in the SCM order with the untracked group split.
+    // Working groups render in SCM order; Untracked merges into Changes —
+    // the U badge already marks untracked rows, so a separate section only
+    // repeats information.
     const groupHeaders = await page.locator(
         '.conversation-changes-group-header').allInnerTexts();
-    assert.deepEqual(groupHeaders, ['Staged Changes', 'Changes', 'Untracked Changes']);
+    assert.deepEqual(groupHeaders, ['Staged Changes', 'Changes']);
     const rows = await page.locator('.conversation-changes-file').allInnerTexts();
     assert.equal(rows.length, 3);
-    // Tree view: file rows show basenames, folders render above them.
+    // Tree view: file rows show basenames; single-child directory chains
+    // compress into one row (src/auth), like Source Control.
     assert.ok(rows.some(row => row.includes('login.test.ts')));
-    const folders = await page.locator(
-        '.conversation-changes-folder').allInnerTexts();
-    assert.ok(folders.some(text => text.includes('src'))
-        && folders.some(text => text.includes('auth')));
 
-    // Collapsing a folder hides its files without losing the row state.
-    // (Scoped to the Changes group: 'login.ts' also matches
-    // 'login.test.ts' under Untracked.)
     const changesGroup = page.locator('.conversation-changes-group', {
         has: page.locator('.conversation-changes-group-header', {
             hasText: /^Changes$/,
         }),
     });
+    const folders = await changesGroup.locator(
+        '.conversation-changes-folder').allInnerTexts();
+    assert.equal(folders.length, 1,
+        'the src/auth chain compresses into a single folder row');
+    assert.ok(folders[0].includes('src/auth'));
+    const untrackedBadge = changesGroup.locator(
+        '.conversation-changes-file[title="src/auth/login.test.ts"] '
+            + '.conversation-changes-file-status-untracked');
+    assert.equal(await untrackedBadge.innerText(), 'U',
+        'the untracked row keeps its badge inside the merged section');
+
+    // Collapsing a folder hides its files without losing the row state.
     const authFolder = changesGroup.locator('.conversation-changes-folder', {
-        hasText: 'auth',
+        hasText: 'src/auth',
     });
-    const loginRow = changesGroup.locator('.conversation-changes-file', {
-        hasText: 'login.ts',
-    });
+    const loginRow = changesGroup.locator(
+        '.conversation-changes-file[title="src/auth/login.ts"]');
     await authFolder.click();
     assert.equal(await loginRow.isVisible(), false);
     await authFolder.click();
@@ -11859,6 +11866,48 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select', version: 1, memberId: 'm-web',
     });
+});
+
+test('WORKTREE-CHANGES-PANEL-001 compresses single-child directory chains like Source Control', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 0, taskFileCount: 2,
+            items: [
+                { group: 'changes', xy: ' M', path: 'com/xhs/reddb/service/impl/Foo.java' },
+                { group: 'changes', xy: ' M', path: 'com/xhs/reddb/App.java' },
+            ],
+            truncated: false,
+        },
+    }));
+    await page.locator('[data-telemetry-changes]').click();
+
+    const folders = await page.locator('.conversation-changes-folder')
+        .allInnerTexts();
+    assert.deepEqual(
+        folders.map(text => text.replace(/[▾▸]/gu, '').trim()),
+        ['com/xhs/reddb', 'service/impl'],
+        'com → xhs → reddb and service → impl render as two compressed rows'
+    );
+    const fooRow = page.locator(
+        '.conversation-changes-file[title="com/xhs/reddb/service/impl/Foo.java"]');
+    assert.equal(await fooRow.isVisible(), true);
+    assert.equal(
+        await fooRow.evaluate(element => element.style.paddingLeft),
+        '1.6rem',
+        'Foo.java indents two levels (compressed rows), not five'
+    );
+
+    // Compression keeps collapse state on the chain's final directory.
+    await page.locator('.conversation-changes-folder', {
+        hasText: 'service/impl',
+    }).click();
+    assert.equal(await fooRow.isVisible(), false);
+    await page.locator('.conversation-changes-folder', {
+        hasText: 'service/impl',
+    }).click();
+    assert.equal(await fooRow.isVisible(), true);
 });
 
 test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is open', async t => {

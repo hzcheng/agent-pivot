@@ -8,6 +8,10 @@
         changes: 'Changes',
         untracked: 'Untracked Changes',
     };
+    // Display sections (PRD 体验反馈): Untracked merges into Changes — the
+    // per-row U badge already carries the distinction, so a split section
+    // only repeats information. The first entry names the section.
+    var SECTION_GROUPS = [['merge'], ['staged'], ['changes', 'untracked']];
     var MAX_TOOLTIP_MEMBER_LINES = 8;
 
     function create(options) {
@@ -379,9 +383,24 @@
             });
         }
 
+        // SCM-style compression (PRD 体验反馈): a directory chain whose
+        // levels each hold a single child directory and no files renders as
+        // one row (a/b/c) instead of one indented row per level. The chain's
+        // final directory keeps the collapse key and title.
+        function compressDir(dir) {
+            var names = [dir.name];
+            var node = dir;
+            while (node.files.length === 0 && node.dirOrder.length === 1) {
+                node = node.dirs[node.dirOrder[0]];
+                names.push(node.name);
+            }
+            return { name: names.join('/'), node: node };
+        }
+
         function renderTreeNode(group, node, container, memberId, depth) {
             node.dirOrder.forEach(function (name) {
-                var dir = node.dirs[name];
+                var compressed = compressDir(node.dirs[name]);
+                var dir = compressed.node;
                 var key = folderKey(group, dir.fullPath);
                 var collapsed = !!collapsedFolders[key];
                 var folderRow = document.createElement('button');
@@ -397,7 +416,7 @@
                 folderRow.appendChild(chevron);
                 var label = document.createElement('span');
                 label.className = 'conversation-changes-folder-name';
-                label.textContent = name;
+                label.textContent = compressed.name;
                 folderRow.appendChild(label);
                 var children = document.createElement('div');
                 children.hidden = collapsed;
@@ -422,9 +441,10 @@
         function renderGroups(detail) {
             if (!groupsRoot) return;
             clearChildren(groupsRoot);
-            GROUPS.forEach(function (group) {
+            SECTION_GROUPS.forEach(function (sectionGroups) {
+                var group = sectionGroups[0];
                 var items = detail.items.filter(function (item) {
-                    return item.group === group;
+                    return sectionGroups.indexOf(item.group) !== -1;
                 });
                 if (!items.length) return;
                 var section = document.createElement('div');

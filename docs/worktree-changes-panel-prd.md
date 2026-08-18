@@ -208,7 +208,7 @@ Last commit: "fix: token refresh race" · 2h ago   ← P1
 - **member 下拉选择框**：每次只选一个 member。选项文案 = `repo · branch · <workingItemCount> · ↑<aheadCount>`。单 member 退化为只读标题。P0 默认选中 = 上次选择可用则恢复，否则 primary member；智能优先级（conflict → 有改动 → 有 ahead）与按 session 持久化的完整版在 P1。
 - **跨 member 提示**：按钮聚合与当前 member 不一致时，面板顶部显示 "N changes in M other repositories"；"跳到下一个有改动的仓库"导航在 P1。
 - **Task result 层**：选中 member 的净结果摘要（`N files · M commits`，注明 "Includes committed and uncommitted changes"）+ **Review this repository**（打开 baseline → 当前工作树的原生 multi-diff，经 `vscode.changes` 命令；capability 缺失时 fallback 为逐文件 diff 列表）。跨 member 统一 Review all 在 P1。baseline 缺失 / 历史改写时整层显示 "Baseline unavailable" / "History rewritten"。
-- **Working changes 层**：固定组序 Merge → Staged → Changes → Untracked；空组折叠不渲染。
+- **Working changes 层**：固定组序 Merge → Staged → Changes（Untracked 并入 Changes——行级 U 徽标已承载区分，不再单列组头）；空组折叠不渲染。目录树对齐 Source Control 的压缩行为：只含单子目录且无直属文件的目录链合并为一行（`a/b/c`），折叠状态锚定链尾目录。
 - **文件点击行为矩阵**（P0 验收标准）：
   | 状态 | 点击行为 |
   | --- | --- |

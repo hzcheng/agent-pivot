@@ -7,6 +7,9 @@ const {
     WorktreeGroupManifestError,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
+    createSettlementReplayCache,
+} = require('../../../out/worktrees/settlementReplayCache');
+const {
     handleAdoptWorktrees,
 } = require('../../../out/worktrees/groupAdoptHandler');
 
@@ -122,6 +125,7 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler re-validates keys against snap
         getWorktreeSnapshot: () => snapshot,
         refreshNow: async () => undefined,
         logError: () => undefined,
+        replayCache: createSettlementReplayCache(),
     };
     const key = { repositoryKey: '/repos/alpha/.git', canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login' };
     const adoptRequest = overrides => ({
@@ -149,6 +153,56 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler re-validates keys against snap
         members: [{ repositoryKey: '/repos/alpha/.git', canonicalWorktreePath: '/gone' }],
     }), deps);
     assert.equal(posted[posted.length - 1].errorCode, 'worktree-unavailable');
+});
+
+test('WORKTREE-GROUPS-REPLAY-001 a replayed adopt is settled from the cache, never re-executed', async () => {
+    const store = new WorktreeGroupManifestStore(memento());
+    const snapshot = {
+        revision: 1,
+        truncatedWorktreeCount: 0,
+        repositories: [{
+            repositoryKey: '/repos/alpha/.git',
+            rootBindings: [{ workspaceRootId: 'root', repositoryRelativePath: '' }],
+            worktrees: [{
+                key: {
+                    repositoryKey: '/repos/alpha/.git',
+                    canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+                },
+                branchRef: 'refs/heads/agent-pivot/fix-login',
+                head: 'a'.repeat(40), isMain: false, isBare: false,
+                health: 'normal', headKind: 'branch',
+            }],
+        }],
+    };
+    const posted = [];
+    const deps = {
+        postMessage: async message => { posted.push(message); },
+        getNavigationIdentity: () => WORKSPACE,
+        store,
+        getWorktreeSnapshot: () => snapshot,
+        refreshNow: async () => undefined,
+        logError: () => undefined,
+        replayCache: createSettlementReplayCache(),
+    };
+    const request = {
+        type: 'adopt-worktrees', version: 1,
+        requestId: 'adopt-replay-n1-1', projectId: '/repo/main',
+        members: [{
+            repositoryKey: '/repos/alpha/.git',
+            canonicalWorktreePath: '/repos/alpha/.worktrees/fix-login',
+        }],
+        displayName: 'Fix login',
+    };
+    await handleAdoptWorktrees(request, deps);
+    assert.equal(store.listGroups(WORKSPACE).length, 1);
+    assert.deepEqual(posted.map(message => message.status), ['accepted', 'settled']);
+
+    await handleAdoptWorktrees(request, deps);
+    assert.equal(store.listGroups(WORKSPACE).length, 1,
+        'the replay never creates a second group');
+    assert.deepEqual(posted.map(message => message.status),
+        ['accepted', 'settled', 'settled'],
+        'the replay re-receives the recorded terminal settlement');
 });
 
 test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler adopts into an existing group', async () => {
@@ -187,6 +241,7 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler adopts into an existing group'
         getWorktreeSnapshot: () => snapshot,
         refreshNow: async () => undefined,
         logError: () => undefined,
+        replayCache: createSettlementReplayCache(),
     });
     assert.equal(posted[posted.length - 1].status, 'settled');
     assert.equal(posted[posted.length - 1].groupId, group.groupId);

@@ -208,7 +208,7 @@
             ],
             "priority": "P1",
             "kind": "protocol",
-            "statement": "Every pilot mutation message carries a correlation envelope (requestId, version) and a documented exactly-once mechanism (replay cache or single-use token); the known gaps (confirm replay cache, set-primary/merge/adopt/discard-claim correlation, merge requestId) are migration slice S4 targets.",
+            "statement": "Every pilot mutation message carries a correlation envelope (requestId, version) and a documented exactly-once mechanism: confirm uses the single-use preview token; rename, deletion, adopt, and claim-discard use settlement replay caches; set-primary is an idempotent write; retry/dismiss are gated by member state. The merge family envelope is slice S4b.",
             "authority": {
                 "path": "src/worktrees/groupCreationProtocol.ts",
                 "symbol": "parseConfirmWorktreeGroupRequest"
@@ -219,6 +219,8 @@
                 "behavior"
             ],
             "behaviorOwners": [
+                "tests/unit/worktrees/groupAdoptMerge.test.js",
+                "tests/unit/worktrees/groupDeletionHandler.test.js",
                 "tests/browser/worktreeGroupForm.test.js"
             ],
             "guardOwners": [],

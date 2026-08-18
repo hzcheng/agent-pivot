@@ -6825,5 +6825,21 @@
       "src/worktrees/groupMergeHandler.ts",
       "src/dashboard.ts"
     ]
+  },
+  {
+    "id": "WORKTREE-GROUPS-REPLAY-001",
+    "domain": "session",
+    "title": "Adopt and claim-discard mutations settle replays from the cache without re-executing; expired request ids fail closed as request-expired",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/worktrees/groupAdoptMerge.test.js",
+      "tests/unit/worktrees/groupDeletionHandler.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/groupAdoptHandler.ts",
+      "src/worktrees/groupDeletionHandler.ts",
+      "src/worktrees/settlementReplayCache.ts"
+    ]
   }
 ]

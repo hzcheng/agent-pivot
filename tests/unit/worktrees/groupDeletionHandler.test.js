@@ -436,6 +436,82 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 partial group failure keeps residue and r
     assert.equal(store.listRetiredIdentities(WORKSPACE).length, 2);
 });
 
+test('WORKTREE-GROUPS-REPLAY-001 a replayed claim discard is settled from the cache, never re-executed', async () => {
+    const { store, group, deps, posted } = await fixture();
+    const target = group.members[0];
+    const first = await store.beginDeletion(WORKSPACE, {
+        groupId: group.groupId, mode: 'member', memberIds: [target.memberId],
+        replacementPrimaryMemberId: group.members[1].memberId, nowMs: 100,
+    });
+    await store.checkpointDeletedMember(WORKSPACE, first.operationId, target.memberId, 110);
+    const retired = store.listRetiredIdentities(WORKSPACE)[0];
+    const claim = await store.createGenerationClaim(WORKSPACE, {
+        pendingId: 'pending-1',
+        worktreeKey: target.worktreeKey,
+        createdAfterRetirementId: retired.retirementId,
+        createdAtMs: 200,
+        creatingProvider: 'codex',
+    });
+    await store.addMember(WORKSPACE, group.groupId, {
+        repositoryKey: target.repositoryKey,
+        worktreeKey: target.worktreeKey,
+        branchName: target.branchName,
+        path: target.path,
+        state: 'ready',
+    });
+    const request = {
+        type: 'discard-worktree-generation-claim',
+        version: 1,
+        requestId: 'group-claim-discard-replay-1',
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        claimId: claim.claimId,
+    };
+    await handleDiscardWorktreeGenerationClaim(request, deps);
+    assert.equal(posted[posted.length - 1].status, 'settled');
+    assert.equal(store.listGenerationClaims(WORKSPACE).length, 0);
+
+    await handleDiscardWorktreeGenerationClaim(request, deps);
+    assert.equal(posted[posted.length - 1].status, 'settled',
+        'the replay re-receives the recorded settlement instead of failing claim-not-found');
+    assert.equal(
+        posted.filter(message => message.type === 'worktree-group-deletion-settlement').length,
+        2, 'exactly one execution plus one replayed settlement');
+});
+
+test('WORKTREE-GROUPS-REPLAY-001 an expired claim-discard replay fails closed and a missing claim fails without side effects', async () => {
+    const { store, group, deps, posted } = await fixture();
+    const request = overrides => ({
+        type: 'discard-worktree-generation-claim',
+        version: 1,
+        projectId: '/repo/main',
+        groupId: group.groupId,
+        claimId: 'claim-missing',
+        ...(overrides || {}),
+    });
+    // A missing claim settles failed as claim-not-found, changing nothing.
+    await handleDiscardWorktreeGenerationClaim(
+        request({ requestId: 'group-claim-discard-missing-1' }), deps);
+    let settled = posted[posted.length - 1];
+    assert.equal(settled.status, 'failed');
+    assert.equal(settled.errorCode, 'claim-not-found');
+
+    // Expiry: settle a request, age it out of a size-1 cache, then replay —
+    // the expired replay must fail closed rather than re-execute.
+    const tinyCache = createSettlementReplayCache(1);
+    deps.replayCache = tinyCache;
+    await handleDiscardWorktreeGenerationClaim(
+        request({ requestId: 'group-claim-discard-old-1' }), deps);
+    await handleDiscardWorktreeGenerationClaim(
+        request({ requestId: 'group-claim-discard-newer-1' }), deps);
+    assert.equal(tinyCache.isExpired('group-claim-discard-old-1'), true);
+    await handleDiscardWorktreeGenerationClaim(
+        request({ requestId: 'group-claim-discard-old-1' }), deps);
+    settled = posted[posted.length - 1];
+    assert.equal(settled.status, 'failed');
+    assert.equal(settled.errorCode, 'request-expired');
+});
+
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 malformed messages are ignored without side effects', async () => {
     const { store, group, deps, posted } = await fixture();
     await handleDeleteWorktreeGroupMember({ type: 'delete-worktree-group-member' }, deps);

@@ -313,6 +313,7 @@ import {
 import type { WorktreeGroupDeletionSettlement } from './worktrees/groupDeletionProtocol';
 import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
 import { handleAdoptWorktrees } from './worktrees/groupAdoptHandler';
+import type { WorktreeAdoptSettlement } from './worktrees/groupAdoptProtocol';
 import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
 import {
     acceptedIsolatedSessionSettlement,
@@ -2483,6 +2484,8 @@ async function initializeDashboard(
     // Idempotency cache for group rename settlements (PRD §6.4 protocol
     // rules): replays re-receive the recorded terminal settlement and are
     // never re-executed.
+    const worktreeAdoptSettlements = createSettlementReplayCache<
+        WorktreeAdoptSettlement>();
     const worktreeGroupRenameSettlements = createSettlementReplayCache<
         WorktreeGroupRenameSettlement>();
     const worktreeGroupDeletionSettlements = createSettlementReplayCache<
@@ -2646,6 +2649,7 @@ async function initializeDashboard(
                         ?.workspace.navigationIdentity || null,
                 store: worktreeGroupManifestStore,
                 getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
+                replayCache: worktreeAdoptSettlements,
                 refreshNow: () => aiSessionDashboardController.refreshNow(
                     'worktrees-adopted', { fallbackToFullRefresh: true }),
                 logError,

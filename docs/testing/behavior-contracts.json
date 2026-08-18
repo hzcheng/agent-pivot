@@ -2063,7 +2063,7 @@
     ],
     "evidence": [
       "src/aiSessions/commandController.ts",
-      "src/workspaces/worktreeSessionAssignment.ts",
+      "src/worktreeSessionAssignment.ts",
       "src/workspaces/sessionHydration.ts",
       "src/workspaces/sessionHydrationController.ts",
       "src/workspaces/sessionScope.ts"

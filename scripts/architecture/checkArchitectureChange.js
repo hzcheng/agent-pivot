@@ -121,6 +121,8 @@ function classifyArchitectureChange(report) {
 
     const delta = report.policyDelta;
     const grownMayDependOn = Object.keys(delta.mayDependOnGrown).length > 0;
+    const grownEntrypoints = Object.keys(delta.entrypointsGrown || {}).length > 0;
+    const ledgerRegressions = (delta.ledgerRegressions || []);
     // Review R9 (Important 4): only a pure writer removal with an unchanged
     // authority is tightening; any addition, replacement, authority,
     // statement, linearization-point, or state-family change is relaxing.
@@ -132,7 +134,8 @@ function classifyArchitectureChange(report) {
     const removedInvariants = (delta.invariantsRemoved || []);
     const grownBaseline = delta.baselineGrown.length > 0;
     const addedWaivers = delta.waiversAdded.length > 0;
-    const relaxing = grownMayDependOn || relaxingInvariantIds.length > 0
+    const relaxing = grownMayDependOn || grownEntrypoints || ledgerRegressions.length > 0
+        || relaxingInvariantIds.length > 0
         || removedInvariants.length > 0 || grownBaseline || addedWaivers
         || harnessWeakened;
     const rePartition = !relaxing && delta.modulesChanged

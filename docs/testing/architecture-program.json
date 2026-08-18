@@ -1,27 +1,122 @@
 {
-    "version": 1,
-    "title": "Architecture program ledger",
-    "notes": [
-        "Module states follow legacy -> inventoried -> characterized -> guarded -> migrating -> strict (charter Section 8.5).",
-        "strict is validated mechanically by scripts/architecture/checkProgramLedger.js: no baseline fingerprint or waiver naming the module, P0/P1 invariants have behavior owners, single-writer families declare writers, and the module stays classified exact-once.",
-        "SCC cluster membership is cluster-level debt and does not block per-module strict (waiver ledger note)."
-    ],
-    "states": [
-        "legacy",
-        "inventoried",
-        "characterized",
-        "guarded",
-        "migrating",
-        "strict"
-    ],
-    "modules": {
-        "MOD-WORKTREE-LIFECYCLE": {
-            "state": "migrating",
-            "since": "pilot slices S1-S5 (PRs #262-#268); strict declaration #269 reverted per W1 review",
-            "evidence": [
-                "docs/architecture/stage-1b-pilot-rfc.md"
-            ],
-            "nextAction": "W1 review repair R1-R10, then strict re-acceptance"
-        }
+  "version": 1,
+  "title": "Architecture program ledger",
+  "notes": [
+    "Module states follow legacy -> inventoried -> characterized -> guarded -> migrating -> strict (charter Section 8.5).",
+    "strict is validated mechanically by scripts/architecture/checkProgramLedger.js: no baseline fingerprint or waiver naming the module, P0/P1 invariants have behavior owners, single-writer families declare writers, and the module stays classified exact-once.",
+    "SCC cluster membership is cluster-level debt and does not block per-module strict (waiver ledger note)."
+  ],
+  "states": [
+    "legacy",
+    "inventoried",
+    "characterized",
+    "guarded",
+    "migrating",
+    "strict"
+  ],
+  "modules": {
+    "MOD-WORKTREE-LIFECYCLE": {
+      "state": "migrating",
+      "since": "pilot slices S1-S5 (PRs #262-#268); strict declaration #269 reverted per W1 review",
+      "evidence": [
+        "docs/architecture/stage-1b-pilot-rfc.md"
+      ],
+      "nextAction": "W1 review repair R9/R10, then strict re-acceptance",
+      "target": {
+        "publicEntrypoints": [
+          "src/worktrees/index.ts"
+        ]
+      }
+    },
+    "MOD-DASHBOARD-SHELL": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-AI-SESSION-CONVERSATION": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-AI-SESSION-ATTENTION": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-AI-SESSION-NOTIFY": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-AI-SESSION-RUNTIME": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-AI-SESSION-CONTROL": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-AI-SESSION-PROVIDER": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-WORKSPACE-IDENTITY": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-OPEN-WORKSPACE": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-PROJECT-CATALOG": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-SKILL-MANAGEMENT": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-TODO": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-PROMPT-LIBRARY": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-ATTENTION-BRIDGE-EXT": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
+    },
+    "MOD-SHARED-KERNEL": {
+      "state": "legacy",
+      "since": "initial coarse registry (Stage 1A/2)",
+      "evidence": [],
+      "nextAction": "awaiting its Stage 5 wave"
     }
+  }
 }

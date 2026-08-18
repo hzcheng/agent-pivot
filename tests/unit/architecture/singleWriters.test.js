@@ -23,6 +23,7 @@ function makeFixture({ invariants, sources, twoModules = false }) {
         title: id,
         purpose: 'fixture',
         source: { include: [glob], exclude: [] },
+        publicEntrypoints: [glob],
         mayDependOn: [],
         roles: [{ role: 'application', include: [glob] }],
         productCapabilities: ['MAIN-TEST-001'],

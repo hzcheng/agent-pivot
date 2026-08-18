@@ -46,10 +46,14 @@ function makeFixture({ ledger, baselineFingerprints = [], waiverFingerprints = [
 }
 
 function ledgerWith(state) {
+    const entry = { state, since: 'fixture', evidence: [], nextAction: 'none' };
+    if (state === 'strict') {
+        entry.target = { publicEntrypoints: ['src/**'] };
+    }
     return {
         version: 1,
         states: ['legacy', 'inventoried', 'characterized', 'guarded', 'migrating', 'strict'],
-        modules: { 'MOD-ALPHA': { state, since: 'fixture', evidence: [], nextAction: 'none' } },
+        modules: { 'MOD-ALPHA': entry },
     };
 }
 
@@ -68,6 +72,76 @@ test('ARCH-PROGRAM-LEDGER-001 the real ledger is valid and the pilot module is s
 test('ARCH-PROGRAM-LEDGER-001 a clean strict module passes', () => {
     const root = makeFixture({ ledger: ledgerWith('strict'), invariants: [validInvariant] });
     assert.deepEqual(runProgramLedgerCheck(root).errors, []);
+});
+
+test('ARCH-PROGRAM-LEDGER-001 controlled mutation: a registered module without a ledger entry fails', () => {
+    const ledger = ledgerWith('legacy');
+    ledger.modules = {};
+    const root = makeFixture({ ledger });
+    assert.ok(runProgramLedgerCheck(root).errors
+        .some(error => error.includes('MOD-ALPHA') && error.includes('no ledger entry')));
+});
+
+test('ARCH-PROGRAM-LEDGER-001 controlled mutation: strict without a target contract fails', () => {
+    const ledger = ledgerWith('strict');
+    delete ledger.modules['MOD-ALPHA'].target;
+    const root = makeFixture({ ledger, invariants: [validInvariant] });
+    assert.ok(runProgramLedgerCheck(root).errors
+        .some(error => error.includes('target.publicEntrypoints')));
+});
+
+test('ARCH-PROGRAM-LEDGER-001 controlled mutation: a target contract mismatched with the registry fails', () => {
+    const ledger = ledgerWith('strict');
+    ledger.modules['MOD-ALPHA'].target = { publicEntrypoints: ['src/public-only.ts'] };
+    const root = makeFixture({ ledger, invariants: [validInvariant] });
+    assert.ok(runProgramLedgerCheck(root).errors
+        .some(error => error.includes('do not match the registry')));
+});
+
+test('ARCH-PROGRAM-LEDGER-001 controlled mutation: strict with a deep import into internals fails', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-ledger-deep-'));
+    const writeJson = (relative, value) => {
+        fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
+        fs.writeFileSync(path.join(root, relative), JSON.stringify(value, null, 2));
+    };
+    fs.mkdirSync(path.join(root, 'src/alpha'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'src/beta'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src/alpha/index.ts'), 'export {};' + '\n');
+    fs.writeFileSync(path.join(root, 'src/alpha/internal.ts'), 'export {};' + '\n');
+    fs.writeFileSync(path.join(root, 'src/beta/b.ts'),
+        'import {} from "../alpha/internal";' + '\n' + 'export {};' + '\n');
+    writeJson('docs/testing/architecture-modules.json', {
+        version: 1, scope: { roots: ['src'] },
+        modules: [
+            {
+                id: 'MOD-ALPHA', title: 'A', purpose: 'fixture',
+                source: { include: ['src/alpha/**'], exclude: [] },
+                publicEntrypoints: ['src/alpha/index.ts'],
+                mayDependOn: [], roles: [{ role: 'application', include: ['src/alpha/**'] }],
+                productCapabilities: ['MAIN-TEST-001'],
+            },
+            {
+                id: 'MOD-BETA', title: 'B', purpose: 'fixture',
+                source: { include: ['src/beta/**'], exclude: [] },
+                publicEntrypoints: ['src/beta/**'],
+                mayDependOn: ['MOD-ALPHA'],
+                roles: [{ role: 'application', include: ['src/beta/**'] }],
+                productCapabilities: ['MAIN-TEST-001'],
+            },
+        ],
+    });
+    writeJson('docs/testing/main-capability-coverage.json',
+        { version: 1, capabilities: [{ id: 'MAIN-TEST-001' }] });
+    const ledger = ledgerWith('strict');
+    ledger.modules['MOD-ALPHA'].target = { publicEntrypoints: ['src/alpha/index.ts'] };
+    ledger.modules['MOD-BETA'] = { state: 'legacy', since: 'fixture', evidence: [], nextAction: 'x' };
+    writeJson('docs/testing/architecture-program.json', ledger);
+    writeJson('.ci/architecture-debt-baseline.json',
+        { version: 1, rules: { 'module-cycle': { fingerprints: [] } } });
+    writeJson('docs/testing/architecture-waivers.json', { version: 1, waivers: [] });
+    writeJson('docs/testing/architecture-invariants.json', { version: 1, invariants: [validInvariant] });
+    assert.ok(runProgramLedgerCheck(root).errors
+        .some(error => error.includes('MOD-ALPHA') && error.includes('deep-import')));
 });
 
 test('ARCH-PROGRAM-LEDGER-001 controlled mutation: strict with a naming baseline entry fails', () => {

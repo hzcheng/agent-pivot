@@ -30,8 +30,8 @@ const ARCH_CHANGE_ID_PATTERN = /^ARCH-CHANGE-[A-Z0-9-]+$/;
 const RECORDS_DIRECTORY = 'docs/architecture/changes/';
 const BLOCK_PATTERN = /```arch-change\s*\r?\n([\s\S]*?)```/;
 
-const DELTA_MAP_KEYS = ['mayDependOnGrown'];
-const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded', 'invariantChanges'];
+const DELTA_MAP_KEYS = ['mayDependOnGrown', 'entrypointsGrown'];
+const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded', 'invariantChanges', 'ledgerRegressions'];
 const DELTA_FLAG_KEYS = ['rePartition', 'harnessWeakening'];
 const DELTA_KEYS = [...DELTA_MAP_KEYS, ...DELTA_LIST_KEYS, ...DELTA_FLAG_KEYS];
 
@@ -122,9 +122,11 @@ function parseArchitectureChangeRecord({ path: recordPath, text }) {
 
     const delta = {
         mayDependOnGrown: rawDelta.mayDependOnGrown || {},
+        entrypointsGrown: rawDelta.entrypointsGrown || {},
         baselineGrown: rawDelta.baselineGrown || [],
         waiversAdded: rawDelta.waiversAdded || [],
         invariantChanges: rawDelta.invariantChanges || [],
+        ledgerRegressions: rawDelta.ledgerRegressions || [],
         rePartition: rawDelta.rePartition === true,
         harnessWeakening: rawDelta.harnessWeakening === true,
     };
@@ -171,9 +173,11 @@ function coversPolicyDelta(record, actual) {
     const { delta } = record;
     const missing = [
         ...missingMapEntries(policyDelta.mayDependOnGrown, delta.mayDependOnGrown, 'mayDependOn broadened'),
+        ...missingMapEntries(policyDelta.entrypointsGrown || {}, delta.entrypointsGrown, 'entrypoints broadened'),
         ...missingListEntries(policyDelta.baselineGrown, delta.baselineGrown, 'baseline grew'),
         ...missingListEntries(policyDelta.waiversAdded, delta.waiversAdded, 'waiver added'),
         ...missingListEntries(relaxingInvariantIds || [], delta.invariantChanges, 'invariant changed'),
+        ...missingListEntries(policyDelta.ledgerRegressions || [], delta.ledgerRegressions, 'ledger regression'),
     ];
     if (rePartition && !delta.rePartition) {
         missing.push('registry re-partition not declared');

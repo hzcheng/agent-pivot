@@ -9,11 +9,18 @@
  * baseline fingerprint or waiver naming it, its P0/P1 invariants have
  * behavior owners, and its single-writer families declare writers. An agent
  * cannot mark a module strict while debt still names it.
+ *
+ * Review R9 (Important 9): every registered module must have exactly one
+ * ledger entry; a strict entry must carry a structured target contract
+ * (target.publicEntrypoints matching the registry exactly) and zero deep
+ * imports into module internals, computed from the dependency graph — the
+ * strict claim is verified against the graph, not asserted in prose.
  */
 
 const fs = require('fs');
 const path = require('path');
-const { loadArchitecturePolicy } = require('./loadArchitecturePolicy');
+const { loadArchitecturePolicy, compileGlob } = require('./loadArchitecturePolicy');
+const { buildDependencyGraph } = require('./buildDependencyGraph');
 
 const LEDGER_PATH = path.join('docs', 'testing', 'architecture-program.json');
 const BASELINE_PATH = path.join('.ci', 'architecture-debt-baseline.json');
@@ -27,6 +34,16 @@ function readJson(rootDirectory, relativePath, errors, label) {
         errors.push(`ledger: cannot read ${relativePath}: ${error.message}`);
         return null;
     }
+}
+
+/** External edges into a module's files that bypass its declared entrypoints. */
+function countDeepImports(rootDirectory, moduleId, publicEntrypoints) {
+    const { edges, errors } = buildDependencyGraph(rootDirectory);
+    if (errors.length > 0) { return -1; }
+    const entrypoints = publicEntrypoints.map(compileGlob);
+    return edges.filter(edge => edge.targetModule === moduleId
+        && edge.sourceModule !== moduleId
+        && !entrypoints.some(pattern => pattern.test(edge.target))).length;
 }
 
 function runProgramLedgerCheck(rootDirectory) {
@@ -52,6 +69,15 @@ function runProgramLedgerCheck(rootDirectory) {
             errors.push(`ledger: ${moduleId} has an unknown state '${entry && entry.state}'`);
         }
     }
+    // Review R9 (Important 9): every registered module has exactly one
+    // ledger entry — an untracked module escapes the program's progress
+    // accounting.
+    for (const moduleId of registryIds) {
+        if (!(moduleId in modules)) {
+            errors.push(`ledger: ${moduleId} has no ledger entry (every registered `
+                + 'module must be tracked)');
+        }
+    }
 
     const baselineFingerprints = Object.values((baseline && baseline.rules) || {})
         .flatMap(rule => rule.fingerprints || []);
@@ -72,6 +98,32 @@ function runProgramLedgerCheck(rootDirectory) {
         if (policy.errors.length > 0) {
             errors.push(`ledger: ${moduleId} cannot be strict while the closed-world `
                 + 'classification has errors');
+        }
+        // Structured target contract (review R9): the strict claim must
+        // name the approved entrypoint surface and prove it against the
+        // dependency graph.
+        const module = policy.modules.find(candidate => candidate.id === moduleId);
+        const target = entry.target;
+        if (!target || !Array.isArray(target.publicEntrypoints)
+            || target.publicEntrypoints.length === 0) {
+            errors.push(`ledger: ${moduleId} is strict but declares no target.publicEntrypoints `
+                + '— the strict claim must reference the structured target contract');
+        } else {
+            const registryEntrypoints = [...(module.publicEntrypoints || [])].sort();
+            const declared = [...target.publicEntrypoints].sort();
+            if (JSON.stringify(registryEntrypoints) !== JSON.stringify(declared)) {
+                errors.push(`ledger: ${moduleId} target.publicEntrypoints `
+                    + `(${declared.join(', ')}) do not match the registry `
+                    + `(${registryEntrypoints.join(', ')})`);
+            }
+            const deepImports = countDeepImports(rootDirectory, moduleId, target.publicEntrypoints);
+            if (deepImports < 0) {
+                errors.push(`ledger: ${moduleId} strict target cannot be evaluated while the `
+                    + 'dependency graph has errors');
+            } else if (deepImports > 0) {
+                errors.push(`ledger: ${moduleId} claims strict but ${deepImports} external `
+                    + 'edge(s) deep-import its internals');
+            }
         }
         const namingBaseline = baselineFingerprints.filter(fingerprint =>
             namesModule(fingerprint, moduleId));

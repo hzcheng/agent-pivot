@@ -165,10 +165,12 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
 
     const policyDelta = {
         mayDependOnGrown: {},
+        entrypointsGrown: {},
         invariantChanges: {},
         invariantsRemoved: [],
         baselineGrown: [],
         waiversAdded: [],
+        ledgerRegressions: [],
         modulesChanged: false,
     };
     const changedInvariantIds = [];
@@ -189,6 +191,13 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
                 const grown = diffStringSets(
                     baseModule.mayDependOn || [], headModule.mayDependOn || []).added;
                 if (grown.length > 0) { policyDelta.mayDependOnGrown[id] = grown; }
+                // Review R9 (Important 6): a new public entrypoint broadens
+                // the module surface — relaxing; removing one narrows it.
+                const entrypointsGrown = diffStringSets(
+                    baseModule.publicEntrypoints || [], headModule.publicEntrypoints || []).added;
+                if (entrypointsGrown.length > 0) {
+                    policyDelta.entrypointsGrown[id] = entrypointsGrown;
+                }
             }
         }
         if (protectedPath.endsWith('architecture-invariants.json')) {
@@ -254,6 +263,24 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
             const added = diffStringSets(baseWaivers, headWaivers).added;
             if (added.length > 0 && headWaivers.length > baseWaivers.length) {
                 policyDelta.waiversAdded = added;
+            }
+        }
+        if (protectedPath.endsWith('architecture-program.json')) {
+            // Review R9 (Important 9): ledger state regressions are relaxing
+            // (a module stepping backwards cannot ride a product change);
+            // forward moves along the declared chain are progress.
+            const baseModules = baseJson.modules || {};
+            const headModules = headJson.modules || {};
+            const stateOrder = Array.isArray(headJson.states) ? headJson.states : [];
+            for (const [id, headEntry] of Object.entries(headModules)) {
+                const baseEntry = baseModules[id];
+                if (!baseEntry || !headEntry || baseEntry.state === headEntry.state) { continue; }
+                const fromIndex = stateOrder.indexOf(baseEntry.state);
+                const toIndex = stateOrder.indexOf(headEntry.state);
+                if (fromIndex < 0 || toIndex < 0 || toIndex < fromIndex) {
+                    policyDelta.ledgerRegressions.push(
+                        `${id}: ${baseEntry.state} -> ${headEntry.state}`);
+                }
             }
         }
     }
@@ -336,6 +363,12 @@ function formatReport(report) {
     const grown = Object.entries(report.policyDelta.mayDependOnGrown);
     for (const [id, edges] of grown) {
         lines.push(`  mayDependOn broadened: ${id} += ${edges.join(', ')}`);
+    }
+    for (const [id, entrypoints] of Object.entries(report.policyDelta.entrypointsGrown || {})) {
+        lines.push(`  entrypoints broadened: ${id} += ${entrypoints.join(', ')}`);
+    }
+    for (const regression of report.policyDelta.ledgerRegressions || []) {
+        lines.push(`  ledger regression: ${regression}`);
     }
     for (const [id, change] of Object.entries(report.policyDelta.invariantChanges || {})) {
         const parts = [];

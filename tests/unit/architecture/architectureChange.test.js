@@ -594,8 +594,9 @@ test('ARCH-CHANGE-GATE-001 parser accepts a valid machine-summary block and appl
     assert.equal(record.status, 'approved');
     assert.deepEqual(record.modules, ['MOD-A']);
     assert.deepEqual(record.delta, {
-        mayDependOnGrown: {}, baselineGrown: [],
-        waiversAdded: [], invariantChanges: [], rePartition: false, harnessWeakening: false,
+        mayDependOnGrown: {}, entrypointsGrown: {}, baselineGrown: [],
+        waiversAdded: [], invariantChanges: [], ledgerRegressions: [],
+        rePartition: false, harnessWeakening: false,
     });
 });
 
@@ -809,4 +810,83 @@ test('ARCH-CHANGE-GATE-001 collectArchitectureDiff reads records from the base r
     const { classification, errors } = classifyArchitectureChange(diff);
     assert.equal(classification, 'relaxing');
     assert.deepEqual(errors, []);
+});
+
+
+// ── review R9: entrypoint growth and ledger regressions (Important 6/9) ──
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: broadening public entrypoints is relaxing', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            entrypointsGrown: { 'MOD-A': ['src/a/newEntrypoint.ts'] },
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+
+    const covered = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: {},
+            entrypointsGrown: { 'MOD-A': ['src/a/newEntrypoint.ts'] },
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], modulesChanged: true,
+        },
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({
+                delta: { entrypointsGrown: { 'MOD-A': ['src/a/newEntrypoint.ts'] } },
+            }),
+        }],
+    }));
+    assert.deepEqual(covered.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: a ledger state regression is relaxing', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-program.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, entrypointsGrown: {},
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [],
+            ledgerRegressions: ['MOD-A: strict -> migrating'],
+            modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+
+    const covered = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-program.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, entrypointsGrown: {},
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [],
+            ledgerRegressions: ['MOD-A: strict -> migrating'],
+            modulesChanged: true,
+        },
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({ delta: { ledgerRegressions: ['MOD-A: strict -> migrating'] } }),
+        }],
+    }));
+    assert.deepEqual(covered.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 a forward ledger transition with no other delta stays tightening', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-program.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, entrypointsGrown: {},
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], ledgerRegressions: [],
+            modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'tightening');
+    assert.deepEqual(result.errors, []);
 });

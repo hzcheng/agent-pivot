@@ -6815,14 +6815,16 @@
   {
     "id": "WORKTREE-GROUPS-MERGE-001",
     "domain": "session",
-    "title": "The worktree group merge handler drops malformed or unroutable messages, re-derives candidates host-side, binds both revisions captured when the dialog opened, and fails closed with a warning on drift",
+    "title": "The worktree group merge family carries a versioned correlated envelope (accepted to merged/cancelled/failed) with replay-cache exactly-once semantics, re-derives candidates host-side, binds both revisions captured when the dialog opened, and fails closed on drift",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/worktrees/groupMergeHandler.test.js"
+      "tests/unit/worktrees/groupMergeHandler.test.js",
+      "tests/unit/worktrees/groupMergeProtocol.test.js"
     ],
     "evidence": [
       "src/worktrees/groupMergeHandler.ts",
+      "src/worktrees/groupMergeProtocol.ts",
       "src/dashboard.ts"
     ]
   },

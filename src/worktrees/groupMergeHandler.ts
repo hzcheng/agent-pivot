@@ -1,5 +1,15 @@
 'use strict';
 
+import {
+    acceptedWorktreeGroupMergeSettlement,
+    parseMergeWorktreeGroupsRequest,
+    settledWorktreeGroupMergeSettlement,
+} from './groupMergeProtocol';
+import type {
+    MergeWorktreeGroupsRequest,
+    WorktreeGroupMergeSettlement,
+} from './groupMergeProtocol';
+import type { SettlementReplayCache } from './settlementReplayCache';
 import type { WorktreeGroupManifestStore } from './groupManifestStore';
 
 export interface MergeWorktreeGroupsPick {
@@ -9,6 +19,7 @@ export interface MergeWorktreeGroupsPick {
 }
 
 export interface MergeWorktreeGroupsHandlerDeps {
+    postMessage: (message: unknown) => Thenable<unknown>;
     /** Resolves the caller's project to the current workspace bucket. */
     getNavigationIdentity: (projectId: string) => string | null;
     store: WorktreeGroupManifestStore;
@@ -20,6 +31,8 @@ export interface MergeWorktreeGroupsHandlerDeps {
     /** Awaits publication of the authoritative replacement. */
     refreshNow: () => Promise<void>;
     logError: (message: string, error: unknown) => void;
+    /** Exactly-once replay protection (rename/deletion family pattern). */
+    replayCache: SettlementReplayCache<WorktreeGroupMergeSettlement>;
 }
 
 /**
@@ -37,22 +50,44 @@ export async function handleMergeWorktreeGroups(
     message: unknown,
     deps: MergeWorktreeGroupsHandlerDeps
 ): Promise<void> {
-    const request = (message && typeof message === 'object')
-        ? message as { projectId?: unknown; sourceGroupId?: unknown }
-        : {};
-    if (typeof request.projectId !== 'string'
-        || typeof request.sourceGroupId !== 'string'
-        || !request.sourceGroupId) {
+    const request = parseMergeWorktreeGroupsRequest(message);
+    if (!request) {
         return;
     }
+    // Single-flight per request id: a replay — even a concurrent one —
+    // awaits and re-receives the first execution's terminal settlement.
+    const replayed = deps.replayCache.get(request.requestId);
+    if (replayed) {
+        await deps.postMessage(await replayed);
+        return;
+    }
+    if (deps.replayCache.isExpired(request.requestId)) {
+        // The settlement aged out of the bounded cache: re-executing could
+        // flip an old outcome, so expired replays fail closed.
+        await deps.postMessage(settledWorktreeGroupMergeSettlement(
+            request, { kind: 'failed', errorCode: 'request-expired' }));
+        return;
+    }
+    const terminal = executeMergeWorktreeGroups(request, deps);
+    deps.replayCache.remember(request.requestId, terminal);
+    await deps.postMessage(await terminal);
+}
+
+async function executeMergeWorktreeGroups(
+    request: MergeWorktreeGroupsRequest,
+    deps: MergeWorktreeGroupsHandlerDeps
+): Promise<WorktreeGroupMergeSettlement> {
+    await deps.postMessage(acceptedWorktreeGroupMergeSettlement(request));
     const bucket = deps.getNavigationIdentity(request.projectId);
     if (!bucket) {
-        return;
+        return settledWorktreeGroupMergeSettlement(
+            request, { kind: 'failed', errorCode: 'workspace-unavailable' });
     }
     const groups = deps.store.listGroups(bucket);
     const source = groups.find(group => group.groupId === request.sourceGroupId);
     if (!source) {
-        return;
+        return settledWorktreeGroupMergeSettlement(
+            request, { kind: 'failed', errorCode: 'group-not-found' });
     }
     const candidates = groups
         .filter(group => group.groupId !== source.groupId)
@@ -60,7 +95,8 @@ export async function handleMergeWorktreeGroups(
             Number(right.suggestedSlug === source.suggestedSlug)
             - Number(left.suggestedSlug === source.suggestedSlug));
     if (candidates.length === 0) {
-        return;
+        return settledWorktreeGroupMergeSettlement(
+            request, { kind: 'failed', errorCode: 'no-candidates' });
     }
     const picks: MergeWorktreeGroupsPick[] = candidates.map(group => ({
         label: group.displayName,
@@ -70,7 +106,7 @@ export async function handleMergeWorktreeGroups(
     const chosen = await deps.showQuickPick(picks,
         `Merge "${source.displayName}" into…`);
     if (!chosen) {
-        return;
+        return settledWorktreeGroupMergeSettlement(request, { kind: 'cancelled' });
     }
     const expectedRevisions = {
         targetRevision: chosen.groupId
@@ -89,8 +125,14 @@ export async function handleMergeWorktreeGroups(
                 : code === 'group-changed'
                     ? 'A group changed while the merge was open. Review and try again.'
                     : 'The groups could not be merged. Try again.');
-        return;
+        return settledWorktreeGroupMergeSettlement(
+            request, {
+                kind: 'failed',
+                errorCode: /^[a-z0-9-]{1,64}$/u.test(code) ? code : 'merge-failed',
+            });
     }
     // Fire-and-forget, exactly as the inline handler did.
     void deps.refreshNow();
+    return settledWorktreeGroupMergeSettlement(
+        request, { kind: 'merged', groupId: chosen.groupId });
 }

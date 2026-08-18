@@ -620,6 +620,11 @@ function initProjects() {
             return;
         }
 
+        if (message && message.type === 'worktree-group-merge-settlement') {
+            aiSessionControls.applyWorktreeGroupMergeSettlement(message);
+            return;
+        }
+
         if (message && message.type === 'worktree-group-primary-settlement') {
             aiSessionControls.applySetGroupPrimarySettlement(message);
             return;

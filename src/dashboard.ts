@@ -314,6 +314,7 @@ import type { WorktreeGroupDeletionSettlement } from './worktrees/groupDeletionP
 import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
 import { handleAdoptWorktrees } from './worktrees/groupAdoptHandler';
 import type { WorktreeAdoptSettlement } from './worktrees/groupAdoptProtocol';
+import type { WorktreeGroupMergeSettlement } from './worktrees/groupMergeProtocol';
 import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
 import {
     acceptedIsolatedSessionSettlement,
@@ -2484,6 +2485,8 @@ async function initializeDashboard(
     // Idempotency cache for group rename settlements (PRD §6.4 protocol
     // rules): replays re-receive the recorded terminal settlement and are
     // never re-executed.
+    const worktreeGroupMergeSettlements = createSettlementReplayCache<
+        WorktreeGroupMergeSettlement>();
     const worktreeAdoptSettlements = createSettlementReplayCache<
         WorktreeAdoptSettlement>();
     const worktreeGroupRenameSettlements = createSettlementReplayCache<
@@ -2590,6 +2593,7 @@ async function initializeDashboard(
         },
         'merge-worktree-groups': async (message: unknown) => {
             await handleMergeWorktreeGroups(message, {
+                postMessage: outgoing => provider.postMessage(outgoing),
                 getNavigationIdentity: projectId =>
                     getCurrentWorkspaceActionTarget(projectId)
                         ?.workspace.navigationIdentity || null,
@@ -2603,6 +2607,7 @@ async function initializeDashboard(
                 refreshNow: () => aiSessionDashboardController.refreshNow(
                     'worktree-groups-merged', { fallbackToFullRefresh: false }),
                 logError,
+                replayCache: worktreeGroupMergeSettlements,
             });
         },
         'rename-worktree-group': async (message: unknown) => {

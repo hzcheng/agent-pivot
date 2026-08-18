@@ -72,16 +72,18 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: baseline growth without a record
     assert.equal(result.classification, 'relaxing');
     assert.ok(result.errors.some(error => error.includes('ARCH-CHANGE')));
 
+    // Review R3: a record added in the same PR never authorizes consumption.
     const withRecord = classifyArchitectureChange(report({
         newFiles: RECORD,
         protectedTouched: ['.ci/architecture-debt-baseline.json'],
         policyDelta: {
-            mayDependOn: {}, mayDependOnGrown: {}, writersGrown: {}, waiversAdded: [],
+            mayDependOnGrown: {}, writersGrown: {}, waiversAdded: [],
             baselineGrown: ['2:MOD-A->MOD-B'], modulesChanged: true,
         },
     }));
     assert.equal(withRecord.classification, 'relaxing');
-    assert.deepEqual(withRecord.errors, []);
+    assert.ok(withRecord.errors.some(error => error.includes('same PR')
+        || error.includes('same diff')), JSON.stringify(withRecord.errors));
 });
 
 test('ARCH-CHANGE-GATE-001 controlled mutation: broadening mayDependOn without a record fails', () => {
@@ -131,6 +133,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: registry re-partition without a 
     assert.equal(result.classification, 're-partition');
     assert.ok(result.errors.some(error => error.includes('ARCH-CHANGE')));
 
+    // Review R3: a record added in the same PR never authorizes consumption.
     const withRecord = classifyArchitectureChange(report({
         newFiles: RECORD,
         protectedTouched: ['docs/testing/architecture-modules.json'],
@@ -140,7 +143,8 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: registry re-partition without a 
         },
     }));
     assert.equal(withRecord.classification, 're-partition');
-    assert.deepEqual(withRecord.errors, []);
+    assert.ok(withRecord.errors.some(error => error.includes('same PR')
+        || error.includes('same diff')), JSON.stringify(withRecord.errors));
 });
 
 test('ARCH-CHANGE-GATE-001 controlled mutation: deleting a harness guard file fails', () => {
@@ -206,7 +210,7 @@ test('ARCH-CHANGE-GATE-001 a guard change with intact wiring classifies as tight
 
 // ── collectArchitectureDiff with a fake git ──────────────────────────
 
-function fakeGit(root, { changed, atBase = {} }) {
+function fakeGit(root, { changed, atBase = {}, baseRecords = [] }) {
     return {
         changedFiles: () => changed,
         fileAt: (ref, relativePath) => {
@@ -214,6 +218,8 @@ function fakeGit(root, { changed, atBase = {} }) {
             const absolute = path.join(root, relativePath);
             return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : null;
         },
+        listFiles: (ref, prefix) => (ref === 'base' && prefix.startsWith('docs/architecture/changes')
+            ? baseRecords : []),
     };
 }
 
@@ -284,6 +290,7 @@ test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
         newFiles: ['src/alpha/new.ts'],
         removedFiles: ['src/alpha/old.ts'],
         protectedTouched: ['docs/testing/architecture-modules.json'],
+        baseRecords: [{ path: 'docs/architecture/changes/ARCH-CHANGE-001.md', text: 'x' }],
         policyDelta: {
             mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] },
             writersGrown: { 'ARCH-X-001': ['src/writer.ts'] },
@@ -297,6 +304,7 @@ test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
         'architecture-modules.json', 'mayDependOn broadened: MOD-ALPHA += MOD-BETA',
         'writers broadened: ARCH-X-001 += src/writer.ts',
         'baseline grew: 2:MOD-A->MOD-B', 'waivers added: ARCH-WAIVER-009',
+        'architecture change records in base: 1',
     ]) {
         assert.ok(text.includes(fragment), fragment);
     }
@@ -339,6 +347,7 @@ test('ARCH-CHANGE-GATE-001 the policy delta covers invariants, baseline, and wai
             { status: 'M', path: 'docs/testing/architecture-waivers.json' },
             { status: 'M', path: '.ci/architecture-debt-baseline.json' },
         ],
+        listFiles: () => [],
         fileAt: (ref, relativePath) => {
             if (ref !== 'base') {
                 const absolute = path.join(root, relativePath);
@@ -407,6 +416,7 @@ test('ARCH-CHANGE-GATE-001 the harness delta detects removed guard ids, invocati
             { status: 'M', path: 'tests/unit/architecture/moduleBoundaries.test.js' },
             { status: 'D', path: 'scripts/architecture/checkWebviewManifest.js' },
         ],
+        listFiles: () => [],
         fileAt: (ref, relativePath) => {
             if (relativePath.endsWith('run-architecture-guards.js')) {
                 return ref === 'base' ? baseGuards : headGuards;
@@ -443,4 +453,242 @@ test('ARCH-CHANGE-GATE-001 a self-diff against HEAD is a clean product-only repo
     const result = runArchitectureChangeCheck(repoRoot, 'HEAD');
     assert.equal(result.classification, 'product-only');
     assert.deepEqual(result.errors, []);
+});
+
+// ── review R3: base-record authorization ─────────────────────────────
+
+const {
+    coversPolicyDelta,
+    parseArchitectureChangeRecord,
+} = require('../../../scripts/architecture/architectureChangeRecords');
+
+function recordMarkdown({ id = 'ARCH-CHANGE-001', status = 'approved', modules = ['MOD-A'], delta = {} } = {}) {
+    return [
+        `# ${id} — fixture record`, '',
+        '## Machine summary', '',
+        '```arch-change',
+        JSON.stringify({ id, status, modules, delta }, null, 2),
+        '```', '',
+    ].join('\n');
+}
+
+const RECORD_PATH = 'docs/architecture/changes/ARCH-CHANGE-001.md';
+
+function relaxingReport({ delta = {}, baseRecords = [], newFiles = [] } = {}) {
+    return report({
+        newFiles,
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: { 'MOD-A': ['MOD-B'] },
+            writersGrown: {}, baselineGrown: [], waiversAdded: [],
+            modulesChanged: true,
+            ...delta,
+        },
+        baseRecords,
+    });
+}
+
+test('ARCH-CHANGE-GATE-001 parser accepts a valid machine-summary block and applies defaults', () => {
+    const { record, errors } = parseArchitectureChangeRecord({
+        path: RECORD_PATH,
+        text: recordMarkdown(),
+    });
+    assert.deepEqual(errors, []);
+    assert.equal(record.id, 'ARCH-CHANGE-001');
+    assert.equal(record.status, 'approved');
+    assert.deepEqual(record.modules, ['MOD-A']);
+    assert.deepEqual(record.delta, {
+        mayDependOnGrown: {}, writersGrown: {}, baselineGrown: [],
+        waiversAdded: [], rePartition: false, harnessWeakening: false,
+    });
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: a record without a machine block cannot authorize', () => {
+    const result = classifyArchitectureChange(relaxingReport({
+        baseRecords: [{ path: RECORD_PATH, text: '# ARCH-CHANGE-001 — empty prose only\n' }],
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.some(error => error.includes('no valid approved')), JSON.stringify(result.errors));
+    const { record, errors } = parseArchitectureChangeRecord({
+        path: RECORD_PATH, text: '# prose only\n',
+    });
+    assert.equal(record, null);
+    assert.ok(errors.some(error => error.includes('machine-summary')));
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: invalid machine blocks are rejected', () => {
+    const cases = {
+        'not json': recordMarkdown().replace(/\{[\s\S]*\}/, '{oops'),
+        'two blocks': `${recordMarkdown()}\n\`\`\`arch-change\n{}\n\`\`\`\n`,
+        'id mismatch': recordMarkdown({ id: 'ARCH-CHANGE-009' }),
+        'status pending': recordMarkdown({ status: 'proposed' }),
+        'empty modules': recordMarkdown({ modules: [] }),
+        'unknown delta key': recordMarkdown({ delta: { anythingGoes: true } }),
+        'bad map value': recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-A': 'MOD-B' } } }),
+        'bad flag type': recordMarkdown({ delta: { rePartition: 'yes' } }),
+        'non-object root': '```arch-change\n[]\n```\n',
+        'non-object delta': recordMarkdown().replace('"delta": {}', '"delta": []'),
+    };
+    for (const [name, text] of Object.entries(cases)) {
+        const { record, errors } = parseArchitectureChangeRecord({ path: RECORD_PATH, text });
+        assert.equal(record, null, name);
+        assert.ok(errors.length > 0, name);
+        const result = classifyArchitectureChange(relaxingReport({
+            baseRecords: [{ path: RECORD_PATH, text }],
+        }));
+        assert.ok(result.errors.length > 0, `gate must fail for ${name}`);
+    }
+});
+
+test('ARCH-CHANGE-GATE-001 a covering record in the base authorizes the relaxation', () => {
+    const result = classifyArchitectureChange(relaxingReport({
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-A': ['MOD-B'] } } }),
+        }],
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.deepEqual(result.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 subset semantics: a record declaring a superset covers the realized delta', () => {
+    const result = classifyArchitectureChange(relaxingReport({
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-A': ['MOD-B', 'MOD-C'] } } }),
+        }],
+    }));
+    assert.deepEqual(result.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: an under-declaring record fails and names the uncovered delta', () => {
+    const result = classifyArchitectureChange(relaxingReport({
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-A': ['MOD-C'] } } }),
+        }],
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.some(error => error.includes('MOD-A += MOD-B')), JSON.stringify(result.errors));
+});
+
+test('ARCH-CHANGE-GATE-001 a re-partition requires a record declaring rePartition', () => {
+    const rePartitionReport = delta => report({
+        protectedTouched: ['docs/testing/architecture-modules.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, writersGrown: {}, baselineGrown: [],
+            waiversAdded: [], modulesChanged: true,
+        },
+        baseRecords: [{ path: RECORD_PATH, text: recordMarkdown({ delta }) }],
+    });
+    const denied = classifyArchitectureChange(rePartitionReport({}));
+    assert.equal(denied.classification, 're-partition');
+    assert.ok(denied.errors.some(error => error.includes('re-partition')), JSON.stringify(denied.errors));
+    const allowed = classifyArchitectureChange(rePartitionReport({ rePartition: true }));
+    assert.deepEqual(allowed.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 harness weakening requires a record declaring harnessWeakening', () => {
+    const harnessReport = delta => report({
+        harnessDelta: {
+            touched: ['scripts/architecture/checkClosedWorld.js'],
+            deletedFiles: ['scripts/architecture/checkClosedWorld.js'],
+            removedGuardIds: [], removedInvocations: [], shrunkMutationTests: [],
+        },
+        baseRecords: [{ path: RECORD_PATH, text: recordMarkdown({ delta }) }],
+    });
+    const denied = classifyArchitectureChange(harnessReport({}));
+    assert.ok(denied.errors.some(error => error.includes('harness weakening')), JSON.stringify(denied.errors));
+    const allowed = classifyArchitectureChange(harnessReport({ harnessWeakening: true }));
+    assert.deepEqual(allowed.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: a same-PR record fails even when its content would cover', () => {
+    const result = classifyArchitectureChange(relaxingReport({
+        newFiles: [RECORD_PATH],
+        baseRecords: [],
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.some(error => error.includes('same PR')), JSON.stringify(result.errors));
+});
+
+test('ARCH-CHANGE-GATE-001 coversPolicyDelta checks every delta dimension', () => {
+    const record = parseArchitectureChangeRecord({
+        path: RECORD_PATH,
+        text: recordMarkdown({
+            delta: {
+                mayDependOnGrown: { 'MOD-A': ['MOD-B'] },
+                writersGrown: { 'ARCH-X-001': ['src/writer.ts'] },
+                baselineGrown: ['2:MOD-A->MOD-B'],
+                waiversAdded: ['ARCH-WAIVER-009'],
+                rePartition: true,
+                harnessWeakening: true,
+            },
+        }),
+    }).record;
+    const actualFor = overrides => ({
+        policyDelta: {
+            mayDependOnGrown: {}, writersGrown: {}, baselineGrown: [],
+            waiversAdded: [], modulesChanged: true,
+            ...overrides,
+        },
+        harnessWeakened: false,
+        rePartition: false,
+    });
+    assert.equal(coversPolicyDelta(record, actualFor({ mayDependOnGrown: { 'MOD-A': ['MOD-B'] } })).covered, true);
+    assert.equal(coversPolicyDelta(record, actualFor({ mayDependOnGrown: { 'MOD-A': ['MOD-Z'] } })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({ writersGrown: { 'ARCH-X-001': ['src/other.ts'] } })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({ baselineGrown: ['2:MOD-X->MOD-Y'] })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({ waiversAdded: ['ARCH-WAIVER-010'] })).covered, false);
+    assert.equal(coversPolicyDelta(record, { ...actualFor({}), rePartition: false }).covered, true);
+    assert.equal(coversPolicyDelta(
+        parseArchitectureChangeRecord({ path: RECORD_PATH, text: recordMarkdown() }).record,
+        { ...actualFor({}), rePartition: true }).covered, false);
+});
+
+test('ARCH-CHANGE-GATE-001 collectArchitectureDiff reads records from the base ref only', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-diff-records-'));
+    fs.mkdirSync(path.join(root, 'src/alpha'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'src/beta'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'docs/testing'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src/alpha/a.ts'), '// a\n');
+    fs.writeFileSync(path.join(root, 'src/beta/b.ts'), '// b\n');
+    const moduleEntry = {
+        id: 'MOD-ALPHA', title: 'A', purpose: 'fixture',
+        source: { include: ['src/alpha/**'], exclude: [] },
+        publicEntrypoints: ['src/alpha/**'],
+        mayDependOn: ['MOD-BETA'], roles: [{ role: 'application', include: ['src/alpha/**'] }],
+        productCapabilities: ['MAIN-TEST-001'],
+    };
+    const betaEntry = {
+        id: 'MOD-BETA', title: 'B', purpose: 'fixture',
+        source: { include: ['src/beta/**'], exclude: [] },
+        publicEntrypoints: ['src/beta/**'],
+        mayDependOn: [], roles: [{ role: 'application', include: ['src/beta/**'] }],
+        productCapabilities: ['MAIN-TEST-001'],
+    };
+    fs.writeFileSync(path.join(root, 'docs/testing/architecture-modules.json'), JSON.stringify({
+        version: 1, scope: { roots: ['src'] },
+        modules: [moduleEntry, betaEntry],
+    }));
+    fs.writeFileSync(path.join(root, 'docs/testing/main-capability-coverage.json'),
+        JSON.stringify({ version: 1, capabilities: [{ id: 'MAIN-TEST-001' }] }));
+    const baseRegistry = {
+        version: 1, scope: { roots: ['src'] },
+        modules: [{ ...moduleEntry, mayDependOn: [] }, betaEntry],
+    };
+    const coveringRecord = recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] } } });
+    const git = fakeGit(root, {
+        changed: [{ status: 'M', path: 'docs/testing/architecture-modules.json' }],
+        atBase: {
+            'docs/testing/architecture-modules.json': JSON.stringify(baseRegistry, null, 4) + '\n',
+            [RECORD_PATH]: coveringRecord,
+        },
+        baseRecords: [RECORD_PATH],
+    });
+    const diff = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(diff.baseRecords, [{ path: RECORD_PATH, text: coveringRecord }]);
+    const { classification, errors } = classifyArchitectureChange(diff);
+    assert.equal(classification, 'relaxing');
+    assert.deepEqual(errors, []);
 });

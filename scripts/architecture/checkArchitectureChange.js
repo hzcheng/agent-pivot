@@ -11,8 +11,17 @@
  * - relaxing or registry re-partition: baseline grew, waivers added,
  *   mayDependOn broadened, writer sets grew, module structure changed, or
  *   the harness surface weakened (a guard file deleted, a guard id removed,
- *   a lane or workflow invocation removed, mutation tests shrank) — requires
- *   an added docs/architecture/changes/ARCH-CHANGE-*.md record.
+ *   a lane or workflow invocation removed, mutation tests shrank).
+ *
+ * A relaxing or re-partition change is authorized only by an Architecture
+ * Change record that already exists in the PR base (review R3; charter 8.9:
+ * the record lands in its own earlier PR before product work consumes it).
+ * The record must carry a valid ```arch-change machine-summary block whose
+ * declared delta covers the actual policy delta; an empty markdown file, a
+ * bare filename match, or a record added in the same PR never authorizes.
+ * Because every merge requires the merge-approval status (owner comment
+ * newer than the PR head), a record present in the base was necessarily
+ * approved after its final commit — approval timing holds transitively.
  *
  * An agent cannot legalize its own violation: the classification is computed
  * from the diff, not declared.
@@ -23,8 +32,71 @@ const {
     collectArchitectureDiff,
     defaultGit,
 } = require('./reportArchitectureDiff');
+const {
+    ARCH_CHANGE_RECORD_PATTERN,
+    coversPolicyDelta,
+    parseArchitectureChangeRecord,
+} = require('./architectureChangeRecords');
 
-const ARCH_CHANGE_PATTERN = /^docs\/architecture\/changes\/ARCH-CHANGE-[A-Z0-9-]+\.md$/;
+// Kept for backward compatibility with existing imports.
+const ARCH_CHANGE_PATTERN = ARCH_CHANGE_RECORD_PATTERN;
+
+function harnessWeakenedOf(harness) {
+    return harness.deletedFiles.length > 0
+        || harness.removedGuardIds.length > 0
+        || harness.removedInvocations.length > 0
+        || harness.shrunkMutationTests.length > 0;
+}
+
+/**
+ * Authorize a relaxing/re-partition classification against the Architecture
+ * Change records present in the base. Returns the error list (empty when
+ * authorized).
+ */
+function authorizeWithBaseRecords(report, classification, harnessWeakened) {
+    const baseRecords = report.baseRecords || [];
+    const candidates = [];
+    const invalid = [];
+    for (const { path: recordPath, text } of baseRecords) {
+        const { record, errors } = parseArchitectureChangeRecord({ path: recordPath, text });
+        if (record) { candidates.push(record); }
+        if (errors.length > 0) { invalid.push(...errors); }
+    }
+    const actual = {
+        policyDelta: report.policyDelta,
+        harnessWeakened,
+        rePartition: classification === 're-partition',
+    };
+    let bestMissing = null;
+    for (const record of candidates) {
+        const { covered, missing } = coversPolicyDelta(record, actual);
+        if (covered) { return []; }
+        if (bestMissing === null || missing.length < bestMissing.length) {
+            bestMissing = missing;
+        }
+    }
+
+    const verb = classification === 'relaxing' ? 'relaxes' : 're-partitions';
+    const errors = [];
+    if (candidates.length === 0) {
+        errors.push(`anti-self-amendment: this change ${verb} architecture policy or weakens the `
+            + 'harness, and no valid approved Architecture Change record exists in the PR base '
+            + `(found ${baseRecords.length} record file(s), ${invalid.length} invalid). Land a `
+            + 'docs-only PR adding docs/architecture/changes/ARCH-CHANGE-<seq>.md with an '
+            + '```arch-change machine-summary block (id, status "approved", modules, declared '
+            + 'delta) first; a record added in the same PR never authorizes consumption.');
+    } else {
+        errors.push(`anti-self-amendment: this change ${verb} architecture policy or weakens the `
+            + `harness beyond every approved Architecture Change record in the PR base. Uncovered `
+            + `delta: ${bestMissing.join('; ')}. Land a docs-only record PR declaring this delta `
+            + 'first, or narrow the change to what an existing record declares.');
+    }
+    if (report.newFiles.some(file => ARCH_CHANGE_RECORD_PATTERN.test(file))) {
+        errors.push('anti-self-amendment: this PR adds an Architecture Change record and consumes '
+            + 'a relaxation in the same diff — the record must land in an earlier PR (charter 8.9).');
+    }
+    return errors;
+}
 
 /**
  * classifyArchitectureChange(report) -> {
@@ -37,16 +109,11 @@ function classifyArchitectureChange(report) {
     if (report.errors && report.errors.length > 0) {
         errors.push(...report.errors);
     }
-    const hasArchChangeRecord = report.newFiles
-        .some(file => ARCH_CHANGE_PATTERN.test(file));
     const harness = report.harnessDelta || {
         touched: [], deletedFiles: [], removedGuardIds: [],
         removedInvocations: [], shrunkMutationTests: [],
     };
-    const harnessWeakened = harness.deletedFiles.length > 0
-        || harness.removedGuardIds.length > 0
-        || harness.removedInvocations.length > 0
-        || harness.shrunkMutationTests.length > 0;
+    const harnessWeakened = harnessWeakenedOf(harness);
     if (report.protectedTouched.length === 0 && harness.touched.length === 0) {
         return { classification: 'product-only', errors };
     }
@@ -66,12 +133,7 @@ function classifyArchitectureChange(report) {
         return { classification: 'tightening', errors };
     }
     const classification = relaxing ? 'relaxing' : 're-partition';
-    if (!hasArchChangeRecord) {
-        errors.push(`anti-self-amendment: this change ${classification === 'relaxing' ? 'relaxes' : 're-partitions'} `
-            + 'architecture policy or weakens the harness without an Architecture Change record — add '
-            + 'docs/architecture/changes/ARCH-CHANGE-<seq>.md with evidence, alternatives, '
-            + 'compatibility impact, migration, tests, and rollback');
-    }
+    errors.push(...authorizeWithBaseRecords(report, classification, harnessWeakened));
     return { classification, errors };
 }
 

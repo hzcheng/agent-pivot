@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "86f76b58df2b31056fb9e77c00b9137021b9aaad",
+        "head": "99666fe7bd595cc977c7b7b583fdf1f3238b4413",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -423,7 +423,8 @@
             "cd361291398dd7ba884cfc37b45b807ba015bcf1",
             "da3b97d09f3f6af8b735ed6988b3b7423f3bb0f3",
             "13bd18ac4e7f75a14926bd837d137c102f8ecc08",
-            "cfb96fd65d4c9c5ed6453ae6f607290dbb86d6ff"
+            "cfb96fd65d4c9c5ed6453ae6f607290dbb86d6ff",
+            "15e02b1fc1d28814f08b3b734d6bf710ddebf640"
         ]
     },
     "capabilities": [
@@ -2254,7 +2255,8 @@
                 "fd471497a9991819c63c8efbfac06f4bd385a240",
                 "9cc798e174564d2cc3274b139d7c3fe64a875064",
                 "135f07179a352666153fc7e6f59b34c3cfbde9b7",
-                "86f76b58df2b31056fb9e77c00b9137021b9aaad"
+                "86f76b58df2b31056fb9e77c00b9137021b9aaad",
+                "99666fe7bd595cc977c7b7b583fdf1f3238b4413"
             ],
             "behaviors": [
                 "ARCH-POLICY-SCHEMA-001",
@@ -2263,7 +2265,8 @@
                 "ARCH-MODULE-CYCLE-001",
                 "ARCH-INVARIANT-CATALOG-001",
                 "ARCH-SINGLE-WRITER-001",
-                "ARCH-CHANGE-GATE-001"
+                "ARCH-CHANGE-GATE-001",
+                "ARCH-WEBVIEW-MANIFEST-001"
             ],
             "prGates": [
                 "test:architecture-policy"

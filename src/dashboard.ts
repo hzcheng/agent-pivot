@@ -2309,7 +2309,8 @@ async function initializeDashboard(
             openWorkingChangeDiff: (worktreePath, item) =>
                 openWorkingChangeDiff(worktreePath, item),
             openTaskResultReview: (worktreePath, baselineSha, title) =>
-                openTaskResultReview(worktreePath, baselineSha, title),
+                openTaskResultReview(worktreePath, baselineSha, title,
+                    (message, error) => logError(message, error)),
             showWorktreeInSourceControl: worktreeRoot =>
                 showWorktreeInSourceControl(worktreeRoot),
             watchRepositoryChanges: (paths, onChange) =>

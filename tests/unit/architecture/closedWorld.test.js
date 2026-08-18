@@ -48,7 +48,7 @@ function twoModuleRegistry() {
                 mayDependOn: [],
                 roles: [
                     { role: 'domain', include: ['src/beta/types.ts'] },
-                    { role: 'application', include: ['src/beta/**'] },
+                    { role: 'application', include: ['**'] },
                 ],
                 productCapabilities: ['MAIN-TEST-001'],
             },
@@ -149,6 +149,45 @@ test('ARCH-CLOSED-WORLD-001 controlled mutation: a stale pattern that matches no
         files: ['src/alpha/index.ts', 'src/beta/index.ts', 'src/beta/types.ts'],
     }));
     assert.ok(errors.some(e => e.includes('stale source.include pattern src/alpha/legacy/**')));
+});
+
+test('ARCH-CLOSED-WORLD-001 controlled mutation: a file matching two specific roles fails with both roles and patterns', () => {
+    const registry = twoModuleRegistry();
+    registry.modules[1].roles = [
+        { role: 'domain', include: ['src/beta/types.ts', 'src/beta/index.ts'] },
+        { role: 'application', include: ['src/beta/index.ts'] },
+    ];
+    const { errors } = loadArchitecturePolicy(makeFixture({
+        registry,
+        files: ['src/alpha/index.ts', 'src/beta/index.ts', 'src/beta/types.ts'],
+    }));
+    assert.ok(errors.some(error => error.includes('src/beta/index.ts')
+        && error.includes('multiple roles') && error.includes('domain')
+        && error.includes('application')), JSON.stringify(errors));
+});
+
+test('ARCH-CLOSED-WORLD-001 controlled mutation: a remainder role not in last position fails', () => {
+    const registry = twoModuleRegistry();
+    registry.modules[1].roles = [
+        { role: 'application', include: ['**'] },
+        { role: 'domain', include: ['src/beta/types.ts'] },
+    ];
+    const { errors } = loadArchitecturePolicy(makeFixture({
+        registry,
+        files: ['src/alpha/index.ts', 'src/beta/index.ts', 'src/beta/types.ts'],
+    }));
+    assert.ok(errors.some(error => error.includes('remainder role')
+        && error.includes('last')), JSON.stringify(errors));
+});
+
+test('ARCH-CLOSED-WORLD-001 the remainder role catches only unclaimed files', () => {
+    const { errors, classification } = loadArchitecturePolicy(makeFixture({
+        registry: twoModuleRegistry(),
+        files: ['src/alpha/index.ts', 'src/beta/index.ts', 'src/beta/types.ts'],
+    }));
+    assert.deepEqual(errors, []);
+    assert.equal(classification.get('src/beta/types.ts').role, 'domain');
+    assert.equal(classification.get('src/beta/index.ts').role, 'application');
 });
 
 test('ARCH-CLOSED-WORLD-001 controlled mutation: an entrypoint outside the module fails', () => {

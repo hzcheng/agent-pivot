@@ -100,6 +100,15 @@ test('ARCH-PROGRAM-LEDGER-001 controlled mutation: strict with a P0 invariant la
         .some(error => error.includes('ARCH-TEST-001') && error.includes('no behavior owner')));
 });
 
+test('ARCH-PROGRAM-LEDGER-001 controlled mutation: strict with classification errors fails', () => {
+    // An unclassified file in the fixture breaks exact-once; strict must fail.
+    const root = makeFixture({ ledger: ledgerWith('strict'), invariants: [validInvariant] });
+    fs.writeFileSync(path.join(root, 'src/a.py'), '# unknown file kind\n');
+    const { errors } = runProgramLedgerCheck(root);
+    assert.ok(errors.some(error => error.includes('MOD-ALPHA')
+        && error.includes('closed-world')), JSON.stringify(errors));
+});
+
 test('ARCH-PROGRAM-LEDGER-001 controlled mutation: unknown module and unknown state fail', () => {
     const bad = ledgerWith('strict');
     bad.modules['MOD-GHOST'] = { state: 'strict', since: 'x', evidence: [], nextAction: 'x' };

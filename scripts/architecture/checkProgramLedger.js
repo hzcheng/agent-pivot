@@ -68,6 +68,11 @@ function runProgramLedgerCheck(rootDirectory) {
 
     for (const [moduleId, entry] of Object.entries(modules)) {
         if (!entry || entry.state !== 'strict') { continue; }
+        // Exact-once classification is a strict precondition (red line 1).
+        if (policy.errors.length > 0) {
+            errors.push(`ledger: ${moduleId} cannot be strict while the closed-world `
+                + 'classification has errors');
+        }
         const namingBaseline = baselineFingerprints.filter(fingerprint =>
             namesModule(fingerprint, moduleId));
         for (const fingerprint of namingBaseline) {

@@ -7,8 +7,8 @@ import type {
     ProviderDirectoryCapabilityProvider,
     ProviderDirectoryCapabilityResult,
 } from './providerDirectoryCapability';
-import { assignPathToWorkspaceRoot } from '../workspaces/sessionAssignment';
-import { assignPathToWorkspaceWorktree } from '../workspaces/worktreeSessionAssignment';
+import { assignPathToWorkspaceRoot } from '../sessionAssignment';
+import { assignPathToWorkspaceWorktree } from '../worktreeSessionAssignment';
 import {
     buildAiSessionDirectoryScope,
     mapWorktreeBoundHostPaths,

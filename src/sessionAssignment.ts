@@ -1,7 +1,7 @@
 'use strict';
 
 import * as path from 'path';
-import type { WorkspaceRoot } from './types';
+import type { WorkspaceRoot } from './workspaces/types';
 
 interface NormalizedHostPath {
     comparable: string;

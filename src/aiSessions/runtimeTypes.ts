@@ -10,7 +10,7 @@ import {
     getWorkspaceHostPathComparisonKey,
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
-} from '../workspaces/sessionAssignment';
+} from '../sessionAssignment';
 
 const MAX_RUNTIME_IDENTITY_ID_LENGTH = 512;
 const MAX_RUNTIME_NAVIGATION_IDENTITY_LENGTH = 4096;

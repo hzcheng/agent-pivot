@@ -13,7 +13,7 @@ import type {
 import type { OpenWorkspace } from './types';
 import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
 import { worktreeKeysEqual } from '../worktrees/types';
-import { isWorkspaceHostPathContained } from './sessionAssignment';
+import { isWorkspaceHostPathContained } from '../sessionAssignment';
 import type { WorktreeGroup } from '../worktrees/groupManifestStore';
 import { buildWorktreeGroupProjection } from './worktreeGroupProjection';
 import type { DeletionJournalEntry } from '../worktrees/deletionJournal';

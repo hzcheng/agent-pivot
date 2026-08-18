@@ -5,7 +5,7 @@ const test = require('node:test');
 const {
     assignPathToWorkspaceWorktree,
     getWorkspaceWorktreeCandidatePaths,
-} = require('../../../out/workspaces/worktreeSessionAssignment');
+} = require('../../../out/worktreeSessionAssignment');
 const { buildWorkspaceAiSessionViewModel } = require('../../../out/workspaces/viewModels');
 
 const WORKSPACE = {

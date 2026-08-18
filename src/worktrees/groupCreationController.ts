@@ -1,7 +1,7 @@
 'use strict';
 
 import type { OpenWorkspace } from '../workspaces/types';
-import { isWorkspaceHostPathContained } from '../workspaces/sessionAssignment';
+import { isWorkspaceHostPathContained } from '../sessionAssignment';
 import {
     createWorktreeProvisioningPlan,
     slugifyTaskName,

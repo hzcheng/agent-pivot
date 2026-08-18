@@ -24,7 +24,7 @@ import {
     getWorkspaceHostPathComparisonKey,
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
-} from './sessionAssignment';
+} from '../sessionAssignment';
 import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 export { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 import {
@@ -57,7 +57,7 @@ import { buildWorkspaceAiSessionViewModel } from './viewModels';
 import {
     assignPathToWorkspaceWorktree,
     getWorkspaceWorktreeCandidatePaths,
-} from './worktreeSessionAssignment';
+} from '../worktreeSessionAssignment';
 
 type HydrationProvider = Pick<AiSessionProviderDefinition, 'id' | 'label'>;
 

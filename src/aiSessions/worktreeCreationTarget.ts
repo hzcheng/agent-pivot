@@ -1,7 +1,7 @@
 'use strict';
 
 import type { OpenWorkspace } from '../workspaces/types';
-import { assignPathToWorkspaceWorktree } from '../workspaces/worktreeSessionAssignment';
+import { assignPathToWorkspaceWorktree } from '../worktreeSessionAssignment';
 import type {
     WorktreeGitSnapshot,
     WorktreeKey,

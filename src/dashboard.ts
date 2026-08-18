@@ -253,7 +253,7 @@ import {
 import {
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
-} from './workspaces/sessionAssignment';
+} from './sessionAssignment';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
 import { GitWorktreeDiscovery } from './worktrees/gitWorktreeDiscovery';

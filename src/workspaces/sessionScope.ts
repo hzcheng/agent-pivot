@@ -8,7 +8,7 @@ import {
     getWorkspaceHostPathComparisonKey,
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
-} from './sessionAssignment';
+} from '../sessionAssignment';
 import type { OpenWorkspace, RepositoryRootBinding, WorkspaceRoot } from './types';
 import type { WorktreeKey } from '../worktrees/types';
 

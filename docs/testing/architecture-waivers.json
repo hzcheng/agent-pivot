@@ -4,7 +4,8 @@
     "notes": [
         "Every active baseline fingerprint is covered by exactly one waiver; every waiver fingerprint matches an active baseline fingerprint (bijection, CI-enforced).",
         "Retirement is milestone-based: retiresWith names the wave or pilot slice that must remove the debt. expiresAt is advisory only and never fails CI (charter v3).",
-        "Strict-mode blocking: a module cannot go strict while a 2-cycle fingerprint names it; the SCC cluster entry is cluster-level debt and blocks only whole-program acceptance."
+        "Strict-mode blocking: a module cannot go strict while a 2-cycle fingerprint names it; the SCC cluster entry is cluster-level debt and blocks only whole-program acceptance.",
+        "ARCH-CHANGE-002 retired ARCH-WAIVER-003 (the workspace↔worktree pair dissolved when the shared assignment utilities moved to the kernel) and updated ARCH-WAIVER-004 to the shrunken cluster (MOD-WORKTREE-LIFECYCLE is cycle-free)."
     ],
     "waivers": [
         {
@@ -15,8 +16,7 @@
                 "2:MOD-AI-SESSION-ATTENTION->MOD-AI-SESSION-RUNTIME",
                 "2:MOD-AI-SESSION-ATTENTION->MOD-WORKSPACE-IDENTITY",
                 "2:MOD-AI-SESSION-PROVIDER->MOD-AI-SESSION-RUNTIME",
-                "2:MOD-AI-SESSION-PROVIDER->MOD-WORKSPACE-IDENTITY",
-                "2:MOD-AI-SESSION-RUNTIME->MOD-WORKSPACE-IDENTITY"
+                "2:MOD-AI-SESSION-PROVIDER->MOD-WORKSPACE-IDENTITY"
             ],
             "owner": "hzcheng",
             "reason": "Session-core modules grew provider/attention/runtime value cycles through shared helpers and presentation projections; the session-core re-partition sinks the shared types and helpers.",
@@ -29,44 +29,28 @@
             "id": "ARCH-WAIVER-002",
             "rule": "module-cycle",
             "fingerprints": [
-                "2:MOD-AI-SESSION-CONTROL->MOD-DASHBOARD-SHELL",
                 "2:MOD-AI-SESSION-CONVERSATION->MOD-DASHBOARD-SHELL",
                 "2:MOD-AI-SESSION-PROVIDER->MOD-DASHBOARD-SHELL",
-                "2:MOD-AI-SESSION-RUNTIME->MOD-DASHBOARD-SHELL",
                 "2:MOD-DASHBOARD-SHELL->MOD-OPEN-WORKSPACE",
-                "2:MOD-DASHBOARD-SHELL->MOD-PROJECT-CATALOG",
                 "2:MOD-DASHBOARD-SHELL->MOD-PROMPT-LIBRARY",
                 "2:MOD-DASHBOARD-SHELL->MOD-SKILL-MANAGEMENT",
                 "2:MOD-DASHBOARD-SHELL->MOD-TODO"
             ],
             "owner": "hzcheng",
-            "reason": "The composition root (dashboard.ts) and the shared type/constant kernel (models.ts/constants.ts) live in the same module, so every module both wires and borrows through it; the dashboard-shell wave splits a neutral kernel module and narrows entrypoints.",
+            "reason": "The composition root (dashboard.ts) wires and borrows through these modules; the dashboard-shell wave narrows entrypoints and removes the return edges.",
             "tracking": "architecture program wave W4",
             "createdAt": "2026-08-17",
             "retiresWith": "WAVE-W4",
             "expiresAt": null
         },
         {
-            "id": "ARCH-WAIVER-003",
-            "rule": "module-cycle",
-            "fingerprints": [
-                "2:MOD-WORKSPACE-IDENTITY->MOD-WORKTREE-LIFECYCLE"
-            ],
-            "owner": "hzcheng",
-            "reason": "workspaces/sessionHydration imports worktree helpers while worktrees/groupCreationController imports sessionAssignment; the pilot cannot go strict with this pair baselined, so the pilot's boundary slice moves the shared assignment utilities.",
-            "tracking": "pilot migration slice S-boundary",
-            "createdAt": "2026-08-17",
-            "retiresWith": "PILOT-STRICT",
-            "expiresAt": null
-        },
-        {
             "id": "ARCH-WAIVER-004",
             "rule": "module-cycle",
             "fingerprints": [
-                "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-CONTROL|MOD-AI-SESSION-CONVERSATION|MOD-AI-SESSION-PROVIDER|MOD-AI-SESSION-RUNTIME|MOD-DASHBOARD-SHELL|MOD-OPEN-WORKSPACE|MOD-PROJECT-CATALOG|MOD-PROMPT-LIBRARY|MOD-SKILL-MANAGEMENT|MOD-TODO|MOD-WORKSPACE-IDENTITY|MOD-WORKTREE-LIFECYCLE"
+                "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-CONTROL|MOD-AI-SESSION-CONVERSATION|MOD-AI-SESSION-PROVIDER|MOD-AI-SESSION-RUNTIME|MOD-DASHBOARD-SHELL|MOD-OPEN-WORKSPACE|MOD-PROJECT-CATALOG|MOD-PROMPT-LIBRARY|MOD-SKILL-MANAGEMENT|MOD-TODO|MOD-WORKSPACE-IDENTITY"
             ],
             "owner": "hzcheng",
-            "reason": "Cluster-level symptom of the coarse registry phase: 13 modules form one cyclic component through the composition root and shared kernel. Tracked at cluster level; it does not block per-module strict mode but must be gone for program acceptance.",
+            "reason": "Cluster-level symptom of the coarse registry phase: 12 modules form one cyclic component through the composition root. MOD-WORKTREE-LIFECYCLE left the cluster in ARCH-CHANGE-002. Tracked at cluster level; it does not block per-module strict mode but must be gone for program acceptance.",
             "tracking": "architecture program acceptance (Stage 6)",
             "createdAt": "2026-08-17",
             "retiresWith": "WAVE-FINAL",

@@ -3,7 +3,7 @@
 import type { AiSessionRuntimeSnapshot } from '../aiSessions/runtimeTypes';
 import {
     getWorkspaceHostPathComparisonKey,
-} from './sessionAssignment';
+} from '../sessionAssignment';
 import type { OpenWorkspace } from './types';
 
 export function hasWorkspaceRuntimeContinuity(

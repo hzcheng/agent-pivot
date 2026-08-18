@@ -6,14 +6,14 @@ import type {
     WorktreeKey,
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
-} from '../worktrees/types';
-import { worktreeKeysEqual } from '../worktrees/types';
+} from './worktrees/types';
+import { worktreeKeysEqual } from './worktreeIdentity';
 import {
     getWorkspaceHostPathComparisonKey,
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
 } from './sessionAssignment';
-import type { OpenWorkspace, WorkspaceRoot } from './types';
+import type { OpenWorkspace, WorkspaceRoot } from './workspaces/types';
 
 export interface WorkspaceWorktreeAssignment {
     repository: WorktreeRepositorySnapshot;

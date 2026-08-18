@@ -23,7 +23,7 @@ import type { OpenWorkspace } from './types';
 import {
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
-} from './sessionAssignment';
+} from '../sessionAssignment';
 import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
 
 /**

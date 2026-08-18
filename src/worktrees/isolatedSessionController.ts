@@ -4,7 +4,7 @@ import type * as vscode from 'vscode';
 import { createHash } from 'crypto';
 import type { AiSessionProviderId } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
-import { assignPathToWorkspaceWorktree } from '../workspaces/worktreeSessionAssignment';
+import { assignPathToWorkspaceWorktree } from '../worktreeSessionAssignment';
 import { GitWorktreeProvisioner } from './gitWorktreeProvisioner';
 import {
     createWorktreeProvisioningPlan,

@@ -29,8 +29,6 @@
             "source": {
                 "include": [
                     "src/dashboard.ts",
-                    "src/models.ts",
-                    "src/constants.ts",
                     "src/sponsor.ts",
                     "src/dashboard/**",
                     "src/webview/**"
@@ -39,8 +37,6 @@
             },
             "publicEntrypoints": [
                 "src/dashboard.ts",
-                "src/models.ts",
-                "src/constants.ts",
                 "src/sponsor.ts",
                 "src/dashboard/**",
                 "src/webview/**"
@@ -55,6 +51,7 @@
                 "MOD-OPEN-WORKSPACE",
                 "MOD-PROJECT-CATALOG",
                 "MOD-PROMPT-LIBRARY",
+                "MOD-SHARED-KERNEL",
                 "MOD-SKILL-MANAGEMENT",
                 "MOD-TODO",
                 "MOD-WORKSPACE-IDENTITY",
@@ -69,10 +66,7 @@
                 },
                 {
                     "role": "domain",
-                    "include": [
-                        "src/models.ts",
-                        "src/constants.ts"
-                    ]
+                    "include": []
                 },
                 {
                     "role": "presentation",
@@ -113,6 +107,7 @@
                 "MOD-AI-SESSION-PROVIDER",
                 "MOD-AI-SESSION-RUNTIME",
                 "MOD-DASHBOARD-SHELL",
+                "MOD-SHARED-KERNEL",
                 "MOD-WORKTREE-LIFECYCLE"
             ],
             "roles": [
@@ -181,7 +176,7 @@
                 "MOD-AI-SESSION-NOTIFY",
                 "MOD-AI-SESSION-PROVIDER",
                 "MOD-AI-SESSION-RUNTIME",
-                "MOD-DASHBOARD-SHELL",
+                "MOD-SHARED-KERNEL",
                 "MOD-WORKSPACE-IDENTITY"
             ],
             "roles": [
@@ -297,9 +292,8 @@
             "mayDependOn": [
                 "MOD-AI-SESSION-ATTENTION",
                 "MOD-AI-SESSION-PROVIDER",
-                "MOD-DASHBOARD-SHELL",
                 "MOD-PROJECT-CATALOG",
-                "MOD-WORKSPACE-IDENTITY",
+                "MOD-SHARED-KERNEL",
                 "MOD-WORKTREE-LIFECYCLE"
             ],
             "roles": [
@@ -379,7 +373,7 @@
             "mayDependOn": [
                 "MOD-AI-SESSION-PROVIDER",
                 "MOD-AI-SESSION-RUNTIME",
-                "MOD-DASHBOARD-SHELL",
+                "MOD-SHARED-KERNEL",
                 "MOD-WORKSPACE-IDENTITY",
                 "MOD-WORKTREE-LIFECYCLE"
             ],
@@ -458,6 +452,7 @@
                 "MOD-AI-SESSION-CONTROL",
                 "MOD-AI-SESSION-RUNTIME",
                 "MOD-DASHBOARD-SHELL",
+                "MOD-SHARED-KERNEL",
                 "MOD-SKILL-MANAGEMENT",
                 "MOD-TODO",
                 "MOD-WORKSPACE-IDENTITY",
@@ -515,7 +510,7 @@
                 "src/worktrees/**"
             ],
             "mayDependOn": [
-                "MOD-DASHBOARD-SHELL",
+                "MOD-SHARED-KERNEL",
                 "MOD-WORKSPACE-IDENTITY"
             ],
             "roles": [
@@ -570,8 +565,8 @@
                 "MOD-AI-SESSION-ATTENTION",
                 "MOD-AI-SESSION-PROVIDER",
                 "MOD-AI-SESSION-RUNTIME",
-                "MOD-DASHBOARD-SHELL",
                 "MOD-PROJECT-CATALOG",
+                "MOD-SHARED-KERNEL",
                 "MOD-WORKTREE-LIFECYCLE"
             ],
             "roles": [
@@ -618,6 +613,7 @@
                 "MOD-AI-SESSION-ATTENTION",
                 "MOD-AI-SESSION-PROVIDER",
                 "MOD-DASHBOARD-SHELL",
+                "MOD-SHARED-KERNEL",
                 "MOD-SKILL-MANAGEMENT",
                 "MOD-TODO",
                 "MOD-WORKSPACE-IDENTITY"
@@ -684,6 +680,7 @@
                 "MOD-AI-SESSION-ATTENTION",
                 "MOD-DASHBOARD-SHELL",
                 "MOD-OPEN-WORKSPACE",
+                "MOD-SHARED-KERNEL",
                 "MOD-WORKTREE-LIFECYCLE"
             ],
             "roles": [
@@ -772,7 +769,8 @@
                 "src/todos/**"
             ],
             "mayDependOn": [
-                "MOD-DASHBOARD-SHELL"
+                "MOD-DASHBOARD-SHELL",
+                "MOD-SHARED-KERNEL"
             ],
             "roles": [
                 {
@@ -891,6 +889,51 @@
             ],
             "productCapabilities": [
                 "MAIN-OPEN-WORKSPACE-PROTOCOL"
+            ]
+        },
+        {
+            "id": "MOD-SHARED-KERNEL",
+            "title": "Shared kernel",
+            "purpose": "Module-bottom shared types, constants, workspace path assignment, and the worktree identity codecs. Depends on nothing at value level; every module may depend on it.",
+            "source": {
+                "include": [
+                    "src/models.ts",
+                    "src/constants.ts",
+                    "src/sessionAssignment.ts",
+                    "src/worktreeSessionAssignment.ts",
+                    "src/worktreeIdentity.ts"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/models.ts",
+                "src/constants.ts",
+                "src/sessionAssignment.ts",
+                "src/worktreeSessionAssignment.ts",
+                "src/worktreeIdentity.ts"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-SKILL-MANAGEMENT",
+                "MOD-TODO",
+                "MOD-WORKSPACE-IDENTITY",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/models.ts",
+                        "src/constants.ts",
+                        "src/sessionAssignment.ts",
+                        "src/worktreeSessionAssignment.ts",
+                        "src/worktreeIdentity.ts"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-WORKSPACE-IDENTITY",
+                "MAIN-WORKTREE-CHANGES-PANEL"
             ]
         }
     ]

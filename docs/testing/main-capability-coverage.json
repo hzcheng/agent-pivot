@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "eaf81001f659b19d7dec593da7d33ec78c8d2a8d",
+        "head": "6b7f25cd3c95201996caeb0879f7c7c00da4fd65",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -2245,7 +2245,7 @@
                 "33dd08d563b7d9e1e04352c4869af6f10fad9b2e",
                 "1b69d7ed8be4f331227185c364ea43a1259a9688",
                 "fce4b85cacbaae9b3d7d74404c8f21ec6ace1b3d",
-                "2808223b86429bdc11bb7bf3e61d81e225e43a2f"
+                "6b7f25cd3c95201996caeb0879f7c7c00da4fd65"
             ],
             "behaviors": [
                 "WORKTREE-GROUPS-BASELINE-001",

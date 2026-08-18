@@ -80,6 +80,8 @@ function initProjectAiSessionControls(options) {
     var pendingIsolatedSessionRequests = new Map();
     var nextManagedWorktreeRemovalRequestId = 0;
     var pendingManagedWorktreeRemovalRequests = new Map();
+    var nextMergeWorktreeGroupsRequestId = 0;
+    var pendingMergeWorktreeGroupsRequests = new Map();
     var nextSetGroupPrimaryRequestId = 0;
     var pendingSetGroupPrimaryRequests = new Map();
     var worktreeGroupForm = null;
@@ -291,11 +293,10 @@ function initProjectAiSessionControls(options) {
             '[data-action="merge-worktree-groups"][data-group-id]'
         );
         if (mergeGroupsAction) {
-            window.vscode.postMessage({
-                type: 'merge-worktree-groups',
-                projectId: projectId,
-                sourceGroupId: mergeGroupsAction.getAttribute('data-group-id'),
-            });
+            submitMergeWorktreeGroups(
+                projectId,
+                mergeGroupsAction.getAttribute('data-group-id'),
+                mergeGroupsAction);
             return true;
         }
         var setPrimaryAction = target.closest(
@@ -951,6 +952,55 @@ function initProjectAiSessionControls(options) {
             return;
         }
         closeAiSessionWorktreeMenu();
+    }
+
+    function submitMergeWorktreeGroups(projectId, sourceGroupId, actionElement) {
+        if (!projectId || !sourceGroupId || !actionElement) return;
+        if (pendingMergeWorktreeGroupsRequests.size > 0) return;
+        nextMergeWorktreeGroupsRequestId = nextMergeWorktreeGroupsRequestId
+            >= Number.MAX_SAFE_INTEGER ? 1 : nextMergeWorktreeGroupsRequestId + 1;
+        var requestId = 'worktree-merge-' + nextMergeWorktreeGroupsRequestId.toString(36);
+        actionElement.setAttribute('aria-disabled', 'true');
+        pendingMergeWorktreeGroupsRequests.set(requestId, {
+            actionElement: actionElement,
+            projectId: projectId,
+        });
+        window.vscode.postMessage({
+            type: 'merge-worktree-groups', version: 1,
+            requestId: requestId, projectId: projectId,
+            sourceGroupId: sourceGroupId,
+        });
+    }
+
+    function applyWorktreeGroupMergeSettlement(message) {
+        var expectedKeys = message && typeof message.errorCode === 'string'
+            ? ['errorCode', 'requestId', 'status', 'type', 'version']
+            : message && typeof message.groupId === 'string'
+                ? ['groupId', 'requestId', 'status', 'type', 'version']
+                : ['requestId', 'status', 'type', 'version'];
+        if (!message || message.type !== 'worktree-group-merge-settlement'
+            || message.version !== 1
+            || Object.keys(message).length !== expectedKeys.length
+            || Object.keys(message).sort().some((key, index) => key !== expectedKeys[index])
+            || typeof message.requestId !== 'string' || !message.requestId
+            || !['accepted', 'merged', 'cancelled', 'failed'].includes(message.status)
+            || (Object.prototype.hasOwnProperty.call(message, 'errorCode')
+                && !/^[a-z0-9-]{1,64}$/.test(message.errorCode))) return false;
+        var pending = pendingMergeWorktreeGroupsRequests.get(message.requestId);
+        if (!pending) return true;
+        if (message.status === 'accepted') return true;
+        pendingMergeWorktreeGroupsRequests.delete(message.requestId);
+        if (pending.actionElement && pending.actionElement.isConnected) {
+            pending.actionElement.removeAttribute('aria-disabled');
+        }
+        var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
+        var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
+        if (liveRegion && message.status !== 'cancelled') {
+            liveRegion.textContent = message.status === 'merged'
+                ? 'Worktree groups merged.'
+                : `Worktree group merge failed: ${message.errorCode || 'unknown'}`;
+        }
+        return true;
     }
 
     function submitManagedWorktreeRemoval(projectId, group, button) {
@@ -2917,6 +2967,7 @@ function initProjectAiSessionControls(options) {
         applyIsolatedSessionSettlement: applyIsolatedSessionSettlement,
         applyManagedWorktreeRemovalSettlement: applyManagedWorktreeRemovalSettlement,
         applySetGroupPrimarySettlement: applySetGroupPrimarySettlement,
+        applyWorktreeGroupMergeSettlement: applyWorktreeGroupMergeSettlement,
         applyWorktreeGroupRenameSettlement: applyWorktreeGroupRenameSettlement,
         applyWorktreeGroupDeletionPreview: applyWorktreeGroupDeletionPreview,
         applyWorktreeGroupDeletionSettlement: applyWorktreeGroupDeletionSettlement,

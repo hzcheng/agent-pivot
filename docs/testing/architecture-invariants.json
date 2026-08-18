@@ -208,7 +208,7 @@
             ],
             "priority": "P1",
             "kind": "protocol",
-            "statement": "Every pilot mutation message carries a correlation envelope (requestId, version) and a documented exactly-once mechanism: confirm uses the single-use preview token; rename, deletion, adopt, and claim-discard use settlement replay caches; set-primary is an idempotent write; retry/dismiss are gated by member state. The merge family envelope is slice S4b.",
+            "statement": "Every pilot mutation message carries a correlation envelope (requestId, version) and a documented exactly-once mechanism: confirm uses the single-use preview token; rename, deletion, adopt, claim-discard, and merge use settlement replay caches; set-primary is an idempotent write; retry/dismiss are gated by member state.",
             "authority": {
                 "path": "src/worktrees/groupCreationProtocol.ts",
                 "symbol": "parseConfirmWorktreeGroupRequest"
@@ -226,6 +226,7 @@
             "guardOwners": [],
             "evidence": [
                 "src/worktrees/groupCreationProtocol.ts",
+                "src/worktrees/groupMergeProtocol.ts",
                 "src/dashboard.ts"
             ]
         },

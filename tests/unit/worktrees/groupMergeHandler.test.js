@@ -9,6 +9,9 @@ const {
 const {
     handleMergeWorktreeGroups,
 } = require('../../../out/worktrees/groupMergeHandler');
+const {
+    createSettlementReplayCache,
+} = require('../../../out/worktrees/settlementReplayCache');
 
 const WORKSPACE = 'navigation:unit';
 
@@ -44,68 +47,98 @@ async function fixture(twoGroups = true) {
             members: [readyMember('/beta/.git', 'fix-login-2')],
         });
     }
-    const shown = { picks: null, placeHolder: null, warnings: [], refreshed: 0 };
+    const posted = [];
+    const shown = { picks: null, warnings: [], refreshed: 0 };
     const deps = {
+        postMessage: async message => { posted.push(message); },
         getNavigationIdentity: projectId => (projectId === 'project' ? WORKSPACE : null),
         store,
-        showQuickPick: async (picks, placeHolder) => {
+        showQuickPick: async (picks, _placeHolder) => {
             shown.picks = picks;
-            shown.placeHolder = placeHolder;
             return deps.pickResult;
         },
         showWarning: message => shown.warnings.push(message),
         refreshNow: async () => { shown.refreshed += 1; },
         logError: () => {},
+        replayCache: createSettlementReplayCache(),
         pickResult: undefined,
     };
-    return { store, deps, shown };
+    return { store, deps, posted, shown };
 }
 
+const mergeRequest = (sourceGroupId, overrides = {}) => ({
+    type: 'merge-worktree-groups', version: 1,
+    requestId: 'merge-n1-1', projectId: 'project', sourceGroupId,
+    ...overrides,
+});
 const sourceGroupId = store => store.listGroups(WORKSPACE)[0].groupId;
+const statuses = posted => posted.map(message => message.status);
 
-test('WORKTREE-GROUPS-MERGE-001 malformed or unroutable messages are dropped without any UI', async () => {
-    const { deps, shown } = await fixture();
+test('WORKTREE-GROUPS-MERGE-001 malformed messages are dropped without any settlement or UI', async () => {
+    const { deps, posted, shown } = await fixture();
     await handleMergeWorktreeGroups(null, deps);
     await handleMergeWorktreeGroups({ type: 'merge-worktree-groups' }, deps);
-    await handleMergeWorktreeGroups(
-        { projectId: 'project', sourceGroupId: 'missing' }, deps);
-    await handleMergeWorktreeGroups(
-        { projectId: 'other-project', sourceGroupId: 'x' }, deps);
+    await handleMergeWorktreeGroups(mergeRequest(sourceGroupId(deps.store), { version: 2 }), deps);
+    await handleMergeWorktreeGroups(mergeRequest(sourceGroupId(deps.store), { requestId: 'bad id!' }), deps);
+    assert.deepEqual(posted, []);
     assert.equal(shown.picks, null);
-    assert.equal(shown.refreshed, 0);
 });
 
-test('WORKTREE-GROUPS-MERGE-001 the host re-derives candidates and merges with the double revision binding', async () => {
-    const { store, deps, shown } = await fixture();
-    deps.pickResult = undefined; // first: dialog dismissed
-    await handleMergeWorktreeGroups(
-        { projectId: 'project', sourceGroupId: sourceGroupId(store) }, deps);
+test('WORKTREE-GROUPS-MERGE-001 unroutable and stale-source requests settle failed, never silently', async () => {
+    const { store, deps, posted } = await fixture();
+    await handleMergeWorktreeGroups(mergeRequest('g-any', { projectId: 'other' }), deps);
+    await handleMergeWorktreeGroups(mergeRequest('g-missing', { requestId: 'merge-n1-2' }), deps);
+    assert.deepEqual(statuses(posted), ['accepted', 'failed', 'accepted', 'failed']);
+    assert.equal(posted[1].errorCode, 'workspace-unavailable');
+    assert.equal(posted[3].errorCode, 'group-not-found');
+    assert.equal(store.listGroups(WORKSPACE).length, 2, 'nothing was written');
+});
+
+test('WORKTREE-GROUPS-MERGE-001 the host re-derives candidates, merges with the double revision binding, and settles merged', async () => {
+    const { store, deps, posted, shown } = await fixture();
+    deps.pickResult = undefined; // dialog dismissed
+    await handleMergeWorktreeGroups(mergeRequest(sourceGroupId(store)), deps);
     assert.equal(shown.picks.length, 1);
-    assert.equal(shown.refreshed, 0, 'a dismissed dialog changes nothing');
+    assert.deepEqual(statuses(posted), ['accepted', 'cancelled'],
+        'a dismissed dialog settles cancelled so the webview never hangs');
+    assert.equal(shown.refreshed, 0);
 
     const groups = store.listGroups(WORKSPACE);
     deps.pickResult = { label: 'Fix login (2)', groupId: groups[1].groupId };
     await handleMergeWorktreeGroups(
-        { projectId: 'project', sourceGroupId: groups[0].groupId }, deps);
+        mergeRequest(groups[0].groupId, { requestId: 'merge-n1-2' }), deps);
     const merged = store.listGroups(WORKSPACE);
     assert.equal(merged.length, 1);
     assert.equal(merged[0].groupId, groups[1].groupId, 'source merged into the chosen target');
     assert.equal(merged[0].members.length, 2);
+    assert.deepEqual(statuses(posted), ['accepted', 'cancelled', 'accepted', 'merged']);
+    assert.equal(posted[3].groupId, groups[1].groupId);
     assert.equal(shown.refreshed, 1);
 });
 
-test('WORKTREE-GROUPS-MERGE-001 a revision drift between dialog and write warns and writes nothing', async () => {
-    const { store, deps, shown } = await fixture();
+test('WORKTREE-GROUPS-MERGE-001 a replay is settled from the cache and never re-executes', async () => {
+    const { store, deps, posted } = await fixture();
     const groups = store.listGroups(WORKSPACE);
-    deps.showQuickPick = async (picks) => {
-        // The source group changes while the dialog is open.
+    deps.pickResult = { label: 'Fix login (2)', groupId: groups[1].groupId };
+    const request = mergeRequest(groups[0].groupId);
+    await handleMergeWorktreeGroups(request, deps);
+    assert.equal(store.listGroups(WORKSPACE).length, 1);
+    await handleMergeWorktreeGroups(request, deps);
+    assert.equal(store.listGroups(WORKSPACE).length, 1, 'no second merge');
+    assert.deepEqual(statuses(posted), ['accepted', 'merged', 'merged'],
+        'the replay re-receives the recorded terminal settlement');
+});
+
+test('WORKTREE-GROUPS-MERGE-001 a revision drift between dialog and write settles failed and warns', async () => {
+    const { store, deps, posted, shown } = await fixture();
+    const groups = store.listGroups(WORKSPACE);
+    deps.showQuickPick = async () => {
         await store.renameGroup(WORKSPACE, groups[0].groupId, 'Renamed while open');
         return { label: 'target', groupId: groups[1].groupId };
     };
-    await handleMergeWorktreeGroups(
-        { projectId: 'project', sourceGroupId: groups[0].groupId }, deps);
+    await handleMergeWorktreeGroups(mergeRequest(groups[0].groupId), deps);
     assert.equal(store.listGroups(WORKSPACE).length, 2, 'stale merge writes nothing');
-    assert.equal(shown.warnings.length, 1);
+    assert.deepEqual(statuses(posted), ['accepted', 'failed']);
+    assert.equal(posted[1].errorCode, 'group-changed');
     assert.ok(shown.warnings[0].includes('changed while the merge was open'));
-    assert.equal(shown.refreshed, 0);
 });

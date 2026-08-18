@@ -10,7 +10,7 @@ import {
     normalizeWorkspaceHostPath,
 } from '../sessionAssignment';
 import type { OpenWorkspace, RepositoryRootBinding, WorkspaceRoot } from './types';
-import type { WorktreeKey } from '../worktrees/types';
+import type { WorktreeKey } from '../worktrees';
 
 export interface ActiveEditorUri {
     fsPath: string;

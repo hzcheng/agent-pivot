@@ -17,8 +17,8 @@ import type {
     WorktreeRepositoryChip,
     WorktreeRowViewModel,
 } from '../aiSessions/types';
-import { worktreeKeysMatch } from '../worktrees/types';
-import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees/types';
+import { worktreeKeysMatch } from '../worktrees';
+import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
 import { escapeAttribute } from './webviewHtmlEscape';
 import {

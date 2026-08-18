@@ -7,8 +7,8 @@ import type {
     WorktreeKey,
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
-} from '../worktrees/types';
-import { worktreeKeysEqual } from '../worktrees/types';
+} from '../worktrees';
+import { worktreeKeysEqual } from '../worktrees';
 
 export interface AiSessionWorktreeCreationCandidate {
     key: WorktreeKey;

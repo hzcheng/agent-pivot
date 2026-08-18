@@ -13,11 +13,11 @@ import type { DashboardWorkspaceSearchCatalog } from '../webview/dashboardViewMo
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import type { AiSessionRuntimeBackendId, AiSessionRuntimeIdentity, AiSessionTmuxLayout } from './runtimeTypes';
-import type { WorktreeKey } from '../worktrees/types';
+import type { WorktreeKey } from '../worktrees';
 import type {
     ProvisioningWorktreeRow,
     WorktreeGitSnapshot,
-} from '../worktrees/types';
+} from '../worktrees';
 
 export interface AiSessionTerminalEntry<TTerminal = unknown> {
     terminal: TTerminal;

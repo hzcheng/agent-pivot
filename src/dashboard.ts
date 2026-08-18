@@ -256,52 +256,52 @@ import {
 } from './sessionAssignment';
 import type { OpenWorkspace } from './workspaces/types';
 import { buildWorkspaceDashboardSearchCatalog } from './webview/dashboardViewModel';
-import { GitWorktreeDiscovery } from './worktrees/gitWorktreeDiscovery';
+import { GitWorktreeDiscovery } from './worktrees';
 import {
     GitApiLike,
     GitRepositoryStateMonitor,
-} from './worktrees/gitRepositoryStateMonitor';
-import { WorktreeMemberLifecycle } from './worktrees/memberLifecycle';
-import { handleMergeWorktreeGroups } from './worktrees/groupMergeHandler';
-import type { MergeWorktreeGroupsPick } from './worktrees/groupMergeHandler';
-import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
-import { worktreeKeysEqual, worktreeKeysMatch, worktreeKeyTombstoneKey } from './worktrees/types';
-import type { WorktreeKey } from './worktrees/types';
-import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
+} from './worktrees';
+import { WorktreeMemberLifecycle } from './worktrees';
+import { handleMergeWorktreeGroups } from './worktrees';
+import type { MergeWorktreeGroupsPick } from './worktrees';
+import { WorktreeSnapshotCoordinator } from './worktrees';
+import { worktreeKeysEqual, worktreeKeysMatch, worktreeKeyTombstoneKey } from './worktrees';
+import type { WorktreeKey } from './worktrees';
+import { WorktreeBaseRefStore } from './worktrees';
 import {
     WorktreeGroupManifestError,
     WorktreeGroupManifestStore,
-} from './worktrees/groupManifestStore';
-import { WorktreeDeletionController } from './worktrees/deletionController';
-import { reconcileWorktreeGroupManifest } from './worktrees/groupManifestReconciliation';
-import { IsolatedSessionController } from './worktrees/isolatedSessionController';
-import { WorktreeProvisioningStore } from './worktrees/provisioningStore';
-import { normalizeWorktreeDirectory } from './worktrees/provisioningPlan';
-import { GitWorktreeProvisioner } from './worktrees/gitWorktreeProvisioner';
+} from './worktrees';
+import { WorktreeDeletionController } from './worktrees';
+import { reconcileWorktreeGroupManifest } from './worktrees';
+import { IsolatedSessionController } from './worktrees';
+import { WorktreeProvisioningStore } from './worktrees';
+import { normalizeWorktreeDirectory } from './worktrees';
+import { GitWorktreeProvisioner } from './worktrees';
 import {
     WorktreeGroupCreationController,
-} from './worktrees/groupCreationController';
+} from './worktrees';
 import {
     createWorktreeGroupFormHandlers,
 } from './dashboard/worktreeGroupFormHandlers';
 import {
     normalizeWorktreeSetupCommand,
     WorktreeSetupRunner,
-} from './worktrees/worktreeSetupRunner';
-import { ManagedWorktreeRemovalController } from './worktrees/managedWorktreeRemovalController';
+} from './worktrees';
+import { ManagedWorktreeRemovalController } from './worktrees';
 import {
     acceptedManagedWorktreeRemovalSettlement,
     parseManagedWorktreeRemovalRequest,
     settledManagedWorktreeRemovalSettlement,
-} from './worktrees/removalProtocol';
+} from './worktrees';
 import {
     acceptedWorktreeGroupPrimarySettlement,
     parseSetWorktreeGroupPrimaryRequest,
     settledWorktreeGroupPrimarySettlement,
-} from './worktrees/groupPrimaryProtocol';
-import type { WorktreeGroupRenameSettlement } from './worktrees/groupRenameProtocol';
-import { handleRenameWorktreeGroup } from './worktrees/groupRenameHandler';
-import { createSettlementReplayCache } from './worktrees/settlementReplayCache';
+} from './worktrees';
+import type { WorktreeGroupRenameSettlement } from './worktrees';
+import { handleRenameWorktreeGroup } from './worktrees';
+import { createSettlementReplayCache } from './worktrees';
 import {
     handleAbandonWorktreeGroupDeletion,
     handleDeleteWorktreeGroupMember,
@@ -309,19 +309,19 @@ import {
     handlePreviewWorktreeGroupDeletion,
     handleRetryWorktreeGroupDeletion,
     WorktreeGroupDeletionHandlerDeps,
-} from './worktrees/groupDeletionHandler';
-import type { WorktreeGroupDeletionSettlement } from './worktrees/groupDeletionProtocol';
+} from './worktrees';
+import type { WorktreeGroupDeletionSettlement } from './worktrees';
 import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
-import { handleAdoptWorktrees } from './worktrees/groupAdoptHandler';
-import type { WorktreeAdoptSettlement } from './worktrees/groupAdoptProtocol';
-import type { WorktreeGroupMergeSettlement } from './worktrees/groupMergeProtocol';
-import { resolveGenerationClaimDisposition } from './worktrees/generationClaimReconciliation';
+import { handleAdoptWorktrees } from './worktrees';
+import type { WorktreeAdoptSettlement } from './worktrees';
+import type { WorktreeGroupMergeSettlement } from './worktrees';
+import { resolveGenerationClaimDisposition } from './worktrees';
 import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
     parseIsolatedSessionRequest,
     settledIsolatedSessionSettlement,
-} from './worktrees/provisioningProtocol';
+} from './worktrees';
 
 const NEW_AI_SESSION_REFRESH_DELAYS_MS = [250, 1000, 2500, 5000];
 const AI_SESSION_REFRESH_DEBOUNCE_MS = 3000;
@@ -1313,7 +1313,7 @@ async function initializeDashboard(
     const gitWorktreeDiscovery = new GitWorktreeDiscovery({
         getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
     });
-    const getPriorityWorktreeKeys = (): import('./worktrees/types').WorktreeKey[] => [
+    const getPriorityWorktreeKeys = (): import('./worktrees').WorktreeKey[] => [
         ...aiSessionRuntimeCoordinator.getActive(),
         ...aiSessionRuntimeCoordinator.getPending(),
     ].reduce((keys, runtime) => {
@@ -1322,7 +1322,7 @@ async function initializeDashboard(
             keys.push({ ...key });
         }
         return keys;
-    }, [] as import('./worktrees/types').WorktreeKey[]);
+    }, [] as import('./worktrees').WorktreeKey[]);
     const getWorktreePrioritySignature = (): string => JSON.stringify(
         getPriorityWorktreeKeys()
             .map(key => [key.repositoryKey, key.canonicalWorktreePath])
@@ -1450,7 +1450,7 @@ async function initializeDashboard(
             provider: string;
             sessionId: string;
             navigationIdentity: string;
-            worktreeKey?: import('./worktrees/types').WorktreeKey;
+            worktreeKey?: import('./worktrees').WorktreeKey;
         }>();
         let ambiguous = false;
         for (const binding of bindings) {

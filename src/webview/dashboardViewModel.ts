@@ -3,7 +3,7 @@
 import type { AiSessionProviderId, Group, Project } from '../models';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import type { WorktreeActivity, WorktreeRowViewModel } from '../aiSessions/types';
-import type { WorktreeKey } from '../worktrees/types';
+import type { WorktreeKey } from '../worktrees';
 
 export interface DashboardWorkspaceSearchSessionItem {
     key: string;

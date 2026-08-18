@@ -3,8 +3,8 @@
 import * as path from 'path';
 import type { AiSessionProviderId } from '../models';
 import type { AiSessionLaunchSpec } from './launchSpec';
-import type { WorktreeKey } from '../worktrees/types';
-import { cloneWorktreeKey, worktreeKeysEqual } from '../worktrees/types';
+import type { WorktreeKey } from '../worktrees';
+import { cloneWorktreeKey, worktreeKeysEqual } from '../worktrees';
 import type { AiSessionDirectoryScope } from './types';
 import {
     getWorkspaceHostPathComparisonKey,

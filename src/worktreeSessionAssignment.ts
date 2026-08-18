@@ -6,7 +6,7 @@ import type {
     WorktreeKey,
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
-} from './worktrees/types';
+} from './worktrees';
 import { worktreeKeysEqual } from './worktreeIdentity';
 import {
     getWorkspaceHostPathComparisonKey,

@@ -36,19 +36,19 @@ import {
     buildWorkspaceSessionAttentionIndex,
     getWorkspaceSessionAttention,
 } from './sessionAttention';
-import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees/types';
-import type { WorktreeGroup } from '../worktrees/groupManifestStore';
-import type { WorktreeKey } from '../worktrees/types';
+import type { ProvisioningWorktreeRow, WorktreeSnapshot } from '../worktrees';
+import type { WorktreeGroup } from '../worktrees';
+import type { WorktreeKey } from '../worktrees';
 import { mapWorktreeBoundHostPaths } from './sessionScope';
-import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
+import type { DeletionJournalEntry } from '../worktrees';
 import type {
     GenerationClaim,
     RetiredWorktreeIdentity,
-} from '../worktrees/retiredWorktrees';
+} from '../worktrees';
 import {
     findLatestRetirementForPath,
     judgeSessionGeneration,
-} from '../worktrees/retiredWorktrees';
+} from '../worktrees';
 import {
     findGroupMemberWorktreeKeyForPath,
     manifestClaimsWorktreeKey,
@@ -119,7 +119,7 @@ export function getWorkspaceAiSessionCandidatePaths(
 interface AssignedHistory {
     session: CodexSession;
     root: WorkspaceRoot | null;
-    worktreeKey?: import('../worktrees/types').WorktreeKey;
+    worktreeKey?: import('../worktrees').WorktreeKey;
     worktreeUnavailable?: boolean;
 }
 

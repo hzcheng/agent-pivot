@@ -16,7 +16,7 @@ import {
 } from '../workspaces/sessionScope';
 import type { ActiveEditorUri } from '../workspaces/sessionScope';
 import type { OpenWorkspace, RepositoryRootBinding } from '../workspaces/types';
-import type { WorktreeKey, WorktreeSnapshot } from '../worktrees/types';
+import type { WorktreeKey, WorktreeSnapshot } from '../worktrees';
 import { sanitizeAiSessionAlias } from './aliasStore';
 import { normalizeAiSessionProviderSelection } from './providerSelection';
 import type { AiSessionProviderSelection } from './providerSelection';

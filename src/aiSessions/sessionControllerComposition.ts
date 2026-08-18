@@ -6,7 +6,7 @@ import type * as vscode from 'vscode';
 import { isAiSessionProviderId } from '../models';
 import type { AiSessionProviderId } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
-import type { WorktreeSnapshot } from '../worktrees/types';
+import type { WorktreeSnapshot } from '../worktrees';
 import type { WorkspacePrimaryRootStore } from '../workspaces/primaryRootStore';
 import type { ActiveAiSessionTerminalIdentity } from './activeTerminalHighlight';
 import type AiSessionAliasController from './aliasController';
@@ -26,9 +26,9 @@ import {
     resolveAiSessionWorktreeCreationTarget,
 } from './worktreeCreationTarget';
 import type { AiSessionCreationScopeTarget } from './worktreeCreationTarget';
-import type { WorktreeKey } from '../worktrees/types';
-import type { RetiredWorktreeIdentity } from '../worktrees/retiredWorktrees';
-import { findLatestRetirementForKey } from '../worktrees/retiredWorktrees';
+import type { WorktreeKey } from '../worktrees';
+import type { RetiredWorktreeIdentity } from '../worktrees';
+import { findLatestRetirementForKey } from '../worktrees';
 import type { ProviderDirectoryCapabilityProbe } from './providerDirectoryCapability';
 import { buildAiSessionProviderPicks, getAiSessionProviderLabel } from './providers';
 import type { AiSessionReadCoordinator } from './readCoordinator';

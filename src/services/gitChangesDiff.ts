@@ -4,7 +4,7 @@ import { execFile } from 'child_process';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { WorkingChangeItem } from '../worktrees/changesCollector';
+import type { WorkingChangeItem } from '../worktrees';
 
 /**
  * Read-only git object content for diff editors (changes-panel PRD §5.3).

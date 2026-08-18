@@ -6,8 +6,8 @@ import type {
     ReadyWorktreeRow,
     WorkspaceAiSessionActionTarget,
 } from '../aiSessions/types';
-import type { WorktreeKey } from '../worktrees/types';
-import { worktreeKeysEqual } from '../worktrees/types';
+import type { WorktreeKey } from '../worktrees';
+import { worktreeKeysEqual } from '../worktrees';
 
 export type WorktreeOrSessionSwitchTarget =
     | {

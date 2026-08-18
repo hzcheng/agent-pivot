@@ -2,7 +2,7 @@
 
 import { execFile } from 'child_process';
 import * as path from 'path';
-import type { WorktreeKey } from '../../worktrees/types';
+import type { WorktreeKey } from '../../worktrees';
 
 export interface ConversationWorktreeInfo {
     branch: string;

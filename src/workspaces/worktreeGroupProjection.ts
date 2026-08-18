@@ -11,20 +11,20 @@ import type {
     WorktreeGroupRowViewModel,
     WorktreeRepositoryChip,
 } from '../aiSessions/types';
-import type { WorktreeGroup, WorktreeGroupMember } from '../worktrees/groupManifestStore';
+import type { WorktreeGroup, WorktreeGroupMember } from '../worktrees';
 import type {
     WorktreeGitSnapshot,
     WorktreeKey,
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
-} from '../worktrees/types';
-import { worktreeKeysEqual, worktreeKeyToString } from '../worktrees/types';
+} from '../worktrees';
+import { worktreeKeysEqual, worktreeKeyToString } from '../worktrees';
 import type { OpenWorkspace } from './types';
 import {
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
 } from '../sessionAssignment';
-import type { DeletionJournalEntry } from '../worktrees/deletionJournal';
+import type { DeletionJournalEntry } from '../worktrees';
 
 /**
  * Manifest fallback for history identity (PRD §6.4): a session whose

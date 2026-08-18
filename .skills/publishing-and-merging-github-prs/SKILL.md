@@ -52,6 +52,16 @@ after every GitHub write.
 7. Prefer connector PR creation if available and authorized.
 8. If connector fails with permission or repository ambiguity, use `gh pr create`.
 9. Default to draft for "open a PR" requests unless the user explicitly asks for ready-for-review or the same request includes merging after validation.
+10. **After creating or updating a PR, verify it actually works before
+    handing off**: `gh pr view <n> --json mergeable,mergeStateStatus` and
+    `gh pr checks <n>` — the PR must be mergeable with checks running or
+    green. If `origin/main` moved and the PR conflicts, rebase immediately
+    and re-push; never leave a PR conflicting, red, or stale.
+11. When a rebase follows another merge to main, expect the capability-audit
+    commit to conflict on `docs/testing/main-capability-coverage.json`:
+    keep main's `audit.head`, finish the rebase, then regenerate the audit
+    with `scripts/regenerate-capability-audit.js` so the new commit SHAs are
+    referenced; rerun `npm run test:behavior-contracts` before pushing.
 
 If push reports HTTP 408, `unexpected EOF`, or an RPC disconnect:
 

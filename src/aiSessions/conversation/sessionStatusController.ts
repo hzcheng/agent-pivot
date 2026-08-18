@@ -3,8 +3,14 @@
 import type * as vscode from 'vscode';
 
 export interface ConversationSessionStatus {
+    /** Running sessions across all windows. */
     runningSessions: number;
+    /** Sessions needing attention across all windows. */
     attentionSessions: number;
+    /** Running sessions in this window's workspace. */
+    runningSessionsLocal: number;
+    /** Sessions needing attention in this window's workspace. */
+    attentionSessionsLocal: number;
 }
 
 export interface ConversationViewerSessionStatusMessage {
@@ -35,31 +41,40 @@ function sanitizeSessionCount(value: unknown): number {
 export function sanitizeConversationSessionStatus(
     status: ConversationSessionStatus | undefined
 ): ConversationSessionStatus {
+    const runningSessions = sanitizeSessionCount(status?.runningSessions);
+    const attentionSessions = sanitizeSessionCount(status?.attentionSessions);
     return {
-        runningSessions: sanitizeSessionCount(status?.runningSessions),
-        attentionSessions: sanitizeSessionCount(status?.attentionSessions),
+        runningSessions,
+        attentionSessions,
+        // A window's own sessions are a subset of the cross-window total:
+        // never let a desynced reader report more local than global.
+        runningSessionsLocal: Math.min(
+            sanitizeSessionCount(status?.runningSessionsLocal),
+            runningSessions
+        ),
+        attentionSessionsLocal: Math.min(
+            sanitizeSessionCount(status?.attentionSessionsLocal),
+            attentionSessions
+        ),
     };
 }
 
 export function formatConversationSessionStatusLabel(
     kind: 'running' | 'attention',
-    count: number
+    localCount: number,
+    totalCount: number
 ): string {
-    const safeCount = sanitizeSessionCount(count);
+    const total = sanitizeSessionCount(totalCount);
+    const local = Math.min(sanitizeSessionCount(localCount), total);
+    if (total === 0) {
+        return kind === 'running'
+            ? 'No AI sessions running'
+            : 'No AI sessions need attention';
+    }
     if (kind === 'running') {
-        if (safeCount === 0) {
-            return 'No AI sessions running';
-        }
-        return safeCount === 1
-            ? '1 AI session running across all windows'
-            : `${safeCount} AI sessions running across all windows`;
+        return `${local} running in this window · ${total} across all windows`;
     }
-    if (safeCount === 0) {
-        return 'No AI sessions need attention';
-    }
-    return safeCount === 1
-        ? '1 AI session needs attention across all windows'
-        : `${safeCount} AI sessions need attention across all windows`;
+    return `${local} need attention in this window · ${total} across all windows`;
 }
 
 export class ConversationSessionStatusController {
@@ -94,7 +109,8 @@ export class ConversationSessionStatusController {
         if (!status) {
             return;
         }
-        const deliveryKey = `${status.runningSessions}:${status.attentionSessions}`;
+        const deliveryKey = `${status.runningSessions}:${status.attentionSessions}`
+            + `:${status.runningSessionsLocal}:${status.attentionSessionsLocal}`;
         if (deliveryKey === this.lastDeliveredKey) {
             return;
         }

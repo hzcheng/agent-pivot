@@ -80,6 +80,8 @@ import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
 import {
     getAttentionProjectKey,
     getAttentionProjectPath,
+    getAttentionProjectKeys,
+    getAttentionSummaryForProjectKeys,
     getLogicalAttentionSessionKey,
 } from './aiSessions/attentionProject';
 import { buildAttentionQueue } from './aiSessions/attentionQueue';
@@ -2348,13 +2350,30 @@ async function initializeDashboard(
                 ? readCodexProfileContextWindowForModel(model)
                 : undefined;
         },
-        readSessionStatus: () => ({
-            runningSessions: sumOpenWorkspaceRunningAiSessionCounts(
-                latestOpenWorkspaceAggregate
-            ),
-            attentionSessions: aiSessionAttentionController
-                .getEffectiveAggregate()?.sessions.length ?? 0,
-        }),
+        readSessionStatus: () => {
+            const attentionAggregate = aiSessionAttentionController
+                .getEffectiveAggregate();
+            // This window's workspace: running counts come from the bridge
+            // registration carrying our own instanceId; attention sessions
+            // filter by this window's root-derived project keys.
+            const ownRegistration = latestOpenWorkspaceAggregate?.registrations
+                .find(registration =>
+                    registration.instanceId === openWorkspaceBridgeClient?.instanceId);
+            const ownProjectKeys = getAttentionProjectKeys(
+                (getCurrentOpenWorkspace()?.roots || []).map(root => root.uri));
+            return {
+                runningSessions: sumOpenWorkspaceRunningAiSessionCounts(
+                    latestOpenWorkspaceAggregate
+                ),
+                attentionSessions: attentionAggregate?.sessions.length ?? 0,
+                runningSessionsLocal:
+                    ownRegistration?.workspace?.runningAiSessionCount ?? 0,
+                attentionSessionsLocal: attentionAggregate
+                    ? getAttentionSummaryForProjectKeys(
+                        ownProjectKeys, attentionAggregate).attentionCount
+                    : 0,
+            };
+        },
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({
             getWorkspaceTarget: getCurrentWorkspaceActionTarget,
             getRuntime: getAiSessionRuntimeById,

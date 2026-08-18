@@ -185,8 +185,8 @@ export function renderConversationViewerDocument(
         </div>
         <div class="conversation-session-status" data-conversation-session-status
             role="group" aria-label="Global AI session status">
-            ${renderSessionStatusDot('running', sessionStatus.runningSessions)}
-            ${renderSessionStatusDot('attention', sessionStatus.attentionSessions)}
+            ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal, sessionStatus.runningSessions)}
+            ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal, sessionStatus.attentionSessions)}
         </div>
         <nav class="conversation-navigation" aria-label="Conversation navigation">
             <button class="conversation-icon-button" type="button"
@@ -613,17 +613,18 @@ export function renderConversationViewerDocument(
 
 function renderSessionStatusDot(
     kind: 'running' | 'attention',
-    count: number
+    localCount: number,
+    totalCount: number
 ): string {
-    const label = formatConversationSessionStatusLabel(kind, count);
-    return `<span class="conversation-session-status-dot conversation-session-status-${kind}${count > 0
+    const label = formatConversationSessionStatusLabel(kind, localCount, totalCount);
+    return `<span class="conversation-session-status-dot conversation-session-status-${kind}${totalCount > 0
         ? ' conversation-session-status-active'
         : ''}"
         data-session-status-${kind} role="img"
         title="${escapeAttribute(label)}"
         aria-label="${escapeAttribute(label)}"></span><span
         class="conversation-session-status-count"
-        data-session-status-${kind}-count>${count}</span>`;
+        data-session-status-${kind}-count>${localCount}/${totalCount}</span>`;
 }
 
 function providerLabel(provider: AiSessionProviderId): string {

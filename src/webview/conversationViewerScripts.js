@@ -1801,42 +1801,48 @@
         if (commentsController.handleEscape(event)) return;
         sidebarController.handleEscape(event);
     });
-    function sessionStatusDotLabel(kind, count) {
-        if (kind === 'running') {
-            if (count === 0) return 'No AI sessions running';
-            return count === 1
-                ? '1 AI session running across all windows'
-                : count + ' AI sessions running across all windows';
+    function sessionStatusDotLabel(kind, localCount, totalCount) {
+        if (totalCount === 0) {
+            return kind === 'running'
+                ? 'No AI sessions running'
+                : 'No AI sessions need attention';
         }
-        if (count === 0) return 'No AI sessions need attention';
-        return count === 1
-            ? '1 AI session needs attention across all windows'
-            : count + ' AI sessions need attention across all windows';
+        return kind === 'running'
+            ? localCount + ' running in this window · ' + totalCount + ' across all windows'
+            : localCount + ' need attention in this window · ' + totalCount + ' across all windows';
     }
     function validSessionStatus(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
             return false;
         }
         var keys = Object.keys(value);
-        return keys.length === 2
+        return keys.length === 4
             && keys.indexOf('runningSessions') !== -1
             && keys.indexOf('attentionSessions') !== -1
+            && keys.indexOf('runningSessionsLocal') !== -1
+            && keys.indexOf('attentionSessionsLocal') !== -1
             && Number.isSafeInteger(value.runningSessions)
             && value.runningSessions >= 0
             && value.runningSessions <= 100000
             && Number.isSafeInteger(value.attentionSessions)
             && value.attentionSessions >= 0
-            && value.attentionSessions <= 100000;
+            && value.attentionSessions <= 100000
+            && Number.isSafeInteger(value.runningSessionsLocal)
+            && value.runningSessionsLocal >= 0
+            && value.runningSessionsLocal <= value.runningSessions
+            && Number.isSafeInteger(value.attentionSessionsLocal)
+            && value.attentionSessionsLocal >= 0
+            && value.attentionSessionsLocal <= value.attentionSessions;
     }
-    function applySessionStatusDot(element, countElement, kind, count) {
-        var label = sessionStatusDotLabel(kind, count);
+    function applySessionStatusDot(element, countElement, kind, localCount, totalCount) {
+        var label = sessionStatusDotLabel(kind, localCount, totalCount);
         element.classList.toggle(
             'conversation-session-status-active',
-            count > 0
+            totalCount > 0
         );
         element.title = label;
         element.setAttribute('aria-label', label);
-        countElement.textContent = String(count);
+        countElement.textContent = localCount + '/' + totalCount;
     }
     function applySessionStatusMessage(message) {
         if (!message || typeof message !== 'object'
@@ -1855,12 +1861,14 @@
             sessionStatusRunning,
             sessionStatusRunningCount,
             'running',
+            message.status.runningSessionsLocal,
             message.status.runningSessions
         );
         applySessionStatusDot(
             sessionStatusAttention,
             sessionStatusAttentionCount,
             'attention',
+            message.status.attentionSessionsLocal,
             message.status.attentionSessions
         );
         return true;

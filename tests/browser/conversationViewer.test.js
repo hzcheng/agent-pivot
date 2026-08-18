@@ -4865,7 +4865,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '8a7392a219578d8656d7536763ea539e177b0756cab7ab68355f8268cf32c562',
+        '8bb72241064f277b57081af0ab80720bbefad27c8f0eea23fb7dbf6b0455c33f',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -11037,6 +11037,8 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
         readSessionStatus: () => ({
             runningSessions: 2,
             attentionSessions: 1,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 1,
         }),
     });
     const running = page.locator('[data-session-status-running]');
@@ -11048,13 +11050,13 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
 
     assert.equal(
         await running.getAttribute('title'),
-        '2 AI sessions running across all windows'
+        '1 running in this window · 2 across all windows'
     );
-    assert.equal(await runningCount.textContent(), '2');
-    assert.equal(await attentionCount.textContent(), '1');
+    assert.equal(await runningCount.textContent(), '1/2');
+    assert.equal(await attentionCount.textContent(), '1/1');
     assert.equal(
         await attention.getAttribute('aria-label'),
-        '1 AI session needs attention across all windows'
+        '1 need attention in this window · 1 across all windows'
     );
     assert.equal(await running.evaluate(element =>
         element.classList.contains('conversation-session-status-active')
@@ -11076,20 +11078,25 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
         version: 1,
         requestId: correlation.requestId,
         subscriptionGeneration: correlation.generation,
-        status: { runningSessions: 0, attentionSessions: 3 },
+        status: {
+            runningSessions: 0,
+            attentionSessions: 3,
+            runningSessionsLocal: 0,
+            attentionSessionsLocal: 1,
+        },
     });
     assert.equal(
         await running.getAttribute('title'),
         'No AI sessions running'
     );
-    assert.equal(await runningCount.textContent(), '0');
-    assert.equal(await attentionCount.textContent(), '3');
+    assert.equal(await runningCount.textContent(), '0/0');
+    assert.equal(await attentionCount.textContent(), '1/3');
     assert.equal(await running.evaluate(element =>
         element.classList.contains('conversation-session-status-active')
     ), false);
     assert.equal(
         await attention.getAttribute('title'),
-        '3 AI sessions need attention across all windows'
+        '1 need attention in this window · 3 across all windows'
     );
 
     await sendPage(page, {
@@ -11097,18 +11104,28 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
         version: 1,
         requestId: correlation.requestId - 1,
         subscriptionGeneration: correlation.generation,
-        status: { runningSessions: 9, attentionSessions: 9 },
+        status: {
+            runningSessions: 9,
+            attentionSessions: 9,
+            runningSessionsLocal: 9,
+            attentionSessionsLocal: 9,
+        },
     });
     await sendPage(page, {
         type: 'conversation-viewer-session-status',
         version: 1,
         requestId: correlation.requestId + 1,
         subscriptionGeneration: correlation.generation + 1,
-        status: { runningSessions: 9, attentionSessions: 9 },
+        status: {
+            runningSessions: 9,
+            attentionSessions: 9,
+            runningSessionsLocal: 9,
+            attentionSessionsLocal: 9,
+        },
     });
     assert.equal(
         await attention.getAttribute('title'),
-        '3 AI sessions need attention across all windows',
+        '1 need attention in this window · 3 across all windows',
         'stale requestIds and foreign generations must be ignored'
     );
 

@@ -10,6 +10,9 @@ const {
 const {
     WorktreeGroupManifestStore,
 } = require('../../../out/worktrees/groupManifestStore');
+const {
+    WorktreeMemberLifecycle,
+} = require('../../../out/worktrees/memberLifecycle');
 
 const workspace = {
     navigationIdentity: 'navigation:workspace',
@@ -64,6 +67,7 @@ function fixture(overrides = {}) {
         ],
     };
     const options = {
+        memberLifecycle: new WorktreeMemberLifecycle(manifestStore),
         getWorkspaceTarget: projectId => projectId === 'project'
             ? { workspace } : null,
         getWorktreeSnapshot: () => snapshot,

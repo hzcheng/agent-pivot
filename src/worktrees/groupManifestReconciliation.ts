@@ -1,5 +1,6 @@
 'use strict';
 
+import type { WorktreeMemberLifecycle } from './memberLifecycle';
 import type { WorktreeGroupManifestStore } from './groupManifestStore';
 import type { PersistedWorktreeProvisioningOperation } from './provisioningStore';
 import type { WorktreeSnapshotContent } from './types';
@@ -24,6 +25,8 @@ export interface ReconcileWorktreeGroupManifestOptions {
      * crashed mid-creation and are downgraded to failed/interrupted.
      */
     activeGroupMemberIds?: readonly string[];
+    /** The single writer for member transitions (ARCH-WORKTREE-MEMBER-WRITER-001). */
+    memberLifecycle: WorktreeMemberLifecycle;
     onError?: (message: string, error: unknown) => void;
 }
 
@@ -66,11 +69,8 @@ export async function reconcileWorktreeGroupManifest(
                 // member; a live operation's own settlement wins the race
                 // because it rewrites the state on every outcome.
                 try {
-                    await store.updateMember(
-                        workspaceIdentity, group.groupId, member.memberId, {
-                            state: 'failed',
-                            lastError: 'interrupted',
-                        });
+                    await options.memberLifecycle.demoteInterruptedMember(
+                        workspaceIdentity, group.groupId, member.memberId);
                 } catch (error) {
                     options.onError?.(
                         'Failed to downgrade an interrupted group member.', error);

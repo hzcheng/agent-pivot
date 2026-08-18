@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "4bec57e837bfc81a04470c057d7d4533588d2edc",
+        "head": "38b091a8cb6f00e5fcaf085342285a0ba0eda1ba",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -453,7 +453,9 @@
             "0cb69481a754d9f14793e2c5737503e47d8eaaab",
             "1975a18661f7e1f916e5657436b5c12a2f788be2",
             "256af5a77c1f758a37421fdf10242cf6d8d9b2ad",
-            "e6dff0ec0219113da692140b90183f41228a2a1c"
+            "e6dff0ec0219113da692140b90183f41228a2a1c",
+            "a933a1c989dcd146a4bf6e65f3caad0bc4226dbf",
+            "0cfef2b250d7db4a3056629acf7fc03bd86e99a0"
         ]
     },
     "capabilities": [
@@ -2314,7 +2316,8 @@
                 "a7afab45ea326f4b9bf9bfa3245c2580aa89f31e",
                 "9366094ff487c644d9d44abdd3ad3aed574b573c",
                 "96180ff29ff10eefd1aeb55274027cf5005b2297",
-                "4bec57e837bfc81a04470c057d7d4533588d2edc"
+                "4bec57e837bfc81a04470c057d7d4533588d2edc",
+                "38b091a8cb6f00e5fcaf085342285a0ba0eda1ba"
             ],
             "behaviors": [
                 "ARCH-POLICY-SCHEMA-001",

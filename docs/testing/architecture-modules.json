@@ -1,0 +1,868 @@
+{
+    "version": 1,
+    "title": "Architecture module registry (Harness v0, coarse phase)",
+    "notes": [
+        "Approved at the Stage 1A checkpoint; normalized in Stage 2 from docs/architecture/drafts/architecture-modules.draft.json.",
+        "Coarse phase: module boundaries are directory-aligned and publicEntrypoints declare the whole module surface; PR 2-2 introduces edge evaluation.",
+        "Scope roots cover production TypeScript/JavaScript only. media/ is generated output, spikes/ is non-production, scripts/ and tests/ are harness code governed by the reviewability rule.",
+        "Roles are ordered: the first matching role wins. MOD-AI-SESSION-PROVIDER is the residual module for src/aiSessions root files — new files land there by default until re-partition."
+    ],
+    "scope": {
+        "roots": [
+            "src",
+            "extensions/attention-ui-bridge/src",
+            "shared/attention-bridge"
+        ],
+        "exclusions": [
+            "media/ (generated: byte-mirrored webview scripts, bundle, vendor)",
+            "spikes/ (non-production experiments)",
+            "scripts/ (harness/tooling)",
+            "tests/ (test code)",
+            "out/, dist/ (build output)"
+        ]
+    },
+    "modules": [
+        {
+            "id": "MOD-DASHBOARD-SHELL",
+            "title": "Dashboard shell",
+            "purpose": "Sidebar webview host, message routing, startup/lifecycle, webview presentation assets, and the root composition (dashboard.ts) plus the shared type/constant kernel.",
+            "source": {
+                "include": [
+                    "src/dashboard.ts",
+                    "src/models.ts",
+                    "src/constants.ts",
+                    "src/sponsor.ts",
+                    "src/dashboard/**",
+                    "src/webview/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/dashboard/**",
+                "src/webview/**",
+                "src/models.ts",
+                "src/constants.ts"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION",
+                "MOD-AI-SESSION-CONTROL",
+                "MOD-AI-SESSION-CONVERSATION",
+                "MOD-AI-SESSION-NOTIFY",
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-AI-SESSION-RUNTIME",
+                "MOD-OPEN-WORKSPACE",
+                "MOD-PROJECT-CATALOG",
+                "MOD-PROMPT-LIBRARY",
+                "MOD-SKILL-MANAGEMENT",
+                "MOD-TODO",
+                "MOD-WORKSPACE-IDENTITY",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "composition",
+                    "include": [
+                        "src/dashboard.ts"
+                    ]
+                },
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/models.ts",
+                        "src/constants.ts"
+                    ]
+                },
+                {
+                    "role": "presentation",
+                    "include": [
+                        "src/webview/**"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/dashboard/**",
+                        "src/sponsor.ts"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-WORKSPACE-WEBVIEW",
+                "MAIN-DASHBOARD-WEBVIEW-RECOVERY",
+                "MAIN-WORKSPACE-SEARCH",
+                "MAIN-WORKSPACE-NAVIGATION",
+                "MAIN-SPONSOR-ENTRY"
+            ]
+        },
+        {
+            "id": "MOD-AI-SESSION-CONVERSATION",
+            "title": "AI session conversation",
+            "purpose": "Conversation provider adapters, read coordinator, viewer, and viewer protocol. Active feature area: no restructuring while it is being built.",
+            "source": {
+                "include": [
+                    "src/aiSessions/conversation/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/aiSessions/conversation/**"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-AI-SESSION-RUNTIME",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/aiSessions/conversation/types.ts",
+                        "src/aiSessions/conversation/model.ts",
+                        "src/aiSessions/conversation/viewerProtocol.ts",
+                        "src/aiSessions/conversation/viewerTarget.ts",
+                        "src/aiSessions/conversation/diffs.ts",
+                        "src/aiSessions/conversation/questions.ts",
+                        "src/aiSessions/conversation/text.ts",
+                        "src/aiSessions/conversation/commentPrimitives.ts"
+                    ]
+                },
+                {
+                    "role": "presentation",
+                    "include": [
+                        "src/aiSessions/conversation/viewerDocument.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/aiSessions/conversation/*Store.ts",
+                        "src/aiSessions/conversation/codexAppServerClient.ts",
+                        "src/aiSessions/conversation/jsonlReader.ts",
+                        "src/aiSessions/conversation/markdown.ts",
+                        "src/aiSessions/conversation/snapshotFileStore.ts",
+                        "src/aiSessions/conversation/worktreeResolver.ts",
+                        "src/aiSessions/conversation/source.ts"
+                    ]
+                },
+                {
+                    "role": "composition",
+                    "include": [
+                        "src/aiSessions/conversation/composition.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/aiSessions/conversation/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-AI-SESSION-CONVERSATION-OUTLINE"
+            ]
+        },
+        {
+            "id": "MOD-AI-SESSION-ATTENTION",
+            "title": "AI session attention",
+            "purpose": "Attention pipeline: aggregation, evaluation queue, monitor, payload, status bar, and bridge client.",
+            "source": {
+                "include": [
+                    "src/aiSessions/attention*"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/aiSessions/attention*"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-NOTIFY",
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-AI-SESSION-RUNTIME",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-WORKSPACE-IDENTITY"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/aiSessions/attentionPayload.ts",
+                        "src/aiSessions/attentionProject.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/aiSessions/attentionBridgeClient.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/aiSessions/attention*"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-WORKSPACE-ATTENTION",
+                "MAIN-ATTENTION-LIFECYCLE-HARDENING"
+            ]
+        },
+        {
+            "id": "MOD-AI-SESSION-NOTIFY",
+            "title": "Session stop notification",
+            "purpose": "Stop-notification pipeline: policy, dispatcher, templates, credential storage — the extension's only outbound network egress.",
+            "source": {
+                "include": [
+                    "src/aiSessions/notify/**",
+                    "src/aiSessions/notifyIntegration/**",
+                    "src/aiSessions/notifyConfiguration.ts"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/aiSessions/notify/**",
+                "src/aiSessions/notifyIntegration/**",
+                "src/aiSessions/notifyConfiguration.ts"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/aiSessions/notify/types.ts",
+                        "src/aiSessions/notify/templates/types.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/aiSessions/notify/httpClient.ts",
+                        "src/aiSessions/notify/store.ts",
+                        "src/aiSessions/notifyIntegration/credentials.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/aiSessions/notify/**",
+                        "src/aiSessions/notifyIntegration/**",
+                        "src/aiSessions/notifyConfiguration.ts"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-SESSION-STOP-NOTIFICATION"
+            ]
+        },
+        {
+            "id": "MOD-AI-SESSION-RUNTIME",
+            "title": "AI session runtime",
+            "purpose": "Runtime backends (direct terminal and tmux), runtime coordination, launch specs, execution monitoring, and binding stores.",
+            "source": {
+                "include": [
+                    "src/aiSessions/tmux*",
+                    "src/aiSessions/runtime*",
+                    "src/aiSessions/directTerminalRuntimeBackend.ts",
+                    "src/aiSessions/terminalService.ts",
+                    "src/aiSessions/terminalBindingStore.ts",
+                    "src/aiSessions/terminalCandidates.ts",
+                    "src/aiSessions/terminalCwd.ts",
+                    "src/aiSessions/pendingTerminal*",
+                    "src/aiSessions/execution*",
+                    "src/aiSessions/runningQueue.ts",
+                    "src/aiSessions/launch*",
+                    "src/aiSessions/commandBuilders.ts"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/aiSessions/tmux*",
+                "src/aiSessions/runtime*",
+                "src/aiSessions/terminalService.ts"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION",
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-PROJECT-CATALOG",
+                "MOD-WORKSPACE-IDENTITY",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/aiSessions/runtimeTypes.ts",
+                        "src/aiSessions/launchSpec.ts",
+                        "src/aiSessions/commandBuilders.ts",
+                        "src/aiSessions/tmuxNaming.ts",
+                        "src/aiSessions/tmuxLayout.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/aiSessions/tmuxClient.ts",
+                        "src/aiSessions/terminalService.ts",
+                        "src/aiSessions/terminalBindingStore.ts",
+                        "src/aiSessions/tmuxAttachBindingStore.ts",
+                        "src/aiSessions/tmuxRuntimeBindingStore.ts",
+                        "src/aiSessions/tmuxRuntimeDiscovery.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/aiSessions/tmux*",
+                        "src/aiSessions/runtime*",
+                        "src/aiSessions/directTerminalRuntimeBackend.ts",
+                        "src/aiSessions/terminal*",
+                        "src/aiSessions/pendingTerminal*",
+                        "src/aiSessions/execution*",
+                        "src/aiSessions/runningQueue.ts",
+                        "src/aiSessions/launch*",
+                        "src/aiSessions/commandBuilders.ts"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-RUNTIME-OWNERSHIP",
+                "MAIN-TMUX-FOCUS",
+                "MAIN-TMUX-NAMING",
+                "MAIN-TMUX-CLEANUP",
+                "MAIN-RUNTIME-SESSION-RECOVERY"
+            ]
+        },
+        {
+            "id": "MOD-AI-SESSION-CONTROL",
+            "title": "AI session control",
+            "purpose": "Session controllers (create, command, archive, resume, terminal command, alias, pin, profile) and their composition.",
+            "source": {
+                "include": [
+                    "src/aiSessions/sessionControllerComposition.ts",
+                    "src/aiSessions/commandController.ts",
+                    "src/aiSessions/creationController.ts",
+                    "src/aiSessions/resumeController.ts",
+                    "src/aiSessions/terminalCommandController.ts",
+                    "src/aiSessions/aliasController.ts",
+                    "src/aiSessions/pinController.ts",
+                    "src/aiSessions/sessionProfileController.ts",
+                    "src/aiSessions/archive*"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/aiSessions/sessionControllerComposition.ts"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-AI-SESSION-RUNTIME",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-WORKSPACE-IDENTITY",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "composition",
+                    "include": [
+                        "src/aiSessions/sessionControllerComposition.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/aiSessions/commandController.ts",
+                        "src/aiSessions/creationController.ts",
+                        "src/aiSessions/resumeController.ts",
+                        "src/aiSessions/terminalCommandController.ts",
+                        "src/aiSessions/aliasController.ts",
+                        "src/aiSessions/pinController.ts",
+                        "src/aiSessions/sessionProfileController.ts",
+                        "src/aiSessions/archive*"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-AI-SESSION-QUICK-CREATE",
+                "MAIN-AI-SESSION-QUICK-SWITCH",
+                "MAIN-RUNNING-SESSION-NAVIGATION"
+            ]
+        },
+        {
+            "id": "MOD-AI-SESSION-PROVIDER",
+            "title": "AI session provider core",
+            "purpose": "Provider registry, provider session services (codex/kimi/claude), lifecycle readers, session identity and fingerprinting, and residual aiSessions root support files. Residual module: new src/aiSessions root files land here by default until re-partition.",
+            "source": {
+                "include": [
+                    "src/aiSessions/**",
+                    "src/services/codexSessionService.ts",
+                    "src/services/kimiSessionService.ts",
+                    "src/services/claudeSessionService.ts"
+                ],
+                "exclude": [
+                    "src/aiSessions/conversation/**",
+                    "src/aiSessions/notify/**",
+                    "src/aiSessions/notifyIntegration/**",
+                    "src/aiSessions/notifyConfiguration.ts",
+                    "src/aiSessions/attention*",
+                    "src/aiSessions/tmux*",
+                    "src/aiSessions/runtime*",
+                    "src/aiSessions/directTerminalRuntimeBackend.ts",
+                    "src/aiSessions/terminal*",
+                    "src/aiSessions/pendingTerminal*",
+                    "src/aiSessions/execution*",
+                    "src/aiSessions/runningQueue.ts",
+                    "src/aiSessions/launch*",
+                    "src/aiSessions/commandBuilders.ts",
+                    "src/aiSessions/sessionControllerComposition.ts",
+                    "src/aiSessions/commandController.ts",
+                    "src/aiSessions/creationController.ts",
+                    "src/aiSessions/resumeController.ts",
+                    "src/aiSessions/terminalCommandController.ts",
+                    "src/aiSessions/aliasController.ts",
+                    "src/aiSessions/pinController.ts",
+                    "src/aiSessions/sessionProfileController.ts",
+                    "src/aiSessions/archive*"
+                ]
+            },
+            "publicEntrypoints": [
+                "src/aiSessions/providers.ts",
+                "src/aiSessions/types.ts",
+                "src/services/codexSessionService.ts",
+                "src/services/kimiSessionService.ts",
+                "src/services/claudeSessionService.ts"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION",
+                "MOD-AI-SESSION-CONTROL",
+                "MOD-AI-SESSION-RUNTIME",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-TODO",
+                "MOD-WORKSPACE-IDENTITY",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/aiSessions/types.ts",
+                        "src/aiSessions/providers.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/aiSessions/aliasStore.ts",
+                        "src/aiSessions/sessionProfileStore.ts",
+                        "src/aiSessions/pinStore.ts",
+                        "src/aiSessions/workspaceStateStore.ts",
+                        "src/aiSessions/jsonlTail.ts",
+                        "src/aiSessions/incrementalJsonlLifecycleReader.ts",
+                        "src/aiSessions/lifecycleSignalReader.ts",
+                        "src/services/codexSessionService.ts",
+                        "src/services/kimiSessionService.ts",
+                        "src/services/claudeSessionService.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/aiSessions/**",
+                        "src/services/codexSessionService.ts",
+                        "src/services/kimiSessionService.ts",
+                        "src/services/claudeSessionService.ts"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-AI-SESSION-QUICK-CREATE",
+                "MAIN-RUNTIME-SESSION-RECOVERY"
+            ]
+        },
+        {
+            "id": "MOD-WORKTREE-LIFECYCLE",
+            "title": "Worktree lifecycle",
+            "purpose": "Worktree group and member lifecycle, provisioning, generation claims, deletion journal, and the changes panel collector.",
+            "source": {
+                "include": [
+                    "src/worktrees/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/worktrees/**"
+            ],
+            "mayDependOn": [
+                "MOD-DASHBOARD-SHELL",
+                "MOD-WORKSPACE-IDENTITY"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/worktrees/types.ts",
+                        "src/worktrees/baseline.ts",
+                        "src/worktrees/porcelainParser.ts",
+                        "src/worktrees/provisioningPlan.ts",
+                        "src/worktrees/*Protocol.ts",
+                        "src/worktrees/deletionJournal.ts",
+                        "src/worktrees/settlementReplayCache.ts",
+                        "src/worktrees/retiredWorktrees.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/worktrees/*Store.ts",
+                        "src/worktrees/gitWorktree*.ts",
+                        "src/worktrees/worktreeSetupRunner.ts",
+                        "src/worktrees/changesCollector.ts",
+                        "src/worktrees/gitRepositoryStateMonitor.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/worktrees/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-WORKTREE-CHANGES-PANEL"
+            ]
+        },
+        {
+            "id": "MOD-WORKSPACE-IDENTITY",
+            "title": "Workspace identity",
+            "purpose": "Workspace identity, hydration, session scoping, and workspace-level projections.",
+            "source": {
+                "include": [
+                    "src/workspaces/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/workspaces/**"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION",
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-AI-SESSION-RUNTIME",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-PROJECT-CATALOG",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/workspaces/types.ts",
+                        "src/workspaces/identity.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/workspaces/*Store.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/workspaces/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-WORKSPACE-IDENTITY",
+                "MAIN-WORKSPACE-SCOPE",
+                "MAIN-WORKSPACE-HYDRATION"
+            ]
+        },
+        {
+            "id": "MOD-OPEN-WORKSPACE",
+            "title": "Open workspace bridge",
+            "purpose": "Open-workspace bridge client and cross-window protocols.",
+            "source": {
+                "include": [
+                    "src/openWorkspaces/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/openWorkspaces/**"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION",
+                "MOD-AI-SESSION-PROVIDER",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-TODO",
+                "MOD-WORKSPACE-IDENTITY"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/openWorkspaces/*Protocol.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/openWorkspaces/bridgeClient.ts",
+                        "src/openWorkspaces/earlyBridge.ts",
+                        "src/openWorkspaces/focusBridgeChannel.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/openWorkspaces/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-OPEN-WORKSPACE-PROTOCOL",
+                "MAIN-OTHER-WINDOWS"
+            ]
+        },
+        {
+            "id": "MOD-PROJECT-CATALOG",
+            "title": "Project catalog",
+            "purpose": "Project CRUD, favorites, ordering, remote resolution, and the legacy project/color/file services (vendored ntc.ts included, coverage-exempt).",
+            "source": {
+                "include": [
+                    "src/projects/**",
+                    "src/services/baseService.ts",
+                    "src/services/projectService.ts",
+                    "src/services/colorService.ts",
+                    "src/services/fileService.ts",
+                    "src/services/projectWindowColorService.ts",
+                    "src/services/projectCatalogSyncService.ts",
+                    "src/services/sourceControl.ts",
+                    "src/services/gitChangesDiff.ts",
+                    "src/services/ntc.ts"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/projects/**",
+                "src/services/projectService.ts"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION",
+                "MOD-DASHBOARD-SHELL",
+                "MOD-OPEN-WORKSPACE",
+                "MOD-WORKTREE-LIFECYCLE"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/projects/projectPathUtils.ts",
+                        "src/projects/favoriteProjectOrder.ts",
+                        "src/projects/projectNavigationProtocol.ts",
+                        "src/projects/projectCatalogSync.ts",
+                        "src/services/ntc.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/services/**",
+                        "src/projects/gitRepositoryDetector.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/projects/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-PROJECT-CATALOG-CONSISTENCY",
+                "MAIN-WORKSPACE-SAVE"
+            ]
+        },
+        {
+            "id": "MOD-SKILL-MANAGEMENT",
+            "title": "Skill management",
+            "purpose": "Skills central store, scope actions, discovery, migration, and the skills panel.",
+            "source": {
+                "include": [
+                    "src/skills/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/skills/**"
+            ],
+            "mayDependOn": [
+                "MOD-DASHBOARD-SHELL"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/skills/types.ts",
+                        "src/skills/frontmatter.ts",
+                        "src/skills/knownCollections.ts"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "src/skills/roots.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/skills/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-AI-SKILL-MANAGEMENT"
+            ]
+        },
+        {
+            "id": "MOD-TODO",
+            "title": "Todo list",
+            "purpose": "Todo store, service, and panel capability.",
+            "source": {
+                "include": [
+                    "src/todos/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/todos/**"
+            ],
+            "mayDependOn": [
+                "MOD-DASHBOARD-SHELL"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/todos/types.ts"
+                    ]
+                },
+                {
+                    "role": "presentation",
+                    "include": [
+                        "src/todos/webviewContent.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/todos/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-TODO-CONTINUOUS-EXPERIENCE"
+            ]
+        },
+        {
+            "id": "MOD-PROMPT-LIBRARY",
+            "title": "Prompt library",
+            "purpose": "Prompt library service and webview content.",
+            "source": {
+                "include": [
+                    "src/prompts/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "src/prompts/**"
+            ],
+            "mayDependOn": [
+                "MOD-DASHBOARD-SHELL"
+            ],
+            "roles": [
+                {
+                    "role": "domain",
+                    "include": [
+                        "src/prompts/types.ts"
+                    ]
+                },
+                {
+                    "role": "presentation",
+                    "include": [
+                        "src/prompts/webviewContent.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "src/prompts/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-AI-PROMPT-LIBRARY"
+            ]
+        },
+        {
+            "id": "MOD-ATTENTION-BRIDGE-EXT",
+            "title": "Attention UI bridge extension",
+            "purpose": "Companion attention UI bridge extension and the shared bridge protocol (separate compile units).",
+            "source": {
+                "include": [
+                    "extensions/attention-ui-bridge/src/**",
+                    "shared/attention-bridge/**"
+                ],
+                "exclude": []
+            },
+            "publicEntrypoints": [
+                "shared/attention-bridge/**"
+            ],
+            "mayDependOn": [
+                "MOD-AI-SESSION-ATTENTION",
+                "MOD-AI-SESSION-RUNTIME",
+                "MOD-OPEN-WORKSPACE",
+                "MOD-PROJECT-CATALOG",
+                "MOD-WORKSPACE-IDENTITY"
+            ],
+            "roles": [
+                {
+                    "role": "composition",
+                    "include": [
+                        "extensions/attention-ui-bridge/src/extension.ts"
+                    ]
+                },
+                {
+                    "role": "domain",
+                    "include": [
+                        "shared/attention-bridge/**"
+                    ]
+                },
+                {
+                    "role": "infrastructure",
+                    "include": [
+                        "extensions/attention-ui-bridge/src/localStore.ts",
+                        "extensions/attention-ui-bridge/src/bridgeStorageRoot.ts",
+                        "extensions/attention-ui-bridge/src/productionAttentionStore.ts",
+                        "extensions/attention-ui-bridge/src/openWorkspace*Store.ts"
+                    ]
+                },
+                {
+                    "role": "application",
+                    "include": [
+                        "extensions/attention-ui-bridge/src/**"
+                    ]
+                }
+            ],
+            "productCapabilities": [
+                "MAIN-OPEN-WORKSPACE-PROTOCOL"
+            ]
+        }
+    ]
+}

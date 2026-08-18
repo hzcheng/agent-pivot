@@ -260,7 +260,7 @@ import {
     GitRepositoryStateMonitor,
 } from './worktrees/gitRepositoryStateMonitor';
 import { WorktreeSnapshotCoordinator } from './worktrees/snapshotCoordinator';
-import { worktreeKeysEqual } from './worktrees/types';
+import { worktreeKeysEqual, worktreeKeysMatch, worktreeKeyTombstoneKey } from './worktrees/types';
 import type { WorktreeKey } from './worktrees/types';
 import { WorktreeBaseRefStore } from './worktrees/baseRefStore';
 import {
@@ -1370,7 +1370,9 @@ async function initializeDashboard(
                             discoveredRepositories.add(repository.repositoryKey);
                             for (const worktree of repository.worktrees) {
                                 snapshotPaths.add(
-                                    `${worktree.key.repositoryKey} ${worktree.key.canonicalWorktreePath}`);
+                                    worktreeKeyTombstoneKey(
+                                        worktree.key.repositoryKey,
+                                        worktree.key.canonicalWorktreePath));
                             }
                         }
                         // Prune through the controller: it drops in-memory
@@ -1454,10 +1456,7 @@ async function initializeDashboard(
             if (existing && (existing.sessionId !== binding.sessionId
                 || existing.provider !== binding.providerId
                 || existing.navigationIdentity !== binding.workspaceNavigationIdentity
-                || (existing.worktreeKey?.canonicalWorktreePath
-                        !== binding.worktreeKey?.canonicalWorktreePath)
-                || (existing.worktreeKey?.repositoryKey
-                        !== binding.worktreeKey?.repositoryKey))) {
+                || !worktreeKeysMatch(existing.worktreeKey, binding.worktreeKey))) {
                 ambiguous = true;
                 break;
             }

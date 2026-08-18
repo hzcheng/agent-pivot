@@ -199,7 +199,10 @@
             "writers": [],
             "linearizationPoint": "Identity construction goes through the canonical codec.",
             "enforcement": ["behavior"],
-            "behaviorOwners": ["tests/unit/worktrees/provisioningPlan.test.js"],
+            "behaviorOwners": [
+                "tests/unit/worktrees/provisioningPlan.test.js",
+                "tests/unit/worktrees/worktreeKeyCodecs.test.js"
+            ],
             "guardOwners": [],
             "evidence": ["src/worktrees/types.ts"]
         }

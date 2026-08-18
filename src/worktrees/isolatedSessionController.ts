@@ -22,6 +22,7 @@ import type {
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
 } from './types';
+import { worktreeKeyTombstoneKey } from './types';
 import type { PersistedWorktreeProvisioningOperation } from './provisioningStore';
 import { MAX_PROVISIONING_TOMBSTONES } from './provisioningStore';
 
@@ -573,7 +574,8 @@ export class IsolatedSessionController {
             const keep = (record.tombstonedAt ?? 0) >= snapshotStartedAt
                 || !discoveredRepositoryKeys.has(record.plan.repositoryKey)
                 || existingWorktreePaths.has(
-                    `${record.plan.repositoryKey} ${record.plan.worktreePath}`);
+                    worktreeKeyTombstoneKey(
+                        record.plan.repositoryKey, record.plan.worktreePath));
             if (!keep) {
                 this.recoveryTombstones.delete(operationId);
             }
@@ -599,7 +601,7 @@ export class IsolatedSessionController {
         navigationIdentity: string;
     }): Promise<boolean> {
         const operationId = `tombstone-${createHash('sha1')
-            .update(`${input.repositoryKey} ${input.worktreePath}`)
+            .update(worktreeKeyTombstoneKey(input.repositoryKey, input.worktreePath))
             .digest('hex')
             .slice(0, 16)}`;
         // A concurrent write for the same path shares the in-flight

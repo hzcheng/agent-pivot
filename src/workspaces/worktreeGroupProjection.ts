@@ -18,7 +18,7 @@ import type {
     WorktreeRepositorySnapshot,
     WorktreeSnapshot,
 } from '../worktrees/types';
-import { worktreeKeysEqual } from '../worktrees/types';
+import { worktreeKeysEqual, worktreeKeyToString } from '../worktrees/types';
 import type { OpenWorkspace } from './types';
 import {
     isWorkspaceHostPathContained,
@@ -123,7 +123,7 @@ export function buildWorktreeGroupProjection(
     }>();
     for (const repository of repositories) {
         for (const worktree of repository.worktrees) {
-            worktreeByKey.set(lookupKey(worktree.key), { repository, worktree });
+            worktreeByKey.set(worktreeKeyToString(worktree.key), { repository, worktree });
         }
     }
     const repositoryLabels = buildRepositoryLabels(repositories);
@@ -167,13 +167,13 @@ export function buildWorktreeGroupProjection(
                 continue;
             }
             const visible = member.worktreeKey
-                ? worktreeByKey.get(lookupKey(member.worktreeKey))
+                ? worktreeByKey.get(worktreeKeyToString(member.worktreeKey))
                 : undefined;
             if (member.worktreeKey) {
                 // Sessions keep their worktree identity even when the
                 // physical worktree is gone (hydration manifest fallback),
                 // so aggregate by the member key, not by snapshot visibility.
-                claimedKeys.add(lookupKey(member.worktreeKey));
+                claimedKeys.add(worktreeKeyToString(member.worktreeKey));
                 groupSessions.push(...sessionsOfWorktree(input.sessions, member.worktreeKey));
                 if (visible) {
                     groupLive.push(...liveSessionsOfWorktree(input.activeSessions, member.worktreeKey));
@@ -288,7 +288,7 @@ export function buildWorktreeGroupProjection(
     for (const repository of repositories) {
         for (const worktree of repository.worktrees) {
             if (worktree.isMain || worktree.isBare
-                || claimedKeys.has(lookupKey(worktree.key))) {
+                || claimedKeys.has(worktreeKeyToString(worktree.key))) {
                 continue;
             }
             unmanaged.push(buildReadyRow(worktree, input.sessions, input.activeSessions));
@@ -426,10 +426,6 @@ function compareSessions(
 
 function createdAtOf(groups: readonly WorktreeGroup[], groupId: string): number {
     return groups.find(group => group.groupId === groupId)?.createdAt || 0;
-}
-
-function lookupKey(key: WorktreeKey): string {
-    return `${key.repositoryKey}::${key.canonicalWorktreePath}`;
 }
 
 /**

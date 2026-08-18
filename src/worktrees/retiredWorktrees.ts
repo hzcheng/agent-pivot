@@ -1,5 +1,6 @@
 'use strict';
 
+import { worktreeKeysEqual } from './types';
 import type { WorktreeKey } from './types';
 
 /**
@@ -115,7 +116,7 @@ export function judgeSessionGeneration(
         candidate.state === 'promoted'
         && candidate.provider === subject.provider
         && candidate.sessionId === subject.sessionId
-        && worktreeKeyEquals(candidate.worktreeKey, {
+        && worktreeKeysEqual(candidate.worktreeKey, {
             repositoryKey: record.repositoryKey,
             canonicalWorktreePath: record.canonicalWorktreePath,
         }));
@@ -193,7 +194,3 @@ export function findLatestRetirementForKey(
     return best;
 }
 
-function worktreeKeyEquals(left: WorktreeKey, right: WorktreeKey): boolean {
-    return left.repositoryKey === right.repositoryKey
-        && left.canonicalWorktreePath === right.canonicalWorktreePath;
-}

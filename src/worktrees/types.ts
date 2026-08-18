@@ -140,3 +140,29 @@ export function cloneWorktreeKey(key: WorktreeKey): WorktreeKey {
 export function worktreeKeyToString(key: WorktreeKey): string {
     return `${key.repositoryKey}::${key.canonicalWorktreePath}`;
 }
+
+/**
+ * Optional-field identity match: both keys undefined counts as matching
+ * (no difference to report); exactly one defined is a mismatch.
+ */
+export function worktreeKeysMatch(
+    left: WorktreeKey | undefined,
+    right: WorktreeKey | undefined
+): boolean {
+    if (!left || !right) {
+        return left === right;
+    }
+    return worktreeKeysEqual(left, right);
+}
+
+/**
+ * Tombstone path-matching key. PERSISTED CONTRACT: the space-joined
+ * repositoryKey + worktreePath feeds the tombstone pruning sets; the
+ * encoding is byte-stable and must not change without a migration.
+ */
+export function worktreeKeyTombstoneKey(
+    repositoryKey: string,
+    worktreePath: string
+): string {
+    return `${repositoryKey} ${worktreePath}`;
+}

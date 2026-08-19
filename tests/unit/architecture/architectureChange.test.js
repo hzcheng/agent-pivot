@@ -623,6 +623,7 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: invalid machine blocks are rejec
         'unknown delta key': recordMarkdown({ delta: { anythingGoes: true } }),
         'bad map value': recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-A': 'MOD-B' } } }),
         'bad flag type': recordMarkdown({ delta: { rePartition: 'yes' } }),
+        'bad guardSemantics type': recordMarkdown({ delta: { guardSemantics: 'yes' } }),
         'non-object root': '```arch-change\n[]\n```\n',
         'non-object delta': recordMarkdown().replace('"delta": {}', '"delta": []'),
     };

@@ -60,6 +60,8 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 guard mutation parity is wired into the Li
     assert.match(script, /architecture-parity/, 'the parity suite materializes base tests');
     assert.match(script, /classification === 'relaxing' \|\| classification === 're-partition'/,
         'record-authorized changes are exempt (they carry owner review)');
+    assert.match(script, /guardSemantics/,
+        'a base-landed guardSemantics record exempts intentional guard contract changes');
 });
 
 test('ARCH-PR-MERGE-APPROVAL-GATE-001 audits recent merges on main pushes', () => {

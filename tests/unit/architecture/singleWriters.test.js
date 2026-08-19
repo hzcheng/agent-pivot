@@ -184,7 +184,7 @@ test('ARCH-SINGLE-WRITER-001 controlled mutation: element access cannot launder 
         },
     });
     assert.ok(runSingleWriterCheck(root).errors
-        .some(error => error.includes('src/bypass.ts') && error.includes('element access')));
+        .some(error => error.includes('src/bypass.ts') && error.includes('typed receiver')));
 });
 
 test('ARCH-SINGLE-WRITER-001 controlled mutation: destructuring cannot launder a write', () => {
@@ -343,4 +343,55 @@ test('ARCH-INVARIANT-CATALOG-001 controlled mutation: an unknown participating m
     });
     assert.ok(runSingleWriterCheck(root).errors
         .some(error => error.includes('participatingModules must be a non-empty array')));
+});
+
+
+// ── round-2 review Important 1: type-resolved bypass forms ───────────
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: a barrel import cannot launder a write', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            'src/barrel.ts': 'export { Store } from \'./store\';\n',
+            // The bypass file never mentions 'store' textually: only the
+            // barrel. Type resolution must see through the re-export.
+            'src/bypass.ts': 'import { Store } from \'./barrel\';\n'
+                + 'export const evil = (s: Store) => s.writeThing();\n',
+        },
+    });
+    assert.ok(runSingleWriterCheck(root).errors
+        .some(error => error.includes('src/bypass.ts') && error.includes('typed receiver')));
+});
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: structural injection dies at the provision site', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            // The helper writes through an anonymously typed parameter — the
+            // receiver is not the store class, so the call itself is clean;
+            // the provision site passing a store-class value must fail.
+            'src/helper.ts': 'export function bypass(store: { writeThing(): void }) { store.writeThing(); }\n',
+            'src/provision.ts': 'import { Store } from \'./store\';\n'
+                + 'import { bypass } from \'./helper\';\n'
+                + 'export const go = (s: Store) => bypass(s);\n',
+        },
+    });
+    const errors = runSingleWriterCheck(root).errors;
+    assert.ok(errors.some(error => error.includes('src/provision.ts')
+        && error.includes('provisions') && error.includes('structural')),
+        JSON.stringify(errors));
+});
+
+test('ARCH-SINGLE-WRITER-001 reading a store-typed value is not a violation', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        sources: {
+            ...baseSources,
+            'src/reader.ts': 'import { Store } from \'./store\';\n'
+                + 'export const read = (s: Store) => s.toString();\n',
+        },
+    });
+    assert.deepEqual(runSingleWriterCheck(root).errors, []);
 });

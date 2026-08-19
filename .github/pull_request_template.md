@@ -16,6 +16,26 @@ policyDelta, baselineWaiverDelta, newFiles, behaviors, semanticImpact,
 coordinators, verification.
 -->
 
+## Owner approvals
+
+<!--
+Required; CI rejects pull requests without this section.
+Copy-paste commands for the owner, each bound to the exact head SHA
+(regenerate whenever the head moves, same rule as the declaration):
+
+```
+approve-architecture <full-head-sha>
+```
+
+```
+approve <full-head-sha>
+```
+
+The gates read only PR comments — these body lines are never consumed as
+approvals. `approve-architecture` is required only when protected paths
+change, but always list both so the owner never has to reconstruct them.
+-->
+
 ## Skill harvest
 
 <!--

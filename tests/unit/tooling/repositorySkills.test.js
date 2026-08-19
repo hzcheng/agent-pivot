@@ -100,6 +100,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies ambiguous GitHub writes and tr
         ['transport result verification', /HTTP 408[\s\S]*unexpected EOF[\s\S]*remote branch SHA/i],
         ['HTTP/1.1 retry', /http\.version=HTTP\/1\.1 push/i],
         ['non-force retry', /same non-force refspec/i],
+        ['owner approvals section in PR body', /## Owner approvals[\s\S]*approve-architecture <full-head-sha>[\s\S]*approve <full-head-sha>[\s\S]*SEPARATE comment/i],
     ]);
 });
 

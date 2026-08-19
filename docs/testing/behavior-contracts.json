@@ -245,8 +245,7 @@
       "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
-      "scripts/run-ai-session-safety-checks.js"
-    ,
+      "scripts/run-ai-session-safety-checks.js",
       "src/aiSessions/sessionHelpers.ts"
     ]
   },
@@ -393,13 +392,11 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/sessionControllers.test.js"
-    ,
+      "tests/contract/aiSessions/sessionControllers.test.js",
       "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
-      "scripts/run-ai-session-safety-checks.js"
-    ,
+      "scripts/run-ai-session-safety-checks.js",
       "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
@@ -542,14 +539,12 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/aiSessions/sessionBoundaries.test.js"
-    ,
+      "tests/unit/aiSessions/sessionBoundaries.test.js",
       "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
       "src/aiSessions/providers.ts",
-      "src/dashboard.ts"
-    ,
+      "src/dashboard.ts",
       "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
@@ -560,13 +555,11 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/sessionControllers.test.js"
-    ,
+      "tests/contract/aiSessions/sessionControllers.test.js",
       "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
-      "scripts/run-ai-session-safety-checks.js"
-    ,
+      "scripts/run-ai-session-safety-checks.js",
       "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
@@ -577,17 +570,13 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/sessionControllers.test.js"
-    ,
-      "tests/contract/dashboard/messageHandlers.test.js"
-    ,
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/dashboard/messageHandlers.test.js",
       "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
-      "scripts/run-ai-session-safety-checks.js"
-    ,
-      "src/dashboard/messageHandlers.ts"
-    ,
+      "scripts/run-ai-session-safety-checks.js",
+      "src/dashboard/messageHandlers.ts",
       "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
@@ -625,13 +614,11 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/attention.test.js"
-    ,
+      "tests/contract/aiSessions/attention.test.js",
       "tests/contract/aiSessions/runtimeSettlement.test.js"
     ],
     "evidence": [
-      "src/aiSessions/attentionController.ts"
-    ,
+      "src/aiSessions/attentionController.ts",
       "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
@@ -1415,26 +1402,18 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/attention.test.js"
-    ,
-      "tests/contract/aiSessions/runtimeSettlement.test.js"
-    ,
-      "tests/contract/aiSessions/attentionEventCapability.test.js"
-    ,
-      "tests/integration/dashboard/attentionRendering.test.js"
-    ,
+      "tests/contract/aiSessions/attention.test.js",
+      "tests/contract/aiSessions/runtimeSettlement.test.js",
+      "tests/contract/aiSessions/attentionEventCapability.test.js",
+      "tests/integration/dashboard/attentionRendering.test.js",
       "tests/browser/activeSessionCardInteraction.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionEvaluationQueue.ts",
-      "src/aiSessions/executionController.ts"
-    ,
-      "src/aiSessions/runtimeSettlementCapability.ts"
-    ,
-      "src/aiSessions/attentionEventCapability.ts"
-    ,
-      "src/workspaces/activeSessionPresentation.ts"
-    ,
+      "src/aiSessions/executionController.ts",
+      "src/aiSessions/runtimeSettlementCapability.ts",
+      "src/aiSessions/attentionEventCapability.ts",
+      "src/workspaces/activeSessionPresentation.ts",
       "src/webview/webviewProjectScripts.js"
     ]
   },
@@ -1460,13 +1439,11 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
-    ,
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js",
       "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
-      "src/services/codexSessionService.ts"
-    ,
+      "src/services/codexSessionService.ts",
       "src/aiSessions/sessionHelpers.ts"
     ]
   },
@@ -1477,13 +1454,11 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
-    ,
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js",
       "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
-      "src/services/claudeSessionService.ts"
-    ,
+      "src/services/claudeSessionService.ts",
       "src/aiSessions/sessionHelpers.ts"
     ]
   },
@@ -1494,16 +1469,14 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/providerSpecificBehavior.test.js"
-    ,
+      "tests/contract/aiSessions/providerSpecificBehavior.test.js",
       "tests/unit/aiSessions/sessionBoundaries.test.js"
     ],
     "evidence": [
       "src/aiSessions/sessionFingerprint.ts",
       "src/services/claudeSessionService.ts",
       "src/services/codexSessionService.ts",
-      "src/services/kimiSessionService.ts"
-    ,
+      "src/services/kimiSessionService.ts",
       "src/aiSessions/sessionHelpers.ts"
     ]
   },
@@ -1864,33 +1837,21 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/aiSessions/sessionControllers.test.js"
-    ,
-      "tests/contract/aiSessions/runtimeCoordinator.test.js"
-    ,
-      "tests/contract/aiSessions/runtimeBackends.test.js"
-    ,
-      "tests/contract/aiSessions/tmuxClientBehavior.test.js"
-    ,
-      "tests/contract/dashboard/messageHandlers.test.js"
-    ,
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/contract/aiSessions/runtimeCoordinator.test.js",
+      "tests/contract/aiSessions/runtimeBackends.test.js",
+      "tests/contract/aiSessions/tmuxClientBehavior.test.js",
+      "tests/contract/dashboard/messageHandlers.test.js",
       "tests/integration/dashboard/terminalCloseWiring.test.js"
     ],
     "evidence": [
-      "scripts/run-ai-session-tmux-checks.js"
-    ,
-      "scripts/run-ai-session-safety-checks.js"
-    ,
-      "src/aiSessions/tmuxClient.ts"
-    ,
-      "src/aiSessions/tmuxRuntimeBackend.ts"
-    ,
-      "src/aiSessions/runtimeCoordinator.ts"
-    ,
-      "src/aiSessions/terminalCommandController.ts"
-    ,
-      "src/dashboard/messageHandlers.ts"
-    ,
+      "scripts/run-ai-session-tmux-checks.js",
+      "scripts/run-ai-session-safety-checks.js",
+      "src/aiSessions/tmuxClient.ts",
+      "src/aiSessions/tmuxRuntimeBackend.ts",
+      "src/aiSessions/runtimeCoordinator.ts",
+      "src/aiSessions/terminalCommandController.ts",
+      "src/dashboard/messageHandlers.ts",
       "src/webview/webviewContent.ts"
     ]
   },
@@ -3524,13 +3485,11 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ,
+      "tests/contract/projects/controllers.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ,
+      "scripts/run-dashboard-webview-checks.js",
       "src/projects/projectMessageHandlers.ts"
     ]
   },
@@ -3541,13 +3500,11 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ,
+      "tests/contract/projects/controllers.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ,
+      "scripts/run-dashboard-webview-checks.js",
       "src/projects/projectMessageHandlers.ts"
     ]
   },
@@ -3558,13 +3515,11 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ,
+      "tests/contract/projects/controllers.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ,
+      "scripts/run-dashboard-webview-checks.js",
       "src/projects/projectMessageHandlers.ts"
     ]
   },
@@ -3917,14 +3872,12 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/attention.test.js",
-      "tests/integration/dashboard/terminalCloseWiring.test.js"
-    ,
+      "tests/integration/dashboard/terminalCloseWiring.test.js",
       "tests/contract/aiSessions/attentionEventCapability.test.js"
     ],
     "evidence": [
       "src/aiSessions/attentionController.ts",
-      "src/dashboard.ts"
-    ,
+      "src/dashboard.ts",
       "src/aiSessions/attentionEventCapability.ts"
     ]
   },
@@ -3941,8 +3894,7 @@
     "evidence": [
       "src/aiSessions/attentionController.ts",
       "src/aiSessions/terminalCommandController.ts",
-      "src/dashboard.ts"
-    ,
+      "src/dashboard.ts",
       "src/aiSessions/runtimeSettlementCapability.ts"
     ]
   },
@@ -3953,15 +3905,12 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/terminalCloseWiring.test.js"
-    ,
+      "tests/integration/dashboard/terminalCloseWiring.test.js",
       "tests/contract/aiSessions/attentionEventCapability.test.js"
     ],
     "evidence": [
-      "src/dashboard.ts"
-    ,
-      "src/aiSessions/runtimeSettlementCapability.ts"
-    ,
+      "src/dashboard.ts",
+      "src/aiSessions/runtimeSettlementCapability.ts",
       "src/aiSessions/attentionEventCapability.ts"
     ]
   },
@@ -3972,17 +3921,13 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/messageRouter.test.js"
-    ,
-      "tests/contract/projects/projectMessageHandlers.test.js"
-    ,
+      "tests/integration/dashboard/messageRouter.test.js",
+      "tests/contract/projects/projectMessageHandlers.test.js",
       "tests/contract/dashboard/messageHandlers.test.js"
     ],
     "evidence": [
-      "src/dashboard/messageRouter.ts"
-    ,
-      "src/projects/projectMessageHandlers.ts"
-    ,
+      "src/dashboard/messageRouter.ts",
+      "src/projects/projectMessageHandlers.ts",
       "src/dashboard/messageHandlers.ts"
     ]
   },
@@ -4239,20 +4184,20 @@
     ]
   },
   {
-   "id": "WORKTREE-GROUPS-UI-001",
-   "domain": "webview",
-   "title": "The Worktree surface unifies row behavior: every row carries the same actions menu (no standalone + or surface-level New-worktree button), the Current anchor menu offers session creation and new-worktree creation but never removal, group rows show chips and merge affordances, legacy-scope badges, and the surface stays usable at the minimum sidebar width",
-   "priority": "P0",
-   "status": "automated",
-   "owners": [
-     "tests/browser/worktreeGroups.test.js"
-   ],
-   "evidence": [
-     "src/webview/webviewAiSessionContent.ts",
-     "src/webview/webviewProjectAiSessionControlsScripts.js",
-     "media/styles.scss"
-   ]
- },
+    "id": "WORKTREE-GROUPS-UI-001",
+    "domain": "webview",
+    "title": "The Worktree surface unifies row behavior: every row carries the same actions menu (no standalone + or surface-level New-worktree button), the Current anchor menu offers session creation and new-worktree creation but never removal, group rows show chips and merge affordances, legacy-scope badges, and the surface stays usable at the minimum sidebar width",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "media/styles.scss"
+    ]
+  },
   {
     "id": "WORKTREE-GROUPS-CREATE-001",
     "domain": "session",
@@ -4387,8 +4332,7 @@
       "tests/contract/projects/panelController.test.js",
       "tests/contract/openProjects/dashboardController.test.js",
       "tests/integration/dashboard/errorRecovery.test.js",
-      "tests/integration/dashboard/webviewState.test.js"
-    ,
+      "tests/integration/dashboard/webviewState.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
@@ -4397,8 +4341,7 @@
       "src/dashboard/projectsPanelController.ts",
       "src/openWorkspaces/dashboardController.ts",
       "src/webview/webviewDashboardScripts.js",
-      "src/dashboard.ts"
-    ,
+      "src/dashboard.ts",
       "src/projects/projectMessageHandlers.ts"
     ]
   },
@@ -4424,15 +4367,13 @@
     "owners": [
       "tests/contract/projects/controllers.test.js",
       "tests/contract/openProjects/workspaceController.test.js",
-      "tests/integration/dashboard/productionAttentionBridge.test.js"
-    ,
+      "tests/integration/dashboard/productionAttentionBridge.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
       "src/projects/projectOpenController.ts",
       "src/projects/projectNavigationProtocol.ts",
-      "extensions/attention-ui-bridge/src/extension.ts"
-    ,
+      "extensions/attention-ui-bridge/src/extension.ts",
       "src/projects/projectMessageHandlers.ts"
     ]
   },
@@ -4485,6 +4426,21 @@
     "id": "ARCH-PR-SKILL-HARVEST-GATE-001",
     "domain": "architecture",
     "title": "Pull request bodies record the skill harvest decision through a required template section",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/prBody.test.js"
+    ],
+    "evidence": [
+      "scripts/check-pr-body.js",
+      ".github/pull_request_template.md",
+      ".github/workflows/verify.yml"
+    ]
+  },
+  {
+    "id": "ARCH-PR-OWNER-APPROVALS-001",
+    "domain": "architecture",
+    "title": "Pull request bodies carry ready-to-copy owner approval commands (approve and approve-architecture) bound to the exact head SHA",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -4660,19 +4616,15 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/archiveAndHydration.test.js",
-      "tests/integration/dashboard/webviewState.test.js"
-    ,
-      "tests/contract/dashboard/messageHandlers.test.js"
-    ,
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/contract/dashboard/messageHandlers.test.js",
       "tests/contract/aiSessions/sessionControllerComposition.test.js"
     ],
     "evidence": [
       "src/aiSessions/archiveBatchAcrossProviders.ts",
       "src/aiSessions/archiveController.ts",
-      "scripts/run-ai-session-safety-checks.js"
-    ,
-      "src/dashboard/messageHandlers.ts"
-    ,
+      "scripts/run-ai-session-safety-checks.js",
+      "src/dashboard/messageHandlers.ts",
       "src/aiSessions/sessionControllerComposition.ts"
     ]
   },
@@ -6014,8 +5966,7 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "scripts/run-skill-management-checks.js"
-    ,
+      "scripts/run-skill-management-checks.js",
       "tests/contract/skills/skillPanelCapability.test.js",
       "tests/contract/skills/skillCentralAndScope.test.js"
     ],
@@ -6023,8 +5974,7 @@
       "src/skills/centralService.ts",
       "src/skills/dashboardController.ts",
       "src/skills/migrateService.ts",
-      "src/skills/syncService.ts"
-    ,
+      "src/skills/syncService.ts",
       "src/skills/skillPanelCapability.ts"
     ]
   },
@@ -6071,8 +6021,7 @@
     "status": "automated",
     "owners": [
       "scripts/run-skill-management-checks.js",
-      "tests/browser/skillsFolderTree.test.js"
-    ,
+      "tests/browser/skillsFolderTree.test.js",
       "tests/contract/skills/skillPanelCapability.test.js",
       "tests/contract/skills/skillCentralAndScope.test.js"
     ],
@@ -6081,8 +6030,7 @@
       "src/skills/centralService.ts",
       "src/skills/dashboardController.ts",
       "src/webview/webviewSkillContent.ts",
-      "src/webview/webviewDashboardScripts.js"
-    ,
+      "src/webview/webviewDashboardScripts.js",
       "src/skills/skillPanelCapability.ts"
     ]
   },
@@ -6094,8 +6042,7 @@
     "status": "automated",
     "owners": [
       "scripts/run-skill-management-checks.js",
-      "tests/contract/skills/globalStoreLocationController.test.js"
-    ,
+      "tests/contract/skills/globalStoreLocationController.test.js",
       "tests/contract/skills/skillPanelCapability.test.js"
     ],
     "evidence": [
@@ -6105,8 +6052,7 @@
       "src/skills/discovery.ts",
       "src/skills/dashboardController.ts",
       "src/dashboard.ts",
-      "src/webview/webviewDashboardScripts.js"
-    ,
+      "src/webview/webviewDashboardScripts.js",
       "src/skills/skillPanelCapability.ts"
     ]
   },
@@ -6116,8 +6062,12 @@
     "title": "Strict and deterministic open-window pin protocol",
     "priority": "P0",
     "status": "automated",
-    "owners": ["tests/contract/openProjects/pins.test.js"],
-    "evidence": ["src/openWorkspaces/pinProtocol.ts"]
+    "owners": [
+      "tests/contract/openProjects/pins.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/pinProtocol.ts"
+    ]
   },
   {
     "id": "OPEN-WORKSPACE-PIN-STORE-001",
@@ -6125,8 +6075,12 @@
     "title": "Concurrent open-window pin persistence preserves original pin order",
     "priority": "P0",
     "status": "automated",
-    "owners": ["tests/contract/openProjects/pins.test.js"],
-    "evidence": ["extensions/attention-ui-bridge/src/openWorkspacePinStore.ts"]
+    "owners": [
+      "tests/contract/openProjects/pins.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspacePinStore.ts"
+    ]
   },
   {
     "id": "OPEN-WORKSPACE-PIN-COORDINATOR-001",
@@ -6134,8 +6088,12 @@
     "title": "Durable pin mutations survive transient cross-window delivery failures",
     "priority": "P0",
     "status": "automated",
-    "owners": ["tests/contract/openProjects/pins.test.js"],
-    "evidence": ["extensions/attention-ui-bridge/src/openWorkspacePinCoordinator.ts"]
+    "owners": [
+      "tests/contract/openProjects/pins.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/openWorkspacePinCoordinator.ts"
+    ]
   },
   {
     "id": "OPEN-WORKSPACE-PIN-CLIENT-001",
@@ -6143,8 +6101,12 @@
     "title": "Workspace bridge client validates correlated pin outcomes and snapshots",
     "priority": "P0",
     "status": "automated",
-    "owners": ["tests/contract/openProjects/bridgeClient.test.js"],
-    "evidence": ["src/openWorkspaces/bridgeClient.ts"]
+    "owners": [
+      "tests/contract/openProjects/bridgeClient.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/bridgeClient.ts"
+    ]
   },
   {
     "id": "OPEN-WORKSPACE-PIN-HOST-001",
@@ -6152,8 +6114,12 @@
     "title": "Host resolves pin targets authoritatively and settles every recognized mutation",
     "priority": "P0",
     "status": "automated",
-    "owners": ["tests/contract/openProjects/pins.test.js"],
-    "evidence": ["src/openWorkspaces/pinController.ts"]
+    "owners": [
+      "tests/contract/openProjects/pins.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/pinController.ts"
+    ]
   },
   {
     "id": "OPEN-WORKSPACE-PIN-SORT-001",
@@ -6161,8 +6127,12 @@
     "title": "Pinned windows keep original pin order while unpinned windows keep stable first-opened order",
     "priority": "P0",
     "status": "automated",
-    "owners": ["tests/contract/openProjects/projection.test.js"],
-    "evidence": ["src/openWorkspaces/projection.ts"]
+    "owners": [
+      "tests/contract/openProjects/projection.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/projection.ts"
+    ]
   },
   {
     "id": "OPEN-ALL-WINDOWS-LIST-001",
@@ -6202,7 +6172,9 @@
     "title": "Pin UI waits for authoritative HTML and preserves pending state across acknowledgements",
     "priority": "P0",
     "status": "automated",
-    "owners": ["tests/integration/dashboard/openProjectFlow.test.js"],
+    "owners": [
+      "tests/integration/dashboard/openProjectFlow.test.js"
+    ],
     "evidence": [
       "src/webview/webviewContent.ts",
       "src/webview/webviewProjectScripts.js"
@@ -6353,8 +6325,7 @@
       "tests/unit/aiSessions/notify/dispatcher.test.js"
     ],
     "evidence": [
-      "src/aiSessions/notify/dispatcher.ts"
-    ,
+      "src/aiSessions/notify/dispatcher.ts",
       "src/aiSessions/notifyConfiguration.ts"
     ]
   },
@@ -6392,13 +6363,11 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/unit/aiSessions/notify/credentials.test.js"
-    ,
+      "tests/unit/aiSessions/notify/credentials.test.js",
       "tests/contract/aiSessions/notifyConfiguration.test.js"
     ],
     "evidence": [
-      "src/aiSessions/notifyIntegration/credentials.ts"
-    ,
+      "src/aiSessions/notifyIntegration/credentials.ts",
       "src/aiSessions/notifyConfiguration.ts"
     ]
   },
@@ -6437,14 +6406,12 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/aiSessions/notify/guidedSetup.test.js"
-    ,
+      "tests/unit/aiSessions/notify/guidedSetup.test.js",
       "tests/contract/aiSessions/notifyConfiguration.test.js"
     ],
     "evidence": [
       "src/aiSessions/notifyIntegration/commands.ts",
-      "src/aiSessions/notifyIntegration/output.ts"
-    ,
+      "src/aiSessions/notifyIntegration/output.ts",
       "src/aiSessions/notifyConfiguration.ts"
     ]
   },

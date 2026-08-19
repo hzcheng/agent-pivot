@@ -2,6 +2,9 @@ name: Verify
 
 on:
   pull_request:
+    # edited: the PR body conventions check (CID block, owner approvals)
+    # binds the body text; editing the body must re-run the lane.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches:
       - main
@@ -88,11 +91,12 @@ jobs:
         run: npm run test:ci:linux
         env:
           COVERAGE_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
-      - name: Check PR skill harvest section
+      - name: Check PR body conventions
         if: github.event_name == 'pull_request'
         run: node scripts/check-pr-body.js
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
   platform-windows:
     name: platform-windows

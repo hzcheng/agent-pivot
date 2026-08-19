@@ -5,7 +5,9 @@
         "Module states follow legacy -> inventoried -> characterized -> guarded -> migrating -> strict (charter Section 8.5).",
         "strict is validated mechanically by scripts/architecture/checkProgramLedger.js: no baseline fingerprint or waiver naming the module, P0/P1 invariants have behavior owners, single-writer families declare writers, and the module stays classified exact-once.",
         "SCC cluster membership is cluster-level debt and does not block per-module strict (waiver ledger note).",
-        "State migration graph (forward-only, one step at a time): legacy -> inventoried -> characterized -> guarded -> migrating -> strict. Skip-states (e.g. legacy -> strict) are rejected. Regressions (e.g. strict -> migrating) are relaxing and require an Architecture Change record in the base."
+        "State migration graph (forward-only, one step at a time): legacy -> inventoried -> characterized -> guarded -> migrating -> strict. Skip-states are rejected. Regressions require architecture approval.",
+        "Harness simplification (2026-08-19): all module migrations are paused. The current harness is transitional — trusted kernel, code-structure enforcement, and narrow facades will replace scanners, machine authorization, and parity. See docs/architecture/harness-simplification-decision.md.",
+        "Architecture Change records: transitional enforcement through PR #295. After PR #296 merges, records become historical ADRs only; machine authorization is deleted."
     ],
     "states": [
         "legacy",
@@ -18,16 +20,18 @@
     "modules": {
         "MOD-WORKTREE-LIFECYCLE": {
             "state": "migrating",
-            "since": "pilot slices S1-S5 (PRs #262-#268) + W1 review repairs R1-R10 (PRs #270-#283); strict reverted per the round-2 review (trust chain open)",
+            "since": "pilot slices S1-S5 (PRs #262-#268) + round-1 repairs R1-R10 (PRs #270-#283) + round-2 repairs T1-T7 (PRs #284-#293)",
             "evidence": [
-                "docs/architecture/stage-1b-pilot-rfc.md",
                 "docs/architecture/changes/ARCH-CHANGE-001.md",
                 "docs/architecture/changes/ARCH-CHANGE-002.md",
                 "docs/architecture/changes/ARCH-CHANGE-003.md",
                 "docs/architecture/changes/ARCH-CHANGE-004.md",
-                "docs/architecture/changes/ARCH-CHANGE-005.md"
+                "docs/architecture/changes/ARCH-CHANGE-005.md",
+                "docs/architecture/changes/ARCH-CHANGE-006.md",
+                "docs/architecture/changes/ARCH-CHANGE-007.md",
+                "docs/architecture/harness-simplification-decision.md"
             ],
-            "nextAction": "round-2 repairs T1-T7 (trust chain), then strict re-acceptance",
+            "nextAction": "harness simplification (PRs #294-#299), then strict re-acceptance",
             "target": {
                 "publicEntrypoints": [
                     "src/worktrees/index.ts"

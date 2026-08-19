@@ -1,0 +1,43 @@
+name: Trusted Kernel
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+jobs:
+  evaluate:
+    name: trusted-kernel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Run trusted kernel
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: origin/${{ github.base_ref }}
+        run: node scripts/run-trusted-kernel.js
+
+  architecture-approval:
+    name: architecture-approval
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Check architecture approval
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: origin/${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/run-architecture-approval-gate.js

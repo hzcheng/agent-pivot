@@ -42,8 +42,10 @@ function main() {
         process.exit(1);
     }
 
-    // Check if any protected files changed
-    const changed = execFileSync('git', ['diff', '--name-only', baseRef, 'HEAD'], {
+    // Check if any protected files changed. The workflow checks out the base
+    // branch (pull_request_target), so the PR head is diffed via its fetched
+    // SHA — diffing baseRef against HEAD would compare the base to itself.
+    const changed = execFileSync('git', ['diff', '--name-only', baseRef, headSha], {
         encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
     }).trim().split('\n').filter(Boolean);
 

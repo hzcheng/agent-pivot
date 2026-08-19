@@ -5,8 +5,10 @@ const test = require('node:test');
 
 const {
     approvalBoundSha,
+    architectureApprovalBoundSha,
     evaluateMergeApproval,
     findApprovalComment,
+    findArchitectureApprovalComment,
     isApprovalComment,
     mergeRequiresApproval,
     MERGE_APPROVAL_REQUIRED_SINCE,
@@ -98,4 +100,30 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 legacy markers are still recognized for pr
         assert.ok(isApprovalComment(body), `legacy recognized: ${body}`);
     }
     assert.ok(!isApprovalComment('looks good'), 'non-markers rejected');
+});
+
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 architecture approval binds the full head SHA', () => {
+    assert.equal(architectureApprovalBoundSha(`approve-architecture ${HEAD}`), HEAD);
+    assert.equal(architectureApprovalBoundSha(`  approve-architecture  ${HEAD.toUpperCase()}  `), HEAD,
+        'whitespace is free and the SHA normalizes to lowercase');
+    for (const body of ['approve-architecture', `approve-architecture ${HEAD.slice(0, 8)}`,
+        `approve-architecture ${HEAD} extra`, `please approve-architecture ${HEAD}`,
+        `approve ${HEAD}`, '', null, undefined]) {
+        assert.equal(architectureApprovalBoundSha(body), null, `no binding: ${body}`);
+    }
+});
+
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 standard approval never substitutes for architecture approval', () => {
+    const comments = [
+        { user: { login: 'hzcheng' }, body: `approve ${HEAD}`, created_at: '2026-08-19T10:00:00Z' },
+        { user: { login: 'someone-else' }, body: `approve-architecture ${HEAD}`, created_at: '2026-08-19T11:00:00Z' },
+        { user: { login: 'hzcheng' }, body: `approve-architecture ${OTHER}`, created_at: '2026-08-19T12:00:00Z' },
+    ];
+    assert.equal(findArchitectureApprovalComment(comments, { authorLogin: 'hzcheng', headSha: HEAD }), null,
+        'standard approval, another user\'s architecture approval, and a stale head binding all fail');
+    const found = findArchitectureApprovalComment(
+        [...comments, { user: { login: 'HZCHENG' }, body: `approve-architecture ${HEAD}`, created_at: '2026-08-19T13:00:00Z', html_url: 'x' }],
+        { authorLogin: 'hzcheng', headSha: HEAD },
+    );
+    assert.equal(found.html_url, 'x', 'owner login comparison is case-insensitive');
 });

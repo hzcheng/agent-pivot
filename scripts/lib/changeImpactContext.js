@@ -94,11 +94,13 @@ function expectedBehaviors(rootDirectory, assignedCapabilities, report) {
 }
 
 /**
- * collectChangeImpactContext({ rootDirectory, baseRef }) -> {
+ * collectChangeImpactContext({ rootDirectory, baseRef, architectureApproved }) -> {
  *   headSha, report, classification, assignedCapabilities, expectedBehaviors, errors,
  * }
+ * architectureApproved: the owner has bound an `approve-architecture
+ * <full-head-sha>` comment to the exact head (verified by the caller).
  */
-function collectChangeImpactContext({ rootDirectory, baseRef }) {
+function collectChangeImpactContext({ rootDirectory, baseRef, architectureApproved }) {
     const headSha = git(rootDirectory, ['rev-parse', 'HEAD']);
     const commits = git(rootDirectory, ['rev-list', '--no-merges', `${baseRef}..HEAD`])
         .split('\n').filter(Boolean);
@@ -107,7 +109,8 @@ function collectChangeImpactContext({ rootDirectory, baseRef }) {
         baseRef,
         git: defaultGit(rootDirectory),
     });
-    const { classification, errors: classificationErrors } = classifyArchitectureChange(report);
+    const { classification, errors: classificationErrors } = classifyArchitectureChange(
+        report, { architectureApproved: Boolean(architectureApproved) });
     const capabilities = capabilityAssignments(rootDirectory, commits);
     return {
         headSha,

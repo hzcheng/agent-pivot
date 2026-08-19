@@ -13,18 +13,27 @@
  *   the harness surface weakened (a guard file deleted, a guard id removed,
  *   a lane or workflow invocation removed, mutation tests shrank).
  *
- * A relaxing or re-partition change is authorized only by an Architecture
- * Change record that already exists in the PR base (review R3; charter 8.9:
- * the record lands in its own earlier PR before product work consumes it).
- * The record must carry a valid ```arch-change machine-summary block whose
- * declared delta covers the actual policy delta; an empty markdown file, a
- * bare filename match, or a record added in the same PR never authorizes.
- * Because every merge requires the merge-approval status (owner comment
- * newer than the PR head), a record present in the base was necessarily
- * approved after its final commit — approval timing holds transitively.
+ * A relaxing or re-partition change is authorized in one of two ways:
+ *
+ * 1. Owner architecture approval (Harness Simplification decision,
+ *    docs/architecture/harness-simplification-decision.md): the repository
+ *    owner comments `approve-architecture <full-head-sha>` on the PR. The
+ *    approval binds the exact head and expires when the head moves. This is
+ *    the transitional replacement for machine authorization and the only
+ *    path once Architecture Change records become historical ADRs.
+ * 2. An Architecture Change record that already exists in the PR base
+ *    (review R3; charter 8.9: the record lands in its own earlier PR before
+ *    product work consumes it). The record must carry a valid ```arch-change
+ *    machine-summary block whose declared delta covers the actual policy
+ *    delta; an empty markdown file, a bare filename match, or a record added
+ *    in the same PR never authorizes. Because every merge requires the
+ *    merge-approval status (owner comment newer than the PR head), a record
+ *    present in the base was necessarily approved after its final commit —
+ *    approval timing holds transitively.
  *
  * An agent cannot legalize its own violation: the classification is computed
- * from the diff, not declared.
+ * from the diff, not declared, and both authorization paths live outside the
+ * PR head (owner comment on the PR, record in the base).
  */
 
 const path = require('path');
@@ -100,8 +109,9 @@ function computeActualDelta(report, classification, harnessWeakened) {
  * Change records present in the base. Returns the error list (empty when
  * authorized).
  */
-function authorizeWithBaseRecords(report, classification, harnessWeakened) {
+function authorizeWithBaseRecords(report, classification, harnessWeakened, options) {
     const baseRecords = report.baseRecords || [];
+    const architectureApproved = Boolean(options && options.architectureApproved);
     const candidates = [];
     const invalid = [];
     for (const { path: recordPath, text } of baseRecords) {
@@ -121,18 +131,28 @@ function authorizeWithBaseRecords(report, classification, harnessWeakened) {
 
     const verb = classification === 'relaxing' ? 'relaxes' : 're-partitions';
     const errors = [];
+    if (architectureApproved) {
+        // Owner architecture approval (approve-architecture <full-head-sha>)
+        // authorizes the relaxation; the approval is verified by the caller
+        // against the exact head SHA and never by PR-head content.
+        return errors;
+    }
     if (candidates.length === 0) {
         errors.push(`anti-self-amendment: this change ${verb} architecture policy or weakens the `
             + 'harness, and no valid approved Architecture Change record exists in the PR base '
-            + `(found ${baseRecords.length} record file(s), ${invalid.length} invalid). Land a `
+            + `(found ${baseRecords.length} record file(s), ${invalid.length} invalid). Owner `
+            + 'architecture approval required — comment '
+            + '\'approve-architecture <full-head-sha>\' on the pull request; alternatively land a '
             + 'docs-only PR adding docs/architecture/changes/ARCH-CHANGE-<seq>.md with an '
             + '```arch-change machine-summary block (id, status "approved", modules, declared '
             + 'delta) first; a record added in the same PR never authorizes consumption.');
     } else {
         errors.push(`anti-self-amendment: this change ${verb} architecture policy or weakens the `
             + `harness beyond every approved Architecture Change record in the PR base. Uncovered `
-            + `delta: ${bestMissing.join('; ')}. Land a docs-only record PR declaring this delta `
-            + 'first, or narrow the change to what an existing record declares.');
+            + `delta: ${bestMissing.join('; ')}. Owner architecture approval required — comment `
+            + '\'approve-architecture <full-head-sha>\' on the pull request; alternatively land a '
+            + 'docs-only record PR declaring this delta first, or narrow the change to what an '
+            + 'existing record declares.');
     }
     if (report.newFiles.some(file => ARCH_CHANGE_RECORD_PATTERN.test(file))) {
         errors.push('anti-self-amendment: this PR adds an Architecture Change record and consumes '
@@ -142,12 +162,15 @@ function authorizeWithBaseRecords(report, classification, harnessWeakened) {
 }
 
 /**
- * classifyArchitectureChange(report) -> {
+ * classifyArchitectureChange(report, options) -> {
  *   classification: 'product-only' | 'tightening' | 'relaxing' | 're-partition',
  *   errors: string[]
  * }
+ * options.architectureApproved: the owner has bound an architecture approval
+ * comment to the exact head SHA (verified by the caller, never by PR-head
+ * content).
  */
-function classifyArchitectureChange(report) {
+function classifyArchitectureChange(report, options) {
     const errors = [];
     if (report.errors && report.errors.length > 0) {
         errors.push(...report.errors);
@@ -191,11 +214,11 @@ function classifyArchitectureChange(report) {
         return { classification: 'tightening', errors };
     }
     const classification = relaxing ? 'relaxing' : 're-partition';
-    errors.push(...authorizeWithBaseRecords(report, classification, harnessWeakened));
+    errors.push(...authorizeWithBaseRecords(report, classification, harnessWeakened, options));
     return { classification, errors };
 }
 
-function runArchitectureChangeCheck(rootDirectory, baseRef) {
+function runArchitectureChangeCheck(rootDirectory, baseRef, options) {
     const report = collectArchitectureDiff({
         rootDirectory,
         baseRef: baseRef || process.env.COVERAGE_DIFF_BASE
@@ -203,13 +226,17 @@ function runArchitectureChangeCheck(rootDirectory, baseRef) {
             || 'origin/main',
         git: defaultGit(rootDirectory),
     });
-    const { classification, errors } = classifyArchitectureChange(report);
+    const { classification, errors } = classifyArchitectureChange(report, options);
     return { classification, errors, report };
 }
 
 function main() {
+    // The quality lane runs PR-head code, so this env flag is developer
+    // feedback only: the merge-approval gate re-verifies the same owner
+    // comment from the default branch before the PR can merge.
+    const architectureApproved = process.env.ARCHITECTURE_APPROVED === 'true';
     const { classification, errors } = runArchitectureChangeCheck(
-        path.resolve(__dirname, '..', '..'));
+        path.resolve(__dirname, '..', '..'), undefined, { architectureApproved });
     if (errors.length > 0) {
         console.error(`Architecture change gate FAILED (classification: ${classification}):`);
         for (const error of errors) { console.error(`  ✗ ${error}`); }

@@ -52,6 +52,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['user-visible rendered owner', /every user-visible UI\/Webview regression[\s\S]*automated owner[\s\S]*final rendered or interaction surface[\s\S]*ViewModel[\s\S]*insufficient/i],
         ['cross-feature rendered journey', /cross-feature journey[\s\S]*real rendered surface[\s\S]*provider[\s\S]*viewport\s+matrix/i],
         ['post-repair mutation sensitivity', /implementation is already repaired[\s\S]*mutation sensitivity[\s\S]*reintroduce each causal defect/i],
+        ['default-branch check ownership', /pull_request_target[\s\S]*default-branch files/i],
     ]);
 });
 

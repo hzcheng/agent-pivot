@@ -20,6 +20,12 @@ jobs:
     name: quality-linux
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      # issues: read lets the quality lane detect the owner's
+      # `approve-architecture <full-head-sha>` comment (developer feedback
+      # only; the merge-approval gate re-verifies from the default branch).
+      issues: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,6 +49,41 @@ jobs:
             echo "::warning::Chromium install attempt ${attempt} failed"
           done
           exit 1
+      - name: Detect owner architecture approval
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" --paginate --slurp > "${RUNNER_TEMP}/pr-comments.json"
+          count=$(node -e '
+            const fs = require("fs");
+            const pages = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const owner = process.argv[2].toLowerCase();
+            const headSha = process.argv[3].toLowerCase();
+            const pattern = /^\s*approve-architecture\s+([0-9a-f]{40})\s*$/i;
+            let count = 0;
+            for (const page of pages) for (const comment of page) {
+              if (String(comment?.user?.login || "").toLowerCase() !== owner) continue;
+              const matched = String(comment.body || "").split("\n").some(line => {
+                const m = pattern.exec(line);
+                return m && m[1].toLowerCase() === headSha;
+              });
+              if (matched) count += 1;
+            }
+            console.log(count);
+          ' "${RUNNER_TEMP}/pr-comments.json" "$OWNER" "$HEAD_SHA")
+          if [ "$count" -gt 0 ]; then
+            echo "Owner architecture approval found for ${HEAD_SHA}"
+            echo "ARCHITECTURE_APPROVED=true" >> "$GITHUB_ENV"
+          else
+            echo "No owner architecture approval for ${HEAD_SHA}"
+          fi
       - name: Run Linux quality gate
         run: npm run test:ci:linux
         env:

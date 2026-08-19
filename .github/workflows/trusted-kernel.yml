@@ -2,7 +2,15 @@ name: Trusted Kernel
 
 on:
   pull_request_target:
+    # edited: an approval comment is evaluated against the body/head state;
+    # synchronize invalidates approvals automatically because they bind the
+    # exact head SHA.
     types: [opened, synchronize]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
   evaluate:
@@ -16,10 +24,17 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+        # The default-branch checkout fetches only the base ref; the kernel
+        # materializes the PR head as data, so the head commit must exist
+        # locally first.
+      - name: Fetch PR head
+        run: git fetch origin +refs/pull/${{ github.event.pull_request.number }}/head
       - name: Run trusted kernel
         env:
           PR_HEAD_REF: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: origin/${{ github.base_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/run-trusted-kernel.js
 
   architecture-approval:
@@ -33,6 +48,10 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+        # Same reason as the evaluate job: the gate diffs the base against
+        # the fetched PR head SHA.
+      - name: Fetch PR head
+        run: git fetch origin +refs/pull/${{ github.event.pull_request.number }}/head
       - name: Check architecture approval
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

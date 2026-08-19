@@ -18,6 +18,13 @@ Turn every confirmed regression into a CI-owned behavior before changing product
 1. **Diagnose**
    - Reproduce the symptom and trace the root cause.
    - Define the user-visible expected behavior. Do not freeze accidental current behavior.
+   - Identify which side of the PR supplies the failing check's code before
+     editing: `pull_request` checks run PR-head files, but
+     `pull_request_target` checks (merge-approval gate, trusted kernel) run
+     default-branch files, so a PR-head edit cannot change a default-branch
+     check's behavior until it merges. Confirm against the failed run's log
+     line provenance; when the fix must land on the default branch first,
+     sequence a dedicated PR instead of iterating on the blocked one.
 2. **Own the behavior**
    - Read `docs/testing/README.md`.
    - Select an existing behavior ID or add one to `docs/testing/behavior-contracts.json`.

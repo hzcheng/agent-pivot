@@ -48,16 +48,27 @@ after every GitHub write.
    implementation or skill-owner commit.
 5. Write PR titles, PR bodies, and commit messages in English, regardless of
    the conversation language.
-6. Push with tracking: `git push -u origin <branch>`.
-7. Prefer connector PR creation if available and authorized.
-8. If connector fails with permission or repository ambiguity, use `gh pr create`.
-9. Default to draft for "open a PR" requests unless the user explicitly asks for ready-for-review or the same request includes merging after validation.
-10. **After creating or updating a PR, verify it actually works before
+6. Every PR body must carry an `## Owner approvals` section with the
+   ready-to-copy commands bound to the exact head SHA — one fenced line
+   `approve-architecture <full-head-sha>` and one fenced line
+   `approve <full-head-sha>` — so the owner never reconstructs them by hand.
+   Post each as a SEPARATE comment: the merge-approval gate and the trusted
+   kernel match whole comment bodies, not lines inside a combined comment.
+   Regenerate the section whenever the head moves (same rule as the
+   change-impact declaration); CI enforces it via
+   `scripts/check-pr-body.js` (ARCH-PR-OWNER-APPROVALS-001). Because the
+   quality lane's event payload captures the body at trigger time, edit the
+   PR body BEFORE pushing the head it names whenever the PR already exists.
+7. Push with tracking: `git push -u origin <branch>`.
+8. Prefer connector PR creation if available and authorized.
+9. If connector fails with permission or repository ambiguity, use `gh pr create`.
+10. Default to draft for "open a PR" requests unless the user explicitly asks for ready-for-review or the same request includes merging after validation.
+11. **After creating or updating a PR, verify it actually works before
     handing off**: `gh pr view <n> --json mergeable,mergeStateStatus` and
     `gh pr checks <n>` — the PR must be mergeable with checks running or
     green. If `origin/main` moved and the PR conflicts, rebase immediately
     and re-push; never leave a PR conflicting, red, or stale.
-11. When a rebase follows another merge to main, expect the capability-audit
+12. When a rebase follows another merge to main, expect the capability-audit
     commit to conflict on `docs/testing/main-capability-coverage.json`:
     keep main's `audit.head`, finish the rebase, then regenerate the audit
     with `scripts/regenerate-capability-audit.js` so the new commit SHAs are

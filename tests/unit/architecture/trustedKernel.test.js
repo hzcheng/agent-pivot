@@ -110,6 +110,53 @@ test('TRUSTED-KERNEL-001 controlled mutation: a file in two roles fails', () => 
     fs.rmSync(root, { recursive: true, force: true });
 });
 
+// ── remainder-role rule (canonical parity) ────────────────────────────
+
+test('TRUSTED-KERNEL-001 the "**" remainder role claims only files no earlier role claimed', () => {
+    const root = tmpDir();
+    writeTree(root, {
+        'src/alpha/index.ts': 'export const x = 1;',
+        'src/alpha/internal/helper.ts': 'export const y = 2;',
+        'docs/testing/architecture-modules.json': JSON.stringify({ version: 1, scope: { roots: ['src'] }, modules: [
+            { id: 'MOD-ALPHA', source: { include: ['src/**'], exclude: [] }, publicEntrypoints: ['src/alpha/index.ts'], mayDependOn: [], productCapabilities: ['CAP-1'], roles: [
+                { role: 'composition', include: ['src/alpha/index.ts'] },
+                { role: 'application', include: ['**'] },
+            ]},
+        ]}),
+        'docs/testing/main-capability-coverage.json': JSON.stringify({ version: 1, capabilities: [{ id: 'CAP-1' }] }),
+    });
+    const { modules, errors } = loadPolicy(root, []);
+    if (errors.length > 0) { assert.fail('policy load should succeed: ' + errors.join(', ')); }
+    const classErrors = [];
+    const classified = classifyFiles(['src/alpha/index.ts', 'src/alpha/internal/helper.ts'], modules, classErrors);
+    assert.deepEqual(classErrors, []);
+    assert.equal(classified.find(c => c.file === 'src/alpha/index.ts').role, 'composition',
+        'a specific earlier role wins over the remainder');
+    assert.equal(classified.find(c => c.file === 'src/alpha/internal/helper.ts').role, 'application',
+        'the remainder claims what no earlier role claimed');
+    fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('TRUSTED-KERNEL-001 controlled mutation: a remainder role that is not last fails', () => {
+    const root = tmpDir();
+    writeTree(root, {
+        'src/alpha/index.ts': 'export const x = 1;',
+        'docs/testing/architecture-modules.json': JSON.stringify({ version: 1, scope: { roots: ['src'] }, modules: [
+            { id: 'MOD-ALPHA', source: { include: ['src/**'], exclude: [] }, publicEntrypoints: ['src/alpha/index.ts'], mayDependOn: [], productCapabilities: ['CAP-1'], roles: [
+                { role: 'application', include: ['**'] },
+                { role: 'composition', include: ['src/alpha/index.ts'] },
+            ]},
+        ]}),
+        'docs/testing/main-capability-coverage.json': JSON.stringify({ version: 1, capabilities: [{ id: 'CAP-1' }] }),
+    });
+    const { modules, errors } = loadPolicy(root, []);
+    if (errors.length > 0) { assert.fail('policy load should succeed: ' + errors.join(', ')); }
+    const classErrors = [];
+    classifyFiles(['src/alpha/index.ts'], modules, classErrors);
+    assert.ok(classErrors.some(e => e.includes('remainder role')), JSON.stringify(classErrors));
+    fs.rmSync(root, { recursive: true, force: true });
+});
+
 // ── mutation 4: illegal cross-module import ──────────────────────────
 
 test('TRUSTED-KERNEL-001 controlled mutation: an undeclared cross-module edge fails', () => {

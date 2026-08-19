@@ -9,14 +9,16 @@
  * family's store outside the declared writer set fails. The writer set is a
  * ratchet — it may only shrink during migration, never grow.
  *
- * The write-method scan is AST-based (review R7): property access
- * (`store.updateMember(...)`), element access (`store['updateMember'](...)`),
- * and destructuring (`const { updateMember } = store`, including aliased)
- * are all detected, so renaming the receiver or re-binding the method cannot
- * launder a write past the guard. What it cannot detect: a write through a
- * mock-typed double in a file that never mentions the store module — such a
- * file would also fail the module-boundary guard on the import edge, and the
- * behavior owner tests pin the authority semantics.
+ * The write-method scan uses the TypeScript type checker (round-2 review
+ * Important 1, superseding the R7 name-matching pass): the receiver of a
+ * write-method call is resolved to its declaring class through barrels,
+ * aliases, element access, destructuring, and import renames, so only a
+ * receiver whose type is actually the store class trips the guard — and a
+ * store value passed as an argument into a non-writer file is flagged as a
+ * provision bypass (structural-typing injections need a provision site to
+ * do harm). What it cannot detect: a writer deliberately handing the store
+ * to a helper inside another file — that is writer discipline, covered by
+ * review.
  *
  * Bypass check: every literal in stateFamily.persistenceKeys may appear only
  * inside the store file — a memento-key reference is a raw write path around
@@ -204,37 +206,107 @@ function validateCatalog(rootDirectory, policy) {
 }
 
 /**
- * AST scan: every property access, element access, or destructuring binding
- * that names a write method — resilient to import aliases, receiver renames,
- * .bind extraction, and bracket access (review R7).
+ * One shared TypeScript program per run (round-2 review Important 1): type
+ * resolution sees through barrels, aliases, and re-exports. Local
+ * class/interface types resolve without lib types; unresolved externals
+ * become `any` and simply never match the store class.
  */
-function findWriteMethodTouches(file, text, writeMethods) {
-    const sourceFile = ts.createSourceFile(
-        file, text, ts.ScriptTarget.Latest, true,
-        file.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS);
-    const touches = new Set();
+function buildTypeContext(rootDirectory, files) {
+    const program = ts.createProgram(files.map(file => path.join(rootDirectory, file)), {
+        noEmit: true,
+        allowJs: true,
+        checkJs: false,
+        skipLibCheck: true,
+        target: ts.ScriptTarget.ES2020,
+        module: ts.ModuleKind.CommonJS,
+        moduleResolution: ts.ModuleResolutionKind.NodeJs,
+        strict: false,
+        types: [],
+    });
+    return { program, checker: program.getTypeChecker() };
+}
+
+/** The file that declares the CLASS of the expression's type, or null. */
+function declaringFileOf(rootDirectory, checker, node) {
+    const type = checker.getTypeAtLocation(node);
+    const symbol = type && (type.getSymbol() || type.symbol);
+    const declaration = symbol && symbol.declarations && symbol.declarations[0];
+    // Only class instances carry write capability; plain interfaces declared
+    // in the store file (member records etc.) are data, not the store.
+    if (!declaration || !ts.isClassDeclaration(declaration)) { return null; }
+    const fileName = declaration.getSourceFile().fileName;
+    const relative = path.relative(rootDirectory, fileName).split(path.sep).join('/');
+    return relative.startsWith('..') ? null : relative;
+}
+
+/**
+ * Type-resolved scan: write-method calls whose receiver is actually the
+ * store class (barrels and aliases included), destructuring off a
+ * store-typed value, and store-class values provisioned as call arguments
+ * into files outside the store's writer union.
+ */
+function findTypeResolvedViolations(rootDirectory, typeContext, file, families, unionWriters) {
+    const sourceFile = typeContext.program.getSourceFile(path.join(rootDirectory, file));
+    if (!sourceFile) { return []; }
+    const violations = [];
+    const { checker } = typeContext;
     const visit = node => {
-        if (ts.isPropertyAccessExpression(node) && writeMethods.has(node.name.text)) {
-            touches.add(`touches write method '${node.name.text}'`);
-        } else if (ts.isElementAccessExpression(node)) {
-            const argument = node.argumentExpression;
-            if (argument && (ts.isStringLiteral(argument)
-                || ts.isNoSubstitutionTemplateLiteral(argument))
-                && writeMethods.has(argument.text)) {
-                touches.add(`touches write method '${argument.text}' via element access`);
+        if ((ts.isPropertyAccessExpression(node)
+                && families.some(family => family.writeMethods.has(node.name.text)))
+            || (ts.isElementAccessExpression(node)
+                && ts.isStringLiteral(node.argumentExpression)
+                && families.some(family =>
+                    family.writeMethods.has(node.argumentExpression.text)))) {
+            const declaringFile = declaringFileOf(rootDirectory, checker, node.expression);
+            for (const family of families) {
+                const isElement = ts.isElementAccessExpression(node);
+                const methodName = isElement ? node.argumentExpression.text : node.name.text;
+                if (!family.writeMethods.has(methodName)) { continue; }
+                if (declaringFile === family.storePath && !family.writers.has(file)) {
+                    // Message keeps the historical 'touches write method' /
+                    // 'via element access' substrings: the guard mutation
+                    // parity lane re-runs base suites against this guard.
+                    violations.push(`touches write method '${methodName}'`
+                        + `${isElement ? ' via element access' : ''} on a ${family.storePath}-typed`
+                        + ` receiver outside the declared writers of ${family.id}`);
+                }
             }
         } else if (ts.isBindingElement(node)) {
             const name = node.propertyName && ts.isIdentifier(node.propertyName)
                 ? node.propertyName.text
                 : (ts.isIdentifier(node.name) ? node.name.text : null);
-            if (name && writeMethods.has(name)) {
-                touches.add(`destructures write method '${name}'`);
+            if (!name || !families.some(family => family.writeMethods.has(name))) { return; }
+            const declaration = node.parent && node.parent.parent;
+            const initializer = declaration && ts.isVariableDeclaration(declaration)
+                ? declaration.initializer
+                : null;
+            if (!initializer) { return; }
+            for (const family of families) {
+                if (!family.writeMethods.has(name)) { continue; }
+                const declaringFile = declaringFileOf(rootDirectory, checker, initializer);
+                if (declaringFile === family.storePath && !family.writers.has(file)) {
+                    violations.push(`destructures write method '${name}' off a `
+                        + `${family.storePath}-typed value outside the declared writers of ${family.id}`);
+                }
+            }
+        } else if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+            if (unionWriters.has(file)) { return; }
+            for (const argument of node.arguments || []) {
+                const declaringFile = declaringFileOf(rootDirectory, checker, argument);
+                for (const family of families) {
+                    if (declaringFile === family.storePath) {
+                        violations.push(`provisions a ${family.storePath}-typed value into `
+                            + `a call outside the declared writers of ${family.id} (structural `
+                            + 'injection bypass)');
+                        break;
+                    }
+                }
             }
         }
         ts.forEachChild(node, visit);
     };
     visit(sourceFile);
-    return [...touches].sort();
+    return violations;
 }
 
 /** Scan declared state families for write-method touches outside the writers. */
@@ -243,30 +315,47 @@ function checkWriters(rootDirectory, catalog, policy) {
     const invariants = (catalog.invariants || [])
         .filter(invariant => invariant.stateFamily
             && (invariant.enforcement || []).includes('single-writer'));
+    // Group by store: the writer union across families sharing one store
+    // governs the provision rule; per-family sets govern write calls.
+    const familiesByStore = new Map();
     for (const invariant of invariants) {
         const family = invariant.stateFamily;
-        const writers = new Set([...invariant.writers, family.storePath]);
-        const storeReference = path.basename(family.storePath).replace(/\.[^.]+$/, '');
-        const writeMethods = new Set(family.writeMethods);
-        const persistenceKeys = family.persistenceKeys || [];
+        if (!familiesByStore.has(family.storePath)) {
+            familiesByStore.set(family.storePath, []);
+        }
+        familiesByStore.get(family.storePath).push({
+            id: invariant.id,
+            storePath: family.storePath,
+            writeMethods: new Set(family.writeMethods),
+            writers: new Set([...invariant.writers, family.storePath]),
+            persistenceKeys: family.persistenceKeys || [],
+        });
+    }
+    let typeContext = null;
+    const typeContextLazy = () => {
+        if (!typeContext) { typeContext = buildTypeContext(rootDirectory, policy.files); }
+        return typeContext;
+    };
+    for (const [storePath, families] of familiesByStore) {
+        const unionWriters = new Set(families.flatMap(family => [...family.writers]));
+        const persistenceKeys = [...new Set(families.flatMap(family => family.persistenceKeys))];
         for (const file of policy.files) {
-            if (writers.has(file)) { continue; }
-            const text = fs.readFileSync(path.join(rootDirectory, file), 'utf8');
-            for (const key of persistenceKeys) {
-                if (text.includes(key)) {
-                    errors.push(`single-writer: ${file} references persistence key '${key}' of the `
-                        + `${family.storePath} state family outside the store — a raw storage write `
-                        + `bypasses the authority of ${invariant.id}`);
+            if (!unionWriters.has(file)) {
+                const text = fs.readFileSync(path.join(rootDirectory, file), 'utf8');
+                for (const key of persistenceKeys) {
+                    if (text.includes(key)) {
+                        errors.push(`single-writer: ${file} references persistence key '${key}' of the `
+                            + `${storePath} state family outside the store — a raw storage write `
+                            + 'bypasses the authority');
+                    }
                 }
             }
-            // A same-named method on an unrelated store is not a bypass: the
-            // file must also reference the state family's store.
-            if (!text.includes(storeReference)) { continue; }
-            for (const touch of findWriteMethodTouches(file, text, writeMethods)) {
-                errors.push(`single-writer: ${file} ${touch} on the `
-                    + `${family.storePath} state family outside the declared writers of `
-                    + `${invariant.id} — route the write through the authority or land an `
-                    + 'approved architecture change that amends the writer set');
+            if (unionWriters.has(file)) { continue; }
+            for (const violation of findTypeResolvedViolations(
+                rootDirectory, typeContextLazy(), file, families, unionWriters)) {
+                errors.push(`single-writer: ${file} ${violation} — route the write through `
+                    + 'the authority or land an approved architecture change that amends the '
+                    + 'writer set');
             }
         }
     }

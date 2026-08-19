@@ -33,11 +33,31 @@ function buildDeclaration({ rootDirectory, baseRef }) {
             : 'zero',
         newFiles: (context.report.newClassifiedFiles || [])
             .map(entry => ({ path: entry.path, module: entry.module, reason: '' })),
+        behaviors: context.expectedBehaviors || [],
+        semanticImpact: semanticImpactOf(context.report),
+        coordinators: [],
+        verification: '',
     };
     const block = '```change-impact-declaration\n'
         + `${JSON.stringify(declaration, null, 2)}\n`
         + '```';
     return { block, declaration, context };
+}
+
+/** Mechanically derivable semantic-impact dimensions (charter 8.10). */
+function semanticImpactOf(report) {
+    const changes = Object.values((report.policyDelta && report.policyDelta.invariantChanges) || {});
+    const removed = (report.policyDelta && report.policyDelta.invariantsRemoved) || [];
+    return {
+        stateAuthority: changes.some(change => change.authorityChanged
+            || change.participatingModulesChanged),
+        writerSet: changes.some(change => (change.writersAdded || []).length > 0
+            || (change.writersRemoved || []).length > 0) || removed.length > 0,
+        protocol: false,
+        persistence: changes.some(change => change.stateFamilyChanged),
+        identity: false,
+        recovery: false,
+    };
 }
 
 function main() {
@@ -51,6 +71,13 @@ function main() {
 
     if (declaration.newFiles.length > 0) {
         console.error('\nFill every empty newFiles reason before pasting — the gate rejects empty reasons.');
+    }
+    if (declaration.modules.length > 1 && declaration.coordinators.length === 0) {
+        console.error('\nThis is a multi-module change: fill `coordinators` with the coordinator or'
+            + ' public API owning each cross-module interaction.');
+    }
+    if (!declaration.verification) {
+        console.error('\nFill `verification` with the focused and environment checks you ran.');
     }
     if (context.errors.length > 0) {
         console.error('\nResolve these issues before publishing:');

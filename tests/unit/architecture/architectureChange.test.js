@@ -1020,6 +1020,23 @@ test('ARCH-CHANGE-GATE-001 a forward ledger transition with no other delta stays
     assert.deepEqual(result.errors, []);
 });
 
+// T7 (Important 9): skip-state detection — a module must advance one step
+// at a time; legacy -> strict skipping four states is illegal.
+test('ARCH-CHANGE-GATE-001 controlled mutation: a skip-state ledger transition is relaxing', () => {
+    const result = classifyArchitectureChange(report({
+        protectedTouched: ['docs/testing/architecture-program.json'],
+        policyDelta: {
+            mayDependOnGrown: {}, entrypointsGrown: {},
+            invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [],
+            ledgerRegressions: ['MOD-A: skip-state legacy -> strict (skipped inventoried, characterized, guarded, migrating)'],
+            modulesChanged: true,
+        },
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0);
+});
+
 
 // ── review R9: entrypoint and ledger policy deltas (collect level) ────
 
@@ -1090,7 +1107,7 @@ test('ARCH-CHANGE-GATE-001 the policy delta computes entrypoint growth and ledge
         version: 1, scope: { roots: ['src'] }, modules: [moduleEntry(['src/**'])],
     });
     write('docs/testing/architecture-program.json', ledger({
-        'MOD-ALPHA': { state: 'strict', since: 'x', evidence: [], nextAction: 'y' },
+        'MOD-ALPHA': { state: 'migrating', since: 'x', evidence: [], nextAction: 'y' },
     }));
     const forward = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
     assert.deepEqual(forward.policyDelta.ledgerRegressions, []);

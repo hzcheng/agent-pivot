@@ -27,6 +27,19 @@ const DECLARATION_KEYS = [
     'policyDelta',
     'baselineWaiverDelta',
     'newFiles',
+    'behaviors',
+    'semanticImpact',
+    'coordinators',
+    'verification',
+];
+
+const SEMANTIC_IMPACT_KEYS = [
+    'stateAuthority',
+    'writerSet',
+    'protocol',
+    'persistence',
+    'identity',
+    'recovery',
 ];
 
 function isStringArray(value) {
@@ -97,6 +110,32 @@ function parseChangeImpactDeclaration(body) {
             }
         }
     }
+    // Round-2 review Important 2: the charter 8.10 fields are all required.
+    if (!isStringArray(parsed.behaviors)) {
+        errors.push('behaviors must be an array of behavior ids');
+    }
+    const impact = parsed.semanticImpact;
+    if (impact === null || typeof impact !== 'object' || Array.isArray(impact)) {
+        errors.push('semanticImpact must be an object');
+    } else {
+        for (const key of Object.keys(impact)) {
+            if (!SEMANTIC_IMPACT_KEYS.includes(key)) {
+                errors.push(`unknown semanticImpact key ${JSON.stringify(key)}`
+                    + ` (allowed: ${SEMANTIC_IMPACT_KEYS.join(', ')})`);
+            }
+        }
+        for (const key of SEMANTIC_IMPACT_KEYS) {
+            if (typeof impact[key] !== 'boolean') {
+                errors.push(`semanticImpact.${key} must be a boolean`);
+            }
+        }
+    }
+    if (!isStringArray(parsed.coordinators)) {
+        errors.push('coordinators must be an array (empty when the change is single-module)');
+    }
+    if (typeof parsed.verification !== 'string' || parsed.verification.trim().length === 0) {
+        errors.push('verification must be a non-empty string (focused and environment checks)');
+    }
     if (errors.length > 0) {
         return { declaration: null, errors };
     }
@@ -111,6 +150,11 @@ function parseChangeImpactDeclaration(body) {
             newFiles: parsed.newFiles
                 .map(entry => ({ path: entry.path, module: entry.module, reason: entry.reason.trim() }))
                 .sort((a, b) => a.path.localeCompare(b.path)),
+            behaviors: [...parsed.behaviors].sort(),
+            semanticImpact: Object.fromEntries(
+                SEMANTIC_IMPACT_KEYS.map(key => [key, parsed.semanticImpact[key]])),
+            coordinators: [...parsed.coordinators].sort(),
+            verification: parsed.verification.trim(),
         },
         errors: [],
     };
@@ -139,9 +183,12 @@ function pushSetMismatch(errors, label, actual, declared) {
  * Compare the declaration with the regenerated truth.
  * evaluateChangeImpactDeclaration({
  *   body, headSha, classification, report, assignedCapabilities,
+ *   expectedBehaviors,
  * }) -> { declaration | null, errors }.
  */
-function evaluateChangeImpactDeclaration({ body, headSha, classification, report, assignedCapabilities }) {
+function evaluateChangeImpactDeclaration({
+    body, headSha, classification, report, assignedCapabilities, expectedBehaviors,
+}) {
     const { declaration, errors } = parseChangeImpactDeclaration(body);
     if (!declaration) {
         return { declaration: null, errors };
@@ -158,6 +205,31 @@ function evaluateChangeImpactDeclaration({ body, headSha, classification, report
         report.changedInvariantIds || [], declaration.invariants);
     pushSetMismatch(evaluationErrors, 'capabilities',
         assignedCapabilities || [], declaration.capabilities);
+    pushSetMismatch(evaluationErrors, 'behaviors',
+        expectedBehaviors || [], declaration.behaviors);
+    // Mechanically checkable semantic-impact dimensions (round-2 review
+    // Important 2): authority/writer/persistence truth is derivable from the
+    // invariant delta; protocol/identity/recovery remain owner-reviewed prose.
+    const policyDelta = (report && report.policyDelta) || {};
+    const invariantChanges = Object.values(policyDelta.invariantChanges || {});
+    const expectedImpact = {
+        stateAuthority: invariantChanges.some(change => change.authorityChanged
+            || change.participatingModulesChanged),
+        writerSet: invariantChanges.some(change => (change.writersAdded || []).length > 0
+            || (change.writersRemoved || []).length > 0)
+            || (policyDelta.invariantsRemoved || []).length > 0,
+        persistence: invariantChanges.some(change => change.stateFamilyChanged),
+    };
+    for (const [key, expected] of Object.entries(expectedImpact)) {
+        if (declaration.semanticImpact[key] !== expected) {
+            evaluationErrors.push(`semanticImpact.${key} declares ${declaration.semanticImpact[key]}`
+                + ` but the diff shows ${expected}`);
+        }
+    }
+    if (declaration.modules.length > 1 && declaration.coordinators.length === 0) {
+        evaluationErrors.push('a multi-module change must name the coordinator or public API '
+            + 'that owns each cross-module interaction (coordinators)');
+    }
     pushSetMismatch(evaluationErrors, 'new classified files (path)',
         (report.newClassifiedFiles || []).map(entry => entry.path),
         declaration.newFiles.map(entry => entry.path));

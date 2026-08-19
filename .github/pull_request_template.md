@@ -7,9 +7,13 @@
 <!--
 Required; the merge-approval gate rejects pull requests without it.
 Run `node scripts/generate-change-impact-declaration.js` right before pushing
-and paste the generated block below, filling every newFiles reason first.
+and paste the generated block below, filling every newFiles reason first,
+the coordinators list for multi-module changes, and the verification note.
 The declaration binds the head SHA: regenerate it whenever the head moves
 (rebase, new commits), otherwise the gate rejects it as stale.
+Charter 8.10 fields are all mandatory: capabilities, modules, invariants,
+policyDelta, baselineWaiverDelta, newFiles, behaviors, semanticImpact,
+coordinators, verification.
 -->
 
 ## Skill harvest

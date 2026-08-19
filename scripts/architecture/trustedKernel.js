@@ -301,7 +301,6 @@ const PROTECTED_PATHS = [
     'tests/unit/architecture-parity/',
     '.github/workflows/',
     'scripts/run-architecture-guards.js',
-    'scripts/run-guard-mutation-parity.js',
     'scripts/run-merge-approval-gate.js',
     'scripts/lib/mergeApprovals.js',
     'scripts/lib/ciContracts.js',

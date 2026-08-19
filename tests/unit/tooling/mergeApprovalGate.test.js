@@ -48,20 +48,14 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 wires the gate workflow to PRs and comment
         'the gate must not check out the PR head over the evaluator workspace');
 });
 
-test('ARCH-PR-MERGE-APPROVAL-GATE-001 guard mutation parity is wired into the Linux lane (round-2 Blocker 1)', () => {
-    // The independent kill for 'guard turned constant-true with gutted
-    // tests': the base test suites re-run against the head guard code.
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 guard mutation parity replaced by trusted kernel (PR #296)', () => {
+    const scriptPath = path.join(repositoryRoot, 'scripts', 'run-guard-mutation-parity.js');
+    assert.ok(!fs.existsSync(scriptPath),
+        'guard mutation parity script should be deleted');
     const pkg = JSON.parse(fs.readFileSync(
         path.join(repositoryRoot, 'package.json'), 'utf8'));
-    assert.match(pkg.scripts['test:ci:linux'], /run-guard-mutation-parity\.js/,
-        'the Linux quality lane must run the guard mutation parity check');
-    const script = fs.readFileSync(
-        path.join(repositoryRoot, 'scripts', 'run-guard-mutation-parity.js'), 'utf8');
-    assert.match(script, /architecture-parity/, 'the parity suite materializes base tests');
-    assert.match(script, /classification === 'relaxing' \|\| classification === 're-partition'/,
-        'record-authorized changes are exempt (they carry owner review)');
-    assert.match(script, /guardSemantics/,
-        'a base-landed guardSemantics record exempts intentional guard contract changes');
+    assert.ok(!pkg.scripts['test:ci:linux'].includes('run-guard-mutation-parity'),
+        'parity should not be in the Linux lane');
 });
 
 test('ARCH-PR-MERGE-APPROVAL-GATE-001 audits recent merges on main pushes', () => {

@@ -807,7 +807,7 @@ function run() {
     );
     assert.strictEqual(
         mainPackage.scripts['test:ci:linux'],
-        'npm run test-compile && npm run brand:verify && npm run brand:check && npm run test:behavior-contracts && npm run lint:ci && npm run test:coverage:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:architecture-policy && node scripts/run-guard-mutation-parity.js && npm run test:release-notes && npm run test:release-packaging && node scripts/check-coverage-baseline.js && node scripts/check-changed-coverage.js',
+        'npm run test-compile && npm run brand:verify && npm run brand:check && npm run test:behavior-contracts && npm run lint:ci && npm run test:coverage:run && npm run test:conversation-sources:remote && npm run test:conversation-performance && npm run test:browser:run && npm run test:safety:run && npm run test:dashboard:run && npm run test:architecture-baseline && npm run test:architecture-guards && npm run test:architecture-policy && npm run test:release-notes && npm run test:release-packaging && node scripts/check-coverage-baseline.js && node scripts/check-changed-coverage.js',
         'Linux CI must run each quality gate once while retaining coverage enforcement',
     );
     assert.strictEqual(mainPackage.devDependencies['@vscode/test-electron'], '3.0.0',

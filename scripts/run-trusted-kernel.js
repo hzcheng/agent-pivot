@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { runKernel, discoverFiles } = require('./architecture/trustedKernel');
+const { runKernel } = require('./architecture/trustedKernel');
 const { architectureApprovalBoundSha } = require('./lib/mergeApprovals');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -22,41 +22,25 @@ function materializeHead(headRef, baseRef) {
                 cwd: ROOT, stdio: 'pipe',
             });
         } catch {
+            // Fallback: use git archive + git show
             fs.mkdirSync(headDir, { recursive: true });
-            const changedFiles = execFileSync('git', ['diff', '--name-only', baseRef + '...' + headRef], {
-                cwd: ROOT, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
-            }).trim().split('\n').filter(Boolean);
-            const allFiles = discoverFiles(ROOT);
-            for (const file of allFiles) {
-                const fileDir = path.dirname(path.join(headDir, file));
-                fs.mkdirSync(fileDir, { recursive: true });
-                if (changedFiles.includes(file)) {
+            try {
+                // List all files in HEAD
+                const headFiles = execFileSync('git', ['ls-tree', '-r', '--name-only', headRef], {
+                    cwd: ROOT, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
+                }).trim().split('\n').filter(Boolean);
+                for (const file of headFiles) {
+                    const fileDir = path.dirname(path.join(headDir, file));
+                    fs.mkdirSync(fileDir, { recursive: true });
                     try {
-                        const c = execFileSync('git', ['show', headRef + ':' + file], {
+                        const content = execFileSync('git', ['show', headRef + ':' + file], {
                             cwd: ROOT, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
                         });
-                        fs.writeFileSync(path.join(headDir, file), c);
-                    } catch { /* deleted */ }
-                } else {
-                    fs.copyFileSync(path.join(ROOT, file), path.join(headDir, file));
+                        fs.writeFileSync(path.join(headDir, file), content);
+                    } catch { /* skip */ }
                 }
-            }
-            for (const dir of ['docs/testing', '.ci']) {
-                fs.mkdirSync(path.join(headDir, dir), { recursive: true });
-                try {
-                    const pf = execFileSync('git', ['ls-tree', '-r', '--name-only', headRef, '--', dir], {
-                        cwd: ROOT, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
-                    }).trim().split('\n').filter(Boolean);
-                    for (const p of pf) {
-                        fs.mkdirSync(path.dirname(path.join(headDir, p)), { recursive: true });
-                        try {
-                            fs.writeFileSync(path.join(headDir, p),
-                                execFileSync('git', ['show', headRef + ':' + p], {
-                                    cwd: ROOT, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
-                                }));
-                        } catch { /* skip */ }
-                    }
-                } catch { /* skip */ }
+            } catch (e) {
+                return { headDir, error: 'failed to materialize PR HEAD: ' + e.message };
             }
         }
         return { headDir, error: null };

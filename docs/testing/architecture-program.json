@@ -16,8 +16,8 @@
   ],
   "modules": {
     "MOD-WORKTREE-LIFECYCLE": {
-      "state": "strict",
-      "since": "pilot slices S1-S5 (PRs #262-#268) + W1 review repairs R1-R9 (PRs #270-#282)",
+      "state": "migrating",
+      "since": "pilot slices S1-S5 (PRs #262-#268) + W1 review repairs R1-R10 (PRs #270-#283); strict reverted per the round-2 review (trust chain open)",
       "evidence": [
         "docs/architecture/stage-1b-pilot-rfc.md",
         "docs/architecture/changes/ARCH-CHANGE-001.md",
@@ -26,7 +26,7 @@
         "docs/architecture/changes/ARCH-CHANGE-004.md",
         "docs/architecture/changes/ARCH-CHANGE-005.md"
       ],
-      "nextAction": "none \u2014 pilot complete, strict re-accepted after the W1 review repairs",
+      "nextAction": "round-2 repairs T1-T7 (trust chain), then strict re-acceptance",
       "target": {
         "publicEntrypoints": [
           "src/worktrees/index.ts"

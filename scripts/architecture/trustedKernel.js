@@ -21,6 +21,9 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+// One canonical glob implementation (charter: one canonical truth) — the
+// kernel and the legacy harness must classify with identical semantics.
+const { compileGlob } = require('./loadArchitecturePolicy');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 
@@ -33,11 +36,6 @@ function readJson(filePath, errors) {
         errors.push(`cannot read ${path.relative(ROOT, filePath)}: ${err.message}`);
         return null;
     }
-}
-
-function compileGlob(pattern) {
-    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '<<<GLOBSTAR>>>').replace(/\*/g, '[^/]*').replace(/<<<GLOBSTAR>>>/g, '.*');
-    return new RegExp(`^${escaped}$`);
 }
 
 // ── policy loading (from the given root directory) ───────────────────
@@ -56,6 +54,7 @@ function loadPolicy(rootDir, errors) {
         roles: (mod.roles || []).map(role => ({
             role: role.role,
             include: (role.include || []).map(compileGlob),
+            rawInclude: (role.include || []).slice(),
         })),
     }));
 
@@ -89,11 +88,30 @@ function loadPolicy(rootDir, errors) {
 
 // ── file discovery ───────────────────────────────────────────────────
 
+// The head tree is materialized into a plain directory (no .git), so
+// discovery walks the filesystem instead of shelling out to git.
 function discoverFiles(rootDir) {
-    const out = execFileSync('git', ['ls-files', '--cached', '--', 'src/'], {
-        cwd: rootDir, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024,
-    }).trim();
-    return out.split('\n').filter(line => line.endsWith('.ts') && !line.endsWith('.d.ts'));
+    const files = [];
+    const walk = dir => {
+        let entries;
+        try {
+            entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+            return;
+        }
+        for (const entry of entries) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walk(full);
+                continue;
+            }
+            if (!entry.isFile()) { continue; }
+            const rel = path.relative(rootDir, full).split(path.sep).join('/');
+            if (rel.endsWith('.ts') && !rel.endsWith('.d.ts')) { files.push(rel); }
+        }
+    };
+    walk(path.join(rootDir, 'src'));
+    return files.sort();
 }
 
 // ── closed-world classification ──────────────────────────────────────
@@ -114,16 +132,33 @@ function classifyFiles(files, modules, errors) {
             continue;
         }
         const mod = owners[0];
-        const roleMatches = mod.roles.filter(r => r.include.some(pat => pat.test(file)));
-        if (roleMatches.length === 0) {
-            errors.push(`closed-world: ${file} (module ${mod.id}) has no matching role`);
+        // Remainder-role rule (same as the canonical policy loader): a role
+        // whose include is exactly ["**"] must be last and matches only
+        // module files no earlier role claimed. Overlap between
+        // non-remainder roles is an error, never silently first-match.
+        const remainderIndex = mod.roles.findIndex(candidate => {
+            const raw = candidate.rawInclude || [];
+            return raw.length === 1 && raw[0] === '**';
+        });
+        if (remainderIndex !== -1 && remainderIndex !== mod.roles.length - 1) {
+            errors.push(`policy: ${mod.id} remainder role '**' must be the last role`);
             continue;
         }
+        const specific = remainderIndex === -1 ? mod.roles : mod.roles.slice(0, remainderIndex);
+        const roleMatches = specific.filter(r => r.include.some(pat => pat.test(file)));
         if (roleMatches.length > 1) {
             errors.push(`closed-world: ${file} (module ${mod.id}) matches multiple roles: ${roleMatches.map(r => r.role).join(', ')}`);
             continue;
         }
-        classified.push({ file, module: mod.id, role: roleMatches[0].role });
+        if (roleMatches.length === 1) {
+            classified.push({ file, module: mod.id, role: roleMatches[0].role });
+            continue;
+        }
+        if (remainderIndex !== -1) {
+            classified.push({ file, module: mod.id, role: mod.roles[remainderIndex].role });
+            continue;
+        }
+        errors.push(`closed-world: ${file} (module ${mod.id}) has no matching role`);
     }
     return classified;
 }

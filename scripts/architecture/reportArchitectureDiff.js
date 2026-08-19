@@ -48,6 +48,7 @@ const PROTECTED_HARNESS_FILES = [
     // (review R4): the last enforcement line must not be weakenable by an
     // ordinary product change.
     'scripts/run-merge-approval-gate.js',
+    'scripts/run-merge-approval-audit.js',
     'scripts/lib/mergeApprovals.js',
     'scripts/lib/changeImpactDeclaration.js',
     'scripts/lib/changeImpactContext.js',

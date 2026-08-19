@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+    approvalBoundSha,
     evaluateMergeApproval,
     findApprovalComment,
     isApprovalComment,
@@ -11,59 +12,77 @@ const {
     MERGE_APPROVAL_REQUIRED_SINCE,
 } = require('../../../scripts/lib/mergeApprovals');
 
-test('ARCH-PR-MERGE-APPROVAL-GATE-001 recognizes first-word approval markers', () => {
-    for (const body of ['合并', '合并吧', ' merge', 'merge it', 'LGTM', 'approved', 'Approve!', 'approved.']) {
-        assert.ok(isApprovalComment(body), `accepts: ${body}`);
-    }
-    for (const body of ['mergeable', 'merged', 'please merge this', 'looks good', '合并x 不行', '', null, undefined]) {
-        assert.ok(!isApprovalComment(body), `rejects: ${body}`);
+const HEAD = 'a'.repeat(40);
+const OTHER = 'b'.repeat(40);
+
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 approval binds the full head SHA (round-2 Blocker 2)', () => {
+    assert.equal(approvalBoundSha(`approve ${HEAD}`), HEAD);
+    assert.equal(approvalBoundSha(`合并 ${HEAD}`), HEAD);
+    assert.equal(approvalBoundSha(`LGTM ${HEAD}`), HEAD);
+    assert.equal(approvalBoundSha(`  merge ${HEAD}  `), HEAD);
+    assert.equal(approvalBoundSha(`approved ${HEAD.toUpperCase()}`), HEAD,
+        'marker case is free, the SHA normalizes to lowercase');
+    // No binding without the full SHA, with a short SHA, or with prose.
+    for (const body of ['merge', '合并吧', 'approve', `approve ${HEAD.slice(0, 8)}`,
+        `approve ${HEAD} extra`, `please approve ${HEAD}`, 'mergeable', '', null, undefined]) {
+        assert.equal(approvalBoundSha(body), null, `no binding: ${body}`);
     }
 });
 
-test('ARCH-PR-MERGE-APPROVAL-GATE-001 only the owner can approve', () => {
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 only the owner can approve, and only for the exact head', () => {
     const comments = [
-        { user: { login: 'someone-else' }, body: 'merge', created_at: '2026-08-05T10:00:00Z', html_url: 'x' },
-        { user: { login: 'HZCHENG' }, body: '合并', created_at: '2026-08-05T11:00:00Z', html_url: 'y' },
+        { user: { login: 'someone-else' }, body: `approve ${HEAD}`, created_at: '2026-08-05T10:00:00Z' },
+        { user: { login: 'HZCHENG' }, body: `approve ${OTHER}`, created_at: '2026-08-05T11:00:00Z' },
     ];
-    const found = findApprovalComment(comments, { authorLogin: 'hzcheng' });
-    assert.strictEqual(found.html_url, 'y', 'login comparison is case-insensitive');
-    assert.strictEqual(
-        findApprovalComment(comments, { authorLogin: 'hzcheng', sinceMs: Date.parse('2026-08-05T12:00:00Z') }),
-        null,
-        'approvals older than sinceMs do not qualify',
+    assert.equal(findApprovalComment(comments, { authorLogin: 'hzcheng', headSha: HEAD }), null,
+        'another user\'s binding and the owner\'s binding of a different SHA both fail');
+    const found = findApprovalComment(
+        [...comments, { user: { login: 'hzcheng' }, body: `approve ${HEAD}`, created_at: '2026-08-05T12:00:00Z', html_url: 'y' }],
+        { authorLogin: 'hzcheng', headSha: HEAD },
     );
+    assert.equal(found.html_url, 'y', 'login comparison is case-insensitive');
 });
 
-test('ARCH-PR-MERGE-APPROVAL-GATE-001 approvals predate the head commit are stale', () => {
-    const headCommittedAtMs = Date.parse('2026-08-05T12:00:00Z');
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 the gate verdict binds head, never the clock', () => {
+    // A comment binding the current head approves — regardless of timestamps.
+    const approved = evaluateMergeApproval({
+        comments: [{ user: { login: 'hzcheng' }, body: `approve ${HEAD}`, created_at: '2020-01-01T00:00:00Z', html_url: 'u' }],
+        authorLogin: 'hzcheng',
+        headSha: HEAD,
+    });
+    assert.equal(approved.approved, true);
+    assert.equal(approved.commentUrl, 'u');
+
+    // A stale binding (earlier head) does not approve the current head.
     const stale = evaluateMergeApproval({
-        comments: [{ user: { login: 'hzcheng' }, body: 'merge', created_at: '2026-08-05T11:00:00Z' }],
+        comments: [{ user: { login: 'hzcheng' }, body: `approve ${OTHER}`, created_at: '2030-01-01T00:00:00Z' }],
         authorLogin: 'hzcheng',
-        headCommittedAtMs,
+        headSha: HEAD,
     });
-    assert.strictEqual(stale.approved, false);
-    assert.match(stale.reason, /predates the latest commit/);
+    assert.equal(stale.approved, false);
+    assert.match(stale.reason, /does not bind the current head/);
+    assert.ok(stale.reason.includes(HEAD), 'the reason tells the owner the exact comment to write');
 
-    const fresh = evaluateMergeApproval({
-        comments: [{ user: { login: 'hzcheng' }, body: 'merge', created_at: '2026-08-05T13:00:00Z', html_url: 'u' }],
+    // A legacy free-form approval never approves a head.
+    const legacy = evaluateMergeApproval({
+        comments: [{ user: { login: 'hzcheng' }, body: 'merge', created_at: '2030-01-01T00:00:00Z' }],
         authorLogin: 'hzcheng',
-        headCommittedAtMs,
+        headSha: HEAD,
     });
-    assert.strictEqual(fresh.approved, true);
-    assert.strictEqual(fresh.commentUrl, 'u');
+    assert.equal(legacy.approved, false);
 
-    const none = evaluateMergeApproval({ comments: [], authorLogin: 'hzcheng', headCommittedAtMs });
-    assert.strictEqual(none.approved, false);
+    const none = evaluateMergeApproval({ comments: [], authorLogin: 'hzcheng', headSha: HEAD });
+    assert.equal(none.approved, false);
     assert.match(none.reason, /no owner approval comment/);
 });
 
-test('ARCH-PR-MERGE-APPROVAL-GATE-001 multiple approvals use the latest comment', () => {
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 the newest binding comment wins', () => {
     const comments = [
-        { user: { login: 'hzcheng' }, body: 'merge', created_at: '2026-08-05T13:00:00Z', html_url: 'old' },
-        { user: { login: 'hzcheng' }, body: '合并', created_at: '2026-08-05T14:00:00Z', html_url: 'new' },
+        { user: { login: 'hzcheng' }, body: `approve ${HEAD}`, created_at: '2026-08-05T13:00:00Z', html_url: 'old' },
+        { user: { login: 'hzcheng' }, body: `批准 ${HEAD}`, created_at: '2026-08-05T14:00:00Z', html_url: 'new' },
     ];
-    const found = findApprovalComment(comments, { authorLogin: 'hzcheng' });
-    assert.strictEqual(found.html_url, 'new');
+    const found = findApprovalComment(comments, { authorLogin: 'hzcheng', headSha: HEAD });
+    assert.equal(found.html_url, 'new');
 });
 
 test('ARCH-PR-MERGE-APPROVAL-GATE-001 merges before the activation date are exempt', () => {
@@ -72,4 +91,11 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 merges before the activation date are exem
     assert.strictEqual(mergeRequiresApproval(MERGE_APPROVAL_REQUIRED_SINCE), true);
     assert.strictEqual(mergeRequiresApproval('not-a-date'), true, 'unparseable dates fail closed');
     assert.strictEqual(mergeRequiresApproval(undefined), true);
+});
+
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 legacy markers are still recognized for pre-binding merges', () => {
+    for (const body of ['合并', 'merge it', 'LGTM', 'approved.']) {
+        assert.ok(isApprovalComment(body), `legacy recognized: ${body}`);
+    }
+    assert.ok(!isApprovalComment('looks good'), 'non-markers rejected');
 });

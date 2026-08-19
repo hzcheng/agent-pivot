@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { evaluateMergeApproval } = require('./lib/mergeApprovals');
+const { evaluateMergeApproval, findArchitectureApprovalComment } = require('./lib/mergeApprovals');
 const { evaluateChangeImpactDeclaration } = require('./lib/changeImpactDeclaration');
 const { collectChangeImpactContext } = require('./lib/changeImpactContext');
 
@@ -81,7 +81,7 @@ function git(args) {
  * worktree used purely as data; the evaluator code itself comes from the
  * default-branch checkout (the workflow runs on pull_request_target).
  */
-function evaluateDeclarationForPullRequest({ pullRequest, prNumber }) {
+function evaluateDeclarationForPullRequest({ pullRequest, prNumber, architectureApproved }) {
     const baseRefName = pullRequest.base?.ref;
     const headSha = pullRequest.head?.sha;
     if (!baseRefName || !headSha) {
@@ -94,6 +94,7 @@ function evaluateDeclarationForPullRequest({ pullRequest, prNumber }) {
         const context = collectChangeImpactContext({
             rootDirectory: worktreeDir,
             baseRef: `origin/${baseRefName}`,
+            architectureApproved,
         });
         const { errors } = evaluateChangeImpactDeclaration({
             body: pullRequest.body || '',
@@ -137,12 +138,23 @@ async function main() {
         authorLogin: ownerLogin,
         headSha,
     });
+    // Harness Simplification: a relaxing/re-partition classification is
+    // authorized by the owner's `approve-architecture <full-head-sha>`
+    // comment (replacing Architecture Change record machine authorization).
+    const architectureApproval = findArchitectureApprovalComment(comments, {
+        authorLogin: ownerLogin,
+        headSha,
+    });
 
     // Review R4 (charter 8.10): the PR body declaration is compared with the
     // regenerated architecture impact for the exact head being approved.
     // Git failures crash the job before posting, which blocks the merge
     // (fail-closed); declaration mismatches post a failure status.
-    const declarationErrors = evaluateDeclarationForPullRequest({ pullRequest, prNumber });
+    const declarationErrors = evaluateDeclarationForPullRequest({
+        pullRequest,
+        prNumber,
+        architectureApproved: Boolean(architectureApproval),
+    });
 
     const reasons = [];
     if (!verdict.approved) { reasons.push(verdict.reason); }

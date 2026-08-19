@@ -700,6 +700,25 @@ test('ARCH-CHANGE-GATE-001 a covering record in the base authorizes the relaxati
     assert.deepEqual(result.errors, []);
 });
 
+test('ARCH-CHANGE-GATE-001 owner architecture approval authorizes the relaxation without a record', () => {
+    // Harness Simplification decision: `approve-architecture <full-head-sha>`
+    // replaces record machine authorization. The caller verifies the comment
+    // binds the exact head; the classifier only receives the verdict.
+    const result = classifyArchitectureChange(relaxingReport(), { architectureApproved: true });
+    assert.equal(result.classification, 'relaxing',
+        'the classification is computed from the diff, never weakened by the approval');
+    assert.deepEqual(result.errors, []);
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: without approval or record the relaxation still fails', () => {
+    const result = classifyArchitectureChange(relaxingReport(), { architectureApproved: false });
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.some(error => error.includes('anti-self-amendment')
+        && error.includes('approve-architecture')), JSON.stringify(result.errors));
+    const defaulted = classifyArchitectureChange(relaxingReport());
+    assert.ok(defaulted.errors.length > 0, 'the option defaults to unapproved');
+});
+
 test('ARCH-CHANGE-GATE-001 controlled mutation: a record declaring a superset fails (exact equality, round-2 Blocker 3)', () => {
     const result = classifyArchitectureChange(relaxingReport({
         baseRecords: [{

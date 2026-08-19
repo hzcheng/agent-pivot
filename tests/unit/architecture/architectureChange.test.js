@@ -42,6 +42,11 @@ function report(overrides = {}) {
 
 const RECORD = ['docs/architecture/changes/ARCH-CHANGE-001.md'];
 
+// Field fingerprints are sha256 hex; fixture values just need to match
+// between the report and the record.
+const FP_BEFORE = 'a'.repeat(64);
+const FP_AFTER = 'b'.repeat(64);
+
 test('ARCH-CHANGE-GATE-001 product-only changes pass without a record', () => {
     const result = classifyArchitectureChange(report({
         newFiles: ['src/todos/helper.ts'],
@@ -67,7 +72,15 @@ test('ARCH-CHANGE-GATE-001 tightening (pure writer removal) passes without a rec
         protectedTouched: ['docs/testing/architecture-invariants.json'],
         policyDelta: {
             mayDependOnGrown: {},
-            invariantChanges: { 'ARCH-X-001': { writersRemoved: ['src/old-writer.ts'] } },
+            invariantChanges: {
+                'ARCH-X-001': {
+                    fields: ['writers'],
+                    writersAdded: [],
+                    writersRemoved: ['src/old-writer.ts'],
+                    before: FP_BEFORE,
+                    after: FP_AFTER,
+                },
+            },
             invariantsRemoved: [], waiversAdded: [],
             baselineGrown: [], modulesChanged: true,
         },
@@ -120,8 +133,11 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: a same-size writer replacement i
             mayDependOnGrown: {},
             invariantChanges: {
                 'ARCH-X-001': {
+                    fields: ['writers'],
                     writersAdded: ['src/new-writer.ts'],
                     writersRemoved: ['src/old-writer.ts'],
+                    before: FP_BEFORE,
+                    after: FP_AFTER,
                 },
             },
             invariantsRemoved: [], baselineGrown: [], waiversAdded: [], modulesChanged: true,
@@ -132,22 +148,28 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: a same-size writer replacement i
 });
 
 test('ARCH-CHANGE-GATE-001 controlled mutation: authority, statement, and state-family edits are relaxing (review R9)', () => {
-    for (const change of [
-        { authorityChanged: true },
-        { statementChanged: true },
-        { linearizationPointChanged: true },
-        { stateFamilyChanged: true },
+    for (const [field, flag] of [
+        ['authority', 'authorityChanged'],
+        ['statement', 'statementChanged'],
+        ['linearizationPoint', 'linearizationPointChanged'],
+        ['stateFamily', 'stateFamilyChanged'],
+        ['participatingModules', 'participatingModulesChanged'],
     ]) {
         const result = classifyArchitectureChange(report({
             protectedTouched: ['docs/testing/architecture-invariants.json'],
             policyDelta: {
                 mayDependOnGrown: {},
-                invariantChanges: { 'ARCH-X-001': change },
+                invariantChanges: {
+                    'ARCH-X-001': {
+                        fields: [field], [flag]: true,
+                        before: FP_BEFORE, after: FP_AFTER,
+                    },
+                },
                 invariantsRemoved: [], baselineGrown: [], waiversAdded: [], modulesChanged: true,
             },
         }));
-        assert.equal(result.classification, 'relaxing', JSON.stringify(change));
-        assert.ok(result.errors.length > 0, JSON.stringify(change));
+        assert.equal(result.classification, 'relaxing', field);
+        assert.ok(result.errors.length > 0, field);
     }
 });
 
@@ -169,7 +191,14 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: growing a writer set without a r
         protectedTouched: ['docs/testing/architecture-invariants.json'],
         policyDelta: {
             mayDependOnGrown: {},
-            invariantChanges: { 'ARCH-X-001': { writersAdded: ['src/new-writer.ts'] } },
+            invariantChanges: {
+                'ARCH-X-001': {
+                    fields: ['writers'],
+                    writersAdded: ['src/new-writer.ts'],
+                    before: FP_BEFORE,
+                    after: FP_AFTER,
+                },
+            },
             invariantsRemoved: [], baselineGrown: [], waiversAdded: [], modulesChanged: true,
         },
     }));
@@ -360,7 +389,9 @@ test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
         baseRecords: [{ path: 'docs/architecture/changes/ARCH-CHANGE-001.md', text: 'x' }],
         policyDelta: {
             mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] },
-            invariantChanges: { 'ARCH-X-001': { writersAdded: ['src/writer.ts'] } },
+            invariantChanges: {
+                'ARCH-X-001': { fields: ['writers'], writersAdded: ['src/writer.ts'] },
+            },
             invariantsRemoved: [],
             baselineGrown: ['2:MOD-A->MOD-B'],
             waiversAdded: ['ARCH-WAIVER-009'],
@@ -441,7 +472,18 @@ test('ARCH-CHANGE-GATE-001 the policy delta covers invariants, baseline, and wai
 
     const report = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
     assert.deepEqual(report.policyDelta.invariantChanges, {
-        'ARCH-TEST-001': { writersAdded: ['src/alpha/b.ts'] },
+        'ARCH-TEST-001': {
+            fields: ['writers'],
+            before: fingerprintFields({ writers: ['src/alpha/a.ts'] }),
+            after: fingerprintFields({ writers: ['src/alpha/a.ts', 'src/alpha/b.ts'] }),
+            writersAdded: ['src/alpha/b.ts'],
+            writersRemoved: [],
+            authorityChanged: false,
+            statementChanged: false,
+            linearizationPointChanged: false,
+            stateFamilyChanged: false,
+            participatingModulesChanged: false,
+        },
     });
     assert.deepEqual(report.policyDelta.waiversAdded, ['ARCH-WAIVER-009']);
     assert.deepEqual(report.policyDelta.baselineGrown, ['2:MOD-A->MOD-B']);
@@ -453,33 +495,41 @@ test('ARCH-CHANGE-GATE-001 the policy delta covers invariants, baseline, and wai
         version: 1,
         invariants: [{ ...invariant, writers: ['src/alpha/coordinator.ts'] }],
     });
+    // Reset the waiver/baseline growth from the first half of this test so
+    // the invariant-only classifications below are not contaminated.
+    write('docs/testing/architecture-waivers.json', { version: 1, waivers: [] });
+    write('.ci/architecture-debt-baseline.json',
+        { version: 1, rules: { 'module-cycle': { fingerprints: [] } } });
     const moved = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
-    assert.deepEqual(moved.policyDelta.invariantChanges, {
-        'ARCH-TEST-001': {
-            writersAdded: ['src/alpha/coordinator.ts'],
-            writersRemoved: ['src/alpha/a.ts'],
-        },
-    }, 'a replaced writer is detected as change, never silently tightening');
+    assert.deepEqual(moved.policyDelta.invariantChanges['ARCH-TEST-001'].writersAdded,
+        ['src/alpha/coordinator.ts']);
+    assert.deepEqual(moved.policyDelta.invariantChanges['ARCH-TEST-001'].writersRemoved,
+        ['src/alpha/a.ts']);
+    assert.equal(
+        classifyArchitectureChange(moved).classification, 'relaxing',
+        'a replaced writer is relaxing, never silently tightening');
     write('docs/testing/architecture-invariants.json', {
         version: 1,
         invariants: [{ ...invariant, writers: [] }],
     });
     const shrunk = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
-    assert.deepEqual(shrunk.policyDelta.invariantChanges, {
-        'ARCH-TEST-001': { writersRemoved: ['src/alpha/a.ts'] },
-    }, 'a pure writer removal is the only tightening form');
+    assert.deepEqual(shrunk.policyDelta.invariantChanges['ARCH-TEST-001'].writersRemoved,
+        ['src/alpha/a.ts']);
+    assert.equal(classifyArchitectureChange(shrunk).classification, 'tightening',
+        'a pure writer removal is the only tightening form');
     // Authority, statement, and removal detection.
     write('docs/testing/architecture-invariants.json', {
         version: 1,
         invariants: [{ ...invariant, authority: { path: 'src/alpha/a.ts', symbol: 'b' } }],
     });
     const authorityMoved = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
-    assert.deepEqual(authorityMoved.policyDelta.invariantChanges, {
-        'ARCH-TEST-001': { authorityChanged: true },
-    });
+    assert.deepEqual(authorityMoved.policyDelta.invariantChanges['ARCH-TEST-001'].fields,
+        ['authority']);
     write('docs/testing/architecture-invariants.json', { version: 1, invariants: [] });
     const removed = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
     assert.deepEqual(removed.policyDelta.invariantsRemoved, ['ARCH-TEST-001']);
+    assert.ok(removed.removedInvariantRecords['ARCH-TEST-001'].authority,
+        'removed invariants keep the base record for the coverage fingerprint');
 });
 
 test('ARCH-CHANGE-GATE-001 the harness delta detects removed guard ids, invocations, and shrunk mutation tests', () => {
@@ -554,6 +604,7 @@ test('ARCH-CHANGE-GATE-001 a self-diff against HEAD is a clean product-only repo
 
 const {
     coversPolicyDelta,
+    fingerprintFields,
     parseArchitectureChangeRecord,
 } = require('../../../scripts/architecture/architectureChangeRecords');
 
@@ -595,8 +646,8 @@ test('ARCH-CHANGE-GATE-001 parser accepts a valid machine-summary block and appl
     assert.deepEqual(record.modules, ['MOD-A']);
     assert.deepEqual(record.delta, {
         mayDependOnGrown: {}, entrypointsGrown: {}, baselineGrown: [],
-        waiversAdded: [], invariantChanges: [], ledgerRegressions: [],
-        rePartition: false, harnessWeakening: false,
+        waiversAdded: [], invariantChanges: [], ledgerRegressions: [], fileMoves: [],
+        rePartition: false, harnessWeakening: false, guardSemantics: false,
     });
 });
 
@@ -649,14 +700,16 @@ test('ARCH-CHANGE-GATE-001 a covering record in the base authorizes the relaxati
     assert.deepEqual(result.errors, []);
 });
 
-test('ARCH-CHANGE-GATE-001 subset semantics: a record declaring a superset covers the realized delta', () => {
+test('ARCH-CHANGE-GATE-001 controlled mutation: a record declaring a superset fails (exact equality, round-2 Blocker 3)', () => {
     const result = classifyArchitectureChange(relaxingReport({
         baseRecords: [{
             path: RECORD_PATH,
             text: recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-A': ['MOD-B', 'MOD-C'] } } }),
         }],
     }));
-    assert.deepEqual(result.errors, []);
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.length > 0,
+        'a declared superset authorizes more than the owner reviewed — exact equality only');
 });
 
 test('ARCH-CHANGE-GATE-001 controlled mutation: an under-declaring record fails and names the uncovered delta', () => {
@@ -667,7 +720,23 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: an under-declaring record fails 
         }],
     }));
     assert.equal(result.classification, 'relaxing');
-    assert.ok(result.errors.some(error => error.includes('MOD-A += MOD-B')), JSON.stringify(result.errors));
+    assert.ok(result.errors.some(error => error.includes('MOD-A')
+        && error.includes('MOD-B')), JSON.stringify(result.errors));
+});
+
+test('ARCH-CHANGE-GATE-001 controlled mutation: a record whose module scope misses a touched module fails (round-2 Blocker 3)', () => {
+    const result = classifyArchitectureChange(relaxingReport({
+        baseRecords: [{
+            path: RECORD_PATH,
+            text: recordMarkdown({
+                modules: ['MOD-ELSEWHERE'],
+                delta: { mayDependOnGrown: { 'MOD-A': ['MOD-B'] } },
+            }),
+        }],
+    }));
+    assert.equal(result.classification, 'relaxing');
+    assert.ok(result.errors.some(error => error.includes('MOD-A')
+        && error.includes('modules scope')), JSON.stringify(result.errors));
 });
 
 test('ARCH-CHANGE-GATE-001 a re-partition requires a record declaring rePartition', () => {
@@ -710,43 +779,87 @@ test('ARCH-CHANGE-GATE-001 controlled mutation: a same-PR record fails even when
     assert.ok(result.errors.some(error => error.includes('same PR')), JSON.stringify(result.errors));
 });
 
-test('ARCH-CHANGE-GATE-001 coversPolicyDelta checks every delta dimension', () => {
+test('ARCH-CHANGE-GATE-001 coversPolicyDelta checks every delta dimension (exact equality)', () => {
     const record = parseArchitectureChangeRecord({
         path: RECORD_PATH,
         text: recordMarkdown({
+            modules: ['MOD-A', 'MOD-B'],
             delta: {
                 mayDependOnGrown: { 'MOD-A': ['MOD-B'] },
-                invariantChanges: ['ARCH-X-001'],
+                entrypointsGrown: { 'MOD-A': ['src/a/entry.ts'] },
                 baselineGrown: ['2:MOD-A->MOD-B'],
                 waiversAdded: ['ARCH-WAIVER-009'],
+                ledgerRegressions: ['MOD-A: strict -> migrating'],
+                invariantChanges: [{
+                    id: 'ARCH-X-001', fields: ['authority'],
+                    before: FP_BEFORE, after: FP_AFTER,
+                }],
+                fileMoves: [{ path: 'src/a/moved.ts', from: 'MOD-A', to: 'MOD-B' }],
                 rePartition: true,
                 harnessWeakening: true,
             },
         }),
     }).record;
-    const actualFor = (overrides, relaxingInvariantIds = []) => ({
+    const actualFor = (deltaOverrides = {}, overrides = {}) => ({
         policyDelta: {
-            mayDependOnGrown: {}, invariantChanges: {}, invariantsRemoved: [], baselineGrown: [],
-            waiversAdded: [], modulesChanged: true,
-            ...overrides,
+            mayDependOnGrown: {}, entrypointsGrown: {}, invariantChanges: {}, invariantsRemoved: [],
+            baselineGrown: [], waiversAdded: [], ledgerRegressions: [], modulesChanged: true,
+            ...deltaOverrides,
         },
         harnessWeakened: false,
         rePartition: false,
-        relaxingInvariantIds,
+        invariantChanges: [],
+        fileMoves: [],
+        touchedModules: [],
+        ...overrides,
     });
-    assert.equal(coversPolicyDelta(record, actualFor({ mayDependOnGrown: { 'MOD-A': ['MOD-B'] } })).covered, true);
-    assert.equal(coversPolicyDelta(record, actualFor({ mayDependOnGrown: { 'MOD-A': ['MOD-Z'] } })).covered, false);
-    assert.equal(coversPolicyDelta(record, actualFor({}, ['ARCH-X-001'])).covered, true);
-    assert.equal(coversPolicyDelta(record, actualFor({}, ['ARCH-X-002'])).covered, false);
-    assert.equal(coversPolicyDelta(record, actualFor({ baselineGrown: ['2:MOD-X->MOD-Y'] })).covered, false);
-    assert.equal(coversPolicyDelta(record, actualFor({ waiversAdded: ['ARCH-WAIVER-010'] })).covered, false);
-    assert.equal(coversPolicyDelta(record, { ...actualFor({}), rePartition: false }).covered, true);
-    assert.equal(coversPolicyDelta(
-        parseArchitectureChangeRecord({ path: RECORD_PATH, text: recordMarkdown() }).record,
-        { ...actualFor({}), rePartition: true }).covered, false);
+    const fullActual = actualFor({
+        mayDependOnGrown: { 'MOD-A': ['MOD-B'] },
+        entrypointsGrown: { 'MOD-A': ['src/a/entry.ts'] },
+        baselineGrown: ['2:MOD-A->MOD-B'],
+        waiversAdded: ['ARCH-WAIVER-009'],
+        ledgerRegressions: ['MOD-A: strict -> migrating'],
+    }, {
+        harnessWeakened: true,
+        rePartition: true,
+        invariantChanges: [{
+            id: 'ARCH-X-001', fields: ['authority'], before: FP_BEFORE, after: FP_AFTER,
+        }],
+        fileMoves: [{ path: 'src/a/moved.ts', from: 'MOD-A', to: 'MOD-B' }],
+        touchedModules: ['MOD-A', 'MOD-B'],
+    });
+    assert.equal(coversPolicyDelta(record, fullActual).covered, true);
+    // Each dimension independently uncovered when missing from the record.
+    assert.equal(coversPolicyDelta(record, actualFor({
+        mayDependOnGrown: { 'MOD-A': ['MOD-B'] },
+    })).covered, false, 'partial actual never matches a fuller declaration');
+    assert.equal(coversPolicyDelta(record, actualFor({
+        baselineGrown: ['2:MOD-A->MOD-B'],
+    })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({
+        ledgerRegressions: ['MOD-A: strict -> migrating'],
+    })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({ waiversAdded: ['ARCH-WAIVER-009'] })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({}, {
+        invariantChanges: [{ id: 'ARCH-X-001', fields: ['authority'], before: FP_BEFORE, after: FP_AFTER }],
+    })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({}, {
+        invariantChanges: [{ id: 'ARCH-X-001', fields: ['writers'], before: FP_BEFORE, after: FP_AFTER }],
+    })).covered, false, 'field list mismatch');
+    assert.equal(coversPolicyDelta(record, actualFor({}, {
+        invariantChanges: [{ id: 'ARCH-X-001', fields: ['authority'], before: FP_AFTER, after: FP_BEFORE }],
+    })).covered, false, 'fingerprint mismatch');
+    assert.equal(coversPolicyDelta(record, actualFor({}, {
+        fileMoves: [{ path: 'src/a/moved.ts', from: 'MOD-A', to: 'MOD-B' }],
+    })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({}, { rePartition: true })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({}, { harnessWeakened: true })).covered, false);
+    assert.equal(coversPolicyDelta(record, actualFor({}, {
+        touchedModules: ['MOD-ELSEWHERE'],
+    })).covered, false, 'touched module outside the record scope');
 });
 
-test('ARCH-CHANGE-GATE-001 an invariant semantic change is covered only by a declared invariantChanges entry (review R9)', () => {
+test('ARCH-CHANGE-GATE-001 an invariant semantic change is covered only by an exact declared entry (review R9 + round-2 Blocker 3)', () => {
     const invariantReport = (change, recordDelta) => classifyArchitectureChange(report({
         protectedTouched: ['docs/testing/architecture-invariants.json'],
         policyDelta: {
@@ -757,12 +870,24 @@ test('ARCH-CHANGE-GATE-001 an invariant semantic change is covered only by a dec
         },
         baseRecords: [{ path: RECORD_PATH, text: recordMarkdown({ delta: recordDelta }) }],
     }));
-    const covered = invariantReport({ authorityChanged: true }, { invariantChanges: ['ARCH-X-001'] });
-    assert.deepEqual(covered.errors, []);
-    const uncovered = invariantReport({ authorityChanged: true }, { invariantChanges: ['ARCH-X-002'] });
-    assert.ok(uncovered.errors.some(error => error.includes('invariant changed: ARCH-X-001')),
-        JSON.stringify(uncovered.errors));
-    const undeclared = invariantReport({ authorityChanged: true }, {});
+    const change = {
+        fields: ['authority'], authorityChanged: true,
+        writersAdded: [], writersRemoved: [],
+        before: FP_BEFORE, after: FP_AFTER,
+    };
+    const covered = invariantReport(change, {
+        invariantChanges: [{
+            id: 'ARCH-X-001', fields: ['authority'], before: FP_BEFORE, after: FP_AFTER,
+        }],
+    });
+    assert.deepEqual(covered.errors, [], JSON.stringify(covered.errors));
+    const wrongFingerprint = invariantReport(change, {
+        invariantChanges: [{
+            id: 'ARCH-X-001', fields: ['authority'], before: FP_AFTER, after: FP_BEFORE,
+        }],
+    });
+    assert.ok(wrongFingerprint.errors.length > 0);
+    const undeclared = invariantReport(change, {});
     assert.ok(undeclared.errors.length > 0);
 });
 
@@ -797,7 +922,10 @@ test('ARCH-CHANGE-GATE-001 collectArchitectureDiff reads records from the base r
         version: 1, scope: { roots: ['src'] },
         modules: [{ ...moduleEntry, mayDependOn: [] }, betaEntry],
     };
-    const coveringRecord = recordMarkdown({ delta: { mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] } } });
+    const coveringRecord = recordMarkdown({
+        modules: ['MOD-ALPHA'],
+        delta: { mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] } },
+    });
     const git = fakeGit(root, {
         changed: [{ status: 'M', path: 'docs/testing/architecture-modules.json' }],
         atBase: {
@@ -988,4 +1116,25 @@ test('ARCH-CHANGE-GATE-001 formatReport renders entrypoint and ledger sections',
     });
     assert.ok(text.includes('entrypoints broadened: MOD-A += src/a/entry.ts'));
     assert.ok(text.includes('ledger regression: MOD-A: strict -> migrating'));
+});
+
+
+// ── round-2 review Blocker 3: the record-authoring describer ─────────
+
+test('ARCH-CHANGE-GATE-001 describeArchitectureChange prints a record-ready exact delta', () => {
+    const { describeArchitectureChange } = require('../../../scripts/architecture/describeArchitectureChange');
+    const { classification, delta, touchedModules } = describeArchitectureChange(repoRoot, 'HEAD');
+    assert.equal(classification, 'product-only');
+    assert.deepEqual(delta, {
+        mayDependOnGrown: {},
+        entrypointsGrown: {},
+        baselineGrown: [],
+        waiversAdded: [],
+        ledgerRegressions: [],
+        invariantChanges: [],
+        fileMoves: [],
+        rePartition: false,
+        harnessWeakening: false,
+    });
+    assert.deepEqual(touchedModules, []);
 });

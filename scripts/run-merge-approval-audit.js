@@ -5,14 +5,18 @@
 // merge time; this audit is the backstop that the marker exists at all, so
 // protection changes or bypasses surface as a red main branch.
 
-const { isApprovalComment, mergeRequiresApproval } = require('./lib/mergeApprovals');
+const { approvalBoundSha, isApprovalComment, mergeRequiresApproval } = require('./lib/mergeApprovals');
 
 const RECENT_MERGES_TO_AUDIT = 5;
+// The merged head's tree decides the rule: presence of approvalBoundSha in
+// scripts/lib/mergeApprovals.js means the merge was gated by the SHA-bound
+// gate (round-2 review Blocker 2), so the approval must bind the merged head.
+const SHA_BINDING_MARKER = 'approvalBoundSha';
 
-async function api(token, resource) {
+async function api(token, resource, options = {}) {
     const response = await fetch(`https://api.github.com${resource}`, {
         headers: {
-            Accept: 'application/vnd.github+json',
+            Accept: options.raw ? 'application/vnd.github.raw' : 'application/vnd.github+json',
             Authorization: `Bearer ${token}`,
             'X-GitHub-Api-Version': '2022-11-28',
         },
@@ -20,7 +24,28 @@ async function api(token, resource) {
     if (!response.ok) {
         throw new Error(`GET ${resource} failed: ${response.status} ${await response.text()}`);
     }
-    return response.json();
+    return options.raw ? response.text() : response.json();
+}
+
+/** The head SHA a merge commit pulled in: the merge commit's second parent. */
+async function mergedHeadSha(token, repo, mergeCommitSha) {
+    const commit = await api(token, `/repos/${repo}/commits/${mergeCommitSha}`);
+    const parents = commit.parents || [];
+    return parents.length > 1 ? parents[1].sha : null;
+}
+
+/** Whether the merged tree carries the SHA-binding gate. */
+async function treeHasShaBinding(token, repo, ref) {
+    try {
+        const content = await api(
+            token,
+            `/repos/${repo}/contents/scripts/lib/mergeApprovals.js?ref=${ref}`,
+            { raw: true },
+        );
+        return content.includes(SHA_BINDING_MARKER);
+    } catch {
+        return false;
+    }
 }
 
 async function main() {
@@ -46,13 +71,21 @@ async function main() {
     const violations = [];
     for (const pr of merged) {
         const comments = await api(token, `/repos/${repo}/issues/${pr.number}/comments?per_page=100`);
-        const approved = comments.some(comment =>
-            String(comment?.user?.login || '').toLowerCase() === ownerLogin
-            && isApprovalComment(comment.body));
+        const headSha = await mergedHeadSha(token, repo, pr.merge_commit_sha);
+        const shaBound = headSha ? await treeHasShaBinding(token, repo, headSha) : false;
+        const approved = comments.some(comment => {
+            if (String(comment?.user?.login || '').toLowerCase() !== ownerLogin) { return false; }
+            if (shaBound) {
+                return headSha !== null && approvalBoundSha(comment.body) === headSha.toLowerCase();
+            }
+            return isApprovalComment(comment.body);
+        });
         if (!approved) {
-            violations.push(`#${pr.number} (${pr.title}) merged at ${pr.merged_at} without an owner approval comment`);
+            violations.push(`#${pr.number} (${pr.title}) merged at ${pr.merged_at} without `
+                + (shaBound ? `an owner approval bound to the merged head ${headSha}`
+                    : 'an owner approval comment'));
         } else {
-            console.log(`#${pr.number}: approval marker present`);
+            console.log(`#${pr.number}: approval marker present${shaBound ? ' (SHA-bound)' : ''}`);
         }
     }
     if (violations.length) {

@@ -1,13 +1,19 @@
 'use strict';
 
 // Merge approval gate logic. The gate is a mechanical merge-time block: a PR
-// may only merge once the repository owner has left an approval comment newer
-// than the latest head commit. The audit is the post-merge backstop that the
-// marker exists at all.
+// may only merge once the repository owner has left an approval comment that
+// names the full head SHA — `approve <full-sha>` (round-2 review Blocker 2:
+// committer timestamps are author-controlled, so approval binds the exact
+// head and never the clock). The audit is the post-merge backstop that the
+// SHA-bound marker exists at all.
 
-// First-word approval markers. "mergeable" or a mid-sentence "merge" must not
-// qualify; CJK markers need no word boundary.
-const MERGE_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)(?![A-Za-z])/i;
+// The binding form: a first-word marker, then the full 40-hex head SHA.
+const MERGE_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)\s+([0-9a-f]{40})\s*$/i;
+
+// Legacy free-form markers, recognized only to explain the failure and for
+// merges that predate the SHA binding (the audit switches per merge by
+// content marker, not by date).
+const LEGACY_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)(?![A-Za-z])/i;
 
 // Merges before this date predate the gate and are exempt from the audit
 // (they were approved in conversation under the previous rules). The cutoff
@@ -16,30 +22,47 @@ const MERGE_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)(?!
 // the approval comment the gate introduced.
 const MERGE_APPROVAL_REQUIRED_SINCE = '2026-08-05T02:06:00Z';
 
-function isApprovalComment(body) {
-    return MERGE_APPROVAL_PATTERN.test(String(body || ''));
+/** The full head SHA an approval comment binds, or null. */
+function approvalBoundSha(body) {
+    const match = MERGE_APPROVAL_PATTERN.exec(String(body || ''));
+    return match ? match[1].toLowerCase() : null;
 }
 
-/**
- * Latest qualifying approval comment, or null. Only comments authored by
- * authorLogin (case-insensitive) and created at or after sinceMs qualify.
- */
+/** Legacy free-form marker (no SHA binding). */
+function isApprovalComment(body) {
+    return LEGACY_APPROVAL_PATTERN.test(String(body || ''));
+}
+
+/** Latest owner comment that binds expectedSha, or null. */
 function findApprovalComment(comments, options) {
     const authorLogin = String(options.authorLogin || '').toLowerCase();
-    const sinceMs = options.sinceMs ?? 0;
+    const expectedSha = String(options.headSha || '').toLowerCase();
     let latest = null;
     for (const comment of comments || []) {
         if (!comment || String(comment?.user?.login || '').toLowerCase() !== authorLogin) {
             continue;
         }
+        if (approvalBoundSha(comment.body) !== expectedSha) {
+            continue;
+        }
+        if (!latest || Date.parse(comment.created_at || '') > Date.parse(latest.created_at || '')) {
+            latest = comment;
+        }
+    }
+    return latest;
+}
+
+function findLegacyApprovalComment(comments, authorLogin) {
+    const owner = String(authorLogin || '').toLowerCase();
+    let latest = null;
+    for (const comment of comments || []) {
+        if (!comment || String(comment?.user?.login || '').toLowerCase() !== owner) {
+            continue;
+        }
         if (!isApprovalComment(comment.body)) {
             continue;
         }
-        const createdAtMs = Date.parse(comment.created_at || '');
-        if (!Number.isFinite(createdAtMs) || createdAtMs < sinceMs) {
-            continue;
-        }
-        if (!latest || createdAtMs > Date.parse(latest.created_at)) {
+        if (!latest || Date.parse(comment.created_at || '') > Date.parse(latest.created_at || '')) {
             latest = comment;
         }
     }
@@ -47,26 +70,36 @@ function findApprovalComment(comments, options) {
 }
 
 /**
- * Gate verdict for a PR head: an owner approval comment must be newer than
- * the head commit, so pushing new commits invalidates earlier approvals.
+ * Gate verdict for a PR head: an owner approval comment must bind the exact
+ * full head SHA (`approve <sha>`), so pushing new commits invalidates earlier
+ * approvals — and backdating a commit cannot launder a stale one.
  */
 function evaluateMergeApproval(options) {
+    const headSha = String(options.headSha || '').toLowerCase();
     const comment = findApprovalComment(options.comments, {
         authorLogin: options.authorLogin,
-        sinceMs: options.headCommittedAtMs,
+        headSha,
     });
     if (comment) {
-        return { approved: true, reason: 'approved by owner comment', commentUrl: comment.html_url || '' };
+        return {
+            approved: true,
+            reason: `approved by owner comment bound to ${headSha}`,
+            commentUrl: comment.html_url || '',
+        };
     }
-    const anyApproval = findApprovalComment(options.comments, { authorLogin: options.authorLogin });
-    if (anyApproval) {
+    const legacy = findLegacyApprovalComment(options.comments, options.authorLogin);
+    if (legacy) {
         return {
             approved: false,
-            reason: 'the approval predates the latest commit; re-approve the current head',
+            reason: `the approval does not bind the current head — comment 'approve ${headSha}'`,
             commentUrl: '',
         };
     }
-    return { approved: false, reason: 'no owner approval comment', commentUrl: '' };
+    return {
+        approved: false,
+        reason: `no owner approval comment — comment 'approve ${headSha}'`,
+        commentUrl: '',
+    };
 }
 
 /** Audit predicate: merges at or after the activation date must be approved. */
@@ -81,6 +114,7 @@ function mergeRequiresApproval(mergedAt) {
 module.exports = {
     MERGE_APPROVAL_PATTERN,
     MERGE_APPROVAL_REQUIRED_SINCE,
+    approvalBoundSha,
     isApprovalComment,
     findApprovalComment,
     evaluateMergeApproval,

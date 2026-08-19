@@ -114,14 +114,14 @@ async function main() {
     if (!headSha) {
         throw new Error(`PR #${prNumber} has no head sha`);
     }
-    const headCommit = await api(token, 'GET', `/repos/${repo}/commits/${headSha}`);
-    const headCommittedAtMs = Date.parse(headCommit.commit?.committer?.date || '');
 
     const comments = await listAllComments(token, repo, prNumber);
+    // Round-2 review Blocker 2: approval binds the exact head SHA, never the
+    // committer clock — backdating a commit cannot launder a stale approval.
     const verdict = evaluateMergeApproval({
         comments,
         authorLogin: ownerLogin,
-        headCommittedAtMs,
+        headSha,
     });
 
     // Review R4 (charter 8.10): the PR body declaration is compared with the

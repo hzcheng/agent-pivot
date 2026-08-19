@@ -1,12 +1,17 @@
 'use strict';
 
 // Posts the `merge-approval` commit status on a PR head after evaluating the
-// owner approval comment. Runs from the merge-approval-gate workflow on
-// pull_request and issue_comment events. Fail-closed: unexpected errors post
-// a failure status and exit non-zero, so a broken gate blocks merges loudly
-// instead of silently opening them.
+// owner approval comment and the change-impact declaration. Runs from the
+// merge-approval-gate workflow on pull_request_target and issue_comment
+// events: the workflow file and this script always come from the default
+// branch, and the PR head is only ever read as data (round-2 review
+// Blocker 1 — a PR must not approve itself by editing the gate). Fail-closed:
+// unexpected errors exit non-zero without posting, so a broken gate blocks
+// merges loudly instead of silently opening them.
 
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { evaluateMergeApproval } = require('./lib/mergeApprovals');
 const { evaluateChangeImpactDeclaration } = require('./lib/changeImpactDeclaration');
@@ -70,8 +75,11 @@ function git(args) {
 }
 
 /**
- * Fetch the PR head and base, check out the exact head being evaluated, and
- * compare the PR body declaration with the regenerated impact report.
+ * Evaluate the PR body declaration against the regenerated impact report for
+ * the exact head — without ever executing head code (round-2 review
+ * Blocker 1). The head tree is materialized as a detached, read-only git
+ * worktree used purely as data; the evaluator code itself comes from the
+ * default-branch checkout (the workflow runs on pull_request_target).
  */
 function evaluateDeclarationForPullRequest({ pullRequest, prNumber }) {
     const baseRefName = pullRequest.base?.ref;
@@ -80,19 +88,24 @@ function evaluateDeclarationForPullRequest({ pullRequest, prNumber }) {
         return ['PR is missing base/head information for the declaration check'];
     }
     git(['fetch', 'origin', baseRefName, `pull/${prNumber}/head`]);
-    git(['-c', 'advice.detachedHead=false', 'checkout', headSha]);
-    const context = collectChangeImpactContext({
-        rootDirectory: process.cwd(),
-        baseRef: `origin/${baseRefName}`,
-    });
-    const { errors } = evaluateChangeImpactDeclaration({
-        body: pullRequest.body || '',
-        headSha,
-        classification: context.classification,
-        report: context.report,
-        assignedCapabilities: context.assignedCapabilities,
-    });
-    return [...context.errors, ...errors];
+    const worktreeDir = path.join(os.tmpdir(), `gate-head-${process.pid}`);
+    try {
+        git(['worktree', 'add', '--detach', worktreeDir, headSha]);
+        const context = collectChangeImpactContext({
+            rootDirectory: worktreeDir,
+            baseRef: `origin/${baseRefName}`,
+        });
+        const { errors } = evaluateChangeImpactDeclaration({
+            body: pullRequest.body || '',
+            headSha,
+            classification: context.classification,
+            report: context.report,
+            assignedCapabilities: context.assignedCapabilities,
+        });
+        return [...context.errors, ...errors];
+    } finally {
+        git(['worktree', 'remove', '--force', worktreeDir]);
+    }
 }
 
 async function main() {

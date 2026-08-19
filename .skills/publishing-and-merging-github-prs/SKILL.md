@@ -52,10 +52,9 @@ after every GitHub write.
    ready-to-copy commands bound to the exact head SHA — one fenced line
    `approve-architecture <full-head-sha>` and one fenced line
    `approve <full-head-sha>` — so the owner never reconstructs them by hand.
-   Post each as a SEPARATE comment: the merge-approval gate and the trusted
-   kernel match whole comment bodies, not lines inside a combined comment.
-   Regenerate the section whenever the head moves (same rule as the
-   change-impact declaration); CI enforces it via
+   Approval markers match per comment line, so the owner may post both
+   commands in one comment. Regenerate the section whenever the head moves
+   (same rule as the architecture impact report); CI enforces it via
    `scripts/check-pr-body.js` (ARCH-PR-OWNER-APPROVALS-001). Because the
    quality lane's event payload captures the body at trigger time, edit the
    PR body BEFORE pushing the head it names whenever the PR already exists.

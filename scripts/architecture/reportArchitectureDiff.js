@@ -17,11 +17,7 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 const { loadArchitecturePolicy } = require('./loadArchitecturePolicy');
 const { compileGlob } = require('./loadArchitecturePolicy');
-const {
-    ARCH_CHANGE_RECORD_PATTERN,
-    RECORDS_DIRECTORY,
-    fingerprintFields,
-} = require('./architectureChangeRecords');
+const { fingerprintFields } = require('./architectureChangeRecords');
 
 const PROTECTED_POLICY_PATHS = [
     'docs/testing/architecture-modules.json',
@@ -46,18 +42,14 @@ const PROTECTED_HARNESS_FILES = [
     'scripts/run-architecture-guards.js',
     'scripts/lib/ciContracts.js',
     'package.json',
-    // The merge-approval gate and the Change Impact Declaration machinery
-    // (review R4): the last enforcement line must not be weakenable by an
-    // ordinary product change.
+    // The merge-approval gate machinery (review R4): the last enforcement
+    // line must not be weakenable by an ordinary product change.
     'scripts/run-merge-approval-gate.js',
     'scripts/run-merge-approval-audit.js',
     'scripts/lib/mergeApprovals.js',
-    'scripts/lib/changeImpactDeclaration.js',
     'scripts/lib/changeImpactContext.js',
-    'scripts/generate-change-impact-declaration.js',
     'tests/unit/tooling/mergeApprovals.test.js',
     'tests/unit/tooling/mergeApprovalGate.test.js',
-    'tests/unit/tooling/changeImpactDeclaration.test.js',
 ];
 
 function isHarnessPath(file) {
@@ -179,13 +171,9 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
     const policy = loadArchitecturePolicy(rootDirectory);
     const changed = git.changedFiles(baseRef);
 
-    // Architecture Change records that already exist in the base (review R3):
-    // only these can authorize a relaxation; records added by this change
-    // never count.
-    const baseRecords = git.listFiles(baseRef, RECORDS_DIRECTORY)
-        .filter(recordPath => ARCH_CHANGE_RECORD_PATTERN.test(recordPath))
-        .map(recordPath => ({ path: recordPath, text: git.fileAt(baseRef, recordPath) }))
-        .filter(record => record.text !== null);
+    // Architecture Change records are historical ADRs (Harness
+    // Simplification PR 3/6): nothing consumes them anymore, so the diff no
+    // longer collects them.
 
     const touchedModules = new Map();
     const newFiles = [];
@@ -456,7 +444,6 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         changedInvariantIds: changedInvariantIds.sort(),
         changedInvariantModules: [...new Set(changedInvariantModules)].sort(),
         removedInvariantRecords,
-        baseRecords,
     };
 }
 
@@ -473,9 +460,6 @@ function formatReport(report) {
     }
     if (report.protectedTouched.length > 0) {
         lines.push(`  protected policy files: ${report.protectedTouched.join(', ')}`);
-    }
-    if (report.baseRecords) {
-        lines.push(`  architecture change records in base: ${report.baseRecords.length}`);
     }
     const grown = Object.entries(report.policyDelta.mayDependOnGrown);
     for (const [id, edges] of grown) {

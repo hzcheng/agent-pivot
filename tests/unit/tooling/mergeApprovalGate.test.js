@@ -78,37 +78,59 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 audits recent merges on main pushes', () =
 });
 
 
-test('ARCH-PR-CHANGE-IMPACT-GATE-001 wires the declaration check into the gate (review R4)', () => {
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of gating on a body declaration (PR 4/6)', () => {
     const workflow = loadWorkflow('merge-approval-gate.yml');
     assert.ok(workflow.on.pull_request_target.types.includes('edited'),
-        'body edits re-evaluate the head-bound declaration');
+        'body edits re-evaluate the head');
     const gate = workflow.jobs.gate;
     assert.ok(gate['timeout-minutes'] >= 10, 'full-history checkout and regeneration need budget');
     const checkout = gate.steps.find(step => step.uses && step.uses.startsWith('actions/checkout'));
     assert.ok(checkout && checkout.with && checkout.with['fetch-depth'] === 0,
         'the gate regenerates the impact report and needs full history');
+    assert.strictEqual(workflow.permissions.issues, 'write',
+        'the gate creates/updates the standing impact-report comment');
 
     const script = fs.readFileSync(
         path.join(repositoryRoot, 'scripts', 'run-merge-approval-gate.js'), 'utf8');
-    assert.match(script, /evaluateChangeImpactDeclaration/,
-        'the gate compares the PR body declaration with the regenerated truth');
+    assert.ok(!/evaluateChangeImpactDeclaration/.test(script),
+        'the AI-authored change-impact declaration is no longer evaluated (PR 4/6)');
     assert.match(script, /collectChangeImpactContext/,
         'the gate regenerates the impact report for the PR head');
+    assert.match(script, /upsertReportComment/,
+        'the gate posts the report as a standing PR comment for owner review');
+    assert.match(script, /architecture-impact-report/,
+        'the standing comment carries a stable marker for upserts');
     assert.match(script, /pull\/\$\{prNumber\}\/head/,
         'the gate fetches and checks out the exact PR head');
 
-    // The declaration machinery sits on the protected harness surface (R2
-    // surface extended in R4): weakening it is never product-only.
+    // The remaining gate machinery stays on the protected harness surface:
+    // weakening it is never product-only.
     const surface = fs.readFileSync(
         path.join(repositoryRoot, 'scripts', 'architecture', 'reportArchitectureDiff.js'), 'utf8');
     for (const protectedFile of [
         'scripts/run-merge-approval-gate.js',
         'scripts/lib/mergeApprovals.js',
-        'scripts/lib/changeImpactDeclaration.js',
         'scripts/lib/changeImpactContext.js',
-        'scripts/generate-change-impact-declaration.js',
-        'tests/unit/tooling/changeImpactDeclaration.test.js',
+        'tests/unit/tooling/mergeApprovalGate.test.js',
     ]) {
         assert.ok(surface.includes(`'${protectedFile}'`), `${protectedFile} must be protected`);
     }
+    assert.ok(!surface.includes(`'scripts/lib/changeImpactDeclaration.js'`),
+        'the deleted declaration evaluator left the protected surface');
+});
+
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 approval markers match per line (PR 4/6)', () => {
+    // The owner may post both approval commands in one comment; every gate
+    // evaluates comment bodies line by line.
+    const lib = fs.readFileSync(
+        path.join(repositoryRoot, 'scripts', 'lib', 'mergeApprovals.js'), 'utf8');
+    assert.match(lib, /split\('\\n'\)/, 'approval matching splits comment bodies into lines');
+    const { evaluateMergeApproval, findArchitectureApprovalComment } =
+        require(path.join(repositoryRoot, 'scripts', 'lib', 'mergeApprovals.js'));
+    const head = 'a'.repeat(40);
+    const combined = [{ user: { login: 'hzcheng' }, body: `approve-architecture ${head}\r\napprove ${head}`, created_at: '2026-08-19T00:00:00Z' }];
+    assert.equal(evaluateMergeApproval({ comments: combined, authorLogin: 'hzcheng', headSha: head }).approved, true,
+        'a combined comment binds the merge approval');
+    assert.ok(findArchitectureApprovalComment(combined, { authorLogin: 'hzcheng', headSha: head }),
+        'a combined comment binds the architecture approval');
 });

@@ -19,7 +19,6 @@ const {
 } = require('../../../scripts/architecture/checkArchitectureChange');
 const {
     fingerprintFields,
-    parseArchitectureChangeRecord,
 } = require('../../../scripts/architecture/architectureChangeRecords');
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
@@ -390,7 +389,6 @@ test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
         newFiles: ['src/alpha/new.ts'],
         removedFiles: ['src/alpha/old.ts'],
         protectedTouched: ['docs/testing/architecture-modules.json'],
-        baseRecords: [{ path: 'docs/architecture/changes/ARCH-CHANGE-001.md', text: 'x' }],
         policyDelta: {
             mayDependOnGrown: { 'MOD-ALPHA': ['MOD-BETA'] },
             invariantChanges: {
@@ -407,7 +405,6 @@ test('ARCH-CHANGE-GATE-001 formatReport renders every delta section', () => {
         'architecture-modules.json', 'mayDependOn broadened: MOD-ALPHA += MOD-BETA',
         'invariant changed: ARCH-X-001 (writers += src/writer.ts)',
         'baseline grew: 2:MOD-A->MOD-B', 'waivers added: ARCH-WAIVER-009',
-        'architecture change records in base: 1',
     ]) {
         assert.ok(text.includes(fragment), fragment);
     }

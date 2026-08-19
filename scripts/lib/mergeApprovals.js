@@ -6,6 +6,10 @@
 // committer timestamps are author-controlled, so approval binds the exact
 // head and never the clock). The audit is the post-merge backstop that the
 // SHA-bound marker exists at all.
+//
+// Approval markers are matched per line: one comment may carry several
+// commands (e.g. `approve <sha>` and `approve-architecture <sha>` together),
+// and a command line works anywhere in the comment body.
 
 // The binding form: a first-word marker, then the full 40-hex head SHA.
 const MERGE_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)\s+([0-9a-f]{40})\s*$/i;
@@ -29,21 +33,40 @@ const LEGACY_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)(?
 // the approval comment the gate introduced.
 const MERGE_APPROVAL_REQUIRED_SINCE = '2026-08-05T02:06:00Z';
 
-/** The full head SHA an approval comment binds, or null. */
+/**
+ * The full head SHA an approval comment binds, or null. A comment may carry
+ * several lines (e.g. both approval commands in one comment); every line is
+ * evaluated independently.
+ */
 function approvalBoundSha(body) {
-    const match = MERGE_APPROVAL_PATTERN.exec(String(body || ''));
-    return match ? match[1].toLowerCase() : null;
+    for (const line of String(body || '').split('\n')) {
+        const match = MERGE_APPROVAL_PATTERN.exec(line);
+        if (match) { return match[1].toLowerCase(); }
+    }
+    return null;
 }
 
-/** Legacy free-form marker (no SHA binding). */
+/** True when any line of the comment binds expectedSha with the pattern. */
+function commentBindsSha(body, pattern, expectedSha) {
+    const expected = String(expectedSha || '').toLowerCase();
+    return String(body || '').split('\n').some(line => {
+        const match = pattern.exec(line);
+        return match !== null && match[1].toLowerCase() === expected;
+    });
+}
+
+/** Legacy free-form marker (no SHA binding), matched per line. */
 function isApprovalComment(body) {
-    return LEGACY_APPROVAL_PATTERN.test(String(body || ''));
+    return String(body || '').split('\n').some(line => LEGACY_APPROVAL_PATTERN.test(line));
 }
 
 /** The full head SHA an architecture approval comment binds, or null. */
 function architectureApprovalBoundSha(body) {
-    const match = ARCHITECTURE_APPROVAL_PATTERN.exec(String(body || ''));
-    return match ? match[1].toLowerCase() : null;
+    for (const line of String(body || '').split('\n')) {
+        const match = ARCHITECTURE_APPROVAL_PATTERN.exec(line);
+        if (match) { return match[1].toLowerCase(); }
+    }
+    return null;
 }
 
 /** Latest owner comment that binds expectedSha, or null. */
@@ -55,7 +78,7 @@ function findApprovalComment(comments, options) {
         if (!comment || String(comment?.user?.login || '').toLowerCase() !== authorLogin) {
             continue;
         }
-        if (approvalBoundSha(comment.body) !== expectedSha) {
+        if (!commentBindsSha(comment.body, MERGE_APPROVAL_PATTERN, expectedSha)) {
             continue;
         }
         if (!latest || Date.parse(comment.created_at || '') > Date.parse(latest.created_at || '')) {
@@ -124,7 +147,7 @@ function findArchitectureApprovalComment(comments, options) {
         if (!comment || String(comment?.user?.login || '').toLowerCase() !== authorLogin) {
             continue;
         }
-        if (architectureApprovalBoundSha(comment.body) !== expectedSha) {
+        if (!commentBindsSha(comment.body, ARCHITECTURE_APPROVAL_PATTERN, expectedSha)) {
             continue;
         }
         if (!latest || Date.parse(comment.created_at || '') > Date.parse(latest.created_at || '')) {
@@ -149,6 +172,7 @@ module.exports = {
     MERGE_APPROVAL_REQUIRED_SINCE,
     approvalBoundSha,
     architectureApprovalBoundSha,
+    commentBindsSha,
     isApprovalComment,
     findApprovalComment,
     findArchitectureApprovalComment,

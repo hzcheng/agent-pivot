@@ -6,8 +6,8 @@
         "strict is validated mechanically by scripts/architecture/checkProgramLedger.js: no baseline fingerprint or waiver naming the module, P0/P1 invariants have behavior owners, single-writer families declare writers, and the module stays classified exact-once.",
         "SCC cluster membership is cluster-level debt and does not block per-module strict (waiver ledger note).",
         "State migration graph (forward-only, one step at a time): legacy -> inventoried -> characterized -> guarded -> migrating -> strict. Skip-states are rejected. Regressions require architecture approval.",
-        "Harness simplification (2026-08-19): all module migrations are paused. The current harness is transitional — trusted kernel, code-structure enforcement, and narrow facades will replace scanners, machine authorization, and parity. See docs/architecture/harness-simplification-decision.md.",
-        "Architecture Change records: transitional enforcement through PR #295. After PR #296 merges, records become historical ADRs only; machine authorization is deleted."
+        "Harness simplification (2026-08-19): all module migrations are paused. The trusted kernel has taken over (required check since PR #296); code-structure enforcement and narrow facades replace scanners. See docs/architecture/harness-simplification-decision.md.",
+        "Architecture Change records are historical ADRs (ARCH-CHANGE-001 through 007 under docs/architecture/changes/). Machine authorization was deleted in PR #296; no future PR may consume them. Relaxing changes are authorized by the owner's approve-architecture <full-head-sha> comment."
     ],
     "states": [
         "legacy",

@@ -16,9 +16,11 @@
 const { execFileSync } = require('child_process');
 const path = require('path');
 const { loadArchitecturePolicy } = require('./loadArchitecturePolicy');
+const { compileGlob } = require('./loadArchitecturePolicy');
 const {
     ARCH_CHANGE_RECORD_PATTERN,
     RECORDS_DIRECTORY,
+    fingerprintFields,
 } = require('./architectureChangeRecords');
 
 const PROTECTED_POLICY_PATHS = [
@@ -111,6 +113,43 @@ function parseJsonOrNull(text) {
     try { return JSON.parse(text); } catch { return null; }
 }
 
+/** Semantic invariant fields tracked by the delta (round-2 review Blocker 3). */
+const INVARIANT_SEMANTIC_FIELDS = [
+    'writers',
+    'authority',
+    'statement',
+    'linearizationPoint',
+    'stateFamily',
+    'participatingModules',
+];
+
+/** Classify one file against a base registry snapshot (exact-once holds there). */
+function classifyFileWithRegistry(registryJson, file) {
+    for (const module of (registryJson && registryJson.modules) || []) {
+        const source = module.source || {};
+        const includes = (source.include || []).map(compileGlob);
+        const excludes = (source.exclude || []).map(compileGlob);
+        if (includes.some(pattern => pattern.test(file))
+            && !excludes.some(pattern => pattern.test(file))) {
+            return module.id;
+        }
+    }
+    return null;
+}
+
+function invariantChangeEntry(baseInvariant, headInvariant) {
+    const changedFields = INVARIANT_SEMANTIC_FIELDS.filter(field =>
+        JSON.stringify(baseInvariant[field]) !== JSON.stringify(headInvariant[field]));
+    if (changedFields.length === 0) { return null; }
+    const pick = invariant => Object.fromEntries(
+        changedFields.map(field => [field, invariant[field]]));
+    return {
+        fields: changedFields,
+        before: fingerprintFields(pick(baseInvariant)),
+        after: fingerprintFields(pick(headInvariant)),
+    };
+}
+
 function indexBy(list, key) {
     const map = new Map();
     for (const entry of list || []) { map.set(entry[key], entry); }
@@ -164,6 +203,22 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
     }
     newClassifiedFiles.sort((a, b) => a.path.localeCompare(b.path));
 
+    // Module re-assignments (round-2 review Blocker 3): when the registry
+    // changed, classify every changed file against the BASE registry and
+    // record moves; each move must be declared in the record's fileMoves.
+    const baseRegistryJson = parseJsonOrNull(git.fileAt(baseRef, 'docs/testing/architecture-modules.json'));
+    const moduleMoves = [];
+    if (baseRegistryJson && JSON.stringify(baseRegistryJson) !== JSON.stringify(
+        parseJsonOrNull(git.fileAt('HEAD', 'docs/testing/architecture-modules.json')))) {
+        for (const entry of changed) {
+            const baseModule = classifyFileWithRegistry(baseRegistryJson, entry.path);
+            const headModule = policy.classification.get(entry.path)?.moduleId || null;
+            if (baseModule && headModule && baseModule !== headModule) {
+                moduleMoves.push({ path: entry.path, from: baseModule, to: headModule });
+            }
+        }
+    }
+
     const policyDelta = {
         mayDependOnGrown: {},
         entrypointsGrown: {},
@@ -175,6 +230,8 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         modulesChanged: false,
     };
     const changedInvariantIds = [];
+    const changedInvariantModules = [];
+    const removedInvariantRecords = {};
     for (const protectedPath of PROTECTED_POLICY_PATHS) {
         const baseText = git.fileAt(baseRef, protectedPath);
         const headText = git.fileAt('HEAD', protectedPath);
@@ -210,44 +267,35 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
                     changedInvariantIds.push(id);
                     continue;
                 }
-                const baseJsonText = JSON.stringify(baseInvariant);
-                if (baseJsonText === JSON.stringify(headInvariant)) { continue; }
+                const entry = invariantChangeEntry(baseInvariant, headInvariant);
+                if (!entry) { continue; }
                 changedInvariantIds.push(id);
-                // Review R9 (Important 4): every semantic field of an
-                // invariant is diffed separately. Only a pure writer removal
-                // with an unchanged authority is a tightening; a same-size
-                // writer replacement, an authority move, or a statement,
-                // linearization-point, or state-family change is a semantic
-                // architecture change and requires a record.
-                const change = {};
-                const writers = diffStringSets(
-                    baseInvariant.writers || [], headInvariant.writers || []);
-                if (writers.added.length > 0) { change.writersAdded = writers.added; }
-                if (writers.removed.length > 0) { change.writersRemoved = writers.removed; }
-                if (JSON.stringify(baseInvariant.authority)
-                    !== JSON.stringify(headInvariant.authority)) {
-                    change.authorityChanged = true;
-                }
-                if (baseInvariant.statement !== headInvariant.statement) {
-                    change.statementChanged = true;
-                }
-                if (baseInvariant.linearizationPoint !== headInvariant.linearizationPoint) {
-                    change.linearizationPointChanged = true;
-                }
-                if (JSON.stringify(baseInvariant.stateFamily)
-                    !== JSON.stringify(headInvariant.stateFamily)) {
-                    change.stateFamilyChanged = true;
-                }
-                if (JSON.stringify(baseInvariant.participatingModules)
-                    !== JSON.stringify(headInvariant.participatingModules)) {
-                    change.participatingModulesChanged = true;
-                }
-                policyDelta.invariantChanges[id] = change;
+                if (headInvariant.module) { changedInvariantModules.push(headInvariant.module); }
+                // Review R9 (Important 4) + round-2 Blocker 3: every semantic
+                // field change is recorded with before/after fingerprints;
+                // only a pure writer removal with an unchanged authority is a
+                // tightening.
+                policyDelta.invariantChanges[id] = {
+                    ...entry,
+                    writersAdded: diffStringSets(
+                        baseInvariant.writers || [], headInvariant.writers || []).added,
+                    writersRemoved: diffStringSets(
+                        baseInvariant.writers || [], headInvariant.writers || []).removed,
+                    authorityChanged: entry.fields.includes('authority'),
+                    statementChanged: entry.fields.includes('statement'),
+                    linearizationPointChanged: entry.fields.includes('linearizationPoint'),
+                    stateFamilyChanged: entry.fields.includes('stateFamily'),
+                    participatingModulesChanged: entry.fields.includes('participatingModules'),
+                };
             }
             for (const id of baseInvariants.keys()) {
                 if (!headInvariants.has(id)) {
                     changedInvariantIds.push(id);
                     policyDelta.invariantsRemoved.push(id);
+                    removedInvariantRecords[id] = baseInvariants.get(id);
+                    if (baseInvariants.get(id) && baseInvariants.get(id).module) {
+                        changedInvariantModules.push(baseInvariants.get(id).module);
+                    }
                 }
             }
         }
@@ -339,7 +387,10 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         protectedTouched,
         harnessDelta,
         policyDelta,
+        moduleMoves,
         changedInvariantIds: changedInvariantIds.sort(),
+        changedInvariantModules: [...new Set(changedInvariantModules)].sort(),
+        removedInvariantRecords,
         baseRecords,
     };
 }

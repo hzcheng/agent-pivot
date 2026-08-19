@@ -2,7 +2,7 @@
 
 /**
  * Architecture Change record parsing and coverage matching (review R3;
- * charter 8.9).
+ * charter 8.9; precision from round-2 review Blocker 3).
  *
  * An Architecture Change record authorizes a relaxation or re-partition only
  * when all of the following hold:
@@ -14,16 +14,28 @@
  * 2. The record carries exactly one machine-readable ```arch-change fenced
  *    JSON block with a structured id, status, module list, and target delta.
  *    An empty markdown file or a bare filename match is not a candidate.
- * 3. The declared delta covers the actual policy delta computed from the
- *    diff (subset semantics: the record may declare more than a consuming
- *    PR realizes, never less).
+ * 3. The declared delta EQUALS the actual policy delta computed from the
+ *    diff — exact per-dimension equality, never subset semantics (round-2
+ *    review Blocker 3: a declared superset would authorize more than the
+ *    owner reviewed, and a record that outlives its delta would be a
+ *    standing wildcard).
+ * 4. The record's `modules` scope covers every module the change actually
+ *    touches: touched production modules, every module named by the delta,
+ *    and both ends of every declared file move.
+ * 5. Re-partitions that move files declare per-file moves
+ *    (`fileMoves: [{ path, from, to }]`); invariant semantic changes declare
+ *    per-invariant field lists with before/after fingerprints
+ *    (`invariantChanges: [{ id, fields, before, after }]`, fingerprints as
+ *    produced by scripts/architecture/describeArchitectureChange.js).
  *
  * Approval timing is transitive by construction: a record in the base
  * necessarily merged through an earlier PR, and every merge requires the
  * merge-approval status, which is green only when the owner approval comment
- * is newer than that PR's head commit. Hence the owner approval for the
- * record is always newer than the record's final commit.
+ * binds that PR's head SHA. Hence the owner approval for the record is
+ * always bound to the record's final content.
  */
+
+const crypto = require('crypto');
 
 const ARCH_CHANGE_RECORD_PATTERN = /^docs\/architecture\/changes\/ARCH-CHANGE-[A-Z0-9-]+\.md$/;
 const ARCH_CHANGE_ID_PATTERN = /^ARCH-CHANGE-[A-Z0-9-]+$/;
@@ -31,9 +43,14 @@ const RECORDS_DIRECTORY = 'docs/architecture/changes/';
 const BLOCK_PATTERN = /```arch-change\s*\r?\n([\s\S]*?)```/;
 
 const DELTA_MAP_KEYS = ['mayDependOnGrown', 'entrypointsGrown'];
-const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded', 'invariantChanges', 'ledgerRegressions'];
+const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded', 'ledgerRegressions'];
 const DELTA_FLAG_KEYS = ['rePartition', 'harnessWeakening', 'guardSemantics'];
-const DELTA_KEYS = [...DELTA_MAP_KEYS, ...DELTA_LIST_KEYS, ...DELTA_FLAG_KEYS];
+const DELTA_KEYS = [...DELTA_MAP_KEYS, ...DELTA_LIST_KEYS, ...DELTA_FLAG_KEYS,
+    'invariantChanges', 'fileMoves'];
+
+const INVARIANT_CHANGE_KEYS = ['id', 'fields', 'before', 'after'];
+const FILE_MOVE_KEYS = ['path', 'from', 'to'];
+const FIELD_FINGERPRINT_PATTERN = /^[0-9a-f]{64}$/;
 
 function isStringArray(value) {
     return Array.isArray(value) && value.every(item => typeof item === 'string' && item.length > 0);
@@ -44,9 +61,69 @@ function isStringArrayMap(value) {
         && Object.values(value).every(isStringArray);
 }
 
+/** Canonical fingerprint of a field-value map (sorted keys, stable JSON). */
+function fingerprintFields(fieldValues) {
+    const canonical = JSON.stringify(fieldValues, Object.keys(fieldValues).sort());
+    return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
 function recordIdFromPath(recordPath) {
     const match = recordPath.match(/ARCH-CHANGE-[A-Z0-9-]+(?=\.md$)/);
     return match ? match[0] : null;
+}
+
+function validateInvariantChanges(recordPath, value, errors) {
+    if (!Array.isArray(value)) {
+        errors.push(`${recordPath}: delta.invariantChanges must be an array`);
+        return;
+    }
+    for (const entry of value) {
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            errors.push(`${recordPath}: delta.invariantChanges entries must be objects`);
+            continue;
+        }
+        for (const key of Object.keys(entry)) {
+            if (!INVARIANT_CHANGE_KEYS.includes(key)) {
+                errors.push(`${recordPath}: unknown invariantChanges key ${JSON.stringify(key)}`);
+            }
+        }
+        if (typeof entry.id !== 'string' || !entry.id) {
+            errors.push(`${recordPath}: invariantChanges entry requires a non-empty id`);
+        }
+        if (!isStringArray(entry.fields)) {
+            errors.push(`${recordPath}: invariantChanges ${entry.id}: fields must be a non-empty `
+                + 'array of field names');
+        }
+        for (const key of ['before', 'after']) {
+            if (typeof entry[key] !== 'string' || !FIELD_FINGERPRINT_PATTERN.test(entry[key])) {
+                errors.push(`${recordPath}: invariantChanges ${entry.id}: ${key} must be a `
+                    + 'sha256 fingerprint (64 lowercase hex) from describeArchitectureChange.js');
+            }
+        }
+    }
+}
+
+function validateFileMoves(recordPath, value, errors) {
+    if (!Array.isArray(value)) {
+        errors.push(`${recordPath}: delta.fileMoves must be an array`);
+        return;
+    }
+    for (const entry of value) {
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+            errors.push(`${recordPath}: delta.fileMoves entries must be objects`);
+            continue;
+        }
+        for (const key of Object.keys(entry)) {
+            if (!FILE_MOVE_KEYS.includes(key)) {
+                errors.push(`${recordPath}: unknown fileMoves key ${JSON.stringify(key)}`);
+            }
+        }
+        for (const key of FILE_MOVE_KEYS) {
+            if (typeof entry[key] !== 'string' || !entry[key]) {
+                errors.push(`${recordPath}: fileMoves entry requires non-empty ${key}`);
+            }
+        }
+    }
 }
 
 /**
@@ -116,6 +193,12 @@ function parseArchitectureChangeRecord({ path: recordPath, text }) {
             errors.push(`${recordPath}: delta.${key} must be a boolean`);
         }
     }
+    if (rawDelta.invariantChanges !== undefined) {
+        validateInvariantChanges(recordPath, rawDelta.invariantChanges, errors);
+    }
+    if (rawDelta.fileMoves !== undefined) {
+        validateFileMoves(recordPath, rawDelta.fileMoves, errors);
+    }
     if (errors.length > 0) {
         return { record: null, errors };
     }
@@ -125,10 +208,12 @@ function parseArchitectureChangeRecord({ path: recordPath, text }) {
         entrypointsGrown: rawDelta.entrypointsGrown || {},
         baselineGrown: rawDelta.baselineGrown || [],
         waiversAdded: rawDelta.waiversAdded || [],
-        invariantChanges: rawDelta.invariantChanges || [],
         ledgerRegressions: rawDelta.ledgerRegressions || [],
+        invariantChanges: rawDelta.invariantChanges || [],
+        fileMoves: rawDelta.fileMoves || [],
         rePartition: rawDelta.rePartition === true,
         harnessWeakening: rawDelta.harnessWeakening === true,
+        guardSemantics: rawDelta.guardSemantics === true,
     };
     return {
         record: {
@@ -142,48 +227,105 @@ function parseArchitectureChangeRecord({ path: recordPath, text }) {
     };
 }
 
-function missingMapEntries(actual, declared, label) {
+function sortedSet(values) {
+    return [...new Set(values)].sort();
+}
+
+function mapMismatch(actual, declared, label) {
     const missing = [];
-    for (const [id, values] of Object.entries(actual)) {
-        const declaredValues = new Set((declared && declared[id]) || []);
-        for (const value of values) {
-            if (!declaredValues.has(value)) {
-                missing.push(`${label}: ${id} += ${value}`);
-            }
+    const actualKeys = sortedSet(Object.keys(actual || {}));
+    const declaredKeys = sortedSet(Object.keys(declared || {}));
+    if (JSON.stringify(actualKeys) !== JSON.stringify(declaredKeys)) {
+        return [`${label}: actual modules [${actualKeys.join(', ')}] do not equal the declared`
+            + ` [${declaredKeys.join(', ')}]`];
+    }
+    for (const key of actualKeys) {
+        if (JSON.stringify(sortedSet(actual[key])) !== JSON.stringify(sortedSet(declared[key]))) {
+            missing.push(`${label}: ${key} actual [${sortedSet(actual[key]).join(', ')}]`
+                + ` != declared [${sortedSet(declared[key]).join(', ')}]`);
         }
     }
     return missing;
 }
 
-function missingListEntries(actual, declared, label) {
-    const declaredSet = new Set(declared || []);
-    return actual.filter(value => !declaredSet.has(value))
-        .map(value => `${label}: ${value}`);
+function listMismatch(actual, declared, label) {
+    if (JSON.stringify(sortedSet(actual || [])) !== JSON.stringify(sortedSet(declared || []))) {
+        return [`${label}: actual [${sortedSet(actual || []).join(', ')}] does not equal the`
+            + ` declared [${sortedSet(declared || []).join(', ')}]`];
+    }
+    return [];
+}
+
+function invariantChangeMismatch(actual, declared) {
+    const actualById = new Map((actual || []).map(entry => [entry.id, entry]));
+    const declaredById = new Map((declared || []).map(entry => [entry.id, entry]));
+    if (JSON.stringify(sortedSet(actualById.keys())) !== JSON.stringify(sortedSet(declaredById.keys()))) {
+        return [`invariant changes: actual ids [${sortedSet(actualById.keys()).join(', ')}] do not`
+            + ` equal the declared [${sortedSet(declaredById.keys()).join(', ')}]`];
+    }
+    const missing = [];
+    for (const [id, actualEntry] of actualById) {
+        const declaredEntry = declaredById.get(id);
+        if (JSON.stringify(sortedSet(actualEntry.fields))
+            !== JSON.stringify(sortedSet(declaredEntry.fields))) {
+            missing.push(`invariant ${id}: actual fields [${sortedSet(actualEntry.fields).join(', ')}]`
+                + ` != declared [${sortedSet(declaredEntry.fields).join(', ')}]`);
+            continue;
+        }
+        if (actualEntry.before !== declaredEntry.before
+            || actualEntry.after !== declaredEntry.after) {
+            missing.push(`invariant ${id}: before/after fingerprints do not match the declared ones`);
+        }
+    }
+    return missing;
+}
+
+function fileMoveMismatch(actual, declared) {
+    const normalize = moves => (moves || [])
+        .map(move => `${move.path}:${move.from}->${move.to}`)
+        .sort();
+    if (JSON.stringify(normalize(actual)) !== JSON.stringify(normalize(declared))) {
+        return [`file moves: actual [${normalize(actual).join(', ')}] do not equal the declared`
+            + ` [${normalize(declared).join(', ')}]`];
+    }
+    return [];
 }
 
 /**
- * Does the record's declared delta cover the actual policy delta?
+ * Does the record's declared delta EXACTLY equal the actual policy delta,
+ * and does its module scope cover everything the change touches?
  * coversPolicyDelta(record, actual) -> { covered, missing } where actual is
- * { policyDelta, harnessWeakened, rePartition, relaxingInvariantIds }.
- * Invariant coverage is by id: every invariant whose semantic fields changed
- * (or that was removed) must be declared in the record's invariantChanges.
+ * {
+ *   policyDelta, harnessWeakened, rePartition, relaxingInvariantIds,
+ *   invariantChanges: [{ id, fields, before, after }],
+ *   fileMoves: [{ path, from, to }],
+ *   touchedModules: [moduleIds...],
+ * }.
  */
 function coversPolicyDelta(record, actual) {
-    const { policyDelta, harnessWeakened, rePartition, relaxingInvariantIds } = actual;
     const { delta } = record;
+    const { policyDelta } = actual;
     const missing = [
-        ...missingMapEntries(policyDelta.mayDependOnGrown, delta.mayDependOnGrown, 'mayDependOn broadened'),
-        ...missingMapEntries(policyDelta.entrypointsGrown || {}, delta.entrypointsGrown, 'entrypoints broadened'),
-        ...missingListEntries(policyDelta.baselineGrown, delta.baselineGrown, 'baseline grew'),
-        ...missingListEntries(policyDelta.waiversAdded, delta.waiversAdded, 'waiver added'),
-        ...missingListEntries(relaxingInvariantIds || [], delta.invariantChanges, 'invariant changed'),
-        ...missingListEntries(policyDelta.ledgerRegressions || [], delta.ledgerRegressions, 'ledger regression'),
+        ...mapMismatch(policyDelta.mayDependOnGrown, delta.mayDependOnGrown, 'mayDependOn broadened'),
+        ...mapMismatch(policyDelta.entrypointsGrown || {}, delta.entrypointsGrown, 'entrypoints broadened'),
+        ...listMismatch(policyDelta.baselineGrown, delta.baselineGrown, 'baseline grew'),
+        ...listMismatch(policyDelta.waiversAdded, delta.waiversAdded, 'waiver added'),
+        ...listMismatch(policyDelta.ledgerRegressions || [], delta.ledgerRegressions, 'ledger regression'),
+        ...invariantChangeMismatch(actual.invariantChanges || [], delta.invariantChanges),
+        ...fileMoveMismatch(actual.fileMoves || [], delta.fileMoves),
     ];
-    if (rePartition && !delta.rePartition) {
-        missing.push('registry re-partition not declared');
+    if (actual.rePartition !== delta.rePartition) {
+        missing.push(`re-partition flag: actual ${actual.rePartition} != declared ${delta.rePartition}`);
     }
-    if (harnessWeakened && !delta.harnessWeakening) {
-        missing.push('harness weakening not declared');
+    if (actual.harnessWeakened !== delta.harnessWeakening) {
+        missing.push(`harness weakening: actual ${actual.harnessWeakened} != declared`
+            + ` ${delta.harnessWeakening}`);
+    }
+    const scopedModules = new Set(record.modules);
+    for (const moduleId of actual.touchedModules || []) {
+        if (!scopedModules.has(moduleId)) {
+            missing.push(`module ${moduleId} is touched but not in the record's modules scope`);
+        }
     }
     return { covered: missing.length === 0, missing };
 }
@@ -192,5 +334,6 @@ module.exports = {
     ARCH_CHANGE_RECORD_PATTERN,
     RECORDS_DIRECTORY,
     coversPolicyDelta,
+    fingerprintFields,
     parseArchitectureChangeRecord,
 };

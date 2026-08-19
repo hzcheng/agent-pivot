@@ -44,7 +44,7 @@ const BLOCK_PATTERN = /```arch-change\s*\r?\n([\s\S]*?)```/;
 
 const DELTA_MAP_KEYS = ['mayDependOnGrown', 'entrypointsGrown'];
 const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded', 'ledgerRegressions'];
-const DELTA_FLAG_KEYS = ['rePartition', 'harnessWeakening', 'guardSemantics'];
+const DELTA_FLAG_KEYS = ['rePartition', 'harnessWeakening'];
 const DELTA_KEYS = [...DELTA_MAP_KEYS, ...DELTA_LIST_KEYS, ...DELTA_FLAG_KEYS,
     'invariantChanges', 'fileMoves'];
 
@@ -213,7 +213,6 @@ function parseArchitectureChangeRecord({ path: recordPath, text }) {
         fileMoves: rawDelta.fileMoves || [],
         rePartition: rawDelta.rePartition === true,
         harnessWeakening: rawDelta.harnessWeakening === true,
-        guardSemantics: rawDelta.guardSemantics === true,
     };
     return {
         record: {

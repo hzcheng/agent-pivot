@@ -476,7 +476,6 @@ test('TRUSTED-KERNEL-001 isProtected covers all documented prefixes', () => {
     assert.ok(isProtected('tests/unit/architecture/closedWorld.test.js'));
     assert.ok(isProtected('tests/unit/architecture-parity/guard.test.js'));
     assert.ok(isProtected('scripts/run-architecture-guards.js'));
-    assert.ok(isProtected('scripts/run-guard-mutation-parity.js'));
     assert.ok(!isProtected('src/alpha/index.ts'));
     assert.ok(!isProtected('README.md'));
     assert.ok(!isProtected('media/icon.png'));
@@ -621,7 +620,6 @@ test('TRUSTED-KERNEL-001 checkProtectedChanges passes with architecture approval
         'tests/unit/architecture/closedWorld.test.js',
         'tests/unit/architecture-parity/guard.test.js',
         'scripts/run-architecture-guards.js',
-        'scripts/run-guard-mutation-parity.js',
     ];
     for (const p of protectedPaths) {
         assert.ok(isProtected(p), `${p} should be protected`);

@@ -26,6 +26,9 @@ const { execFileSync } = require('child_process');
 const {
     runArchitectureChangeCheck,
 } = require('./architecture/checkArchitectureChange');
+const {
+    parseArchitectureChangeRecord,
+} = require('./architecture/architectureChangeRecords');
 
 const BASE_TEST_GLOBS = [
     'tests/unit/architecture/',
@@ -113,6 +116,19 @@ function main() {
     if (classification === 'relaxing' || classification === 're-partition') {
         console.log(`Guard mutation parity: harness change is ${classification} — covered by the `
             + 'Architecture Change record flow; the base-suite ratchet does not apply.');
+        return;
+    }
+    // Guard-semantics records (round-2 Blocker 3): an intentional guard
+    // contract change is owner-reviewed via a base-landed record declaring
+    // guardSemantics; the base suites legitimately diverge there.
+    const exempting = (report.baseRecords || [])
+        .map(({ path: recordPath, text }) => parseArchitectureChangeRecord({ path: recordPath, text }))
+        .filter(parsed => parsed.record)
+        .some(parsed => parsed.record.delta.guardSemantics === true);
+    if (exempting) {
+        console.log('Guard mutation parity: a base-landed record declares guardSemantics — the '
+            + 'intentional guard contract change is owner-reviewed; the base-suite ratchet '
+            + 'does not apply.');
         return;
     }
     const baseRef = process.env.COVERAGE_DIFF_BASE

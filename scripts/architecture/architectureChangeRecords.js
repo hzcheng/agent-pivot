@@ -32,7 +32,7 @@ const BLOCK_PATTERN = /```arch-change\s*\r?\n([\s\S]*?)```/;
 
 const DELTA_MAP_KEYS = ['mayDependOnGrown', 'entrypointsGrown'];
 const DELTA_LIST_KEYS = ['baselineGrown', 'waiversAdded', 'invariantChanges', 'ledgerRegressions'];
-const DELTA_FLAG_KEYS = ['rePartition', 'harnessWeakening'];
+const DELTA_FLAG_KEYS = ['rePartition', 'harnessWeakening', 'guardSemantics'];
 const DELTA_KEYS = [...DELTA_MAP_KEYS, ...DELTA_LIST_KEYS, ...DELTA_FLAG_KEYS];
 
 function isStringArray(value) {

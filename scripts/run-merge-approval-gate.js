@@ -101,6 +101,7 @@ function evaluateDeclarationForPullRequest({ pullRequest, prNumber }) {
             classification: context.classification,
             report: context.report,
             assignedCapabilities: context.assignedCapabilities,
+            expectedBehaviors: context.expectedBehaviors,
         });
         return [...context.errors, ...errors];
     } finally {

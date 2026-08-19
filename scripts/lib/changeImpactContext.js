@@ -70,8 +70,32 @@ function capabilityAssignments(rootDirectory, commits, options = {}) {
 }
 
 /**
+ * Behaviors the PR touches (round-2 review Important 2): the union of the
+ * assigned capabilities' behavior lists and the behavior ids changed in
+ * behavior-contracts.json within the diff.
+ */
+function expectedBehaviors(rootDirectory, assignedCapabilities, report) {
+    const auditPath = path.join(rootDirectory, CAPABILITY_AUDIT_PATH);
+    const behaviorSet = new Set((report && report.changedBehaviorIds) || []);
+    let audit = null;
+    try {
+        audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+    } catch {
+        audit = null;
+    }
+    for (const capability of (audit && audit.capabilities) || []) {
+        if (assignedCapabilities.includes(capability.id)) {
+            for (const behavior of capability.behaviors || []) {
+                behaviorSet.add(behavior);
+            }
+        }
+    }
+    return [...behaviorSet].sort();
+}
+
+/**
  * collectChangeImpactContext({ rootDirectory, baseRef }) -> {
- *   headSha, report, classification, assignedCapabilities, errors,
+ *   headSha, report, classification, assignedCapabilities, expectedBehaviors, errors,
  * }
  */
 function collectChangeImpactContext({ rootDirectory, baseRef }) {
@@ -90,6 +114,7 @@ function collectChangeImpactContext({ rootDirectory, baseRef }) {
         report,
         classification,
         assignedCapabilities: capabilities.assignedCapabilities,
+        expectedBehaviors: expectedBehaviors(rootDirectory, capabilities.assignedCapabilities, report),
         errors: [
             ...(report.errors || []),
             ...classificationErrors,

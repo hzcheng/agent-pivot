@@ -88,7 +88,13 @@ function defaultGit(rootDirectory) {
                 { cwd: rootDirectory, encoding: 'utf8'});
             return output.trim().split('\n').filter(Boolean).map(line => {
                 const [status, ...paths] = line.split('\t');
-                return { status: status[0], path: paths[paths.length - 1] };
+                // Renames report as 'R<score> old new': keep both ends so the
+                // source module is never lost (round-2 review Important 2).
+                return {
+                    status: status[0],
+                    path: paths[paths.length - 1],
+                    oldPath: status[0] === 'R' ? paths[0] : undefined,
+                };
             });
         },
         fileAt(ref, relativePath) {
@@ -185,6 +191,11 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
     const newFiles = [];
     const newClassifiedFiles = [];
     const removedFiles = [];
+    const removedClassifiedFiles = [];
+    // Round-2 review Important 2: touched modules are the union of the head
+    // and base classifications — a deleted file still reports its base
+    // module, and a rename registers both ends.
+    const baseRegistryJson = parseJsonOrNull(git.fileAt(baseRef, 'docs/testing/architecture-modules.json'));
     for (const entry of changed) {
         const assignment = policy.classification.get(entry.path);
         if (assignment) {
@@ -193,20 +204,63 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
             }
             touchedModules.get(assignment.moduleId).push(entry.path);
         }
+        // Base-side attribution: only deletions and rename old-ends — a file
+        // with a head classification is already attributed above, and a new
+        // file never had a base presence.
+        const baseModule = (entry.status === 'D' && baseRegistryJson)
+            ? classifyFileWithRegistry(baseRegistryJson, entry.path)
+            : null;
+        if (baseModule) {
+            if (!touchedModules.has(baseModule)) { touchedModules.set(baseModule, []); }
+            touchedModules.get(baseModule).push(entry.path);
+        }
+        if (entry.oldPath && baseRegistryJson) {
+            const oldModule = classifyFileWithRegistry(baseRegistryJson, entry.oldPath);
+            if (oldModule && oldModule !== assignment?.moduleId) {
+                if (!touchedModules.has(oldModule)) { touchedModules.set(oldModule, []); }
+                touchedModules.get(oldModule).push(entry.oldPath);
+            }
+        }
         if (entry.status === 'A') {
             newFiles.push(entry.path);
             if (assignment) {
                 newClassifiedFiles.push({ path: entry.path, module: assignment.moduleId });
             }
         }
-        if (entry.status === 'D') { removedFiles.push(entry.path); }
+        if (entry.status === 'D') {
+            removedFiles.push(entry.path);
+            if (baseModule) {
+                removedClassifiedFiles.push({ path: entry.path, module: baseModule });
+            }
+        }
     }
     newClassifiedFiles.sort((a, b) => a.path.localeCompare(b.path));
+    removedClassifiedFiles.sort((a, b) => a.path.localeCompare(b.path));
 
+    // Behavior contract drift for the declaration (round-2 review
+    // Important 2): ids added, removed, or modified in behavior-contracts.json.
+    const changedBehaviorIds = [];
+    const behaviorPath = 'docs/testing/behavior-contracts.json';
+    if (changed.some(entry => entry.path === behaviorPath)) {
+        const baseContracts = parseJsonOrNull(git.fileAt(baseRef, behaviorPath));
+        const headContracts = parseJsonOrNull(git.fileAt('HEAD', behaviorPath));
+        const baseById = new Map((Array.isArray(baseContracts) ? baseContracts : [])
+            .map(entry => [entry.id, entry]));
+        const headById = new Map((Array.isArray(headContracts) ? headContracts : [])
+            .map(entry => [entry.id, entry]));
+        for (const [id, entry] of headById) {
+            if (!baseById.has(id)
+                || JSON.stringify(baseById.get(id)) !== JSON.stringify(entry)) {
+                changedBehaviorIds.push(id);
+            }
+        }
+        for (const id of baseById.keys()) {
+            if (!headById.has(id)) { changedBehaviorIds.push(id); }
+        }
+    }
     // Module re-assignments (round-2 review Blocker 3): when the registry
     // changed, classify every changed file against the BASE registry and
     // record moves; each move must be declared in the record's fileMoves.
-    const baseRegistryJson = parseJsonOrNull(git.fileAt(baseRef, 'docs/testing/architecture-modules.json'));
     const moduleMoves = [];
     if (baseRegistryJson && JSON.stringify(baseRegistryJson) !== JSON.stringify(
         parseJsonOrNull(git.fileAt('HEAD', 'docs/testing/architecture-modules.json')))) {
@@ -330,6 +384,15 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
                     policyDelta.ledgerRegressions.push(
                         `${id}: ${baseEntry.state} -> ${headEntry.state}`);
                 }
+                // T7 (Important 9): skip-state detection — a module may only
+                // advance to the next state in the chain, not skip over
+                // intermediate states (e.g. legacy -> strict is illegal).
+                if (toIndex >= 0 && fromIndex >= 0 && toIndex > fromIndex + 1) {
+                    const skipped = stateOrder.slice(fromIndex + 1, toIndex).join(', ');
+                    policyDelta.ledgerRegressions.push(
+                        `${id}: skip-state ${baseEntry.state} -> ${headEntry.state} `
+                        + `(skipped ${skipped})`);
+                }
             }
         }
     }
@@ -384,10 +447,12 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         newFiles: newFiles.sort(),
         newClassifiedFiles,
         removedFiles: removedFiles.sort(),
+        removedClassifiedFiles,
         protectedTouched,
         harnessDelta,
         policyDelta,
         moduleMoves,
+        changedBehaviorIds: changedBehaviorIds.sort(),
         changedInvariantIds: changedInvariantIds.sort(),
         changedInvariantModules: [...new Set(changedInvariantModules)].sort(),
         removedInvariantRecords,

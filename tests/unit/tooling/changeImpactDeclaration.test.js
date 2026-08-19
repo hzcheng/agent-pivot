@@ -15,6 +15,9 @@ const {
     parseChangeImpactDeclaration,
 } = require('../../../scripts/lib/changeImpactDeclaration');
 const {
+    collectArchitectureDiff,
+} = require('../../../scripts/architecture/reportArchitectureDiff');
+const {
     capabilityAssignments,
     collectChangeImpactContext,
 } = require('../../../scripts/lib/changeImpactContext');
@@ -39,6 +42,17 @@ function validDeclaration(overrides = {}) {
         policyDelta: 'tightening',
         baselineWaiverDelta: 'zero',
         newFiles: [{ path: 'src/a/new.ts', module: 'MOD-A', reason: 'owns the new codec' }],
+        behaviors: ['ARCH-CHANGE-GATE-001'],
+        semanticImpact: {
+            stateAuthority: false,
+            writerSet: false,
+            protocol: false,
+            persistence: false,
+            identity: false,
+            recovery: false,
+        },
+        coordinators: [],
+        verification: 'focused unit tests + policy lane',
         ...overrides,
     };
 }
@@ -53,8 +67,10 @@ function truth(overrides = {}) {
             changedInvariantIds: ['ARCH-X-001'],
             newClassifiedFiles: [{ path: 'src/a/new.ts', module: 'MOD-A' }],
             protectedTouched: [],
+            policyDelta: { invariantChanges: {}, invariantsRemoved: [] },
         },
         assignedCapabilities: ['MAIN-ARCHITECTURE-HARNESS'],
+        expectedBehaviors: ['ARCH-CHANGE-GATE-001'],
         ...overrides,
     };
 }
@@ -101,6 +117,24 @@ test('ARCH-PR-CHANGE-IMPACT-GATE-001 controlled mutation: schema violations are 
         'newFiles entry not an object': validDeclaration({ newFiles: ['src/a.ts'] }),
         'newFiles entry missing module': validDeclaration({ newFiles: [{ path: 'src/a.ts', reason: 'r' }] }),
         'newFiles entry empty reason': validDeclaration({ newFiles: [{ path: 'src/a.ts', module: 'MOD-A', reason: '  ' }] }),
+        'behaviors not an array': validDeclaration({ behaviors: 'X-001' }),
+        'semanticImpact missing key': validDeclaration({
+            semanticImpact: { stateAuthority: false },
+        }),
+        'semanticImpact unknown key': validDeclaration({
+            semanticImpact: {
+                stateAuthority: false, writerSet: false, protocol: false,
+                persistence: false, identity: false, recovery: false, surprise: true,
+            },
+        }),
+        'semanticImpact non-boolean': validDeclaration({
+            semanticImpact: {
+                stateAuthority: 'yes', writerSet: false, protocol: false,
+                persistence: false, identity: false, recovery: false,
+            },
+        }),
+        'coordinators not an array': validDeclaration({ coordinators: 'none' }),
+        'empty verification': validDeclaration({ verification: ' ' }),
     };
     for (const [name, declaration] of Object.entries(cases)) {
         const { declaration: parsed, errors } = parseChangeImpactDeclaration(bodyWith(declaration));
@@ -228,13 +262,151 @@ test('ARCH-PR-CHANGE-IMPACT-GATE-001 a HEAD self-diff yields an empty, valid con
     assert.equal(declaration.policyDelta, 'product-only');
     assert.equal(declaration.baselineWaiverDelta, 'zero');
     const { declaration: parsed, errors } = parseChangeImpactDeclaration(block);
-    assert.deepEqual(errors, []);
+    // The generated block carries an empty verification placeholder, which
+    // is schema-rejected until the author fills it (the friction is the
+    // point: verification is never silent).
+    assert.equal(parsed, null);
+    assert.ok(errors.some(error => error.includes('verification')));
+    const completed = JSON.parse(block.replace('```change-impact-declaration\n', '').replace(/\n```$/, ''));
+    completed.verification = 'HEAD self-diff: nothing to verify';
+    const completedBlock = '```change-impact-declaration\n'
+        + `${JSON.stringify(completed, null, 2)}\n` + '```';
     assert.deepEqual(evaluateChangeImpactDeclaration({
-        body: block,
+        body: completedBlock,
         headSha: context.headSha,
         classification: context.classification,
         report: context.report,
         assignedCapabilities: context.assignedCapabilities,
+        expectedBehaviors: context.expectedBehaviors,
     }).errors, []);
-    assert.ok(parsed);
+    assert.ok(!parsed);
+});
+
+
+// ── round-2 review Important 2: declaration completeness ─────────────
+
+test('ARCH-PR-CHANGE-IMPACT-GATE-001 behaviors must equal the regenerated set', () => {
+    const missing = evaluateChangeImpactDeclaration(truth({
+        body: bodyWith(validDeclaration({ behaviors: [] })),
+    }));
+    assert.ok(missing.errors.some(error => error.includes('under-reports behaviors')));
+    const extra = evaluateChangeImpactDeclaration(truth({
+        body: bodyWith(validDeclaration({ behaviors: ['ARCH-CHANGE-GATE-001', 'X-OTHER-001'] })),
+    }));
+    assert.ok(extra.errors.some(error => error.includes('over-reports behaviors')));
+});
+
+test('ARCH-PR-CHANGE-IMPACT-GATE-001 semantic impact flags are checked where mechanically derivable', () => {
+    const withAuthorityChange = truth({
+        report: {
+            touchedModules: { 'MOD-A': ['src/a/a.ts'] },
+            changedInvariantIds: ['ARCH-X-001'],
+            newClassifiedFiles: [{ path: 'src/a/new.ts', module: 'MOD-A' }],
+            protectedTouched: [],
+            policyDelta: {
+                invariantChanges: { 'ARCH-X-001': { authorityChanged: true, writersAdded: [], writersRemoved: [] } },
+                invariantsRemoved: [],
+            },
+        },
+    });
+    // Declaration claims stateAuthority: false but the diff changed an authority.
+    const denied = evaluateChangeImpactDeclaration(withAuthorityChange);
+    assert.ok(denied.errors.some(error => error.includes('semanticImpact.stateAuthority')
+        && error.includes('true')), JSON.stringify(denied.errors));
+    const honest = evaluateChangeImpactDeclaration({
+        ...withAuthorityChange,
+        body: bodyWith(validDeclaration({
+            semanticImpact: {
+                stateAuthority: true, writerSet: false, protocol: false,
+                persistence: false, identity: false, recovery: false,
+            },
+        })),
+    });
+    assert.deepEqual(honest.errors, []);
+});
+
+test('ARCH-PR-CHANGE-IMPACT-GATE-001 a multi-module change must name its coordinators', () => {
+    const multiModule = truth({
+        body: bodyWith(validDeclaration({ modules: ['MOD-A', 'MOD-B'] })),
+        report: {
+            touchedModules: { 'MOD-A': ['src/a/a.ts'], 'MOD-B': ['src/b/b.ts'] },
+            changedInvariantIds: ['ARCH-X-001'],
+            newClassifiedFiles: [{ path: 'src/a/new.ts', module: 'MOD-A' }],
+            protectedTouched: [],
+            policyDelta: { invariantChanges: {}, invariantsRemoved: [] },
+        },
+    });
+    const denied = evaluateChangeImpactDeclaration(multiModule);
+    assert.ok(denied.errors.some(error => error.includes('coordinators')));
+    const named = evaluateChangeImpactDeclaration({
+        ...multiModule,
+        body: bodyWith(validDeclaration({
+            modules: ['MOD-A', 'MOD-B'],
+            coordinators: ['src/worktrees/index.ts'],
+        })),
+    });
+    assert.deepEqual(named.errors, []);
+});
+
+
+// ── round-2 review Important 2: behavior diff + base∪head modules ────
+
+test('ARCH-PR-CHANGE-IMPACT-GATE-001 collectArchitectureDiff diffs behavior contracts and attributes deletes/renames to the base module', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'impact-diff-'));
+    const write = (relative, value) => {
+        fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
+        fs.writeFileSync(path.join(root, relative),
+            typeof value === 'string' ? value : JSON.stringify(value, null, 4) + '\n');
+    };
+    write('src/alpha/a.ts', '// a\n');
+    write('docs/testing/architecture-modules.json', {
+        version: 1, scope: { roots: ['src'] },
+        modules: [{
+            id: 'MOD-ALPHA', title: 'A', purpose: 'fixture',
+            source: { include: ['src/**'], exclude: [] }, publicEntrypoints: ['src/**'],
+            mayDependOn: [], roles: [{ role: 'application', include: ['src/**'] }],
+            productCapabilities: ['MAIN-TEST-001'],
+        }],
+    });
+    write('docs/testing/main-capability-coverage.json',
+        { version: 1, capabilities: [{ id: 'MAIN-TEST-001' }] });
+    const contract = { id: 'B-001', domain: 'd', title: 't', priority: 'P1', status: 'automated' };
+    write('docs/testing/behavior-contracts.json', [{ ...contract, title: 'changed title' }]);
+    const git = {
+        changedFiles: () => [
+            { status: 'M', path: 'docs/testing/behavior-contracts.json' },
+            { status: 'D', path: 'src/alpha/gone.ts' },
+            { status: 'R', path: 'src/alpha/new.ts', oldPath: 'src/alpha/old.ts' },
+        ],
+        listFiles: () => [],
+        fileAt: (ref, relativePath) => {
+            if (ref !== 'base') {
+                const absolute = path.join(root, relativePath);
+                return fs.existsSync(absolute) ? fs.readFileSync(absolute, 'utf8') : null;
+            }
+            if (relativePath.endsWith('behavior-contracts.json')) {
+                return JSON.stringify([contract]);
+            }
+            if (relativePath.endsWith('architecture-modules.json')) {
+                return JSON.stringify({
+                    version: 1, scope: { roots: ['src'] },
+                    modules: [{
+                        id: 'MOD-ALPHA', title: 'A', purpose: 'fixture',
+                        source: { include: ['src/**'], exclude: [] }, publicEntrypoints: ['src/**'],
+                        mayDependOn: [], roles: [{ role: 'application', include: ['src/**'] }],
+                        productCapabilities: ['MAIN-TEST-001'],
+                    }],
+                });
+            }
+            return null;
+        },
+    };
+    const report = collectArchitectureDiff({ rootDirectory: root, baseRef: 'base', git });
+    assert.deepEqual(report.changedBehaviorIds, ['B-001'],
+        'modified behavior contracts surface by id');
+    assert.deepEqual(report.removedClassifiedFiles, [{ path: 'src/alpha/gone.ts', module: 'MOD-ALPHA' }],
+        'a deleted production file still reports its base module');
+    assert.deepEqual(Object.keys(report.touchedModules), ['MOD-ALPHA']);
+    assert.ok(report.touchedModules['MOD-ALPHA'].includes('src/alpha/old.ts'),
+        'a rename registers the source path in the module');
 });

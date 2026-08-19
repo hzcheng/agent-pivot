@@ -35,6 +35,7 @@ const {
 const {
     ARCH_CHANGE_RECORD_PATTERN,
     coversPolicyDelta,
+    fingerprintFields,
     parseArchitectureChangeRecord,
 } = require('./architectureChangeRecords');
 
@@ -49,11 +50,57 @@ function harnessWeakenedOf(harness) {
 }
 
 /**
+ * The exact delta a consuming change realizes — the shape a record must
+ * declare verbatim (round-2 review Blocker 3). Shared by the gate (coverage
+ * matching) and scripts/architecture/describeArchitectureChange.js
+ * (record authoring).
+ */
+function computeActualDelta(report, classification, harnessWeakened) {
+    const delta = report.policyDelta;
+    const invariantChanges = Object.entries(delta.invariantChanges || {})
+        .map(([id, change]) => ({ id, ...change }));
+    const isTighteningOnly = change =>
+        change.fields.length === 1 && change.fields[0] === 'writers'
+        && (change.writersAdded || []).length === 0;
+    const relaxingInvariantChanges = invariantChanges.filter(change => !isTighteningOnly(change));
+    // Removed invariants join the coverage surface with a removal marker:
+    // the record must declare the exact removed record's fingerprint.
+    const removedEntries = (delta.invariantsRemoved || []).map(id => ({
+        id,
+        fields: ['removed'],
+        before: fingerprintFields({ record: (report.removedInvariantRecords || {})[id] }),
+        after: fingerprintFields({}),
+    }));
+    // Round-2 review Blocker 3: the record's module scope must cover every
+    // module the change actually touches.
+    const touchedModules = new Set(Object.keys(report.touchedModules || {}));
+    for (const key of Object.keys(delta.mayDependOnGrown || {})) { touchedModules.add(key); }
+    for (const key of Object.keys(delta.entrypointsGrown || {})) { touchedModules.add(key); }
+    for (const move of report.moduleMoves || []) {
+        touchedModules.add(move.from);
+        touchedModules.add(move.to);
+    }
+    for (const regression of delta.ledgerRegressions || []) {
+        touchedModules.add(regression.split(':')[0]);
+    }
+    for (const moduleId of report.changedInvariantModules || []) { touchedModules.add(moduleId); }
+    return {
+        policyDelta: delta,
+        harnessWeakened,
+        rePartition: classification === 're-partition',
+        invariantChanges: [...relaxingInvariantChanges, ...removedEntries].map(
+            ({ id, fields, before, after }) => ({ id, fields, before, after })),
+        fileMoves: report.moduleMoves || [],
+        touchedModules: [...touchedModules].sort(),
+    };
+}
+
+/**
  * Authorize a relaxing/re-partition classification against the Architecture
  * Change records present in the base. Returns the error list (empty when
  * authorized).
  */
-function authorizeWithBaseRecords(report, classification, harnessWeakened, relaxingInvariantIds) {
+function authorizeWithBaseRecords(report, classification, harnessWeakened) {
     const baseRecords = report.baseRecords || [];
     const candidates = [];
     const invalid = [];
@@ -62,12 +109,7 @@ function authorizeWithBaseRecords(report, classification, harnessWeakened, relax
         if (record) { candidates.push(record); }
         if (errors.length > 0) { invalid.push(...errors); }
     }
-    const actual = {
-        policyDelta: report.policyDelta,
-        harnessWeakened,
-        rePartition: classification === 're-partition',
-        relaxingInvariantIds: [...relaxingInvariantIds].sort(),
-    };
+    const actual = computeActualDelta(report, classification, harnessWeakened);
     let bestMissing = null;
     for (const record of candidates) {
         const { covered, missing } = coversPolicyDelta(record, actual);
@@ -124,13 +166,16 @@ function classifyArchitectureChange(report) {
     const grownEntrypoints = Object.keys(delta.entrypointsGrown || {}).length > 0;
     const ledgerRegressions = (delta.ledgerRegressions || []);
     // Review R9 (Important 4): only a pure writer removal with an unchanged
-    // authority is tightening; any addition, replacement, authority,
-    // statement, linearization-point, or state-family change is relaxing.
-    const relaxingInvariantIds = Object.entries(delta.invariantChanges || {})
-        .filter(([, change]) => change.writersAdded || change.authorityChanged
-            || change.statementChanged || change.linearizationPointChanged
-            || change.stateFamilyChanged || change.participatingModulesChanged)
-        .map(([id]) => id);
+    // authority is tightening — an invariant change whose only edited field is
+    // `writers` with removals alone. Everything else is relaxing.
+    const isTighteningOnly = change =>
+        change.fields.length === 1 && change.fields[0] === 'writers'
+        && (change.writersAdded || []).length === 0;
+    const invariantChanges = Object.entries(delta.invariantChanges || {})
+        .map(([id, change]) => ({ id, ...change }));
+    const relaxingInvariantIds = invariantChanges
+        .filter(change => !isTighteningOnly(change))
+        .map(change => change.id);
     const removedInvariants = (delta.invariantsRemoved || []);
     const grownBaseline = delta.baselineGrown.length > 0;
     const addedWaivers = delta.waiversAdded.length > 0;
@@ -146,8 +191,7 @@ function classifyArchitectureChange(report) {
         return { classification: 'tightening', errors };
     }
     const classification = relaxing ? 'relaxing' : 're-partition';
-    errors.push(...authorizeWithBaseRecords(report, classification, harnessWeakened,
-        [...relaxingInvariantIds, ...removedInvariants]));
+    errors.push(...authorizeWithBaseRecords(report, classification, harnessWeakened));
     return { classification, errors };
 }
 
@@ -180,5 +224,6 @@ if (require.main === module) { main(); }
 module.exports = {
     ARCH_CHANGE_PATTERN,
     classifyArchitectureChange,
+    computeActualDelta,
     runArchitectureChangeCheck,
 };

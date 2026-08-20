@@ -31,8 +31,7 @@
             "fingerprints": [
                 "2:MOD-AI-SESSION-PROVIDER->MOD-DASHBOARD-SHELL",
                 "2:MOD-DASHBOARD-SHELL->MOD-OPEN-WORKSPACE",
-                "2:MOD-DASHBOARD-SHELL->MOD-SKILL-MANAGEMENT",
-                "2:MOD-DASHBOARD-SHELL->MOD-TODO"
+                "2:MOD-DASHBOARD-SHELL->MOD-SKILL-MANAGEMENT"
             ],
             "owner": "hzcheng",
             "reason": "The composition root (dashboard.ts) wires and borrows through these modules; the dashboard-shell wave narrows entrypoints and removes the return edges.",
@@ -45,7 +44,7 @@
             "id": "ARCH-WAIVER-004",
             "rule": "module-cycle",
             "fingerprints": [
-                "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-CONTROL|MOD-AI-SESSION-CONVERSATION|MOD-AI-SESSION-PROVIDER|MOD-AI-SESSION-RUNTIME|MOD-DASHBOARD-SHELL|MOD-OPEN-WORKSPACE|MOD-PROJECT-CATALOG|MOD-SKILL-MANAGEMENT|MOD-TODO|MOD-WORKSPACE-IDENTITY"
+                "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-CONTROL|MOD-AI-SESSION-CONVERSATION|MOD-AI-SESSION-PROVIDER|MOD-AI-SESSION-RUNTIME|MOD-DASHBOARD-SHELL|MOD-OPEN-WORKSPACE|MOD-PROJECT-CATALOG|MOD-SKILL-MANAGEMENT|MOD-WORKSPACE-IDENTITY"
             ],
             "owner": "hzcheng",
             "reason": "Cluster-level symptom of the coarse registry phase: 12 modules form one cyclic component through the composition root. MOD-WORKTREE-LIFECYCLE left the cluster in ARCH-CHANGE-002. Tracked at cluster level; it does not block per-module strict mode but must be gone for program acceptance.",

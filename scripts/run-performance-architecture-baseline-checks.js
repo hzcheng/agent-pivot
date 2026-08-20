@@ -103,7 +103,6 @@ const providerRegistryCalls = (dashboard.match(/aiSessionProviderRegistry\.provi
 const expectedModules = [
     'src/dashboard/viewProvider.ts',
     'src/dashboard/commandRegistration.ts',
-    'src/dashboard/configuration.ts',
     'src/dashboard/diagnostics.ts',
     'src/dashboard/errorContent.ts',
     'src/dashboard/groupCollapseController.ts',

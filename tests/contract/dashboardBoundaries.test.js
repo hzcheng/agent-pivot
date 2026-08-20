@@ -22,7 +22,7 @@ Module._load = function loadWithVscodeFixture(request, parent, isMain) {
     }
     return originalLoad.call(this, request, parent, isMain);
 };
-const configuration = require('../../out/dashboard/configuration');
+const configuration = require('../../out/configuration');
 Module._load = originalLoad;
 const constants = require('../../out/constants');
 const { shouldOpenAgentPivotOnStartup } = require('../../out/dashboard/startup');
@@ -68,7 +68,7 @@ test('SESSION-CONFIGURATION-001 reads only the scoped Agent Pivot configuration'
 
     const constantsSource = fs.readFileSync(path.resolve(__dirname, '../../src/constants.ts'), 'utf8');
     const configurationSource = fs.readFileSync(
-        path.resolve(__dirname, '../../src/dashboard/configuration.ts'),
+        path.resolve(__dirname, '../../src/configuration.ts'),
         'utf8'
     );
     const lifecycleSource = fs.readFileSync(

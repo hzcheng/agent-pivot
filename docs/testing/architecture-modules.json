@@ -745,7 +745,9 @@
         "exclude": []
       },
       "publicEntrypoints": [
-        "src/todos/**"
+        "src/todos/service.ts",
+        "src/todos/todoPanelCapability.ts",
+        "src/todos/types.ts"
       ],
       "mayDependOn": [
         "MOD-DASHBOARD-SHELL",
@@ -884,7 +886,8 @@
           "src/sessionAssignment.ts",
           "src/worktreeSessionAssignment.ts",
           "src/worktreeIdentity.ts",
-          "src/webviewIcons.ts"
+          "src/webviewIcons.ts",
+          "src/configuration.ts"
         ],
         "exclude": []
       },
@@ -894,7 +897,8 @@
         "src/sessionAssignment.ts",
         "src/worktreeSessionAssignment.ts",
         "src/worktreeIdentity.ts",
-        "src/webviewIcons.ts"
+        "src/webviewIcons.ts",
+        "src/configuration.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-PROVIDER",
@@ -912,7 +916,8 @@
             "src/sessionAssignment.ts",
             "src/worktreeSessionAssignment.ts",
             "src/worktreeIdentity.ts",
-            "src/webviewIcons.ts"
+            "src/webviewIcons.ts",
+            "src/configuration.ts"
           ]
         }
       ],

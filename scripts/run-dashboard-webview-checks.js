@@ -23,7 +23,7 @@ Module._load = function loadWithVscodeConfigurationFixture(request, parent, isMa
     if (request === 'vscode') return vscodeConfigurationFixture;
     return originalConfigurationLoad.call(this, request, parent, isMain);
 };
-const dashboardConfiguration = require('../out/dashboard/configuration');
+const dashboardConfiguration = require('../out/configuration');
 Module._load = originalConfigurationLoad;
 const dashboardStartup = require('../out/dashboard/startup');
 const { DashboardStartupController, settleMigration } = require('../out/dashboard/startupController');
@@ -4908,15 +4908,15 @@ function runSourceContractChecks(source) {
     assert.ok(!extensionHostSource.includes('function escapeHtml('));
     assert.ok(dashboardErrorContentSource.includes('export function getErrorContent('));
     assert.ok(dashboardErrorContentSource.includes('Agent Pivot could not render this view.'));
-    const dashboardConfigurationSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'configuration.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './dashboard/configuration'"));
+    const dashboardConfigurationSource = fs.readFileSync(path.join(root, 'src', 'configuration.ts'), 'utf8');
+    assert.ok(extensionHostSource.includes("from './configuration'"));
     assert.ok(!extensionHostSource.includes('function getAgentPivotConfiguration('));
     assert.ok(!extensionHostSource.includes('function hasConfiguredValue('));
     assert.ok(dashboardConfigurationSource.includes('export function getAgentPivotConfiguration('));
     assert.strictEqual(dashboardConfigurationSource.includes('createStewardConfiguration'), false);
     assert.strictEqual(dashboardConfigurationSource.includes('hasConfiguredValue'), false);
     assert.strictEqual(dashboardConfigurationSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
-    assert.strictEqual(baseServiceSource.includes("from '../dashboard/configuration'"), false);
+    assert.strictEqual(baseServiceSource.includes("from '../../configuration'"), false);
     assert.ok(baseServiceSource.includes('AGENT_PIVOT_CONFIG_SECTION'));
     assert.ok(baseServiceSource.includes('this.workspaceRoot'));
     assert.strictEqual(baseServiceSource.includes('private hasConfiguredValue('), false);

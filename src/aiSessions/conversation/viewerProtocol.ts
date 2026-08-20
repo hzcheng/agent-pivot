@@ -191,6 +191,13 @@ export interface ConversationViewerSwitchSessionMessage {
     direction: ConversationSessionSwitchDirection;
 }
 
+/** Click a bottom window rail: focus the previous/next open window. */
+export interface ConversationViewerSwitchWindowMessage {
+    type: 'conversation-viewer-switch-window';
+    version: 1;
+    direction: ConversationSessionSwitchDirection;
+}
+
 /** Click a header status button: cycle to the next session of that lifecycle
  * group within this window. */
 export interface ConversationViewerCycleStatusSessionMessage {
@@ -256,6 +263,7 @@ export type ConversationViewerMessage =
     | ConversationViewerOpenLinkMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerSwitchSessionMessage
+    | ConversationViewerSwitchWindowMessage
     | ConversationViewerCycleStatusSessionMessage
     | ConversationViewerRequestSyncMessage
     | ConversationViewerAppliedMessage
@@ -375,6 +383,14 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerSwitchSessionMessage;
+    }
+    if (value.type === 'conversation-viewer-switch-window') {
+        if (!hasExactKeys(value, ['type', 'version', 'direction'])
+            || (value.direction !== 'previous'
+                && value.direction !== 'next')) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerSwitchWindowMessage;
     }
     if (value.type === 'conversation-viewer-cycle-status-session') {
         if (!hasExactKeys(value, ['type', 'version', 'kind'])

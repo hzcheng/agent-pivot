@@ -62,7 +62,6 @@ const favoriteProjectOrder = require('../out/projects/favoriteProjectOrder');
 const DashboardDiagnostics = require('../out/dashboard/diagnostics').default;
 const originalModuleLoad = Module._load;
 const vscodeTestState = { terminals: [], nextTerminalProcessId: 42000 };
-let aiSessionProjectCandidates;
 let aiSessionSessionPaths;
 let aiSessionPendingTerminals;
 let aiSessionTerminalCandidates;
@@ -92,7 +91,6 @@ Module._load = function (request, parent, isMain) {
     }
     return originalModuleLoad.call(this, request, parent, isMain);
 };
-aiSessionProjectCandidates = require('../out/aiSessions/projectCandidates');
 aiSessionSessionPaths = require('../out/aiSessions/sessionPaths');
 aiSessionPendingTerminals = require('../out/aiSessions/pendingTerminals');
 aiSessionTerminalCandidates = require('../out/aiSessions/terminalCandidates');
@@ -7397,9 +7395,6 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     const workspaceHydrationSource = fs.readFileSync(
         path.join(root, 'src', 'workspaces', 'sessionHydrationController.ts'), 'utf8'
     );
-    const projectCandidatesSource = fs.readFileSync(
-        path.join(root, 'src', 'aiSessions', 'projectCandidates.ts'), 'utf8'
-    );
     const sessionPathsSource = fs.readFileSync(
         path.join(root, 'src', 'aiSessions', 'sessionPaths.ts'), 'utf8'
     );
@@ -7513,9 +7508,6 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     assert.ok(workspaceHydrationSource.includes('providerSelection: this.options.getProviderSelection(workspace.scopeIdentity)'));
     assert.ok(workspaceHydrationSource.includes('expanded: this.options.getExpanded(workspace.scopeIdentity)'));
 
-    assert.ok(projectCandidatesSource.includes("from '../workspaces/sessionHydration'"));
-    assert.ok(!projectCandidatesSource.includes('getOpenProjectAiSessionKey'));
-    assert.ok(!projectCandidatesSource.includes('getOpenProjectTerminalCwd'));
     assert.ok(!sessionPathsSource.includes('getProjectAiSessions'));
     assert.ok(!sessionPathsSource.includes('getAiSessionTerminalCwd'));
     assert.ok(sessionPathsSource.includes('export function getAiSessionComparableCwd('));

@@ -869,7 +869,7 @@
         "exclude": []
       },
       "publicEntrypoints": [
-        "extensions/attention-ui-bridge/src/**",
+        "extensions/attention-ui-bridge/src/extension.ts",
         "shared/attention-bridge/**"
       ],
       "mayDependOn": [

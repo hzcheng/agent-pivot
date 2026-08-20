@@ -348,13 +348,12 @@
       "publicEntrypoints": [
         "src/aiSessions/sessionControllerComposition.ts",
         "src/aiSessions/commandController.ts",
-        "src/aiSessions/creationController.ts",
-        "src/aiSessions/resumeController.ts",
         "src/aiSessions/terminalCommandController.ts",
         "src/aiSessions/aliasController.ts",
         "src/aiSessions/pinController.ts",
         "src/aiSessions/sessionProfileController.ts",
-        "src/aiSessions/archive*"
+        "src/aiSessions/archiveController.ts",
+        "src/aiSessions/archiveBatchAcrossProviders.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-PROVIDER",

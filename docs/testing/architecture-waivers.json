@@ -27,7 +27,6 @@
             "rule": "module-cycle",
             "fingerprints": [
                 "2:MOD-AI-SESSION-PROVIDER->MOD-DASHBOARD-SHELL",
-                "2:MOD-DASHBOARD-SHELL->MOD-OPEN-WORKSPACE",
                 "2:MOD-DASHBOARD-SHELL->MOD-SKILL-MANAGEMENT"
             ],
             "owner": "hzcheng",

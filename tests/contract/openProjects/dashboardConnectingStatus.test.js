@@ -28,6 +28,7 @@ function createController(overrides = {}) {
         getRunningIconAnimation: () => undefined,
         getAttentionAggregate: () => null,
         getBridgeInstanceId: () => 'instance',
+        buildOpenWorkspacesUpdatedMessage: loadWithFakeVscode('../../../out/dashboard/webviewUpdateMessages').buildOpenWorkspacesUpdatedMessage,
         nextSequence: () => 1,
         postMessage: async () => true,
         isVisible: () => true,

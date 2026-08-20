@@ -1041,6 +1041,7 @@ test('OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001 applies a production OPEN tran
         getRunningIconAnimation: () => 'current',
         getAttentionAggregate: () => null,
         getBridgeInstanceId: () => '11111111111111111111111111111111',
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: message => { delivered.push(message); return Promise.resolve(true); },
         refresh() {},
         isVisible: () => true,

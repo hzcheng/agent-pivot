@@ -10,7 +10,10 @@ import {
 } from '../aiSessions/presentationMessage';
 import { PREDEFINED_COLORS } from '../constants';
 import type { Group, WorkspaceCardViewModel } from '../models';
-import { buildOpenWorkspacesUpdatedMessage } from '../dashboard/webviewUpdateMessages';
+import type {
+    BuildOpenWorkspacesUpdatedMessageInput,
+    OpenWorkspacesUpdatedMessage,
+} from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import type { OpenWorkspace } from '../workspaces/types';
 import type {
@@ -65,6 +68,9 @@ export interface OpenWorkspaceDashboardControllerOptions<TTerminal = unknown> {
     getRunningIconAnimation: () => string | undefined;
     getAttentionAggregate: () => AttentionAggregate | null;
     getBridgeInstanceId: () => string;
+    buildOpenWorkspacesUpdatedMessage: (
+        input: BuildOpenWorkspacesUpdatedMessageInput
+    ) => OpenWorkspacesUpdatedMessage;
     postMessage: (message: unknown) => Thenable<boolean>;
     refresh: (reason: string) => void;
     isVisible: () => boolean;
@@ -274,7 +280,7 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         const runningCardAnimation = this.options.getRunningCardAnimation();
         const runningIconAnimation = this.options.getRunningIconAnimation();
         const cards = this.getCards(projection);
-        const message = buildOpenWorkspacesUpdatedMessage({
+        const message = this.options.buildOpenWorkspacesUpdatedMessage({
             groups: this.options.getGroups(),
             cards,
             collapsed: this.options.getCollapsed(),

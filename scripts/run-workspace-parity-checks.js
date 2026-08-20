@@ -17,6 +17,9 @@ const {
     OpenWorkspaceDashboardController,
 } = require('../out/openWorkspaces/dashboardController');
 const {
+    buildOpenWorkspacesUpdatedMessage,
+} = require('../out/dashboard/webviewUpdateMessages');
+const {
     WorkspacePendingSessionPromotionController,
 } = require('../out/workspaces/pendingSessionPromotionController');
 const {
@@ -294,6 +297,7 @@ async function runShapeLifecycle(shape, index) {
         getRunningIconAnimation: () => undefined,
         getAttentionAggregate: () => attention,
         getBridgeInstanceId: () => SELF_INSTANCE,
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: async message => { posts.push(message); return true; },
         refresh: () => undefined,
         isVisible: () => true,

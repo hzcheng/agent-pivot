@@ -23,6 +23,7 @@ const workspaceProjection = require('../out/openWorkspaces/projection');
 const workspacePinProtocol = require('../out/openWorkspaces/pinProtocol');
 const { default: OpenWorkspaceBridgeClient } = require('../out/openWorkspaces/bridgeClient');
 const { OpenWorkspaceDashboardController } = require('../out/openWorkspaces/dashboardController');
+const { buildOpenWorkspacesUpdatedMessage } = require('../out/dashboard/webviewUpdateMessages');
 const { OpenWorkspaceController } = require('../out/openWorkspaces/workspaceController');
 const { WorkspaceNavigationController } = require('../out/openWorkspaces/navigationController');
 const attentionProject = require('../out/aiSessions/attentionProject');
@@ -1190,6 +1191,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         getRunningIconAnimation: () => undefined,
         getAttentionAggregate: () => dashboardAttention,
         getBridgeInstanceId: () => SELF,
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: async message => { posted.push(message); return true; },
         refresh: () => undefined,
         isVisible: () => true,
@@ -1246,6 +1248,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         getRunningIconAnimation: () => undefined,
         getAttentionAggregate: () => null,
         getBridgeInstanceId: () => SELF,
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: async () => true,
         refresh: () => undefined,
         isVisible: () => true,
@@ -2132,6 +2135,7 @@ async function runOpenWorkspaceHardeningChecks() {
         getRunningIconAnimation: () => runningIconAnimation,
         getAttentionAggregate: () => null,
         getBridgeInstanceId: () => SELF,
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: async message => { posted.push(message); return deliveryResult; },
         refresh: reason => refreshes.push(reason),
         isVisible: () => true,
@@ -2319,6 +2323,7 @@ async function runWorkspaceContextResolverChecks() {
         getRunningIconAnimation: () => undefined,
         getAttentionAggregate: () => null,
         getBridgeInstanceId: () => SELF,
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: async message => { zeroRootMessages.push(message); return true; },
         refresh: () => undefined,
         isVisible: () => true,

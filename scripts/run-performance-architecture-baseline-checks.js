@@ -136,7 +136,6 @@ const expectedModules = [
     'src/aiSessions/pendingTerminalResolver.ts',
     'src/aiSessions/pendingTerminals.ts',
     'src/aiSessions/pinController.ts',
-    'src/aiSessions/projectCandidates.ts',
     'src/aiSessions/workspaceStateStore.ts',
     'src/aiSessions/readCoordinator.ts',
     'src/aiSessions/scanOptions.ts',

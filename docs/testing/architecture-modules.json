@@ -541,7 +541,18 @@
         "exclude": []
       },
       "publicEntrypoints": [
-        "src/workspaces/**"
+        "src/workspaces/attentionProjection.ts",
+        "src/workspaces/contextResolver.ts",
+        "src/workspaces/currentWorkspaceSessionAuthority.ts",
+        "src/workspaces/identity.ts",
+        "src/workspaces/pendingSessionPromotionController.ts",
+        "src/workspaces/pendingWorkspaceSaveStore.ts",
+        "src/workspaces/primaryRootStore.ts",
+        "src/workspaces/savedWorkspaceProjectAdapter.ts",
+        "src/workspaces/sessionHydrationController.ts",
+        "src/workspaces/sessionScope.ts",
+        "src/workspaces/types.ts",
+        "src/workspaces/worktreeGroupProjection.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-ATTENTION",

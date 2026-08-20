@@ -10,7 +10,6 @@ const helpers = require('../../../out/aiSessions/sessionHelpers');
 const { getAiSessionScanMaxFiles } = require('../../../out/aiSessions/scanOptions');
 const aiSessionProviders = require('../../../out/aiSessions/providers');
 const previousLoad = Module._load;
-let candidates;
 let sessionPaths;
 let pending;
 let resolver;
@@ -29,7 +28,6 @@ try {
         } };
         return previousLoad.call(this, request, parent, isMain);
     };
-    candidates = require('../../../out/aiSessions/projectCandidates');
     sessionPaths = require('../../../out/aiSessions/sessionPaths');
     pending = require('../../../out/aiSessions/pendingTerminals');
     resolver = require('../../../out/aiSessions/pendingTerminalResolver');
@@ -84,7 +82,8 @@ test('PROJECT-PROJECT-CANDIDATE-001 exposes stable workspace-root candidate path
     assert.deepEqual(sessionHydration.getWorkspaceAiSessionCandidatePaths(workspace), [
         '/work/app', '/work/remote',
     ]);
-    assert.equal(candidates.normalizeAiSessionProjectPath(''), '');
+    const { normalizeAiSessionProjectPath } = require('../../../out/aiSessions/sessionHelpers');
+    assert.equal(normalizeAiSessionProjectPath(''), '');
 });
 
 test('PROJECT-SESSION-PATH-001 selects provider-specific cwd fields and safe terminal labels', () => {

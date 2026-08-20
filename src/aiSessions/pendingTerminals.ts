@@ -2,7 +2,7 @@
 
 import type { AiSessionProviderId, CodexSession } from '../models';
 import { compareAiSessionUpdatedAt } from './sessionHelpers';
-import { normalizeAiSessionProjectPath } from './projectCandidates';
+import { normalizeAiSessionProjectPath } from './sessionHelpers';
 import { getAiSessionComparableCwd } from './sessionPaths';
 import type { AiSessionPendingRuntimeSnapshot } from './runtimeTypes';
 import type { AiSessionProviderDefinition, AiSessionReadResult } from './types';

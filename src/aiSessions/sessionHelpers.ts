@@ -19,6 +19,10 @@ export function getAiSessionProviderIdFromKey(sessionKey: string, isProviderId: 
     return isProviderId(providerId) ? providerId : null;
 }
 
+export function normalizeAiSessionProjectPath(projectPath: string): string {
+    return projectPath ? normalizeAiSessionComparablePath(projectPath) : '';
+}
+
 export function normalizeAiSessionComparablePath(value: string): string {
     if (!value) {
         return '';

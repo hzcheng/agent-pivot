@@ -121,10 +121,15 @@
             "nextAction": "awaiting its Stage 5 wave"
         },
         "MOD-SHARED-KERNEL": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-20): zero value-level outbound edges confirmed; all 8 cross-module edges are type-only and truthfully declared; no baseline or waiver debt names the module",
+            "evidence": [
+                "docs/architecture/changes/ARCH-CHANGE-002.md",
+                "tests/unit/sharedKernel/sessionAssignment.test.js",
+                "tests/unit/workspaces/worktreeSessionAssignment.test.js",
+                "tests/unit/worktrees/worktreeKeyCodecs.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         }
     }
 }

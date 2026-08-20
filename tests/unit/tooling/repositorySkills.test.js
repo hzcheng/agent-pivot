@@ -53,6 +53,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['cross-feature rendered journey', /cross-feature journey[\s\S]*real rendered surface[\s\S]*provider[\s\S]*viewport\s+matrix/i],
         ['post-repair mutation sensitivity', /implementation is already repaired[\s\S]*mutation sensitivity[\s\S]*reintroduce each causal defect/i],
         ['default-branch check ownership', /pull_request_target[\s\S]*default-branch files/i],
+        ['post-merge GREEN blind spot', /executes from the default branch after the merge[\s\S]*directly invoking the changed entry point/i],
     ]);
 });
 

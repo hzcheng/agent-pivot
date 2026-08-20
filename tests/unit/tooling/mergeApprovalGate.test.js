@@ -100,6 +100,22 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of
         'the gate must not post PR comments (notification-free review aid)');
     assert.match(script, /GITHUB_STEP_SUMMARY/,
         'the gate publishes the report to the job summary');
+
+    // Regression: the renderer must actually run — a wiring-only assertion
+    // shipped a REPORT_MARKER ReferenceError to production once (#306).
+    const { renderImpactReport } = require(path.join(
+        repositoryRoot, 'scripts', 'run-merge-approval-gate.js'));
+    const report = renderImpactReport({
+        pullRequest: { head: { sha: 'a'.repeat(40) } },
+        context: {
+            classification: 'tightening',
+            report: { policyDelta: {}, touchedModules: {}, protectedTouched: [] },
+            assignedCapabilities: [],
+            expectedBehaviors: [],
+        },
+    });
+    assert.ok(report.includes('aaaaaaaa'), 'the report names the head');
+    assert.ok(report.includes('tightening'));
     assert.match(script, /pull\/\$\{prNumber\}\/head/,
         'the gate fetches and checks out the exact PR head');
 

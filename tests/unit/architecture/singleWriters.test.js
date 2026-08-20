@@ -126,15 +126,6 @@ test('ARCH-INVARIANT-CATALOG-001 controlled mutation: unknown module reference i
         .some(error => error.includes("unknown module 'MOD-NOPE'")));
 });
 
-test('ARCH-INVARIANT-CATALOG-001 controlled mutation: unknown capability reference is rejected', () => {
-    const root = makeFixture({
-        invariants: [validInvariant({ productCapabilities: ['MAIN-NOPE'] })],
-        sources: baseSources,
-    });
-    assert.ok(runSingleWriterCheck(root).errors
-        .some(error => error.includes("unknown product capability 'MAIN-NOPE'")));
-});
-
 test('ARCH-INVARIANT-CATALOG-001 controlled mutation: invalid priority is rejected', () => {
     const root = makeFixture({
         invariants: [validInvariant({ priority: 'P9' })],

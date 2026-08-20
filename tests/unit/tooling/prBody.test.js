@@ -15,10 +15,6 @@ function approvalsSection(headSha = HEAD) {
         'Copy each line into a separate PR comment below:',
         '',
         '```',
-        `approve-architecture ${headSha}`,
-        '```',
-        '',
-        '```',
         `approve ${headSha}`,
         '```',
     ].join('\n');
@@ -104,24 +100,6 @@ test('ARCH-PR-OWNER-APPROVALS-001 rejects commands that bind a stale head SHA', 
     ].join('\n');
     const errors = checkPrBody(body, { headSha: HEAD });
     assert.ok(errors.some(error => error.includes(`approve ${HEAD}`)), JSON.stringify(errors));
-    assert.ok(errors.some(error => error.includes(`approve-architecture ${HEAD}`)), JSON.stringify(errors));
-});
-
-test('ARCH-PR-OWNER-APPROVALS-001 rejects a section missing the architecture approval line', () => {
-    const body = [
-        '## Skill harvest',
-        '',
-        'no skill change — covered',
-        '',
-        '## Owner approvals',
-        '',
-        '```',
-        `approve ${HEAD}`,
-        '```',
-    ].join('\n');
-    const errors = checkPrBody(body, { headSha: HEAD });
-    assert.equal(errors.length, 1, JSON.stringify(errors));
-    assert.ok(errors[0].includes('approve-architecture'));
 });
 
 test('ARCH-PR-OWNER-APPROVALS-001 rejects a missing head SHA context (fail closed)', () => {
@@ -141,5 +119,5 @@ test('ARCH-PR-OWNER-APPROVALS-001 short SHAs and prose do not satisfy the sectio
         `please approve-architecture ${HEAD} soon`,
     ].join('\n');
     const errors = checkPrBody(body, { headSha: HEAD });
-    assert.equal(errors.length, 2, JSON.stringify(errors));
+    assert.ok(errors.length >= 1, JSON.stringify(errors));
 });

@@ -94,10 +94,6 @@ function validateCatalog(rootDirectory, policy) {
     }
 
     const moduleIds = new Set(policy.modules.map(module => module.id));
-    const capabilityManifest = readJson(
-        rootDirectory, path.join('docs', 'testing', 'main-capability-coverage.json'), errors);
-    const capabilityIds = new Set((capabilityManifest ? capabilityManifest.capabilities : [])
-        .map(capability => capability.id));
     const invariantIds = new Set();
 
     const requirePath = (owner, file, field) => {
@@ -117,11 +113,6 @@ function validateCatalog(rootDirectory, policy) {
         invariantIds.add(invariant.id);
         if (!moduleIds.has(invariant.module)) {
             errors.push(`${owner}: unknown module '${invariant.module}'`);
-        }
-        for (const capability of invariant.productCapabilities || []) {
-            if (!capabilityIds.has(capability)) {
-                errors.push(`${owner}: unknown product capability '${capability}'`);
-            }
         }
         if (!PRIORITIES.includes(invariant.priority)) {
             errors.push(`${owner}: priority must be one of ${PRIORITIES.join(', ')}`);

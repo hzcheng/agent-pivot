@@ -86,12 +86,6 @@ test('ARCH-POLICY-SCHEMA-001 controlled mutation: mayDependOn must resolve and n
     assert.ok(errorsFor(self).some(e => e.includes('must not reference itself')));
 });
 
-test('ARCH-POLICY-SCHEMA-001 controlled mutation: unknown product capability is rejected', () => {
-    const registry = validRegistry();
-    registry.modules[0].productCapabilities = ['MAIN-DOES-NOT-EXIST'];
-    assert.ok(errorsFor(registry).some(e => e.includes('unknown product capability')));
-});
-
 test('ARCH-POLICY-SCHEMA-001 controlled mutation: a module without capabilities is rejected', () => {
     const registry = validRegistry();
     registry.modules[0].productCapabilities = [];

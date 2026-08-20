@@ -2,12 +2,10 @@
     "version": 1,
     "title": "Architecture program ledger",
     "notes": [
-        "Module states follow legacy -> inventoried -> characterized -> guarded -> migrating -> strict (charter Section 8.5).",
-        "strict is validated mechanically by scripts/architecture/checkProgramLedger.js: no baseline fingerprint or waiver naming the module, P0/P1 invariants have behavior owners, single-writer families declare writers, and the module stays classified exact-once.",
-        "SCC cluster membership is cluster-level debt and does not block per-module strict (waiver ledger note).",
-        "State migration graph (forward-only, one step at a time): legacy -> inventoried -> characterized -> guarded -> migrating -> strict. Skip-states are rejected. Regressions require architecture approval.",
-        "Harness simplification (2026-08-19): all module migrations are paused. The trusted kernel has taken over (required check since PR #296); code-structure enforcement and narrow facades replace scanners. See docs/architecture/harness-simplification-decision.md.",
-        "Architecture Change records are historical ADRs (ARCH-CHANGE-001 through 007 under docs/architecture/changes/). Machine authorization was deleted in PR #296; no future PR may consume them. Relaxing changes are authorized by the owner's approve-architecture <full-head-sha> comment."
+        "Module states are progress notes only (harness pruning, 2026-08-20): the state machine is no longer machine-validated. The chain legacy -> inventoried -> characterized -> guarded -> migrating -> strict remains as documentation of intent.",
+        "The remaining mechanical architecture checks: closed-world classification, module boundaries/entrypoints, single-writer invariants, webview manifest — see package.json test:architecture-policy.",
+        "Harness simplification (2026-08-19/20): the trusted kernel, dual approvals, CID, capability audit, and the ledger state machine were deleted. Harness changes are governed by the normal owner approval.",
+        "Architecture Change records are historical ADRs (ARCH-CHANGE-001 through 007 under docs/architecture/changes/). Machine authorization was deleted in PR #296; no future PR may consume them."
     ],
     "states": [
         "legacy",

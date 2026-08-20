@@ -38,40 +38,30 @@ after every GitHub write.
 1. Stage and commit only intended files.
 2. Run fresh verification before push or PR creation.
 3. Use `harvesting-workflow-lessons` once to review task-local failures,
-   corrections, retries, and ambiguity. Include justified skill changes before
-   the final capability audit; a valid “no skill change” decision is allowed.
-   Record the decision twice: as the mandatory `--harvest` value of
-   `regenerate-capability-audit.js` (a `Skill-Harvest` trailer in the audit
-   commit) and in the PR body's required `## Skill harvest` section (CI
-   rejects pull requests without it).
-4. Complete commit-level main-capability audit currency after the final
-   implementation or skill-owner commit.
-5. Write PR titles, PR bodies, and commit messages in English, regardless of
+   corrections, retries, and ambiguity. Include justified skill changes;
+   a valid “no skill change” decision is allowed. Record the decision in the
+   PR body's required `## Skill harvest` section (CI rejects pull requests
+   without it).
+4. Write PR titles, PR bodies, and commit messages in English, regardless of
    the conversation language.
-6. Every PR body must carry an `## Owner approvals` section with the
-   ready-to-copy commands bound to the exact head SHA — one fenced line
-   `approve-architecture <full-head-sha>` and one fenced line
-   `approve <full-head-sha>` — so the owner never reconstructs them by hand.
-   Approval markers match per comment line, so the owner may post both
-   commands in one comment. Regenerate the section whenever the head moves
-   (same rule as the architecture impact report); CI enforces it via
-   `scripts/check-pr-body.js` (ARCH-PR-OWNER-APPROVALS-001). Because the
-   quality lane's event payload captures the body at trigger time, edit the
-   PR body BEFORE pushing the head it names whenever the PR already exists.
-7. Push with tracking: `git push -u origin <branch>`.
-8. Prefer connector PR creation if available and authorized.
-9. If connector fails with permission or repository ambiguity, use `gh pr create`.
-10. Default to draft for "open a PR" requests unless the user explicitly asks for ready-for-review or the same request includes merging after validation.
-11. **After creating or updating a PR, verify it actually works before
+5. Every PR body must carry an `## Owner approvals` section with the
+   ready-to-copy command bound to the exact head SHA — one fenced line
+   `approve <full-head-sha>` — so the owner never reconstructs it by hand.
+   Approval markers match per comment line, so the command may share a
+   comment with other text. Regenerate the section whenever the head moves;
+   CI enforces it via `scripts/check-pr-body.js` (ARCH-PR-OWNER-APPROVALS-001).
+   Because the quality lane's event payload captures the body at trigger
+   time, edit the PR body BEFORE pushing the head it names whenever the PR
+   already exists.
+6. Push with tracking: `git push -u origin <branch>`.
+7. Prefer connector PR creation if available and authorized.
+8. If connector fails with permission or repository ambiguity, use `gh pr create`.
+9. Default to draft for "open a PR" requests unless the user explicitly asks for ready-for-review or the same request includes merging after validation.
+10. **After creating or updating a PR, verify it actually works before
     handing off**: `gh pr view <n> --json mergeable,mergeStateStatus` and
     `gh pr checks <n>` — the PR must be mergeable with checks running or
     green. If `origin/main` moved and the PR conflicts, rebase immediately
     and re-push; never leave a PR conflicting, red, or stale.
-12. When a rebase follows another merge to main, expect the capability-audit
-    commit to conflict on `docs/testing/main-capability-coverage.json`:
-    keep main's `audit.head`, finish the rebase, then regenerate the audit
-    with `scripts/regenerate-capability-audit.js` so the new commit SHAs are
-    referenced; rerun `npm run test:behavior-contracts` before pushing.
 
 If push reports HTTP 408, `unexpected EOF`, or an RPC disconnect:
 
@@ -91,7 +81,7 @@ If push reports HTTP 408, `unexpected EOF`, or an RPC disconnect:
    - Inspect failing Actions with `gh pr checks <n> --repo <owner/repo>` and
      `gh run view <run-id> --repo <owner/repo> --log-failed`.
 2. Treat every merge as gated by default: a green CI is never merge authorization. After all checks pass, stop, report the state, and wait for an explicit in-conversation approval ("merge", "合并", or equivalent) for this specific PR. This applies to every PR type — refactors, test-only changes, and behavior changes alike. Only a standing instruction from the user in the current conversation can relax this default, and any earlier "merge after CI" habit from pure-refactor rounds does not carry over.
-3. The merge-approval status check enforces the gate mechanically. Before merging, confirm the `merge-approval` status on the PR head is green; it turns green only after the repository owner posts an approval comment that binds the exact head SHA — `approve <full-40-hex-sha>` (the gate's failure status prints the exact comment to paste). An approval that does not name the current head is stale by definition; timestamps are never trusted (round-2 review Blocker 2). If it is missing or stale, ask the user to comment on the PR page and wait. Never use `--admin` or any bypass, and never post, edit, or imitate the approval comment yourself — the main-branch audit (`scripts/run-merge-approval-audit.js`) fails red when a merged PR lacks the SHA-bound owner marker.
+3. The merge-approval status check enforces the gate mechanically. Before merging, confirm the `merge-approval` status on the PR head is green; it turns green only after the repository owner posts an approval comment that binds the exact head SHA — `approve <full-40-hex-sha>` (the gate's failure status prints the exact comment to paste). An approval that does not name the current head is stale by definition; timestamps are never trusted. If it is missing or stale, ask the user to comment on the PR page and wait. Never use `--admin` or any bypass, and never post, edit, or imitate the approval comment yourself.
 4. Honor approval gates exactly. If the user said "merge after I approve", stop until that approval is present in the conversation.
 5. If draft and user approved/asked to merge, run `gh pr ready <n>`.
 6. Merge with the repository's expected strategy, or default to merge commit:

@@ -17,7 +17,6 @@ const fs = require('fs');
 const path = require('path');
 
 const REGISTRY_PATH = path.join('docs', 'testing', 'architecture-modules.json');
-const CAPABILITIES_PATH = path.join('docs', 'testing', 'main-capability-coverage.json');
 
 const MODULE_ID_PATTERN = /^MOD-[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
 const ROLES = ['presentation', 'application', 'domain', 'infrastructure', 'composition'];
@@ -94,8 +93,7 @@ function validatePatternList(owner, field, value, errors, allowEmpty = false) {
 function loadArchitecturePolicy(rootDirectory) {
     const errors = [];
     const registry = readJson(rootDirectory, REGISTRY_PATH, errors);
-    const capabilityManifest = readJson(rootDirectory, CAPABILITIES_PATH, errors);
-    if (!registry || !capabilityManifest) {
+    if (!registry) {
         return { registry: null, modules: [], files: [], classification: new Map(), errors };
     }
 
@@ -113,8 +111,6 @@ function loadArchitecturePolicy(rootDirectory) {
         errors.push('registry: modules must be a non-empty array');
     }
 
-    const capabilityIds = new Set(
-        (capabilityManifest.capabilities || []).map(capability => capability.id));
     const moduleIds = new Set();
 
     for (const module of modules) {
@@ -169,15 +165,12 @@ function loadArchitecturePolicy(rootDirectory) {
                 errors.push(`${owner}: mayDependOn must not reference itself`);
             }
         }
+        // productCapabilities are informational labels (the capability
+        // manifest was pruned); they only need to be present strings.
         const capabilities = Array.isArray(module.productCapabilities)
             ? module.productCapabilities : [];
         if (capabilities.length === 0) {
             errors.push(`${owner}: productCapabilities must not be empty`);
-        }
-        for (const capability of capabilities) {
-            if (!capabilityIds.has(capability)) {
-                errors.push(`${owner}: unknown product capability ${capability}`);
-            }
         }
         module._compiled = {
             include: source.include.map(compileGlob),

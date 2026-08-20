@@ -33,30 +33,6 @@ const PROTECTED_POLICY_PATHS = [
  * CI wiring. Changes here can never classify as product-only — a weakened
  * guard, a removed mutation test, or a dropped CI invocation must fail.
  */
-const PROTECTED_HARNESS_PREFIXES = [
-    'scripts/architecture/',
-    'tests/unit/architecture/',
-    '.github/workflows/',
-];
-const PROTECTED_HARNESS_FILES = [
-    'scripts/run-architecture-guards.js',
-    'scripts/lib/ciContracts.js',
-    'package.json',
-    // The merge-approval gate machinery (review R4): the last enforcement
-    // line must not be weakenable by an ordinary product change.
-    'scripts/run-merge-approval-gate.js',
-    'scripts/run-merge-approval-audit.js',
-    'scripts/lib/mergeApprovals.js',
-    'scripts/lib/changeImpactContext.js',
-    'tests/unit/tooling/mergeApprovals.test.js',
-    'tests/unit/tooling/mergeApprovalGate.test.js',
-];
-
-function isHarnessPath(file) {
-    return PROTECTED_HARNESS_PREFIXES.some(prefix => file.startsWith(prefix))
-        || PROTECTED_HARNESS_FILES.includes(file);
-}
-
 /** Guard ids declared by the legacy runner. */
 function guardIdsOf(text) {
     return new Set([...text.matchAll(/'(ARCH-[A-Z0-9-]+)'\(root\)/g)].map(m => m[1]));
@@ -268,7 +244,6 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         invariantsRemoved: [],
         baselineGrown: [],
         waiversAdded: [],
-        ledgerRegressions: [],
         modulesChanged: false,
     };
     const changedInvariantIds = [];
@@ -356,77 +331,11 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
                 policyDelta.waiversAdded = added;
             }
         }
-        if (protectedPath.endsWith('architecture-program.json')) {
-            // Review R9 (Important 9): ledger state regressions are relaxing
-            // (a module stepping backwards cannot ride a product change);
-            // forward moves along the declared chain are progress.
-            const baseModules = baseJson.modules || {};
-            const headModules = headJson.modules || {};
-            const stateOrder = Array.isArray(headJson.states) ? headJson.states : [];
-            for (const [id, headEntry] of Object.entries(headModules)) {
-                const baseEntry = baseModules[id];
-                if (!baseEntry || !headEntry || baseEntry.state === headEntry.state) { continue; }
-                const fromIndex = stateOrder.indexOf(baseEntry.state);
-                const toIndex = stateOrder.indexOf(headEntry.state);
-                if (fromIndex < 0 || toIndex < 0 || toIndex < fromIndex) {
-                    policyDelta.ledgerRegressions.push(
-                        `${id}: ${baseEntry.state} -> ${headEntry.state}`);
-                }
-                // T7 (Important 9): skip-state detection — a module may only
-                // advance to the next state in the chain, not skip over
-                // intermediate states (e.g. legacy -> strict is illegal).
-                if (toIndex >= 0 && fromIndex >= 0 && toIndex > fromIndex + 1) {
-                    const skipped = stateOrder.slice(fromIndex + 1, toIndex).join(', ');
-                    policyDelta.ledgerRegressions.push(
-                        `${id}: skip-state ${baseEntry.state} -> ${headEntry.state} `
-                        + `(skipped ${skipped})`);
-                }
-            }
-        }
     }
 
     const protectedTouched = changed
         .map(entry => entry.path)
         .filter(file => PROTECTED_POLICY_PATHS.includes(file));
-
-    // Harness surface delta (review R2): deletions and removals of guard
-    // ids, lane invocations, workflow invocations, or mutation tests.
-    const harnessDelta = {
-        touched: [],
-        deletedFiles: [],
-        removedGuardIds: [],
-        removedInvocations: [],
-        shrunkMutationTests: [],
-    };
-    for (const entry of changed) {
-        if (!isHarnessPath(entry.path)) { continue; }
-        harnessDelta.touched.push(entry.path);
-        if (entry.status === 'D') {
-            harnessDelta.deletedFiles.push(entry.path);
-            continue;
-        }
-        if (entry.status !== 'M') { continue; }
-        const baseText = git.fileAt(baseRef, entry.path);
-        const headText = git.fileAt('HEAD', entry.path);
-        if (baseText === null || headText === null) { continue; }
-        if (entry.path === 'scripts/run-architecture-guards.js') {
-            const removed = [...guardIdsOf(baseText)]
-                .filter(id => !guardIdsOf(headText).has(id));
-            harnessDelta.removedGuardIds.push(...removed);
-        }
-        if (entry.path === 'package.json' || entry.path.startsWith('.github/workflows/')) {
-            const removed = [...invocationsOf(baseText)]
-                .filter(invocation => !invocationsOf(headText).has(invocation));
-            harnessDelta.removedInvocations.push(...removed.map(invocation => `${entry.path}: ${invocation}`));
-        }
-        if (entry.path.startsWith('tests/unit/architecture/')) {
-            const baseCount = mutationTestCountOf(baseText);
-            const headCount = mutationTestCountOf(headText);
-            if (headCount < baseCount) {
-                harnessDelta.shrunkMutationTests.push(`${entry.path}: ${baseCount} -> ${headCount}`);
-            }
-        }
-    }
 
     return {
         baseRef,
@@ -437,7 +346,6 @@ function collectArchitectureDiff({ rootDirectory, baseRef, git }) {
         removedFiles: removedFiles.sort(),
         removedClassifiedFiles,
         protectedTouched,
-        harnessDelta,
         policyDelta,
         moduleMoves,
         changedBehaviorIds: changedBehaviorIds.sort(),
@@ -468,9 +376,6 @@ function formatReport(report) {
     for (const [id, entrypoints] of Object.entries(report.policyDelta.entrypointsGrown || {})) {
         lines.push(`  entrypoints broadened: ${id} += ${entrypoints.join(', ')}`);
     }
-    for (const regression of report.policyDelta.ledgerRegressions || []) {
-        lines.push(`  ledger regression: ${regression}`);
-    }
     for (const [id, change] of Object.entries(report.policyDelta.invariantChanges || {})) {
         const parts = [];
         if (change.writersAdded) { parts.push(`writers += ${change.writersAdded.join(', ')}`); }
@@ -489,21 +394,6 @@ function formatReport(report) {
     }
     if (report.policyDelta.waiversAdded.length > 0) {
         lines.push(`  waivers added: ${report.policyDelta.waiversAdded.join(', ')}`);
-    }
-    if (report.harnessDelta && report.harnessDelta.touched.length > 0) {
-        lines.push(`  harness surface touched: ${report.harnessDelta.touched.join(', ')}`);
-        for (const file of report.harnessDelta.deletedFiles) {
-            lines.push(`  harness file deleted: ${file}`);
-        }
-        for (const id of report.harnessDelta.removedGuardIds) {
-            lines.push(`  guard removed: ${id}`);
-        }
-        for (const invocation of report.harnessDelta.removedInvocations) {
-            lines.push(`  invocation removed: ${invocation}`);
-        }
-        for (const entry of report.harnessDelta.shrunkMutationTests) {
-            lines.push(`  mutation tests shrank: ${entry}`);
-        }
     }
     return lines.join('\n');
 }
@@ -524,11 +414,8 @@ if (require.main === module) { main(); }
 
 module.exports = {
     PROTECTED_POLICY_PATHS,
-    PROTECTED_HARNESS_PREFIXES,
-    PROTECTED_HARNESS_FILES,
     collectArchitectureDiff,
     defaultGit,
     diffStringSets,
     formatReport,
-    isHarnessPath,
 };

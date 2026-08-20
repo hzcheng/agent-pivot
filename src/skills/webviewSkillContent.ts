@@ -2,14 +2,14 @@
 
 import * as path from 'path';
 
-import type { SkillAgentId, SkillRecord, SkillScope, SkillSourceDir, SkillVisibility } from '../skills/types';
-import { FIXABLE_DIAGNOSTIC_CODES } from '../skills/fixService';
-import { getSkillStableKey } from '../skills/skillGroupStore';
+import type { SkillAgentId, SkillRecord, SkillScope, SkillSourceDir, SkillVisibility } from './types';
+import { FIXABLE_DIAGNOSTIC_CODES } from './fixService';
+import { getSkillStableKey } from './skillGroupStore';
 import {
     computeSkillDuplicates,
     SkillCopyTarget,
     SkillDuplicateGroup,
-} from '../skills/syncService';
+} from './syncService';
 
 export interface SkillPanelView {
     /** falsy when no workspace is open. */
@@ -26,9 +26,9 @@ export interface SkillPanelView {
     storeFolders?: Partial<Record<SkillScope, string[]>>;
 }
 import { sanitizeProjectName } from '../models';
-import { escapeAttribute } from './webviewHtmlEscape';
+import { escapeAttribute } from '../webviewHtmlEscape';
 import { collapse as collapseIcon, edit as editIcon, folder as folderIcon, puzzle } from '../webviewIcons';
-import type { SkillCollectionSuggestion } from '../skills/knownCollections';
+import type { SkillCollectionSuggestion } from './knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
 

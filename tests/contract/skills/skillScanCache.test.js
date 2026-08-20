@@ -11,7 +11,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 function loadSkillsModules() {
-    // dashboardController transitively requires webviewSkillContent → webviewContent
+    // dashboardController transitively requires webviewSkillContent → skills services
     // → vscode, and getSkillsPanelContent calls vscode.Uri.file at render time
     // (mirrors run-skill-management-checks.js).
     const fakeVscode = {

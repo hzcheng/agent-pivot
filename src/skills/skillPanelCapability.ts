@@ -2,7 +2,7 @@
 
 import type * as vscode from 'vscode';
 import type { DashboardMessageHandler } from '../dashboard/messageRouter';
-import type { SkillPanelView } from '../webview/webviewSkillContent';
+import type { SkillPanelView } from './webviewSkillContent';
 import { SkillDashboardController } from './dashboardController';
 import type { SkillDashboardControllerOptions } from './dashboardController';
 import { GlobalStoreLocationController } from './globalStoreLocationController';

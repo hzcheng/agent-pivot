@@ -6026,7 +6026,7 @@
       "tests/contract/skills/webviewSkillContent.test.js"
     ],
     "evidence": [
-      "src/webview/webviewSkillContent.ts",
+      "src/skills/webviewSkillContent.ts",
       "src/webview/webviewSkillPanelScripts.js",
       "src/webview/webviewDashboardScripts.js"
     ]
@@ -6047,7 +6047,7 @@
       "src/skills/scopeService.ts",
       "src/skills/centralService.ts",
       "src/skills/dashboardController.ts",
-      "src/webview/webviewSkillContent.ts",
+      "src/skills/webviewSkillContent.ts",
       "src/webview/webviewDashboardScripts.js",
       "src/skills/skillPanelCapability.ts"
     ]

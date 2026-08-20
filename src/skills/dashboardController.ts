@@ -12,8 +12,8 @@ import { getCentralSkillsRoot, getKimiBrandCandidates, getProjectSkillsRoots, ge
 import { computeSkillCopyTargets, copySkillDir, SkillCopyTarget, syncSkillDir } from './syncService';
 import { fixSkillDiagnostic } from './fixService';
 import { moveProjectSkillToGlobal, setGlobalSkillProjectAgents, SkillScopeActionResult } from './scopeService';
-import { getSkillsPanelContent } from '../webview/webviewSkillContent';
-import type { SkillPanelView } from '../webview/webviewSkillContent';
+import { getSkillsPanelContent } from './webviewSkillContent';
+import type { SkillPanelView } from './webviewSkillContent';
 import type { SkillGroupStore } from './skillGroupStore';
 import type { SkillAgentId, SkillDiagnostic, SkillRecord, SkillScope } from './types';
 

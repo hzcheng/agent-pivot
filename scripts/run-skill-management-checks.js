@@ -33,10 +33,10 @@ Module._load = function (request, parent, isMain) {
     if (request === 'vscode') { return vscodeStub; }
     return originalModuleLoad.call(this, request, parent, isMain);
 };
-const skillContent = require('../out/webview/webviewSkillContent');
+const skillContent = require('../out/skills/webviewSkillContent');
 const webviewContent = require('../out/webview/webviewContent');
 const promptWebviewContent = require('../out/prompts/webviewContent');
-// dashboardController transitively requires webviewSkillContent → webviewContent → vscode,
+// dashboardController transitively requires webviewSkillContent → skills services → vscode,
 // so it must be required while the vscode stub is still active.
 const { SkillDashboardController, computeSkillLinkConflicts } = require('../out/skills/dashboardController');
 Module._load = originalModuleLoad;

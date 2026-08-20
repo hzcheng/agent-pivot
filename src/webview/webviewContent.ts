@@ -23,7 +23,7 @@ import {
     buildWorkspaceDashboardSearchCatalog,
     serializeDashboardSearchCatalog,
 } from './dashboardViewModel';
-import { escapeAttribute } from './webviewHtmlEscape';
+import { escapeAttribute } from '../webviewHtmlEscape';
 import {
     getAiSessionContextMenu,
     getAiSessionCreateDropdown,

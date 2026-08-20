@@ -33,7 +33,7 @@ function loadSkillContent() {
             },
         },
     };
-    const contentPath = require.resolve('../../out/webview/webviewSkillContent');
+    const contentPath = require.resolve('../../out/skills/webviewSkillContent');
     const previousLoad = Module._load;
     try {
         Module._load = function (request, parent, isMain) {

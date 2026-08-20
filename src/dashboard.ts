@@ -13,7 +13,7 @@ import {
     getEffectiveRunningCardAnimation,
     getEffectiveRunningIconAnimation,
 } from './webview/runningAnimationImages';
-import { getSkillsPanelContent } from './webview/webviewSkillContent';
+import { getSkillsPanelContent } from './skills/webviewSkillContent';
 import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,

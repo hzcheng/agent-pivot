@@ -2,7 +2,7 @@
     "version": 1,
     "audit": {
         "base": "2b34c653119bdf480f2af0330ee3809b51441807",
-        "head": "99fbc6beb8f4cff409637cc6e1e34170f7cf6918",
+        "head": "982241093a3fe5d58074c3f1f630b8899c73a398",
         "ignoredDocumentationCommits": [
             "dd86a325e3db5aa013ffa18a647e67e9fa279c10",
             "0b0e12b4d97ec7d77a8a93076459fdaad2e52070",
@@ -488,7 +488,8 @@
             "e6fa3a6941c3f8a6704adeb844bb35fafb691caf",
             "bb83e39f0c129104ef25be5b123bbb2038dc0b6a",
             "25393e066279a6fdd2672698a8d73938a6500584",
-            "745e97a22d044861e00e4e7f6e789109f1d1d25a"
+            "745e97a22d044861e00e4e7f6e789109f1d1d25a",
+            "449d66444fa7278526c56d55457dbca0004071ef"
         ]
     },
     "capabilities": [
@@ -1969,7 +1970,8 @@
                 "3b8064d460afec74027e39d4c8f7e8120e9658af",
                 "eaf81001f659b19d7dec593da7d33ec78c8d2a8d",
                 "89d6b3997d108414e1106096e6e99d5812bbfe02",
-                "e1eb9700202d611754e14e1900fdf0fc06eb358d"
+                "e1eb9700202d611754e14e1900fdf0fc06eb358d",
+                "982241093a3fe5d58074c3f1f630b8899c73a398"
             ],
             "behaviors": [
                 "SESSION-AI-SESSION-CONVERSATION-ADAPTER-001",
@@ -2022,7 +2024,8 @@
                 "CONVERSATION-FOLLOW-DIAGNOSTICS-001",
                 "CONVERSATION-OVERSIZED-TURN-001",
                 "SESSION-AI-SESSION-CONVERSATION-FENCED-CODE-001",
-                "WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001"
+                "WEBVIEW-AI-SESSION-CONVERSATION-CODE-HIGHLIGHT-001",
+                "OPEN-WINDOW-CYCLE-RAILS-001"
             ],
             "prGates": [
                 "test:ci:linux"

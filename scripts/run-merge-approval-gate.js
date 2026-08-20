@@ -13,7 +13,8 @@
 //
 // Harness Simplification PR 4/6: the AI-authored change-impact declaration
 // is gone. The gate regenerates the architecture impact report for the exact
-// head and posts it as a standing PR comment for owner review; only
+// head and publishes it to the job summary ($GITHUB_STEP_SUMMARY) for owner
+// review — never as a PR comment, so no notification email per PR; only
 // mechanical errors block the status (classification errors such as a
 // relaxing change without architecture approval, capability audit gaps,
 // report collection failures).
@@ -26,7 +27,6 @@ const { evaluateMergeApproval, findArchitectureApprovalComment } = require('./li
 const { collectChangeImpactContext } = require('./lib/changeImpactContext');
 
 const STATUS_CONTEXT = 'merge-approval';
-const REPORT_MARKER = '<!-- architecture-impact-report -->';
 
 function readEventPayload() {
     const eventPath = process.env.GITHUB_EVENT_PATH;
@@ -109,13 +109,17 @@ function renderImpactReport({ pullRequest, context }) {
     return lines.join('\n');
 }
 
-/** Create or update the standing impact-report comment. */
-async function upsertReportComment(token, repo, prNumber, markdown, comments) {
-    const existing = (comments || []).find(comment => String(comment.body || '').includes(REPORT_MARKER));
-    if (existing) {
-        await api(token, 'PATCH', `/repos/${repo}/issues/comments/${existing.id}`, { body: markdown });
-    } else {
-        await api(token, 'POST', `/repos/${repo}/issues/${prNumber}/comments`, { body: markdown });
+/** Write the report to the job summary (and the log) — never to the PR,
+ * so review aids never generate notification email. */
+function publishReport(markdown) {
+    console.log(markdown);
+    const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+    if (summaryPath) {
+        try {
+            fs.appendFileSync(summaryPath, markdown + '\n');
+        } catch (error) {
+            console.error(`warning: could not write the job summary: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 }
 
@@ -185,28 +189,17 @@ async function main() {
         headSha,
     });
 
-    // PR 4/6: no AI-authored declaration is compared anymore. The gate
-    // regenerates the impact report for the exact head, posts it as a
-    // standing comment for owner review, and blocks only on mechanical
-    // errors. Git failures crash the job before posting, which blocks the
-    // merge (fail-closed).
+    // The impact report is a read-only review aid: the gate regenerates it
+    // from the exact head and publishes it to the job summary — never as a
+    // PR comment, so no notification email per PR. Evaluation errors still
+    // block (fail-closed); publishing never does.
     const { errors: headErrors, reportMarkdown } = evaluateHeadForPullRequest({
         pullRequest,
         prNumber,
         architectureApproved: Boolean(architectureApproval),
     });
-    // The report comment is advisory: its delivery failure must never block
-    // the merge status (the evaluation completed; fail-closed applies to the
-    // verdict, not to the review aid). A broken comment path would otherwise
-    // take down the gate for every PR — as it did when the token lacked
-    // pull-requests: write.
     if (reportMarkdown) {
-        try {
-            await upsertReportComment(token, repo, prNumber, reportMarkdown, comments);
-        } catch (error) {
-            console.error(`warning: could not post the impact report comment: ${error instanceof Error ? error.message : String(error)}`);
-            console.error(reportMarkdown);
-        }
+        publishReport(reportMarkdown);
     }
 
     const reasons = [];

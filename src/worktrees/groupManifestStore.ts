@@ -2699,6 +2699,17 @@ export type WorktreeGroupManifestWriter = Pick<WorktreeGroupManifestStore,
     | 'removeGenerationClaim'
     | 'reconcileGenerationClaims'>;
 
+/**
+ * The member-lifecycle family's write surface (ARCH-WORKTREE-MEMBER-WRITER-001).
+ * Two single-writer families share this store; the member authority may only
+ * reach its own four methods — anything else is a compile error on this view.
+ */
+export type WorktreeGroupMemberWriter = Pick<WorktreeGroupManifestStore,
+    | 'transitionMember'
+    | 'updateMember'
+    | 'setPrimaryMember'
+    | 'removeMember'>;
+
 /** Provision a store and hand out the capability-free handle. */
 export function createWorktreeGroupManifestStore(
     memento: MementoLike
@@ -2728,5 +2739,15 @@ export function worktreeGroupManifestReaderOf(
 export function worktreeGroupManifestWriterOf(
     handle: WorktreeGroupManifestStoreHandle
 ): WorktreeGroupManifestWriter {
+    return worktreeGroupManifestStoreOf(handle);
+}
+
+/**
+ * The member-lifecycle view of the handle. Module-internal like the full
+ * unwrap: only the declared member authority consumes it.
+ */
+export function worktreeGroupMemberWriterOf(
+    handle: WorktreeGroupManifestStoreHandle
+): WorktreeGroupMemberWriter {
     return worktreeGroupManifestStoreOf(handle);
 }

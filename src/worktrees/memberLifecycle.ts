@@ -3,11 +3,12 @@
 import type { WorktreeKey } from './types';
 import {
     WorktreeGroupManifestError,
-    worktreeGroupManifestStoreOf,
+    worktreeGroupMemberWriterOf,
 } from './groupManifestStore';
 import type {
     WorktreeGroupManifestStore,
     WorktreeGroupManifestStoreHandle,
+    WorktreeGroupMemberWriter,
 } from './groupManifestStore';
 
 export class IllegalMemberTransitionError extends Error {
@@ -43,10 +44,14 @@ export class IllegalMemberTransitionError extends Error {
  * and the journal primitives only act on members in the deleting state.
  */
 export class WorktreeMemberLifecycle {
-    private readonly store: WorktreeGroupManifestStore;
+    // Member-authority view only (ARCH-WORKTREE-MEMBER-WRITER-001): this
+    // family shares the store with the manifest-structure family, and the
+    // view is what keeps it off the other family's write methods — calling
+    // one is a compile error here, not a scanner finding.
+    private readonly store: WorktreeGroupMemberWriter;
 
     constructor(storeHandle: WorktreeGroupManifestStoreHandle) {
-        this.store = worktreeGroupManifestStoreOf(storeHandle);
+        this.store = worktreeGroupMemberWriterOf(storeHandle);
     }
 
     private async transition(

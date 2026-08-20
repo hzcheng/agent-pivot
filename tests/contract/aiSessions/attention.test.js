@@ -15,8 +15,10 @@ const AttentionMonitor = require('../../../out/aiSessions/attentionMonitor').def
 const ExecutionMonitor = require('../../../out/aiSessions/executionMonitor').default;
 const {
     AiSessionAttentionController,
-    settleAiSessionRuntimeLifecycles,
 } = require('../../../out/aiSessions/attentionController');
+const {
+    settleAiSessionRuntimeLifecycles,
+} = require('../../../out/aiSessions/runtimeSettlementCapability');
 const {
     AttentionEvaluationQueue,
 } = require('../../../out/aiSessions/attentionEvaluationQueue');

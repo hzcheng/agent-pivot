@@ -2,7 +2,7 @@
 
 import type { ActiveAiSessionTerminalIdentity } from '../aiSessions/activeTerminalHighlight';
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
-import { getLogicalAttentionSessionKey } from '../aiSessions/attentionProject';
+import { getLogicalAttentionSessionKey } from '../attentionSessionKeys';
 import type { AiSessionExecutionSnapshot } from '../aiSessions/executionMonitor';
 import { getAiSessionKey } from '../aiSessions/sessionHelpers';
 import type {
@@ -15,7 +15,7 @@ import type {
     ActiveAiSessionPresentation,
 } from '../aiSessions/types';
 import { getWorkspaceAttentionSummary } from './attentionProjection';
-import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
+import { hasWorkspaceRuntimeContinuity } from '../runtimeOwnership';
 import type { OpenWorkspace } from './types';
 
 export interface WorkspaceActiveSessionPresentation {

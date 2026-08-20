@@ -159,12 +159,14 @@
       "purpose": "Attention pipeline: aggregation, evaluation queue, monitor, payload, status bar, and bridge client.",
       "source": {
         "include": [
-          "src/aiSessions/attention*"
+          "src/aiSessions/attention*",
+          "src/aiSessions/statusCapability.ts"
         ],
         "exclude": []
       },
       "publicEntrypoints": [
-        "src/aiSessions/attention*"
+        "src/aiSessions/attention*",
+        "src/aiSessions/statusCapability.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-NOTIFY",
@@ -415,7 +417,8 @@
           "src/aiSessions/aliasController.ts",
           "src/aiSessions/pinController.ts",
           "src/aiSessions/sessionProfileController.ts",
-          "src/aiSessions/archive*"
+          "src/aiSessions/archive*",
+          "src/aiSessions/statusCapability.ts"
         ]
       },
       "publicEntrypoints": [
@@ -887,7 +890,9 @@
           "src/worktreeSessionAssignment.ts",
           "src/worktreeIdentity.ts",
           "src/webviewIcons.ts",
-          "src/configuration.ts"
+          "src/configuration.ts",
+          "src/attentionSessionKeys.ts",
+          "src/runtimeOwnership.ts"
         ],
         "exclude": []
       },
@@ -898,10 +903,13 @@
         "src/worktreeSessionAssignment.ts",
         "src/worktreeIdentity.ts",
         "src/webviewIcons.ts",
-        "src/configuration.ts"
+        "src/configuration.ts",
+        "src/attentionSessionKeys.ts",
+        "src/runtimeOwnership.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-PROVIDER",
+        "MOD-AI-SESSION-RUNTIME",
         "MOD-SKILL-MANAGEMENT",
         "MOD-TODO",
         "MOD-WORKSPACE-IDENTITY",
@@ -917,7 +925,9 @@
             "src/worktreeSessionAssignment.ts",
             "src/worktreeIdentity.ts",
             "src/webviewIcons.ts",
-            "src/configuration.ts"
+            "src/configuration.ts",
+            "src/attentionSessionKeys.ts",
+            "src/runtimeOwnership.ts"
           ]
         }
       ],

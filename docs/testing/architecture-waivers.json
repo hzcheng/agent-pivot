@@ -12,14 +12,11 @@
             "id": "ARCH-WAIVER-001",
             "rule": "module-cycle",
             "fingerprints": [
-                "2:MOD-AI-SESSION-ATTENTION->MOD-AI-SESSION-PROVIDER",
-                "2:MOD-AI-SESSION-ATTENTION->MOD-AI-SESSION-RUNTIME",
-                "2:MOD-AI-SESSION-ATTENTION->MOD-WORKSPACE-IDENTITY",
                 "2:MOD-AI-SESSION-PROVIDER->MOD-AI-SESSION-RUNTIME",
                 "2:MOD-AI-SESSION-PROVIDER->MOD-WORKSPACE-IDENTITY"
             ],
             "owner": "hzcheng",
-            "reason": "Session-core modules grew provider/attention/runtime value cycles through shared helpers and presentation projections; the session-core re-partition sinks the shared types and helpers.",
+            "reason": "Session-core modules grew provider/attention/runtime value cycles through shared helpers and presentation projections; the session-core re-partition sinks the shared types and helpers. The attention wave (2026-08-20) dissolved the three ATTENTION pairs by sinking the session-key codecs and runtime-ownership helper into the kernel and re-owning statusCapability.",
             "tracking": "architecture program wave W3",
             "createdAt": "2026-08-17",
             "retiresWith": "WAVE-W3",

@@ -1,10 +1,10 @@
 'use strict';
 
-import type { AiSessionRuntimeSnapshot } from '../aiSessions/runtimeTypes';
+import type { AiSessionRuntimeSnapshot } from './aiSessions/runtimeTypes';
 import {
     getWorkspaceHostPathComparisonKey,
-} from '../sessionAssignment';
-import type { OpenWorkspace } from './types';
+} from './sessionAssignment';
+import type { OpenWorkspace } from './workspaces/types';
 
 export function hasWorkspaceRuntimeContinuity(
     workspace: Pick<OpenWorkspace, 'scopeIdentity' | 'navigationIdentity' | 'roots'>,

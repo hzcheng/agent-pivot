@@ -25,8 +25,8 @@ import {
     isWorkspaceHostPathContained,
     normalizeWorkspaceHostPath,
 } from '../sessionAssignment';
-import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
-export { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
+import { hasWorkspaceRuntimeContinuity } from '../runtimeOwnership';
+export { hasWorkspaceRuntimeContinuity } from '../runtimeOwnership';
 import {
     projectWorkspaceActiveSessions,
     WorkspaceActiveSessionPresentation,

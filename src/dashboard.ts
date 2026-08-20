@@ -250,7 +250,7 @@ import { WorkspacePendingSessionPromotionController } from './workspaces/pending
 import {
     CurrentWorkspaceSessionAuthority,
 } from './workspaces/currentWorkspaceSessionAuthority';
-import { hasWorkspaceRuntimeContinuity } from './workspaces/runtimeOwnership';
+import { hasWorkspaceRuntimeContinuity } from './runtimeOwnership';
 import {
     AiSessionProjectionCoordinator,
     AiSessionPresentationTransaction,

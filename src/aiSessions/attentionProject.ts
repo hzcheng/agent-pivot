@@ -1,10 +1,15 @@
 'use strict';
 
 import * as crypto from 'crypto';
-import type { AiSessionProviderId } from '../models';
 import type { AggregatedAttentionSession, AttentionAggregate } from './attentionAggregate';
-import type { AiSessionRuntimeBackendId } from './runtimeTypes';
+import { getLogicalAttentionSessionKey } from '../attentionSessionKeys';
 import { normalizeAiSessionComparablePath } from './sessionHelpers';
+
+// The attention session-key codecs live in the shared kernel
+// (src/attentionSessionKeys.ts) so runtime settlement and workspace
+// projections do not edge back into this module; re-exported here so
+// existing readers and tests keep their import path.
+export { getAttentionRuntimeSessionKey, getLogicalAttentionSessionKey } from '../attentionSessionKeys';
 
 export interface AttentionProjectSummary {
     projectKey: string;
@@ -14,21 +19,6 @@ export interface AttentionProjectSummary {
 }
 
 export type AttentionSummary = Pick<AttentionProjectSummary, 'attentionCount' | 'eventIds' | 'sessions'>;
-
-export function getAttentionRuntimeSessionKey(input: {
-    workspaceScopeIdentity: string;
-    provider: AiSessionProviderId;
-    sessionId: string;
-    runStartedAtMs: number;
-    backend: AiSessionRuntimeBackendId;
-}): string {
-    return `${input.workspaceScopeIdentity}:${input.provider}:${input.sessionId}:${input.runStartedAtMs}:${input.backend}`;
-}
-
-export function getLogicalAttentionSessionKey(sessionKey: string): string {
-    const match = /^(?:[a-f0-9]{64}:)?(codex|kimi|claude):(.+):\d+:(?:vscode|tmux)$/.exec(sessionKey || '');
-    return match ? `${match[1]}:${match[2]}` : sessionKey;
-}
 
 function summarizeAttentionSessions(
     sourceSessions: readonly AggregatedAttentionSession[]

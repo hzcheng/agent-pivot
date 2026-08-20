@@ -9,7 +9,7 @@ import type {
 } from './runtimeTypes';
 import type { WorkspaceAiSessionActionTarget } from './types';
 import { aiSessionRuntimeIdentitiesEqual, cloneAiSessionRuntimeIdentity } from './runtimeTypes';
-import { hasWorkspaceRuntimeContinuity } from '../workspaces/runtimeOwnership';
+import { hasWorkspaceRuntimeContinuity } from '../runtimeOwnership';
 
 export interface AiSessionTerminalCommandRuntimeCoordinator<TTerminal> {
     getActive?(): AiSessionRuntimeSnapshot<TTerminal>[];

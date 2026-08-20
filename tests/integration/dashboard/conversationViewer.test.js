@@ -302,6 +302,7 @@ function createViewer(options = {}) {
         readSubagents: options.readSubagents,
         readTelemetry: options.readTelemetry,
         readSessionStatus: options.readSessionStatus,
+        cycleLocalSessionStatus: options.cycleLocalSessionStatus,
         watch: options.watch || ((_provider, sessionId) => ({
             dispose() {
                 watchDisposals.push(sessionId);
@@ -435,12 +436,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 opens and reuses one viewer in 
     ]);
 });
 
-test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated local/global Session status', async () => {
+test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated local Session status', async () => {
     let status = {
         runningSessions: 2,
         attentionSessions: 1,
         runningSessionsLocal: 1,
         attentionSessionsLocal: 1,
+        idleSessionsLocal: 3,
     };
     const { viewer, panel } = createViewer({
         readSessionStatus: () => status,
@@ -451,16 +453,25 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated local/
         'data-conversation-session-status'
     ));
     assert.ok(panel.webview.html.includes(
-        '1 running in this window · 2 across all windows'
+        '1 running in this window · click to switch to the next'
     ));
     assert.ok(panel.webview.html.includes(
-        '1 need attention in this window · 1 across all windows'
+        '1 need attention in this window · click to switch to the next'
     ));
     assert.ok(panel.webview.html.includes(
-        'data-session-status-running-count>1/2</span>'
+        '3 idle in this window · click to switch to the next'
     ));
     assert.ok(panel.webview.html.includes(
-        'data-session-status-attention-count>1/1</span>'
+        'data-session-status-running data-session-status-cycle="running"'
+    ));
+    assert.ok(panel.webview.html.includes(
+        'data-session-status-running-count>1</span>'
+    ));
+    assert.ok(panel.webview.html.includes(
+        'data-session-status-attention-count>1</span>'
+    ));
+    assert.ok(panel.webview.html.includes(
+        'data-session-status-idle-count>3</span>'
     ));
     assert.ok(panel.webview.html.includes(
         'data-session-status-request-id'
@@ -480,6 +491,7 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated local/
         attentionSessions: 1,
         runningSessionsLocal: 1,
         attentionSessionsLocal: 1,
+        idleSessionsLocal: 3,
     });
 
     await viewer.publishSessionStatus();
@@ -491,6 +503,7 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated local/
         attentionSessions: 0,
         runningSessionsLocal: 2,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
     };
     await viewer.publishSessionStatus();
     assert.equal(statusMessages().length, 2);
@@ -499,7 +512,70 @@ test('CONVERSATION-SESSION-STATUS-001 embeds and publishes the correlated local/
         attentionSessions: 0,
         runningSessionsLocal: 2,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
     });
+});
+
+test('CONVERSATION-SESSION-STATUS-001 renders a disabled status button for an empty kind', async () => {
+    const { viewer, panel } = createViewer({
+        readSessionStatus: () => ({
+            runningSessions: 1,
+            attentionSessions: 0,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 0,
+            idleSessionsLocal: 2,
+        }),
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    assert.ok(panel.webview.html.includes(
+        'No AI sessions need attention in this window'
+    ));
+    assert.ok(/data-session-status-attention[^>]*disabled/.test(
+        panel.webview.html
+    ), 'an empty kind renders a disabled button');
+    assert.ok(!/data-session-status-running[^>]*disabled/.test(
+        panel.webview.html
+    ), 'a non-empty kind stays clickable');
+});
+
+test('CONVERSATION-SESSION-STATUS-001 routes status button clicks to the local session cycle', async () => {
+    const cycles = [];
+    const { viewer, panel } = createViewer({
+        cycleLocalSessionStatus: async (kind, currentTarget) => {
+            cycles.push({ kind, currentTarget });
+        },
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    await panel.receive({
+        type: 'conversation-viewer-cycle-status-session',
+        version: 1,
+        kind: 'attention',
+    });
+    assert.deepEqual(cycles, [{
+        kind: 'attention',
+        currentTarget: target('session-a', 'input-1'),
+    }]);
+
+    for (const message of [
+        { type: 'conversation-viewer-cycle-status-session', version: 1 },
+        {
+            type: 'conversation-viewer-cycle-status-session',
+            version: 1,
+            kind: 'paused',
+        },
+        {
+            type: 'conversation-viewer-cycle-status-session',
+            version: 1,
+            kind: 'idle',
+            extra: true,
+        },
+    ]) {
+        await panel.receive(message);
+    }
+    assert.equal(cycles.length, 1,
+        'malformed or spoofed kinds are dropped by the protocol validator');
 });
 
 test('CONVERSATION-SESSION-STATUS-001 republishes the status after a retarget even when unchanged', async () => {
@@ -508,6 +584,7 @@ test('CONVERSATION-SESSION-STATUS-001 republishes the status after a retarget ev
         attentionSessions: 1,
         runningSessionsLocal: 1,
         attentionSessionsLocal: 1,
+        idleSessionsLocal: 2,
     };
     const { viewer, panel } = createViewer({
         readSessionStatus: () => status,

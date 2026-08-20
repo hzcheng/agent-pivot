@@ -4,6 +4,17 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Changed
+
+- The AI Conversation header status indicators are now clickable badges that
+  count this window's Sessions by lifecycle — running (green), needing
+  attention (red), and idle (gray) — with the count inside the badge instead
+  of the previous local/global pair. Clicking a badge cycles to the next
+  Session of that kind in the current window, focusing its terminal and
+  conversation; a badge dims and disables while its count is zero, running
+  and attention badges keep their reduced-motion-aware pulse while non-zero,
+  and every badge explains itself in a tooltip.
+
 ## [1.1.1] - 2026-08-13
 
 ### Added

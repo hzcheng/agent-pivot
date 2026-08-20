@@ -4466,7 +4466,27 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + "    );\n"
                 + "    var sessionStatusAttentionCount = document.querySelector(\n"
                 + "        '[data-session-status-attention-count]'\n"
+                + "    );\n"
+                + "    var sessionStatusIdle = document.querySelector(\n"
+                + "        '[data-session-status-idle]'\n"
+                + "    );\n"
+                + "    var sessionStatusIdleCount = document.querySelector(\n"
+                + "        '[data-session-status-idle-count]'\n"
                 + "    );\n",
+            ''
+        )
+        .replace(
+            '    [sessionStatusRunning, sessionStatusAttention, sessionStatusIdle]\n'
+                + '        .forEach(function (button) {\n'
+                + '            if (!button) return;\n'
+                + "            button.addEventListener('click', function () {\n"
+                + '                post({\n'
+                + "                    type: 'conversation-viewer-cycle-status-session',\n"
+                + '                    version: 1,\n'
+                + "                    kind: button.getAttribute('data-session-status-cycle'),\n"
+                + '                });\n'
+                + '            });\n'
+                + '        });\n',
             ''
         )
         .replace(
@@ -4477,8 +4497,168 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         )
         .replace('        state.latestStatusRequestId = 0;\n', '')
         .replace(
-            /\n    function sessionStatusDotLabel[\s\S]*?\n    \}\n    window.addEventListener\('message', function \(event\) \{/,
-            '\n    window.addEventListener(\'message\', function (event) {'
+            "    function sessionStatusDotLabel(kind, localCount) {\n"
+                + "        if (kind === 'running') {\n"
+                + "            return localCount === 0\n"
+                + "                ? 'No AI sessions running in this window'\n"
+                + "                : localCount + ' running in this window'\n"
+                + "                    + ' · click to switch to the next';\n"
+                + "        }\n"
+                + "        if (kind === 'attention') {\n"
+                + "            return localCount === 0\n"
+                + "                ? 'No AI sessions need attention in this window'\n"
+                + "                : localCount + ' need attention in this window'\n"
+                + "                    + ' · click to switch to the next';\n"
+                + "        }\n"
+                + "        return localCount === 0\n"
+                + "            ? 'No idle AI sessions in this window'\n"
+                + "            : localCount + ' idle in this window'\n"
+                + "                + ' · click to switch to the next';\n"
+                + "    }\n"
+                + "    function validSessionStatus(value) {\n"
+                + "        if (!value || typeof value !== 'object' || Array.isArray(value)) {\n"
+                + "            return false;\n"
+                + "        }\n"
+                + "        var keys = Object.keys(value);\n"
+                + "        return keys.length === 5\n"
+                + "            && keys.indexOf('runningSessions') !== -1\n"
+                + "            && keys.indexOf('attentionSessions') !== -1\n"
+                + "            && keys.indexOf('runningSessionsLocal') !== -1\n"
+                + "            && keys.indexOf('attentionSessionsLocal') !== -1\n"
+                + "            && keys.indexOf('idleSessionsLocal') !== -1\n"
+                + "            && Number.isSafeInteger(value.runningSessions)\n"
+                + "            && value.runningSessions >= 0\n"
+                + "            && value.runningSessions <= 100000\n"
+                + "            && Number.isSafeInteger(value.attentionSessions)\n"
+                + "            && value.attentionSessions >= 0\n"
+                + "            && value.attentionSessions <= 100000\n"
+                + "            && Number.isSafeInteger(value.runningSessionsLocal)\n"
+                + "            && value.runningSessionsLocal >= 0\n"
+                + "            && value.runningSessionsLocal <= value.runningSessions\n"
+                + "            && Number.isSafeInteger(value.attentionSessionsLocal)\n"
+                + "            && value.attentionSessionsLocal >= 0\n"
+                + "            && value.attentionSessionsLocal <= value.attentionSessions\n"
+                + "            && Number.isSafeInteger(value.idleSessionsLocal)\n"
+                + "            && value.idleSessionsLocal >= 0\n"
+                + "            && value.idleSessionsLocal <= 100000;\n"
+                + "    }\n"
+                + "    function applySessionStatusDot(element, countElement, kind, localCount) {\n"
+                + "        var label = sessionStatusDotLabel(kind, localCount);\n"
+                + "        element.classList.toggle(\n"
+                + "            'conversation-session-status-active',\n"
+                + "            kind !== 'idle' && localCount > 0\n"
+                + "        );\n"
+                + "        element.title = label;\n"
+                + "        element.setAttribute('aria-label', label);\n"
+                + "        element.disabled = localCount === 0;\n"
+                + "        countElement.textContent = String(localCount);\n"
+                + "    }\n"
+                + "    function applySessionStatusMessage(message) {\n"
+                + "        if (!message || typeof message !== 'object'\n"
+                + "            || message.type !== 'conversation-viewer-session-status'\n"
+                + "            || message.version !== 1\n"
+                + "            || !Number.isSafeInteger(message.requestId)\n"
+                + "            || message.requestId < state.latestStatusRequestId\n"
+                + "            || message.subscriptionGeneration !== state.subscriptionGeneration\n"
+                + "            || !validSessionStatus(message.status)\n"
+                + "            || !sessionStatusRunning || !sessionStatusRunningCount\n"
+                + "            || !sessionStatusAttention || !sessionStatusAttentionCount\n"
+                + "            || !sessionStatusIdle || !sessionStatusIdleCount) {\n"
+                + "            return false;\n"
+                + "        }\n"
+                + "        state.latestStatusRequestId = message.requestId;\n"
+                + "        applySessionStatusDot(\n"
+                + "            sessionStatusRunning,\n"
+                + "            sessionStatusRunningCount,\n"
+                + "            'running',\n"
+                + "            message.status.runningSessionsLocal\n"
+                + "        );\n"
+                + "        applySessionStatusDot(\n"
+                + "            sessionStatusAttention,\n"
+                + "            sessionStatusAttentionCount,\n"
+                + "            'attention',\n"
+                + "            message.status.attentionSessionsLocal\n"
+                + "        );\n"
+                + "        applySessionStatusDot(\n"
+                + "            sessionStatusIdle,\n"
+                + "            sessionStatusIdleCount,\n"
+                + "            'idle',\n"
+                + "            message.status.idleSessionsLocal\n"
+                + "        );\n"
+                + "        return true;\n"
+                + "    }",
+"    function sessionStatusDotLabel(kind, localCount, totalCount) {\n"
+                + "        if (totalCount === 0) {\n"
+                + "            return kind === 'running'\n"
+                + "                ? 'No AI sessions running'\n"
+                + "                : 'No AI sessions need attention';\n"
+                + "        }\n"
+                + "        return kind === 'running'\n"
+                + "            ? localCount + ' running in this window · ' + totalCount + ' across all windows'\n"
+                + "            : localCount + ' need attention in this window · ' + totalCount + ' across all windows';\n"
+                + "    }\n"
+                + "    function validSessionStatus(value) {\n"
+                + "        if (!value || typeof value !== 'object' || Array.isArray(value)) {\n"
+                + "            return false;\n"
+                + "        }\n"
+                + "        var keys = Object.keys(value);\n"
+                + "        return keys.length === 4\n"
+                + "            && keys.indexOf('runningSessions') !== -1\n"
+                + "            && keys.indexOf('attentionSessions') !== -1\n"
+                + "            && keys.indexOf('runningSessionsLocal') !== -1\n"
+                + "            && keys.indexOf('attentionSessionsLocal') !== -1\n"
+                + "            && Number.isSafeInteger(value.runningSessions)\n"
+                + "            && value.runningSessions >= 0\n"
+                + "            && value.runningSessions <= 100000\n"
+                + "            && Number.isSafeInteger(value.attentionSessions)\n"
+                + "            && value.attentionSessions >= 0\n"
+                + "            && value.attentionSessions <= 100000\n"
+                + "            && Number.isSafeInteger(value.runningSessionsLocal)\n"
+                + "            && value.runningSessionsLocal >= 0\n"
+                + "            && value.runningSessionsLocal <= value.runningSessions\n"
+                + "            && Number.isSafeInteger(value.attentionSessionsLocal)\n"
+                + "            && value.attentionSessionsLocal >= 0\n"
+                + "            && value.attentionSessionsLocal <= value.attentionSessions;\n"
+                + "    }\n"
+                + "    function applySessionStatusDot(element, countElement, kind, localCount, totalCount) {\n"
+                + "        var label = sessionStatusDotLabel(kind, localCount, totalCount);\n"
+                + "        element.classList.toggle(\n"
+                + "            'conversation-session-status-active',\n"
+                + "            totalCount > 0\n"
+                + "        );\n"
+                + "        element.title = label;\n"
+                + "        element.setAttribute('aria-label', label);\n"
+                + "        countElement.textContent = localCount + '/' + totalCount;\n"
+                + "    }\n"
+                + "    function applySessionStatusMessage(message) {\n"
+                + "        if (!message || typeof message !== 'object'\n"
+                + "            || message.type !== 'conversation-viewer-session-status'\n"
+                + "            || message.version !== 1\n"
+                + "            || !Number.isSafeInteger(message.requestId)\n"
+                + "            || message.requestId < state.latestStatusRequestId\n"
+                + "            || message.subscriptionGeneration !== state.subscriptionGeneration\n"
+                + "            || !validSessionStatus(message.status)\n"
+                + "            || !sessionStatusRunning || !sessionStatusRunningCount\n"
+                + "            || !sessionStatusAttention || !sessionStatusAttentionCount) {\n"
+                + "            return false;\n"
+                + "        }\n"
+                + "        state.latestStatusRequestId = message.requestId;\n"
+                + "        applySessionStatusDot(\n"
+                + "            sessionStatusRunning,\n"
+                + "            sessionStatusRunningCount,\n"
+                + "            'running',\n"
+                + "            message.status.runningSessionsLocal,\n"
+                + "            message.status.runningSessions\n"
+                + "        );\n"
+                + "        applySessionStatusDot(\n"
+                + "            sessionStatusAttention,\n"
+                + "            sessionStatusAttentionCount,\n"
+                + "            'attention',\n"
+                + "            message.status.attentionSessionsLocal,\n"
+                + "            message.status.attentionSessions\n"
+                + "        );\n"
+                + "        return true;\n"
+                + "    }"
         )
         .replace(
             '        if (applySessionStatusMessage(event.data)) return;\n',
@@ -4895,6 +5075,22 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 /                    <button type="button"\s+                        class="conversation-outline-sort"[\s\S]*?                    <span data-outline-summary hidden aria-hidden="true"><\/span>/,
                 '                    <span class="conversation-outline-summary"\n'
                     + '                        data-outline-summary>No inputs yet</span>'
+            ).replace(
+                /<div class="conversation-session-status"[\s\S]*?<\/div>/,
+                '<div class="conversation-session-status"'
+                    + ' data-conversation-session-status role="group"'
+                    + ' aria-label="Global AI session status">'
+                    + '<span class="conversation-session-status-dot'
+                    + ' conversation-session-status-running"'
+                    + ' data-session-status-running role="img"></span>'
+                    + '<span class="conversation-session-status-count"'
+                    + ' data-session-status-running-count>0/2</span>'
+                    + '<span class="conversation-session-status-dot'
+                    + ' conversation-session-status-attention"'
+                    + ' data-session-status-attention role="img"></span>'
+                    + '<span class="conversation-session-status-count"'
+                    + ' data-session-status-attention-count>0/0</span>'
+                    + '</div>'
             );
         },
     });
@@ -4908,6 +5104,11 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             .getAttribute('class'),
         'conversation-outline-summary',
         'the previous document fixture must expose its visible summary marker'
+    );
+    assert.equal(
+        await previousDocument.page.locator('[data-session-status-idle]').count(),
+        0,
+        'the previous document fixture must not expose the idle status button'
     );
     await assertPanelViews(previousDocument.page, 'previous document');
     assert.deepEqual(previousDocumentErrors, []);
@@ -11030,7 +11231,7 @@ test('CONVERSATION-PROVIDER-PARITY-001 keeps default disclosure and live status 
     }
 });
 
-test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session status dots in the header', async t => {
+test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe local Session status buttons in the header', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -11039,31 +11240,63 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
             attentionSessions: 1,
             runningSessionsLocal: 1,
             attentionSessionsLocal: 1,
+            idleSessionsLocal: 2,
         }),
     });
     const running = page.locator('[data-session-status-running]');
     const attention = page.locator('[data-session-status-attention]');
+    const idle = page.locator('[data-session-status-idle]');
     const runningCount = page.locator('[data-session-status-running-count]');
     const attentionCount = page.locator(
         '[data-session-status-attention-count]'
     );
+    const idleCount = page.locator('[data-session-status-idle-count]');
 
     assert.equal(
         await running.getAttribute('title'),
-        '1 running in this window · 2 across all windows'
+        '1 running in this window · click to switch to the next'
     );
-    assert.equal(await runningCount.textContent(), '1/2');
-    assert.equal(await attentionCount.textContent(), '1/1');
+    assert.equal(await runningCount.textContent(), '1');
+    assert.equal(await attentionCount.textContent(), '1');
+    assert.equal(await idleCount.textContent(), '2');
     assert.equal(
         await attention.getAttribute('aria-label'),
-        '1 need attention in this window · 1 across all windows'
+        '1 need attention in this window · click to switch to the next'
+    );
+    assert.equal(
+        await idle.getAttribute('title'),
+        '2 idle in this window · click to switch to the next'
     );
     assert.equal(await running.evaluate(element =>
         element.classList.contains('conversation-session-status-active')
     ), true);
+    assert.equal(await idle.evaluate(element =>
+        element.classList.contains('conversation-session-status-active')
+    ), false, 'idle sessions never pulse');
+    assert.equal(await running.evaluate(element => element.disabled), false);
     assert.notEqual(await running.evaluate(element =>
         getComputedStyle(element).animationName
     ), 'none');
+
+    // Clicking a status button submits the local cycle intent for its kind.
+    const cycleIntents = async () => (await postedMessages(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-cycle-status-session'
+        );
+    await attention.click();
+    await idle.click();
+    assert.deepEqual(await cycleIntents(), [
+        {
+            type: 'conversation-viewer-cycle-status-session',
+            version: 1,
+            kind: 'attention',
+        },
+        {
+            type: 'conversation-viewer-cycle-status-session',
+            version: 1,
+            kind: 'idle',
+        },
+    ]);
 
     const correlation = await page.evaluate(() => ({
         generation: Number(document.body.getAttribute(
@@ -11082,22 +11315,36 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
             runningSessions: 0,
             attentionSessions: 3,
             runningSessionsLocal: 0,
-            attentionSessionsLocal: 1,
+            attentionSessionsLocal: 3,
+            idleSessionsLocal: 0,
         },
     });
     assert.equal(
         await running.getAttribute('title'),
-        'No AI sessions running'
+        'No AI sessions running in this window'
     );
-    assert.equal(await runningCount.textContent(), '0/0');
-    assert.equal(await attentionCount.textContent(), '1/3');
+    assert.equal(await runningCount.textContent(), '0');
+    assert.equal(
+        await running.evaluate(element => element.disabled),
+        true,
+        'an empty kind disables its button'
+    );
     assert.equal(await running.evaluate(element =>
         element.classList.contains('conversation-session-status-active')
     ), false);
     assert.equal(
         await attention.getAttribute('title'),
-        '1 need attention in this window · 3 across all windows'
+        '3 need attention in this window · click to switch to the next'
     );
+    assert.equal(await attentionCount.textContent(), '3');
+    assert.equal(await idleCount.textContent(), '0');
+    assert.equal(await idle.evaluate(element => element.disabled), true);
+
+    // A disabled button never emits another cycle intent.
+    await page.evaluate(() => {
+        document.querySelector('[data-session-status-running]').click();
+    });
+    assert.equal((await cycleIntents()).length, 2);
 
     await sendPage(page, {
         type: 'conversation-viewer-session-status',
@@ -11109,6 +11356,7 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
             attentionSessions: 9,
             runningSessionsLocal: 9,
             attentionSessionsLocal: 9,
+            idleSessionsLocal: 9,
         },
     });
     await sendPage(page, {
@@ -11121,11 +11369,12 @@ test('CONVERSATION-SESSION-STATUS-001 renders reduced-motion-safe global Session
             attentionSessions: 9,
             runningSessionsLocal: 9,
             attentionSessionsLocal: 9,
+            idleSessionsLocal: 9,
         },
     });
     assert.equal(
         await attention.getAttribute('title'),
-        '1 need attention in this window · 3 across all windows',
+        '3 need attention in this window · click to switch to the next',
         'stale requestIds and foreign generations must be ignored'
     );
 

@@ -16,6 +16,7 @@ import {
     isBoundedId,
     isRecord,
 } from './commentPrimitives';
+import type { ConversationSessionStatusKind } from './sessionStatusController';
 import { isSubagentId } from './subagentSessions';
 
 export interface ConversationViewerNavigationMessage {
@@ -190,6 +191,14 @@ export interface ConversationViewerSwitchSessionMessage {
     direction: ConversationSessionSwitchDirection;
 }
 
+/** Click a header status button: cycle to the next session of that lifecycle
+ * group within this window. */
+export interface ConversationViewerCycleStatusSessionMessage {
+    type: 'conversation-viewer-cycle-status-session';
+    version: 1;
+    kind: ConversationSessionStatusKind;
+}
+
 export interface ConversationViewerRequestSyncMessage {
     type: 'conversation-viewer-request-sync';
     version: 1;
@@ -247,6 +256,7 @@ export type ConversationViewerMessage =
     | ConversationViewerOpenLinkMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerSwitchSessionMessage
+    | ConversationViewerCycleStatusSessionMessage
     | ConversationViewerRequestSyncMessage
     | ConversationViewerAppliedMessage
     | ConversationViewerFocusMessage
@@ -365,6 +375,15 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerSwitchSessionMessage;
+    }
+    if (value.type === 'conversation-viewer-cycle-status-session') {
+        if (!hasExactKeys(value, ['type', 'version', 'kind'])
+            || (value.kind !== 'running'
+                && value.kind !== 'attention'
+                && value.kind !== 'idle')) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCycleStatusSessionMessage;
     }
     if (value.type === 'conversation-viewer-request-sync') {
         const syncKeys = [

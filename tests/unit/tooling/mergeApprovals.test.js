@@ -113,6 +113,28 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 architecture approval binds the full head 
     }
 });
 
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 both approvals may live in one multi-line comment', () => {
+    const combined = { user: { login: 'hzcheng' }, body: `approve-architecture ${HEAD}\napprove ${HEAD}\n`, created_at: '2026-08-19T15:00:00Z', html_url: 'both' };
+    const verdict = evaluateMergeApproval({
+        comments: [combined],
+        authorLogin: 'hzcheng',
+        headSha: HEAD,
+    });
+    assert.equal(verdict.approved, true, 'the approve line inside a combined comment counts');
+    const arch = findArchitectureApprovalComment([combined], { authorLogin: 'hzcheng', headSha: HEAD });
+    assert.equal(arch.html_url, 'both', 'the approve-architecture line inside the same comment counts');
+});
+
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 a comment naming several SHAs binds only the exact head line', () => {
+    const comments = [
+        { user: { login: 'hzcheng' }, body: `approve ${OTHER}\ntext\napprove ${HEAD}`, created_at: '2026-08-19T15:00:00Z', html_url: 'multi' },
+    ];
+    const verdict = evaluateMergeApproval({ comments, authorLogin: 'hzcheng', headSha: HEAD });
+    assert.equal(verdict.approved, true);
+    const staleOnly = evaluateMergeApproval({ comments, authorLogin: 'hzcheng', headSha: 'c'.repeat(40) });
+    assert.equal(staleOnly.approved, false);
+});
+
 test('ARCH-PR-MERGE-APPROVAL-GATE-001 standard approval never substitutes for architecture approval', () => {
     const comments = [
         { user: { login: 'hzcheng' }, body: `approve ${HEAD}`, created_at: '2026-08-19T10:00:00Z' },

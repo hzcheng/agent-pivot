@@ -14,7 +14,10 @@ on:
 
 permissions:
   contents: read
-  issues: read
+  # issues: write lets the gate create/update the standing architecture
+  # impact report comment (PR 4/6: the report replaces the AI-authored
+  # change-impact declaration block).
+  issues: write
   pull-requests: read
   statuses: write
 

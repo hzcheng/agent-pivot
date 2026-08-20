@@ -2,18 +2,12 @@
 
 <!-- What changed and why. Pull request titles and bodies are written in English. -->
 
-## Change impact declaration
+## Architecture impact report
 
 <!--
-Required; the merge-approval gate rejects pull requests without it.
-Run `node scripts/generate-change-impact-declaration.js` right before pushing
-and paste the generated block below, filling every newFiles reason first,
-the coordinators list for multi-module changes, and the verification note.
-The declaration binds the head SHA: regenerate it whenever the head moves
-(rebase, new commits), otherwise the gate rejects it as stale.
-Charter 8.10 fields are all mandatory: capabilities, modules, invariants,
-policyDelta, baselineWaiverDelta, newFiles, behaviors, semanticImpact,
-coordinators, verification.
+No body declaration is required: the merge-approval gate regenerates the
+architecture impact report for the exact head and maintains it as a standing
+PR comment. Review it before approving.
 -->
 
 ## Owner approvals
@@ -21,7 +15,7 @@ coordinators, verification.
 <!--
 Required; CI rejects pull requests without this section.
 Copy-paste commands for the owner, each bound to the exact head SHA
-(regenerate whenever the head moves, same rule as the declaration):
+(regenerate whenever the head moves):
 
 ```
 approve-architecture <full-head-sha>
@@ -32,8 +26,10 @@ approve <full-head-sha>
 ```
 
 The gates read only PR comments — these body lines are never consumed as
-approvals. `approve-architecture` is required only when protected paths
-change, but always list both so the owner never has to reconstruct them.
+approvals. Approval markers match per comment line, so both commands may be
+posted together in one comment. `approve-architecture` is required only when
+protected paths change, but always list both so the owner never has to
+reconstruct them.
 -->
 
 ## Skill harvest

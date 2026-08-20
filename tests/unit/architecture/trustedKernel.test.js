@@ -466,10 +466,8 @@ test('TRUSTED-KERNEL-001 isProtected covers all documented prefixes', () => {
     assert.ok(isProtected('scripts/run-merge-approval-gate.js'));
     assert.ok(isProtected('scripts/lib/mergeApprovals.js'));
     assert.ok(isProtected('scripts/lib/ciContracts.js'));
-    assert.ok(isProtected('scripts/lib/changeImpactDeclaration.js'));
-    assert.ok(isProtected('scripts/generate-change-impact-declaration.js'));
+    assert.ok(isProtected('scripts/lib/changeImpactContext.js'));
     assert.ok(isProtected('tests/unit/tooling/mergeApprovalGate.test.js'));
-    assert.ok(isProtected('tests/unit/tooling/changeImpactDeclaration.test.js'));
     assert.ok(isProtected('.ci/architecture-debt-baseline.json'));
     assert.ok(isProtected('docs/testing/architecture-modules.json'));
     assert.ok(isProtected('package.json'));
@@ -607,10 +605,8 @@ test('TRUSTED-KERNEL-001 checkProtectedChanges passes with architecture approval
         'scripts/run-merge-approval-gate.js',
         'scripts/lib/mergeApprovals.js',
         'scripts/lib/ciContracts.js',
-        'scripts/lib/changeImpactDeclaration.js',
-        'scripts/generate-change-impact-declaration.js',
+        'scripts/lib/changeImpactContext.js',
         'tests/unit/tooling/mergeApprovalGate.test.js',
-        'tests/unit/tooling/changeImpactDeclaration.test.js',
         '.ci/architecture-debt-baseline.json',
         'docs/testing/architecture-modules.json',
         'docs/testing/architecture-invariants.json',

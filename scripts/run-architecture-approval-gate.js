@@ -9,28 +9,9 @@
  */
 
 const { execFileSync } = require('child_process');
-
-const PROTECTED_PATHS = [
-    'scripts/architecture/',
-    'tests/unit/architecture/',
-    'tests/unit/architecture-parity/',
-    '.github/workflows/',
-    'scripts/run-architecture-guards.js',
-    'scripts/run-merge-approval-gate.js',
-    'scripts/lib/mergeApprovals.js',
-    'scripts/lib/ciContracts.js',
-    'scripts/lib/changeImpact',
-    'scripts/generate-change-impact-declaration.js',
-    'tests/unit/tooling/mergeApprovalGate.test.js',
-    'tests/unit/tooling/changeImpactDeclaration.test.js',
-    '.ci/architecture-debt-baseline.json',
-    'docs/testing/architecture-',
-    'package.json',
-];
-
-function isProtected(filePath) {
-    return PROTECTED_PATHS.some(prefix => filePath.startsWith(prefix));
-}
+// The canonical protected-path list lives in the trusted kernel (Harness
+// Simplification decision: one canonical truth, not two drifting copies).
+const { PROTECTED_PATHS, isProtected } = require('./architecture/trustedKernel');
 
 function main() {
     const headSha = process.env.PR_HEAD_SHA || process.env.GITHUB_SHA;

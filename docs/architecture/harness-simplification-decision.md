@@ -125,10 +125,8 @@ the canonical list lives in the default-branch trusted kernel, not here):
 - `scripts/run-merge-approval-gate.js`
 - `scripts/lib/mergeApprovals.js`
 - `scripts/lib/ciContracts.js`
-- `scripts/lib/changeImpact*.js`
-- `scripts/generate-change-impact-declaration.js`
+- `scripts/lib/changeImpactContext.js`
 - `tests/unit/tooling/mergeApprovalGate.test.js`
-- `tests/unit/tooling/changeImpactDeclaration.test.js`
 - `.ci/architecture-debt-baseline.json`
 - `docs/testing/architecture-*.json`
 - `package.json` (CI/guard wiring sections)

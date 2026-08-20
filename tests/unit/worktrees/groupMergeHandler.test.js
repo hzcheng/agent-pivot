@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     handleMergeWorktreeGroups,
@@ -36,7 +37,8 @@ function readyMember(repositoryKey, slug) {
 }
 
 async function fixture(twoGroups = true) {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     await store.createGroup(WORKSPACE, {
         displayName: 'Fix login', suggestedSlug: 'fix-login',
         members: [readyMember('/alpha/.git', 'fix-login')],
@@ -52,7 +54,7 @@ async function fixture(twoGroups = true) {
     const deps = {
         postMessage: async message => { posted.push(message); },
         getNavigationIdentity: projectId => (projectId === 'project' ? WORKSPACE : null),
-        store,
+        store: storeHandle,
         showQuickPick: async (picks, _placeHolder) => {
             shown.picks = picks;
             return deps.pickResult;
@@ -75,11 +77,11 @@ const sourceGroupId = store => store.listGroups(WORKSPACE)[0].groupId;
 const statuses = posted => posted.map(message => message.status);
 
 test('WORKTREE-GROUPS-MERGE-001 malformed messages are dropped without any settlement or UI', async () => {
-    const { deps, posted, shown } = await fixture();
+    const { store, deps, posted, shown } = await fixture();
     await handleMergeWorktreeGroups(null, deps);
     await handleMergeWorktreeGroups({ type: 'merge-worktree-groups' }, deps);
-    await handleMergeWorktreeGroups(mergeRequest(sourceGroupId(deps.store), { version: 2 }), deps);
-    await handleMergeWorktreeGroups(mergeRequest(sourceGroupId(deps.store), { requestId: 'bad id!' }), deps);
+    await handleMergeWorktreeGroups(mergeRequest(sourceGroupId(store), { version: 2 }), deps);
+    await handleMergeWorktreeGroups(mergeRequest(sourceGroupId(store), { requestId: 'bad id!' }), deps);
     assert.deepEqual(posted, []);
     assert.equal(shown.picks, null);
 });

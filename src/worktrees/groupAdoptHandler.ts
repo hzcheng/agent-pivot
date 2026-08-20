@@ -6,8 +6,11 @@ import {
     settledWorktreeAdoptSettlement,
 } from './groupAdoptProtocol';
 import type { AdoptWorktreesRequest, WorktreeAdoptSettlement } from './groupAdoptProtocol';
-import type { WorktreeGroupManifestStore } from './groupManifestStore';
-import { WorktreeGroupManifestError } from './groupManifestStore';
+import type { WorktreeGroupManifestStoreHandle } from './groupManifestStore';
+import {
+    WorktreeGroupManifestError,
+    worktreeGroupManifestStoreOf,
+} from './groupManifestStore';
 import { slugifyTaskName } from './provisioningPlan';
 import type { SettlementReplayCache } from './settlementReplayCache';
 import type { WorktreeSnapshot } from './types';
@@ -22,7 +25,7 @@ import { worktreeKeysEqual } from './types';
 export interface WorktreeAdoptHandlerDeps {
     postMessage: (message: unknown) => Thenable<unknown>;
     getNavigationIdentity: (projectId: string) => string | null;
-    store: WorktreeGroupManifestStore;
+    store: WorktreeGroupManifestStoreHandle;
     getWorktreeSnapshot: () => WorktreeSnapshot | null;
     refreshNow: () => Promise<void>;
     logError: (message: string, error: unknown) => void;
@@ -62,6 +65,7 @@ async function executeAdoptWorktrees(
     deps: WorktreeAdoptHandlerDeps
 ): Promise<WorktreeAdoptSettlement> {
     await deps.postMessage(acceptedWorktreeAdoptSettlement(request));
+    const store = worktreeGroupManifestStoreOf(deps.store);
     const fail = (errorCode: string) =>
         settledWorktreeAdoptSettlement(request, { kind: 'failed', errorCode });
     const navigationIdentity = deps.getNavigationIdentity(request.projectId);
@@ -69,7 +73,7 @@ async function executeAdoptWorktrees(
     if (!navigationIdentity || !snapshot) {
         return fail('workspace-unavailable');
     }
-    const groups = deps.store.listGroups(navigationIdentity);
+    const groups = store.listGroups(navigationIdentity);
     const members = [];
     for (const key of request.members) {
         const repository = snapshot.repositories.find(candidate =>
@@ -104,7 +108,7 @@ async function executeAdoptWorktrees(
     }
     try {
         if (request.targetGroupId) {
-            const group = await deps.store.adoptReadyMembers(
+            const group = await store.adoptReadyMembers(
                 navigationIdentity, request.targetGroupId, members);
             await deps.refreshNow();
             return settledWorktreeAdoptSettlement(
@@ -115,7 +119,7 @@ async function executeAdoptWorktrees(
         if (!displayName || !slug) {
             return fail('invalid-task');
         }
-        const group = await deps.store.createGroup(navigationIdentity, {
+        const group = await store.createGroup(navigationIdentity, {
             displayName,
             suggestedSlug: slug,
             members,

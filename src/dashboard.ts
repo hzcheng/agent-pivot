@@ -270,7 +270,9 @@ import type { WorktreeKey } from './worktrees';
 import { WorktreeBaseRefStore } from './worktrees';
 import {
     WorktreeGroupManifestError,
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestReaderOf,
+    worktreeGroupManifestWriterOf,
 } from './worktrees';
 import { WorktreeDeletionController } from './worktrees';
 import { reconcileWorktreeGroupManifest } from './worktrees';
@@ -1308,7 +1310,9 @@ async function initializeDashboard(
             getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees'))
     );
     const worktreeSetupRunner = new WorktreeSetupRunner();
-    const worktreeGroupManifestStore = new WorktreeGroupManifestStore(context.globalState);
+    const worktreeGroupManifestStore = createWorktreeGroupManifestStore(context.globalState);
+    const worktreeGroupManifestReader = worktreeGroupManifestReaderOf(worktreeGroupManifestStore);
+    const worktreeGroupManifestWriter = worktreeGroupManifestWriterOf(worktreeGroupManifestStore);
     const worktreeMemberLifecycle = new WorktreeMemberLifecycle(worktreeGroupManifestStore);
     const gitWorktreeDiscovery = new GitWorktreeDiscovery({
         getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
@@ -1436,7 +1440,7 @@ async function initializeDashboard(
     // explicit retired-record cleanup.
     const reconcilePendingGenerationClaims = async (workspace: OpenWorkspace) => {
         const identity = workspace.navigationIdentity;
-        const pendingClaims = worktreeGroupManifestStore.listGenerationClaims(identity)
+        const pendingClaims = worktreeGroupManifestReader.listGenerationClaims(identity)
             .filter(claim => claim.state === 'pending');
         if (!pendingClaims.length) {
             return;
@@ -1480,7 +1484,7 @@ async function initializeDashboard(
             logError('Ambiguous terminal bindings skipped during claim reconciliation.', null);
             return;
         }
-        await worktreeGroupManifestStore.reconcileGenerationClaims(identity, claim =>
+        await worktreeGroupManifestWriter.reconcileGenerationClaims(identity, claim =>
             resolveGenerationClaimDisposition(claim, {
                 navigationIdentity: identity,
                 boundSessionByMarkerPath: boundByMarkerPath,
@@ -1503,7 +1507,7 @@ async function initializeDashboard(
                 // creation time; sessions without a retired path have no
                 // claim and the missing-claim rejection is expected.
                 try {
-                    await worktreeGroupManifestStore.promoteGenerationClaim(
+                    await worktreeGroupManifestWriter.promoteGenerationClaim(
                         navigationIdentity, pendingId, { provider, sessionId });
                 } catch (error) {
                     if ((error as { code?: string })?.code !== 'invalid-record') {
@@ -1555,15 +1559,15 @@ async function initializeDashboard(
         getProvisioningWorktrees: navigationIdentity =>
             isolatedSessionController?.getVisibleRows(navigationIdentity) || [],
         getWorktreeGroups: navigationIdentity =>
-            worktreeGroupManifestStore.listGroups(navigationIdentity),
+            worktreeGroupManifestReader.listGroups(navigationIdentity),
         getDeletionJournals: navigationIdentity =>
-            worktreeGroupManifestStore.listDeletionJournals(navigationIdentity),
+            worktreeGroupManifestReader.listDeletionJournals(navigationIdentity),
         getRetiredWorktreeIdentities: navigationIdentity =>
-            worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+            worktreeGroupManifestReader.listRetiredIdentities(navigationIdentity),
         getGenerationClaims: navigationIdentity =>
-            worktreeGroupManifestStore.listGenerationClaims(navigationIdentity),
+            worktreeGroupManifestReader.listGenerationClaims(navigationIdentity),
         isRetiredStoreCorrupt: navigationIdentity =>
-            worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
+            worktreeGroupManifestReader.isRetiredStoreCorrupt(navigationIdentity),
         onDidReadSessions: (workspace, sessionResults, reason) => {
             void workspacePendingSessionPromotionController.promote(
                 workspace,
@@ -1588,7 +1592,7 @@ async function initializeDashboard(
         getCurrentOpenWorkspace,
         getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
         getWorktreeGroupPeerKeys: (navigationIdentity, key) => {
-            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+            const group = worktreeGroupManifestReader.findGroupByWorktreeKey(
                 navigationIdentity, key);
             if (!group) {
                 return null;
@@ -1604,31 +1608,31 @@ async function initializeDashboard(
                 .map(member => ({ ...member.worktreeKey! }));
         },
         isWorktreeGroupProvisioning: (navigationIdentity, key) => {
-            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+            const group = worktreeGroupManifestReader.findGroupByWorktreeKey(
                 navigationIdentity, key);
             return !!group && group.members.some(member =>
                 member.state === 'planned' || member.state === 'provisioning');
         },
         getRetiredWorktreeIdentities: navigationIdentity =>
-            worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+            worktreeGroupManifestReader.listRetiredIdentities(navigationIdentity),
         isWorktreeRetiredStoreCorrupt: navigationIdentity =>
-            worktreeGroupManifestStore.isRetiredStoreCorrupt(navigationIdentity),
+            worktreeGroupManifestReader.isRetiredStoreCorrupt(navigationIdentity),
         // Every worktree session creation — retired path or not — runs its
         // whole admission phase (lease check, claim persistence, runtime
         // creation) under the shared per-group deletion admission mutex
         // (PRD §6.4, decision J). The claim write itself stays a plain
         // store call: it always happens inside the admission wrapper.
         createWorktreeGenerationClaim: (navigationIdentity, input) =>
-            worktreeGroupManifestStore.createGenerationClaim(navigationIdentity, input),
+            worktreeGroupManifestWriter.createGenerationClaim(navigationIdentity, input),
         withWorktreeDeletionAdmission: (scope, operation) => {
-            const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+            const group = worktreeGroupManifestReader.findGroupByWorktreeKey(
                 scope.workspaceNavigationIdentity, scope.worktreeKey);
             if (!group) {
                 return operation();
             }
             return worktreeDeletionController.withAdmissionLock(
                 scope.workspaceNavigationIdentity, group.groupId, async () => {
-                    if (worktreeGroupManifestStore.isGroupDeletionLeased(
+                    if (worktreeGroupManifestReader.isGroupDeletionLeased(
                         scope.workspaceNavigationIdentity, group.groupId)) {
                         throw new WorktreeGroupManifestError('group-leased');
                     }
@@ -1636,7 +1640,7 @@ async function initializeDashboard(
                 });
         },
         removeWorktreeGenerationClaim: (navigationIdentity, claimId) =>
-            worktreeGroupManifestStore.removeGenerationClaim(navigationIdentity, claimId),
+            worktreeGroupManifestWriter.removeGenerationClaim(navigationIdentity, claimId),
         getRegisteredAiSessionProvider,
         getRegisteredAiSessionProviders,
         getAiSessionRuntimeById,
@@ -1759,10 +1763,10 @@ async function initializeDashboard(
                     }
                     return;
                 }
-                if (worktreeGroupManifestStore.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
+                if (worktreeGroupManifestReader.findGroupByWorktreeKey(bucket, info.worktreeKey)) {
                     return;
                 }
-                await worktreeGroupManifestStore.createGroup(bucket, {
+                await worktreeGroupManifestWriter.createGroup(bucket, {
                     displayName: info.plan.taskName,
                     suggestedSlug: info.plan.slug,
                     members: [{
@@ -1793,7 +1797,7 @@ async function initializeDashboard(
     const currentWorktreeGroupsAggregateRevision = () => {
         const identity = getCurrentOpenWorkspace()?.navigationIdentity;
         return identity
-            ? worktreeGroupManifestStore.getAggregateRevision(identity)
+            ? worktreeGroupManifestReader.getAggregateRevision(identity)
             : null;
     };
     let currentAiSessionRefreshReason = 'refresh';
@@ -2029,7 +2033,7 @@ async function initializeDashboard(
         getCards: projection => getOpenWorkspaceCards(projection),
         getWorktreeGroupsAggregateRevision: navigationIdentity =>
             navigationIdentity
-                ? worktreeGroupManifestStore.getAggregateRevision(navigationIdentity)
+                ? worktreeGroupManifestReader.getAggregateRevision(navigationIdentity)
                 : null,
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
@@ -2076,7 +2080,7 @@ async function initializeDashboard(
             // leaving a ghost group behind. The bucket identity was captured
             // when the removal started, so a workspace switch cannot divert it.
             if (workspaceIdentity) {
-                const group = worktreeGroupManifestStore.findGroupByWorktreeKey(
+                const group = worktreeGroupManifestReader.findGroupByWorktreeKey(
                     workspaceIdentity, removedKey);
                 const member = group?.members.find(candidate => candidate.worktreeKey
                     && worktreeKeysEqual(candidate.worktreeKey, removedKey));
@@ -2301,10 +2305,10 @@ async function initializeDashboard(
                 return undefined;
             },
             findGroupByWorktreeKey: (navigationIdentity, key) =>
-                worktreeGroupManifestStore.findGroupByWorktreeKey(
+                worktreeGroupManifestReader.findGroupByWorktreeKey(
                     navigationIdentity, key),
             listRetiredIdentities: navigationIdentity =>
-                worktreeGroupManifestStore.listRetiredIdentities(navigationIdentity),
+                worktreeGroupManifestReader.listRetiredIdentities(navigationIdentity),
             openWorkingChangeDiff: (worktreePath, item) =>
                 openWorkingChangeDiff(worktreePath, item),
             openTaskResultReview: (worktreePath, baselineSha, title) =>
@@ -2501,7 +2505,7 @@ async function initializeDashboard(
         store: worktreeGroupManifestStore,
         controller: worktreeDeletionController,
         probeMemberBlocker: async (navigationIdentity, groupId, memberId) => {
-            const member = worktreeGroupManifestStore.listGroups(navigationIdentity)
+            const member = worktreeGroupManifestReader.listGroups(navigationIdentity)
                 .find(candidate => candidate.groupId === groupId)
                 ?.members.find(candidate => candidate.memberId === memberId);
             if (!member) {
@@ -2512,7 +2516,7 @@ async function initializeDashboard(
                 : 'worktree-not-removable';
         },
         countMemberHistorySessions: async (navigationIdentity, groupId, memberId) => {
-            const member = worktreeGroupManifestStore.listGroups(navigationIdentity)
+            const member = worktreeGroupManifestReader.listGroups(navigationIdentity)
                 .find(candidate => candidate.groupId === groupId)
                 ?.members.find(candidate => candidate.memberId === memberId);
             if (!member) {
@@ -2901,7 +2905,7 @@ async function initializeDashboard(
                         // unmark the identity so the NEXT certain snapshot
                         // retries instead of leaving the group leased for
                         // the rest of this activation.
-                        const stillPending = worktreeGroupManifestStore
+                        const stillPending = worktreeGroupManifestReader
                             .listDeletionJournals(identity)
                             .some(entry => entry.targets.some(target =>
                                 target.status === 'pending'));

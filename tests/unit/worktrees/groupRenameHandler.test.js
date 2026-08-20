@@ -6,7 +6,8 @@ const {
     handleRenameWorktreeGroup,
 } = require('../../../out/worktrees/groupRenameHandler');
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     createSettlementReplayCache,
@@ -27,7 +28,8 @@ function memento(initial) {
 }
 
 async function fixture() {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const group = await store.createGroup(WORKSPACE, {
         displayName: 'fix login',
         suggestedSlug: 'fix-login',
@@ -47,7 +49,7 @@ async function fixture() {
     const deps = {
         postMessage: async message => { posted.push(message); },
         getNavigationIdentity: () => WORKSPACE,
-        store,
+        store: storeHandle,
         refreshNow: async () => { refreshes += 1; },
         showWarning: () => undefined,
         logError: () => undefined,

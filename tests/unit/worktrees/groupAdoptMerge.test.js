@@ -3,8 +3,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
-    WorktreeGroupManifestStore,
     WorktreeGroupManifestError,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     createSettlementReplayCache,
@@ -49,7 +50,7 @@ async function createGroup(store, name, members) {
 }
 
 test('WORKTREE-GROUPS-ADOPT-MERGE-001 merge binds both revisions and adopts the source primary when headless', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(createWorktreeGroupManifestStore(memento()));
     const target = await createGroup(store, 'Target', [readyMember('alpha', 'target')]);
     const source = await createGroup(store, 'Source', [readyMember('beta', 'source')]);
     // Target has no primary: clear it to exercise the fallback.
@@ -81,7 +82,7 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 merge binds both revisions and adopts the 
 });
 
 test('WORKTREE-GROUPS-ADOPT-MERGE-001 adoptReadyMembers requires ready members with physical identity', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(createWorktreeGroupManifestStore(memento()));
     const group = await createGroup(store, 'Target', [readyMember('alpha', 'target')]);
     await assert.rejects(store.adoptReadyMembers(WORKSPACE, group.groupId, [{
         repositoryKey: '/repos/beta/.git',
@@ -99,7 +100,8 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 adoptReadyMembers requires ready members w
 });
 
 test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler re-validates keys against snapshot and manifest', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const snapshot = {
         revision: 1,
         truncatedWorktreeCount: 0,
@@ -121,7 +123,7 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler re-validates keys against snap
     const deps = {
         postMessage: async message => { posted.push(message); },
         getNavigationIdentity: () => WORKSPACE,
-        store,
+        store: storeHandle,
         getWorktreeSnapshot: () => snapshot,
         refreshNow: async () => undefined,
         logError: () => undefined,
@@ -156,7 +158,8 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler re-validates keys against snap
 });
 
 test('WORKTREE-GROUPS-REPLAY-001 a replayed adopt is settled from the cache, never re-executed', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const snapshot = {
         revision: 1,
         truncatedWorktreeCount: 0,
@@ -178,7 +181,7 @@ test('WORKTREE-GROUPS-REPLAY-001 a replayed adopt is settled from the cache, nev
     const deps = {
         postMessage: async message => { posted.push(message); },
         getNavigationIdentity: () => WORKSPACE,
-        store,
+        store: storeHandle,
         getWorktreeSnapshot: () => snapshot,
         refreshNow: async () => undefined,
         logError: () => undefined,
@@ -206,7 +209,8 @@ test('WORKTREE-GROUPS-REPLAY-001 a replayed adopt is settled from the cache, nev
 });
 
 test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler adopts into an existing group', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const group = await createGroup(store, 'Target', [readyMember('alpha', 'target')]);
     const snapshot = {
         revision: 1,
@@ -237,7 +241,7 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 the handler adopts into an existing group'
     }, {
         postMessage: async message => { posted.push(message); },
         getNavigationIdentity: () => WORKSPACE,
-        store,
+        store: storeHandle,
         getWorktreeSnapshot: () => snapshot,
         refreshNow: async () => undefined,
         logError: () => undefined,

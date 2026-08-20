@@ -3,8 +3,9 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
-    WorktreeGroupManifestStore,
     WorktreeGroupManifestError,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     WorktreeDeletionController,
@@ -39,7 +40,8 @@ function readyMember(repositoryKey, slug) {
 
 function harness(options) {
     const opts = options || {};
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const state = {
         blockers: opts.blockers || new Map(),
         removed: new Set(),
@@ -48,7 +50,7 @@ function harness(options) {
         removedOrder: [],
     };
     const controller = new WorktreeDeletionController({
-        store,
+        store: storeHandle,
         recheckBlocker: async (_group, member) =>
             state.blockers.get(member.memberId) || null,
         snapshotAffectedSessions: async (_group, member) =>
@@ -65,7 +67,7 @@ function harness(options) {
             state.observations.get(target.memberId) || 'unknown',
         nowMs: opts.nowMs || (() => 1000),
     });
-    return { store, controller, state };
+    return { store, storeHandle, controller, state };
 }
 
 async function createGroup(store, members, overrides) {
@@ -190,7 +192,7 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 restart reconciliation: unknown observa
 });
 
 test('WORKTREE-GROUPS-DELETE-JOURNAL-001 the admission mutex serializes deletion and session admission', async () => {
-    const { store, controller } = harness();
+    const { store, storeHandle, controller } = harness();
     const group = await createGroup(store, [readyMember('alpha', 'a')]);
     const order = [];
     // Simulate New session admission holding the same lock while deletion
@@ -200,7 +202,7 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 the admission mutex serializes deletion
         releaseRecheck = resolve;
     });
     const gated = new WorktreeDeletionController({
-        store,
+        store: storeHandle,
         recheckBlocker: async () => {
             order.push('recheck');
             await gate;

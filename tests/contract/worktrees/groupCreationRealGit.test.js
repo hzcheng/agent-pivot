@@ -14,7 +14,8 @@ const {
     GitWorktreeProvisioner,
 } = require('../../../out/worktrees/gitWorktreeProvisioner');
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 
 function git(cwd, args) {
@@ -92,7 +93,8 @@ async function workspaceFixture(t) {
 test('WORKTREE-PROVISIONING-GIT-001 a group confirm provisions real worktrees from the frozen baseline', async t => {
     const { alpha, beta, workspace, snapshot } = await workspaceFixture(t);
     const provisioner = new GitWorktreeProvisioner();
-    const manifestStore = new WorktreeGroupManifestStore(memento());
+    const manifestStoreHandle = createWorktreeGroupManifestStore(memento());
+    const manifestStore = worktreeGroupManifestStoreOf(manifestStoreHandle);
     const worktreeDirectory = '.agent-pivot/worktrees';
     const controller = new WorktreeGroupCreationController({
         getWorkspaceTarget: projectId => (projectId === 'project' ? { workspace } : null),
@@ -106,7 +108,7 @@ test('WORKTREE-PROVISIONING-GIT-001 a group confirm provisions real worktrees fr
         getSetupCommand: () => [],
         getWorktreeDirectory: () => worktreeDirectory,
         getActiveEditorPath: () => undefined,
-        manifestStore,
+        manifestStore: manifestStoreHandle,
         resolveBaseCommit: (commandCwd, baseRef) =>
             provisioner.resolveBaseCommit(commandCwd, baseRef),
         startMemberOperation: async input => {

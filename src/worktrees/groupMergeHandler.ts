@@ -10,7 +10,8 @@ import type {
     WorktreeGroupMergeSettlement,
 } from './groupMergeProtocol';
 import type { SettlementReplayCache } from './settlementReplayCache';
-import type { WorktreeGroupManifestStore } from './groupManifestStore';
+import type { WorktreeGroupManifestStoreHandle } from './groupManifestStore';
+import { worktreeGroupManifestStoreOf } from './groupManifestStore';
 
 export interface MergeWorktreeGroupsPick {
     label: string;
@@ -22,7 +23,7 @@ export interface MergeWorktreeGroupsHandlerDeps {
     postMessage: (message: unknown) => Thenable<unknown>;
     /** Resolves the caller's project to the current workspace bucket. */
     getNavigationIdentity: (projectId: string) => string | null;
-    store: WorktreeGroupManifestStore;
+    store: WorktreeGroupManifestStoreHandle;
     showQuickPick: (
         items: MergeWorktreeGroupsPick[],
         placeHolder: string
@@ -78,12 +79,13 @@ async function executeMergeWorktreeGroups(
     deps: MergeWorktreeGroupsHandlerDeps
 ): Promise<WorktreeGroupMergeSettlement> {
     await deps.postMessage(acceptedWorktreeGroupMergeSettlement(request));
+    const store = worktreeGroupManifestStoreOf(deps.store);
     const bucket = deps.getNavigationIdentity(request.projectId);
     if (!bucket) {
         return settledWorktreeGroupMergeSettlement(
             request, { kind: 'failed', errorCode: 'workspace-unavailable' });
     }
-    const groups = deps.store.listGroups(bucket);
+    const groups = store.listGroups(bucket);
     const source = groups.find(group => group.groupId === request.sourceGroupId);
     if (!source) {
         return settledWorktreeGroupMergeSettlement(
@@ -115,7 +117,7 @@ async function executeMergeWorktreeGroups(
         sourceRevision: source.revision,
     };
     try {
-        await deps.store.mergeGroups(
+        await store.mergeGroups(
             bucket, chosen.groupId, source.groupId, expectedRevisions);
     } catch (error) {
         const code = (error as { code?: string })?.code || 'merge-failed';

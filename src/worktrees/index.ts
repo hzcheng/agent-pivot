@@ -7,9 +7,22 @@
  * sibling modules consume today — widening it is an architecture change.
  */
 
-// Stores and persistence-bound authorities.
-export { WorktreeGroupManifestStore, WorktreeGroupManifestError } from './groupManifestStore';
-export type { WorktreeGroup, WorktreeGroupMember } from './groupManifestStore';
+// Stores and persistence-bound authorities. The manifest store class itself
+// is never exported (Harness Simplification PR 5/6): cross-module consumers
+// receive a capability-free handle plus narrow read/write views.
+export {
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestReaderOf,
+    worktreeGroupManifestWriterOf,
+    WorktreeGroupManifestError,
+} from './groupManifestStore';
+export type {
+    WorktreeGroup,
+    WorktreeGroupMember,
+    WorktreeGroupManifestStoreHandle,
+    WorktreeGroupManifestReader,
+    WorktreeGroupManifestWriter,
+} from './groupManifestStore';
 export { WorktreeProvisioningStore } from './provisioningStore';
 export { WorktreeBaseRefStore } from './baseRefStore';
 

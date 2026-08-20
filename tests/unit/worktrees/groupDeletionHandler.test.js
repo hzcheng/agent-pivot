@@ -3,7 +3,8 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     WorktreeDeletionController,
@@ -48,7 +49,8 @@ function readyMember(repositoryKey, slug) {
 
 async function fixture(options) {
     const opts = options || {};
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const group = await store.createGroup(WORKSPACE, {
         displayName: 'fix login',
         suggestedSlug: 'fix-login',
@@ -58,7 +60,7 @@ async function fixture(options) {
     const blockers = opts.blockers || new Map();
     const failRemove = opts.failRemove || new Set();
     const controller = new WorktreeDeletionController({
-        store,
+        store: storeHandle,
         recheckBlocker: async (_group, member) => blockers.get(member.memberId) || null,
         snapshotAffectedSessions: async (_group, member) =>
             (opts.sessions && opts.sessions.get(member.memberId)) || [],
@@ -77,7 +79,7 @@ async function fixture(options) {
     const deps = {
         postMessage: async message => { posted.push(message); },
         getNavigationIdentity: () => WORKSPACE,
-        store,
+        store: storeHandle,
         controller,
         probeMemberBlocker: async (_identity, groupId, memberId) => {
             const found = store.listGroups(WORKSPACE)

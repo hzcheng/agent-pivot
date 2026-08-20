@@ -101,6 +101,8 @@ const viewerThemeFixtures = Object.freeze([
                 --vscode-input-background: #252b35;
                 --vscode-input-border: #405677;
                 --vscode-descriptionForeground: #a0a0a0;
+                --vscode-testing-iconPassed: #73c991;
+                --vscode-errorForeground: #f48771;
                 --vscode-focusBorder: #007fd4;
                 --vscode-textCodeBlock-background: #181818;
                 --vscode-editor-font-family: monospace;
@@ -130,6 +132,8 @@ const viewerThemeFixtures = Object.freeze([
                 --vscode-input-background: #f3f6fa;
                 --vscode-input-border: #6b7a90;
                 --vscode-descriptionForeground: #616161;
+                --vscode-testing-iconPassed: #388a34;
+                --vscode-errorForeground: #d72e2b;
                 --vscode-focusBorder: #0067c0;
                 --vscode-textCodeBlock-background: #f6f6f6;
                 --vscode-editor-font-family: monospace;
@@ -11231,7 +11235,7 @@ test('CONVERSATION-PROVIDER-PARITY-001 keeps default disclosure and live status 
     }
 });
 
-test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe local Session status buttons in the header', async t => {
+test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe local Session status buttons in the bottom session-navigation row', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -11378,20 +11382,31 @@ test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe loca
         'stale requestIds and foreign generations must be ignored'
     );
 
-    const centered = await page.evaluate(() => {
-        const header = document.querySelector(
-            '.conversation-header'
+    const layout = await page.evaluate(() => {
+        const layer = document.querySelector(
+            '.conversation-session-nav-layer'
         ).getBoundingClientRect();
         const statusGroup = document.querySelector(
             '[data-conversation-session-status]'
         ).getBoundingClientRect();
-        return Math.abs(
-            (statusGroup.left + statusGroup.width / 2)
-                - (header.left + header.width / 2)
-        ) <= 2;
+        const navPrevious = document.querySelector(
+            '[data-session-nav="previous"]'
+        ).getBoundingClientRect();
+        return {
+            centered: Math.abs(
+                (statusGroup.left + statusGroup.width / 2)
+                    - (layer.left + layer.width / 2)
+            ) <= 2,
+            sameRow: Math.abs(
+                (statusGroup.top + statusGroup.height / 2)
+                    - (navPrevious.top + navPrevious.height / 2)
+            ) <= 4,
+        };
     });
-    assert.equal(centered, true,
-        'session status must stay centered in the header');
+    assert.equal(layout.centered, true,
+        'session status must stay centered in the session-navigation row');
+    assert.equal(layout.sameRow, true,
+        'session status must share the previous/next active session row');
     for (const width of [700, 240]) {
         await page.setViewportSize({ width, height: 500 });
         const fitsViewport = await page.locator(

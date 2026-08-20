@@ -184,12 +184,6 @@ export function renderConversationViewerDocument(
                 target.displayName + duplicateId
             )}</button>
         </div>
-        <div class="conversation-session-status" data-conversation-session-status
-            role="group" aria-label="AI session status in this window">
-            ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
-            ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal)}
-            ${renderSessionStatusDot('idle', sessionStatus.idleSessionsLocal)}
-        </div>
         <nav class="conversation-navigation" aria-label="Conversation navigation">
             <button class="conversation-icon-button" type="button"
                 data-action="previous" title="Previous"
@@ -242,6 +236,12 @@ export function renderConversationViewerDocument(
                 type="button" data-session-nav="previous"
                 title="Previous active session"
                 aria-label="Previous active session">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
+            <div class="conversation-session-status" data-conversation-session-status
+                role="group" aria-label="AI session status in this window">
+                ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
+                ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal)}
+                ${renderSessionStatusDot('idle', sessionStatus.idleSessionsLocal)}
+            </div>
             <button class="conversation-session-nav conversation-session-nav-next"
                 type="button" data-session-nav="next"
                 title="Next active session"

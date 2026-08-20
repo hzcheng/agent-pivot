@@ -5906,7 +5906,7 @@
   {
     "id": "CONVERSATION-SESSION-STATUS-001",
     "domain": "webview",
-    "title": "AI Conversation header shows this window's running, attention, and idle Session counts as clickable status buttons that cycle to the next local session of their kind, disable when empty, pulse only while non-zero, stay readable at narrow widths, and honor reduced motion",
+    "title": "AI Conversation shows this window's running, attention, and idle Session counts as clickable status badges in the bottom session-navigation row that cycle to the next local session of their kind, disable when empty, pulse only while non-zero, stay readable at narrow widths, and honor reduced motion",
     "priority": "P1",
     "status": "automated",
     "owners": [

@@ -117,7 +117,11 @@ Summarize:
 - Before moving, renaming, or deleting repository content, grep `scripts/` and
   `tests/` for strings anchored to that content (changelog entries, README
   phrases, shipped file paths) and update every anchored reader in the same
-  commit; content-anchor checks fail only when their own suite runs, not at
+  commit; the release artifact has its own anchors — `.vscodeignore` whitelists
+  shipped `out/` paths one by one and `run-release-packaging-checks.js` pins the
+  exact VSIX contents, so a moved production file also needs its shipping entry
+  moved (the runtime `require` closure of shipped files decides which root-level
+  `out/` files ship). Content-anchor checks fail only when their own suite runs, not at
   edit time.
 - Judge gate and verification scripts by their own exit code: piping to
   `grep`/`head` masks it (check `$?` directly or use `set -o pipefail`), and

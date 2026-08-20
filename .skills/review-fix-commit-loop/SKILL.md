@@ -92,10 +92,9 @@ commit only the intended files.
      contract pairs (availability guards, message shapes, shared markup):
      coupled markup and script changes belong in the same commit, so no
      intermediate commit leaves the Webview gated off by missing elements.
-   - After the final implementation or skill-owner commit exists, complete the
-     main-capability assignment and `audit.head` update in a separate
-     documentation-only audit commit, then rerun
-     `npm run test:behavior-contracts` before push.
+   - The capability manifest (`docs/testing/main-capability-coverage.json`) is
+     a read-only historical record since the harness pruning (PR #309): do not
+     add audit commits, capability assignments, or `audit.head` updates.
 
 ## Reporting
 
@@ -114,7 +113,7 @@ Summarize:
   --production` — the same mode CI uses.
 - Do not bury review fixes inside unrelated feature commits unless the user requested squashing.
 - Do not trust subagent output blindly; inspect the actual diff and rerun evidence-producing commands.
-- Do not treat a pre-commit behavior-contract pass as proof of commit-level audit currency.
+- Do not treat a pre-commit behavior-contract pass as proof of commit-level audit currency (the audit itself was pruned in PR #309; the manifest is historical).
 - Before moving, renaming, or deleting repository content, grep `scripts/` and
   `tests/` for strings anchored to that content (changelog entries, README
   phrases, shipped file paths) and update every anchored reader in the same

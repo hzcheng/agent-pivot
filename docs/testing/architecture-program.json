@@ -19,8 +19,8 @@
     ],
     "modules": {
         "MOD-WORKTREE-LIFECYCLE": {
-            "state": "migrating",
-            "since": "pilot slices S1-S5 (PRs #262-#268) + round-1 repairs R1-R10 (PRs #270-#283) + round-2 repairs T1-T7 (PRs #284-#293)",
+            "state": "strict",
+            "since": "pilot slices S1-S5 (PRs #262-#268) + round-1 repairs R1-R10 (PRs #270-#283) + round-2 repairs T1-T7 (PRs #284-#293) + harness simplification (PRs #294-#302); strict re-accepted after the narrow writer facade (PR #302)",
             "evidence": [
                 "docs/architecture/changes/ARCH-CHANGE-001.md",
                 "docs/architecture/changes/ARCH-CHANGE-002.md",
@@ -31,7 +31,7 @@
                 "docs/architecture/changes/ARCH-CHANGE-007.md",
                 "docs/architecture/harness-simplification-decision.md"
             ],
-            "nextAction": "harness simplification (PRs #294-#299), then strict re-acceptance",
+            "nextAction": "none — strict; hold via the trusted kernel. Webview global convergence is out of W1 scope (MOD-DASHBOARD-SHELL independent wave, see the simplification decision)",
             "target": {
                 "publicEntrypoints": [
                     "src/worktrees/index.ts"

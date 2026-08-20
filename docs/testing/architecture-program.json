@@ -103,10 +103,12 @@
             "nextAction": "awaiting its Stage 5 wave"
         },
         "MOD-TODO": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-20): the shell cycle broke by sinking the configuration reader into the kernel; remaining shell edges are type-only; entrypoints narrowed to the consumed surface",
+            "evidence": [
+                "tests/unit/todos/service.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-PROMPT-LIBRARY": {
             "state": "strict",

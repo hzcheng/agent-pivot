@@ -10,7 +10,7 @@ import {
     TODO_UNTITLED_ITEM_TITLE,
     TODO_VIEW_STATE_KEY,
 } from '../constants';
-import { getAgentPivotConfiguration } from '../dashboard/configuration';
+import { getAgentPivotConfiguration } from '../configuration';
 import {
     AddTodoInput,
     TodoDataV1,

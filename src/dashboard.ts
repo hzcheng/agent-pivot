@@ -211,7 +211,7 @@ import type { AgentPivotViewProviderOptions } from './dashboard/viewProvider';
 import { DashboardBootstrapController } from './dashboard/bootstrapController';
 import { DashboardBootstrapResources } from './dashboard/bootstrapResources';
 import { getDashboardBootContent } from './dashboard/bootContent';
-import { getAgentPivotConfiguration } from './dashboard/configuration';
+import { getAgentPivotConfiguration } from './configuration';
 import { DashboardCommandRegistration } from './dashboard/commandRegistration';
 import { ActiveTerminalFileReferenceController } from './dashboard/activeTerminalFileReference';
 import DashboardDiagnostics from './dashboard/diagnostics';

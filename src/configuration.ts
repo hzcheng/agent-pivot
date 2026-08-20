@@ -1,7 +1,7 @@
 'use strict';
 
 import * as vscode from 'vscode';
-import { AGENT_PIVOT_CONFIG_SECTION } from '../constants';
+import { AGENT_PIVOT_CONFIG_SECTION } from './constants';
 
 export function getAgentPivotConfiguration(
     scope?: vscode.ConfigurationScope

@@ -149,6 +149,20 @@ test('RUNTIME-DIRECT-CREATE-TMUX-FAULT-ISOLATION-001 creates directly when tmux 
     assert.equal(tmux.ensurePendingCalls, 0);
 });
 
+test('RUNTIME-RUNTIME-COORDINATOR-001 keeps tmux creation fail-closed on an unexpected refresh error', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const tmuxFailure = new Error('tmux persistence failed');
+    const tmux = createFakeRuntimeBackend('tmux', { refreshError: tmuxFailure });
+    const coordinator = createCoordinator(direct, tmux);
+
+    await assert.rejects(
+        coordinator.create(fakeCreateRequest('tmux-refresh-fail-closed')),
+        error => error === tmuxFailure
+    );
+    assert.equal(direct.ensurePendingCalls, 0);
+    assert.equal(tmux.ensurePendingCalls, 0);
+});
+
 test('SESSION-AI-SESSION-YOLO-LAZY-002 materializes resume specs once only on provider-dispatch branches', async () => {
     const focusedDirect = createFakeRuntimeBackend('vscode');
     focusedDirect.active.push(fakeRuntime('vscode', 'lazy-focused'));

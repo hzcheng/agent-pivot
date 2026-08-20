@@ -6,7 +6,7 @@ import {
     claudeLogo,
     kimiLogo,
     openAiLogo,
-} from '../../webview/webviewIcons';
+} from '../../webviewIcons';
 import type { ConversationViewerTarget } from './viewerTarget';
 import {
     CONVERSATION_LIMITS,

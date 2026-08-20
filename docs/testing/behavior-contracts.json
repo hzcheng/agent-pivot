@@ -5972,7 +5972,7 @@
     ],
     "evidence": [
       "src/webview/webviewContent.ts",
-      "src/webview/webviewIcons.ts",
+      "src/webviewIcons.ts",
       "media/styles.scss",
       "media/styles.css"
     ]

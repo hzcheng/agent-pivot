@@ -529,7 +529,7 @@ function runWorkspaceCardRenderingChecks() {
         Module._load = previousModuleLoad;
     }
     const webviewAiSessionContent = require('../out/webview/webviewAiSessionContent');
-    const icons = require('../out/webview/webviewIcons');
+    const icons = require('../out/webviewIcons');
 
     const emptyHtml = webviewContent.getCurrentWorkspaceGroupContent(null, false);
     assert.strictEqual((emptyHtml.match(/class="workspace-card/g) || []).length, 0);

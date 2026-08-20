@@ -4961,7 +4961,7 @@ function runWebviewContentChecks() {
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
     )).join('\n');
-    const webviewIcons = fs.readFileSync(path.join(__dirname, '..', 'src', 'webview', 'webviewIcons.ts'), 'utf8');
+    const webviewIcons = fs.readFileSync(path.join(__dirname, '..', 'src', 'webviewIcons.ts'), 'utf8');
     const styles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.scss'), 'utf8');
     const compiledStyles = fs.readFileSync(path.join(__dirname, '..', 'media', 'styles.css'), 'utf8');
     assert.strictEqual(styles.includes('.workspace-root-tags'), false);

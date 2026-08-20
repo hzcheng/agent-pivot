@@ -1,5 +1,5 @@
 import { PromptPanelSnapshot, PromptV1 } from './types';
-import * as Icons from '../webview/webviewIcons';
+import * as Icons from '../webviewIcons';
 
 const PROMPT_PREVIEW_MAX_LENGTH = 160;
 

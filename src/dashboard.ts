@@ -103,6 +103,7 @@ import {
     createRunningSessionJumpHandler,
 } from './dashboard/runningSessionJump';
 import { createSessionNavigationCoordinator } from './dashboard/sessionNavigationCoordinator';
+import { buildOpenWorkspacesUpdatedMessage } from './dashboard/webviewUpdateMessages';
 import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigationFocusExecutor';
 import {
     createSessionStatusCycleHandler,
@@ -2884,6 +2885,7 @@ async function initializeDashboard(
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         getBridgeInstanceId: () => openWorkspaceBridgeClient.instanceId,
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: message => provider.postMessage(message),
         refresh: refreshStewardViews,
         isVisible: () => provider.visible,

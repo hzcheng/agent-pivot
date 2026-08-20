@@ -19,6 +19,9 @@ const {
 const {
     OpenWorkspaceDashboardController,
 } = loadWithFakeVscode('../../../out/openWorkspaces/dashboardController');
+const {
+    buildOpenWorkspacesUpdatedMessage,
+} = loadWithFakeVscode('../../../out/dashboard/webviewUpdateMessages');
 
 function createOptions(overrides = {}) {
     const currentWorkspace = makeRecord({ name: 'Current', uri: '/work/current' });
@@ -54,6 +57,7 @@ function createOptions(overrides = {}) {
             sessions: [],
         }),
         getBridgeInstanceId: () => SELF,
+        buildOpenWorkspacesUpdatedMessage,
         postMessage: () => Promise.resolve(true),
         refresh: () => undefined,
         isVisible: () => true,

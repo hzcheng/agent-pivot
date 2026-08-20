@@ -71,10 +71,13 @@
             "nextAction": "awaiting its Stage 5 wave"
         },
         "MOD-AI-SESSION-CONTROL": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-20): no direct 2-cycle names the module; all five declared dependencies carry real edges; entrypoints narrowed to the consumed surface (composition + four controllers + two archive entry points); SCC membership is cluster-level debt tracked by ARCH-WAIVER-004",
+            "evidence": [
+                "tests/unit/workspaces/sessionScope.test.js",
+                "tests/contract/aiSessions/archiveAndHydration.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-PROVIDER": {
             "state": "legacy",

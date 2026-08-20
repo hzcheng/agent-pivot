@@ -131,6 +131,24 @@ test('RUNTIME-RUNTIME-COORDINATOR-001 maps tmux unavailable choices without hidi
     await assert.rejects(failing.resume(fakeResumeRequest('fail-closed')), error => error === unexpected);
 });
 
+test('RUNTIME-DIRECT-CREATE-TMUX-FAULT-ISOLATION-001 creates directly when tmux refresh fails unexpectedly', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const tmuxFailure = new Error('stale tmux persistence lock');
+    const tmux = createFakeRuntimeBackend('tmux', { refreshError: tmuxFailure });
+    const coordinator = createCoordinator(direct, tmux, {
+        getConfiguration: () => ({
+            mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux',
+        }),
+    });
+
+    const result = await coordinator.create(fakeCreateRequest('direct-tmux-fault-isolation'));
+
+    assert.equal(result.status, 'started');
+    assert.equal(result.runtime.backend, 'vscode');
+    assert.equal(direct.ensurePendingCalls, 1);
+    assert.equal(tmux.ensurePendingCalls, 0);
+});
+
 test('SESSION-AI-SESSION-YOLO-LAZY-002 materializes resume specs once only on provider-dispatch branches', async () => {
     const focusedDirect = createFakeRuntimeBackend('vscode');
     focusedDirect.active.push(fakeRuntime('vscode', 'lazy-focused'));

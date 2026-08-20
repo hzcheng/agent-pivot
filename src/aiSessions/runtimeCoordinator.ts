@@ -439,14 +439,13 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             return { status: 'focused', runtime: cloneRuntime(existing[0]) };
         }
 
-        if (refresh.tmuxError && !this.isTmuxUnavailable(refresh.tmuxError)) {
-            throw refresh.tmuxError;
-        }
-
         const configuration = snapshotConfiguration(this.dependencies.getConfiguration());
         if (configuration.mode === 'vscode') {
             const runtime = await this.dependencies.direct.ensurePending(request);
             return { status: 'started', runtime: cloneRuntime(runtime) };
+        }
+        if (refresh.tmuxError && !this.isTmuxUnavailable(refresh.tmuxError)) {
+            throw refresh.tmuxError;
         }
         if (refresh.tmuxError && this.isTmuxUnavailable(refresh.tmuxError)) {
             return this.createViaExplicitDirect(request, refresh.tmuxError);

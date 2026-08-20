@@ -4851,7 +4851,7 @@
     ],
     "evidence": [
       "src/workspaces/currentWorkspaceSessionAuthority.ts",
-      "src/workspaces/runtimeOwnership.ts",
+      "src/runtimeOwnership.ts",
       "src/workspaces/sessionHydration.ts",
       "src/openWorkspaces/dashboardController.ts",
       "src/aiSessions/terminalCommandController.ts",

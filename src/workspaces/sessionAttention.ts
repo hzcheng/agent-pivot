@@ -4,8 +4,8 @@ import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import {
     getAttentionProjectKeys,
     getAttentionSessionLookupKey,
-    getLogicalAttentionSessionKey,
 } from '../aiSessions/attentionProject';
+import { getLogicalAttentionSessionKey } from '../attentionSessionKeys';
 import { getAiSessionKey } from '../aiSessions/sessionHelpers';
 import type { AiSessionViewModel } from '../aiSessions/types';
 import type { AiSessionProviderId } from '../models';

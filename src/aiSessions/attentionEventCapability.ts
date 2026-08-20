@@ -3,7 +3,7 @@
 import type * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../models';
 import type { OpenWorkspace } from '../workspaces/types';
-import { hasWorkspaceRuntimeContinuity } from '../workspaces/runtimeOwnership';
+import { hasWorkspaceRuntimeContinuity } from '../runtimeOwnership';
 import type ActiveAiSessionTerminalHighlighter from './activeTerminalHighlight';
 import type { ActiveAiSessionTerminalIdentity } from './activeTerminalHighlight';
 import type { AttentionAggregate } from './attentionAggregate';

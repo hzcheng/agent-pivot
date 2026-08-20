@@ -117,8 +117,8 @@ const AiSessionExecutionController = require('../out/aiSessions/executionControl
 const AiSessionLifecycleSignalReader = require('../out/aiSessions/lifecycleSignalReader').AiSessionLifecycleSignalReader;
 const TmuxFocusedRuntimeMonitor = require('../out/aiSessions/tmuxFocusedRuntimeMonitor')
     .TmuxFocusedRuntimeMonitor;
-const settleAiSessionRuntimeLifecycles = require('../out/aiSessions/attentionController').settleAiSessionRuntimeLifecycles;
-const runAiSessionRuntimeLifecycleTask = require('../out/aiSessions/attentionController').runAiSessionRuntimeLifecycleTask;
+const settleAiSessionRuntimeLifecycles = require('../out/aiSessions/runtimeSettlementCapability').settleAiSessionRuntimeLifecycles;
+const runAiSessionRuntimeLifecycleTask = require('../out/aiSessions/runtimeSettlementCapability').runAiSessionRuntimeLifecycleTask;
 const AiSessionArchiveController = require('../out/aiSessions/archiveController').AiSessionArchiveController;
 const AgentPivotViewProvider = require('../out/dashboard/viewProvider').AgentPivotViewProvider;
 const dashboardErrorContent = require('../out/dashboard/errorContent');

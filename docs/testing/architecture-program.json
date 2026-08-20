@@ -49,10 +49,14 @@
             "nextAction": "awaiting its Stage 5 wave"
         },
         "MOD-AI-SESSION-ATTENTION": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-20): all three direct 2-cycles dissolved (key codecs and runtimeOwnership sank into the kernel; statusCapability re-owned by this module); remaining SCC membership is cluster-level debt tracked by ARCH-WAIVER-004",
+            "evidence": [
+                "tests/unit/sharedKernel/attentionSessionKeys.test.js",
+                "tests/contract/aiSessions/attention.test.js",
+                "tests/contract/aiSessions/attentionEventCapability.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-NOTIFY": {
             "state": "legacy",

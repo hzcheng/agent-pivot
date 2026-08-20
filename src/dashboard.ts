@@ -108,6 +108,9 @@ import {
     createSessionStatusCycleHandler,
 } from './dashboard/sessionStatusCycle';
 import {
+    createWindowCycleSwitchHandler,
+} from './dashboard/windowCycleSwitch';
+import {
     createAiSessionQuickSwitchHandlers,
 } from './dashboard/sessionQuickSwitch';
 import {
@@ -2197,6 +2200,8 @@ async function initializeDashboard(
         services: aiSessionServices,
         cycleLocalSessionStatus: (kind, currentTarget) =>
             sessionStatusCycleHandler.cycleToNext(kind, currentTarget),
+        switchAdjacentWindow: direction =>
+            windowCycleSwitchHandler.switchWindow(direction),
         resolveTarget: (projectId, providerId, sessionId) => {
             const target = getCurrentWorkspaceActionTarget(projectId);
             // The conversation header reads project · task · session: the
@@ -3168,6 +3173,19 @@ async function initializeDashboard(
             vscode.window.showInformationMessage(message),
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
+    });
+    const windowCycleSwitchHandler = createWindowCycleSwitchHandler({
+        listOtherWindows: () => openWorkspaceDashboardController.getCards()
+            .filter(card => card.kind === 'navigation')
+            .map(card => ({
+                cardId: card.id,
+                navigationIdentity: card.navigationIdentity,
+            })),
+        getSelfNavigationIdentity: () =>
+            getCurrentOpenWorkspace()?.navigationIdentity,
+        openWindow: cardId => workspaceNavigationController.open(cardId),
+        showInformationMessage: message =>
+            vscode.window.showInformationMessage(message),
     });
     const aiSessionQuickSwitchHandlers = createAiSessionQuickSwitchHandlers({
         navigationCoordinator: sessionNavigationCoordinator,

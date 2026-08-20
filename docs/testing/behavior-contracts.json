@@ -3946,6 +3946,27 @@
     "manualReason": "Requires two interactive VS Code UI windows and observable operating-system focus changes."
   },
   {
+    "id": "OPEN-WINDOW-CYCLE-RAILS-001",
+    "domain": "open-project",
+    "title": "The AI Conversation bottom rails switch focus to the previous or next open window on one identity-sorted ring every window computes identically, with an empty-ring hint when no other window is open",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/dashboard/windowCycleSwitch.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/windowCycleSwitch.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/dashboard.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "OPEN-SAME-WORKSPACE-WINDOWS-001",
     "domain": "open-project",
     "title": "Two windows for the same workspace retain distinct live identities",

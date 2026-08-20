@@ -303,6 +303,7 @@ function createViewer(options = {}) {
         readTelemetry: options.readTelemetry,
         readSessionStatus: options.readSessionStatus,
         cycleLocalSessionStatus: options.cycleLocalSessionStatus,
+        switchAdjacentWindow: options.switchAdjacentWindow,
         watch: options.watch || ((_provider, sessionId) => ({
             dispose() {
                 watchDisposals.push(sessionId);
@@ -537,6 +538,42 @@ test('CONVERSATION-SESSION-STATUS-001 renders a disabled status button for an em
     assert.ok(!/data-session-status-running[^>]*disabled/.test(
         panel.webview.html
     ), 'a non-empty kind stays clickable');
+});
+
+test('OPEN-WINDOW-CYCLE-RAILS-001 routes window rail clicks to the window cycle', async () => {
+    const switches = [];
+    const { viewer, panel } = createViewer({
+        switchAdjacentWindow: async direction => {
+            switches.push(direction);
+        },
+    });
+    await viewer.open(target('session-a', 'input-1'));
+
+    await panel.receive({
+        type: 'conversation-viewer-switch-window',
+        version: 1,
+        direction: 'previous',
+    });
+    assert.deepEqual(switches, ['previous']);
+
+    for (const message of [
+        { type: 'conversation-viewer-switch-window', version: 1 },
+        {
+            type: 'conversation-viewer-switch-window',
+            version: 1,
+            direction: 'up',
+        },
+        {
+            type: 'conversation-viewer-switch-window',
+            version: 1,
+            direction: 'next',
+            extra: true,
+        },
+    ]) {
+        await panel.receive(message);
+    }
+    assert.equal(switches.length, 1,
+        'malformed or spoofed directions are dropped by the protocol validator');
 });
 
 test('CONVERSATION-SESSION-STATUS-001 routes status button clicks to the local session cycle', async () => {

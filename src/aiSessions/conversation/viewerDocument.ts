@@ -234,8 +234,8 @@ export function renderConversationViewerDocument(
         <div class="conversation-session-nav-layer">
             <button class="conversation-session-nav conversation-session-nav-previous"
                 type="button" data-session-nav="previous"
-                title="Previous active session"
-                aria-label="Previous active session">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
+                title="Previous window"
+                aria-label="Previous window">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
             <div class="conversation-session-status" data-conversation-session-status
                 role="group" aria-label="AI session status in this window">
                 ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
@@ -244,8 +244,8 @@ export function renderConversationViewerDocument(
             </div>
             <button class="conversation-session-nav conversation-session-nav-next"
                 type="button" data-session-nav="next"
-                title="Next active session"
-                aria-label="Next active session">${CONVERSATION_SESSION_NAV_ICON_NEXT}</button>
+                title="Next window"
+                aria-label="Next window">${CONVERSATION_SESSION_NAV_ICON_NEXT}</button>
         </div>
         <div class="conversation-find" data-conversation-find hidden>
             <label class="conversation-find-field">

@@ -6,6 +6,13 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Changed
 
+- The AI Conversation bottom corner rails now switch between open WINDOWS
+  instead of adjacent Sessions: Previous/Next Window walk one shared,
+  identity-sorted ring of every open window — each window anchors on its own
+  identity, so the cycle continues naturally as focus moves. With no other
+  window open the rails explain themselves instead of switching. The
+  Previous/Next Active Session commands remain available in the Command
+  Palette, and per-state Session cycling lives on the status dots.
 - The AI Conversation status indicators moved from the header into the bottom
   session-navigation row — alongside Previous/Next Active Session — and are
   now clickable badges that count this window's Sessions by lifecycle —

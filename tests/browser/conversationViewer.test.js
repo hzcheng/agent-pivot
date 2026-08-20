@@ -4494,6 +4494,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             ''
         )
         .replace(
+            "                type: 'conversation-viewer-switch-window',\n",
+            "                type: 'conversation-viewer-switch-session',\n"
+        )
+        .replace(
             "        latestStatusRequestId: Number(document.body.getAttribute(\n"
                 + "            'data-session-status-request-id'\n"
                 + "        )) || 0,\n",
@@ -6701,7 +6705,7 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     ]);
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch rails that post exact switch intents', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 renders ghost window-switch rails that post exact switch intents', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -6723,16 +6727,16 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch ra
         [
             {
                 direction: 'previous',
-                label: 'Previous active session',
+                label: 'Previous window',
                 iconOnly: true,
             },
             {
                 direction: 'next',
-                label: 'Next active session',
+                label: 'Next window',
                 iconOnly: true,
             },
         ],
-        'session rails must be two icon-only buttons'
+        'window rails must be two icon-only buttons'
     );
 
     const rail = page.locator('.conversation-session-nav-layer');
@@ -6760,7 +6764,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch ra
             borderRadius: '50%',
             opacity: '0.3',
         },
-        'session rails must render as compact translucent circles'
+        'window rails must render as compact translucent circles'
     );
 
     const previousBox = await page.locator('[data-session-nav="previous"]')
@@ -6778,23 +6782,23 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 renders ghost session-switch ra
     );
     assert.equal(await next.evaluate(element =>
         getComputedStyle(element).opacity
-    ), '1', 'session rails must become fully opaque on hover');
+    ), '1', 'window rails must become fully opaque on hover');
 
     await next.click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-switch-session',
+        type: 'conversation-viewer-switch-window',
         version: 1,
         direction: 'next',
     });
     await page.locator('[data-session-nav="previous"]').click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-switch-session',
+        type: 'conversation-viewer-switch-window',
         version: 1,
         direction: 'previous',
     });
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps session rails inside the conversation column when the side panel is open', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 keeps window rails inside the conversation column when the side panel is open', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],

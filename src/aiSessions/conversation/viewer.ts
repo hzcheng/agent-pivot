@@ -116,6 +116,10 @@ export interface ConversationViewerOptions {
         kind: ConversationSessionStatusKind,
         currentTarget: ConversationViewerTarget | undefined
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Focus the previous/next open window (the bottom window rails). */
+    switchAdjacentWindow?: (
+        direction: ConversationSessionSwitchDirection
+    ) => PromiseLike<void> | Promise<void> | void;
     watch: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -1025,6 +1029,10 @@ export class ConversationViewer implements ConversationViewerApi {
                 parsed.kind,
                 currentTarget
             );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-switch-window') {
+            await this.options.switchAdjacentWindow?.(parsed.direction);
             return;
         }
         if (parsed.type === 'conversation-viewer-applied') {

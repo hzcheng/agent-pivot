@@ -1706,7 +1706,7 @@
     sessionNavButtons.forEach(function (button) {
         button.addEventListener('click', function () {
             post({
-                type: 'conversation-viewer-switch-session',
+                type: 'conversation-viewer-switch-window',
                 version: 1,
                 direction: button.getAttribute('data-session-nav'),
             });

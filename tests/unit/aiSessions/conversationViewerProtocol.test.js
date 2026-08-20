@@ -39,6 +39,14 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         direction: 'next',
     }, {
+        type: 'conversation-viewer-switch-window',
+        version: 1,
+        direction: 'previous',
+    }, {
+        type: 'conversation-viewer-switch-window',
+        version: 1,
+        direction: 'next',
+    }, {
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 4,
@@ -264,6 +272,21 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-switch-session',
             version: 1,
             direction: 'next',
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-switch-window',
+            version: 1,
+        },
+        {
+            type: 'conversation-viewer-switch-window',
+            version: 1,
+            direction: 'up',
+        },
+        {
+            type: 'conversation-viewer-switch-window',
+            version: 1,
+            direction: 'previous',
             extra: true,
         },
         {

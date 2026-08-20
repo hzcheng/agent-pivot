@@ -16,9 +16,11 @@ permissions:
   contents: read
   # issues: write lets the gate create/update the standing architecture
   # impact report comment (PR 4/6: the report replaces the AI-authored
-  # change-impact declaration block).
+  # change-impact declaration block). pull-requests: write is required as
+  # well: the issue-comments endpoint on a pull request is governed by the
+  # pull-requests scope for the Actions token (issues: write alone 403s).
   issues: write
-  pull-requests: read
+  pull-requests: write
   statuses: write
 
 jobs:

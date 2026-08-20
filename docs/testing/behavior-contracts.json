@@ -4455,21 +4455,6 @@
     ]
   },
   {
-    "id": "ARCH-MAIN-CAPABILITY-COVERAGE-001",
-    "domain": "architecture",
-    "title": "Every main capability has reachable automated regression coverage",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/unit/tooling/mainCapabilityCoverage.test.js"
-    ],
-    "evidence": [
-      "scripts/lib/mainCapabilityCoverage.js",
-      "docs/testing/main-capability-coverage.json",
-      ".github/workflows/verify.yml"
-    ]
-  },
-  {
     "id": "ARCH-PR-SKILL-HARVEST-GATE-001",
     "domain": "architecture",
     "title": "Pull request bodies record the skill harvest decision through a required template section",
@@ -4513,23 +4498,6 @@
       "scripts/lib/mergeApprovals.js",
       ".github/workflows/merge-approval-gate.yml",
       ".github/workflows/verify.yml"
-    ]
-  },
-  {
-    "id": "ARCH-MAIN-CAPABILITY-CURRENCY-001",
-    "domain": "architecture",
-    "title": "Implementation commits cannot remain beyond the recorded capability audit head",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/unit/tooling/mainCapabilityCoverage.test.js",
-      "tests/unit/tooling/regenerateCapabilityAudit.test.js"
-    ],
-    "evidence": [
-      "scripts/check-behavior-contracts.js",
-      "scripts/lib/mainCapabilityCoverage.js",
-      "docs/testing/main-capability-coverage.json",
-      "scripts/regenerate-capability-audit.js"
     ]
   },
   {
@@ -6788,20 +6756,6 @@
     ]
   },
   {
-    "id": "ARCH-CHANGE-GATE-001",
-    "domain": "architecture",
-    "title": "Changes to protected architecture policy are classified as product-only, tightening, relaxing, or registry re-partition; relaxing and re-partition require an owner architecture approval (approve-architecture <sha>) or an ARCH-CHANGE record in the base",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/unit/architecture/architectureChange.test.js"
-    ],
-    "evidence": [
-      "scripts/architecture/checkArchitectureChange.js",
-      "scripts/architecture/reportArchitectureDiff.js"
-    ]
-  },
-  {
     "id": "ARCH-WEBVIEW-MANIFEST-001",
     "domain": "architecture",
     "title": "Every webview script belongs to exactly one declared bundle with builder-faithful load order, and every cross-script window global is declared; dynamic window access fails closed",
@@ -6859,20 +6813,6 @@
       "src/worktrees/groupAdoptHandler.ts",
       "src/worktrees/groupDeletionHandler.ts",
       "src/worktrees/settlementReplayCache.ts"
-    ]
-  },
-  {
-    "id": "ARCH-PROGRAM-LEDGER-001",
-    "domain": "architecture",
-    "title": "The program ledger validates module states and mechanically enforces strict-mode preconditions: no baseline fingerprint or waiver names the module, P0/P1 invariants have behavior owners, single-writer families declare writers",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/unit/architecture/programLedger.test.js"
-    ],
-    "evidence": [
-      "scripts/architecture/checkProgramLedger.js",
-      "docs/testing/architecture-program.json"
     ]
   }
 ]

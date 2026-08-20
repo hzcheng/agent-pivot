@@ -17,9 +17,8 @@ local mirrors.
 
 ## Workflow
 
-Run this once after implementation and fresh verification, but before the final
-main-capability audit and push. If a PR already exists, run it before the next
-push and merge.
+Run this once after implementation and fresh verification, before the push.
+If a PR already exists, run it before the next push and merge.
 
 1. Collect task-local evidence:
    - user corrections that changed the process;
@@ -43,16 +42,11 @@ push and merge.
 5. Use `skill-creator` for every skill creation or substantial update. Add or
    tighten repository contract tests for critical guidance, run
    `quick_validate.py` for each changed skill, and run the focused owner tests.
-6. Treat `.skills/` and skill-owner tests as implementation paths. Commit
-   all skill iterations first, then assign the resulting full commit SHA to the
-   matching main capability, advance `audit.head`, and create a separate
-   documentation-only audit commit.
-7. Record the decision as a checkable artifact in two places: pass it as the
-   mandatory `--harvest none|updated:<.skills/paths>` value of
-   `regenerate-capability-audit.js` (stored as a `Skill-Harvest` trailer in
-   the audit commit message), and write the same one-line decision into the
-   PR body's required `## Skill harvest` section, including the evidence and
-   validation. If no update is justified, say so in both places without
+6. Treat `.skills/` and skill-owner tests as implementation paths: commit
+   all skill iterations first and verify the skill owner tests.
+7. Record the decision as a checkable artifact: write the one-line decision
+   into the PR body's required `## Skill harvest` section, including the
+   evidence and validation. If no update is justified, say so without
    modifying files.
 
 ## Decision Standard

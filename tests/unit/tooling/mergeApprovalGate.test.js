@@ -58,26 +58,6 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 guard mutation parity replaced by trusted 
         'parity should not be in the Linux lane');
 });
 
-test('ARCH-PR-MERGE-APPROVAL-GATE-001 audits recent merges on main pushes', () => {
-    const verify = loadWorkflow('verify.yml');
-    const audit = verify.jobs['merge-approval-audit'];
-    assert.ok(audit, 'verify.yml must carry the merge-approval-audit job');
-    assert.strictEqual(audit.if, "github.event_name == 'push'",
-        'the audit only runs on default-branch pushes, never on PRs');
-    assert.match(
-        audit.steps.map(step => step.run || '').join('\n'),
-        /run-merge-approval-audit\.js/,
-    );
-
-    // The scheduled workflow must stay secret-free (packaging gate), so the
-    // audit lives only on the push path; every merge is a push, so nothing
-    // slips through.
-    const scheduled = loadWorkflow('scheduled-verification.yml');
-    assert.ok(!scheduled.jobs['merge-approval-audit'],
-        'the secret-free scheduled workflow must not carry the token-using audit');
-});
-
-
 test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of gating on a body declaration (PR 4/6)', () => {
     const workflow = loadWorkflow('merge-approval-gate.yml');
     assert.ok(workflow.on.pull_request_target.types.includes('edited'),
@@ -94,7 +74,7 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of
         path.join(repositoryRoot, 'scripts', 'run-merge-approval-gate.js'), 'utf8');
     assert.ok(!/evaluateChangeImpactDeclaration/.test(script),
         'the AI-authored change-impact declaration is no longer evaluated (PR 4/6)');
-    assert.match(script, /collectChangeImpactContext/,
+    assert.match(script, /collectArchitectureDiff/,
         'the gate regenerates the impact report for the PR head');
     assert.ok(!/upsertReportComment|issues\/comments.*POST/.test(script),
         'the gate must not post PR comments (notification-free review aid)');
@@ -107,46 +87,39 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of
         repositoryRoot, 'scripts', 'run-merge-approval-gate.js'));
     const report = renderImpactReport({
         pullRequest: { head: { sha: 'a'.repeat(40) } },
-        context: {
-            classification: 'tightening',
-            report: { policyDelta: {}, touchedModules: {}, protectedTouched: [] },
-            assignedCapabilities: [],
-            expectedBehaviors: [],
+        report: {
+            baseRef: 'origin/main',
+            errors: [],
+            touchedModules: {},
+            newFiles: [],
+            removedFiles: [],
+            protectedTouched: [],
+            policyDelta: {
+                mayDependOnGrown: {},
+                entrypointsGrown: {},
+                invariantChanges: {},
+                invariantsRemoved: [],
+                baselineGrown: [],
+                waiversAdded: [],
+            },
         },
     });
     assert.ok(report.includes('aaaaaaaa'), 'the report names the head');
-    assert.ok(report.includes('tightening'));
+    assert.ok(report.includes('Architecture impact report'));
     assert.match(script, /pull\/\$\{prNumber\}\/head/,
         'the gate fetches and checks out the exact PR head');
-
-    // The remaining gate machinery stays on the protected harness surface:
-    // weakening it is never product-only.
-    const surface = fs.readFileSync(
-        path.join(repositoryRoot, 'scripts', 'architecture', 'reportArchitectureDiff.js'), 'utf8');
-    for (const protectedFile of [
-        'scripts/run-merge-approval-gate.js',
-        'scripts/lib/mergeApprovals.js',
-        'scripts/lib/changeImpactContext.js',
-        'tests/unit/tooling/mergeApprovalGate.test.js',
-    ]) {
-        assert.ok(surface.includes(`'${protectedFile}'`), `${protectedFile} must be protected`);
-    }
-    assert.ok(!surface.includes(`'scripts/lib/changeImpactDeclaration.js'`),
-        'the deleted declaration evaluator left the protected surface');
 });
 
-test('ARCH-PR-MERGE-APPROVAL-GATE-001 approval markers match per line (PR 4/6)', () => {
-    // The owner may post both approval commands in one comment; every gate
+test('ARCH-PR-MERGE-APPROVAL-GATE-001 approval markers match per line', () => {
+    // The owner may pack the approval command with other text; the gate
     // evaluates comment bodies line by line.
     const lib = fs.readFileSync(
         path.join(repositoryRoot, 'scripts', 'lib', 'mergeApprovals.js'), 'utf8');
     assert.match(lib, /split\('\\n'\)/, 'approval matching splits comment bodies into lines');
-    const { evaluateMergeApproval, findArchitectureApprovalComment } =
+    const { evaluateMergeApproval } =
         require(path.join(repositoryRoot, 'scripts', 'lib', 'mergeApprovals.js'));
     const head = 'a'.repeat(40);
-    const combined = [{ user: { login: 'hzcheng' }, body: `approve-architecture ${head}\r\napprove ${head}`, created_at: '2026-08-19T00:00:00Z' }];
+    const combined = [{ user: { login: 'hzcheng' }, body: `ship it\r\napprove ${head}`, created_at: '2026-08-19T00:00:00Z' }];
     assert.equal(evaluateMergeApproval({ comments: combined, authorLogin: 'hzcheng', headSha: head }).approved, true,
-        'a combined comment binds the merge approval');
-    assert.ok(findArchitectureApprovalComment(combined, { authorLogin: 'hzcheng', headSha: head }),
-        'a combined comment binds the architecture approval');
+        'the approve line inside a combined comment counts');
 });

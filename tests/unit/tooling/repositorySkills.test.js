@@ -41,10 +41,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 keeps regression audits path-based and 
         ['path-based classification', /changed paths/i],
         ['literal behavior IDs', /literal behavior IDs/i],
         ['behavior-contract validation', /npm run test:behavior-contracts/i],
-        ['audit-head currency', /audit.head/i],
         ['skill and owner-test implementation paths', /\.skills\/[\s\S]*skill-owner tests[\s\S]*implementation paths/i],
-        ['post-commit SHA audit sequence', /final implementation commit[\s\S]*full SHA[\s\S]*assign it exactly once[\s\S]*audit\.head/i],
-        ['audit regeneration CLI', /regenerate-capability-audit\.js[\s\S]*--assign[\s\S]*--commit[\s\S]*advances `audit\.head`/i],
         ['explicit GitHub repository selection', /origin[\s\S]*upstream[\s\S]*--repo <owner\/name>/i],
         ['tracked or CI-produced test inputs', /git-tracked or produced by an earlier step of the CI job/i],
         ['build outputs absent rerun', /build outputs absent/i],
@@ -94,14 +91,14 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 verifies ambiguous GitHub writes and tr
     const skill = readSkill('.skills/publishing-and-merging-github-prs/SKILL.md');
 
     assertSkillMentions(skill, [
-        ['workflow lesson harvest before audit', /harvesting-workflow-lessons[\s\S]*before[\s\S]*final capability audit/i],
+        ['workflow lesson harvest before push', /harvesting-workflow-lessons[\s\S]*before[\s\S]*push/i],
         ['explicit repository selection', /--repo <owner\/name>[\s\S]*automatic remote[\s\S]*selection/i],
         ['base freshness before final artifacts', /before final verification[\s\S]*feature branch is behind[\s\S]*rebase[\s\S]*Never publish or report artifacts built before the[\s\S]*rebase/i],
         ['companion protocol version bump', /separately packaged extension[\s\S]*runtime or protocol[\s\S]*manifest version[\s\S]*origin\/main[\s\S]*higher version/i],
         ['transport result verification', /HTTP 408[\s\S]*unexpected EOF[\s\S]*remote branch SHA/i],
         ['HTTP/1.1 retry', /http\.version=HTTP\/1\.1 push/i],
         ['non-force retry', /same non-force refspec/i],
-        ['owner approvals section in PR body', /## Owner approvals[\s\S]*approve-architecture <full-head-sha>[\s\S]*approve <full-head-sha>[\s\S]*per comment line/i],
+        ['owner approvals section in PR body', /## Owner approvals[\s\S]*approve <full-head-sha>[\s\S]*per comment line/i],
     ]);
 });
 
@@ -113,7 +110,7 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 harvests evidence-backed workflow lesso
         ['instruction versus compliance gap', /instruction gap[\s\S]*compliance gap/i],
         ['existing skill before new skill', /improve[\s\S]*existing skill[\s\S]*create a new skill only/i],
         ['validated skill iteration', /skill-creator[\s\S]*quick_validate\.py[\s\S]*owner tests/i],
-        ['implementation-path audit sequence', /\.skills\/[\s\S]*implementation paths[\s\S]*full commit SHA[\s\S]*audit\.head/i],
+        ['implementation-path commit ordering', /\.skills\/[\s\S]*implementation paths[\s\S]*commit[\s\S]*first/i],
         ['canonical editable skills directory', /live under `\.skills\/`[\s\S]*canonical, editable[\s\S]*untracked\s+local\s+mirrors/i],
         ['mirror edit prohibition', /Edit skills only under `\.skills\/`[\s\S]*Never modify, create, or delete skill/i],
         ['valid no-change decision', /no skill change/i],
@@ -173,6 +170,5 @@ test('ARCH-REPOSITORY-SKILL-GUIDANCE-001 gates every PR merge on explicit approv
         ['guardrail: checks are not approval', /Never merge a PR without an explicit in-conversation approval[\s\S]*green checks are not approval/i],
         ['mechanical merge-approval status', /`merge-approval` status[\s\S]*turns green only after the repository owner posts an approval comment/i],
         ['never bypass or forge approval', /Never use `--admin`[\s\S]*never post, edit, or imitate the approval comment/i],
-        ['post-merge audit catches violations', /run-merge-approval-audit\.js[\s\S]*fails red/i],
     ]);
 });

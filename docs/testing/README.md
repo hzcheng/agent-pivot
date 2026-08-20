@@ -87,32 +87,4 @@ Use RED-before-fix for every discovered regression:
 4. Apply the smallest behavior-preserving fix and rerun the focused test to green.
 5. Run the relevant layered suite, `npm run test:behavior-contracts`, and the platform or environment gate affected by the change.
 
-## Capability audit currency
-
-`docs/testing/main-capability-coverage.json` records which capability owns every
-implementation commit on `main`. After a rebase or a new implementation commit,
-regenerate the manifest mechanically instead of hand-editing it:
-
-```bash
-node scripts/regenerate-capability-audit.js \
-  --assign <sha-or-ref>=<CAPABILITY-ID> [--assign ...] \
-  [--behavior <CAPABILITY-ID>=<BEHAVIOR-ID>] \
-  --harvest none|updated:<comma-separated .skills/paths> \
-  [--dry-run] [--commit "docs: audit ..."]
-```
-
-`--harvest` records the mandatory skill harvest review
-(`.skills/harvesting-workflow-lessons`): `none` when no skill change was
-justified, or `updated:<paths>` listing the iterated `.skills/` directories.
-The decision becomes a `Skill-Harvest` trailer in the audit commit message.
-
-The script classifies every commit beyond the recorded `audit.head`: commits you
-assign are appended to their capability, documentation-only commits are
-registered in `audit.ignoredDocumentationCommits`, and `audit.head` advances to
-the last implementation commit in range. It refuses to write when any
-implementation commit lacks an assignment, applies the edits text-surgically so
-reviews see only the expected lines, validates the result with the same rules as
-`npm run test:behavior-contracts`, and restores the original file when
-validation fails. Use `--dry-run` to review the planned diff first.
-
 Do not turn a manual scenario into `automated` merely because a fake covers part of it. Multi-window focus, remote-host lifecycle, sleep/disconnect behavior, and visual accessibility remain owned by the versioned [`cross-platform-remote-matrix.md`](../manual-tests/cross-platform-remote-matrix.md) until their actual environments are exercised. Record environment versions, date, result, and redacted evidence there; an unexecuted row is not a pass.

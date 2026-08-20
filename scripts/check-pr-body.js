@@ -7,11 +7,10 @@
  * .skills/harvesting-workflow-lessons leaves a checkable artifact.
  *
  * ARCH-PR-OWNER-APPROVALS-001: a pull request body must carry an
- * "## Owner approvals" section with the ready-to-copy approval commands
- * bound to the exact head SHA — one `approve <full-sha>` line and one
- * `approve-architecture <full-sha>` line — so the owner never has to
- * reconstruct them by hand. The gates read only PR comments; the body
- * section is never consumed as an approval.
+ * "## Owner approvals" section with the ready-to-copy approval command
+ * bound to the exact head SHA — one `approve <full-sha>` line — so the
+ * owner never has to reconstruct it by hand. The gate reads only PR
+ * comments; the body section is never consumed as an approval.
  *
  * Usage: PR_BODY=<body> PR_HEAD_SHA=<full-sha> node scripts/check-pr-body.js
  *        PR_HEAD_SHA=<full-sha> node scripts/check-pr-body.js <body-file>
@@ -58,7 +57,6 @@ function checkOwnerApprovalsSection(body, headSha) {
         .filter(line => line.length > 0 && !line.startsWith('```'));
     const expected = [
         `approve ${headSha}`,
-        `approve-architecture ${headSha}`,
     ];
     const errors = [];
     for (const command of expected) {

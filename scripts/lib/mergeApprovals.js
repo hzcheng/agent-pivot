@@ -7,19 +7,11 @@
 // head and never the clock). The audit is the post-merge backstop that the
 // SHA-bound marker exists at all.
 //
-// Approval markers are matched per line: one comment may carry several
-// commands (e.g. `approve <sha>` and `approve-architecture <sha>` together),
-// and a command line works anywhere in the comment body.
+// Approval markers are matched per line: a command line works anywhere in
+// the comment body.
 
 // The binding form: a first-word marker, then the full 40-hex head SHA.
 const MERGE_APPROVAL_PATTERN = /^\s*(?:合并|批准|lgtm|approve[ds]?|merge)\s+([0-9a-f]{40})\s*$/i;
-
-// Architecture approval (Harness Simplification, see
-// docs/architecture/harness-simplification-decision.md): a distinct owner
-// comment authorizing relaxing/re-partition changes and protected-path
-// edits. Standard `approve <sha>` never substitutes for it; both bind the
-// exact head SHA and expire when the head moves.
-const ARCHITECTURE_APPROVAL_PATTERN = /^\s*approve-architecture\s+([0-9a-f]{40})\s*$/i;
 
 // Legacy free-form markers, recognized only to explain the failure and for
 // merges that predate the SHA binding (the audit switches per merge by
@@ -58,15 +50,6 @@ function commentBindsSha(body, pattern, expectedSha) {
 /** Legacy free-form marker (no SHA binding), matched per line. */
 function isApprovalComment(body) {
     return String(body || '').split('\n').some(line => LEGACY_APPROVAL_PATTERN.test(line));
-}
-
-/** The full head SHA an architecture approval comment binds, or null. */
-function architectureApprovalBoundSha(body) {
-    for (const line of String(body || '').split('\n')) {
-        const match = ARCHITECTURE_APPROVAL_PATTERN.exec(line);
-        if (match) { return match[1].toLowerCase(); }
-    }
-    return null;
 }
 
 /** Latest owner comment that binds expectedSha, or null. */
@@ -138,25 +121,6 @@ function evaluateMergeApproval(options) {
     };
 }
 
-/** Latest owner architecture approval comment that binds expectedSha, or null. */
-function findArchitectureApprovalComment(comments, options) {
-    const authorLogin = String(options.authorLogin || '').toLowerCase();
-    const expectedSha = String(options.headSha || '').toLowerCase();
-    let latest = null;
-    for (const comment of comments || []) {
-        if (!comment || String(comment?.user?.login || '').toLowerCase() !== authorLogin) {
-            continue;
-        }
-        if (!commentBindsSha(comment.body, ARCHITECTURE_APPROVAL_PATTERN, expectedSha)) {
-            continue;
-        }
-        if (!latest || Date.parse(comment.created_at || '') > Date.parse(latest.created_at || '')) {
-            latest = comment;
-        }
-    }
-    return latest;
-}
-
 /** Audit predicate: merges at or after the activation date must be approved. */
 function mergeRequiresApproval(mergedAt) {
     const mergedAtMs = Date.parse(mergedAt || '');
@@ -168,14 +132,11 @@ function mergeRequiresApproval(mergedAt) {
 
 module.exports = {
     MERGE_APPROVAL_PATTERN,
-    ARCHITECTURE_APPROVAL_PATTERN,
     MERGE_APPROVAL_REQUIRED_SINCE,
     approvalBoundSha,
-    architectureApprovalBoundSha,
     commentBindsSha,
     isApprovalComment,
     findApprovalComment,
-    findArchitectureApprovalComment,
     evaluateMergeApproval,
     mergeRequiresApproval,
 };

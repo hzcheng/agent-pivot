@@ -57,14 +57,12 @@ Turn every confirmed regression into a CI-owned behavior before changing product
 6. **Verify GREEN**
    - Run the focused test, `npm run test:behavior-contracts`, the affected layered suite, and the relevant platform/environment gate.
    - Review the final diff and run the branch-level CI equivalent before push or PR.
-7. **Maintain audit currency**
-   - In every automated owner file, use literal behavior IDs for the behaviors it owns. After any implementation, owner, catalog, or audit change, run `npm run test:behavior-contracts`.
-   - Classify commits by changed paths and protected behavior, never by a subject prefix. Treat `.skills/` and skill-owner tests as implementation paths: tests and owner-marker commits remain implementation evidence even with a `docs:` subject.
-   - Form the final implementation commit before completing the audit. Record its full SHA, assign it exactly once to the matching capability, advance `audit.head` to that SHA, and commit the manifest update separately as a genuine documentation-only audit commit.
-   - Regenerate audit assignments with `node scripts/regenerate-capability-audit.js --assign <sha>=<CAPABILITY-ID> [--behavior <CAPABILITY-ID>=<BEHAVIOR-ID>] --harvest none|updated:<.skills/paths> --commit "docs: audit ..."`, especially after a rebase: the script classifies every commit beyond the audit head, registers documentation-only commits, advances `audit.head`, validates the manifest, and restores it on failure instead of hand-editing. `--harvest` is mandatory and records the skill harvest decision as a `Skill-Harvest` trailer in the audit commit.
-   - If another implementation path changes after that audit, including `.skills/`, repeat the sequence with the new implementation SHA. A pre-commit local pass cannot prove commit-level audit currency because the final SHA does not exist yet.
-   - Advance `audit.head` only after every implementation commit has a complete main-capability assignment with CI-reachable behavior ownership. Only genuine documentation-only commits may remain after the audit head.
-   - Treat audit-currency failures as immediate failures. A later audit commit cannot create missing RED evidence or retroactively make an implementation commit documentation-only.
+   - Never pipe a verification command to `tail`/`head` without
+     `pipefail`: the pipeline's exit code becomes the pager's, masking a
+     red run as green. Use `set -o pipefail` or read the stored log.
+7. **Keep the behavior catalog current**
+   - In every automated owner file, use literal behavior IDs for the behaviors it owns. After any implementation, owner, or catalog change, run `npm run test:behavior-contracts`.
+   - Classify commits by changed paths and protected behavior, never by a subject prefix. Treat `.skills/` and skill-owner tests as implementation paths.
    - In repositories with both `origin` and `upstream`, pass the intended `--repo <owner/name>` to every `gh pr checks`, `gh run view`, and Actions log command. Do not let local remote ordering select the repository.
 
 ## Automation Boundary

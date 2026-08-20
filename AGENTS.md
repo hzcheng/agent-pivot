@@ -38,28 +38,14 @@ making any change.
    before a commit: `npm run test-compile`, the focused tests for the touched
    area, and `git diff --check`. Details: skill `review-fix-commit-loop`.
 
-## Main-capability audit (required before push)
+## Merging
 
-Every implementation commit must be assigned to exactly one main capability
-in `docs/testing/main-capability-coverage.json`; `audit.head` must advance to
-the last implementation commit. Use the automation in a separate
-documentation-only audit commit:
-
-```sh
-node scripts/regenerate-capability-audit.js \
-  --assign <sha>=<CAPABILITY-ID> [--assign ...] \
-  --harvest none|updated:<comma-separated .skills/paths> \
-  --commit "docs: record <topic> capability audit"
-```
-
-`--harvest` records the mandatory skill harvest review (skill
-`harvesting-workflow-lessons`) as a `Skill-Harvest` trailer in the audit
-commit: `none` when no skill change was justified, or `updated:<paths>` for
-the iterated `.skills/` directories.
-
-Commits touching only `README.md`, `docs/`, or `.superpowers/` count as
-documentation and need no assignment; everything else (including this file)
-does. Then rerun `npm run test:behavior-contracts` before pushing.
+A PR merges when the required checks are green and the owner has posted
+`approve <full-head-sha>` as a PR comment (the merge-approval gate posts the
+status from the default branch; approvals bind the exact head and expire
+when it moves). The PR body must carry a `## Skill harvest` section and an
+`## Owner approvals` section with the ready-to-copy command (CI enforces
+both).
 
 ## Common commands
 
@@ -75,4 +61,4 @@ does. Then rerun `npm run test:behavior-contracts` before pushing.
 - Dashboard webview HTML/icons: `src/webview/webviewContent.ts`,
   `src/webview/webviewIcons.ts`; webview scripts/styles: `media/`
 - AI sessions: `src/aiSessions/`; TODOs: `src/todos/`; prompts: `src/prompts/`
-- Behavior catalog and capability manifest: `docs/testing/`
+- Behavior catalog: `docs/testing/behavior-contracts.json`

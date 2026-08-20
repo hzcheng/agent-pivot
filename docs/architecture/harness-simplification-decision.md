@@ -1,7 +1,7 @@
 # Harness Simplification Decision
 
 Date: 2026-08-19
-Status: accepted
+Status: accepted; **partially superseded 2026-08-20** (see the note at the end)
 Author: repository owner
 
 ## Context
@@ -170,12 +170,12 @@ only. The following constraints are mandatory:
 
 | PR | Scope | Hard exit condition |
 |---|---|---|
-| #294 | Fix ADR, freeze migrations | Decisions unambiguous; W1 stays migrating |
+| #293 | Fix ADR, freeze migrations | Decisions unambiguous; W1 stays migrating |
 | #295 | Minimal trusted kernel | Default-branch evaluator; all trust-boundary mutations killed; required status enabled |
 | #296 | Delete machine authorization, parity, guardSemantics | Trusted kernel has taken over; old records cannot authorize |
-| #297 | CID/ledger downgrade, read-only impact report | No AI JSON authorization; ledger handles state + strict only |
-| #298 | W1 narrow writer facade | Unauthorized calls fail at compile/dependency layer; complex method scanner not needed |
-| #299 | W1 strict re-acceptance | No new design; fixed acceptance checklist only |
+| #300 | CID/ledger downgrade, read-only impact report | No AI JSON authorization; ledger handles state + strict only |
+| #302 | W1 narrow writer facade | Unauthorized calls fail at compile/dependency layer; complex method scanner not needed |
+| #304 | W1 strict re-acceptance | No new design; fixed acceptance checklist only |
 
 ### Webview globals: moved out of W1 critical path
 
@@ -212,3 +212,16 @@ protocol — a bounded slice of its own.
   protection level.
 - **Full rewrite in one PR**: rejected. Too large to review; six serial
   PRs let the owner verify each simplification step.
+landed, the owner decided the remaining governance
+machinery cost more than it protected: the trusted kernel, the second
+architecture-approval track, the change-impact declaration remnants, the
+ledger state machine, and the capability audit are removed. Architecture CI
+converges to three classes of checks — closed-world classification
+(exactly one module and role per file), module boundaries (public
+entrypoints and declared dependencies), and a small set of critical
+single-writer/state invariant tests — plus the unchanged behavior,
+contract, and fault-matrix suites. Dependency analysis keeps only the
+existing TypeScript AST implementation. Harness changes are governed by
+the normal owner approval (`approve <full-head-sha>`); the ledger's module
+states become informational progress notes. The W1 narrow writer facade
+and the W1 `strict` re-acceptance remain in force.

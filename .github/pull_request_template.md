@@ -14,22 +14,16 @@ summary of the gate run (never a PR comment — no notification email).
 
 <!--
 Required; CI rejects pull requests without this section.
-Copy-paste commands for the owner, each bound to the exact head SHA
-(regenerate whenever the head moves):
-
-```
-approve-architecture <full-head-sha>
-```
+Copy-paste command for the owner, bound to the exact head SHA (regenerate
+whenever the head moves):
 
 ```
 approve <full-head-sha>
 ```
 
-The gates read only PR comments — these body lines are never consumed as
-approvals. Approval markers match per comment line, so both commands may be
-posted together in one comment. `approve-architecture` is required only when
-protected paths change, but always list both so the owner never has to
-reconstruct them.
+The gate reads only PR comments — this body line is never consumed as an
+approval. Approval markers match per comment line, so the command may share
+a comment with other text.
 -->
 
 ## Skill harvest

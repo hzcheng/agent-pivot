@@ -88,7 +88,6 @@ function renderImpactReport({ pullRequest, context }) {
     const { classification, report, assignedCapabilities, expectedBehaviors } = context;
     const delta = report.policyDelta || {};
     const lines = [
-        `${REPORT_MARKER}`,
         `### Architecture impact report — \`${pullRequest.head.sha.substring(0, 8)}\``,
         `- classification: **${classification}**`,
         `- touched modules: ${Object.keys(report.touchedModules || {}).join(', ') || '(none)'}`,
@@ -222,7 +221,11 @@ async function main() {
     // posting, the missing status still blocks the merge (fail-closed).
 }
 
-main().catch(error => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-});
+if (require.main === module) {
+    main().catch(error => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+    });
+}
+
+module.exports = { renderImpactReport };

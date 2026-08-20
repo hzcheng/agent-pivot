@@ -25,6 +25,10 @@ Turn every confirmed regression into a CI-owned behavior before changing product
      check's behavior until it merges. Confirm against the failed run's log
      line provenance; when the fix must land on the default branch first,
      sequence a dedicated PR instead of iterating on the blocked one.
+   - The same blind spot applies to GREEN: when the changed code path only
+     executes from the default branch after the merge, CI on the PR cannot
+     exercise it — verify by directly invoking the changed entry point
+     locally (unit-level call, not only pattern assertions on the source).
 2. **Own the behavior**
    - Read `docs/testing/README.md`.
    - Select an existing behavior ID or add one to `docs/testing/behavior-contracts.json`.

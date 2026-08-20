@@ -26,7 +26,7 @@ function loadSkillContent() {
             return previousLoad.call(this, request, parent, isMain);
         };
         return {
-            getSkillsPanelContent: require('../../../out/webview/webviewSkillContent').getSkillsPanelContent,
+            getSkillsPanelContent: require('../../../out/skills/webviewSkillContent').getSkillsPanelContent,
             getSkillStableKey: require('../../../out/skills/skillGroupStore').getSkillStableKey,
         };
     } finally {

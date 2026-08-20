@@ -20,7 +20,7 @@ import type {
 import { worktreeKeysMatch } from '../worktrees';
 import type { ProvisioningWorktreeRow, WorktreeKey } from '../worktrees';
 import { projectAiSessionHistory } from '../aiSessions/historyProjection';
-import { escapeAttribute } from './webviewHtmlEscape';
+import { escapeAttribute } from '../webviewHtmlEscape';
 import {
     normalizeRunningCardAnimation,
     normalizeRunningIconAnimation,

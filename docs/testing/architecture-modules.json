@@ -716,10 +716,17 @@
         "exclude": []
       },
       "publicEntrypoints": [
-        "src/skills/**"
+        "src/skills/types.ts",
+        "src/skills/skillPanelCapability.ts",
+        "src/skills/skillGroupStore.ts",
+        "src/skills/fixService.ts",
+        "src/skills/syncService.ts",
+        "src/skills/knownCollections.ts",
+        "src/skills/webviewSkillContent.ts"
       ],
       "mayDependOn": [
-        "MOD-DASHBOARD-SHELL"
+        "MOD-DASHBOARD-SHELL",
+        "MOD-SHARED-KERNEL"
       ],
       "roles": [
         {
@@ -728,6 +735,12 @@
             "src/skills/types.ts",
             "src/skills/frontmatter.ts",
             "src/skills/knownCollections.ts"
+          ]
+        },
+        {
+          "role": "presentation",
+          "include": [
+            "src/skills/webviewSkillContent.ts"
           ]
         },
         {
@@ -900,6 +913,7 @@
           "src/worktreeSessionAssignment.ts",
           "src/worktreeIdentity.ts",
           "src/webviewIcons.ts",
+          "src/webviewHtmlEscape.ts",
           "src/configuration.ts",
           "src/attentionSessionKeys.ts",
           "src/runtimeOwnership.ts"
@@ -913,6 +927,7 @@
         "src/worktreeSessionAssignment.ts",
         "src/worktreeIdentity.ts",
         "src/webviewIcons.ts",
+        "src/webviewHtmlEscape.ts",
         "src/configuration.ts",
         "src/attentionSessionKeys.ts",
         "src/runtimeOwnership.ts"
@@ -935,6 +950,7 @@
             "src/worktreeSessionAssignment.ts",
             "src/worktreeIdentity.ts",
             "src/webviewIcons.ts",
+            "src/webviewHtmlEscape.ts",
             "src/configuration.ts",
             "src/attentionSessionKeys.ts",
             "src/runtimeOwnership.ts"

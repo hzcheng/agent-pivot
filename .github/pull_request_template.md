@@ -6,8 +6,8 @@
 
 <!--
 No body declaration is required: the merge-approval gate regenerates the
-architecture impact report for the exact head and maintains it as a standing
-PR comment. Review it before approving.
+architecture impact report for the exact head and publishes it to the job
+summary of the gate run (never a PR comment — no notification email).
 -->
 
 ## Owner approvals

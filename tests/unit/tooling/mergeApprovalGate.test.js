@@ -87,8 +87,8 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of
     const checkout = gate.steps.find(step => step.uses && step.uses.startsWith('actions/checkout'));
     assert.ok(checkout && checkout.with && checkout.with['fetch-depth'] === 0,
         'the gate regenerates the impact report and needs full history');
-    assert.strictEqual(workflow.permissions.issues, 'write',
-        'the gate creates/updates the standing impact-report comment');
+    assert.strictEqual(workflow.permissions.issues, 'read',
+        'the gate never writes PR comments — the report goes to the job summary (no notification email)');
 
     const script = fs.readFileSync(
         path.join(repositoryRoot, 'scripts', 'run-merge-approval-gate.js'), 'utf8');
@@ -96,12 +96,10 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of
         'the AI-authored change-impact declaration is no longer evaluated (PR 4/6)');
     assert.match(script, /collectChangeImpactContext/,
         'the gate regenerates the impact report for the PR head');
-    assert.match(script, /upsertReportComment/,
-        'the gate posts the report as a standing PR comment for owner review');
-    assert.match(script, /try \{[\s\S]*?upsertReportComment[\s\S]*?catch/,
-        'the advisory report comment is fail-soft: its delivery failure must not block the verdict status');
-    assert.match(script, /architecture-impact-report/,
-        'the standing comment carries a stable marker for upserts');
+    assert.ok(!/upsertReportComment|issues\/comments.*POST/.test(script),
+        'the gate must not post PR comments (notification-free review aid)');
+    assert.match(script, /GITHUB_STEP_SUMMARY/,
+        'the gate publishes the report to the job summary');
     assert.match(script, /pull\/\$\{prNumber\}\/head/,
         'the gate fetches and checks out the exact PR head');
 

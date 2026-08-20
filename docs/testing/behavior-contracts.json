@@ -1709,6 +1709,19 @@
     ]
   },
   {
+    "id": "RUNTIME-FILESYSTEM-MUTATION-LOCK-001",
+    "domain": "runtime",
+    "title": "Filesystem mutation locks recover stale unpublished claims without admitting concurrent owners",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/tmuxCreationLock.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/tmuxCreationLock.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-LAUNCH-SPEC-001",
     "domain": "runtime",
     "title": "Launch Spec behavior",
@@ -1893,6 +1906,19 @@
     ],
     "evidence": [
       "scripts/run-ai-session-tmux-checks.js"
+    ]
+  },
+  {
+    "id": "RUNTIME-DIRECT-CREATE-TMUX-FAULT-ISOLATION-001",
+    "domain": "runtime",
+    "title": "Direct Terminal session creation is not blocked by an unrelated tmux refresh failure",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimeCoordinator.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/runtimeCoordinator.ts"
     ]
   },
   {

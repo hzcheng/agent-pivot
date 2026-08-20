@@ -4608,6 +4608,8 @@ async function runTmuxStoreChecks() {
         fs.mkdirSync(staleLockPath);
         const staleHeldPath = path.join(staleLockPath, 'held');
         fs.mkdirSync(staleHeldPath);
+        const staleTime = new Date(Date.now() - 31000);
+        fs.utimesSync(staleHeldPath, staleTime, staleTime);
         const staleContainerIdentity = fs.lstatSync(staleLockPath);
         const staleHeldIdentity = fs.lstatSync(staleHeldPath);
         const staleClaimPath = path.join(staleHeldPath, `${'0'.repeat(64)}.claim`);
@@ -4620,7 +4622,6 @@ async function runTmuxStoreChecks() {
             heldIno: staleHeldIdentity.ino,
             heldBirthtimeMs: staleHeldIdentity.birthtimeMs,
         }));
-        const staleTime = new Date(Date.now() - 31000);
         fs.utimesSync(staleClaimPath, staleTime, staleTime);
         fs.utimesSync(staleHeldPath, staleTime, staleTime);
         let recovered = false;

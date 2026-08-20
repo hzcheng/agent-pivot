@@ -290,7 +290,14 @@ async function recoverStaleHeld(
         }
         const claimPath = path.join(heldPath, name);
         const claim = await readClaim(claimPath);
-        if (!claim || !claimMatchesIdentity(claim.record, identity)
+        if (!claim) {
+            if (!await isStaleUnpublishedClaim(claimPath)) {
+                return;
+            }
+            staleClaims.push(claimPath);
+            continue;
+        }
+        if (!claimMatchesIdentity(claim.record, identity)
             || Date.now() - claim.stat.mtimeMs <= STALE_AFTER_MS) {
             return;
         }
@@ -331,6 +338,19 @@ async function readClaim(claimPath: string): Promise<{ record: LockClaimRecord; 
     } catch (error) {
         if (isNodeError(error, 'ENOENT') || error instanceof SyntaxError) {
             return null;
+        }
+        throw error;
+    }
+}
+
+async function isStaleUnpublishedClaim(claimPath: string): Promise<boolean> {
+    try {
+        const stat = await fs.lstat(claimPath);
+        return stat.isFile() && stat.size === 0
+            && Date.now() - stat.mtimeMs > STALE_AFTER_MS;
+    } catch (error) {
+        if (isNodeError(error, 'ENOENT')) {
+            return false;
         }
         throw error;
     }

@@ -8,7 +8,8 @@ const {
     memberOperationId,
 } = require('../../../out/worktrees/groupCreationController');
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     WorktreeMemberLifecycle,
@@ -53,7 +54,8 @@ function memento() {
 }
 
 function fixture(overrides = {}) {
-    const manifestStore = new WorktreeGroupManifestStore(memento());
+    const manifestStoreHandle = createWorktreeGroupManifestStore(memento());
+    const manifestStore = worktreeGroupManifestStoreOf(manifestStoreHandle);
     const changes = [];
     const started = [];
     const retried = [];
@@ -67,7 +69,7 @@ function fixture(overrides = {}) {
         ],
     };
     const options = {
-        memberLifecycle: new WorktreeMemberLifecycle(manifestStore),
+        memberLifecycle: new WorktreeMemberLifecycle(manifestStoreHandle),
         getWorkspaceTarget: projectId => projectId === 'project'
             ? { workspace } : null,
         getWorktreeSnapshot: () => snapshot,
@@ -79,7 +81,7 @@ function fixture(overrides = {}) {
             repositoryKey === '/beta/.git' ? ['make', 'setup'] : ['npm', 'ci'],
         getWorktreeDirectory: () => '.worktrees',
         getActiveEditorPath: () => undefined,
-        manifestStore,
+        manifestStore: manifestStoreHandle,
         startMemberOperation: async input => {
             started.push(input);
             // Simulate the production finalize hook: ready before settle.
@@ -271,7 +273,7 @@ test('WORKTREE-GROUPS-CREATE-001 a failed member stays in the group with its err
                     completedSteps: [],
                 };
             }
-            await current.options.manifestStore.updateMember(
+            await current.manifestStore.updateMember(
                 workspace.navigationIdentity, input.groupId, input.memberId, {
                     state: 'ready',
                     worktreeKey: {
@@ -323,7 +325,7 @@ test('WORKTREE-GROUPS-CREATE-001 a failed member settlement is logged with its e
                     completedSteps: ['worktree'],
                 };
             }
-            await current.options.manifestStore.updateMember(
+            await current.manifestStore.updateMember(
                 workspace.navigationIdentity, input.groupId, input.memberId, {
                     state: 'ready',
                     worktreeKey: {
@@ -375,7 +377,7 @@ test('WORKTREE-GROUPS-CREATE-001 a settlement persist failure is logged without 
                     completedSteps: ['worktree'],
                 };
             }
-            await current.options.manifestStore.updateMember(
+            await current.manifestStore.updateMember(
                 workspace.navigationIdentity, input.groupId, input.memberId, {
                     state: 'ready',
                     worktreeKey: {
@@ -513,7 +515,7 @@ test('WORKTREE-GROUPS-CREATE-001 a throwing executor degrades the member without
             if (input.plan.repositoryKey === '/beta/.git') {
                 throw new Error('executor exploded');
             }
-            await current.options.manifestStore.updateMember(
+            await current.manifestStore.updateMember(
                 workspace.navigationIdentity, input.groupId, input.memberId, {
                     state: 'ready',
                     worktreeKey: {

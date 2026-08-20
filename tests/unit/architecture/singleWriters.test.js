@@ -12,7 +12,7 @@ const {
 
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 
-function makeFixture({ invariants, sources, twoModules = false }) {
+function makeFixture({ invariants, sources, twoModules = false, entrypointGlob = null }) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-writers-'));
     const writeJson = (relative, value) => {
         fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
@@ -23,7 +23,7 @@ function makeFixture({ invariants, sources, twoModules = false }) {
         title: id,
         purpose: 'fixture',
         source: { include: [glob], exclude: [] },
-        publicEntrypoints: [glob],
+        publicEntrypoints: [entrypointGlob || glob],
         mayDependOn: [],
         roles: [{ role: 'application', include: [glob] }],
         productCapabilities: ['MAIN-TEST-001'],
@@ -394,4 +394,70 @@ test('ARCH-SINGLE-WRITER-001 reading a store-typed value is not a violation', ()
         },
     });
     assert.deepEqual(runSingleWriterCheck(root).errors, []);
+});
+
+// ── writerFacade edge rule (Harness Simplification PR 5/6) ────────────
+
+function facadeInvariant(overrides = {}) {
+    return validInvariant({
+        stateFamily: { storePath: 'src/store.ts', writeMethods: ['writeThing'], writerFacade: true },
+        ...overrides,
+    });
+}
+
+const facadeSources = {
+    'src/store.ts': 'export class Store { writeThing() {} }\n',
+    'src/writer.ts': 'import { Store } from \'./store\';\nexport const run = (s: Store) => s.writeThing();\n',
+    'src/index.ts': 'export { Store } from \'./store\';\n',
+};
+
+test('ARCH-SINGLE-WRITER-001 a writerFacade store may be imported only by writers and the entrypoint', () => {
+    const root = makeFixture({
+        invariants: [facadeInvariant()],
+        entrypointGlob: 'src/index.ts',
+        sources: {
+            ...facadeSources,
+            'src/sneaky.ts': 'import { Store } from \'./store\';\nexport const sneak = Store;\n',
+        },
+    });
+    const errors = runSingleWriterCheck(root).errors;
+    assert.ok(errors.some(error => error.includes('src/sneaky.ts')
+        && error.includes('facade store')), JSON.stringify(errors));
+
+    const clean = makeFixture({
+        invariants: [facadeInvariant()],
+        entrypointGlob: 'src/index.ts',
+        sources: { ...facadeSources },
+    });
+    assert.deepEqual(runSingleWriterCheck(clean).errors, [],
+        'writer and entrypoint imports are allowed');
+});
+
+test('ARCH-SINGLE-WRITER-001 without writerFacade the import edge alone is not a violation', () => {
+    const root = makeFixture({
+        invariants: [validInvariant()],
+        entrypointGlob: 'src/index.ts',
+        sources: {
+            ...facadeSources,
+            'src/sneaky.ts': 'import { Store } from \'./store\';\n'
+                + 'export const sneak = (s: Store) => s.toString();\n',
+        },
+    });
+    assert.deepEqual(runSingleWriterCheck(root).errors, []);
+});
+
+test('ARCH-SINGLE-WRITER-001 controlled mutation: families sharing a store must agree on writerFacade', () => {
+    const root = makeFixture({
+        invariants: [
+            facadeInvariant(),
+            facadeInvariant({
+                id: 'ARCH-TEST-FAMILY-002',
+                stateFamily: { storePath: 'src/store.ts', writeMethods: ['writeThing'] },
+            }),
+        ],
+        entrypointGlob: 'src/index.ts',
+        sources: { ...facadeSources },
+    });
+    const errors = runSingleWriterCheck(root).errors;
+    assert.ok(errors.some(error => error.includes('writerFacade')), JSON.stringify(errors));
 });

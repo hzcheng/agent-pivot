@@ -11,8 +11,9 @@ import type { WorktreeProvisioningPlan } from './provisioningPlan';
 import { isManagedWorktreePath } from './provisioningPlan';
 import type {
     WorktreeGroup,
-    WorktreeGroupManifestStore,
+    WorktreeGroupManifestStoreHandle,
 } from './groupManifestStore';
+import { worktreeGroupManifestStoreOf } from './groupManifestStore';
 import type { WorktreeMemberLifecycle } from './memberLifecycle';
 import type { WorktreeProvisioningOutcome } from './provisioningController';
 import type {
@@ -106,7 +107,7 @@ export interface WorktreeGroupCreationControllerOptions {
     getSetupCommand: (repositoryKey: string) => readonly string[];
     getWorktreeDirectory: () => string;
     getActiveEditorPath: () => string | undefined;
-    manifestStore: WorktreeGroupManifestStore;
+    manifestStore: WorktreeGroupManifestStoreHandle;
     memberLifecycle: WorktreeMemberLifecycle;
     startMemberOperation: (input: {
         operationId: string;
@@ -266,7 +267,8 @@ export class WorktreeGroupCreationController {
         if (!target || !snapshot) {
             return null;
         }
-        const groups = this.options.manifestStore
+        const manifestStore = worktreeGroupManifestStoreOf(this.options.manifestStore);
+        const groups = manifestStore
             .listGroups(target.workspace.navigationIdentity);
         const source = groups.find(candidate => candidate.groupId === sourceGroupId);
         if (!source) {
@@ -350,7 +352,7 @@ export class WorktreeGroupCreationController {
         if (!target || !snapshot) {
             return null;
         }
-        const group = this.options.manifestStore
+        const group = worktreeGroupManifestStoreOf(this.options.manifestStore)
             .listGroups(target.workspace.navigationIdentity)
             .find(candidate => candidate.groupId === targetGroupId);
         if (!group) {
@@ -408,8 +410,9 @@ export class WorktreeGroupCreationController {
         if (!target || !snapshot) {
             return preview;
         }
+        const manifestStore = worktreeGroupManifestStoreOf(this.options.manifestStore);
         const addRepoTargetEarly = targetGroupId
-            ? this.options.manifestStore
+            ? manifestStore
                 .listGroups(target.workspace.navigationIdentity)
                 .find(candidate => candidate.groupId === targetGroupId)
             : undefined;
@@ -458,12 +461,12 @@ export class WorktreeGroupCreationController {
         // previewed identity, plan, and setup argv (PRD §6.1: Host 仅执行
         // 最终预览集合，逐项一致).
         const deriveSource = sourceGroupId && target
-            ? this.options.manifestStore
+            ? manifestStore
                 .listGroups(target.workspace.navigationIdentity)
                 .find(candidate => candidate.groupId === sourceGroupId)
             : undefined;
         const addRepoTarget = targetGroupId && target
-            ? this.options.manifestStore
+            ? manifestStore
                 .listGroups(target.workspace.navigationIdentity)
                 .find(candidate => candidate.groupId === targetGroupId)
             : undefined;
@@ -685,6 +688,7 @@ export class WorktreeGroupCreationController {
             }
         }
         const navigationIdentity = target.workspace.navigationIdentity;
+        const manifestStore = worktreeGroupManifestStoreOf(this.options.manifestStore);
         // Preview tokens are single-use: consume atomically — synchronously,
         // before the first manifest await — so a replayed or concurrent
         // confirm can never provision the same plan twice. Baseline
@@ -702,7 +706,7 @@ export class WorktreeGroupCreationController {
                 // one aggregate write (decision F: validate-all-then-write).
                 // The bound revision and locked slug are validated
                 // atomically inside the store queue.
-                group = await this.options.manifestStore.addPlannedMembers(
+                group = await manifestStore.addPlannedMembers(
                     navigationIdentity,
                     previewSnapshot.addRepo.targetGroupId,
                     members.map(member => ({
@@ -720,7 +724,7 @@ export class WorktreeGroupCreationController {
                     });
                 newMembers = group.members.slice(-members.length);
             } else {
-                group = await this.options.manifestStore.createGroup(navigationIdentity, {
+                group = await manifestStore.createGroup(navigationIdentity, {
                     displayName,
                     suggestedSlug: slug,
                     // Derive binding (decision G): the source revision is
@@ -805,7 +809,7 @@ export class WorktreeGroupCreationController {
             return { kind: 'failed', operationId: memberOperationId(memberId), errorCode: 'workspace-unavailable' };
         }
         const navigationIdentity = target.workspace.navigationIdentity;
-        const group = this.options.manifestStore
+        const group = worktreeGroupManifestStoreOf(this.options.manifestStore)
             .listGroups(navigationIdentity)
             .find(candidate => candidate.groupId === groupId);
         const member = group?.members.find(candidate => candidate.memberId === memberId);
@@ -850,7 +854,7 @@ export class WorktreeGroupCreationController {
             return 'unavailable';
         }
         const navigationIdentity = target.workspace.navigationIdentity;
-        const group = this.options.manifestStore
+        const group = worktreeGroupManifestStoreOf(this.options.manifestStore)
             .listGroups(navigationIdentity)
             .find(candidate => candidate.groupId === groupId);
         const member = group?.members.find(candidate => candidate.memberId === memberId);

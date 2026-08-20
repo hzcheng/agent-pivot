@@ -2,7 +2,10 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { WorktreeGroupManifestStore } = require('../../../out/worktrees/groupManifestStore');
+const {
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
+} = require('../../../out/worktrees/groupManifestStore');
 const { WorktreeMemberLifecycle } = require('../../../out/worktrees/memberLifecycle');
 const {
     reconcileWorktreeGroupManifest,
@@ -37,7 +40,8 @@ function snapshot(repositories) {
 }
 
 test('WORKTREE-GROUPS-003 seeds extension-created worktrees as one-worktree groups, never merged by slug', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const content = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -59,7 +63,7 @@ test('WORKTREE-GROUPS-003 seeds extension-created worktrees as one-worktree grou
             }),
         ],
     }]);
-    await reconcileWorktreeGroupManifest({ store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content });
+    await reconcileWorktreeGroupManifest({ store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content });
     const groups = store.listGroups(WORKSPACE);
     assert.equal(groups.length, 2,
         'same slug across repositories stays two separate authoritative groups');
@@ -73,7 +77,8 @@ test('WORKTREE-GROUPS-003 seeds extension-created worktrees as one-worktree grou
 });
 
 test('WORKTREE-GROUPS-003 reconciliation is idempotent across repeated snapshots', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const content = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -81,15 +86,16 @@ test('WORKTREE-GROUPS-003 reconciliation is idempotent across repeated snapshots
             branchRef: 'refs/heads/agent-pivot/fix-login',
         })],
     }]);
-    await reconcileWorktreeGroupManifest({ store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content });
+    await reconcileWorktreeGroupManifest({ store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content });
     const first = store.listGroups(WORKSPACE);
-    await reconcileWorktreeGroupManifest({ store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content });
+    await reconcileWorktreeGroupManifest({ store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content });
     const second = store.listGroups(WORKSPACE);
     assert.deepEqual(second, first);
 });
 
 test('WORKTREE-GROUPS-003 recovery records migrate renamed branches with their original task name', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const content = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -121,7 +127,7 @@ test('WORKTREE-GROUPS-003 recovery records migrate renamed branches with their o
         },
     }];
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store),
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle),
         workspaceIdentity: WORKSPACE, snapshot: content, recoveryRecords,
     });
     const groups = store.listGroups(WORKSPACE);
@@ -135,7 +141,8 @@ test('WORKTREE-GROUPS-003 recovery records migrate renamed branches with their o
 });
 
 test('WORKTREE-GROUPS-003 a recovery record bound to another navigation identity never seeds this bucket', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const content = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -175,7 +182,7 @@ test('WORKTREE-GROUPS-003 a recovery record bound to another navigation identity
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [foreignRecord],
     });
     const groups = store.listGroups(WORKSPACE);
@@ -186,7 +193,8 @@ test('WORKTREE-GROUPS-003 a recovery record bound to another navigation identity
 });
 
 test('WORKTREE-GROUPS-003 a foreign incomplete recovery still blocks ready seeding', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const content = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -219,7 +227,7 @@ test('WORKTREE-GROUPS-003 a foreign incomplete recovery still blocks ready seedi
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [foreignIncomplete],
     });
     assert.deepEqual(store.listGroups(WORKSPACE), [],
@@ -227,7 +235,8 @@ test('WORKTREE-GROUPS-003 a foreign incomplete recovery still blocks ready seedi
 });
 
 test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 in-flight members without a live operation downgrade to interrupted', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     await store.createGroup(WORKSPACE, {
         displayName: 'fix-login',
         suggestedSlug: 'fix-login',
@@ -248,7 +257,7 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 in-flight members without a
     });
     const content = snapshot([]);
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         activeGroupMemberIds: [],
     });
     let group = store.listGroups(WORKSPACE)[0];
@@ -264,7 +273,7 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 in-flight members without a
         state: 'provisioning', lastError: '',
     });
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         activeGroupMemberIds: [group.members[0].memberId],
     });
     group = store.listGroups(WORKSPACE)[0];
@@ -279,7 +288,8 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 a snapshot refresh racing g
     // produced a duplicate ready group and the finalize write then failed
     // with worktree-key-claimed — the user saw a failed member and an
     // unavailable primary.
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const group = await store.createGroup(WORKSPACE, {
         displayName: 'fix-login',
         suggestedSlug: 'fix-login',
@@ -327,7 +337,7 @@ test('WORKTREE-GROUPS-003 WORKTREE-GROUPS-CREATE-001 a snapshot refresh racing g
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [groupRecord],
         activeGroupMemberIds: [memberId],
     });
@@ -348,7 +358,8 @@ test('WORKTREE-GROUPS-003 a dismissed setup-incomplete tombstone still blocks re
     // Dismiss deletes the member and the row, but the tombstone record
     // keeps reconciliation from presenting a half-initialized worktree
     // (worktree created, setup never ran) as a ready group.
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const content = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -382,7 +393,7 @@ test('WORKTREE-GROUPS-003 a dismissed setup-incomplete tombstone still blocks re
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [tombstone],
     });
     assert.deepEqual(store.listGroups(WORKSPACE), [],
@@ -390,7 +401,8 @@ test('WORKTREE-GROUPS-003 a dismissed setup-incomplete tombstone still blocks re
 });
 
 test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seeding until retried', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const content = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -422,7 +434,7 @@ test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seedin
         },
     };
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [interruptedRecord],
     });
     assert.equal(store.listGroups(WORKSPACE).length, 0,
@@ -431,14 +443,15 @@ test('WORKTREE-GROUPS-003 an interrupted provisioning record blocks ready seedin
     // Once the record completes (or is dismissed and the worktree is
     // finished by hand), the next reconcile seeds it normally.
     await reconcileWorktreeGroupManifest({
-        store, memberLifecycle: new WorktreeMemberLifecycle(store), workspaceIdentity: WORKSPACE, snapshot: content,
+        store: storeHandle, memberLifecycle: new WorktreeMemberLifecycle(storeHandle), workspaceIdentity: WORKSPACE, snapshot: content,
         recoveryRecords: [{ ...interruptedRecord, completedSteps: ['worktree', 'setup'] }],
     });
     assert.equal(store.listGroups(WORKSPACE).length, 1);
 });
 
 test('WORKTREE-GROUPS-003 flags members detached when their repository leaves and re-attaches on return', async () => {
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const withBoth = snapshot([{
         repositoryKey: '/alpha/.git',
         rootBindings: [],
@@ -452,10 +465,10 @@ test('WORKTREE-GROUPS-003 flags members detached when their repository leaves an
             branchRef: 'refs/heads/agent-pivot/fix-login',
         })],
     }]);
-    await reconcileWorktreeGroupManifest({ store, workspaceIdentity: WORKSPACE, snapshot: withBoth });
+    await reconcileWorktreeGroupManifest({ store: storeHandle, workspaceIdentity: WORKSPACE, snapshot: withBoth });
 
     const alphaOnly = snapshot([withBoth.repositories[0]]);
-    await reconcileWorktreeGroupManifest({ store, workspaceIdentity: WORKSPACE, snapshot: alphaOnly });
+    await reconcileWorktreeGroupManifest({ store: storeHandle, workspaceIdentity: WORKSPACE, snapshot: alphaOnly });
     let groups = store.listGroups(WORKSPACE);
     const betaGroup = groups.find(group => group.members[0].repositoryKey === '/beta/.git');
     assert.equal(betaGroup.members[0].detached, true,
@@ -463,7 +476,7 @@ test('WORKTREE-GROUPS-003 flags members detached when their repository leaves an
     const alphaGroup = groups.find(group => group.members[0].repositoryKey === '/alpha/.git');
     assert.equal(alphaGroup.members[0].detached, undefined);
 
-    await reconcileWorktreeGroupManifest({ store, workspaceIdentity: WORKSPACE, snapshot: withBoth });
+    await reconcileWorktreeGroupManifest({ store: storeHandle, workspaceIdentity: WORKSPACE, snapshot: withBoth });
     groups = store.listGroups(WORKSPACE);
     assert.equal(groups.find(group => group.members[0].repositoryKey === '/beta/.git')
         .members[0].detached, undefined, 're-adding the repository re-attaches the member');

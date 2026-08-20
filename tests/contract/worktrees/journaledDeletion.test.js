@@ -11,7 +11,8 @@ const {
     ManagedWorktreeRemovalController,
 } = require('../../../out/worktrees/managedWorktreeRemovalController');
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     WorktreeDeletionController,
@@ -70,7 +71,8 @@ async function fixture(t) {
             ],
         }],
     };
-    const store = new WorktreeGroupManifestStore(memento());
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
     const group = await store.createGroup(WORKSPACE, {
         displayName: 'cleanup task',
         suggestedSlug: 'cleanup-task',
@@ -92,7 +94,7 @@ async function fixture(t) {
         refresh: async () => undefined,
     });
     const controller = new WorktreeDeletionController({
-        store,
+        store: storeHandle,
         recheckBlocker: (_group, member) => member.worktreeKey
             ? removal.getRemovalBlocker(member.worktreeKey)
             : Promise.resolve('worktree-not-removable'),

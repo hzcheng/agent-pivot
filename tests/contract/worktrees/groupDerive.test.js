@@ -7,7 +7,8 @@ const {
     WorktreeGroupCreationController,
 } = require('../../../out/worktrees/groupCreationController');
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 
 const workspace = {
@@ -49,7 +50,8 @@ function memento() {
 }
 
 function fixture(overrides = {}) {
-    const manifestStore = new WorktreeGroupManifestStore(memento());
+    const manifestStoreHandle = createWorktreeGroupManifestStore(memento());
+    const manifestStore = worktreeGroupManifestStoreOf(manifestStoreHandle);
     const snapshot = {
         revision: 1,
         truncatedWorktreeCount: 0,
@@ -69,7 +71,7 @@ function fixture(overrides = {}) {
         getSetupCommand: () => [],
         getWorktreeDirectory: () => '.worktrees',
         getActiveEditorPath: () => undefined,
-        manifestStore,
+        manifestStore: manifestStoreHandle,
         startMemberOperation: async input => {
             await manifestStore.updateMember(
                 workspace.navigationIdentity, input.groupId, input.memberId, {

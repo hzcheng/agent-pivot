@@ -2662,3 +2662,71 @@ function requirePath(value: unknown): string {
 function requireWorkspaceIdentity(value: unknown): string {
     return requireShortText(value, MAX_ID_LENGTH, 'invalid-record');
 }
+
+// ── Narrow facades (Harness Simplification PR 5/6) ─────────────────────
+// The concrete store class is not re-exported from the module entrypoint.
+// Cross-module consumers receive a capability-free handle plus narrow
+// read/write views: a write call outside WorktreeGroupManifestWriter is a
+// compile error, and reaching the concrete store from outside this module
+// is an entrypoint violation. Only files inside MOD-WORKTREE-LIFECYCLE may
+// unwrap the handle — pinned by the single-writer edge rule.
+
+const manifestStoreAccess: unique symbol = Symbol('worktreeGroupManifestStore');
+
+/** Capability-free store reference: carries identity, exposes no methods. */
+export interface WorktreeGroupManifestStoreHandle {
+    readonly [manifestStoreAccess]: WorktreeGroupManifestStore;
+}
+
+/** The synchronous read surface. */
+export type WorktreeGroupManifestReader = Pick<WorktreeGroupManifestStore,
+    | 'listGroups'
+    | 'findGroupByWorktreeKey'
+    | 'listRetiredIdentities'
+    | 'listGenerationClaims'
+    | 'isRetiredStoreCorrupt'
+    | 'nextGenerationCutoff'
+    | 'listDeletionJournals'
+    | 'listDeletionHistory'
+    | 'isGroupDeletionLeased'
+    | 'getAggregateRevision'>;
+
+/** The write surface the cross-module composition root legitimately needs. */
+export type WorktreeGroupManifestWriter = Pick<WorktreeGroupManifestStore,
+    | 'createGroup'
+    | 'createGenerationClaim'
+    | 'promoteGenerationClaim'
+    | 'removeGenerationClaim'
+    | 'reconcileGenerationClaims'>;
+
+/** Provision a store and hand out the capability-free handle. */
+export function createWorktreeGroupManifestStore(
+    memento: MementoLike
+): WorktreeGroupManifestStoreHandle {
+    return { [manifestStoreAccess]: new WorktreeGroupManifestStore(memento) };
+}
+
+/**
+ * Unwrap the concrete store. Module-internal: this function is deliberately
+ * not re-exported from the entrypoint, and the single-writer edge rule pins
+ * the set of files allowed to import this module.
+ */
+export function worktreeGroupManifestStoreOf(
+    handle: WorktreeGroupManifestStoreHandle
+): WorktreeGroupManifestStore {
+    return handle[manifestStoreAccess];
+}
+
+/** The read-only view of the handle. */
+export function worktreeGroupManifestReaderOf(
+    handle: WorktreeGroupManifestStoreHandle
+): WorktreeGroupManifestReader {
+    return worktreeGroupManifestStoreOf(handle);
+}
+
+/** The narrow write view of the handle. */
+export function worktreeGroupManifestWriterOf(
+    handle: WorktreeGroupManifestStoreHandle
+): WorktreeGroupManifestWriter {
+    return worktreeGroupManifestStoreOf(handle);
+}

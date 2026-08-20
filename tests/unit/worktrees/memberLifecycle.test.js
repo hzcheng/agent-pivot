@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
-    WorktreeGroupManifestStore,
+    createWorktreeGroupManifestStore,
+    worktreeGroupManifestStoreOf,
 } = require('../../../out/worktrees/groupManifestStore');
 const {
     WorktreeMemberLifecycle,
@@ -23,8 +24,9 @@ function memento() {
 }
 
 async function fixture() {
-    const store = new WorktreeGroupManifestStore(memento());
-    const lifecycle = new WorktreeMemberLifecycle(store);
+    const storeHandle = createWorktreeGroupManifestStore(memento());
+    const store = worktreeGroupManifestStoreOf(storeHandle);
+    const lifecycle = new WorktreeMemberLifecycle(storeHandle);
     const group = await store.createGroup(WORKSPACE, {
         displayName: 'Fix login',
         suggestedSlug: 'fix-login',

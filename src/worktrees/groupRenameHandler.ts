@@ -1,6 +1,7 @@
 'use strict';
 
-import type { WorktreeGroupManifestStore } from './groupManifestStore';
+import type { WorktreeGroupManifestStoreHandle } from './groupManifestStore';
+import { worktreeGroupManifestStoreOf } from './groupManifestStore';
 import {
     acceptedWorktreeGroupRenameSettlement,
     parseRenameWorktreeGroupRequest,
@@ -14,7 +15,7 @@ export interface RenameWorktreeGroupHandlerDeps {
     postMessage: (message: unknown) => Thenable<unknown>;
     /** Resolves the caller's project to the current workspace bucket. */
     getNavigationIdentity: (projectId: string) => string | null;
-    store: WorktreeGroupManifestStore;
+    store: WorktreeGroupManifestStoreHandle;
     /** Awaits publication of the authoritative replacement. */
     refreshNow: () => Promise<void>;
     showWarning: (message: string) => void;
@@ -61,6 +62,7 @@ async function executeRenameWorktreeGroup(
     deps: RenameWorktreeGroupHandlerDeps
 ): Promise<WorktreeGroupRenameSettlement> {
     await deps.postMessage(acceptedWorktreeGroupRenameSettlement(request));
+    const store = worktreeGroupManifestStoreOf(deps.store);
     const settle = (
         outcome: { kind: 'settled' } | { kind: 'failed'; errorCode: string }
     ) => {
@@ -71,7 +73,7 @@ async function executeRenameWorktreeGroup(
         return settle({ kind: 'failed', errorCode: 'workspace-unavailable' });
     }
     try {
-        await deps.store.renameGroup(
+        await store.renameGroup(
             navigationIdentity,
             request.groupId,
             request.displayName.trim(),

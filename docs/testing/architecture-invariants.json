@@ -1,341 +1,343 @@
 {
-    "version": 1,
-    "title": "Architecture invariant catalog (pilot scope)",
-    "notes": [
-        "Normalized from docs/architecture/drafts/pilot-invariants.draft.json (approved at the Stage 1B gate).",
-        "Every reference is cross-validated: module ids exist in architecture-modules.json, capabilities exist in main-capability-coverage.json, and every path exists in the repository.",
-        "Records with a stateFamily block are mechanically checked by scripts/architecture/checkSingleWriters.js: a write-method call outside the declared writers fails. The writer set may only shrink during migration."
-    ],
-    "invariants": [
-        {
-            "id": "ARCH-WORKTREE-PREVIEW-TOKEN-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P0",
-            "kind": "state-machine",
-            "statement": "A preview token is consumed exactly once, after validation and before the first manifest await; a replayed, concurrent, or superseded confirm fails closed as preview-stale.",
-            "authority": {
-                "path": "src/worktrees/groupCreationController.ts",
-                "symbol": "WorktreeGroupCreationController"
-            },
-            "writers": [],
-            "linearizationPoint": "The identity-checked snapshot delete precedes the manifest write.",
-            "enforcement": [
-                "behavior"
-            ],
-            "behaviorOwners": [
-                "tests/contract/worktrees/groupCreationController.test.js"
-            ],
-            "guardOwners": [],
-            "evidence": [
-                "src/worktrees/groupCreationController.ts"
-            ]
-        },
-        {
-            "id": "ARCH-WORKTREE-MEMBER-WRITER-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P0",
-            "kind": "concurrency",
-            "statement": "Manifest member state transitions commit atomically through the store's transitionMember primitive inside its write queue (no TOCTOU between the pre-state check and the write); named transitions route through WorktreeMemberLifecycle, the single logical writer; the ready->deleting->ready/removed deletion sub-machine runs through the store's journal primitives (beginDeletion/checkpointDeletedMember/failDeletionMember), which are mechanically disjoint from lifecycle transitions via the journal lease.",
-            "authority": {
-                "path": "src/worktrees/memberLifecycle.ts",
-                "symbol": "WorktreeMemberLifecycle"
-            },
-            "writers": [
-                "src/worktrees/memberLifecycle.ts"
-            ],
-            "linearizationPoint": "The versioned manifest commit succeeds.",
-            "enforcement": [
-                "single-writer",
-                "behavior"
-            ],
-            "behaviorOwners": [
-                "tests/unit/worktrees/memberLifecycle.test.js",
-                "tests/unit/worktrees/groupManifestStore.test.js"
-            ],
-            "guardOwners": [
-                "tests/unit/architecture/singleWriters.test.js"
-            ],
-            "evidence": [
-                "src/worktrees/groupManifestStore.ts"
-            ],
-            "stateFamily": {
-                "storePath": "src/worktrees/groupManifestStore.ts",
-                "writeMethods": [
-                    "transitionMember",
-                    "updateMember",
-                    "setPrimaryMember",
-                    "removeMember"
-                ],
-                "persistenceKeys": [
-                    "agentPivot.worktreeGroups.v1"
-                ]
-            }
-        },
-        {
-            "id": "ARCH-WORKTREE-CLAIM-ORDER-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P0",
-            "kind": "recovery",
-            "statement": "A generation claim is durable before any terminal or provider side effect; claim removal requires proven-not-started evidence or an explicit user discard; ambiguity never auto-discards.",
-            "authority": {
-                "path": "src/aiSessions/creationController.ts",
-                "symbol": "AiSessionCreationController"
-            },
-            "writers": [],
-            "linearizationPoint": "createGenerationClaim commitBucket precedes coordinator.create.",
-            "enforcement": [
-                "behavior",
-                "fault-matrix"
-            ],
-            "behaviorOwners": [
-                "tests/contract/aiSessions/sessionControllers.test.js"
-            ],
-            "guardOwners": [],
-            "evidence": [
-                "src/aiSessions/creationController.ts",
-                "src/worktrees/groupManifestStore.ts"
-            ],
-            "participatingModules": [
-                "MOD-AI-SESSION-CONTROL"
-            ]
-        },
-        {
-            "id": "ARCH-WORKTREE-TOMBSTONE-FIRST-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P0",
-            "kind": "recovery",
-            "statement": "Dismissal persists the tombstone before removing any live row, context, or manifest member; a failed tombstone write refuses the whole dismissal.",
-            "authority": {
-                "path": "src/worktrees/isolatedSessionController.ts",
-                "symbol": "IsolatedSessionController"
-            },
-            "writers": [
-                "src/dashboard.ts",
-                "src/worktrees/isolatedSessionController.ts"
-            ],
-            "linearizationPoint": "appendTombstones memento update precedes live-row removal.",
-            "enforcement": [
-                "single-writer",
-                "behavior",
-                "fault-matrix"
-            ],
-            "behaviorOwners": [
-                "tests/contract/worktrees/isolatedSessionController.test.js"
-            ],
-            "guardOwners": [
-                "tests/unit/architecture/singleWriters.test.js"
-            ],
-            "evidence": [
-                "src/worktrees/isolatedSessionController.ts",
-                "src/worktrees/provisioningStore.ts"
-            ],
-            "stateFamily": {
-                "storePath": "src/worktrees/provisioningStore.ts",
-                "writeMethods": [
-                    "replaceLive",
-                    "appendTombstones",
-                    "deleteTombstones",
-                    "pruneTombstones"
-                ],
-                "persistenceKeys": [
-                    "agentPivot.worktreeProvisioning.v1",
-                    "agentPivot.worktreeProvisioningTombstones.v1"
-                ]
-            }
-        },
-        {
-            "id": "ARCH-WORKTREE-BASELINE-FREEZE-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P1",
-            "kind": "persistence",
-            "statement": "The base ref is frozen to an immutable commit SHA before git worktree add; a group never provisions from a moving ref.",
-            "authority": {
-                "path": "src/worktrees/groupCreationController.ts",
-                "symbol": "WorktreeGroupCreationController"
-            },
-            "writers": [],
-            "linearizationPoint": "resolveBaseCommit returns before createGroup.",
-            "enforcement": [
-                "behavior"
-            ],
-            "behaviorOwners": [
-                "tests/contract/worktrees/groupCreationController.test.js"
-            ],
-            "guardOwners": [],
-            "evidence": [
-                "src/worktrees/groupCreationController.ts",
-                "src/worktrees/gitWorktreeProvisioner.ts"
-            ]
-        },
-        {
-            "id": "ARCH-WORKTREE-RESTART-RECOVERY-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P1",
-            "kind": "recovery",
-            "statement": "Every crash window between the linearization points has deterministic restart reconciliation: interrupted work demotes to failed/interrupted, tombstones prune only with positive evidence, unknown deletion observation keeps the lease.",
-            "authority": {
-                "path": "src/worktrees/groupManifestReconciliation.ts",
-                "symbol": "reconcileWorktreeGroupManifest"
-            },
-            "writers": [],
-            "linearizationPoint": "Snapshot-load reconciliation completes before new provisioning rows publish.",
-            "enforcement": [
-                "behavior",
-                "fault-matrix"
-            ],
-            "behaviorOwners": [
-                "tests/unit/worktrees/groupManifestReconciliation.test.js",
-                "tests/unit/worktrees/deletionController.test.js"
-            ],
-            "guardOwners": [],
-            "evidence": [
-                "src/worktrees/groupManifestReconciliation.ts",
-                "src/worktrees/deletionController.ts"
-            ]
-        },
-        {
-            "id": "ARCH-WORKTREE-PROTOCOL-ENVELOPE-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P1",
-            "kind": "protocol",
-            "statement": "Every pilot mutation message carries a correlation envelope (requestId, version) and a documented exactly-once mechanism: confirm uses the single-use preview token; rename, deletion, adopt, claim-discard, and merge use settlement replay caches; set-primary is an idempotent write; retry/dismiss are gated by member state.",
-            "authority": {
-                "path": "src/worktrees/groupCreationProtocol.ts",
-                "symbol": "parseConfirmWorktreeGroupRequest"
-            },
-            "writers": [],
-            "linearizationPoint": "Protocol parse precedes any state mutation.",
-            "enforcement": [
-                "behavior"
-            ],
-            "behaviorOwners": [
-                "tests/unit/worktrees/groupAdoptMerge.test.js",
-                "tests/unit/worktrees/groupDeletionHandler.test.js",
-                "tests/browser/worktreeGroupForm.test.js"
-            ],
-            "guardOwners": [],
-            "evidence": [
-                "src/worktrees/groupCreationProtocol.ts",
-                "src/worktrees/groupMergeProtocol.ts",
-                "src/dashboard.ts"
-            ]
-        },
-        {
-            "id": "ARCH-WORKTREE-IDENTITY-CODEC-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P1",
-            "kind": "identity",
-            "statement": "Domain identities (WorktreeKey, composite session identity, safe ids) use one canonical codec and equality policy owned by the domain layer; persisted encodings stay stable per usage context.",
-            "authority": {
-                "path": "src/worktreeIdentity.ts",
-                "symbol": "worktreeKeysEqual"
-            },
-            "writers": [],
-            "linearizationPoint": "Identity construction goes through the canonical codec.",
-            "enforcement": [
-                "behavior"
-            ],
-            "behaviorOwners": [
-                "tests/unit/worktrees/provisioningPlan.test.js",
-                "tests/unit/worktrees/worktreeKeyCodecs.test.js"
-            ],
-            "guardOwners": [],
-            "evidence": [
-                "src/worktreeIdentity.ts"
-            ],
-            "participatingModules": [
-                "MOD-SHARED-KERNEL"
-            ]
-        },
-        {
-            "id": "ARCH-WORKTREE-MANIFEST-STRUCTURE-001",
-            "module": "MOD-WORKTREE-LIFECYCLE",
-            "productCapabilities": [
-                "MAIN-WORKTREE-CHANGES-PANEL"
-            ],
-            "priority": "P0",
-            "kind": "concurrency",
-            "statement": "Structural manifest writes (group creation, adoption, merge, claims, and the deletion journal) happen only in the declared writer set; migration waves shrink it.",
-            "authority": {
-                "path": "src/worktrees/groupManifestStore.ts",
-                "symbol": "WorktreeGroupManifestStore"
-            },
-            "writers": [
-                "src/dashboard.ts",
-                "src/worktrees/deletionController.ts",
-                "src/worktrees/groupAdoptHandler.ts",
-                "src/worktrees/groupCreationController.ts",
-                "src/worktrees/groupDeletionHandler.ts",
-                "src/worktrees/groupManifestReconciliation.ts",
-                "src/worktrees/groupMergeHandler.ts",
-                "src/worktrees/groupRenameHandler.ts"
-            ],
-            "linearizationPoint": "The versioned manifest commit succeeds.",
-            "enforcement": [
-                "single-writer"
-            ],
-            "behaviorOwners": [
-                "tests/unit/worktrees/groupManifestStore.test.js"
-            ],
-            "guardOwners": [
-                "tests/unit/architecture/singleWriters.test.js"
-            ],
-            "evidence": [
-                "src/worktrees/groupManifestStore.ts"
-            ],
-            "stateFamily": {
-                "storePath": "src/worktrees/groupManifestStore.ts",
-                "writeMethods": [
-                    "createGroup",
-                    "addPlannedMembers",
-                    "mergeGroups",
-                    "adoptReadyMembers",
-                    "beginDeletion",
-                    "checkpointDeletedMember",
-                    "failDeletionMember",
-                    "retryDeletion",
-                    "completeDeletion",
-                    "abandonDeletion",
-                    "createGenerationClaim",
-                    "promoteGenerationClaim",
-                    "removeGenerationClaim",
-                    "reconcileGenerationClaims",
-                    "recordRetiredIdentity",
-                    "removeRetiredIdentity",
-                    "deleteGroup",
-                    "addMember",
-                    "setRepositoryDetached",
-                    "resetCorruptRetiredStore"
-                ],
-                "persistenceKeys": [
-                    "agentPivot.worktreeGroups.v1"
-                ]
-            },
-            "tracking": "ARCH-CHANGE-001"
-        }
-    ]
+  "version": 1,
+  "title": "Architecture invariant catalog (pilot scope)",
+  "notes": [
+    "Normalized from docs/architecture/drafts/pilot-invariants.draft.json (approved at the Stage 1B gate).",
+    "Every reference is cross-validated: module ids exist in architecture-modules.json, capabilities exist in main-capability-coverage.json, and every path exists in the repository.",
+    "Records with a stateFamily block are mechanically checked by scripts/architecture/checkSingleWriters.js: a write-method call outside the declared writers fails. The writer set may only shrink during migration."
+  ],
+  "invariants": [
+    {
+      "id": "ARCH-WORKTREE-PREVIEW-TOKEN-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P0",
+      "kind": "state-machine",
+      "statement": "A preview token is consumed exactly once, after validation and before the first manifest await; a replayed, concurrent, or superseded confirm fails closed as preview-stale.",
+      "authority": {
+        "path": "src/worktrees/groupCreationController.ts",
+        "symbol": "WorktreeGroupCreationController"
+      },
+      "writers": [],
+      "linearizationPoint": "The identity-checked snapshot delete precedes the manifest write.",
+      "enforcement": [
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/worktrees/groupCreationController.test.js"
+      ],
+      "guardOwners": [],
+      "evidence": [
+        "src/worktrees/groupCreationController.ts"
+      ]
+    },
+    {
+      "id": "ARCH-WORKTREE-MEMBER-WRITER-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "Manifest member state transitions commit atomically through the store's transitionMember primitive inside its write queue (no TOCTOU between the pre-state check and the write); named transitions route through WorktreeMemberLifecycle, the single logical writer; the ready->deleting->ready/removed deletion sub-machine runs through the store's journal primitives (beginDeletion/checkpointDeletedMember/failDeletionMember), which are mechanically disjoint from lifecycle transitions via the journal lease.",
+      "authority": {
+        "path": "src/worktrees/memberLifecycle.ts",
+        "symbol": "WorktreeMemberLifecycle"
+      },
+      "writers": [
+        "src/worktrees/memberLifecycle.ts"
+      ],
+      "linearizationPoint": "The versioned manifest commit succeeds.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/unit/worktrees/memberLifecycle.test.js",
+        "tests/unit/worktrees/groupManifestStore.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "src/worktrees/groupManifestStore.ts"
+      ],
+      "stateFamily": {
+        "storePath": "src/worktrees/groupManifestStore.ts",
+        "writeMethods": [
+          "transitionMember",
+          "updateMember",
+          "setPrimaryMember",
+          "removeMember"
+        ],
+        "persistenceKeys": [
+          "agentPivot.worktreeGroups.v1"
+        ],
+        "writerFacade": true
+      }
+    },
+    {
+      "id": "ARCH-WORKTREE-CLAIM-ORDER-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P0",
+      "kind": "recovery",
+      "statement": "A generation claim is durable before any terminal or provider side effect; claim removal requires proven-not-started evidence or an explicit user discard; ambiguity never auto-discards.",
+      "authority": {
+        "path": "src/aiSessions/creationController.ts",
+        "symbol": "AiSessionCreationController"
+      },
+      "writers": [],
+      "linearizationPoint": "createGenerationClaim commitBucket precedes coordinator.create.",
+      "enforcement": [
+        "behavior",
+        "fault-matrix"
+      ],
+      "behaviorOwners": [
+        "tests/contract/aiSessions/sessionControllers.test.js"
+      ],
+      "guardOwners": [],
+      "evidence": [
+        "src/aiSessions/creationController.ts",
+        "src/worktrees/groupManifestStore.ts"
+      ],
+      "participatingModules": [
+        "MOD-AI-SESSION-CONTROL"
+      ]
+    },
+    {
+      "id": "ARCH-WORKTREE-TOMBSTONE-FIRST-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P0",
+      "kind": "recovery",
+      "statement": "Dismissal persists the tombstone before removing any live row, context, or manifest member; a failed tombstone write refuses the whole dismissal.",
+      "authority": {
+        "path": "src/worktrees/isolatedSessionController.ts",
+        "symbol": "IsolatedSessionController"
+      },
+      "writers": [
+        "src/dashboard.ts",
+        "src/worktrees/isolatedSessionController.ts"
+      ],
+      "linearizationPoint": "appendTombstones memento update precedes live-row removal.",
+      "enforcement": [
+        "single-writer",
+        "behavior",
+        "fault-matrix"
+      ],
+      "behaviorOwners": [
+        "tests/contract/worktrees/isolatedSessionController.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "src/worktrees/isolatedSessionController.ts",
+        "src/worktrees/provisioningStore.ts"
+      ],
+      "stateFamily": {
+        "storePath": "src/worktrees/provisioningStore.ts",
+        "writeMethods": [
+          "replaceLive",
+          "appendTombstones",
+          "deleteTombstones",
+          "pruneTombstones"
+        ],
+        "persistenceKeys": [
+          "agentPivot.worktreeProvisioning.v1",
+          "agentPivot.worktreeProvisioningTombstones.v1"
+        ]
+      }
+    },
+    {
+      "id": "ARCH-WORKTREE-BASELINE-FREEZE-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P1",
+      "kind": "persistence",
+      "statement": "The base ref is frozen to an immutable commit SHA before git worktree add; a group never provisions from a moving ref.",
+      "authority": {
+        "path": "src/worktrees/groupCreationController.ts",
+        "symbol": "WorktreeGroupCreationController"
+      },
+      "writers": [],
+      "linearizationPoint": "resolveBaseCommit returns before createGroup.",
+      "enforcement": [
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/worktrees/groupCreationController.test.js"
+      ],
+      "guardOwners": [],
+      "evidence": [
+        "src/worktrees/groupCreationController.ts",
+        "src/worktrees/gitWorktreeProvisioner.ts"
+      ]
+    },
+    {
+      "id": "ARCH-WORKTREE-RESTART-RECOVERY-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P1",
+      "kind": "recovery",
+      "statement": "Every crash window between the linearization points has deterministic restart reconciliation: interrupted work demotes to failed/interrupted, tombstones prune only with positive evidence, unknown deletion observation keeps the lease.",
+      "authority": {
+        "path": "src/worktrees/groupManifestReconciliation.ts",
+        "symbol": "reconcileWorktreeGroupManifest"
+      },
+      "writers": [],
+      "linearizationPoint": "Snapshot-load reconciliation completes before new provisioning rows publish.",
+      "enforcement": [
+        "behavior",
+        "fault-matrix"
+      ],
+      "behaviorOwners": [
+        "tests/unit/worktrees/groupManifestReconciliation.test.js",
+        "tests/unit/worktrees/deletionController.test.js"
+      ],
+      "guardOwners": [],
+      "evidence": [
+        "src/worktrees/groupManifestReconciliation.ts",
+        "src/worktrees/deletionController.ts"
+      ]
+    },
+    {
+      "id": "ARCH-WORKTREE-PROTOCOL-ENVELOPE-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P1",
+      "kind": "protocol",
+      "statement": "Every pilot mutation message carries a correlation envelope (requestId, version) and a documented exactly-once mechanism: confirm uses the single-use preview token; rename, deletion, adopt, claim-discard, and merge use settlement replay caches; set-primary is an idempotent write; retry/dismiss are gated by member state.",
+      "authority": {
+        "path": "src/worktrees/groupCreationProtocol.ts",
+        "symbol": "parseConfirmWorktreeGroupRequest"
+      },
+      "writers": [],
+      "linearizationPoint": "Protocol parse precedes any state mutation.",
+      "enforcement": [
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/unit/worktrees/groupAdoptMerge.test.js",
+        "tests/unit/worktrees/groupDeletionHandler.test.js",
+        "tests/browser/worktreeGroupForm.test.js"
+      ],
+      "guardOwners": [],
+      "evidence": [
+        "src/worktrees/groupCreationProtocol.ts",
+        "src/worktrees/groupMergeProtocol.ts",
+        "src/dashboard.ts"
+      ]
+    },
+    {
+      "id": "ARCH-WORKTREE-IDENTITY-CODEC-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P1",
+      "kind": "identity",
+      "statement": "Domain identities (WorktreeKey, composite session identity, safe ids) use one canonical codec and equality policy owned by the domain layer; persisted encodings stay stable per usage context.",
+      "authority": {
+        "path": "src/worktreeIdentity.ts",
+        "symbol": "worktreeKeysEqual"
+      },
+      "writers": [],
+      "linearizationPoint": "Identity construction goes through the canonical codec.",
+      "enforcement": [
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/unit/worktrees/provisioningPlan.test.js",
+        "tests/unit/worktrees/worktreeKeyCodecs.test.js"
+      ],
+      "guardOwners": [],
+      "evidence": [
+        "src/worktreeIdentity.ts"
+      ],
+      "participatingModules": [
+        "MOD-SHARED-KERNEL"
+      ]
+    },
+    {
+      "id": "ARCH-WORKTREE-MANIFEST-STRUCTURE-001",
+      "module": "MOD-WORKTREE-LIFECYCLE",
+      "productCapabilities": [
+        "MAIN-WORKTREE-CHANGES-PANEL"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "Structural manifest writes (group creation, adoption, merge, claims, and the deletion journal) happen only in the declared writer set; migration waves shrink it.",
+      "authority": {
+        "path": "src/worktrees/groupManifestStore.ts",
+        "symbol": "WorktreeGroupManifestStore"
+      },
+      "writers": [
+        "src/dashboard.ts",
+        "src/worktrees/deletionController.ts",
+        "src/worktrees/groupAdoptHandler.ts",
+        "src/worktrees/groupCreationController.ts",
+        "src/worktrees/groupDeletionHandler.ts",
+        "src/worktrees/groupManifestReconciliation.ts",
+        "src/worktrees/groupMergeHandler.ts",
+        "src/worktrees/groupRenameHandler.ts"
+      ],
+      "linearizationPoint": "The versioned manifest commit succeeds.",
+      "enforcement": [
+        "single-writer"
+      ],
+      "behaviorOwners": [
+        "tests/unit/worktrees/groupManifestStore.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "src/worktrees/groupManifestStore.ts"
+      ],
+      "stateFamily": {
+        "storePath": "src/worktrees/groupManifestStore.ts",
+        "writeMethods": [
+          "createGroup",
+          "addPlannedMembers",
+          "mergeGroups",
+          "adoptReadyMembers",
+          "beginDeletion",
+          "checkpointDeletedMember",
+          "failDeletionMember",
+          "retryDeletion",
+          "completeDeletion",
+          "abandonDeletion",
+          "createGenerationClaim",
+          "promoteGenerationClaim",
+          "removeGenerationClaim",
+          "reconcileGenerationClaims",
+          "recordRetiredIdentity",
+          "removeRetiredIdentity",
+          "deleteGroup",
+          "addMember",
+          "setRepositoryDetached",
+          "resetCorruptRetiredStore"
+        ],
+        "persistenceKeys": [
+          "agentPivot.worktreeGroups.v1"
+        ],
+        "writerFacade": true
+      },
+      "tracking": "ARCH-CHANGE-001"
+    }
+  ]
 }

@@ -1,14 +1,15 @@
 'use strict';
 
 import type { WorktreeMemberLifecycle } from './memberLifecycle';
-import type { WorktreeGroupManifestStore } from './groupManifestStore';
+import type { WorktreeGroupManifestStoreHandle } from './groupManifestStore';
+import { worktreeGroupManifestStoreOf } from './groupManifestStore';
 import type { PersistedWorktreeProvisioningOperation } from './provisioningStore';
 import type { WorktreeSnapshotContent } from './types';
 
 const MANAGED_BRANCH_PREFIX = 'refs/heads/agent-pivot/';
 
 export interface ReconcileWorktreeGroupManifestOptions {
-    store: WorktreeGroupManifestStore;
+    store: WorktreeGroupManifestStoreHandle;
     /** Stable workspace navigation identity (the manifest bucket, PRD §9). */
     workspaceIdentity: string;
     snapshot: WorktreeSnapshotContent;
@@ -47,7 +48,8 @@ export interface ReconcileWorktreeGroupManifestOptions {
 export async function reconcileWorktreeGroupManifest(
     options: ReconcileWorktreeGroupManifestOptions
 ): Promise<void> {
-    const { store, workspaceIdentity, snapshot } = options;
+    const { workspaceIdentity, snapshot } = options;
+    const store = worktreeGroupManifestStoreOf(options.store);
     const activeMemberIds = new Set(options.activeGroupMemberIds || []);
     const visibleRepositories = new Set(
         snapshot.repositories.map(repository => repository.repositoryKey));

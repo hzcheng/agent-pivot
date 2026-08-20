@@ -23,12 +23,20 @@
  * Bypass check: every literal in stateFamily.persistenceKeys may appear only
  * inside the store file — a memento-key reference is a raw write path around
  * the authority.
+ *
+ * Harness Simplification PR 5/6: a family whose stateFamily declares
+ * `writerFacade: true` no longer needs the type-resolved method scan. Its
+ * store exposes no write capability through the module entrypoint (a
+ * capability-free handle plus narrow read/write views), so enforcement is
+ * structural: only declared writers and the module entrypoint may import the
+ * store file, checked on the dependency graph instead of the AST.
  */
 
 const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
 const { loadArchitecturePolicy } = require('./loadArchitecturePolicy');
+const { buildDependencyGraph } = require('./buildDependencyGraph');
 
 const INVARIANTS_PATH = path.join('docs', 'testing', 'architecture-invariants.json');
 const INVARIANT_ID_PATTERN = /^ARCH-[A-Z0-9]+(?:-[A-Z0-9]+)*-\d{3}$/;
@@ -200,6 +208,10 @@ function validateCatalog(rootDirectory, policy) {
             if (!Array.isArray(invariant.writers) || invariant.writers.length === 0) {
                 errors.push(`${owner}: single-writer enforcement requires a non-empty writers set`);
             }
+            if (family && family.writerFacade !== undefined
+                && typeof family.writerFacade !== 'boolean') {
+                errors.push(`${owner}: stateFamily.writerFacade must be a boolean when present`);
+            }
         }
     }
     return { catalog, errors };
@@ -329,7 +341,44 @@ function checkWriters(rootDirectory, catalog, policy) {
             writeMethods: new Set(family.writeMethods),
             writers: new Set([...invariant.writers, family.storePath]),
             persistenceKeys: family.persistenceKeys || [],
+            writerFacade: family.writerFacade === true,
         });
+    }
+    // Harness Simplification PR 5/6: a family declaring `writerFacade`
+    // exposes no write capability through the module entrypoint (handle +
+    // narrow views), so the type-resolved method scan is replaced by a
+    // structural import rule: only declared writers (and the module
+    // entrypoint wiring the facade) may import the store file at all.
+    const facadeStores = new Map();
+    for (const [storePath, families] of familiesByStore) {
+        const withFacade = families.filter(family => family.writerFacade);
+        if (withFacade.length > 0 && withFacade.length !== families.length) {
+            errors.push(`single-writer: families sharing store ${storePath} disagree on `
+                + 'writerFacade — the facade is a store-level property');
+            continue;
+        }
+        if (withFacade.length > 0) { facadeStores.set(storePath, families); }
+    }
+    if (facadeStores.size > 0) {
+        const { edges, errors: graphErrors } = buildDependencyGraph(rootDirectory);
+        errors.push(...graphErrors);
+        const entrypointsByModule = new Map(policy.modules.map(module =>
+            [module.id, new Set(module.publicEntrypoints || [])]));
+        for (const [storePath, families] of facadeStores) {
+            const unionWriters = new Set(families.flatMap(family => [...family.writers]));
+            const storeModule = policy.classification.get(storePath)?.moduleId;
+            const allowed = new Set([
+                ...unionWriters,
+                ...(entrypointsByModule.get(storeModule) || new Set()),
+                storePath,
+            ]);
+            for (const edge of edges) {
+                if (edge.target !== storePath || allowed.has(edge.source)) { continue; }
+                errors.push(`single-writer: ${edge.source} imports facade store ${storePath} — `
+                    + 'only declared writers and the module entrypoint may import it; write '
+                    + 'capability is no longer reachable through the entrypoint');
+            }
+        }
     }
     let typeContext = null;
     const typeContextLazy = () => {
@@ -350,7 +399,7 @@ function checkWriters(rootDirectory, catalog, policy) {
                     }
                 }
             }
-            if (unionWriters.has(file)) { continue; }
+            if (unionWriters.has(file) || facadeStores.has(storePath)) { continue; }
             for (const violation of findTypeResolvedViolations(
                 rootDirectory, typeContextLazy(), file, families, unionWriters)) {
                 errors.push(`single-writer: ${file} ${violation} — route the write through `

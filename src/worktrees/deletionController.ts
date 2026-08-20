@@ -8,10 +8,13 @@ import type {
 import type { RetiredAffectedSession } from './retiredWorktrees';
 import type {
     WorktreeGroup,
-    WorktreeGroupManifestStore,
+    WorktreeGroupManifestStoreHandle,
     WorktreeGroupMember,
 } from './groupManifestStore';
-import { WorktreeGroupManifestError } from './groupManifestStore';
+import {
+    WorktreeGroupManifestError,
+    worktreeGroupManifestStoreOf,
+} from './groupManifestStore';
 
 /**
  * Orchestrates journaled worktree deletions (PRD §6.4, decisions B/F/J).
@@ -37,7 +40,7 @@ export type PhysicalRemovalResult =
     | { kind: 'failed'; errorCode: string };
 
 export interface WorktreeDeletionControllerOptions {
-    store: WorktreeGroupManifestStore;
+    store: WorktreeGroupManifestStoreHandle;
     /**
      * Final blocker recheck for one target member (active session /
      * uncommitted changes / locked / provisioning). Returns the blocker
@@ -114,7 +117,7 @@ export class WorktreeDeletionController {
         }
     ): Promise<BeginDeletionOutcome> {
         return this.withAdmissionLock(workspaceIdentity, groupId, async () => {
-            const store = this.options.store;
+            const store = worktreeGroupManifestStoreOf(this.options.store);
             const group = store.listGroups(workspaceIdentity)
                 .find(candidate => candidate.groupId === groupId);
             if (!group) {
@@ -164,7 +167,7 @@ export class WorktreeDeletionController {
         workspaceIdentity: string,
         operationId: string
     ): Promise<void> {
-        const store = this.options.store;
+        const store = worktreeGroupManifestStoreOf(this.options.store);
         const journal = store.listDeletionJournals(workspaceIdentity)
             .find(entry => entry.operationId === operationId);
         if (!journal) {
@@ -218,7 +221,7 @@ export class WorktreeDeletionController {
      * unknown stays `deleting` and keeps the lease.
      */
     async reconcileAfterRestart(workspaceIdentity: string): Promise<void> {
-        const store = this.options.store;
+        const store = worktreeGroupManifestStoreOf(this.options.store);
         for (const journal of store.listDeletionJournals(workspaceIdentity)) {
             for (const target of journal.targets) {
                 if (target.status !== 'pending') {

@@ -1,8 +1,14 @@
 'use strict';
 
 import type { WorktreeKey } from './types';
-import { WorktreeGroupManifestError } from './groupManifestStore';
-import type { WorktreeGroupManifestStore } from './groupManifestStore';
+import {
+    WorktreeGroupManifestError,
+    worktreeGroupManifestStoreOf,
+} from './groupManifestStore';
+import type {
+    WorktreeGroupManifestStore,
+    WorktreeGroupManifestStoreHandle,
+} from './groupManifestStore';
 
 export class IllegalMemberTransitionError extends Error {
     readonly code = 'illegal-member-transition';
@@ -37,7 +43,11 @@ export class IllegalMemberTransitionError extends Error {
  * and the journal primitives only act on members in the deleting state.
  */
 export class WorktreeMemberLifecycle {
-    constructor(private readonly store: WorktreeGroupManifestStore) {}
+    private readonly store: WorktreeGroupManifestStore;
+
+    constructor(storeHandle: WorktreeGroupManifestStoreHandle) {
+        this.store = worktreeGroupManifestStoreOf(storeHandle);
+    }
 
     private async transition(
         workspaceIdentity: string,

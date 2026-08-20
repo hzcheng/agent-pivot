@@ -14,8 +14,11 @@ import {
     WorktreeGroupDeletionSettlement,
 } from './groupDeletionProtocol';
 import type { DiscardWorktreeGenerationClaimRequest } from './groupDeletionProtocol';
-import type { WorktreeGroupManifestStore } from './groupManifestStore';
-import { WorktreeGroupManifestError } from './groupManifestStore';
+import type { WorktreeGroupManifestStoreHandle } from './groupManifestStore';
+import {
+    WorktreeGroupManifestError,
+    worktreeGroupManifestStoreOf,
+} from './groupManifestStore';
 import type { SettlementReplayCache } from './settlementReplayCache';
 
 /**
@@ -31,7 +34,7 @@ export interface WorktreeGroupDeletionHandlerDeps {
     postMessage: (message: unknown) => Thenable<unknown>;
     /** Resolves the caller's project to the current workspace bucket. */
     getNavigationIdentity: (projectId: string) => string | null;
-    store: WorktreeGroupManifestStore;
+    store: WorktreeGroupManifestStoreHandle;
     controller: WorktreeDeletionController;
     /**
      * Preview-time checks: per-member blocker probe and history session
@@ -66,6 +69,7 @@ export async function handlePreviewWorktreeGroupDeletion(
     if (!request) {
         return;
     }
+    const store = worktreeGroupManifestStoreOf(deps.store);
     const fail = (errorCode: string): WorktreeGroupDeletionPreview => ({
         type: 'worktree-group-deletion-preview', version: 1,
         requestId: request.requestId,
@@ -79,13 +83,13 @@ export async function handlePreviewWorktreeGroupDeletion(
         await deps.postMessage(fail('workspace-unavailable'));
         return;
     }
-    const group = deps.store.listGroups(navigationIdentity)
+    const group = store.listGroups(navigationIdentity)
         .find(candidate => candidate.groupId === request.groupId);
     if (!group) {
         await deps.postMessage(fail('group-changed'));
         return;
     }
-    if (deps.store.isGroupDeletionLeased(navigationIdentity, group.groupId)) {
+    if (store.isGroupDeletionLeased(navigationIdentity, group.groupId)) {
         await deps.postMessage(fail('group-leased'));
         return;
     }
@@ -101,7 +105,7 @@ export async function handlePreviewWorktreeGroupDeletion(
         return;
     }
     const blockingClaimsFor = (target: typeof member) =>
-        deps.store.listGenerationClaims(navigationIdentity)
+        store.listGenerationClaims(navigationIdentity)
             .filter(claim => claim.state === 'pending' && target.worktreeKey
                 && worktreeKeysEqual(claim.worktreeKey, target.worktreeKey))
             .map(claim => ({
@@ -216,6 +220,7 @@ async function executeMemberDeletion(
     deps: WorktreeGroupDeletionHandlerDeps
 ): Promise<WorktreeGroupDeletionSettlement> {
     await deps.postMessage(acceptedWorktreeGroupDeletionSettlement(request));
+    const store = worktreeGroupManifestStoreOf(deps.store);
     const fail = (errorCode: string) =>
         settledWorktreeGroupDeletionSettlement(request, { kind: 'failed', errorCode });
     const navigationIdentity = deps.getNavigationIdentity(request.projectId);
@@ -227,7 +232,7 @@ async function executeMemberDeletion(
     // bound revision AND the exact target identities atomically inside
     // its write queue (decision G), so a group that drifted between this
     // read and the write fails closed with group-changed.
-    const group = deps.store.listGroups(navigationIdentity)
+    const group = store.listGroups(navigationIdentity)
         .find(candidate => candidate.groupId === request.groupId);
     if (!group) {
         return fail('group-changed');
@@ -267,10 +272,10 @@ async function executeMemberDeletion(
     }
     // The journal decides the outcome: archived means every target
     // checkpointed; still active means partial failure awaiting Retry.
-    const active = deps.store.listDeletionJournals(navigationIdentity)
+    const active = store.listDeletionJournals(navigationIdentity)
         .some(entry => entry.groupId === request.groupId);
     await deps.refreshNow();
-    const minimumAggregateRevision = deps.store.getAggregateRevision(navigationIdentity);
+    const minimumAggregateRevision = store.getAggregateRevision(navigationIdentity);
     return settledWorktreeGroupDeletionSettlement(request, active
         ? { kind: 'partial', minimumAggregateRevision }
         : { kind: 'settled', minimumAggregateRevision });
@@ -296,23 +301,24 @@ export async function handleRetryWorktreeGroupDeletion(
     }
     const terminal = (async (): Promise<WorktreeGroupDeletionSettlement> => {
         await deps.postMessage(acceptedWorktreeGroupDeletionSettlement(request));
+        const store = worktreeGroupManifestStoreOf(deps.store);
         const navigationIdentity = deps.getNavigationIdentity(request.projectId);
         if (!navigationIdentity) {
             return settledWorktreeGroupDeletionSettlement(
                 request, { kind: 'failed', errorCode: 'workspace-unavailable' });
         }
         try {
-            await deps.store.retryDeletion(navigationIdentity, request.operationId);
+            await store.retryDeletion(navigationIdentity, request.operationId);
             await deps.controller.executeOperation(navigationIdentity, request.operationId);
         } catch (error) {
             deps.logError('Failed to retry the worktree deletion.', error);
             return settledWorktreeGroupDeletionSettlement(
                 request, { kind: 'failed', errorCode: manifestErrorCode(error) });
         }
-        const active = deps.store.listDeletionJournals(navigationIdentity)
+        const active = store.listDeletionJournals(navigationIdentity)
             .some(entry => entry.operationId === request.operationId);
         await deps.refreshNow();
-        const minimumAggregateRevision = deps.store.getAggregateRevision(navigationIdentity);
+        const minimumAggregateRevision = store.getAggregateRevision(navigationIdentity);
         return settledWorktreeGroupDeletionSettlement(request, active
             ? { kind: 'partial', minimumAggregateRevision }
             : { kind: 'settled', minimumAggregateRevision });
@@ -341,13 +347,14 @@ export async function handleAbandonWorktreeGroupDeletion(
     }
     const terminal = (async (): Promise<WorktreeGroupDeletionSettlement> => {
         await deps.postMessage(acceptedWorktreeGroupDeletionSettlement(request));
+        const store = worktreeGroupManifestStoreOf(deps.store);
         const navigationIdentity = deps.getNavigationIdentity(request.projectId);
         if (!navigationIdentity) {
             return settledWorktreeGroupDeletionSettlement(
                 request, { kind: 'failed', errorCode: 'workspace-unavailable' });
         }
         try {
-            await deps.store.abandonDeletion(navigationIdentity, request.operationId);
+            await store.abandonDeletion(navigationIdentity, request.operationId);
         } catch (error) {
             deps.logError('Failed to abandon the worktree deletion.', error);
             return settledWorktreeGroupDeletionSettlement(
@@ -356,7 +363,7 @@ export async function handleAbandonWorktreeGroupDeletion(
         await deps.refreshNow();
         return settledWorktreeGroupDeletionSettlement(request, {
             kind: 'settled',
-            minimumAggregateRevision: deps.store.getAggregateRevision(navigationIdentity),
+            minimumAggregateRevision: store.getAggregateRevision(navigationIdentity),
         });
     })();
     deps.replayCache.remember(request.requestId, terminal);
@@ -403,6 +410,7 @@ async function executeDiscardWorktreeGenerationClaim(
     request: DiscardWorktreeGenerationClaimRequest,
     deps: WorktreeGroupDeletionHandlerDeps
 ): Promise<WorktreeGroupDeletionSettlement> {
+    const store = worktreeGroupManifestStoreOf(deps.store);
     const navigationIdentity = deps.getNavigationIdentity(request.projectId);
     let status: 'settled' | 'failed' = 'settled';
     let errorCode: string | undefined;
@@ -416,9 +424,9 @@ async function executeDiscardWorktreeGenerationClaim(
             // whose worktree belongs to this group may be released — a
             // stale card can never remove a promoted generation proof or
             // another group's blocker.
-            const claim = deps.store.listGenerationClaims(navigationIdentity)
+            const claim = store.listGenerationClaims(navigationIdentity)
                 .find(candidate => candidate.claimId === request.claimId);
-            const group = deps.store.listGroups(navigationIdentity)
+            const group = store.listGroups(navigationIdentity)
                 .find(candidate => candidate.groupId === request.groupId);
             const belongsToGroup = !!group && !!claim && group.members.some(member =>
                 member.worktreeKey && worktreeKeysEqual(member.worktreeKey, claim.worktreeKey));
@@ -432,7 +440,7 @@ async function executeDiscardWorktreeGenerationClaim(
                     errorCode: 'claim-not-found',
                 } as WorktreeGroupDeletionSettlement;
             }
-            const removed = await deps.store.removeGenerationClaim(
+            const removed = await store.removeGenerationClaim(
                 navigationIdentity, request.claimId);
             if (!removed) {
                 status = 'failed';
@@ -454,7 +462,7 @@ async function executeDiscardWorktreeGenerationClaim(
         ...(status === 'settled' && navigationIdentity
             ? {
                 minimumAggregateRevision:
-                    deps.store.getAggregateRevision(navigationIdentity),
+                    store.getAggregateRevision(navigationIdentity),
             }
             : {}),
     } as WorktreeGroupDeletionSettlement;

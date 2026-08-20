@@ -105,6 +105,9 @@ import {
 import { createSessionNavigationCoordinator } from './dashboard/sessionNavigationCoordinator';
 import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigationFocusExecutor';
 import {
+    createSessionStatusCycleHandler,
+} from './dashboard/sessionStatusCycle';
+import {
     createAiSessionQuickSwitchHandlers,
 } from './dashboard/sessionQuickSwitch';
 import {
@@ -2192,6 +2195,8 @@ async function initializeDashboard(
     });
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
+        cycleLocalSessionStatus: (kind, currentTarget) =>
+            sessionStatusCycleHandler.cycleToNext(kind, currentTarget),
         resolveTarget: (projectId, providerId, sessionId) => {
             const target = getCurrentWorkspaceActionTarget(projectId);
             // The conversation header reads project · task · session: the
@@ -2380,6 +2385,7 @@ async function initializeDashboard(
                     ? getAttentionSummaryForProjectKeys(
                         ownProjectKeys, attentionAggregate).attentionCount
                     : 0,
+                idleSessionsLocal: listLocalIdleAiSessions().length,
             };
         },
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({
@@ -2925,6 +2931,12 @@ async function initializeDashboard(
     // Restored provisioning rows were held back during construction; publish
     // them only now that every controller they refresh is initialized.
     isolatedSessionController?.publishRestoredRows();
+    const listLocalIdleAiSessions = () =>
+        (getCurrentWorkspaceActionTargetWithoutCardId()
+            ?.sessions.activeSessions || [])
+            .filter(session => session.executionState !== 'running'
+                && !session.needsAttention
+                && Boolean(session.sessionId));
     const buildCurrentAttentionQueue = (): AttentionQueue => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         let workspace: AttentionQueueWorkspace | null = null;
@@ -3123,6 +3135,39 @@ async function initializeDashboard(
             }
         }, 1000);
         return { dispose: () => clearInterval(handle) };
+    });
+    const sessionStatusCycleHandler = createSessionStatusCycleHandler({
+        navigationCoordinator: sessionNavigationCoordinator,
+        buildItems: kind => {
+            if (kind === 'attention') {
+                return buildCurrentAttentionQueue().items
+                    .filter(item => item.local)
+                    .map(item => ({
+                        provider: item.provider,
+                        sessionId: item.sessionId,
+                    }));
+            }
+            if (kind === 'running') {
+                return (getCurrentWorkspaceActionTargetWithoutCardId()
+                    ?.sessions.activeSessions || [])
+                    .filter(session => session.executionState === 'running'
+                        && Boolean(session.sessionId))
+                    .map(session => ({
+                        provider: session.provider,
+                        sessionId: session.sessionId as string,
+                    }));
+            }
+            return listLocalIdleAiSessions().map(session => ({
+                provider: session.provider,
+                sessionId: session.sessionId as string,
+            }));
+        },
+        navigateSession: (item, executionOptions) =>
+            sessionNavigationFocusExecutor.execute(item, executionOptions),
+        showInformationMessage: message =>
+            vscode.window.showInformationMessage(message),
+        showWarningMessage: message =>
+            vscode.window.showWarningMessage(message),
     });
     const aiSessionQuickSwitchHandlers = createAiSessionQuickSwitchHandlers({
         navigationCoordinator: sessionNavigationCoordinator,

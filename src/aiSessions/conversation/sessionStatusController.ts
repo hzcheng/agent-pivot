@@ -2,6 +2,9 @@
 
 import type * as vscode from 'vscode';
 
+/** The session lifecycle groups the header status buttons cycle through. */
+export type ConversationSessionStatusKind = 'running' | 'attention' | 'idle';
+
 export interface ConversationSessionStatus {
     /** Running sessions across all windows. */
     runningSessions: number;
@@ -11,6 +14,8 @@ export interface ConversationSessionStatus {
     runningSessionsLocal: number;
     /** Sessions needing attention in this window's workspace. */
     attentionSessionsLocal: number;
+    /** Idle sessions in this window's workspace. */
+    idleSessionsLocal: number;
 }
 
 export interface ConversationViewerSessionStatusMessage {
@@ -56,25 +61,28 @@ export function sanitizeConversationSessionStatus(
             sanitizeSessionCount(status?.attentionSessionsLocal),
             attentionSessions
         ),
+        idleSessionsLocal: sanitizeSessionCount(status?.idleSessionsLocal),
     };
 }
 
 export function formatConversationSessionStatusLabel(
-    kind: 'running' | 'attention',
-    localCount: number,
-    totalCount: number
+    kind: ConversationSessionStatusKind,
+    localCount: number
 ): string {
-    const total = sanitizeSessionCount(totalCount);
-    const local = Math.min(sanitizeSessionCount(localCount), total);
-    if (total === 0) {
-        return kind === 'running'
-            ? 'No AI sessions running'
-            : 'No AI sessions need attention';
-    }
+    const local = sanitizeSessionCount(localCount);
     if (kind === 'running') {
-        return `${local} running in this window · ${total} across all windows`;
+        return local === 0
+            ? 'No AI sessions running in this window'
+            : `${local} running in this window · click to switch to the next`;
     }
-    return `${local} need attention in this window · ${total} across all windows`;
+    if (kind === 'attention') {
+        return local === 0
+            ? 'No AI sessions need attention in this window'
+            : `${local} need attention in this window · click to switch to the next`;
+    }
+    return local === 0
+        ? 'No idle AI sessions in this window'
+        : `${local} idle in this window · click to switch to the next`;
 }
 
 export class ConversationSessionStatusController {
@@ -110,7 +118,8 @@ export class ConversationSessionStatusController {
             return;
         }
         const deliveryKey = `${status.runningSessions}:${status.attentionSessions}`
-            + `:${status.runningSessionsLocal}:${status.attentionSessionsLocal}`;
+            + `:${status.runningSessionsLocal}:${status.attentionSessionsLocal}`
+            + `:${status.idleSessionsLocal}`;
         if (deliveryKey === this.lastDeliveredKey) {
             return;
         }

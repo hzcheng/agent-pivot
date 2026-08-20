@@ -50,6 +50,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/lifecycle.ts',
         'src/aiSessions/runtimeTypes.ts',
         'src/dashboard/sessionQuickSwitch.ts',
+        'src/dashboard/sessionStatusCycle.ts',
         'src/dashboard/webviewUpdateMessages.ts',
         'src/constants.ts',
         'src/models.ts',

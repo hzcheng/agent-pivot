@@ -28,6 +28,7 @@ import {
 import {
     ConversationSessionStatus,
     ConversationSessionStatusController,
+    ConversationSessionStatusKind,
 } from './sessionStatusController';
 import {
     escapeAttribute,
@@ -109,6 +110,12 @@ export interface ConversationViewerOptions {
         signal?: ConversationAbortSignal
     ) => Promise<ConversationTelemetry | undefined>;
     readSessionStatus?: () => ConversationSessionStatus | undefined;
+    /** Cycle this window's sessions of one lifecycle group (header status
+     * buttons); the Host owns focus, conversation open, and the cursor. */
+    cycleLocalSessionStatus?: (
+        kind: ConversationSessionStatusKind,
+        currentTarget: ConversationViewerTarget | undefined
+    ) => PromiseLike<void> | Promise<void> | void;
     watch: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -1008,6 +1015,14 @@ export class ConversationViewer implements ConversationViewerApi {
             const currentTarget = this.target;
             await this.options.followAdjacentConversation?.(
                 parsed.direction,
+                currentTarget
+            );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-cycle-status-session') {
+            const currentTarget = this.target;
+            await this.options.cycleLocalSessionStatus?.(
+                parsed.kind,
                 currentTarget
             );
             return;

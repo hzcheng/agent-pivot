@@ -80,6 +80,12 @@
     var sessionStatusAttentionCount = document.querySelector(
         '[data-session-status-attention-count]'
     );
+    var sessionStatusIdle = document.querySelector(
+        '[data-session-status-idle]'
+    );
+    var sessionStatusIdleCount = document.querySelector(
+        '[data-session-status-idle-count]'
+    );
     var sessionNavButtons = Array.prototype.slice.call(
         document.querySelectorAll('[data-session-nav]')
     );
@@ -1706,6 +1712,17 @@
             });
         });
     });
+    [sessionStatusRunning, sessionStatusAttention, sessionStatusIdle]
+        .forEach(function (button) {
+            if (!button) return;
+            button.addEventListener('click', function () {
+                post({
+                    type: 'conversation-viewer-cycle-status-session',
+                    version: 1,
+                    kind: button.getAttribute('data-session-status-cycle'),
+                });
+            });
+        });
     if (conversationDisplayName) {
         conversationDisplayName.addEventListener('click', function () {
             post({
@@ -1801,26 +1818,35 @@
         if (commentsController.handleEscape(event)) return;
         sidebarController.handleEscape(event);
     });
-    function sessionStatusDotLabel(kind, localCount, totalCount) {
-        if (totalCount === 0) {
-            return kind === 'running'
-                ? 'No AI sessions running'
-                : 'No AI sessions need attention';
+    function sessionStatusDotLabel(kind, localCount) {
+        if (kind === 'running') {
+            return localCount === 0
+                ? 'No AI sessions running in this window'
+                : localCount + ' running in this window'
+                    + ' · click to switch to the next';
         }
-        return kind === 'running'
-            ? localCount + ' running in this window · ' + totalCount + ' across all windows'
-            : localCount + ' need attention in this window · ' + totalCount + ' across all windows';
+        if (kind === 'attention') {
+            return localCount === 0
+                ? 'No AI sessions need attention in this window'
+                : localCount + ' need attention in this window'
+                    + ' · click to switch to the next';
+        }
+        return localCount === 0
+            ? 'No idle AI sessions in this window'
+            : localCount + ' idle in this window'
+                + ' · click to switch to the next';
     }
     function validSessionStatus(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
             return false;
         }
         var keys = Object.keys(value);
-        return keys.length === 4
+        return keys.length === 5
             && keys.indexOf('runningSessions') !== -1
             && keys.indexOf('attentionSessions') !== -1
             && keys.indexOf('runningSessionsLocal') !== -1
             && keys.indexOf('attentionSessionsLocal') !== -1
+            && keys.indexOf('idleSessionsLocal') !== -1
             && Number.isSafeInteger(value.runningSessions)
             && value.runningSessions >= 0
             && value.runningSessions <= 100000
@@ -1832,17 +1858,21 @@
             && value.runningSessionsLocal <= value.runningSessions
             && Number.isSafeInteger(value.attentionSessionsLocal)
             && value.attentionSessionsLocal >= 0
-            && value.attentionSessionsLocal <= value.attentionSessions;
+            && value.attentionSessionsLocal <= value.attentionSessions
+            && Number.isSafeInteger(value.idleSessionsLocal)
+            && value.idleSessionsLocal >= 0
+            && value.idleSessionsLocal <= 100000;
     }
-    function applySessionStatusDot(element, countElement, kind, localCount, totalCount) {
-        var label = sessionStatusDotLabel(kind, localCount, totalCount);
+    function applySessionStatusDot(element, countElement, kind, localCount) {
+        var label = sessionStatusDotLabel(kind, localCount);
         element.classList.toggle(
             'conversation-session-status-active',
-            totalCount > 0
+            kind !== 'idle' && localCount > 0
         );
         element.title = label;
         element.setAttribute('aria-label', label);
-        countElement.textContent = localCount + '/' + totalCount;
+        element.disabled = localCount === 0;
+        countElement.textContent = String(localCount);
     }
     function applySessionStatusMessage(message) {
         if (!message || typeof message !== 'object'
@@ -1853,7 +1883,8 @@
             || message.subscriptionGeneration !== state.subscriptionGeneration
             || !validSessionStatus(message.status)
             || !sessionStatusRunning || !sessionStatusRunningCount
-            || !sessionStatusAttention || !sessionStatusAttentionCount) {
+            || !sessionStatusAttention || !sessionStatusAttentionCount
+            || !sessionStatusIdle || !sessionStatusIdleCount) {
             return false;
         }
         state.latestStatusRequestId = message.requestId;
@@ -1861,15 +1892,19 @@
             sessionStatusRunning,
             sessionStatusRunningCount,
             'running',
-            message.status.runningSessionsLocal,
-            message.status.runningSessions
+            message.status.runningSessionsLocal
         );
         applySessionStatusDot(
             sessionStatusAttention,
             sessionStatusAttentionCount,
             'attention',
-            message.status.attentionSessionsLocal,
-            message.status.attentionSessions
+            message.status.attentionSessionsLocal
+        );
+        applySessionStatusDot(
+            sessionStatusIdle,
+            sessionStatusIdleCount,
+            'idle',
+            message.status.idleSessionsLocal
         );
         return true;
     }

@@ -42,7 +42,7 @@ function createHarness(options = {}) {
 }
 
 test('CONVERSATION-SESSION-STATUS-001 publishes only changed correlated statuses', async () => {
-    let status = { runningSessions: 2, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1 };
+    let status = { runningSessions: 2, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1, idleSessionsLocal: 4 };
     const { controller, posted } = createHarness({
         readStatus: () => status,
     });
@@ -53,13 +53,13 @@ test('CONVERSATION-SESSION-STATUS-001 publishes only changed correlated statuses
         version: 1,
         requestId: 7,
         subscriptionGeneration: 2,
-        status: { runningSessions: 2, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1 },
+        status: { runningSessions: 2, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1, idleSessionsLocal: 4 },
     }]);
 
     await controller.publish();
     assert.equal(posted.length, 1, 'unchanged status must not be reposted');
 
-    status = { runningSessions: 3, attentionSessions: 0, runningSessionsLocal: 0, attentionSessionsLocal: 0 };
+    status = { runningSessions: 3, attentionSessions: 0, runningSessionsLocal: 0, attentionSessionsLocal: 0, idleSessionsLocal: 4 };
     await controller.publish();
     assert.equal(posted.length, 2);
     assert.deepEqual(posted[1].status, {
@@ -67,6 +67,19 @@ test('CONVERSATION-SESSION-STATUS-001 publishes only changed correlated statuses
         attentionSessions: 0,
         runningSessionsLocal: 0,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 4,
+    });
+
+    status = { ...status, idleSessionsLocal: 5 };
+    await controller.publish();
+    assert.equal(posted.length, 3,
+        'an idle-only change must still republish');
+    assert.deepEqual(posted[2].status, {
+        runningSessions: 3,
+        attentionSessions: 0,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
+        idleSessionsLocal: 5,
     });
 });
 
@@ -113,7 +126,7 @@ test('CONVERSATION-SESSION-STATUS-001 skips publishing without a panel, reader, 
 });
 
 test('CONVERSATION-SESSION-STATUS-001 republishes after target transitions even when unchanged', async () => {
-    const status = { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 0 };
+    const status = { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 0, idleSessionsLocal: 0 };
     const { controller, posted } = createHarness({
         readStatus: () => status,
     });
@@ -149,6 +162,7 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
         attentionSessions: 0,
         runningSessionsLocal: 0,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
     });
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: 1.9,
@@ -158,17 +172,20 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
         attentionSessions: 0,
         runningSessionsLocal: 0,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
     });
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: 2,
         attentionSessions: 3,
         runningSessionsLocal: 1.9,
         attentionSessionsLocal: 1,
+        idleSessionsLocal: 6.8,
     }), {
         runningSessions: 2,
         attentionSessions: 3,
         runningSessionsLocal: 1,
         attentionSessionsLocal: 1,
+        idleSessionsLocal: 6,
     });
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: 2,
@@ -180,24 +197,29 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
         attentionSessions: 3,
         runningSessionsLocal: 2,
         attentionSessionsLocal: 3,
+        idleSessionsLocal: 0,
     }, 'local counts clamp to the total — a window can never exceed it');
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: Number.NaN,
         attentionSessions: Number.POSITIVE_INFINITY,
+        idleSessionsLocal: Number.NaN,
     }), {
         runningSessions: 0,
         attentionSessions: 0,
         runningSessionsLocal: 0,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
     });
     assert.deepEqual(sanitizeConversationSessionStatus({
         runningSessions: 100001,
         attentionSessions: 250000.8,
+        idleSessionsLocal: 150000,
     }), {
         runningSessions: 100000,
         attentionSessions: 100000,
         runningSessionsLocal: 0,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 100000,
     },
     'counts must clamp to the Webview validator bound');
 
@@ -221,19 +243,22 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
         attentionSessions: 0,
         runningSessionsLocal: 1,
         attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
     });
 
-    assert.equal(formatConversationSessionStatusLabel('running', 0, 0),
-        'No AI sessions running');
-    assert.equal(formatConversationSessionStatusLabel('running', 1, 1),
-        '1 running in this window · 1 across all windows');
-    assert.equal(formatConversationSessionStatusLabel('running', 2, 4),
-        '2 running in this window · 4 across all windows');
-    assert.equal(formatConversationSessionStatusLabel('attention', 0, 0),
-        'No AI sessions need attention');
-    assert.equal(formatConversationSessionStatusLabel('attention', 1, 3),
-        '1 need attention in this window · 3 across all windows');
-    assert.equal(formatConversationSessionStatusLabel('attention', 5, 3),
-        '3 need attention in this window · 3 across all windows',
-        'labels clamp the local count to the total');
+    assert.equal(formatConversationSessionStatusLabel('running', 0),
+        'No AI sessions running in this window');
+    assert.equal(formatConversationSessionStatusLabel('running', 3),
+        '3 running in this window · click to switch to the next');
+    assert.equal(formatConversationSessionStatusLabel('attention', 0),
+        'No AI sessions need attention in this window');
+    assert.equal(formatConversationSessionStatusLabel('attention', 2),
+        '2 need attention in this window · click to switch to the next');
+    assert.equal(formatConversationSessionStatusLabel('idle', 0),
+        'No idle AI sessions in this window');
+    assert.equal(formatConversationSessionStatusLabel('idle', 5),
+        '5 idle in this window · click to switch to the next');
+    assert.equal(formatConversationSessionStatusLabel('idle', 5.9),
+        '5 idle in this window · click to switch to the next',
+        'labels sanitize fractional counts');
 });

@@ -163,6 +163,7 @@ export interface ConversationCapabilityOptions {
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
     readSessionStatus?: ConversationViewerOptions['readSessionStatus'];
+    cycleLocalSessionStatus?: ConversationViewerOptions['cycleLocalSessionStatus'];
     /**
      * The context window declared by the Codex profile overlay a session runs
      * with, if any. Injected for the codex adapter's telemetry display: the
@@ -396,6 +397,7 @@ function createAvailableConversationCapability(
         mediaUri: getConversationMediaUri,
         showThinking: options.getShowThinking,
         readSessionStatus: options.readSessionStatus,
+        cycleLocalSessionStatus: options.cycleLocalSessionStatus,
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,
         commentStore: options.commentStore,

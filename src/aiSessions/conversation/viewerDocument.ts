@@ -10,6 +10,7 @@ import type { ConversationBookmarkSnapshot } from './bookmarkStore';
 import { renderConversationTelemetry } from './conversationTelemetryController';
 import {
     ConversationSessionStatus,
+    ConversationSessionStatusKind,
     formatConversationSessionStatusLabel,
     sanitizeConversationSessionStatus,
 } from './sessionStatusController';
@@ -183,11 +184,6 @@ export function renderConversationViewerDocument(
                 target.displayName + duplicateId
             )}</button>
         </div>
-        <div class="conversation-session-status" data-conversation-session-status
-            role="group" aria-label="Global AI session status">
-            ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal, sessionStatus.runningSessions)}
-            ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal, sessionStatus.attentionSessions)}
-        </div>
         <nav class="conversation-navigation" aria-label="Conversation navigation">
             <button class="conversation-icon-button" type="button"
                 data-action="previous" title="Previous"
@@ -240,6 +236,12 @@ export function renderConversationViewerDocument(
                 type="button" data-session-nav="previous"
                 title="Previous active session"
                 aria-label="Previous active session">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
+            <div class="conversation-session-status" data-conversation-session-status
+                role="group" aria-label="AI session status in this window">
+                ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
+                ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal)}
+                ${renderSessionStatusDot('idle', sessionStatus.idleSessionsLocal)}
+            </div>
             <button class="conversation-session-nav conversation-session-nav-next"
                 type="button" data-session-nav="next"
                 title="Next active session"
@@ -612,19 +614,21 @@ export function renderConversationViewerDocument(
 }
 
 function renderSessionStatusDot(
-    kind: 'running' | 'attention',
-    localCount: number,
-    totalCount: number
+    kind: ConversationSessionStatusKind,
+    localCount: number
 ): string {
-    const label = formatConversationSessionStatusLabel(kind, localCount, totalCount);
-    return `<span class="conversation-session-status-dot conversation-session-status-${kind}${totalCount > 0
+    const label = formatConversationSessionStatusLabel(kind, localCount);
+    return `<button type="button"
+        class="conversation-session-status-dot conversation-session-status-${kind}${localCount > 0 && kind !== 'idle'
         ? ' conversation-session-status-active'
         : ''}"
-        data-session-status-${kind} role="img"
+        data-session-status-${kind} data-session-status-cycle="${kind}"
         title="${escapeAttribute(label)}"
-        aria-label="${escapeAttribute(label)}"></span><span
+        aria-label="${escapeAttribute(label)}"${localCount > 0
+        ? ''
+        : ' disabled'}><span
         class="conversation-session-status-count"
-        data-session-status-${kind}-count>${localCount}/${totalCount}</span>`;
+        data-session-status-${kind}-count>${localCount}</span></button>`;
 }
 
 function providerLabel(provider: AiSessionProviderId): string {

@@ -5906,11 +5906,12 @@
   {
     "id": "CONVERSATION-SESSION-STATUS-001",
     "domain": "webview",
-    "title": "AI Conversation header shows global running and attention Session status dots (summed across every open window) that pulse only while their count is non-zero, stay readable at narrow widths, and honor reduced motion",
+    "title": "AI Conversation shows this window's running, attention, and idle Session counts as clickable status badges in the bottom session-navigation row that cycle to the next local session of their kind, disable when empty, pulse only while non-zero, stay readable at narrow widths, and honor reduced motion",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationSessionStatusController.test.js",
+      "tests/contract/aiSessions/sessionStatusCycle.test.js",
       "tests/contract/openProjects/projection.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
@@ -5919,7 +5920,9 @@
       "src/aiSessions/conversation/sessionStatusController.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
       "src/aiSessions/conversation/composition.ts",
+      "src/dashboard/sessionStatusCycle.ts",
       "src/openWorkspaces/projection.ts",
       "src/dashboard.ts",
       "src/webview/conversationViewerScripts.js",

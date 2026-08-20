@@ -28,7 +28,7 @@ function loadWebviewContent() {
 }
 
 const content = loadWebviewContent();
-const icons = require('../../../out/webview/webviewIcons');
+const icons = require('../../../out/webviewIcons');
 
 const brandIcons = {
     codex: icons.openAiLogo,

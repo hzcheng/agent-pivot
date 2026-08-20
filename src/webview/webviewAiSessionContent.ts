@@ -4,7 +4,7 @@ import {
     AiSessionProviderId,
     sanitizeProjectName,
 } from '../models';
-import * as Icons from './webviewIcons';
+import * as Icons from '../webviewIcons';
 import type {
     ActiveAiSessionViewModel,
     AiSessionProviderSummary,

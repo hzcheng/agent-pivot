@@ -1,5 +1,5 @@
 import { TodoGroupViewModel, TodoItemViewModel, TodoPanelViewModel } from './viewModel';
-import * as Icons from '../webview/webviewIcons';
+import * as Icons from '../webviewIcons';
 
 const DEFAULT_MAX_VISIBLE_TODOS_PER_GROUP = 5;
 const TODO_COLLAPSED_ITEM_HEIGHT_PX = 58;

@@ -38,7 +38,7 @@ import {
     readRunningAnimationImages,
     RunningAnimationImages,
 } from './runningAnimationImages';
-import * as Icons from './webviewIcons';
+import * as Icons from '../webviewIcons';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import type { AiSessionPresentationStateMessage } from '../aiSessions/types';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';

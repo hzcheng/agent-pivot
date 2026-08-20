@@ -109,10 +109,13 @@
             "nextAction": "awaiting its Stage 5 wave"
         },
         "MOD-PROMPT-LIBRARY": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-20): the shell cycle broke by sinking the shared icon constants into the kernel; the module's only outbound edge is a value import of MOD-SHARED-KERNEL icons; entrypoints narrowed to the consumed surface",
+            "evidence": [
+                "docs/architecture/changes/ARCH-CHANGE-002.md",
+                "tests/unit/prompts/service.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-ATTENTION-BRIDGE-EXT": {
             "state": "legacy",

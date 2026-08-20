@@ -27,7 +27,7 @@ export interface SkillPanelView {
 }
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from './webviewHtmlEscape';
-import { collapse as collapseIcon, edit as editIcon, folder as folderIcon, puzzle } from './webviewIcons';
+import { collapse as collapseIcon, edit as editIcon, folder as folderIcon, puzzle } from '../webviewIcons';
 import type { SkillCollectionSuggestion } from '../skills/knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];

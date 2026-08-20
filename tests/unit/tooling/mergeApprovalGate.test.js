@@ -98,6 +98,8 @@ test('ARCH-PR-MERGE-APPROVAL-GATE-001 posts a read-only impact report instead of
         'the gate regenerates the impact report for the PR head');
     assert.match(script, /upsertReportComment/,
         'the gate posts the report as a standing PR comment for owner review');
+    assert.match(script, /try \{[\s\S]*?upsertReportComment[\s\S]*?catch/,
+        'the advisory report comment is fail-soft: its delivery failure must not block the verdict status');
     assert.match(script, /architecture-impact-report/,
         'the standing comment carries a stable marker for upserts');
     assert.match(script, /pull\/\$\{prNumber\}\/head/,

@@ -7,7 +7,9 @@
 // read as data (round-2 review Blocker 1 — a PR must not approve itself by
 // editing the gate). Fail-closed: unexpected errors exit non-zero without
 // posting, so a broken gate blocks merges loudly instead of silently opening
-// them.
+// them. The one exception is the advisory impact-report comment: its
+// delivery failure is logged and the verdict status is still posted
+// (fail-closed covers the verdict, not the review aid).
 //
 // Harness Simplification PR 4/6: the AI-authored change-impact declaration
 // is gone. The gate regenerates the architecture impact report for the exact
@@ -193,8 +195,18 @@ async function main() {
         prNumber,
         architectureApproved: Boolean(architectureApproval),
     });
+    // The report comment is advisory: its delivery failure must never block
+    // the merge status (the evaluation completed; fail-closed applies to the
+    // verdict, not to the review aid). A broken comment path would otherwise
+    // take down the gate for every PR — as it did when the token lacked
+    // pull-requests: write.
     if (reportMarkdown) {
-        await upsertReportComment(token, repo, prNumber, reportMarkdown, comments);
+        try {
+            await upsertReportComment(token, repo, prNumber, reportMarkdown, comments);
+        } catch (error) {
+            console.error(`warning: could not post the impact report comment: ${error instanceof Error ? error.message : String(error)}`);
+            console.error(reportMarkdown);
+        }
     }
 
     const reasons = [];

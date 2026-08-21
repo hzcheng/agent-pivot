@@ -1,14 +1,8 @@
 # OPEN Tab 重构 PRD：常驻 Window Switcher + 统一 Chats 面板
 
-> v3 修订版。v2 经条件通过评审后修订，核心变更：
-> ① 当前窗口语义改为三态模型（本窗口 / 正在切换到 / 切换失败），竖线恒在本窗口行、永不移动，效果图改为两个窗口各自快照；
-> ② WINDOWS 区 ARIA 模型改为 `list > listitem`（行内含独立按钮，不嵌进 option），补全键盘 Tab 顺序；
-> ③ tree 视图恒定显示全部 ready worktree（含空 worktree，可管理），与旧 WORKTREE surface 可见性一致——不引入 Show All Worktrees 开关（所有者决策，见批注处理）；
-> ④ 新增响应式宽度矩阵（≥360 / 280–359 / <280px）与窄面板验收；
-> ⑤ bridge connecting 期间改为禁用窗口行（放弃点击排队）；
-> ⑥ 重写成功指标；补视觉状态矩阵；命名决策补充反方意见与走查验证计划。
+> v3.1 修订版。批注处理：指示槽位澄清（非数字，等宽空白槽）、删除 folder 槽位、session 行内日期移除（仅 tooltip）、ALL 明确同样单行化、tree 视图恒定显示全部 worktree（取消 Show All Worktrees 开关）。
 >
-> 历史版本：v1 三方评审（PM/UX/技术）→ v2 补功能处置清单/键盘章节/里程碑重排 → v3（当前）解决核心语义冲突。
+> 历史版本：v1 三方评审（PM/UX/技术）→ v2 补功能处置清单/键盘章节/里程碑重排 → v3 解决核心语义冲突（三态模型/ARIA list/响应式矩阵/连接态禁用）→ v3.1 批注修订（当前）。
 
 ## 背景
 

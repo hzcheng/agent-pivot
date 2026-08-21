@@ -290,7 +290,7 @@
                     "default": 3,
                     "minimum": 1,
                     "markdownDescription": "Maximum number of AI session rows visible in an expanded project card before the session list scrolls.",
-                    "deprecationMessage": "This setting no longer has any effect. In the OPEN tab, the expanded CURRENT WINDOW card now fits its window region and the session list fills the remaining card height; elsewhere the session list keeps the default three-row height."
+                    "deprecationMessage": "This setting no longer has any effect. In the OPEN tab, the expanded current-window card fills the remaining region below the WINDOWS switcher and the session list scrolls inside the card; elsewhere the session list keeps the default three-row height."
                 },
                 "agentPivot.aiConversation.showThinking": {
                     "type": "boolean",

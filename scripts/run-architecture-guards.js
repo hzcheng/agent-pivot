@@ -1685,15 +1685,15 @@ const guards = {
             'applyValidatedAiSessionPresentationState(message.presentation);'
         ) || !projectWebviewSource.includes(
             'invalid-open-workspaces-presentation-envelope'
-        ) || !projectWebviewSource.includes('message.version !== 3')
+        ) || !projectWebviewSource.includes('message.version !== 4')
             || projectWebviewSource.includes('isAtomicOpenWorkspacesEnvelope')
             || projectWebviewSource.includes(
                 "type: 'request-ai-session-attention-state'"
             ) || !workspaceWebviewSource.includes(
-                "message.type !== 'open-workspaces-updated'\n        || message.version !== 3"
+                "message.type !== 'open-workspaces-updated'\n        || message.version !== 4"
             )) {
             fail(this.id, risk,
-                'the Webview must validate v3 envelopes atomically and reserve direct Presentation for focus');
+                'the Webview must validate v4 envelopes atomically and reserve direct Presentation for focus');
         }
     },
 

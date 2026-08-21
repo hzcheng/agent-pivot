@@ -207,6 +207,52 @@ function initProjects() {
         });
     }
 
+    function onInsideOpenWindowRowClick(e, row) {
+        // PRD 单击语义：非当前行 = 聚焦该 OS 窗口（走导航请求协议）；当前行 =
+        // 空操作；双击/中键 = 无行为。★/⋯/重试按钮在各行内单独处理，不触发行点击。
+        if (e.button !== 0 || e.detail > 1) {
+            return;
+        }
+        var pinButton = e.target.closest('[data-action="toggle-open-workspace-pin"]');
+        if (pinButton) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof requestOpenWorkspacePin === 'function') {
+                requestOpenWorkspacePin(pinButton, row.getAttribute('data-id'));
+            }
+            return;
+        }
+        var menuButton = e.target.closest('[data-action="open-window-menu"]');
+        if (menuButton) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.__agentPivotOpenWindowNavigation) {
+                window.__agentPivotOpenWindowNavigation.toggleMenu(menuButton);
+            }
+            return;
+        }
+        if (e.target.closest('[data-action="retry-open-window-navigation"]')) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.__agentPivotOpenWindowNavigation) {
+                window.__agentPivotOpenWindowNavigation.retry(row.getAttribute('data-id'));
+            }
+            return;
+        }
+        var focusButton = e.target.closest('[data-action="focus-open-window"]');
+        if (!focusButton || !row.contains(focusButton)) {
+            return;
+        }
+        if (focusButton.getAttribute('aria-disabled') === 'true') {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.__agentPivotOpenWindowNavigation) {
+            window.__agentPivotOpenWindowNavigation.request(row.getAttribute('data-id'));
+        }
+    }
+
     function onInsideProjectClick(e, projectDiv) {
         projectDiv = projectDiv || e.target.closest(".project");
         var dataId = projectDiv && projectDiv.getAttribute("data-id");
@@ -247,7 +293,6 @@ function initProjects() {
 
 
     var groupCollapse = initProjectGroupCollapse();
-    var openTabSplit = typeof initOpenTabSplit === 'function' ? initOpenTabSplit() : null;
     var todoControls = initProjectTodoControls({
         syncCollapseButton: () => groupCollapse.syncCollapseButton(),
     });
@@ -470,6 +515,14 @@ function initProjects() {
             return;
         }
 
+        var openWindowRow = e.target.closest
+            ? e.target.closest('[data-open-window-row]')
+            : null;
+        if (openWindowRow) {
+            onInsideOpenWindowRowClick(e, openWindowRow);
+            return;
+        }
+
         var groupDiv = e.target.closest('.group');
         if (groupDiv) {
             todoControls.onInsideGroupClick(e, groupDiv);
@@ -534,7 +587,7 @@ function initProjects() {
             }, 0);
         }
         if (message && message.type === 'open-workspaces-updated') {
-            if (message.version !== 3) {
+            if (message.version !== 4) {
                 aiSessionsUpdate.requestFullRefresh(
                     'unsupported-open-workspaces-message'
                 );
@@ -558,17 +611,16 @@ function initProjects() {
             if (window.__agentPivotOpenWindowNavigation) {
                 window.__agentPivotOpenWindowNavigation.reconcile(document);
             }
-            if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
-                openTabSplit.syncResizer();
-            }
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({
                 type: 'open-workspaces-rendered',
-                version: 2,
+                version: 3,
                 semanticRevision: message.semanticRevision,
-                currentWorkspaceCount: renderedOpenWorkspaceState.currentWorkspaceCount,
-                navigationWorkspaceCount: renderedOpenWorkspaceState.navigationWorkspaceCount,
-                hasOtherWindowsGroup: renderedOpenWorkspaceState.hasOtherWindowsGroup,
+                windowRowCount: renderedOpenWorkspaceState.windowRowCount,
+                currentWindowRowCount: renderedOpenWorkspaceState.currentWindowRowCount,
+                navigationWindowRowCount: renderedOpenWorkspaceState.navigationWindowRowCount,
+                currentDetailCount: renderedOpenWorkspaceState.currentDetailCount,
+                hasWindowSwitcher: renderedOpenWorkspaceState.hasWindowSwitcher,
                 otherWindowsStatus: renderedOpenWorkspaceState.otherWindowsStatus,
             });
             return;

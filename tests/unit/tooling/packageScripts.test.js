@@ -52,7 +52,7 @@ test('TEST-PACKAGE-SCRIPTS-001 WEBVIEW-SINGLE-BOOT-ASSET-001 rebuilds the commit
 
     assert.equal(buildDashboardWebviewBundle(), dashboardBundleOutputPath);
     assert.equal(fs.readFileSync(dashboardBundleOutputPath, 'utf8'), committed);
-    assert.equal(dashboardBundleInputPaths.length, 30);
+    assert.equal(dashboardBundleInputPaths.length, 29);
     for (const inputPath of dashboardBundleInputPaths) {
         assert.ok(committed.includes(`/* ${inputPath} */\n`),
             `the generated bundle must identify ${inputPath}`);

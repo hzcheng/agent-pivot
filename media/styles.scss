@@ -2035,69 +2035,28 @@ body .project {
         overflow-y: auto;
     }
 
-    // Auto layout: CURRENT WINDOW sizes to its content without shrinking
-    // (the 50% cap keeps OPEN WINDOWS at least half; overflow scrolls inside
-    // the region), and OPEN WINDOWS takes the remaining space.
+    // PR-B layout: the persistent WINDOWS switcher sits on top in a fixed,
+    // internally scrolling region (PRD: min(6 行, 40% 面板高度)); the
+    // transitional headless current-detail card takes the remaining space.
+    .open-window-switcher-group {
+        flex: 0 0 auto;
+        min-height: 0;
+        max-height: min(216px, 40%);
+        display: flex;
+        flex-direction: column;
+
+        .open-window-switcher-list {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+        }
+    }
+
     .open-current-workspace-group {
-        flex: 0 0 auto;
-        max-height: 50%;
-    }
-
-    .open-other-windows-group {
         flex: 1 1 auto;
-        min-height: 0;
-    }
-
-    // Dragged layout: the wrapper carries --open-tab-current-share (a percent
-    // of the wrapper height). The wrapper node survives authoritative
-    // innerHTML replacements, so the share (and this class) needs no replay;
-    // new group nodes inherit the custom property.
-    .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group {
-        flex: 0 0 auto;
-        height: var(--open-tab-current-share);
-        max-height: none;
-        min-height: 72px;
-    }
-
-    .sticky-groups-wrapper.open-tab-split-manual .open-other-windows-group:not(.collapsed) {
-        min-height: 72px;
-    }
-
-    // --- Collapse reclamation -------------------------------------------
-    // A collapsed region never holds space it cannot use; the freed space
-    // goes to the other region.
-    //
-    // The collapsed OPEN WINDOWS title bar docks to the panel bottom (a
-    // stable "drawer" position) instead of hovering under CURRENT WINDOW.
-    .open-other-windows-group.collapsed {
-        flex: 0 0 auto;
-        margin-top: auto;
-    }
-
-    // While OPEN WINDOWS is collapsed, CURRENT WINDOW is uncapped. The
-    // wrapper state class is synced by webviewOpenTabSplitScripts.js because
-    // webviews older than Chrome 105 cannot match :has() for sibling state.
-    .sticky-groups-wrapper.open-windows-collapsed .open-current-workspace-group {
-        max-height: none;
-    }
-
-    // A dragged share is suspended whenever either region collapses: a
-    // collapsed CURRENT WINDOW card falls back to content size (still
-    // half-capped) so OPEN WINDOWS packs upward, and a collapsed OPEN
-    // WINDOWS lets CURRENT WINDOW re-flow instead of pinning it to a
-    // percentage of a space it no longer shares. The share persists and is
-    // restored once both regions are expanded again.
-    .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group:not(.current-card-expanded) {
-        flex: 0 0 auto;
-        height: auto;
-        max-height: 50%;
-        min-height: 0;
-    }
-
-    .sticky-groups-wrapper.open-tab-split-manual.open-windows-collapsed .open-current-workspace-group {
-        flex: 0 0 auto;
-        height: auto;
-        max-height: none;
         min-height: 0;
     }
 
@@ -2106,33 +2065,21 @@ body .project {
     // (older webview Chromium cannot match :has()). The AI session surface is
     // styled for the sidebar only, so the whole fit layout is scoped to
     // `body.steward-sidebar`; elsewhere the expanded card keeps the legacy
-    // content-sized pane. In auto layout the pane pins to the same half share
-    // the 50% cap implies; a dragged share keeps priority because this auto
-    // rule excludes the manual layout via :not(.open-tab-split-manual).
-    // The 283px floor mirrors OPEN_TAB_PANE_MIN_EXPANDED_PX in
-    // webviewOpenTabSplitScripts.js: below it the fixed AI-session chrome
-    // (module header with the quick-create caption, surface tabs, chat tabs,
-    // provider controls) would clip away and the session list would starve
-    // to zero height.
+    // content-sized pane.
+    // The 283px floor mirrors the former OPEN_TAB_PANE_MIN_EXPANDED_PX: below
+    // it the fixed AI-session chrome (module header with the quick-create
+    // caption, surface tabs, chat tabs, provider controls) would clip away
+    // and the session list would starve to zero height.
     body.steward-sidebar & {
-        .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded {
-            flex: 0 0 auto;
-            height: 50%;
-            max-height: none;
-            min-height: 283px;
-        }
-
-        .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded {
-            min-height: 283px;
-        }
-
-        // In both layouts the expanded card fills the group list (keeping the
+        // The expanded card fills the freed vertical space (keeping the
         // list's 7px top padding) through the .project-container wrapper, the
         // visible session panel fills the rest of the card, and the session
         // list stays the only inner scroll surface. The 100vh max-height
         // keeps the expand transition interpolable without ever clamping the
         // settled layout.
         .open-current-workspace-group.current-card-expanded {
+            min-height: 283px;
+
             .group-list {
                 overflow: hidden;
             }
@@ -2191,73 +2138,6 @@ body .project {
                 }
             }
         }
-
-        // Collapse reclamation in the fit layout: while OPEN WINDOWS is
-        // collapsed, the expanded card fills all freed space instead of the
-        // half-pane pin or a dragged share. Equal specificity with the fit
-        // rules above, resolved by source order — keep this block last.
-        .sticky-groups-wrapper.open-windows-collapsed .open-current-workspace-group.current-card-expanded {
-            flex: 1 1 auto;
-            height: auto;
-            max-height: none;
-            min-height: 283px;
-        }
-    }
-
-    // Region separator: full-width hairline marks the exact boundary and the
-    // centered grip pill sits on top of it (same visual language as the
-    // skills pane resizer).
-    .open-tab-split-resizer {
-        position: relative;
-        flex: 0 0 auto;
-        height: 9px;
-        cursor: row-resize;
-
-        &::before {
-            content: '';
-            position: absolute;
-            top: 4px;
-            right: 0;
-            left: 0;
-            border-top: 1px solid var(--vscode-panel-border);
-        }
-
-        &::after {
-            content: '';
-            position: absolute;
-            top: 3px;
-            left: 50%;
-            width: 44px;
-            height: 3px;
-            border-radius: 2px;
-            background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, .5));
-            transform: translateX(-50%);
-        }
-
-        &:hover::before,
-        &:focus-visible::before,
-        &.open-tab-split-resizer-active::before {
-            border-top-color: var(--vscode-focusBorder, #007fd4);
-        }
-
-        &:hover::after,
-        &:focus-visible::after,
-        &.open-tab-split-resizer-active::after {
-            background: var(--vscode-focusBorder, #007fd4);
-        }
-
-        &:focus-visible {
-            outline: none;
-        }
-    }
-}
-
-body.open-tab-split-resizing {
-    cursor: row-resize;
-    user-select: none;
-
-    * {
-        cursor: row-resize !important;
     }
 }
 
@@ -2473,15 +2353,7 @@ body.open-tab-split-resizing {
     }
 }
 
-.open-other-windows-group .project-ai-attention-badge.attention-animate {
-    animation: steward-ai-attention 900ms ease-in-out 3;
-}
-
 @media (prefers-reduced-motion: reduce) {
-    .open-other-windows-group .project-ai-attention-badge.attention-animate {
-        animation: none;
-    }
-
     body.steward-sidebar .steward-group-header .group-actions,
     body.steward-sidebar .steward-item-card,
     body.steward-sidebar .steward-item-card::before,
@@ -7113,76 +6985,6 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     }
 }
 
-.open-other-windows-group .workspace-card[data-open-workspace-current] {
-    border-color: var(--vscode-focusBorder);
-    background: var(
-        --vscode-list-inactiveSelectionBackground,
-        var(--vscode-sideBarSectionHeader-background, var(--vscode-sideBar-background))
-    );
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, .08),
-        0 0 0 1px var(--vscode-focusBorder),
-        0 5px 14px var(--vscode-widget-shadow);
-}
-
-.open-other-windows-group .workspace-card[data-open-workspace-current]::before {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 12px;
-    bottom: 12px;
-    width: 3px;
-    border-radius: 999px;
-    background: var(--vscode-focusBorder);
-}
-
-.open-other-windows-group .workspace-card[data-open-workspace-current]::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: var(--vscode-focusBorder);
-    opacity: .15;
-    pointer-events: none;
-    transition: opacity $defaultTransition;
-}
-
-.open-other-windows-group .workspace-card[data-open-workspace-current]:hover::after,
-.open-other-windows-group .workspace-card[data-open-workspace-current]:focus-within::after {
-    opacity: .24;
-}
-
-.open-other-windows-group .workspace-card[data-open-workspace-current]:hover,
-.open-other-windows-group .workspace-card[data-open-workspace-current]:focus-within {
-    border-color: var(--vscode-focusBorder);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, .1),
-        0 0 0 1px var(--vscode-focusBorder),
-        0 7px 18px var(--vscode-widget-shadow);
-}
-
-.open-other-windows-group
-    .workspace-card[data-open-workspace-current]
-    .project-title-row
-    > .project-pin-badge {
-    position: static;
-    flex: 0 0 auto;
-    right: auto;
-    bottom: auto;
-}
-
-.current-window-indicator {
-    flex: 0 0 auto;
-    padding: 1px 5px;
-    border: 1px solid var(--vscode-focusBorder);
-    border-radius: 999px;
-    color: var(--vscode-badge-foreground, #ffffff);
-    background: var(--vscode-focusBorder);
-    font-size: 8px;
-    font-weight: 700;
-    line-height: 1.3;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-}
 
 .ai-subtabs {
     display: flex;

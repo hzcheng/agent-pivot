@@ -147,7 +147,7 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 OPEN updates hydrate and publi
     assert.equal(posted.length, 1);
     assert.equal(posted[0].projectionRevision, transaction.revision);
     assert.equal(posted[0].presentation.projectionRevision, transaction.revision);
-    assert.equal(posted[0].version, 3);
+    assert.equal(posted[0].version, 4);
 });
 
 test('OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001 aligns Presentation with the rendered current identity while the Bridge lags', async () => {

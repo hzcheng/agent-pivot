@@ -4950,7 +4950,6 @@ function runWebviewContentChecks() {
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewOpenTabSplitScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
@@ -5784,16 +5783,11 @@ function runWebviewContentChecks() {
         'height: calc(3 * 42px + 2 * 2px);'
     ));
     assert.ok(compiledAiSessionListStyleBlock.includes('height:130px'));
-    const openTabAutoExpandedGroupBlock = extractExactScssBlock(
-        styles,
-        '.sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded'
-    );
-    assert.ok(openTabAutoExpandedGroupBlock.includes('height: 50%'));
-    assert.ok(openTabAutoExpandedGroupBlock.includes('max-height: none'));
     const openTabExpandedGroupBlock = extractExactScssBlock(
         styles,
         '.open-current-workspace-group.current-card-expanded'
     );
+    assert.ok(openTabExpandedGroupBlock.includes('min-height: 283px'));
     const openTabExpandedCardBlock = extractExactScssBlock(
         openTabExpandedGroupBlock,
         '.workspace-card[data-codex-expanded]'
@@ -6337,20 +6331,6 @@ function runBatchAiSessionWebviewChecks() {
     );
     const projectCollapseSource = fs.readFileSync(projectCollapseSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedProjectCollapsePath, 'utf8'), projectCollapseSource);
-    const openTabSplitSourcePath = path.join(
-        __dirname, '..', 'src', 'webview', 'webviewOpenTabSplitScripts.js'
-    );
-    const generatedOpenTabSplitPath = path.join(
-        __dirname, '..', 'media', 'webviewOpenTabSplitScripts.js'
-    );
-    const openTabSplitSource = fs.readFileSync(openTabSplitSourcePath, 'utf8');
-    assert.strictEqual(fs.readFileSync(generatedOpenTabSplitPath, 'utf8'), openTabSplitSource);
-    assert.ok(openTabSplitSource.includes('OPEN_TAB_PANE_MIN_EXPANDED_PX = 263'),
-        'the expanded CURRENT WINDOW pane needs a raised floor that keeps the AI session chrome reachable');
-    assert.ok(openTabSplitSource.includes("classList.contains('current-card-expanded')"),
-        'the pane floor must follow the rendered expanded class');
-    assert.ok(openTabSplitSource.includes('syncCurrentPaneMinimum'),
-        'init and expand toggles reconcile below-floor shares without rewriting the persisted share');
     const todoControlSourcePath = path.join(
         __dirname, '..', 'src', 'webview', 'webviewTodoControlScripts.js'
     );
@@ -6383,8 +6363,6 @@ function runBatchAiSessionWebviewChecks() {
     );
     const aiSessionControlsSource = fs.readFileSync(aiSessionControlsSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedAiSessionControlsPath, 'utf8'), aiSessionControlsSource);
-    assert.ok(aiSessionControlsSource.includes('__agentPivotOpenTabSplit.syncCurrentPaneMinimum'),
-        'expanding the CURRENT WINDOW card must raise a below-floor dragged share through the split module');
     const projectSource = fs.readFileSync(sourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
     const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
@@ -7403,7 +7381,6 @@ function runAiSessionIncrementalRefreshSourceChecks() {
         'webviewWorkspaceUpdateScripts.js',
         'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewOpenTabSplitScripts.js',
         'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',

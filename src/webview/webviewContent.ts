@@ -42,6 +42,8 @@ import * as Icons from '../webviewIcons';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import type { AiSessionPresentationStateMessage } from '../aiSessions/types';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
+import { buildOpenWindowRowViewModels } from '../openWorkspaces/windowRowViewModel';
+import { getOpenWindowMenu, getOpenWindowSwitcherGroupContent } from './webviewWindowSwitcherContent';
 
 const FAVORITES_GROUP_NAME = 'FAVORITES';
 const OPEN_CURRENT_WORKSPACE_GROUP_NAME = 'CURRENT WINDOW';
@@ -89,7 +91,6 @@ export function getStewardContent(
     );
 
     var customCss = infos.config.get('customCss') || '';
-    var allGroupsCollapsed = !!infos.openWorkspacesGroupCollapsed;
     var searchCatalog = serializeDashboardSearchCatalog(
         buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [], infos.skills || [])
     );
@@ -102,7 +103,6 @@ export function getStewardContent(
     var runningAnimationImages = readRunningAnimationImages(infos.config);
     var openWorkspacesContent = getOpenWorkspacesGroupContent(
         workspaceCards,
-        infos.openWorkspacesGroupCollapsed,
         otherWindowsStatus,
         getEffectiveRunningCardAnimation(infos.config),
         getEffectiveRunningIconAnimation(infos.config),
@@ -129,7 +129,7 @@ export function getStewardContent(
         <title>Agent Pivot</title>
         ${getCustomStyle(infos.config, runningAnimationImages)}
     </head>
-    <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''} ${allGroupsCollapsed ? 'steward-all-collapsed' : ''}">
+    <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''}">
         <main class="dashboard-style-loading" data-dashboard-style-loading aria-busy="true" aria-label="Loading Agent Pivot">
             <div class="dashboard-style-loading-tabs" aria-hidden="true">
                 <span class="dashboard-style-loading-tab active"></span>
@@ -154,7 +154,7 @@ export function getStewardContent(
                 <button type="button" class="sponsor-button" data-action="sponsor" title="Support Agent Pivot" aria-label="Support Agent Pivot">
                     ${Icons.heart}
                 </button>
-                <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups" title="${allGroupsCollapsed ? 'Expand All Groups' : 'Collapse All Groups'}" aria-label="${allGroupsCollapsed ? 'Expand All Groups' : 'Collapse All Groups'}">
+                <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups" title="Collapse All Groups" aria-label="Collapse All Groups">
                     <span class="toggle-all-groups-collapse-icon">${Icons.collapseAll}</span>
                     <span class="toggle-all-groups-expand-icon">${Icons.expandAll}</span>
                 </button>
@@ -208,6 +208,7 @@ export function getStewardContent(
         ${getAiSessionContextMenu()}
         ${getAiSessionCreateDropdown()}
         ${getAiSessionWorktreeMenu()}
+        ${getOpenWindowMenu()}
         </div>
     </body>
 
@@ -308,12 +309,11 @@ export function getCurrentWorkspaceGroupContent(
     // authoritative re-renders replay it from the view model and the webview
     // toggle handler keeps it in sync between replacements.
     const cardExpanded = currentCard?.aiSessions?.expanded === true;
+    // PR-B transition: the group shell stays headless (no group header) — the
+    // `ai-sessions-updated` channel targets `.open-current-workspace-group` as
+    // its replacement unit, and the window switcher above owns the chrome.
     return `
-<div class="group steward-section open-current-workspace-group ${currentCard ? '' : 'no-projects'}${cardExpanded ? ' current-card-expanded' : ''}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
-    <div class="group-title steward-section-header steward-group-header">
-        <span class="group-title-text">${OPEN_CURRENT_WORKSPACE_GROUP_NAME}</span>
-        <span class="group-title-badge">Live</span>
-    </div>
+<div class="group steward-section open-current-workspace-group open-current-workspace-group-headless ${currentCard ? '' : 'no-projects'}${cardExpanded ? ' current-card-expanded' : ''}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
     <div class="group-list">
         <div class="drop-signal"></div>
         ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation, runningIconAnimation, 'current-detail') : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
@@ -323,28 +323,25 @@ export function getCurrentWorkspaceGroupContent(
 
 export function getOpenWorkspacesGroupContent(
     cards: WorkspaceCardViewModel[],
-    collapsed: boolean,
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
     runningCardAnimation?: string,
     runningIconAnimation?: string,
+    pathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
 ): string {
+    // PR-B: the CURRENT WINDOW / OPEN WINDOWS groups and the split resizer are
+    // replaced by the persistent WINDOWS switcher (single-line rows, stable
+    // order, zero-displacement switching) plus the transitional headless
+    // current-detail card below it. The switcher is not collapsible by design.
     const orderedCards = cards || [];
     const current = orderedCards.find(card => card.kind === 'current') || null;
     const navigationCards = orderedCards.filter(card => card.kind === 'navigation');
-    const currentSection = getCurrentWorkspaceGroupContent(
-        current,
-        navigationCards.length > 0,
-        runningCardAnimation,
-        runningIconAnimation,
-    );
-    const cardsContent = orderedCards.map(card =>
-        getWorkspaceCardDiv(
-            card,
-            runningCardAnimation,
-            runningIconAnimation,
-            'open-list',
-        )
-    ).join('\n');
+    let rows = buildOpenWindowRowViewModels(orderedCards, pathSegmentsByCardId);
+    if (otherWindowsStatus !== 'ready') {
+        // PRD: bridge 未就绪时当前行固定置顶，就绪后按稳定顺序归位。
+        rows = [...rows].sort((left, right) => (left.kind === right.kind)
+            ? 0
+            : left.kind === 'current' ? -1 : 1);
+    }
     const statusContent = otherWindowsStatus === 'update-required'
         ? `<div class="open-other-windows-state" role="status">
             <p>Update the Agent Pivot UI Bridge extension to restore all open windows.</p>
@@ -359,32 +356,19 @@ export function getOpenWorkspacesGroupContent(
                     <p>Looking for your other open windows…</p>
                 </div>`
                 : '';
-    // A bridge that never connected must stay visible so its state can be read,
-    // but connecting is a normal startup step and must not fight the user's
-    // collapse preference only to snap shut a few seconds later.
-    const otherWindowsCollapsed = (otherWindowsStatus === 'ready'
-        || otherWindowsStatus === 'connecting') && collapsed;
-    // The split resizer sits between the two window regions; the open-tab
-    // split script sizes the CURRENT WINDOW pane from it (mouse + keyboard)
-    // and the share survives authoritative innerHTML replacements because the
-    // wrapper node (which carries the share custom property) is preserved.
-    return `${currentSection}
-<div class="open-tab-split-resizer" data-open-tab-split-resizer role="separator" tabindex="0" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-label="Resize window sections" title="Drag to resize window sections"></div>
-<div class="group steward-section open-other-windows-group ${otherWindowsCollapsed ? 'collapsed' : ''}" data-group-id="${OPEN_WORKSPACES_GROUP_ID}" data-virtual-group data-system-group="${OPEN_WORKSPACES_GROUP_ID}" data-other-windows-status="${otherWindowsStatus}">
-    <div class="group-title steward-section-header steward-group-header">
-        <span class="group-title-text" data-action="collapse">
-            <span class="collapse-icon" title="Open/Collapse Group">${Icons.collapse}</span>
-            ${OPEN_WINDOWS_GROUP_NAME}
-        </span>
-        <span class="group-title-badge">${otherWindowsStatus === 'update-required' ? 'Update required' : otherWindowsStatus === 'unavailable' ? 'Unavailable' : otherWindowsStatus === 'connecting' ? 'Connecting…' : 'Live'}</span>
-    </div>
-    <div class="group-list">
-        <div class="open-workspace-pin-live-region" data-open-workspace-pin-live-region role="status" aria-live="polite" aria-atomic="true"></div>
-        <div class="drop-signal"></div>
-        ${cardsContent}
-        ${statusContent}
-    </div>
-</div>`;
+    const switcherSection = getOpenWindowSwitcherGroupContent(
+        rows,
+        otherWindowsStatus,
+        statusContent,
+    );
+    const currentSection = getCurrentWorkspaceGroupContent(
+        current,
+        navigationCards.length > 0,
+        runningCardAnimation,
+        runningIconAnimation,
+    );
+    return `${switcherSection}
+${currentSection}`;
 }
 
 function getWorkspaceCardDiv(

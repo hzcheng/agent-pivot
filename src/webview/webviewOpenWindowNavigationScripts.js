@@ -152,11 +152,173 @@ var agentPivotOpenWindowNavigation = (function () {
         });
     }
 
+    // --- window-row ⋯ menu ---------------------------------------------------
+    // One shared menu element (#openWindowMenu), positioned next to the row's
+    // ⋯ button. Items: Focus Window (non-current rows), Pin/Unpin, Save
+    // Workspace (current row). Keyboard: ↑/↓ 导航，Enter 执行，Esc 关闭并焦点返回。
+    var menuOriginButton = null;
+
+    function closeMenu() {
+        var menu = document.getElementById('openWindowMenu');
+        if (!menu) {
+            return;
+        }
+        menu.classList.remove('visible');
+        if (menuOriginButton) {
+            menuOriginButton.setAttribute('aria-expanded', 'false');
+            if (typeof menuOriginButton.focus === 'function') {
+                menuOriginButton.focus({ preventScroll: true });
+            }
+            menuOriginButton = null;
+        }
+    }
+
+    function openMenu(button) {
+        var menu = document.getElementById('openWindowMenu');
+        if (!menu) {
+            return;
+        }
+        var row = button.closest('[data-open-window-row]');
+        if (!row) {
+            return;
+        }
+        var isCurrent = row.getAttribute('data-window-kind') === 'current';
+        var pinned = row.classList.contains('open-window-row-pinned');
+        menu.querySelectorAll('[data-open-window-menu-non-current]').forEach(function (item) {
+            item.hidden = isCurrent;
+        });
+        menu.querySelectorAll('[data-open-window-menu-current]').forEach(function (item) {
+            item.hidden = !isCurrent;
+        });
+        var pinItem = menu.querySelector('[data-open-window-menu-pin]');
+        if (pinItem) {
+            pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+        }
+        menu.__row = row;
+        if (menuOriginButton && menuOriginButton !== button) {
+            menuOriginButton.setAttribute('aria-expanded', 'false');
+        }
+        menuOriginButton = button;
+        button.setAttribute('aria-expanded', 'true');
+        menu.style.visibility = 'hidden';
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+        menu.classList.add('visible');
+        var buttonRect = button.getBoundingClientRect();
+        var menuRect = menu.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = Math.max(viewportPadding, Math.min(
+            buttonRect.right - menuRect.width,
+            window.innerWidth - menuRect.width - viewportPadding
+        ));
+        var top = buttonRect.bottom + 2;
+        if (top + menuRect.height > window.innerHeight - viewportPadding) {
+            top = Math.max(viewportPadding, buttonRect.top - menuRect.height - 2);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.style.visibility = 'visible';
+        var firstItem = menu.querySelector('[role="menuitem"]:not([hidden])');
+        if (firstItem && typeof firstItem.focus === 'function') {
+            firstItem.focus();
+        }
+    }
+
+    function toggleMenu(button) {
+        var menu = document.getElementById('openWindowMenu');
+        var isOpen = menu && menu.classList.contains('visible')
+            && menuOriginButton === button;
+        if (isOpen) {
+            closeMenu();
+        } else {
+            openMenu(button);
+        }
+    }
+
+    function activateMenuItem(item) {
+        var menu = document.getElementById('openWindowMenu');
+        var row = menu && menu.__row;
+        if (!row) {
+            closeMenu();
+            return;
+        }
+        var cardId = row.getAttribute('data-id');
+        var action = item.getAttribute('data-action');
+        closeMenu();
+        if (action === 'focus-open-window') {
+            request(cardId);
+        } else if (action === 'toggle-open-workspace-pin'
+            && typeof requestOpenWorkspacePin === 'function') {
+            var pinButton = row.querySelector('[data-action="toggle-open-workspace-pin"]');
+            if (pinButton) {
+                requestOpenWorkspacePin(pinButton, cardId);
+            }
+        } else if (action === 'save-current-workspace'
+            && window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({ type: 'save-current-workspace', projectId: cardId });
+        }
+    }
+
+    function onMenuClick(e) {
+        var item = e.target.closest('[role="menuitem"][data-action]');
+        if (!item) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        activateMenuItem(item);
+    }
+
+    function onMenuKeydown(e) {
+        var menu = document.getElementById('openWindowMenu');
+        if (!menu || !menu.classList.contains('visible')) {
+            return;
+        }
+        var items = Array.from(menu.querySelectorAll('[role="menuitem"]:not([hidden])'));
+        var index = items.indexOf(document.activeElement);
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeMenu();
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            var next = e.key === 'ArrowDown'
+                ? (index + 1) % items.length
+                : (index - 1 + items.length) % items.length;
+            if (items[next]) {
+                items[next].focus();
+            }
+        } else if ((e.key === 'Enter' || e.key === ' ') && index >= 0) {
+            e.preventDefault();
+            activateMenuItem(items[index]);
+        }
+    }
+
+    if (typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('click', function (e) {
+            var menu = document.getElementById('openWindowMenu');
+            if (!menu || !menu.classList.contains('visible')) {
+                return;
+            }
+            if (menu.contains(e.target)) {
+                onMenuClick(e);
+                return;
+            }
+            var trigger = e.target.closest
+                && e.target.closest('[data-action="open-window-menu"]');
+            if (!trigger) {
+                closeMenu();
+            }
+        });
+        document.addEventListener('keydown', onMenuKeydown);
+    }
+
     return {
         request: request,
         retry: retry,
         complete: complete,
         reconcile: reconcile,
+        toggleMenu: toggleMenu,
+        closeMenu: closeMenu,
         isPending: function (cardId) { return pendingByCardId.has(cardId); },
         _pendingByCardId: pendingByCardId,
         _errorByCardId: errorByCardId,

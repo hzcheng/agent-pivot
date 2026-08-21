@@ -63,11 +63,16 @@ export function buildProjectsPanelUpdatedMessage(
 
 export interface OpenWorkspacesUpdatedMessage {
     type: 'open-workspaces-updated';
-    version: 3;
+    version: 4;
     semanticRevision: string;
     projectionRevision: number;
-    currentWorkspaceCount: 0 | 1;
-    navigationWorkspaceCount: number;
+    // v4: the current window appears both as a WINDOWS switcher row and as the
+    // transitional current-detail card inside the headless shell, so the old
+    // ambiguous currentWorkspaceCount splits into explicit counts.
+    windowRowCount: number;
+    currentWindowRowCount: 0 | 1;
+    navigationWindowRowCount: number;
+    currentDetailCount: 0 | 1;
     otherWindowsStatus: OpenWorkspaceBridgeStatus;
     searchCatalog: DashboardWorkspaceSearchCatalog;
     html: string;
@@ -77,7 +82,6 @@ export interface OpenWorkspacesUpdatedMessage {
 export interface BuildOpenWorkspacesUpdatedMessageInput {
     groups: Group[];
     cards: WorkspaceCardViewModel[];
-    collapsed: boolean;
     semanticRevision: string;
     projectionRevision: number;
     otherWindowsStatus: OpenWorkspaceBridgeStatus;
@@ -85,6 +89,8 @@ export interface BuildOpenWorkspacesUpdatedMessageInput {
     skills?: import('../skills/types').SkillRecord[];
     runningCardAnimation?: string;
     runningIconAnimation?: string;
+    /** Host-supplied path segments for window-name disambiguation (projection drops URIs). */
+    pathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>;
     presentation: AiSessionPresentationStateMessage;
 }
 
@@ -100,43 +106,13 @@ export interface BuildAiSessionsUpdatedMessageInput {
     presentation: AiSessionPresentationStateMessage;
 }
 
-// --- v4 (PR-A: defined, not yet posted) -------------------------------------
-// The window switcher splits the old ambiguous currentWorkspaceCount into
-// explicit counts: the current window appears both as a WINDOWS row and as the
-// transitional current-detail card inside the headless shell.
-export interface OpenWorkspacesUpdatedMessageV4 {
-    type: 'open-workspaces-updated';
-    version: 4;
-    semanticRevision: string;
-    projectionRevision: number;
-    windowRowCount: number;
-    currentWindowRowCount: 0 | 1;
-    navigationWindowRowCount: number;
-    currentDetailCount: 0 | 1;
-    otherWindowsStatus: OpenWorkspaceBridgeStatus;
-    searchCatalog: DashboardWorkspaceSearchCatalog;
-    html: string;
-    presentation: AiSessionPresentationStateMessage;
-}
-
-export interface BuildOpenWorkspacesUpdatedMessageV4Input {
-    groups: Group[];
-    cards: WorkspaceCardViewModel[];
-    semanticRevision: string;
-    projectionRevision: number;
-    otherWindowsStatus: OpenWorkspaceBridgeStatus;
-    todoSearchItems: TodoSearchCatalogItem[];
-    skills?: import('../skills/types').SkillRecord[];
-    /** Pre-rendered window-switcher group HTML (getOpenWindowSwitcherGroupContent). */
-    windowSwitcherHtml: string;
-    presentation: AiSessionPresentationStateMessage;
-}
-
-export function buildOpenWorkspacesUpdatedMessageV4(
-    input: BuildOpenWorkspacesUpdatedMessageV4Input
-): OpenWorkspacesUpdatedMessageV4 {
-    const currentWindowRowCount = input.cards.some(card => card.kind === 'current') ? 1 : 0;
+export function buildOpenWorkspacesUpdatedMessage(
+    input: BuildOpenWorkspacesUpdatedMessageInput
+): OpenWorkspacesUpdatedMessage {
+    const current = input.cards.find(card => card.kind === 'current') || null;
     const navigationWindowRowCount = input.cards.filter(card => card.kind === 'navigation').length;
+    const currentWindowRowCount = current ? 1 : 0;
+    const currentDetailCount = current && current.roots.length > 0 ? 1 : 0;
     return {
         type: 'open-workspaces-updated',
         version: 4,
@@ -145,31 +121,7 @@ export function buildOpenWorkspacesUpdatedMessageV4(
         windowRowCount: currentWindowRowCount + navigationWindowRowCount,
         currentWindowRowCount: currentWindowRowCount as 0 | 1,
         navigationWindowRowCount,
-        currentDetailCount: currentWindowRowCount as 0 | 1,
-        otherWindowsStatus: input.otherWindowsStatus,
-        searchCatalog: buildWorkspaceDashboardSearchCatalog(
-            input.groups,
-            input.cards,
-            input.todoSearchItems,
-            input.skills,
-        ),
-        html: input.windowSwitcherHtml,
-        presentation: input.presentation,
-    };
-}
-
-export function buildOpenWorkspacesUpdatedMessage(
-    input: BuildOpenWorkspacesUpdatedMessageInput
-): OpenWorkspacesUpdatedMessage {
-    const currentWorkspaceCount = input.cards.some(card => card.kind === 'current') ? 1 : 0;
-    const navigationWorkspaceCount = input.cards.filter(card => card.kind === 'navigation').length;
-    return {
-        type: 'open-workspaces-updated',
-        version: 3,
-        semanticRevision: input.semanticRevision,
-        projectionRevision: input.projectionRevision,
-        currentWorkspaceCount,
-        navigationWorkspaceCount,
+        currentDetailCount: currentDetailCount as 0 | 1,
         otherWindowsStatus: input.otherWindowsStatus,
         searchCatalog: buildWorkspaceDashboardSearchCatalog(
             input.groups,
@@ -179,10 +131,10 @@ export function buildOpenWorkspacesUpdatedMessage(
         ),
         html: getOpenWorkspacesGroupContent(
             input.cards,
-            input.collapsed,
             input.otherWindowsStatus,
             input.runningCardAnimation,
             input.runningIconAnimation,
+            input.pathSegmentsByCardId,
         ),
         presentation: input.presentation,
     };

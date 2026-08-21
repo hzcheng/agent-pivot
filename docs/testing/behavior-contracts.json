@@ -2944,22 +2944,6 @@
     ]
   },
   {
-    "id": "WEBVIEW-OPEN-TAB-SPLIT-001",
-    "domain": "webview",
-    "title": "OPEN tab splits CURRENT WINDOW and OPEN WINDOWS into independent scroll regions with a draggable, keyboard-accessible, persisted separator",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/browser/dashboardOpenTabSplit.test.js"
-    ],
-    "evidence": [
-      "media/styles.scss",
-      "src/webview/webviewContent.ts",
-      "src/webview/webviewOpenTabSplitScripts.js",
-      "src/webview/webviewWorkspaceUpdateScripts.js"
-    ]
-  },
-  {
     "id": "OPEN-WINDOW-SWITCHER-UI-001",
     "domain": "webview",
     "title": "OPEN tab window switcher renders single-line rows with fixed slots (indicator/icon/name/running/attention/pin/more), a three-state current-row model (current/pending/error) with zero-displacement transitions, and the responsive width matrix",
@@ -2995,11 +2979,10 @@
   {
     "id": "WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001",
     "domain": "webview",
-    "title": "Expanded CURRENT WINDOW card fits its OPEN tab window region (auto half pane or dragged share) with the visible AI session panel filling the card and the session list as the only inner scroll surface",
+    "title": "Expanded current-window card fits its OPEN tab region below the persistent WINDOWS switcher with the visible AI session panel filling the card and the session list as the only inner scroll surface",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/browser/dashboardOpenTabSplit.test.js",
       "tests/browser/activeSessionCardInteraction.test.js"
     ],
     "evidence": [
@@ -6208,22 +6191,6 @@
     ],
     "evidence": [
       "src/openWorkspaces/projection.ts"
-    ]
-  },
-  {
-    "id": "OPEN-ALL-WINDOWS-LIST-001",
-    "domain": "open-project",
-    "title": "CURRENT WINDOW stays detailed while OPEN WINDOWS includes a highlighted, pinnable current projection in stable order",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/openProjects/dashboardController.test.js",
-      "tests/integration/dashboard/webviewState.test.js"
-    ],
-    "evidence": [
-      "src/openWorkspaces/dashboardController.ts",
-      "src/webview/webviewContent.ts",
-      "src/webview/webviewProjectScripts.js"
     ]
   },
   {

@@ -84,9 +84,6 @@ const todoGroupScriptPath = path.join(
 const projectCollapseScriptPath = path.join(
     root, 'src', 'webview', 'webviewProjectCollapseScripts.js'
 );
-const openTabSplitScriptPath = path.join(
-    root, 'src', 'webview', 'webviewOpenTabSplitScripts.js'
-);
 const todoControlScriptPath = path.join(
     root, 'src', 'webview', 'webviewTodoControlScripts.js'
 );
@@ -106,7 +103,6 @@ function readProjectWebviewSource() {
         workspaceUpdateScriptPath,
         todoGroupScriptPath,
         projectCollapseScriptPath,
-        openTabSplitScriptPath,
         todoControlScriptPath,
         projectContextMenuScriptPath,
         projectAiUpdateScriptPath,
@@ -5143,28 +5139,6 @@ function runSourceContractChecks(source) {
         && rule.body.includes('max-height: 1000px')
         && rule.body.includes('opacity: 1')
     ), 'compiled expanded session surface must preserve the motion contract');
-    const compiledFitGroupSelector =
-        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded';
-    const compiledFitGroupRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledFitGroupSelector,
-    );
-    assert.ok(compiledFitGroupRules.some(rule =>
-        rule.selectors.includes(compiledFitGroupSelector)
-        && rule.body.includes('height: 50%')
-        && rule.body.includes('max-height: none')
-        && rule.body.includes('min-height: 283px')
-    ), 'auto layout must pin the expanded CURRENT WINDOW group to half the pane');
-    const compiledFitManualSelector =
-        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded';
-    const compiledFitManualRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledFitManualSelector,
-    );
-    assert.ok(compiledFitManualRules.some(rule =>
-        rule.selectors.includes(compiledFitManualSelector)
-        && rule.body.includes('min-height: 283px')
-    ), 'a dragged share must respect the raised expanded pane floor');
     const compiledFitListSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list';
     const compiledFitListRules = extractCompiledCssRulesContainingSelector(

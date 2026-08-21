@@ -14,7 +14,6 @@ const inputPaths = [
     'src/webview/webviewWorkspaceUpdateScripts.js',
     'src/webview/webviewTodoGroupScripts.js',
     'src/webview/webviewProjectCollapseScripts.js',
-    'src/webview/webviewOpenTabSplitScripts.js',
     'src/webview/webviewOpenWindowNavigationScripts.js',
     'src/webview/webviewTodoControlScripts.js',
     'src/webview/webviewProjectContextMenuScripts.js',

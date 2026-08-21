@@ -55,8 +55,8 @@ function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
 
 var OPEN_TAB_CURRENT_LIST_SELECTOR = '.open-current-workspace-group .group-list';
 var OPEN_TAB_CURRENT_ITEM_SELECTOR = '.workspace-card[data-workspace-scope-identity]';
-var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-other-windows-group .group-list';
-var OPEN_TAB_OTHER_ITEM_SELECTOR = '.workspace-card[data-workspace-navigation-identity]';
+var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-window-switcher-group [data-open-window-switcher-list]';
+var OPEN_TAB_OTHER_ITEM_SELECTOR = '[data-open-window-row][data-workspace-navigation-identity]';
 
 // Minimal test doubles may not implement querySelector — treat them as
 // "no scrollable list" instead of throwing mid-replacement.
@@ -144,8 +144,8 @@ var nextOpenWorkspacePinRequestId = 0;
 
 function findOpenWorkspacePinButton(cardId, root) {
     return Array.from((root || document).querySelectorAll(
-        '.open-other-windows-group .workspace-card[data-open-workspace-list-card][data-id] .project-pin-badge[data-action="toggle-open-workspace-pin"]'
-    )).find(button => button.closest('.workspace-card')?.getAttribute('data-id') === cardId) || null;
+        '[data-open-window-row][data-id] [data-action="toggle-open-workspace-pin"]'
+    )).find(button => button.closest('[data-open-window-row]')?.getAttribute('data-id') === cardId) || null;
 }
 
 function announceOpenWorkspacePin(message) {
@@ -267,12 +267,15 @@ function completeOpenWorkspacePin(message) {
 function applyOpenWorkspacesUpdate(message, options) {
     if (!message
         || message.type !== 'open-workspaces-updated'
-        || message.version !== 3
+        || message.version !== 4
         || typeof message.semanticRevision !== 'string'
         || !message.semanticRevision
-        || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
-        || !Number.isSafeInteger(message.navigationWorkspaceCount)
-        || message.navigationWorkspaceCount < 0
+        || !Number.isSafeInteger(message.windowRowCount)
+        || message.windowRowCount < 0
+        || (message.currentWindowRowCount !== 0 && message.currentWindowRowCount !== 1)
+        || !Number.isSafeInteger(message.navigationWindowRowCount)
+        || message.navigationWindowRowCount < 0
+        || (message.currentDetailCount !== 0 && message.currentDetailCount !== 1)
         || (message.otherWindowsStatus !== 'ready'
             && message.otherWindowsStatus !== 'connecting'
             && message.otherWindowsStatus !== 'unavailable'
@@ -394,46 +397,48 @@ function applyOpenWorkspacesUpdate(message, options) {
 function getOpenWorkspacesUpdateDomState(root) {
     var projectionRoot = root || document;
     var wrapperPrefix = root ? '' : '.sticky-groups-wrapper ';
-    var otherWindowsGroup = projectionRoot.querySelector(
-        wrapperPrefix + '.open-other-windows-group[data-other-windows-status]'
+    var switcherGroup = projectionRoot.querySelector(
+        wrapperPrefix + '.open-window-switcher-group[data-other-windows-status]'
     );
-    var openWorkspaceCards = Array.from(projectionRoot.querySelectorAll(
-        wrapperPrefix + '.open-other-windows-group '
-        + '.workspace-card[data-open-workspace-list-card][data-workspace-navigation-identity]'
+    var windowRows = Array.from(projectionRoot.querySelectorAll(
+        wrapperPrefix + '[data-open-window-row][data-workspace-navigation-identity]'
     ));
-    var navigationCards = openWorkspaceCards.filter(card =>
-        card.hasAttribute('data-workspace-navigation')
+    var navigationRows = windowRows.filter(row =>
+        row.getAttribute('data-window-kind') === 'navigation'
     );
-    var navigationIdentities = openWorkspaceCards.map(card =>
-        card.getAttribute('data-workspace-navigation-identity')
+    var navigationIdentities = navigationRows.map(row =>
+        row.getAttribute('data-workspace-navigation-identity')
     );
     return {
-        currentWorkspaceCount: projectionRoot.querySelectorAll(
+        windowRowCount: windowRows.length,
+        currentWindowRowCount: windowRows.filter(row =>
+            row.getAttribute('data-window-kind') === 'current'
+        ).length,
+        navigationWindowRowCount: navigationRows.length,
+        currentDetailCount: projectionRoot.querySelectorAll(
             wrapperPrefix
                 + '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
         ).length,
-        navigationWorkspaceCount: navigationCards.length,
-        openWorkspaceListCount: openWorkspaceCards.length,
         hasUniqueNavigationIdentities: navigationIdentities.every(identity => !!identity)
             && new Set(navigationIdentities).size === navigationIdentities.length,
-        hasOtherWindowsGroup: projectionRoot.querySelectorAll(
-            wrapperPrefix + '.open-other-windows-group'
-        ).length > 0,
-        otherWindowsStatus: otherWindowsGroup
-            ? otherWindowsGroup.getAttribute('data-other-windows-status')
+        hasWindowSwitcher: !!switcherGroup,
+        otherWindowsStatus: switcherGroup
+            ? switcherGroup.getAttribute('data-other-windows-status')
             : 'ready',
     };
 }
 
 function isOpenWorkspacesUpdateDomConsistent(message, root) {
     var rendered = getOpenWorkspacesUpdateDomState(root);
-    return rendered.currentWorkspaceCount === message.currentWorkspaceCount
-        && rendered.navigationWorkspaceCount === message.navigationWorkspaceCount
+    return rendered.currentWindowRowCount === message.currentWindowRowCount
+        && rendered.navigationWindowRowCount === message.navigationWindowRowCount
+        && rendered.windowRowCount === message.windowRowCount
+        && rendered.currentDetailCount === message.currentDetailCount
         && rendered.hasUniqueNavigationIdentities
         && rendered.otherWindowsStatus === message.otherWindowsStatus
-        && rendered.hasOtherWindowsGroup
-        && rendered.openWorkspaceListCount
-            === message.currentWorkspaceCount + message.navigationWorkspaceCount
+        && rendered.hasWindowSwitcher
+        && message.windowRowCount
+            === message.currentWindowRowCount + message.navigationWindowRowCount
         && message.searchCatalog.openWorkspaces.length
-            === message.currentWorkspaceCount + message.navigationWorkspaceCount;
+            === message.currentWindowRowCount + message.navigationWindowRowCount;
 }

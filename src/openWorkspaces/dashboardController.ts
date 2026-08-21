@@ -30,6 +30,7 @@ import {
     projectOpenWorkspaceNavigationCards,
 } from './projection';
 import type { OpenWorkspaceAggregate, OpenWorkspaceRecord } from './protocol';
+import { navigationUriToPathSegments } from './windowDisplayNames';
 import {
     createOpenWorkspacePinSnapshot,
     getOpenWorkspacePinTimes,
@@ -63,7 +64,6 @@ export interface OpenWorkspaceDashboardControllerOptions<TTerminal = unknown> {
     getGroups: () => Group[];
     getTodoSearchItems: () => TodoSearchCatalogItem[];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
-    getCollapsed: () => boolean;
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
     getAttentionAggregate: () => AttentionAggregate | null;
@@ -283,7 +283,6 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         const message = this.options.buildOpenWorkspacesUpdatedMessage({
             groups: this.options.getGroups(),
             cards,
-            collapsed: this.options.getCollapsed(),
             semanticRevision,
             projectionRevision: projection.revision,
             otherWindowsStatus: this.bridgeStatus,
@@ -291,6 +290,7 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],
             runningCardAnimation,
             runningIconAnimation,
+            pathSegmentsByCardId: this.buildWindowPathSegments(cards),
             presentation: buildAiSessionPresentationState(
                 false,
                 projection,
@@ -323,6 +323,25 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
                 this.options.refresh('open-workspace-update-post-error');
             }
         });
+    }
+
+    private buildWindowPathSegments(
+        cards: readonly WorkspaceCardViewModel[],
+    ): Map<string, readonly string[]> {
+        // Disambiguation segments come from the records' navigationUri: the
+        // projection layer drops URIs, so the host supplies the minimal path
+        // data for the shortest-unique-suffix algorithm (PRD 同名窗口消歧).
+        const currentWorkspace = this.options.getCurrentWorkspace();
+        const map = new Map<string, readonly string[]>();
+        for (const card of cards) {
+            const uri = card.kind === 'current'
+                ? currentWorkspace?.navigationUri
+                : this.navigationWorkspacesById.get(card.id)?.navigationUri;
+            if (uri) {
+                map.set(card.id, navigationUriToPathSegments(uri));
+            }
+        }
+        return map;
     }
 
     invalidatePendingUpdates(): void {

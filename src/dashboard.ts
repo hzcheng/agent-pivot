@@ -2434,7 +2434,6 @@ async function initializeDashboard(
         getGroups: () => projectService.getGroups(),
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
-        getCollapsed: () => Boolean(groupCollapseController.getOpenWorkspacesCollapsed()),
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
@@ -2926,7 +2925,6 @@ async function initializeDashboard(
         get config() { return getAgentPivotConfiguration() },
         get otherStorageHasData() { return projectService.otherStorageHasData() },
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
-        get openWorkspacesGroupCollapsed() { return groupCollapseController.getOpenWorkspacesCollapsed() },
         get todoSearchItems() { return todoService.getSearchItems() },
         get skills() { return skillPanel.getRecords() },
     };

@@ -202,7 +202,6 @@ export interface StewardInfos {
     config: vscode.WorkspaceConfiguration;
     otherStorageHasData: boolean;
     favoritesGroupCollapsed?: boolean;
-    openWorkspacesGroupCollapsed?: boolean;
     todoSearchItems?: TodoSearchCatalogItem[];
     skills?: import('./skills/types').SkillRecord[];
 }

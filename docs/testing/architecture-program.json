@@ -106,10 +106,13 @@
             "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-PROJECT-CATALOG": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-21): no direct 2-cycle names the module; outbound value edges land only on the kernel and the attention projection; entrypoints narrowed to the 25 consumed files; SCC membership is cluster-level debt tracked by ARCH-WAIVER-004",
+            "evidence": [
+                "tests/contract/projects/controllers.test.js",
+                "tests/contract/openProjects/projection.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-SKILL-MANAGEMENT": {
             "state": "strict",

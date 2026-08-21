@@ -214,9 +214,9 @@
         "exclude": []
       },
       "publicEntrypoints": [
-        "src/aiSessions/notify/**",
-        "src/aiSessions/notifyIntegration/**",
-        "src/aiSessions/notifyConfiguration.ts"
+        "src/aiSessions/notify/eventIdentity.ts",
+        "src/aiSessions/notifyConfiguration.ts",
+        "src/aiSessions/notifyIntegration/notifier.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-ATTENTION"

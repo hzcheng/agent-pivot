@@ -59,10 +59,12 @@
             "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-NOTIFY": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-20): zero value-level outbound edges and no cycle names the module; entrypoints narrowed to the three consumed files",
+            "evidence": [
+                "tests/contract/aiSessions/attention.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-RUNTIME": {
             "state": "legacy",

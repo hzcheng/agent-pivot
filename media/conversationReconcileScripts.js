@@ -116,5 +116,5 @@
         });
     }
 
-    window.__agentPivotConversationReconcile = Object.freeze({ create: create });
+    window.__agentPivotConversation.reconcile = Object.freeze({ create: create });
 }());

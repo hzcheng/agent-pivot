@@ -284,5 +284,5 @@
         });
     }
 
-    window.__agentPivotConversationTelemetry = Object.freeze({ create: create });
+    window.__agentPivotConversation.telemetry = Object.freeze({ create: create });
 }());

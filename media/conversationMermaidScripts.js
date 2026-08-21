@@ -376,5 +376,5 @@
         });
     }
 
-    window.__agentPivotConversationMermaid = Object.freeze({ create: create });
+    window.__agentPivotConversation.mermaid = Object.freeze({ create: create });
 })();

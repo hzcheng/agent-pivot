@@ -77,6 +77,9 @@ export function renderConversationViewerDocument(
     const mermaid = panel.webview.asWebviewUri(
         options.mediaUri('mermaid.min.js')
     );
+    const registryScript = panel.webview.asWebviewUri(
+        options.mediaUri('conversationRegistryScripts.js')
+    );
     const readingAnchorScript = panel.webview.asWebviewUri(
         options.mediaUri('conversationReadingAnchorScripts.js')
     );
@@ -575,6 +578,9 @@ export function renderConversationViewerDocument(
     </div>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         purify.toString()
+    )}"></script>
+    <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
+        registryScript.toString()
     )}"></script>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         readingAnchorScript.toString()

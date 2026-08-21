@@ -281,5 +281,5 @@
         });
     }
 
-    window.__agentPivotConversationFind = Object.freeze({ create: create });
+    window.__agentPivotConversation.find = Object.freeze({ create: create });
 }());

@@ -31,6 +31,7 @@ import { createProjectControllers } from './dashboard/sections/projectController
 import { createAiSessionStack } from './dashboard/sections/aiSessionStack';
 import { createConversationStack } from './dashboard/sections/conversationStack';
 import { createRuntimeStack } from './dashboard/sections/runtimeStack';
+import { createWorktreeStack } from './dashboard/sections/worktreeStack';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
@@ -911,35 +912,21 @@ async function initializeDashboard(
     const getCurrentOpenWorkspace = (): OpenWorkspace | null => openWorkspaceController
         ? openWorkspaceController.getCurrentWorkspace()
         : resolveCurrentOpenWorkspace();
-    const worktreeBaseRefStore = new WorktreeBaseRefStore(context.globalState);
-    const worktreeProvisioningStore = new WorktreeProvisioningStore(
-        context.globalState,
-        () => normalizeWorktreeDirectory(
-            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees'))
-    );
-    const worktreeSetupRunner = new WorktreeSetupRunner();
-    const worktreeGroupManifestStore = createWorktreeGroupManifestStore(context.globalState);
-    const worktreeGroupManifestReader = worktreeGroupManifestReaderOf(worktreeGroupManifestStore);
-    const worktreeGroupManifestWriter = worktreeGroupManifestWriterOf(worktreeGroupManifestStore);
-    const worktreeMemberLifecycle = new WorktreeMemberLifecycle(worktreeGroupManifestStore);
-    const gitWorktreeDiscovery = new GitWorktreeDiscovery({
-        getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
+    const {
+        worktreeBaseRefStore,
+        worktreeProvisioningStore,
+        worktreeSetupRunner,
+        worktreeGroupManifestStore,
+        worktreeGroupManifestReader,
+        worktreeGroupManifestWriter,
+        worktreeMemberLifecycle,
+        gitWorktreeDiscovery,
+        getPriorityWorktreeKeys,
+        getWorktreePrioritySignature,
+    } = createWorktreeStack({
+        context,
+        getAiSessionRuntimeCoordinator: () => aiSessionRuntimeCoordinator,
     });
-    const getPriorityWorktreeKeys = (): import('./worktrees').WorktreeKey[] => [
-        ...aiSessionRuntimeCoordinator.getActive(),
-        ...aiSessionRuntimeCoordinator.getPending(),
-    ].reduce((keys, runtime) => {
-        const key = runtime.identity.worktreeKey;
-        if (key && !keys.some(candidate => worktreeKeysEqual(candidate, key))) {
-            keys.push({ ...key });
-        }
-        return keys;
-    }, [] as import('./worktrees').WorktreeKey[]);
-    const getWorktreePrioritySignature = (): string => JSON.stringify(
-        getPriorityWorktreeKeys()
-            .map(key => [key.repositoryKey, key.canonicalWorktreePath])
-            .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-    );
     let requestedWorktreePrioritySignature = getWorktreePrioritySignature();
     const worktreeSnapshotCoordinator = ownResource(() =>
         new WorktreeSnapshotCoordinator({

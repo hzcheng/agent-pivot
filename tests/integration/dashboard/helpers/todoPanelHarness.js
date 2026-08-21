@@ -97,7 +97,7 @@ async function runTodoPanelContract(transform) {
     };
     Module._load = function (request, parent, isMain) {
         if (request === 'vscode') return vscode;
-        if (request === './todos/todoPanelCapability') {
+        if (request.endsWith('/todos/todoPanelCapability')) {
             return loadTransformedModule(todoPanelCapabilityPath, transform);
         }
         return previousLoad.call(this, request, parent, isMain);

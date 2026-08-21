@@ -89,7 +89,7 @@ for (const relativePath of productionSources.filter(relativePath =>
     );
 }
 
-const dashboard = read('src/dashboard.ts');
+const dashboard = require('./lib/compositionSources').readCompositionSource(root);
 const viewProvider = read('src/dashboard/viewProvider.ts');
 const aiSessionController = read('src/aiSessions/dashboardController.ts');
 const terminalService = read('src/aiSessions/terminalService.ts');

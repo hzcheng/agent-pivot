@@ -13,7 +13,6 @@ import {
     getEffectiveRunningCardAnimation,
     getEffectiveRunningIconAnimation,
 } from './webview/runningAnimationImages';
-import { getSkillsPanelContent } from './skills/webviewSkillContent';
 import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
@@ -24,17 +23,16 @@ import {
     WSL_DEFAULT_REGEX,
 } from './constants';
 
-import ColorService from './services/colorService';
-import ProjectService from './services/projectService';
-import { TodoService } from './todos/service';
+import { createProjectServices } from './dashboard/sections/projectServices';
 import { createTodoPanelCapability } from './todos/todoPanelCapability';
-import { PromptDashboardController } from './prompts/dashboardController';
-import { initializePromptMementoStore, PromptService } from './prompts/service';
+import { initializePromptMementoStore } from './prompts/service';
+import { createPanelStack } from './dashboard/sections/panelStack';
+import { createProjectControllers } from './dashboard/sections/projectControllers';
+import { createAiSessionStack } from './dashboard/sections/aiSessionStack';
+import { createConversationStack } from './dashboard/sections/conversationStack';
+import { createRuntimeStack } from './dashboard/sections/runtimeStack';
+import { createWorktreeStack } from './dashboard/sections/worktreeStack';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
-import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
-import { createSkillPanelCapability } from './skills/skillPanelCapability';
-import { SkillGroupStore } from './skills/skillGroupStore';
-import FileService from './services/fileService';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
 import KimiSessionService from './services/kimiSessionService';
@@ -46,7 +44,6 @@ import {
     openWorkingChangeDiff,
     registerGitDiffContentProvider,
 } from './services/gitChangesDiff';
-import ProjectWindowColorService from './services/projectWindowColorService';
 import AiSessionAliasStore from './aiSessions/aliasStore';
 import AiSessionProfileStore from './aiSessions/sessionProfileStore';
 import AiSessionProfileController from './aiSessions/sessionProfileController';
@@ -199,7 +196,6 @@ import {
 import { findSavedProjectForOpenProject } from './projects/openProjectMatcher';
 import { getWorkspacePath as resolveWorkspacePath } from './projects/workspaceHelpers';
 import RemoteProjectResolver from './projects/remoteProjectResolver';
-import GitRepositoryDetector from './projects/gitRepositoryDetector';
 import { AddProjectsFromFolderController } from './projects/addProjectsFromFolderController';
 import { CurrentProjectDetailsResolver } from './projects/currentProjectDetails';
 import { FavoriteProjectController } from './projects/favoriteProjectController';
@@ -619,20 +615,13 @@ async function initializeDashboard(
                 || storageMutationMessageTypes.has(messageType));
     };
 
-    const colorService = new ColorService(context);
-    const projectService = new ProjectService(context, colorService, {
-        onDiagnostic: event => logDashboardDiagnostic(event),
-        onConflict: projectIds => {
-            logDashboardDiagnostic({
-                event: 'project-catalog-sync-conflict-recovered',
-                projectIds,
-            });
-            void vscode.window.showInformationMessage(
-                'Agent Pivot recovered projects from a sync conflict.'
-            );
-        },
-    });
-    const todoService = new TodoService(context);
+    const {
+        colorService,
+        projectService,
+        projectWindowColorService,
+        fileService,
+        gitRepositoryDetector,
+    } = createProjectServices({ context, logDashboardDiagnostic });
     const promptConfiguration = getAgentPivotConfiguration();
     const promptStore = await initializePromptMementoStore({
         globalState: context.globalState,
@@ -640,251 +629,67 @@ async function initializeDashboard(
             promptConfiguration.inspect<unknown>('promptData')?.globalValue,
     });
     resources.assertActive();
-    const promptService = new PromptService({
-        readSetting: promptStore.readSetting,
-        writeGlobalSetting: promptStore.writeGlobalSetting,
-        createId: () => randomBytes(16).toString('hex'),
-        logDiagnostic: event => logDashboardDiagnostic({ event: 'prompt-store', ...event }),
-    });
-    const getWorkspaceRootPaths = (): string[] =>
-        (vscode.workspace.workspaceFolders || []).map(folder => folder.uri.fsPath);
-    const promptDashboardController = new PromptDashboardController({
-        service: promptService,
-        confirmDelete: async prompt => {
-            const choice = await vscode.window.showWarningMessage(
-                `Delete Prompt "${prompt.name}"?`,
-                { modal: true },
-                'Delete'
-            );
-            return choice === 'Delete';
-        },
-        renderPromptSurface: getPromptSurfaceContent,
-        renderAiPanel: snapshot => getAiPanelContent(
-            snapshot,
-            getSkillsPanelContent(
-                skillPanel.getRecords(),
-                skillPanel.getPanelView(),
-            ),
-        ),
-    });
-    const skillPanel = ownResource(() => createSkillPanelCapability({
-        getHomeDir: () => os.homedir(),
-        getWorkspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-        getWorkspaceRoots: getWorkspaceRootPaths,
-        hasWorkspace: () => Boolean(vscode.workspace.workspaceFolders?.length),
-        groupStore: new SkillGroupStore(context.globalState),
-        readGlobalStorePath: () => getAgentPivotConfiguration().get<string>(
-            'skills.globalStorePath',
-            '~/.skills',
-        ),
-        writeGlobalStorePath: value => getAgentPivotConfiguration().update(
-            'skills.globalStorePath',
-            value,
-            vscode.ConfigurationTarget.Global,
-        ),
-        postMessage: message => provider.postMessage(message),
-        refreshDashboard: () => provider.refresh(),
-        isVisible: () => provider.visible,
-        showInputBox: options => vscode.window.showInputBox(options),
-        showQuickPickMany: <T extends vscode.QuickPickItem>(
-            items: readonly T[],
-            quickPickOptions: vscode.QuickPickOptions
-        ) => vscode.window.showQuickPick(
-            [...items],
-            { ...quickPickOptions, canPickMany: true } as vscode.QuickPickOptions & { canPickMany: true }
-        ),
-        showWarningMessage: (message, messageOptions, ...items) => messageOptions
-            ? vscode.window.showWarningMessage(message, messageOptions, ...items)
-            : vscode.window.showWarningMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        openTextFile: fsPath => vscode.window.showTextDocument(vscode.Uri.file(fsPath)),
-        logError,
-    }));
-    timeBootstrapPhase('skill-scan', () => skillPanel.start());
-    const todoPanel = ownResource(() => createTodoPanelCapability({
-        provider,
+    const {
         todoService,
-        getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            projectService.getGroups(),
-            getOpenWorkspaceCards(),
-            todoService.getSearchItems(),
-            skillPanel.getRecords(),
-        ),
-        getConfiguration: () => getAgentPivotConfiguration(),
-        showInputBox: options => vscode.window.showInputBox(options),
-        showWarningMessage: (message, messageOptions, ...items) =>
-            vscode.window.showWarningMessage(message, messageOptions, ...items),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        promptService,
+        promptDashboardController,
+        skillPanel,
+        todoPanel,
+    } = createPanelStack({
+        context,
+        provider,
+        resources,
+        ownResource,
+        timeBootstrapPhase,
         logError,
-    }));
-    const projectSurface = createProjectSurfaceRefresh({
+        logDashboardDiagnostic,
+        projectService,
+        promptStore,
+        getOpenWorkspaceCards,
+    });
+    const {
+        projectSurface,
+        groupCollapseController,
+        groupCommandController,
+        projectOpenController,
+        projectPromptController,
+        projectMutationController,
+        favoriteProjectController,
+        projectOrderController,
+        projectRemovalController,
+        projectManualEditController,
+        addProjectsFromFolderController,
+        remoteProjectResolver,
+        currentProjectDetailsResolver,
+    } = createProjectControllers({
+        context,
+        logError,
+        colorService,
+        projectService,
+        fileService,
+        gitRepositoryDetector,
+        getStewardInfos: () => stewardInfos,
         getProjectsPanelController: () => projectsPanelController,
         getOpenWorkspaceDashboardController: () => openWorkspaceDashboardController,
         publishOpenWorkspace: () => openWorkspaceController.publish(),
-        syncProjectColorToCurrentWindow: project =>
+        applyProjectColorToCurrentWindow: project =>
             dashboardRuntimeController.applyProjectColorToCurrentWindow(project),
+        revealDashboard: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },
     });
-    const groupCollapseController = new GroupCollapseController({
-        state: context.globalState,
-        projectService,
-    });
-    const groupCommandController = new GroupCommandController({
-        projectService,
-        promptGroupName: defaultText => queryGroupName(vscode.window, defaultText),
-        promptGroupToRemove: () => projectPromptController.queryGroup(),
-        confirmRemoveGroup: groupName => vscode.window.showWarningMessage(`Remove ${groupName}?`, { modal: true }, 'Remove'),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-        userCanceledToken: USER_CANCELED,
-    });
-    const projectWindowColorService = new ProjectWindowColorService(context);
-    const fileService = new FileService(context);
-    const gitRepositoryDetector = new GitRepositoryDetector();
-    const projectOpenController = new ProjectOpenController({
-        getWorkspaceFile: () => vscode.workspace.workspaceFile,
-        getWorkspaceFolders: () => vscode.workspace.workspaceFolders,
-        getPrependVscodeUrlToWslRemotes: () => stewardInfos.config.prependVscodeUrlToWslRemotes,
-        getProjectPathType: projectPath => fileService.getProjectPathType(projectPath),
-        getFoldersFromWorkspaceFile: workspaceFilePath => fileService.getFoldersFromWorkspaceFile(workspaceFilePath),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-        updateWorkspaceFolders: (start, deleteCount, ...workspaceFoldersToAdd) => vscode.workspace.updateWorkspaceFolders(start, deleteCount, ...workspaceFoldersToAdd),
-        updateReopenReason: reason => context.globalState.update(REOPEN_KEY, reason),
-        fileUri: projectPath => vscode.Uri.file(projectPath),
-        parseUri: projectPath => vscode.Uri.parse(projectPath),
-    });
-    const projectPromptController = new ProjectPromptController({
-        getGroups: () => projectService.getGroups(),
-        addGroup: name => projectService.addGroup(name),
-        removeGroup: (groupId, skipConfirmation) => projectService.removeGroup(groupId, skipConfirmation),
-        isFile: projectPath => fileService.isFile(projectPath),
-        isFolderGitRepo: projectPath => isFolderGitRepo(projectPath),
-        getRandomColor: () => colorService.getRandomColor(),
-        getColorName: colorCode => colorService.getColorName(colorCode),
-        getRecentColors: () => colorService.getRecentColors(),
-        getRemoteSshExtensionInstalled: () => stewardInfos.relevantExtensionsInstalls.remoteSSH,
-        showInputBox: options => vscode.window.showInputBox(options),
-        showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
-        showOpenDialog: options => vscode.window.showOpenDialog(options),
-    });
-    const projectMutationController = new ProjectMutationController({
-        getCurrentWorkspacePath: () => resolveWorkspacePath(vscode.workspace.workspaceFile, vscode.workspace.workspaceFolders),
-        getCurrentProjectDetailsForSave: () => currentProjectDetailsResolver.getCurrentProjectDetailsForSave(),
-        getProjectDetailsForSave: uri => currentProjectDetailsResolver.getProjectDetailsForSave(uri),
-        getProjectsFlat: () => projectService.getProjectsFlat(),
-        getProjectAndGroup: projectId => projectService.getProjectAndGroup(projectId),
-        addProjectToGroup: (project, groupId) => projectService.addProject(project, groupId),
-        updateProject: (projectId, project) => projectService.updateProject(projectId, project),
-        removeGroup: (groupId, skipConfirmation) => projectService.removeGroup(groupId, skipConfirmation),
-        getRandomColor: () => colorService.getRandomColor(),
-        isFolderGitRepo,
-        prompt: projectPromptController,
-        showInputBox: options => vscode.window.showInputBox(options),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-    });
-    const favoriteProjectController = new FavoriteProjectController({
-        getGroups: () => projectService.getGroups(),
-        saveGroups: groups => projectService.saveGroups(groups),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-    });
-    const projectOrderController = new ProjectOrderController({
-        getGroups: () => projectService.getGroups(),
-        saveGroups: groups => projectService.saveGroups(groups),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-    });
-    const projectRemovalController = new ProjectRemovalController({
-        getProject: projectId => projectService.getProject(projectId),
-        getProjectsFlat: () => projectService.getProjectsFlat(),
-        showProjectPicker: projectPicks => vscode.window.showQuickPick(projectPicks),
-        confirmRemoveProject: projectName => vscode.window.showWarningMessage(`Remove ${projectName}?`, { modal: true }, 'Remove'),
-        removeProject: projectId => projectService.removeProject(projectId),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-        postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },
-    });
-    const projectManualEditController = new ProjectManualEditController({
-        getGroups: () => projectService.getGroups(),
-        getTempFilePath: () => `${context.globalStoragePath}/Agent Pivot Projects.json`,
-        writeTextFile: (filePath, content) => fileService.writeTextFile(filePath, content),
-        fileUri: filePath => vscode.Uri.file(filePath),
-        openTextDocument: uri => vscode.workspace.openTextDocument(uri),
-        showTextDocument: document => vscode.window.showTextDocument(document),
-        onWillSaveTextDocument: listener => vscode.workspace.onWillSaveTextDocument(listener),
-        saveGroups: (groups, baselineGroups) =>
-            projectService.saveGroupsFromManualEdit(groups, baselineGroups),
-        executeCommand: command => vscode.commands.executeCommand(command),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        postSave: () => {
-            projectSurface.refreshAfterMutation();
-            void dashboardRuntimeController.revealAgentPivotDashboard();
-        },
-    });
-    const addProjectsFromFolderController = new AddProjectsFromFolderController({
-        getCurrentWorkspacePath: () => resolveWorkspacePath(vscode.workspace.workspaceFile, vscode.workspace.workspaceFolders),
-        parsePathAsUri,
-        showOpenDialog: options => vscode.window.showOpenDialog(options),
-        getFolders: folderPath => fileService.getFolders(folderPath),
-        addGroup: groupName => projectService.addGroup(groupName),
-        addProject: (project, groupId) => projectService.addProject(project, groupId),
-        getRandomColor: () => colorService.getRandomColor(),
-        isFolderGitRepo,
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-        userCanceledToken: USER_CANCELED,
-    });
-    const codexSessionService = new CodexSessionService();
-    const kimiSessionService = new KimiSessionService();
-    const claudeSessionService = new ClaudeSessionService();
-    const remoteProjectResolver = new RemoteProjectResolver(logError);
-    const currentProjectDetailsResolver = new CurrentProjectDetailsResolver({
-        getWorkspaceFile: () => vscode.workspace.workspaceFile,
-        getWorkspaceFolders: () => vscode.workspace.workspaceFolders,
-        getRemoteName: () => vscode.env.remoteName,
-        getProjectDetailsForSave: (workspaceUri, remoteName) => remoteProjectResolver.getProjectDetailsForSave(workspaceUri, remoteName),
-    });
-    const aiSessionServices: Record<AiSessionProviderId, AiSessionService> = {
-        codex: codexSessionService,
-        kimi: kimiSessionService,
-        claude: claudeSessionService,
-    };
-    const aiSessionProviderRegistry = createAiSessionProviderRegistry(aiSessionServices);
-    const aiSessionProviders = aiSessionProviderRegistry.providers();
-    const aiSessionReadCoordinator = new AiSessionReadCoordinator(
+    const {
+        codexSessionService,
+        kimiSessionService,
+        claudeSessionService,
+        aiSessionServices,
+        aiSessionProviderRegistry,
         aiSessionProviders,
-        logAiSessionDiagnostic
-    );
-    const aiSessionAliasStore = new AiSessionAliasStore(context.globalStoragePath);
-    const aiSessionAliasController = new AiSessionAliasController({
-        store: aiSessionAliasStore,
-        isProviderId: isAiSessionProviderId,
-        getSessionKey: getAiSessionPinKey,
-        getProviderResult: (providerId, options) => aiSessionReadCoordinator.getProviderResult(providerId, options),
-        logError,
-        showSaveError: () => vscode.window.showErrorMessage("Could not save the chat name."),
-    });
-    const aiSessionProfileStore = new AiSessionProfileStore(context.globalStoragePath);
-    const aiSessionProfileController = new AiSessionProfileController({
-        store: aiSessionProfileStore,
-        isProviderId: isAiSessionProviderId,
-        getSessionKey: getAiSessionPinKey,
-        logError,
-        showSaveError: () => vscode.window.showErrorMessage('Could not save the Codex session profile.'),
-        lastUsedMemento: context.globalState,
-        isProfileAvailable: name => codexProfileFileExists(name),
-    });
-    const codexProfileSupportProbe = new CodexProfileSupportProbe({
-        executable: resolveAiProviderExecutable('codex') || 'codex',
-        memento: context.globalState,
-    });
-    const conversationCommentStore = new ConversationCommentFileStore(
-        context.globalStoragePath
-    );
+        aiSessionReadCoordinator,
+        aiSessionAliasStore,
+        aiSessionAliasController,
+        aiSessionProfileStore,
+        aiSessionProfileController,
+        codexProfileSupportProbe,
+    } = createAiSessionStack({ context, logError, logAiSessionDiagnostic });
     const workspaceContextResolver = new WorkspaceContextResolver();
     const currentWorkspaceSessionAuthority =
         new CurrentWorkspaceSessionAuthority(
@@ -907,12 +712,6 @@ async function initializeDashboard(
             workspaceScopeIdentity: activationWorkspace.scopeIdentity,
         });
     }
-    const projectCommentStore = new ProjectCommentFileStore(
-        context.globalStoragePath
-    );
-    const conversationBookmarkStore = new ConversationBookmarkFileStore(
-        context.globalStoragePath
-    );
     let followConversationSessionRebind = (
         _previous: { projectId: string; provider: AiSessionProviderId; sessionId: string },
         _next: { projectId: string; provider: AiSessionProviderId; sessionId: string }
@@ -920,176 +719,41 @@ async function initializeDashboard(
     let freezeConversationSessionMetadata = (
         _target: { projectId: string; provider: AiSessionProviderId; sessionId: string }
     ): Promise<boolean> => Promise.resolve(false);
-    const aiSessionTerminalBindingStore = new AiSessionTerminalBindingStore(context.workspaceState, error =>
-        logError('Failed to persist AI session terminal ownership.', error)
-    );
-    const aiSessionTerminalService = new AiSessionTerminalService(
-        context.globalStoragePath,
+    const {
+        aiSessionTerminalBindingStore,
+        aiSessionTerminalService,
+        aiSessionRuntimeConfiguration: initialAiSessionRuntimeConfiguration,
+        tmuxRuntimeStore,
+        tmuxAttachBindingStore,
+        tmuxClient,
+        tmuxRuntimeDiscovery,
+    } = createRuntimeStack({
+        context,
+        logError,
+        logAiSessionRuntimeFailure,
         aiSessionProviders,
-        undefined,
-        undefined,
-        aiSessionTerminalBindingStore
-    );
-    let aiSessionRuntimeConfiguration = readAiSessionRuntimeConfiguration(getAgentPivotConfiguration());
-    const tmuxRuntimeStore = new TmuxRuntimeBindingStore(
-        path.join(context.globalStoragePath, 'ai-session-tmux-runtimes'),
-        () => Date.now(),
-        operation => withTmuxCreationLock(
-            context.globalStoragePath,
-            'runtime-binding-final-records',
-            operation
-        )
-    );
-    const conversationSessionRebindCoordinator =
-        new ConversationSessionRebindCoordinator({
-            globalStoragePath: context.globalStoragePath,
-            commentStore: conversationCommentStore,
-            bookmarkStore: conversationBookmarkStore,
-            isRuntimeRebindCommitted: async (previous, next) =>
-                hasCommittedConversationSessionRuntimeRebind(
-                    (await tmuxRuntimeStore.listKnown()).map(binding => ({
-                        provider: binding.provider,
-                        sessionId: binding.sessionId,
-                        projectId: currentWorkspaceSessionAuthority.getProjectId({
-                            workspaceScopeIdentity:
-                                binding.workspaceScopeIdentity,
-                            workspaceNavigationIdentity:
-                                binding.workspaceNavigationIdentity,
-                        }),
-                    })),
-                    previous,
-                    next
-                ),
-            onResult: (kind, result) => logAiSessionDiagnostic({
-                event: 'conversation-session-rebind-metadata',
-                kind,
-                result,
-            }),
-            onFailure: (kind, error) => logAiSessionRuntimeFailure(
-                `copy-conversation-${kind}-for-rebind`,
-                error
-            ),
-        });
-    const conversationViewerCommentStore = {
-        load: (target: { projectId: string; provider: AiSessionProviderId; sessionId: string }) =>
-            conversationCommentStore.load(
-                conversationSessionRebindCoordinator.resolve(target)
-            ),
-        save: (
-            target: { projectId: string; provider: AiSessionProviderId; sessionId: string },
-            snapshot: Parameters<typeof conversationCommentStore.save>[1]
-        ) => conversationCommentStore.save(
-            conversationSessionRebindCoordinator.resolve(target),
-            snapshot
-        ),
-    };
-    const conversationViewerBookmarkStore = {
-        load: (target: { projectId: string; provider: AiSessionProviderId; sessionId: string }) =>
-            conversationBookmarkStore.load(
-                conversationSessionRebindCoordinator.resolve(target)
-            ),
-        save: (
-            target: { projectId: string; provider: AiSessionProviderId; sessionId: string },
-            snapshot: Parameters<typeof conversationBookmarkStore.save>[1]
-        ) => conversationBookmarkStore.save(
-            conversationSessionRebindCoordinator.resolve(target),
-            snapshot
-        ),
-    };
-    const conversationSessionRebindRestoreTask =
-        conversationSessionRebindCoordinator.restore().catch(error => {
-            logAiSessionRuntimeFailure(
-                'restore-conversation-session-rebinds',
-                error
-            );
-        });
-    const tmuxAttachBindingStore = new TmuxAttachBindingStore(context.workspaceState, error => {
-        logAiSessionRuntimeFailure('persist-attach-binding', error);
+        aiSessionAliasController,
+        aiSessionProfileController,
+        currentWorkspaceSessionAuthority,
+        getConversationSessionRebindCoordinator: () => conversationSessionRebindCoordinator,
+        getFollowConversationSessionRebind: () => followConversationSessionRebind,
+        getFreezeConversationSessionMetadata: () => freezeConversationSessionMetadata,
     });
-    const tmuxClient = new TmuxClient(aiSessionRuntimeConfiguration.tmuxPath);
-    const tmuxRuntimeDiscovery = new TmuxRuntimeDiscovery({
-        client: tmuxClient,
-        bindingStore: tmuxRuntimeStore,
-        codexRootThreadObserver: new ProcCodexRootThreadObserver(),
-        onSessionRebinding: async (previous, next) => {
-            const projectId = currentWorkspaceSessionAuthority.getProjectId(
-                previous
-            );
-            if (!projectId || !previous.sessionId || !next.sessionId
-                || previous.provider !== next.provider
-                || previous.workspaceNavigationIdentity
-                    !== next.workspaceNavigationIdentity) {
-                throw new Error('Invalid conversation Session rebind identity.');
-            }
-            await conversationSessionRebindCoordinator.prepare({
-                projectId,
-                provider: previous.provider,
-                sessionId: previous.sessionId,
-            }, {
-                projectId,
-                provider: next.provider,
-                sessionId: next.sessionId,
-            });
-        },
-        onSessionRebound: async (previous, next) => {
-            aiSessionAliasController.copyForRebind(
-                previous.provider,
-                previous.sessionId || '',
-                next.sessionId || ''
-            );
-            aiSessionProfileController.copyForRebind(
-                previous.provider,
-                previous.sessionId || '',
-                next.sessionId || ''
-            );
-            const projectId = currentWorkspaceSessionAuthority.getProjectId(
-                previous
-            );
-            if (!projectId || !previous.sessionId || !next.sessionId
-                || previous.provider !== next.provider
-                || previous.workspaceNavigationIdentity
-                    !== next.workspaceNavigationIdentity) {
-                return;
-            }
-            const previousTarget = {
-                projectId,
-                provider: previous.provider,
-                sessionId: previous.sessionId,
-            };
-            const nextTarget = {
-                projectId,
-                provider: next.provider,
-                sessionId: next.sessionId,
-            };
-            await freezeConversationSessionMetadata(previousTarget);
-            try {
-                await conversationSessionRebindCoordinator.commit(
-                    previousTarget,
-                    nextTarget
-                );
-            } catch (error) {
-                logAiSessionRuntimeFailure(
-                    'migrate-conversation-session-rebind',
-                    error
-                );
-            }
-            if (conversationSessionRebindCoordinator.resolve(previousTarget)
-                .sessionId !== nextTarget.sessionId) {
-                return;
-            }
-            try {
-                await followConversationSessionRebind(
-                    previousTarget,
-                    nextTarget
-                );
-            } catch (error) {
-                logAiSessionRuntimeFailure(
-                    'follow-conversation-session-rebind',
-                    error
-                );
-            }
-        },
-        markerIsCurrent: isCurrentRuntimeMarker,
+    let aiSessionRuntimeConfiguration = initialAiSessionRuntimeConfiguration;
+    const {
+        conversationCommentStore,
+        projectCommentStore,
+        conversationBookmarkStore,
+        conversationSessionRebindCoordinator,
+        conversationViewerCommentStore,
+        conversationViewerBookmarkStore,
+        conversationSessionRebindRestoreTask,
+    } = createConversationStack({
+        context,
+        logAiSessionDiagnostic,
+        logAiSessionRuntimeFailure,
+        tmuxRuntimeStore,
+        currentWorkspaceSessionAuthority,
     });
     const persistedInactiveRestoreTask = (async (): Promise<void> => {
         try {
@@ -1248,35 +912,21 @@ async function initializeDashboard(
     const getCurrentOpenWorkspace = (): OpenWorkspace | null => openWorkspaceController
         ? openWorkspaceController.getCurrentWorkspace()
         : resolveCurrentOpenWorkspace();
-    const worktreeBaseRefStore = new WorktreeBaseRefStore(context.globalState);
-    const worktreeProvisioningStore = new WorktreeProvisioningStore(
-        context.globalState,
-        () => normalizeWorktreeDirectory(
-            getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees'))
-    );
-    const worktreeSetupRunner = new WorktreeSetupRunner();
-    const worktreeGroupManifestStore = createWorktreeGroupManifestStore(context.globalState);
-    const worktreeGroupManifestReader = worktreeGroupManifestReaderOf(worktreeGroupManifestStore);
-    const worktreeGroupManifestWriter = worktreeGroupManifestWriterOf(worktreeGroupManifestStore);
-    const worktreeMemberLifecycle = new WorktreeMemberLifecycle(worktreeGroupManifestStore);
-    const gitWorktreeDiscovery = new GitWorktreeDiscovery({
-        getBaseRef: repositoryKey => worktreeBaseRefStore.get(repositoryKey),
+    const {
+        worktreeBaseRefStore,
+        worktreeProvisioningStore,
+        worktreeSetupRunner,
+        worktreeGroupManifestStore,
+        worktreeGroupManifestReader,
+        worktreeGroupManifestWriter,
+        worktreeMemberLifecycle,
+        gitWorktreeDiscovery,
+        getPriorityWorktreeKeys,
+        getWorktreePrioritySignature,
+    } = createWorktreeStack({
+        context,
+        getAiSessionRuntimeCoordinator: () => aiSessionRuntimeCoordinator,
     });
-    const getPriorityWorktreeKeys = (): import('./worktrees').WorktreeKey[] => [
-        ...aiSessionRuntimeCoordinator.getActive(),
-        ...aiSessionRuntimeCoordinator.getPending(),
-    ].reduce((keys, runtime) => {
-        const key = runtime.identity.worktreeKey;
-        if (key && !keys.some(candidate => worktreeKeysEqual(candidate, key))) {
-            keys.push({ ...key });
-        }
-        return keys;
-    }, [] as import('./worktrees').WorktreeKey[]);
-    const getWorktreePrioritySignature = (): string => JSON.stringify(
-        getPriorityWorktreeKeys()
-            .map(key => [key.repositoryKey, key.canonicalWorktreePath])
-            .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-    );
     let requestedWorktreePrioritySignature = getWorktreePrioritySignature();
     const worktreeSnapshotCoordinator = ownResource(() =>
         new WorktreeSnapshotCoordinator({

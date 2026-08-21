@@ -3260,9 +3260,12 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(!dashboard.includes('async function queryProjectPath('));
     assert.ok(!dashboard.includes('async function queryProjectColor('));
     assert.ok(!dashboard.includes("import { createOpenProjectRecords } from './openProjects/projection';"));
-    assert.ok(dashboard.includes('const projectManualEditController = new ProjectManualEditController({'));
-    assert.ok(dashboard.includes('const projectMutationController = new ProjectMutationController({'));
-    assert.ok(dashboard.includes('const projectPromptController = new ProjectPromptController({'));
+    const projectControllersSection = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'dashboard', 'sections', 'projectControllers.ts'), 'utf8'
+    );
+    assert.ok(projectControllersSection.includes('const projectManualEditController = new ProjectManualEditController({'));
+    assert.ok(projectControllersSection.includes('const projectMutationController = new ProjectMutationController({'));
+    assert.ok(projectControllersSection.includes('const projectPromptController = new ProjectPromptController({'));
     assert.ok(dashboard.includes('new DashboardCommandRegistration<vscode.Disposable>({'));
     assert.ok(dashboard.includes(
         'openWorkspaceDashboardController = new OpenWorkspaceDashboardController<vscode.Terminal>({'
@@ -3361,15 +3364,15 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(dashboard.includes(
         'removeGroup: () => runAfterStorageMigration(() => groupCommandController.removeGroupPerCommand())'
     ));
-    assert.ok(dashboard.includes(
-        'postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },'
+    assert.ok(projectControllersSection.includes(
+        'postCommandRemoval: () => { deps.revealDashboard(); },'
     ), 'command-driven removal must focus the sidebar without forcing a complete Webview refresh');
-    const manualEditWiring = dashboard.slice(
-        dashboard.indexOf('const projectManualEditController = new ProjectManualEditController({'),
-        dashboard.indexOf('const addProjectsFromFolderController = new AddProjectsFromFolderController({')
+    const manualEditWiring = projectControllersSection.slice(
+        projectControllersSection.indexOf('const projectManualEditController = new ProjectManualEditController({'),
+        projectControllersSection.indexOf('const addProjectsFromFolderController = new AddProjectsFromFolderController({')
     );
     assert.ok(manualEditWiring.includes('refreshAfterMutation();'));
-    assert.ok(manualEditWiring.includes('dashboardRuntimeController.revealAgentPivotDashboard();'));
+    assert.ok(manualEditWiring.includes('deps.revealDashboard();'));
     assert.strictEqual(manualEditWiring.includes('showAgentPivot()'), false,
         'manual project saves must use the partial Projects surface before focusing the sidebar');
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryProjectFields('));
@@ -3393,8 +3396,8 @@ function runDashboardBridgeLifecycleChecks() {
         'saved project metadata mutations must republish even when configuration storage is disabled');
     assert.ok(dashboard.includes('publishOpenWorkspace: () => openWorkspaceController.publish()'),
         'the dashboard wires the workspace publication into the extracted project surface refresh');
-    assert.ok(dashboard.includes('createProjectSurfaceRefresh({'),
-        'the dashboard constructs the extracted project surface refresh');
+    assert.ok(projectControllersSection.includes('createProjectSurfaceRefresh({'),
+        'the project controllers section constructs the extracted project surface refresh');
     assert.ok(dashboard.includes('createProjectMessageHandlers({'),
         'the dashboard constructs the extracted project message handlers');
     assert.strictEqual(

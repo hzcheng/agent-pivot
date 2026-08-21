@@ -9661,7 +9661,7 @@ async function runRuntimeControllerChecks() {
 }
 
 function runHostRuntimeCompositionChecks() {
-    const dashboardSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    const dashboardSource = require('./lib/compositionSources').readCompositionSource(path.join(__dirname, '..'));
     const compositionSource = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'aiSessions', 'sessionControllerComposition.ts'), 'utf8'
     );

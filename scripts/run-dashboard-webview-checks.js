@@ -4733,8 +4733,9 @@ function runSourceContractChecks(source) {
     assert.ok(todoPanelCapabilitySource.includes('getMaxVisibleTodosPerGroup('));
     assert.ok(extensionHostSource.includes("from './todos/todoPanelCapability'"),
         'dashboard must import the extracted TODO panel capability');
-    assert.ok(extensionHostSource.includes('createTodoPanelCapability({'),
-        'dashboard must construct the extracted TODO panel capability');
+    const panelStackSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'sections', 'panelStack.ts'), 'utf8');
+    assert.ok(panelStackSource.includes('createTodoPanelCapability({'),
+        'the panel section must construct the extracted TODO panel capability');
     assert.ok(extensionHostSource.includes('...todoPanel.handlers,'),
         'dashboard must spread the TODO panel handlers into the message router');
     assert.ok(extensionHostSource.includes('todoPanel.setStorageMigrationReady('),

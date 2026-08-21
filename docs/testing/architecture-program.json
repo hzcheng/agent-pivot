@@ -85,10 +85,13 @@
             "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-PROVIDER": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-21): the last direct 2-cycle (PROVIDER<->SHELL) broke by injecting the ai-sessions message builder through the dashboard controller options; the SCC cluster collapsed to three modules (ATTENTION|RUNTIME|PROJECT-CATALOG) tracked by ARCH-WAIVER-004; entrypoints narrowed to the 31 consumed files",
+            "evidence": [
+                "tests/integration/dashboard/sessionRuntimeFlow.test.js",
+                "tests/contract/aiSessions/runtimePrimitives.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-WORKSPACE-IDENTITY": {
             "state": "strict",

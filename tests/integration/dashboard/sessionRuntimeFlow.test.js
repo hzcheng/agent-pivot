@@ -4,6 +4,9 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { createFakeClock } = require('../../helpers/fakeClock');
 const { loadFreshWithFakeVscode } = require('../../helpers/runtimeContract');
+const { buildAiSessionsUpdatedMessage } = loadFreshWithFakeVscode(
+    '../../../out/dashboard/webviewUpdateMessages', {}, __dirname
+);
 const { AI_SESSION_PROVIDER_DEFINITIONS } = require('../../../out/aiSessions/providers');
 const { AiSessionTerminalCommandController } = require('../../../out/aiSessions/terminalCommandController');
 const { hydrateWorkspaceAiSessions } = require('../../../out/workspaces/sessionHydration');
@@ -395,6 +398,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 coalesces watcher refr
             reasons.push(reason);
             return { revision: messages.length + 1 };
         },
+        buildAiSessionsUpdatedMessage,
         postMessage: message => { messages.push(message); return Promise.resolve(true); },
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -450,6 +454,7 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 builds cards and HTML with one
             assert.equal(reason, 'transaction-test');
             return projection;
         },
+        buildAiSessionsUpdatedMessage,
         postMessage: () => Promise.resolve(true),
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -483,6 +488,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 posts changed owner e
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => projection,
+        buildAiSessionsUpdatedMessage,
         postMessage: message => { deliveries.push(message); return Promise.resolve(true); },
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -521,6 +527,7 @@ test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses provider watchers across r
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => ({ revision: 1 }),
+        buildAiSessionsUpdatedMessage,
         postMessage: () => Promise.resolve(true),
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -573,6 +580,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 never postpones a pend
             reasons.push({ reason, atMs: clock.nowMs });
             return { revision: reasons.length + 1 };
         },
+        buildAiSessionsUpdatedMessage,
         postMessage: () => Promise.resolve(true),
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -637,6 +645,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 invalidates and refreshes for 
             reasons.push(reason);
             return { revision: messages.length + 1 };
         },
+        buildAiSessionsUpdatedMessage,
         postMessage: message => { messages.push(message); return Promise.resolve(true); },
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -674,6 +683,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-UNCHANGED-MESSAGE-SKIP-001 retries an unchang
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => ({ revision: deliveries.length + 1 }),
+        buildAiSessionsUpdatedMessage,
         postMessage: message => { deliveries.push(message); return Promise.resolve(delivered); },
         refresh: () => undefined,
         logError: (_message, error) => { throw error; },
@@ -714,6 +724,7 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 keeps dashboard-visible delivery failu
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => ({ revision: 1 }),
+        buildAiSessionsUpdatedMessage,
         postMessage: () => failureMode === 'rejected'
             ? Promise.reject(new Error('delivery failed'))
             : Promise.resolve(false),

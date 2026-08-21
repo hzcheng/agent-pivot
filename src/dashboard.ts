@@ -296,6 +296,7 @@ import {
 } from './dashboard/worktreeGroupFormHandlers';
 import {
     normalizeWorktreeSetupCommand,
+    resolveMemberSetupCommand,
     WorktreeSetupRunner,
 } from './worktrees';
 import { ManagedWorktreeRemovalController } from './worktrees';
@@ -325,7 +326,7 @@ import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
 import { handleAdoptWorktrees } from './worktrees';
 import type { WorktreeAdoptSettlement } from './worktrees';
 import type { WorktreeGroupMergeSettlement } from './worktrees';
-import { resolveGenerationClaimDisposition } from './worktrees';
+import { createGenerationClaimRecovery, createMemberSessionFreeze } from './worktrees';
 import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
@@ -1033,58 +1034,13 @@ async function initializeDashboard(
     // provider inventories cannot prove a negative), so claims are released
     // only by the in-process compensating delete, by promotion, or by
     // explicit retired-record cleanup.
-    const reconcilePendingGenerationClaims = async (workspace: OpenWorkspace) => {
-        const identity = workspace.navigationIdentity;
-        const pendingClaims = worktreeGroupManifestReader.listGenerationClaims(identity)
-            .filter(claim => claim.state === 'pending');
-        if (!pendingClaims.length) {
-            return;
-        }
-        const bindings = aiSessionTerminalBindingStore.listAll();
-        if (!bindings) {
-            // Enumeration failed: absence of evidence is not evidence.
-            return;
-        }
-        const boundByMarkerPath = new Map<string, {
-            provider: string;
-            sessionId: string;
-            navigationIdentity: string;
-            worktreeKey?: import('./worktrees').WorktreeKey;
-        }>();
-        let ambiguous = false;
-        for (const binding of bindings) {
-            if ((binding.state !== 'bound' && binding.state !== 'released')
-                || !binding.markerPath) {
-                continue;
-            }
-            const existing = boundByMarkerPath.get(binding.markerPath);
-            // Session identity is the composite {provider, sessionId} plus
-            // the owning bucket and worktree key: any half differing makes
-            // the marker ambiguous.
-            if (existing && (existing.sessionId !== binding.sessionId
-                || existing.provider !== binding.providerId
-                || existing.navigationIdentity !== binding.workspaceNavigationIdentity
-                || !worktreeKeysMatch(existing.worktreeKey, binding.worktreeKey))) {
-                ambiguous = true;
-                break;
-            }
-            boundByMarkerPath.set(binding.markerPath, {
-                provider: binding.providerId,
-                sessionId: binding.sessionId,
-                navigationIdentity: binding.workspaceNavigationIdentity,
-                ...(binding.worktreeKey ? { worktreeKey: binding.worktreeKey } : {}),
-            });
-        }
-        if (ambiguous) {
-            logError('Ambiguous terminal bindings skipped during claim reconciliation.', null);
-            return;
-        }
-        await worktreeGroupManifestWriter.reconcileGenerationClaims(identity, claim =>
-            resolveGenerationClaimDisposition(claim, {
-                navigationIdentity: identity,
-                boundSessionByMarkerPath: boundByMarkerPath,
-            }));
-    };
+    const reconcilePendingGenerationClaims = createGenerationClaimRecovery({
+        listGenerationClaims: identity => worktreeGroupManifestReader.listGenerationClaims(identity),
+        reconcileGenerationClaims: (identity, resolve) =>
+            worktreeGroupManifestWriter.reconcileGenerationClaims(identity, resolve),
+        listTerminalBindings: () => aiSessionTerminalBindingStore.listAll(),
+        logError,
+    });
     const workspacePendingSessionPromotionController =
         new WorkspacePendingSessionPromotionController<vscode.Terminal>({
             providers: aiSessionProviders,
@@ -1412,20 +1368,14 @@ async function initializeDashboard(
         // Resource-scoped per repository (PRD §6.1): a cross-repo group can
         // mix Node/Java/Go stacks, so each member reads its own folder's
         // setup override.
-        getSetupCommand: repositoryKey => {
-            const workspace = getCurrentOpenWorkspace();
-            const repository = worktreeSnapshotCoordinator.getSnapshot()
-                ?.repositories.find(candidate =>
-                    candidate.repositoryKey === repositoryKey);
-            const binding = repository?.rootBindings.find(candidate =>
-                workspace?.roots.some(root => root.id === candidate.workspaceRootId));
-            const root = workspace?.roots.find(candidate =>
-                candidate.id === binding?.workspaceRootId);
-            return normalizeWorktreeSetupCommand(
-                getAgentPivotConfiguration(
-                    root ? vscode.Uri.parse(root.uri) : undefined
-                ).get<unknown>('worktreeSetupCommand', []));
-        },
+        getSetupCommand: repositoryKey => resolveMemberSetupCommand({
+            repositoryKey,
+            snapshot: worktreeSnapshotCoordinator.getSnapshot(),
+            workspaceRoots: getCurrentOpenWorkspace()?.roots || [],
+            readSetupCommand: scopeUri => getAgentPivotConfiguration(
+                scopeUri ? vscode.Uri.parse(scopeUri) : undefined
+            ).get<unknown>('worktreeSetupCommand', []),
+        }),
         getWorktreeDirectory: () => normalizeWorktreeDirectory(
             getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         getActiveEditorPath: () => vscode.window.activeTextEditor?.document.uri.fsPath,
@@ -1698,33 +1648,9 @@ async function initializeDashboard(
     // unavailable contribute nothing; their sessions still fail closed to
     // the retired generation through the creation-time/unknown rules, so
     // an incomplete snapshot never mislabels an old session as current.
-    const snapshotMemberAffectedSessions = async (member: {
-        worktreeKey?: { repositoryKey: string; canonicalWorktreePath: string };
-        path: string;
-    }) => {
-        const memberPath = normalizeWorkspaceHostPath(
-            member.worktreeKey?.canonicalWorktreePath || member.path);
-        if (!memberPath) {
-            return [];
-        }
-        const results = aiSessionReadCoordinator.getResults({
-            candidatePaths: [member.path],
-            reason: 'worktree-deletion-snapshot',
-        });
-        const frozen: { provider: string; sessionId: string }[] = [];
-        for (const [providerId, result] of Object.entries(results)) {
-            if (!result.available) {
-                continue;
-            }
-            for (const session of result.sessions) {
-                const cwd = normalizeWorkspaceHostPath(session.cwd || '');
-                if (cwd && isWorkspaceHostPathContained(memberPath, cwd)) {
-                    frozen.push({ provider: providerId, sessionId: session.id });
-                }
-            }
-        }
-        return frozen;
-    };
+    const snapshotMemberAffectedSessions = createMemberSessionFreeze({
+        getResults: input => aiSessionReadCoordinator.getResults(input),
+    });
     worktreeDeletionController = new WorktreeDeletionController({
         store: worktreeGroupManifestStore,
         recheckBlocker: (_group, member) => member.worktreeKey

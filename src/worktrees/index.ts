@@ -30,6 +30,8 @@ export { WorktreeBaseRefStore } from './baseRefStore';
 export { WorktreeMemberLifecycle } from './memberLifecycle';
 export { reconcileWorktreeGroupManifest } from './groupManifestReconciliation';
 export { resolveGenerationClaimDisposition } from './generationClaimReconciliation';
+export { createGenerationClaimRecovery } from './generationClaimRecovery';
+export { createMemberSessionFreeze } from './memberSessionFreeze';
 export { createSettlementReplayCache } from './settlementReplayCache';
 export {
     findLatestRetirementForKey,
@@ -53,7 +55,7 @@ export { GitWorktreeProvisioner } from './gitWorktreeProvisioner';
 export { GitWorktreeDiscovery } from './gitWorktreeDiscovery';
 export { GitRepositoryStateMonitor } from './gitRepositoryStateMonitor';
 export type { GitApiLike } from './gitRepositoryStateMonitor';
-export { WorktreeSetupRunner, normalizeWorktreeSetupCommand } from './worktreeSetupRunner';
+export { WorktreeSetupRunner, normalizeWorktreeSetupCommand, resolveMemberSetupCommand } from './worktreeSetupRunner';
 export { normalizeWorktreeDirectory } from './provisioningPlan';
 
 // Webview message handlers and their protocol settlements.

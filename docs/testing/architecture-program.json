@@ -43,10 +43,13 @@
             "nextAction": "awaiting its Stage 5 wave"
         },
         "MOD-AI-SESSION-CONVERSATION": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-21): no cycle names the module; inbound value edges come only from the composition root; entrypoints narrowed from the whole-surface glob to the 9 consumed files (stores, composition, coordinators, submission)",
+            "evidence": [
+                "tests/contract/aiSessions/attention.test.js",
+                "tests/unit/aiSessions/conversationChangesController.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-ATTENTION": {
             "state": "strict",

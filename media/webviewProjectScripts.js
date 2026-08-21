@@ -555,6 +555,9 @@ function initProjects() {
             // including the form slot: re-render any open creation form.
             worktreeGroupForm.reconcileDom();
             updateStickyGroupHeaderOffset();
+            if (window.__agentPivotOpenWindowNavigation) {
+                window.__agentPivotOpenWindowNavigation.reconcile(document);
+            }
             if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
                 openTabSplit.syncResizer();
             }
@@ -572,6 +575,12 @@ function initProjects() {
         }
         if (message && message.type === 'open-workspace-pin-result') {
             completeOpenWorkspacePin(message);
+            return;
+        }
+        if (message && message.type === 'open-window-navigation-result') {
+            if (window.__agentPivotOpenWindowNavigation) {
+                window.__agentPivotOpenWindowNavigation.complete(message);
+            }
             return;
         }
         if (message && message.type === 'ai-session-tab-selection-requested') {

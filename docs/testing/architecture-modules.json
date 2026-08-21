@@ -651,11 +651,14 @@
         "src/openWorkspaces/earlyBridge.ts",
         "src/openWorkspaces/navigationController.ts",
         "src/openWorkspaces/navigationQuickPickController.ts",
+        "src/openWorkspaces/openWindowNavigationRequestController.ts",
         "src/openWorkspaces/pinController.ts",
         "src/openWorkspaces/pinProtocol.ts",
         "src/openWorkspaces/projection.ts",
         "src/openWorkspaces/protocol.ts",
         "src/openWorkspaces/runningFocusProtocol.ts",
+        "src/openWorkspaces/windowDisplayNames.ts",
+        "src/openWorkspaces/windowRowViewModel.ts",
         "src/openWorkspaces/workspaceController.ts"
       ],
       "mayDependOn": [

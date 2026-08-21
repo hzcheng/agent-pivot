@@ -15,20 +15,29 @@ export interface WorkspaceNavigationControllerOptions {
     refresh: (reason: string) => void;
 }
 
+// Settlement vocabulary for the versioned open-window navigation request
+// protocol: every webview request resolves to exactly one of these outcomes.
+export type OpenWorkspaceNavigationSettlement =
+    'focused' | 'stale-target' | 'untitled-workspace' | 'failed';
+
 export class WorkspaceNavigationController {
     constructor(private readonly options: WorkspaceNavigationControllerOptions) {
     }
 
     async open(cardId: string): Promise<void> {
+        await this.openForSettlement(cardId);
+    }
+
+    async openForSettlement(cardId: string): Promise<OpenWorkspaceNavigationSettlement> {
         const record = this.options.getRecord(cardId);
         if (!record) {
             this.options.refresh('open-workspace-navigation-stale');
-            return;
+            return 'stale-target';
         }
 
         if (record.kind === 'untitledMultiRoot') {
             this.options.showInformationMessage('Save this workspace before switching to it');
-            return;
+            return 'untitled-workspace';
         }
 
         try {
@@ -39,10 +48,12 @@ export class WorkspaceNavigationController {
                     navigationIdentity: record.navigationIdentity,
                 },
             ));
+            return 'focused';
         } catch (_error) {
             this.options.showWarningMessage(
                 'Unable to switch directly to this workspace. Use VS Code Switch Window instead.',
             );
+            return 'failed';
         }
     }
 }

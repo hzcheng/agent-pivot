@@ -2261,6 +2261,218 @@ body.open-tab-split-resizing {
     }
 }
 
+// --- OPEN tab window switcher (PR-A: styles only, production DOM in PR-B) ---
+// Single-row window rows with fixed slots; zero-displacement switching. See
+// docs/open-tab-window-switcher-prd.md (visual spec + state matrix).
+
+.open-window-switcher-group {
+    .open-window-switcher-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        .open-window-count {
+            font-weight: 400;
+        }
+    }
+
+    .open-window-switcher-list {
+        // Internal scroll with a stable scrollbar reservation (fallback for
+        // scrollbar-gutter on the old Chromium the extension still supports).
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        overscroll-behavior: contain;
+    }
+}
+
+.open-window-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 6px 0 0;
+    margin: 0 6px 2px;
+    border-radius: 5px;
+    position: relative;
+
+    .open-window-indicator {
+        flex: 0 0 14px;
+        display: flex;
+        justify-content: center;
+
+        &::before {
+            content: "";
+            width: 3px;
+            height: 16px;
+            border-radius: 1px;
+        }
+    }
+
+    .open-window-focus {
+        flex: 1 1 auto;
+        min-width: 96px; // PRD: 名字槽位保留最低可读宽度
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: none;
+        border: none;
+        padding: 0;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        overflow: hidden;
+
+        .open-window-icon {
+            flex: 0 0 auto;
+            display: flex;
+            opacity: 0.7;
+
+            svg {
+                width: 14px;
+                height: 14px;
+                fill: currentColor;
+            }
+        }
+
+        .open-window-name {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .open-window-env-chip {
+            flex: 0 0 auto;
+            font-size: 10px;
+            padding: 0 5px;
+            border-radius: 3px;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+        }
+
+        .open-window-jump-hint {
+            flex: 0 0 auto;
+            opacity: 0;
+            font-size: 11px;
+        }
+    }
+
+    // 当前行：三重编码（竖线 + 加粗 + 微亮底），无边框、无 ↗、主按钮不跳转。
+    &.open-window-row-current {
+        background: var(--vscode-list-inactiveSelectionBackground);
+
+        .open-window-indicator::before {
+            background: var(--vscode-focusBorder);
+        }
+
+        .open-window-focus {
+            cursor: default;
+
+            .open-window-name {
+                font-weight: 700;
+            }
+        }
+    }
+
+    &:not(.open-window-row-current):hover .open-window-jump-hint {
+        opacity: 0.8;
+    }
+
+    &:hover {
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &.open-window-row-current:hover {
+        background: var(--vscode-list-inactiveSelectionBackground);
+    }
+
+    &:focus-visible,
+    .open-window-focus:focus-visible,
+    .open-window-pin:focus-visible,
+    .open-window-more:focus-visible,
+    .open-window-retry:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+
+    // pending / error 三态（PRD 状态矩阵）。
+    &[data-navigation-state="pending"] {
+        box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
+    }
+
+    &[data-navigation-state="error"] {
+        box-shadow: inset 0 0 0 1px var(--vscode-editorError-foreground, #f14c4c);
+    }
+
+    .open-window-retry {
+        flex: 0 0 auto;
+        font-size: 11px;
+    }
+
+    .open-window-running,
+    .open-window-attention {
+        flex: 0 0 26px;
+        text-align: right;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    .open-window-running {
+        color: var(--vscode-charts-green, #7aca8a);
+    }
+
+    .open-window-attention {
+        color: var(--vscode-editorWarning-foreground);
+    }
+
+    .open-window-pin,
+    .open-window-more {
+        flex: 0 0 auto;
+        min-width: 24px;
+        min-height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        padding: 0;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+
+        svg {
+            width: 13px;
+            height: 13px;
+            fill: currentColor;
+        }
+    }
+
+    // 未 pin 的 ★ 仅 hover/focus 显示；已 pin 永久显示。
+    .open-window-pin:not(.active) {
+        opacity: 0;
+    }
+
+    &:hover .open-window-pin:not(.active),
+    &:focus-within .open-window-pin:not(.active) {
+        opacity: 1;
+    }
+}
+
+// 响应式宽度矩阵（webview 视口 media query，兼容旧 Chromium；禁 container query）。
+@media (max-width: 359px) {
+    .open-window-row .open-window-pin:not(.active) {
+        display: none;
+    }
+}
+
+@media (max-width: 279px) {
+    .open-window-row {
+        .open-window-pin,
+        .open-window-env-chip {
+            display: none;
+        }
+    }
+}
+
 .open-other-windows-group .project-ai-attention-badge.attention-animate {
     animation: steward-ai-attention 900ms ease-in-out 3;
 }
@@ -7367,6 +7579,14 @@ body.steward-sidebar .prompt-item {
     .prompt-surface button {
         animation: none !important;
         transition: none !important;
+    }
+}
+
+// OPEN tab window switcher rows: no motion under reduced-motion (PRD).
+// Kept as the last reduced-motion block: tests extract these blocks by index.
+@media (prefers-reduced-motion: reduce) {
+    .open-window-row {
+        transition: none;
     }
 }
 

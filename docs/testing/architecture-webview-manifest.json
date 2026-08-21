@@ -21,6 +21,7 @@
         "src/webview/webviewTodoGroupScripts.js",
         "src/webview/webviewProjectCollapseScripts.js",
         "src/webview/webviewOpenTabSplitScripts.js",
+        "src/webview/webviewOpenWindowNavigationScripts.js",
         "src/webview/webviewTodoControlScripts.js",
         "src/webview/webviewProjectContextMenuScripts.js",
         "src/webview/webviewProjectAiUpdateScripts.js",
@@ -109,6 +110,13 @@
       "producer": "src/webview/webviewOpenTabSplitScripts.js",
       "consumers": [
         "src/webview/webviewProjectAiSessionControlsScripts.js"
+      ]
+    },
+    {
+      "symbol": "window.__agentPivotOpenWindowNavigation",
+      "producer": "src/webview/webviewOpenWindowNavigationScripts.js",
+      "consumers": [
+        "src/webview/webviewProjectScripts.js"
       ]
     },
     {

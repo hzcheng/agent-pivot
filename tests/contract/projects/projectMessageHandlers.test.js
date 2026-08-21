@@ -77,6 +77,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
     assert.deepEqual(Object.keys(handlers), [
         'selected-project',
         'set-open-workspace-pin',
+        'open-window-navigation-request',
         'add-project',
         'import-from-other-storage',
         'reordered-projects',

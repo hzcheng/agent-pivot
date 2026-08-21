@@ -2960,6 +2960,39 @@
     ]
   },
   {
+    "id": "OPEN-WINDOW-SWITCHER-UI-001",
+    "domain": "webview",
+    "title": "OPEN tab window switcher renders single-line rows with fixed slots (indicator/icon/name/running/attention/pin/more), a three-state current-row model (current/pending/error) with zero-displacement transitions, and the responsive width matrix",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/dashboardWindowSwitcher.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewWindowSwitcherContent.ts",
+      "src/openWorkspaces/windowRowViewModel.ts",
+      "src/webview/webviewOpenWindowNavigationScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "OPEN-WINDOW-NAVIGATION-SETTLEMENT-001",
+    "domain": "open-project",
+    "title": "Open-window navigation uses a versioned request/settlement protocol: every request carries requestId+cardId, settles exactly once (focused/stale-target/untitled-workspace/failed/malformed), and the webview ignores stale or duplicate receipts, supersedes consecutive clicks, times out into an inline error with retry, and replays pending/error state after authoritative DOM replacements",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/openWorkspaces/openWindowNavigationRequest.test.js",
+      "tests/browser/dashboardWindowSwitcher.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/openWindowNavigationRequestController.ts",
+      "src/openWorkspaces/navigationController.ts",
+      "src/webview/webviewOpenWindowNavigationScripts.js",
+      "src/projects/projectMessageHandlers.ts"
+    ]
+  },
+  {
     "id": "WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001",
     "domain": "webview",
     "title": "Expanded CURRENT WINDOW card fits its OPEN tab window region (auto half pane or dragged share) with the visible AI session panel filling the card and the session list as the only inner scroll surface",

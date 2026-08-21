@@ -239,6 +239,7 @@ import {
 import type { OpenWorkspaceAggregate } from './openWorkspaces/protocol';
 import { OpenWorkspaceDashboardController } from './openWorkspaces/dashboardController';
 import { WorkspaceNavigationController } from './openWorkspaces/navigationController';
+import { OpenWindowNavigationRequestController } from './openWorkspaces/openWindowNavigationRequestController';
 import {
     WorkspaceNavigationQuickPickController,
 } from './openWorkspaces/navigationQuickPickController';
@@ -903,6 +904,7 @@ async function initializeDashboard(
     let openWorkspaceDashboardController: OpenWorkspaceDashboardController<vscode.Terminal>;
     let projectsPanelController: ProjectsPanelController | undefined;
     let workspaceNavigationController: WorkspaceNavigationController;
+    let openWindowNavigationRequestController: OpenWindowNavigationRequestController;
     let openWorkspacePinController: OpenWorkspacePinController;
     const resolveCurrentOpenWorkspace = (): OpenWorkspace | null => workspaceContextResolver.resolve({
         workspaceFile: vscode.workspace.workspaceFile,
@@ -1978,6 +1980,7 @@ async function initializeDashboard(
         groupCommandController,
         groupCollapseController,
         getWorkspaceNavigationController: () => workspaceNavigationController,
+        getOpenWindowNavigationRequestController: () => openWindowNavigationRequestController,
         getOpenWorkspacePinController: () => openWorkspacePinController,
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         acknowledgeAiSessionAttentionEventIds,
@@ -2413,6 +2416,14 @@ async function initializeDashboard(
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
         refresh: refreshStewardViews,
+    });
+    // PR-A: the versioned open-window navigation request/settlement protocol.
+    // Registered but never exercised by the production UI until PR-B wires the
+    // window-row click path to it.
+    openWindowNavigationRequestController = new OpenWindowNavigationRequestController({
+        navigate: cardId => workspaceNavigationController.openForSettlement(cardId),
+        postMessage: message => provider.postMessage(message),
+        logError,
     });
     ownResource(() => worktreeSnapshotCoordinator.onDidChange(state => {
         if ((state.kind === 'ready' && !state.refreshing) || state.kind === 'error') {

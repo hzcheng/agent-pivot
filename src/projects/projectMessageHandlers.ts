@@ -9,6 +9,7 @@ import type { ProjectsPanelUpdateMode } from '../dashboard/webviewUpdateMessages
 import type { GroupOrder, Project, ProjectOpenType } from '../models';
 import type { OpenWorkspaceDashboardController } from '../openWorkspaces/dashboardController';
 import type { WorkspaceNavigationController } from '../openWorkspaces/navigationController';
+import type { OpenWindowNavigationRequestController } from '../openWorkspaces/openWindowNavigationRequestController';
 import type { OpenWorkspacePinController } from '../openWorkspaces/pinController';
 import type ProjectService from '../services/projectService';
 import type { FavoriteProjectController } from './favoriteProjectController';
@@ -78,6 +79,8 @@ export interface ProjectMessageHandlersOptions {
     groupCollapseController: GroupCollapseController;
     /** Late-bound: the navigation controller is constructed after the router. */
     getWorkspaceNavigationController: () => WorkspaceNavigationController;
+    /** Late-bound: the navigation request controller is constructed after the router. */
+    getOpenWindowNavigationRequestController: () => OpenWindowNavigationRequestController;
     /** Late-bound: the pin controller is constructed after the router. */
     getOpenWorkspacePinController: () => OpenWorkspacePinController;
     getAttentionAggregate: () => AttentionAggregate;
@@ -109,6 +112,7 @@ export function createProjectMessageHandlers(
     const groupCommandController = options.groupCommandController;
     const groupCollapseController = options.groupCollapseController;
     const getWorkspaceNavigationController = options.getWorkspaceNavigationController;
+    const getOpenWindowNavigationRequestController = options.getOpenWindowNavigationRequestController;
     const getOpenWorkspacePinController = options.getOpenWorkspacePinController;
     const getAttentionAggregate = options.getAttentionAggregate;
     const acknowledgeAiSessionAttentionEventIds = options.acknowledgeAiSessionAttentionEventIds;
@@ -139,6 +143,7 @@ export function createProjectMessageHandlers(
             await projectOpenController.openProject(project, projectOpenType);
         },
         'set-open-workspace-pin': e => getOpenWorkspacePinController().handle(e),
+        'open-window-navigation-request': e => getOpenWindowNavigationRequestController().handle(e),
         'add-project': async e => {
             await projectMutationController.addProject(e.groupId as string);
         },

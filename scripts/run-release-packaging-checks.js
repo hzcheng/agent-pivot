@@ -86,6 +86,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewTodoGroupScripts.js',
     'extension/media/webviewProjectCollapseScripts.js',
     'extension/media/webviewOpenTabSplitScripts.js',
+    'extension/media/webviewOpenWindowNavigationScripts.js',
     'extension/media/webviewTodoControlScripts.js',
     'extension/media/webviewProjectContextMenuScripts.js',
     'extension/media/webviewProjectAiUpdateScripts.js',
@@ -103,11 +104,14 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/out/openWorkspaces/focusBridgeChannel.js',
     'extension/out/openWorkspaces/navigationController.js',
     'extension/out/openWorkspaces/navigationQuickPickController.js',
+    'extension/out/openWorkspaces/openWindowNavigationRequestController.js',
     'extension/out/openWorkspaces/pinController.js',
     'extension/out/openWorkspaces/pinProtocol.js',
     'extension/out/openWorkspaces/projection.js',
     'extension/out/openWorkspaces/protocol.js',
     'extension/out/openWorkspaces/runningFocusProtocol.js',
+    'extension/out/openWorkspaces/windowDisplayNames.js',
+    'extension/out/openWorkspaces/windowRowViewModel.js',
     'extension/out/openWorkspaces/workspaceController.js',
     'extension/out/workspaces/activeSessionPresentation.js',
     'extension/out/workspaces/attentionProjection.js',
@@ -629,6 +633,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewTodoGroupScripts.js', 'media/webviewTodoGroupScripts.js'],
         ['extension/media/webviewProjectCollapseScripts.js', 'media/webviewProjectCollapseScripts.js'],
         ['extension/media/webviewOpenTabSplitScripts.js', 'media/webviewOpenTabSplitScripts.js'],
+        ['extension/media/webviewOpenWindowNavigationScripts.js', 'media/webviewOpenWindowNavigationScripts.js'],
         ['extension/media/webviewTodoControlScripts.js', 'media/webviewTodoControlScripts.js'],
         ['extension/media/webviewProjectContextMenuScripts.js', 'media/webviewProjectContextMenuScripts.js'],
         ['extension/media/webviewProjectAiUpdateScripts.js', 'media/webviewProjectAiUpdateScripts.js'],
@@ -973,6 +978,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewTodoGroupScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectCollapseScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewOpenTabSplitScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewOpenWindowNavigationScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoControlScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectContextMenuScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectAiUpdateScripts.js', 'main VSIX ignore rules');
@@ -1008,6 +1014,7 @@ function run() {
         'out/openWorkspaces/bridgeClient.js',
         'out/openWorkspaces/focusBridgeChannel.js',
         'out/openWorkspaces/navigationController.js',
+        'out/openWorkspaces/openWindowNavigationRequestController.js',
         'out/openWorkspaces/pinController.js',
         'out/openWorkspaces/pinProtocol.js',
         'dist/dashboard.js',
@@ -1016,6 +1023,7 @@ function run() {
         'media/webviewTodoGroupScripts.js',
         'media/webviewProjectCollapseScripts.js',
         'media/webviewOpenTabSplitScripts.js',
+        'media/webviewOpenWindowNavigationScripts.js',
         'media/webviewTodoControlScripts.js',
         'media/webviewProjectContextMenuScripts.js',
         'media/webviewProjectAiUpdateScripts.js',

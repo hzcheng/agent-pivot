@@ -100,6 +100,64 @@ export interface BuildAiSessionsUpdatedMessageInput {
     presentation: AiSessionPresentationStateMessage;
 }
 
+// --- v4 (PR-A: defined, not yet posted) -------------------------------------
+// The window switcher splits the old ambiguous currentWorkspaceCount into
+// explicit counts: the current window appears both as a WINDOWS row and as the
+// transitional current-detail card inside the headless shell.
+export interface OpenWorkspacesUpdatedMessageV4 {
+    type: 'open-workspaces-updated';
+    version: 4;
+    semanticRevision: string;
+    projectionRevision: number;
+    windowRowCount: number;
+    currentWindowRowCount: 0 | 1;
+    navigationWindowRowCount: number;
+    currentDetailCount: 0 | 1;
+    otherWindowsStatus: OpenWorkspaceBridgeStatus;
+    searchCatalog: DashboardWorkspaceSearchCatalog;
+    html: string;
+    presentation: AiSessionPresentationStateMessage;
+}
+
+export interface BuildOpenWorkspacesUpdatedMessageV4Input {
+    groups: Group[];
+    cards: WorkspaceCardViewModel[];
+    semanticRevision: string;
+    projectionRevision: number;
+    otherWindowsStatus: OpenWorkspaceBridgeStatus;
+    todoSearchItems: TodoSearchCatalogItem[];
+    skills?: import('../skills/types').SkillRecord[];
+    /** Pre-rendered window-switcher group HTML (getOpenWindowSwitcherGroupContent). */
+    windowSwitcherHtml: string;
+    presentation: AiSessionPresentationStateMessage;
+}
+
+export function buildOpenWorkspacesUpdatedMessageV4(
+    input: BuildOpenWorkspacesUpdatedMessageV4Input
+): OpenWorkspacesUpdatedMessageV4 {
+    const currentWindowRowCount = input.cards.some(card => card.kind === 'current') ? 1 : 0;
+    const navigationWindowRowCount = input.cards.filter(card => card.kind === 'navigation').length;
+    return {
+        type: 'open-workspaces-updated',
+        version: 4,
+        semanticRevision: input.semanticRevision,
+        projectionRevision: input.projectionRevision,
+        windowRowCount: currentWindowRowCount + navigationWindowRowCount,
+        currentWindowRowCount: currentWindowRowCount as 0 | 1,
+        navigationWindowRowCount,
+        currentDetailCount: currentWindowRowCount as 0 | 1,
+        otherWindowsStatus: input.otherWindowsStatus,
+        searchCatalog: buildWorkspaceDashboardSearchCatalog(
+            input.groups,
+            input.cards,
+            input.todoSearchItems,
+            input.skills,
+        ),
+        html: input.windowSwitcherHtml,
+        presentation: input.presentation,
+    };
+}
+
 export function buildOpenWorkspacesUpdatedMessage(
     input: BuildOpenWorkspacesUpdatedMessageInput
 ): OpenWorkspacesUpdatedMessage {

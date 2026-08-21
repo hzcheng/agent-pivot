@@ -6,7 +6,7 @@ import {
     buildAiSessionPresentationState,
     getRenderedCurrentWorkspaceNavigationIdentity,
 } from './presentationMessage';
-import { buildAiSessionsUpdatedMessage } from '../dashboard/webviewUpdateMessages';
+import type { BuildAiSessionsUpdatedMessageInput } from '../dashboard/webviewUpdateMessages';
 import type { TodoSearchCatalogItem } from '../todos/types';
 import type { AiSessionPresentationTransaction } from '../workspaces/sessionHydrationController';
 
@@ -25,6 +25,7 @@ export interface AiSessionDashboardControllerOptions<
     getTodoSearchItems: () => TodoSearchCatalogItem[];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
     getCards: (projection: TProjection) => WorkspaceCardViewModel[];
+    buildAiSessionsUpdatedMessage: (input: BuildAiSessionsUpdatedMessageInput) => AiSessionsUpdatedMessage;
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
     beginProjection: (reason: string) => TProjection;
@@ -204,7 +205,7 @@ export class AiSessionDashboardController<
         const renderedIdentity = getRenderedCurrentWorkspaceNavigationIdentity(cards);
         const runningCardAnimation = this.options.getRunningCardAnimation();
         const runningIconAnimation = this.options.getRunningIconAnimation();
-        const message = buildAiSessionsUpdatedMessage({
+        const message = this.options.buildAiSessionsUpdatedMessage({
             groups: this.options.getGroups(),
             cards,
             sequence: projection.revision,

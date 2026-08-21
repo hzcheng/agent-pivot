@@ -9,23 +9,10 @@
     ],
     "waivers": [
         {
-            "id": "ARCH-WAIVER-002",
-            "rule": "module-cycle",
-            "fingerprints": [
-                "2:MOD-AI-SESSION-PROVIDER->MOD-DASHBOARD-SHELL"
-            ],
-            "owner": "hzcheng",
-            "reason": "The composition root (dashboard.ts) wires and borrows through these modules; the dashboard-shell wave narrows entrypoints and removes the return edges.",
-            "tracking": "architecture program wave W4",
-            "createdAt": "2026-08-17",
-            "retiresWith": "WAVE-W4",
-            "expiresAt": null
-        },
-        {
             "id": "ARCH-WAIVER-004",
             "rule": "module-cycle",
             "fingerprints": [
-                "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-CONTROL|MOD-AI-SESSION-CONVERSATION|MOD-AI-SESSION-PROVIDER|MOD-AI-SESSION-RUNTIME|MOD-DASHBOARD-SHELL|MOD-OPEN-WORKSPACE|MOD-PROJECT-CATALOG|MOD-WORKSPACE-IDENTITY"
+                "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-RUNTIME|MOD-PROJECT-CATALOG"
             ],
             "owner": "hzcheng",
             "reason": "Cluster-level symptom of the coarse registry phase: 12 modules form one cyclic component through the composition root. MOD-WORKTREE-LIFECYCLE left the cluster in ARCH-CHANGE-002. Tracked at cluster level; it does not block per-module strict mode but must be gone for program acceptance.",

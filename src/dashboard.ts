@@ -103,7 +103,7 @@ import {
     createRunningSessionJumpHandler,
 } from './dashboard/runningSessionJump';
 import { createSessionNavigationCoordinator } from './dashboard/sessionNavigationCoordinator';
-import { buildOpenWorkspacesUpdatedMessage } from './dashboard/webviewUpdateMessages';
+import { buildAiSessionsUpdatedMessage, buildOpenWorkspacesUpdatedMessage } from './dashboard/webviewUpdateMessages';
 import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigationFocusExecutor';
 import {
     createSessionStatusCycleHandler,
@@ -2038,6 +2038,7 @@ async function initializeDashboard(
         getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: projection => getOpenWorkspaceCards(projection),
+        buildAiSessionsUpdatedMessage,
         getWorktreeGroupsAggregateRevision: navigationIdentity =>
             navigationIdentity
                 ? worktreeGroupManifestReader.getAggregateRevision(navigationIdentity)

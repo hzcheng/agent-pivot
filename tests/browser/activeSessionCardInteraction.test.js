@@ -86,6 +86,7 @@ const {
     hydrateWorkspaceAiSessions,
 } = require('../../out/workspaces/sessionHydration');
 const {
+    buildAiSessionsUpdatedMessage,
     buildOpenWorkspacesUpdatedMessage,
 } = require('../../out/dashboard/webviewUpdateMessages');
 const {
@@ -2207,6 +2208,7 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         getGroups: () => [],
         getTodoSearchItems: () => [],
         getCards,
+        buildAiSessionsUpdatedMessage,
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => projectionCoordinator.captureNext(workspace),

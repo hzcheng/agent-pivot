@@ -750,7 +750,7 @@ const guards = {
                 'the incremental controller must begin one explicit projection transaction');
         }
         const cardCalls = callArguments(controller, 'this.options.getCards');
-        const buildCalls = callArguments(controller, 'buildAiSessionsUpdatedMessage');
+        const buildCalls = callArguments(controller, 'this.options.buildAiSessionsUpdatedMessage');
         const buildInput = buildCalls.length === 1 ? buildCalls[0][0] : null;
         const sequenceAssignment = buildInput && ts.isObjectLiteralExpression(buildInput)
             ? buildInput.properties.find(property =>

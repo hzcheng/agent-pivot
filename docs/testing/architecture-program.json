@@ -67,10 +67,13 @@
             "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-RUNTIME": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-21): the provider 2-cycle broke by re-owning the provider-launch knowledge (commandBuilders, launchSpec) with the provider registry that embeds it; provider->runtime value edges are zero; ARCH-WAIVER-001 retired; entrypoints narrowed to the 22 consumed files; SCC membership is cluster-level debt tracked by ARCH-WAIVER-004",
+            "evidence": [
+                "tests/unit/aiSessions/commandBuilders.test.js",
+                "tests/contract/aiSessions/runtimePrimitives.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-AI-SESSION-CONTROL": {
             "state": "strict",

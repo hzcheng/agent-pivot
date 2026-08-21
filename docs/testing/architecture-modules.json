@@ -264,24 +264,33 @@
           "src/aiSessions/pendingTerminal*",
           "src/aiSessions/execution*",
           "src/aiSessions/runningQueue.ts",
-          "src/aiSessions/launch*",
-          "src/aiSessions/commandBuilders.ts"
+          "src/aiSessions/launchOptions.ts"
         ],
         "exclude": []
       },
       "publicEntrypoints": [
-        "src/aiSessions/tmux*",
-        "src/aiSessions/runtime*",
         "src/aiSessions/directTerminalRuntimeBackend.ts",
-        "src/aiSessions/terminalService.ts",
+        "src/aiSessions/executionController.ts",
+        "src/aiSessions/executionMonitor.ts",
+        "src/aiSessions/launchOptions.ts",
+        "src/aiSessions/pendingTerminalResolver.ts",
+        "src/aiSessions/pendingTerminals.ts",
+        "src/aiSessions/runningQueue.ts",
+        "src/aiSessions/runtimeConfiguration.ts",
+        "src/aiSessions/runtimeCoordinator.ts",
+        "src/aiSessions/runtimeLaunch.ts",
+        "src/aiSessions/runtimeSettlementCapability.ts",
+        "src/aiSessions/runtimeTypes.ts",
         "src/aiSessions/terminalBindingStore.ts",
         "src/aiSessions/terminalCandidates.ts",
-        "src/aiSessions/terminalCwd.ts",
-        "src/aiSessions/pendingTerminal*",
-        "src/aiSessions/execution*",
-        "src/aiSessions/runningQueue.ts",
-        "src/aiSessions/launch*",
-        "src/aiSessions/commandBuilders.ts"
+        "src/aiSessions/terminalService.ts",
+        "src/aiSessions/tmuxAttachBindingStore.ts",
+        "src/aiSessions/tmuxClient.ts",
+        "src/aiSessions/tmuxCreationLock.ts",
+        "src/aiSessions/tmuxFocusedRuntimeMonitor.ts",
+        "src/aiSessions/tmuxRuntimeBackend.ts",
+        "src/aiSessions/tmuxRuntimeBindingStore.ts",
+        "src/aiSessions/tmuxRuntimeDiscovery.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-ATTENTION",
@@ -295,8 +304,6 @@
           "role": "domain",
           "include": [
             "src/aiSessions/runtimeTypes.ts",
-            "src/aiSessions/launchSpec.ts",
-            "src/aiSessions/commandBuilders.ts",
             "src/aiSessions/tmuxNaming.ts",
             "src/aiSessions/tmuxLayout.ts"
           ]
@@ -406,8 +413,7 @@
           "src/aiSessions/pendingTerminal*",
           "src/aiSessions/execution*",
           "src/aiSessions/runningQueue.ts",
-          "src/aiSessions/launch*",
-          "src/aiSessions/commandBuilders.ts",
+          "src/aiSessions/launchOptions.ts",
           "src/aiSessions/sessionControllerComposition.ts",
           "src/aiSessions/commandController.ts",
           "src/aiSessions/creationController.ts",
@@ -442,7 +448,9 @@
           "role": "domain",
           "include": [
             "src/aiSessions/types.ts",
-            "src/aiSessions/providers.ts"
+            "src/aiSessions/providers.ts",
+            "src/aiSessions/launchSpec.ts",
+            "src/aiSessions/commandBuilders.ts"
           ]
         },
         {

@@ -325,7 +325,7 @@ import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
 import { handleAdoptWorktrees } from './worktrees';
 import type { WorktreeAdoptSettlement } from './worktrees';
 import type { WorktreeGroupMergeSettlement } from './worktrees';
-import { resolveGenerationClaimDisposition } from './worktrees';
+import { createGenerationClaimRecovery } from './worktrees';
 import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
@@ -1033,58 +1033,13 @@ async function initializeDashboard(
     // provider inventories cannot prove a negative), so claims are released
     // only by the in-process compensating delete, by promotion, or by
     // explicit retired-record cleanup.
-    const reconcilePendingGenerationClaims = async (workspace: OpenWorkspace) => {
-        const identity = workspace.navigationIdentity;
-        const pendingClaims = worktreeGroupManifestReader.listGenerationClaims(identity)
-            .filter(claim => claim.state === 'pending');
-        if (!pendingClaims.length) {
-            return;
-        }
-        const bindings = aiSessionTerminalBindingStore.listAll();
-        if (!bindings) {
-            // Enumeration failed: absence of evidence is not evidence.
-            return;
-        }
-        const boundByMarkerPath = new Map<string, {
-            provider: string;
-            sessionId: string;
-            navigationIdentity: string;
-            worktreeKey?: import('./worktrees').WorktreeKey;
-        }>();
-        let ambiguous = false;
-        for (const binding of bindings) {
-            if ((binding.state !== 'bound' && binding.state !== 'released')
-                || !binding.markerPath) {
-                continue;
-            }
-            const existing = boundByMarkerPath.get(binding.markerPath);
-            // Session identity is the composite {provider, sessionId} plus
-            // the owning bucket and worktree key: any half differing makes
-            // the marker ambiguous.
-            if (existing && (existing.sessionId !== binding.sessionId
-                || existing.provider !== binding.providerId
-                || existing.navigationIdentity !== binding.workspaceNavigationIdentity
-                || !worktreeKeysMatch(existing.worktreeKey, binding.worktreeKey))) {
-                ambiguous = true;
-                break;
-            }
-            boundByMarkerPath.set(binding.markerPath, {
-                provider: binding.providerId,
-                sessionId: binding.sessionId,
-                navigationIdentity: binding.workspaceNavigationIdentity,
-                ...(binding.worktreeKey ? { worktreeKey: binding.worktreeKey } : {}),
-            });
-        }
-        if (ambiguous) {
-            logError('Ambiguous terminal bindings skipped during claim reconciliation.', null);
-            return;
-        }
-        await worktreeGroupManifestWriter.reconcileGenerationClaims(identity, claim =>
-            resolveGenerationClaimDisposition(claim, {
-                navigationIdentity: identity,
-                boundSessionByMarkerPath: boundByMarkerPath,
-            }));
-    };
+    const reconcilePendingGenerationClaims = createGenerationClaimRecovery({
+        listGenerationClaims: identity => worktreeGroupManifestReader.listGenerationClaims(identity),
+        reconcileGenerationClaims: (identity, resolve) =>
+            worktreeGroupManifestWriter.reconcileGenerationClaims(identity, resolve),
+        listTerminalBindings: () => aiSessionTerminalBindingStore.listAll(),
+        logError,
+    });
     const workspacePendingSessionPromotionController =
         new WorkspacePendingSessionPromotionController<vscode.Terminal>({
             providers: aiSessionProviders,

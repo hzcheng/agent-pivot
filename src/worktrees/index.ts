@@ -30,6 +30,7 @@ export { WorktreeBaseRefStore } from './baseRefStore';
 export { WorktreeMemberLifecycle } from './memberLifecycle';
 export { reconcileWorktreeGroupManifest } from './groupManifestReconciliation';
 export { resolveGenerationClaimDisposition } from './generationClaimReconciliation';
+export { createGenerationClaimRecovery } from './generationClaimRecovery';
 export { createSettlementReplayCache } from './settlementReplayCache';
 export {
     findLatestRetirementForKey,

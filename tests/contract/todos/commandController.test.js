@@ -257,6 +257,10 @@ test('TODO-TODO-COMMAND-CONTROLLER-001 routes versioned commands through the pro
     assert.match(capabilitySource, /'todo-command': async e =>/);
     assert.match(capabilitySource, /todoCommandController\.handle\(e\)/);
     assert.match(capabilitySource, /provider\.postMessage\(\{\s*\.\.\.result,\s*searchCatalog:/);
-    assert.match(dashboardSource, /createTodoPanelCapability\(\{/);
+    const panelStackSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard/sections/panelStack.ts'),
+        'utf8'
+    );
+    assert.match(panelStackSource, /createTodoPanelCapability\(\{/);
     assert.match(dashboardSource, /\.\.\.todoPanel\.handlers,/);
 });

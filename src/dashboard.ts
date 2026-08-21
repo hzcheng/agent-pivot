@@ -13,7 +13,6 @@ import {
     getEffectiveRunningCardAnimation,
     getEffectiveRunningIconAnimation,
 } from './webview/runningAnimationImages';
-import { getSkillsPanelContent } from './skills/webviewSkillContent';
 import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
@@ -25,14 +24,10 @@ import {
 } from './constants';
 
 import { createProjectServices } from './dashboard/sections/projectServices';
-import { TodoService } from './todos/service';
 import { createTodoPanelCapability } from './todos/todoPanelCapability';
-import { PromptDashboardController } from './prompts/dashboardController';
-import { initializePromptMementoStore, PromptService } from './prompts/service';
+import { initializePromptMementoStore } from './prompts/service';
+import { createPanelStack } from './dashboard/sections/panelStack';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
-import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
-import { createSkillPanelCapability } from './skills/skillPanelCapability';
-import { SkillGroupStore } from './skills/skillGroupStore';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
 import KimiSessionService from './services/kimiSessionService';
@@ -622,7 +617,6 @@ async function initializeDashboard(
         fileService,
         gitRepositoryDetector,
     } = createProjectServices({ context, logDashboardDiagnostic });
-    const todoService = new TodoService(context);
     const promptConfiguration = getAgentPivotConfiguration();
     const promptStore = await initializePromptMementoStore({
         globalState: context.globalState,
@@ -630,84 +624,24 @@ async function initializeDashboard(
             promptConfiguration.inspect<unknown>('promptData')?.globalValue,
     });
     resources.assertActive();
-    const promptService = new PromptService({
-        readSetting: promptStore.readSetting,
-        writeGlobalSetting: promptStore.writeGlobalSetting,
-        createId: () => randomBytes(16).toString('hex'),
-        logDiagnostic: event => logDashboardDiagnostic({ event: 'prompt-store', ...event }),
-    });
-    const getWorkspaceRootPaths = (): string[] =>
-        (vscode.workspace.workspaceFolders || []).map(folder => folder.uri.fsPath);
-    const promptDashboardController = new PromptDashboardController({
-        service: promptService,
-        confirmDelete: async prompt => {
-            const choice = await vscode.window.showWarningMessage(
-                `Delete Prompt "${prompt.name}"?`,
-                { modal: true },
-                'Delete'
-            );
-            return choice === 'Delete';
-        },
-        renderPromptSurface: getPromptSurfaceContent,
-        renderAiPanel: snapshot => getAiPanelContent(
-            snapshot,
-            getSkillsPanelContent(
-                skillPanel.getRecords(),
-                skillPanel.getPanelView(),
-            ),
-        ),
-    });
-    const skillPanel = ownResource(() => createSkillPanelCapability({
-        getHomeDir: () => os.homedir(),
-        getWorkspaceRoot: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-        getWorkspaceRoots: getWorkspaceRootPaths,
-        hasWorkspace: () => Boolean(vscode.workspace.workspaceFolders?.length),
-        groupStore: new SkillGroupStore(context.globalState),
-        readGlobalStorePath: () => getAgentPivotConfiguration().get<string>(
-            'skills.globalStorePath',
-            '~/.skills',
-        ),
-        writeGlobalStorePath: value => getAgentPivotConfiguration().update(
-            'skills.globalStorePath',
-            value,
-            vscode.ConfigurationTarget.Global,
-        ),
-        postMessage: message => provider.postMessage(message),
-        refreshDashboard: () => provider.refresh(),
-        isVisible: () => provider.visible,
-        showInputBox: options => vscode.window.showInputBox(options),
-        showQuickPickMany: <T extends vscode.QuickPickItem>(
-            items: readonly T[],
-            quickPickOptions: vscode.QuickPickOptions
-        ) => vscode.window.showQuickPick(
-            [...items],
-            { ...quickPickOptions, canPickMany: true } as vscode.QuickPickOptions & { canPickMany: true }
-        ),
-        showWarningMessage: (message, messageOptions, ...items) => messageOptions
-            ? vscode.window.showWarningMessage(message, messageOptions, ...items)
-            : vscode.window.showWarningMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        openTextFile: fsPath => vscode.window.showTextDocument(vscode.Uri.file(fsPath)),
-        logError,
-    }));
-    timeBootstrapPhase('skill-scan', () => skillPanel.start());
-    const todoPanel = ownResource(() => createTodoPanelCapability({
-        provider,
+    const {
         todoService,
-        getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            projectService.getGroups(),
-            getOpenWorkspaceCards(),
-            todoService.getSearchItems(),
-            skillPanel.getRecords(),
-        ),
-        getConfiguration: () => getAgentPivotConfiguration(),
-        showInputBox: options => vscode.window.showInputBox(options),
-        showWarningMessage: (message, messageOptions, ...items) =>
-            vscode.window.showWarningMessage(message, messageOptions, ...items),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        promptService,
+        promptDashboardController,
+        skillPanel,
+        todoPanel,
+    } = createPanelStack({
+        context,
+        provider,
+        resources,
+        ownResource,
+        timeBootstrapPhase,
         logError,
-    }));
+        logDashboardDiagnostic,
+        projectService,
+        promptStore,
+        getOpenWorkspaceCards,
+    });
     const projectSurface = createProjectSurfaceRefresh({
         getProjectsPanelController: () => projectsPanelController,
         getOpenWorkspaceDashboardController: () => openWorkspaceDashboardController,

@@ -608,8 +608,11 @@ function runSkillWiringChecks() {
         path.join(__dirname, '..', 'src', 'skills', 'skillPanelCapability.ts'), 'utf8'
     );
     assert.ok(skillPanel.includes('new SkillDashboardController('));
-    assert.ok(dashboard.includes('createSkillPanelCapability({'),
-        'the dashboard constructs the extracted skill panel capability');
+    const panelStack = fs.readFileSync(
+        path.join(__dirname, '..', 'src', 'dashboard', 'sections', 'panelStack.ts'), 'utf8'
+    );
+    assert.ok(panelStack.includes('createSkillPanelCapability({'),
+        'the panel section constructs the extracted skill panel capability');
     assert.ok(dashboard.includes('...skillPanel.handlers,'),
         'the dashboard spreads the extracted skill handlers into the message router');
     assert.ok(skillPanel.includes("'delete-skill'"));

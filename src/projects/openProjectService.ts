@@ -35,9 +35,8 @@ export function getLastPartOfPath(projectPath: string): string {
     return projectPath.replace(/^[\\\/]|[\\\/]$/g, '').replace(/^.*[\\\/]/, '');
 }
 
-export function isUriString(projectPath: string): boolean {
-    return projectPath && projectPath.includes("://");
-}
+import { isUriString } from '../uriStrings';
+export { isUriString };
 
 export function parsePathAsUri(projectPath: string): vscode.Uri {
     return isUriString(projectPath) ? vscode.Uri.parse(projectPath) : vscode.Uri.file(projectPath);

@@ -37,9 +37,11 @@
       },
       "publicEntrypoints": [
         "src/dashboard.ts",
-        "src/sponsor.ts",
-        "src/dashboard/**",
-        "src/webview/**"
+        "src/dashboard/groupCollapseController.ts",
+        "src/dashboard/messageRouter.ts",
+        "src/dashboard/projectsPanelController.ts",
+        "src/dashboard/webviewUpdateMessages.ts",
+        "src/webview/dashboardViewModel.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-ATTENTION",
@@ -985,7 +987,8 @@
           "src/webviewHtmlEscape.ts",
           "src/configuration.ts",
           "src/attentionSessionKeys.ts",
-          "src/runtimeOwnership.ts"
+          "src/runtimeOwnership.ts",
+          "src/uriStrings.ts"
         ],
         "exclude": []
       },
@@ -999,7 +1002,8 @@
         "src/webviewHtmlEscape.ts",
         "src/configuration.ts",
         "src/attentionSessionKeys.ts",
-        "src/runtimeOwnership.ts"
+        "src/runtimeOwnership.ts",
+        "src/uriStrings.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-PROVIDER",
@@ -1022,7 +1026,8 @@
             "src/webviewHtmlEscape.ts",
             "src/configuration.ts",
             "src/attentionSessionKeys.ts",
-            "src/runtimeOwnership.ts"
+            "src/runtimeOwnership.ts",
+            "src/uriStrings.ts"
           ]
         }
       ],

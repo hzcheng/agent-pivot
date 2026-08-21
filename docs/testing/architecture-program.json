@@ -37,10 +37,13 @@
             }
         },
         "MOD-DASHBOARD-SHELL": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-21): composition-root hygiene pass — provider executable probing moved to the provider capability, the git API acquisition moved to the worktree monitor, and the triple-copied isUriString converged into the kernel, dissolving the last SCC cluster; the waiver ledger is empty; entrypoints narrowed to the composition root plus the five consumed type surfaces",
+            "evidence": [
+                "scripts/run-dashboard-webview-checks.js",
+                "tests/contract/dashboardBoundaries.test.js"
+            ],
+            "nextAction": "initializeDashboard decomposition and webview-globals reduction remain optional follow-up slices (behavior-preserving, separately planned)"
         },
         "MOD-AI-SESSION-CONVERSATION": {
             "state": "strict",

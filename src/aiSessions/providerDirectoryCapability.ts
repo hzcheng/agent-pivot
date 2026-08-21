@@ -1,5 +1,8 @@
 'use strict';
 
+import * as childProcess from 'child_process';
+import { existsSync } from 'fs';
+import * as path from 'path';
 import type { AiSessionProviderId } from '../models';
 
 export type ProviderDirectoryCapabilityStatus = 'supported' | 'unsupported' | 'unavailable';
@@ -110,4 +113,56 @@ export class ProviderDirectoryCapabilityProbe {
         const output = boundedHelpOutput(help);
         return result(ADD_DIRECTORY_OPTION.test(output) ? 'supported' : 'unsupported');
     }
+}
+
+export function resolveAiProviderExecutable(commandName: string): string | null {
+    if (!commandName) {
+        return null;
+    }
+    if (path.isAbsolute(commandName)) {
+        return existsSync(commandName) ? commandName : null;
+    }
+
+    const windows = process.platform === 'win32';
+    const pathValue = process.env.PATH || process.env.Path || '';
+    const extensions = windows
+        ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+        : [''];
+    for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
+        for (const extension of extensions) {
+            const candidate = path.join(directory, `${commandName}${extension}`);
+            if (existsSync(candidate)) {
+                return candidate;
+            }
+        }
+    }
+    return null;
+}
+
+export function runBoundedAiProviderHelp(
+    executable: string,
+    args: readonly string[],
+    options: BoundedChildProcessOptions
+): Promise<BoundedChildProcessResult> {
+    return new Promise(resolve => {
+        childProcess.execFile(executable, [...args], {
+            timeout: options.timeoutMs,
+            maxBuffer: options.maxOutputBytes,
+            encoding: 'utf8',
+            windowsHide: true,
+        }, (error, stdout, stderr) => {
+            const childError = error as unknown as NodeJS.ErrnoException & {
+                code?: string | number;
+                killed?: boolean;
+            };
+            resolve({
+                exitCode: error
+                    ? (typeof childError.code === 'number' ? childError.code : null)
+                    : 0,
+                stdout: typeof stdout === 'string' ? stdout : '',
+                stderr: typeof stderr === 'string' ? stderr : '',
+                timedOut: Boolean(error && childError.killed),
+            });
+        });
+    });
 }

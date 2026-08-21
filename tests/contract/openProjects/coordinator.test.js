@@ -104,7 +104,7 @@ test('ARCH-COORDINATOR-001 preserves focus order across heartbeat publications a
     assert.equal(harness.deliveries.length, 2);
 });
 
-test('OPEN-ALL-WINDOWS-LIST-001 preserves first-opened time across coordinator recreation', async t => {
+test('OPEN-WORKSPACE-PIN-SORT-001 preserves first-opened time across coordinator recreation', async t => {
     const store = createSyntheticOpenWorkspaceStore();
     const first = createCoordinator('/synthetic-first-opened', { store });
     await first.coordinator.publish(makePublication());

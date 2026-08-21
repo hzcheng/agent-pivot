@@ -120,9 +120,15 @@ test('ATTENTION-ATTENTION-PROJECT-RENDERING-001 OPEN cards render positive count
         }],
     }]);
     const projectAttentionBadges = activeHtml.match(/class="project-ai-attention-badge"/g) || [];
-    assert.equal(projectAttentionBadges.length, 1,
-        'only the compact current projection in OPEN WINDOWS owns the project attention badge');
-    assert.match(activeHtml, /data-open-workspace-list-card data-open-workspace-current/);
+    assert.equal(projectAttentionBadges.length, 0,
+        'the retired OPEN WINDOWS list badge is gone; window attention lives in the switcher row slot');
+    // 当前窗口行的 ⚠ 槽位承载待处理数（无旧列表徽章）。
+    const currentRow = activeHtml.match(
+        /<div class="open-window-row[^"]*open-window-row-current[^"]*"[^>]*>[\s\S]*?<button type="button" class="open-window-pin/
+    )?.[0];
+    assert.ok(currentRow, 'the current window row is rendered in the switcher');
+    assert.match(currentRow, /class="open-window-attention"[^>]*>\u26A01</);
+    // current-detail 卡片保留 AI 汇总徽章。
     assert.match(activeHtml, /class="project-codex-badge"/);
     assert.doesNotMatch(activeHtml, /project-codex-badge has-attention/);
     assert.match(activeHtml, /class="ai-session-total-count">AI 1<\/span>/);
@@ -373,13 +379,14 @@ test('OPEN-OTHER-WINDOWS-SUMMARY-001 renders shared attention as a summary witho
         sessionName: 'Private Session',
     }]);
 
-    assert.match(html, /data-id="other"[^>]*data-other-workspace/);
-    assert.match(html, /class="project-ai-attention-badge"[^>]*>1<\/span>/);
-    const otherCard = html.match(
-        /<div class="workspace-card project steward-item-card[^"]*"[^>]*data-id="other"[\s\S]*?<\/div>\s*<\/div>/
+    // 导航窗口的待处理数以行槽位 ⚠n 呈现，且行不携带任何 session 身份信息。
+    const otherRow = html.match(
+        /<div class="open-window-row[^"]*"[^>]*data-id="other"[\s\S]*?<button type="button" class="open-window-pin/
     )?.[0];
-    assert.ok(otherCard, 'OTHER WINDOWS summary card is rendered');
-    assert.doesNotMatch(otherCard, /shared-session|Private Session|data-session-provider|data-session-id/);
+    assert.ok(otherRow, 'the navigation window row is rendered in the switcher');
+    assert.match(otherRow, /class="open-window-attention"[^>]*>\u26A01</);
+    assert.doesNotMatch(otherRow, /shared-session|Private Session|data-session-provider|data-session-id/);
+    assert.equal((html.match(/class="project-ai-attention-badge"/g) || []).length, 0);
     assert.equal((html.match(/data-session-event-id="shared-event"/g) || []).length, 1);
 });
 

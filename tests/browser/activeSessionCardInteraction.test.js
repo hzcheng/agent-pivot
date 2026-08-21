@@ -93,6 +93,12 @@ const {
     getRenderedCurrentWorkspaceNavigationIdentity,
     buildAiSessionPresentationState,
 } = require('../../out/aiSessions/presentationMessage');
+const {
+    buildOpenWindowRowViewModels,
+} = require('../../out/openWorkspaces/windowRowViewModel');
+const {
+    getOpenWindowSwitcherGroupContent,
+} = require('../../out/webview/webviewWindowSwitcherContent');
 const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
     'utf8'
@@ -278,10 +284,27 @@ function listProjectMarkup(activeAiSessions, historySessions, selectedTab = 'act
     </div>`;
 }
 
-function currentOpenWorkspaceProjectMarkup() {
-    return `<div class="project workspace-card" data-id="project-a"
-        data-open-workspace-list-card data-open-workspace-current
-        data-workspace-navigation-identity="navigation-project-a"></div>`;
+// The OPEN tab shell is the persistent WINDOWS switcher (single-line rows)
+// above the headless current-detail group; the retired dual-group chrome
+// (CURRENT WINDOW header + compact OPEN WINDOWS projections) is gone.
+function openWindowSwitcherMarkup(cardOverrides = {}) {
+    const rows = buildOpenWindowRowViewModels([{
+        id: 'project-a',
+        kind: 'current',
+        workspaceKind: 'singleFolder',
+        showSaveAction: false,
+        runningSessionCount: 0,
+        navigationIdentity: 'navigation-project-a',
+        scopeIdentity: 'scope-project-a',
+        name: 'Project A',
+        environment: 'local',
+        environmentLabel: 'Local',
+        color: '',
+        roots: [{ id: 'root-project-a', name: 'Project A', ordinal: 0 }],
+        attentionCount: 0,
+        ...cardOverrides,
+    }]);
+    return getOpenWindowSwitcherGroupContent(rows, 'ready');
 }
 
 async function postListAiSessionsUpdate(
@@ -316,19 +339,17 @@ async function postListOpenWorkspacesUpdate(
     selectedTab = 'active',
     projectionRevision = 2
 ) {
-    const html = `<div class="open-current-workspace-group">
+    const html = `${openWindowSwitcherMarkup()}<div class="open-current-workspace-group">
         ${listProjectMarkup(activeAiSessions, historySessions, selectedTab)}
-    </div>
-    <div class="open-other-windows-group" data-other-windows-status="ready">
-        ${currentOpenWorkspaceProjectMarkup()}
     </div>`;
     const presentation = presentationMessage(activeAiSessions, projectionRevision);
     await page.evaluate(({ htmlValue, presentationValue, revision }) => {
         window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'open-workspaces-updated', version: 3,
+            type: 'open-workspaces-updated', version: 4,
             semanticRevision: `list-replacement-${revision}`,
             projectionRevision: revision,
-            currentWorkspaceCount: 1, navigationWorkspaceCount: 0, otherWindowsStatus: 'ready',
+            windowRowCount: 1, currentWindowRowCount: 1, navigationWindowRowCount: 0,
+            currentDetailCount: 1, otherWindowsStatus: 'ready',
             html: htmlValue,
             searchCatalog: {
                 version: 3, sessions: [], worktrees: [], openWorkspaces: [{ identity: 'project-a' }],
@@ -607,16 +628,15 @@ function openWorkspacesEnvelope(activeSessions, projectionRevision, options = {}
         ?? Object.keys(options.attention || {}).length;
     return {
         type: 'open-workspaces-updated',
-        version: 3,
+        version: 4,
         projectionRevision,
         semanticRevision: options.semanticRevision || `open-revision-${projectionRevision}`,
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 0,
+        windowRowCount: 1,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 0,
+        currentDetailCount: 1,
         otherWindowsStatus: 'ready',
-        html: `${currentWorkspaceGroupMarkup(activeSessions, attentionCount)}
-            <div class="open-other-windows-group" data-other-windows-status="ready">
-                ${currentOpenWorkspaceProjectMarkup()}
-            </div>`,
+        html: `${openWindowSwitcherMarkup()}${currentWorkspaceGroupMarkup(activeSessions, attentionCount)}`,
         searchCatalog: {
             version: 3,
             sessions: [],
@@ -694,7 +714,6 @@ function createAttentionAcknowledgementHandler(acknowledgeEventIds, postMessage)
 async function assertAttentionCleared(page, provider, sessionId) {
     const sessionRow = row(page, provider, sessionId);
     const project = page.locator('.workspace-card[data-current-workspace]');
-    const compact = page.locator('.workspace-card[data-open-workspace-current]');
     assert.equal(await sessionRow.getAttribute('data-session-needs-attention'), null);
     assert.equal(await sessionRow.getAttribute('data-ai-session-attention'), null);
     assert.equal(await sessionRow.getAttribute('data-session-event-id'), null);
@@ -710,7 +729,10 @@ async function assertAttentionCleared(page, provider, sessionId) {
         await project.locator('.project-codex-badge').getAttribute('aria-label'),
         /attention/i
     );
-    assert.equal(await compact.locator('.project-ai-attention-badge').count(), 0);
+    assert.equal(await page.locator('.workspace-card[data-open-workspace-current]').count(), 0,
+        'the retired compact OPEN WINDOWS projection must not render');
+    assert.equal(await page.locator('.project-ai-attention-badge').count(), 0,
+        'the retired compact projection badge must not render');
 }
 
 test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History anchors through both atomic replacement paths', async t => {
@@ -1166,16 +1188,19 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 rejects a reused OPEN semantic revision be
             },
         }
     );
-    otherWorkspace.html = `${currentWorkspaceGroupMarkup(
+    otherWorkspace.html = `${openWindowSwitcherMarkup({
+        id: 'project-b',
+        name: 'Project B',
+        navigationIdentity: 'navigation-project-b',
+        scopeIdentity: 'scope-project-b',
+    })}${currentWorkspaceGroupMarkup(
         [session('codex', 'session-b', true)],
         0,
         {
             scopeIdentity: 'scope-project-b',
             navigationIdentity: 'navigation-project-b',
         }
-    )}<div class="open-other-windows-group" data-other-windows-status="ready">
-        ${currentOpenWorkspaceProjectMarkup()}
-    </div>`;
+    )}`;
     await postHostMessage(page, otherWorkspace);
 
     const focusedRow = row(page, 'codex', 'session-a');
@@ -1240,12 +1265,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy OPEN u
         currentWorkspaceCount: 1,
         navigationWorkspaceCount: 0,
         otherWindowsStatus: 'ready',
-        html: `<div class="open-current-workspace-group">${projectMarkup([
+        html: `${openWindowSwitcherMarkup()}<div class="open-current-workspace-group">${projectMarkup([
             session('codex', 'legacy-session', true),
-        ])}</div>
-            <div class="open-other-windows-group" data-other-windows-status="ready">
-                ${currentOpenWorkspaceProjectMarkup()}
-            </div>`,
+        ])}</div>`,
         searchCatalog: {
             version: 3,
             sessions: [],
@@ -1357,18 +1379,17 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and
     const page = await openCardPage(t, [session('codex', 'session-a', true)]);
     await postHostMessage(page, {
         type: 'open-workspaces-updated',
-        version: 3,
+        version: 4,
         projectionRevision: 2,
         semanticRevision: 'open-envelope-revision',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 0,
+        windowRowCount: 1,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 0,
+        currentDetailCount: 1,
         otherWindowsStatus: 'ready',
-        html: `<div class="open-current-workspace-group">${projectMarkup([
+        html: `${openWindowSwitcherMarkup()}<div class="open-current-workspace-group">${projectMarkup([
             attentionSession,
-        ])}</div>
-            <div class="open-other-windows-group" data-other-windows-status="ready">
-                ${currentOpenWorkspaceProjectMarkup()}
-            </div>`,
+        ])}</div>`,
         searchCatalog: {
             version: 3,
             sessions: [],
@@ -1459,19 +1480,18 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelo
     const page = await openCardPage(t, [session('codex', 'session-a', true)]);
     await postHostMessage(page, {
         type: 'open-workspaces-updated',
-        version: 3,
+        version: 4,
         projectionRevision: 2,
         semanticRevision: 'closed-open-envelope-revision',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 0,
+        windowRowCount: 1,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 0,
+        currentDetailCount: 1,
         otherWindowsStatus: 'ready',
-        html: `<div class="open-current-workspace-group">${projectMarkup([
+        html: `${openWindowSwitcherMarkup()}<div class="open-current-workspace-group">${projectMarkup([
             attentionSession,
             otherSession,
-        ])}</div>
-            <div class="open-other-windows-group" data-other-windows-status="ready">
-                ${currentOpenWorkspaceProjectMarkup()}
-            </div>`,
+        ])}</div>`,
         searchCatalog: {
             version: 3,
             sessions: [],
@@ -1593,20 +1613,19 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OP
     assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), '');
     await postHostMessage(page, {
         type: 'open-workspaces-updated',
-        version: 3,
+        version: 4,
         projectionRevision: 2,
         semanticRevision: 'direct-first-open-envelope-revision',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 0,
+        windowRowCount: 1,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 0,
+        currentDetailCount: 1,
         otherWindowsStatus: 'ready',
-        html: `<div class="open-current-workspace-group">${projectMarkup([
+        html: `${openWindowSwitcherMarkup()}<div class="open-current-workspace-group">${projectMarkup([
             attentionSession,
             otherSession,
             addedSession,
-        ])}</div>
-            <div class="open-other-windows-group" data-other-windows-status="ready">
-                ${currentOpenWorkspaceProjectMarkup()}
-            </div>`,
+        ])}</div>`,
         searchCatalog: {
             version: 3,
             sessions: [],
@@ -1680,18 +1699,17 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid OP
     const page = await openCardPage(t, initial);
     await postHostMessage(page, {
         type: 'open-workspaces-updated',
-        version: 3,
+        version: 4,
         projectionRevision: 2,
         semanticRevision: 'invalid-open-envelope',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 0,
+        windowRowCount: 1,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 0,
+        currentDetailCount: 1,
         otherWindowsStatus: 'ready',
-        html: `<div class="open-current-workspace-group">${projectMarkup(
+        html: `${openWindowSwitcherMarkup()}<div class="open-current-workspace-group">${projectMarkup(
             replacement
-        )}</div>
-            <div class="open-other-windows-group" data-other-windows-status="ready">
-                ${currentOpenWorkspaceProjectMarkup()}
-            </div>`,
+        )}</div>`,
         searchCatalog: {
             version: 3,
             sessions: [],
@@ -2242,7 +2260,6 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
     const initialOpenEnvelope = buildOpenWorkspacesUpdatedMessage({
         groups: [],
         cards: lastProjectedCards,
-        collapsed: false,
         semanticRevision: 'initial-fixture-open-workspaces',
         projectionRevision: initialEnvelope.projectionRevision,
         otherWindowsStatus: 'ready',
@@ -2320,7 +2337,7 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         dashboardController.dispose();
     });
     const project = page.locator('.workspace-card[data-current-workspace]');
-    const compact = page.locator('.workspace-card[data-open-workspace-current]');
+    const currentRow = page.locator('[data-open-window-row][data-window-kind="current"]');
     assert.equal(await project.locator('.ai-session-attention-count').textContent(), '1');
     assert.equal(
         await project.locator('.ai-session-attention-count').getAttribute('aria-label'),
@@ -2331,10 +2348,10 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
             .getAttribute('aria-label'),
         '1 active AI session needs attention'
     );
-    assert.equal(await compact.locator('.project-ai-attention-badge').textContent(), '1');
+    assert.equal(await currentRow.locator('.open-window-attention').textContent(), '\u26A01');
     assert.equal(
-        await compact.locator('.project-ai-attention-badge').getAttribute('aria-label'),
-        '1 item needs attention'
+        await currentRow.locator('.open-window-attention').getAttribute('aria-label'),
+        '1 sessions need attention in this window'
     );
     const acknowledgementResults = [];
     const hostHandler = createAttentionAcknowledgementHandler(
@@ -2500,8 +2517,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
         t,
         [stoppedSession],
         { width: 360, height: 900 },
-        `${currentWorkspaceGroupMarkup([stoppedSession])}
-            <div class="open-other-windows-group">${currentOpenWorkspaceProjectMarkup()}</div>`
+        `${openWindowSwitcherMarkup()}${currentWorkspaceGroupMarkup([stoppedSession])}`
     );
     await page.evaluate(() => {
         document.querySelector('.workspace-card[data-current-workspace]')
@@ -2511,8 +2527,8 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
             const card = document.querySelector('.workspace-card[data-current-workspace]');
             const row = card.querySelector('.active-ai-session-row[data-session-id="current-session"]');
             const summary = card.querySelector('.project-codex-badge');
-            const compact = document.querySelector(
-                '.workspace-card[data-open-workspace-current]'
+            const switcherRow = document.querySelector(
+                '[data-open-window-row][data-window-kind="current"]'
             );
             return {
                 rowAttention: row.hasAttribute('data-ai-session-attention'),
@@ -2523,14 +2539,10 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
                 cardRunning: card.classList.contains('session-running')
                     && card.getAttribute('data-session-fx') === 'current'
                     && !!card.querySelector('.project-session-fx'),
-                compactAttention: Number(
-                    compact.querySelector('.project-ai-attention-badge')?.textContent || 0
-                ),
-                compactRunning: compact.classList.contains('session-running')
-                    && compact.getAttribute('data-session-fx') === 'current'
-                    && Number(compact.querySelector(
-                        '.project-codex-badge[data-ai-session-active-count]'
-                    )?.getAttribute('data-ai-session-active-count') || 0) === 1,
+                // The switcher row count slots are owned by open-workspaces
+                // envelopes only: an ai-sessions envelope must never touch them.
+                switcherAttention: switcherRow.querySelector('.open-window-attention').textContent,
+                switcherRunning: switcherRow.querySelector('.open-window-running').textContent,
             };
         };
         window.__activeSessionPresentationObserver = new MutationObserver(() => {
@@ -2554,8 +2566,8 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
         summaryAttention: 1,
         rowRunning: false,
         cardRunning: false,
-        compactAttention: 1,
-        compactRunning: false,
+        switcherAttention: '',
+        switcherRunning: '',
     };
     assert.deepEqual(await page.evaluate(() => window.__readActiveSessionPresentation()), attentionState);
     assert.deepEqual(
@@ -2574,8 +2586,8 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
         summaryAttention: 0,
         rowRunning: true,
         cardRunning: true,
-        compactAttention: 0,
-        compactRunning: true,
+        switcherAttention: '',
+        switcherRunning: '',
     };
     assert.deepEqual(await page.evaluate(() => window.__readActiveSessionPresentation()), runningState);
     assert.deepEqual(

@@ -94,9 +94,10 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
         },
         querySelector: selector => {
             if (selector === '.sticky-groups-wrapper') return wrapper;
-            if (selector === '.sticky-groups-wrapper .open-other-windows-group[data-other-windows-status]'
-                && wrapper.innerHTML.includes('data-other-windows-status="ready"')) {
-                return { getAttribute: () => 'ready' };
+            if (selector === '.sticky-groups-wrapper .open-window-switcher-group[data-other-windows-status]'
+                && wrapper.innerHTML.includes('open-window-switcher-group')) {
+                const status = wrapper.innerHTML.match(/data-other-windows-status="([^"]*)"/);
+                return { getAttribute: () => status ? status[1] : null };
             }
             return null;
         },
@@ -108,20 +109,15 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
                 return projectTags.filter(tag => tag.includes('data-current-workspace')
                     && tag.includes('data-workspace-scope-identity')).map(() => ({}));
             }
-            if (selector.includes('[data-open-workspace-list-card][data-workspace-navigation-identity]')) {
-                return projectTags.filter(tag => tag.includes('data-open-workspace-list-card')
-                    && tag.includes('data-workspace-navigation-identity')).map(tag => ({
-                        hasAttribute(name) {
-                            return new RegExp(`\\s${name}(?:\\s|=|>)`).test(tag);
-                        },
+            if (selector.includes('[data-open-window-row][data-workspace-navigation-identity]')) {
+                return Array.from(wrapper.innerHTML.matchAll(/<div [^>]*data-open-window-row[^>]*>/g))
+                    .map(match => match[0])
+                    .map(tag => ({
                         getAttribute(name) {
                             const match = tag.match(new RegExp(`${name}="([^"]*)"`));
                             return match ? match[1] : null;
                         },
                     }));
-            }
-            if (selector.endsWith('.open-other-windows-group')) {
-                return wrapper.innerHTML.includes('open-other-windows-group') ? [{}] : [];
             }
             return [];
         },
@@ -309,56 +305,47 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
         savedProjects: [],
         todos: [{ todoId: 'preserved' }],
     };
+    const switcherRow = (id, kind, identity) =>
+        `<div class="open-window-row${kind === 'current' ? ' open-window-row-current' : ''}" role="listitem"`
+        + ` data-open-window-row data-id="${id}" data-workspace-navigation-identity="${identity}"`
+        + ` data-window-kind="${kind}"></div>`;
     const validHtml = [
+        '<div class="group open-window-switcher-group" role="list" data-group-id="open-window-switcher" data-other-windows-status="ready">',
+        '<div class="open-window-switcher-list" data-open-window-switcher-list>',
+        switcherRow('current', 'current', 'navigation-current'),
+        switcherRow('other-a', 'navigation', 'navigation-a'),
+        switcherRow('other-b', 'navigation', 'navigation-b'),
+        '</div></div>',
         '<div class="group open-current-workspace-group"><div class="workspace-card project steward-item-card" data-id="current" data-current-workspace data-workspace-scope-identity="scope"></div></div>',
-        '<div class="group open-other-windows-group" data-other-windows-status="ready">',
-        '<div class="workspace-card project steward-item-card" data-id="current" data-open-workspace-list-card data-open-workspace-current data-workspace-navigation-identity="navigation-current"></div>',
-        '<div class="workspace-card project steward-item-card" data-id="other-a" data-open-workspace-list-card data-workspace-navigation data-other-workspace data-workspace-navigation-identity="navigation-a"></div>',
-        '<div class="workspace-card project steward-item-card" data-id="other-b" data-open-workspace-list-card data-workspace-navigation data-other-workspace data-workspace-navigation-identity="navigation-b"></div>',
-        '</div>',
     ].join('');
-
-    assert.equal(context.applyOpenWorkspacesUpdate({
+    const openUpdate = (semanticRevision, html) => ({
         type: 'open-workspaces-updated',
-        version: 3,
-        semanticRevision: 'valid',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 2,
+        version: 4,
+        semanticRevision,
+        projectionRevision: 1,
+        windowRowCount: 3,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 2,
+        currentDetailCount: 1,
         otherWindowsStatus: 'ready',
-        html: validHtml,
+        html,
         searchCatalog: catalog,
-    }), true);
+    });
+
+    assert.equal(context.applyOpenWorkspacesUpdate(openUpdate('valid', validHtml)), true);
     assert.equal(catalogs[0].todos[0].todoId, 'preserved');
 
     const attentionHtml = validHtml.replace(
         'data-id="other-a"',
         'data-id="other-a" data-attention-count="1"'
     );
-    assert.equal(context.applyOpenWorkspacesUpdate({
-        type: 'open-workspaces-updated',
-        version: 3,
-        semanticRevision: 'attention-only',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 2,
-        otherWindowsStatus: 'ready',
-        html: attentionHtml,
-        searchCatalog: catalog,
-    }), true);
+    assert.equal(context.applyOpenWorkspacesUpdate(openUpdate('attention-only', attentionHtml)), true);
 
     const runningHtml = attentionHtml.replace(
         'data-id="other-b"',
         'data-id="other-b" data-running-session-count="2"'
     );
-    assert.equal(context.applyOpenWorkspacesUpdate({
-        type: 'open-workspaces-updated',
-        version: 3,
-        semanticRevision: 'running-only',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 2,
-        otherWindowsStatus: 'ready',
-        html: runningHtml,
-        searchCatalog: catalog,
-    }), true);
+    assert.equal(context.applyOpenWorkspacesUpdate(openUpdate('running-only', runningHtml)), true);
     assert.equal(catalogs.length, 3);
     assert.ok(catalogs.every(value => value.todos[0].todoId === 'preserved'));
 
@@ -366,28 +353,15 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
         'data-workspace-navigation-identity="navigation-b"',
         'data-workspace-navigation-identity="navigation-a"'
     );
-    assert.equal(context.applyOpenWorkspacesUpdate({
-        type: 'open-workspaces-updated',
-        version: 3,
-        semanticRevision: 'duplicate-navigation',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 2,
-        otherWindowsStatus: 'ready',
-        html: duplicateIdentityHtml,
-        searchCatalog: catalog,
-    }), false);
+    assert.equal(context.applyOpenWorkspacesUpdate(
+        openUpdate('duplicate-navigation', duplicateIdentityHtml)
+    ), false);
     assert.equal(wrapper.innerHTML, runningHtml);
 
-    assert.equal(context.applyOpenWorkspacesUpdate({
-        type: 'open-workspaces-updated',
-        version: 3,
-        semanticRevision: 'lost-peer',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 2,
-        otherWindowsStatus: 'ready',
-        html: '<div class="workspace-card project steward-item-card" data-id="current" data-current-workspace data-workspace-scope-identity="scope"></div>',
-        searchCatalog: catalog,
-    }), false);
+    assert.equal(context.applyOpenWorkspacesUpdate(openUpdate(
+        'lost-peer',
+        '<div class="group open-current-workspace-group"><div class="workspace-card project steward-item-card" data-id="current" data-current-workspace data-workspace-scope-identity="scope"></div></div>'
+    )), false);
     assert.equal(wrapper.innerHTML, runningHtml);
 });
 
@@ -396,15 +370,15 @@ test('OPEN-WORKSPACE-PIN-WEBVIEW-001 waits for authoritative markup before chang
     const context = createOpenWorkspaceUpdateVm(wrapper, []);
     const cardId = '__openWorkspaceNavigation-' + 'a'.repeat(24);
     const attributes = new Map([['aria-pressed', 'false']]);
-    const card = {
+    const row = {
         getAttribute: name => name === 'data-id' ? cardId : null,
-        querySelector: () => ({ textContent: 'Other window' }),
+        querySelector: () => null,
     };
     const button = {
         getAttribute: name => attributes.has(name) ? attributes.get(name) : null,
         setAttribute: (name, value) => attributes.set(name, value),
         removeAttribute: name => attributes.delete(name),
-        closest: selector => selector === '.workspace-card' ? card : null,
+        closest: selector => selector === '[data-open-window-row]' ? row : null,
     };
     const announcements = [];
     const region = {
@@ -415,7 +389,7 @@ test('OPEN-WORKSPACE-PIN-WEBVIEW-001 waits for authoritative markup before chang
     context.document.querySelector = selector =>
         selector === '[data-open-workspace-pin-live-region]' ? region : null;
     context.document.querySelectorAll = selector =>
-        selector.includes('.project-pin-badge') ? [button] : [];
+        selector.includes('[data-action="toggle-open-workspace-pin"]') ? [button] : [];
 
     context.requestOpenWorkspacePin(button, cardId);
 

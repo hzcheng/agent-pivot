@@ -333,7 +333,7 @@ test('RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 keeps the current card authority
         'an in-flight card action must keep resolving after the workspace scope changes');
 });
 
-test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together without focus-driven movement', () => {
+test('OPEN-WORKSPACE-PIN-SORT-001 orders current and navigation cards together without focus-driven movement', () => {
     const current = makeRecord({ name: 'Current', uri: '/work/current' });
     const oldest = makeRecord({ name: 'Oldest', uri: '/work/oldest' });
     const newer = makeRecord({ name: 'Newer', uri: '/work/newer' });
@@ -389,7 +389,7 @@ test('OPEN-ALL-WINDOWS-LIST-001 orders current and navigation cards together wit
     assert.equal(pinned[0].pinned, true);
 });
 
-test('OPEN-ALL-WINDOWS-LIST-001 prefers saved project names over window display names', () => {
+test('OPEN-WINDOW-SWITCHER-UI-001 prefers saved project names over window display names', () => {
     const current = makeRecord({ name: 'Current', uri: '/work/current' });
     const other = makeRecord({ name: 'Other', uri: '/work/other' });
     const unnamed = makeRecord({ name: 'Unnamed', uri: '/work/unnamed' });
@@ -415,7 +415,7 @@ test('OPEN-ALL-WINDOWS-LIST-001 prefers saved project names over window display 
     assert.equal(cards[2].kind, 'current');
 });
 
-test('OPEN-ALL-WINDOWS-LIST-001 gives every remote window the same authoritative project order', () => {
+test('OPEN-WORKSPACE-PIN-SORT-001 gives every remote window the same authoritative project order', () => {
     const localProjectA = makeRecord({ name: 'Project A', uri: '/work/project-a' });
     const localProjectB = makeRecord({ name: 'Project B', uri: '/work/project-b' });
     const localProjectC = makeRecord({ name: 'Project C', uri: '/work/project-c' });

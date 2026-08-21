@@ -136,10 +136,12 @@
             "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-ATTENTION-BRIDGE-EXT": {
-            "state": "legacy",
-            "since": "initial coarse registry (Stage 1A/2)",
-            "evidence": [],
-            "nextAction": "awaiting its Stage 5 wave"
+            "state": "strict",
+            "since": "Stage 5 wave (2026-08-20): no inbound value edges and no cycle names the module (the companion extension is a separate compile unit consumed only through the wire); entrypoints narrowed to the composition entry plus the shared bridge protocol",
+            "evidence": [
+                "tests/contract/openProjects/workspaceController.test.js"
+            ],
+            "nextAction": "none — strict; hold via the architecture policy checks"
         },
         "MOD-SHARED-KERNEL": {
             "state": "strict",

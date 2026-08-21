@@ -27,6 +27,7 @@ import { createProjectServices } from './dashboard/sections/projectServices';
 import { createTodoPanelCapability } from './todos/todoPanelCapability';
 import { initializePromptMementoStore } from './prompts/service';
 import { createPanelStack } from './dashboard/sections/panelStack';
+import { createProjectControllers } from './dashboard/sections/projectControllers';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
@@ -642,133 +643,38 @@ async function initializeDashboard(
         promptStore,
         getOpenWorkspaceCards,
     });
-    const projectSurface = createProjectSurfaceRefresh({
+    const {
+        projectSurface,
+        groupCollapseController,
+        groupCommandController,
+        projectOpenController,
+        projectPromptController,
+        projectMutationController,
+        favoriteProjectController,
+        projectOrderController,
+        projectRemovalController,
+        projectManualEditController,
+        addProjectsFromFolderController,
+        remoteProjectResolver,
+        currentProjectDetailsResolver,
+    } = createProjectControllers({
+        context,
+        logError,
+        colorService,
+        projectService,
+        fileService,
+        gitRepositoryDetector,
+        getStewardInfos: () => stewardInfos,
         getProjectsPanelController: () => projectsPanelController,
         getOpenWorkspaceDashboardController: () => openWorkspaceDashboardController,
         publishOpenWorkspace: () => openWorkspaceController.publish(),
-        syncProjectColorToCurrentWindow: project =>
+        applyProjectColorToCurrentWindow: project =>
             dashboardRuntimeController.applyProjectColorToCurrentWindow(project),
-    });
-    const groupCollapseController = new GroupCollapseController({
-        state: context.globalState,
-        projectService,
-    });
-    const groupCommandController = new GroupCommandController({
-        projectService,
-        promptGroupName: defaultText => queryGroupName(vscode.window, defaultText),
-        promptGroupToRemove: () => projectPromptController.queryGroup(),
-        confirmRemoveGroup: groupName => vscode.window.showWarningMessage(`Remove ${groupName}?`, { modal: true }, 'Remove'),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-        userCanceledToken: USER_CANCELED,
-    });
-    const projectOpenController = new ProjectOpenController({
-        getWorkspaceFile: () => vscode.workspace.workspaceFile,
-        getWorkspaceFolders: () => vscode.workspace.workspaceFolders,
-        getPrependVscodeUrlToWslRemotes: () => stewardInfos.config.prependVscodeUrlToWslRemotes,
-        getProjectPathType: projectPath => fileService.getProjectPathType(projectPath),
-        getFoldersFromWorkspaceFile: workspaceFilePath => fileService.getFoldersFromWorkspaceFile(workspaceFilePath),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
-        updateWorkspaceFolders: (start, deleteCount, ...workspaceFoldersToAdd) => vscode.workspace.updateWorkspaceFolders(start, deleteCount, ...workspaceFoldersToAdd),
-        updateReopenReason: reason => context.globalState.update(REOPEN_KEY, reason),
-        fileUri: projectPath => vscode.Uri.file(projectPath),
-        parseUri: projectPath => vscode.Uri.parse(projectPath),
-    });
-    const projectPromptController = new ProjectPromptController({
-        getGroups: () => projectService.getGroups(),
-        addGroup: name => projectService.addGroup(name),
-        removeGroup: (groupId, skipConfirmation) => projectService.removeGroup(groupId, skipConfirmation),
-        isFile: projectPath => fileService.isFile(projectPath),
-        isFolderGitRepo: projectPath => isFolderGitRepo(projectPath),
-        getRandomColor: () => colorService.getRandomColor(),
-        getColorName: colorCode => colorService.getColorName(colorCode),
-        getRecentColors: () => colorService.getRecentColors(),
-        getRemoteSshExtensionInstalled: () => stewardInfos.relevantExtensionsInstalls.remoteSSH,
-        showInputBox: options => vscode.window.showInputBox(options),
-        showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
-        showOpenDialog: options => vscode.window.showOpenDialog(options),
-    });
-    const projectMutationController = new ProjectMutationController({
-        getCurrentWorkspacePath: () => resolveWorkspacePath(vscode.workspace.workspaceFile, vscode.workspace.workspaceFolders),
-        getCurrentProjectDetailsForSave: () => currentProjectDetailsResolver.getCurrentProjectDetailsForSave(),
-        getProjectDetailsForSave: uri => currentProjectDetailsResolver.getProjectDetailsForSave(uri),
-        getProjectsFlat: () => projectService.getProjectsFlat(),
-        getProjectAndGroup: projectId => projectService.getProjectAndGroup(projectId),
-        addProjectToGroup: (project, groupId) => projectService.addProject(project, groupId),
-        updateProject: (projectId, project) => projectService.updateProject(projectId, project),
-        removeGroup: (groupId, skipConfirmation) => projectService.removeGroup(groupId, skipConfirmation),
-        getRandomColor: () => colorService.getRandomColor(),
-        isFolderGitRepo,
-        prompt: projectPromptController,
-        showInputBox: options => vscode.window.showInputBox(options),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-    });
-    const favoriteProjectController = new FavoriteProjectController({
-        getGroups: () => projectService.getGroups(),
-        saveGroups: groups => projectService.saveGroups(groups),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-    });
-    const projectOrderController = new ProjectOrderController({
-        getGroups: () => projectService.getGroups(),
-        saveGroups: groups => projectService.saveGroups(groups),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-    });
-    const projectRemovalController = new ProjectRemovalController({
-        getProject: projectId => projectService.getProject(projectId),
-        getProjectsFlat: () => projectService.getProjectsFlat(),
-        showProjectPicker: projectPicks => vscode.window.showQuickPick(projectPicks),
-        confirmRemoveProject: projectName => vscode.window.showWarningMessage(`Remove ${projectName}?`, { modal: true }, 'Remove'),
-        removeProject: projectId => projectService.removeProject(projectId),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-        postCommandRemoval: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },
-    });
-    const projectManualEditController = new ProjectManualEditController({
-        getGroups: () => projectService.getGroups(),
-        getTempFilePath: () => `${context.globalStoragePath}/Agent Pivot Projects.json`,
-        writeTextFile: (filePath, content) => fileService.writeTextFile(filePath, content),
-        fileUri: filePath => vscode.Uri.file(filePath),
-        openTextDocument: uri => vscode.workspace.openTextDocument(uri),
-        showTextDocument: document => vscode.window.showTextDocument(document),
-        onWillSaveTextDocument: listener => vscode.workspace.onWillSaveTextDocument(listener),
-        saveGroups: (groups, baselineGroups) =>
-            projectService.saveGroupsFromManualEdit(groups, baselineGroups),
-        executeCommand: command => vscode.commands.executeCommand(command),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        postSave: () => {
-            projectSurface.refreshAfterMutation();
-            void dashboardRuntimeController.revealAgentPivotDashboard();
-        },
-    });
-    const addProjectsFromFolderController = new AddProjectsFromFolderController({
-        getCurrentWorkspacePath: () => resolveWorkspacePath(vscode.workspace.workspaceFile, vscode.workspace.workspaceFolders),
-        parsePathAsUri,
-        showOpenDialog: options => vscode.window.showOpenDialog(options),
-        getFolders: folderPath => fileService.getFolders(folderPath),
-        addGroup: groupName => projectService.addGroup(groupName),
-        addProject: (project, groupId) => projectService.addProject(project, groupId),
-        getRandomColor: () => colorService.getRandomColor(),
-        isFolderGitRepo,
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-        userCanceledToken: USER_CANCELED,
+        revealDashboard: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },
     });
     const codexSessionService = new CodexSessionService();
     const kimiSessionService = new KimiSessionService();
     const claudeSessionService = new ClaudeSessionService();
-    const remoteProjectResolver = new RemoteProjectResolver(logError);
-    const currentProjectDetailsResolver = new CurrentProjectDetailsResolver({
-        getWorkspaceFile: () => vscode.workspace.workspaceFile,
-        getWorkspaceFolders: () => vscode.workspace.workspaceFolders,
-        getRemoteName: () => vscode.env.remoteName,
-        getProjectDetailsForSave: (workspaceUri, remoteName) => remoteProjectResolver.getProjectDetailsForSave(workspaceUri, remoteName),
-    });
     const aiSessionServices: Record<AiSessionProviderId, AiSessionService> = {
         codex: codexSessionService,
         kimi: kimiSessionService,

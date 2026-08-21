@@ -53,6 +53,7 @@
         "media/mermaid.min.js"
       ],
       "scripts": [
+        "src/webview/conversationRegistryScripts.js",
         "src/webview/conversationReadingAnchorScripts.js",
         "src/webview/conversationMermaidScripts.js",
         "src/webview/conversationOutlineScripts.js",
@@ -97,76 +98,6 @@
       "producer": "src/webview/webviewProjectScripts.js",
       "consumers": [
         "src/webview/webviewProjectAiSessionControlsScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationChanges",
-      "producer": "src/webview/conversationChangesScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationComments",
-      "producer": "src/webview/conversationCommentsScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationFind",
-      "producer": "src/webview/conversationFindScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationMermaid",
-      "producer": "src/webview/conversationMermaidScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationOutline",
-      "producer": "src/webview/conversationOutlineScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationReadingAnchor",
-      "producer": "src/webview/conversationReadingAnchorScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationReconcile",
-      "producer": "src/webview/conversationReconcileScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationSidebar",
-      "producer": "src/webview/conversationSidebarScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationSubagents",
-      "producer": "src/webview/conversationSubagentsScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
-      ]
-    },
-    {
-      "symbol": "window.__agentPivotConversationTelemetry",
-      "producer": "src/webview/conversationTelemetryScripts.js",
-      "consumers": [
-        "src/webview/conversationViewerScripts.js"
       ]
     },
     {
@@ -343,6 +274,23 @@
     {
       "symbol": "window.vscode",
       "producer": "host"
+    },
+    {
+      "symbol": "window.__agentPivotConversation",
+      "producer": "src/webview/conversationRegistryScripts.js",
+      "consumers": [
+        "src/webview/conversationReadingAnchorScripts.js",
+        "src/webview/conversationMermaidScripts.js",
+        "src/webview/conversationOutlineScripts.js",
+        "src/webview/conversationSubagentsScripts.js",
+        "src/webview/conversationChangesScripts.js",
+        "src/webview/conversationTelemetryScripts.js",
+        "src/webview/conversationCommentsScripts.js",
+        "src/webview/conversationSidebarScripts.js",
+        "src/webview/conversationReconcileScripts.js",
+        "src/webview/conversationFindScripts.js",
+        "src/webview/conversationViewerScripts.js"
+      ]
     }
   ]
 }

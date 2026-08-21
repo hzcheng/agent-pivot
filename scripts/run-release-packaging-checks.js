@@ -49,6 +49,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/licenses/Mermaid-MIT.txt',
     'extension/media/conversationMermaidScripts.js',
     'extension/media/conversationReadingAnchorScripts.js',
+    'extension/media/conversationRegistryScripts.js',
     'extension/media/conversationOutlineScripts.js',
     'extension/media/conversationTelemetryScripts.js',
     'extension/media/conversationCommentsScripts.js',

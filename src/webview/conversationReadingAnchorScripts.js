@@ -130,7 +130,7 @@
         });
     }
 
-    window.__agentPivotConversationReadingAnchor = Object.freeze({
+    window.__agentPivotConversation.readingAnchor = Object.freeze({
         create: create,
     });
 })();

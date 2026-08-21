@@ -601,5 +601,5 @@
         });
     }
 
-    window.__agentPivotConversationOutline = Object.freeze({ create: create });
+    window.__agentPivotConversation.outline = Object.freeze({ create: create });
 }());

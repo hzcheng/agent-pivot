@@ -634,5 +634,5 @@
         };
     }
 
-    window.__agentPivotConversationChanges = { create: create };
+    window.__agentPivotConversation.changes = { create: create };
 }());

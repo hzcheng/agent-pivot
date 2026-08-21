@@ -263,5 +263,5 @@
         });
     }
 
-    window.__agentPivotConversationSidebar = Object.freeze({ create: create });
+    window.__agentPivotConversation.sidebar = Object.freeze({ create: create });
 }());

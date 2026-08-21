@@ -178,7 +178,7 @@
         return Object.freeze({ apply: apply, refresh: render });
     }
 
-    window.__agentPivotConversationSubagents = Object.freeze({
+    window.__agentPivotConversation.subagents = Object.freeze({
         create: create,
     });
 }());

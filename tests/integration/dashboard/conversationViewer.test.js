@@ -2289,6 +2289,7 @@ test('CONVERSATION-WORKING-INDICATOR-001 includes one polite hidden Working stat
 
 test('CONVERSATION-READING-FOCUS-001 keeps modular Webview controllers byte-identical in packaged media', () => {
     for (const fileName of [
+        'conversationRegistryScripts.js',
         'conversationReadingAnchorScripts.js',
         'conversationMermaidScripts.js',
         'conversationOutlineScripts.js',

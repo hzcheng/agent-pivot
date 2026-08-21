@@ -37,6 +37,10 @@ const readingAnchorScript = fs.readFileSync(
     ),
     'utf8'
 );
+const conversationRegistryScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/conversationRegistryScripts.js'),
+    'utf8'
+);
 const conversationMermaidScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/conversationMermaidScripts.js'),
     'utf8'
@@ -317,6 +321,7 @@ async function openViewerPage(t, options = {}) {
     } else if (options.includeMermaid) {
         await page.addScriptTag({ content: mermaidScript });
     }
+    await page.addScriptTag({ content: conversationRegistryScript });
     await page.addScriptTag({ content: readingAnchorScript });
     await page.addScriptTag({ content: conversationMermaidScript });
     await page.addScriptTag({ content: conversationOutlineScript });
@@ -1011,7 +1016,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 mermaid releaseExcept keeps fig
             + '<section class="conversation-markdown"><pre><code '
             + 'class="language-mermaid">flowchart TB; C--&gt;D</code></pre>'
             + '</section></article>';
-        window.__mermaidController = window.__agentPivotConversationMermaid
+        window.__mermaidController = window.__agentPivotConversation.mermaid
             .create({
                 source: null,
                 nonce: null,
@@ -1601,6 +1606,13 @@ async function openHostViewerDocument(t, options = {}) {
             await route.fulfill({
                 contentType: 'text/javascript',
                 body: options.viewerScriptSource || viewerScript,
+            });
+            return;
+        }
+        if (pathname === '/conversationRegistryScripts.js') {
+            await route.fulfill({
+                contentType: 'text/javascript',
+                body: conversationRegistryScript,
             });
             return;
         }
@@ -5053,12 +5065,12 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '8bb72241064f277b57081af0ab80720bbefad27c8f0eea23fb7dbf6b0455c33f',
+        'ed11aa4ee20e9546b19599c6bdbfbe5f87e06e990e5c687711bc0cc39e6be413',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
         sha256(previousOutlineScript),
-        'ce8a54a5657c344b37d709fece61cf05af18cc4e2ab55c1e418b386b46e127b3',
+        'bf9c914c932eb222ebbc2134d80c2625740fdd04ac3ee89ea0438b9941484c0c',
         'the previous Outline fixture must stay byte-exact'
     );
 

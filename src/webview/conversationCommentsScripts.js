@@ -3299,5 +3299,5 @@
         });
     }
 
-    window.__agentPivotConversationComments = Object.freeze({ create: create });
+    window.__agentPivotConversation.comments = Object.freeze({ create: create });
 }());

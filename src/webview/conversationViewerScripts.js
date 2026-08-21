@@ -253,7 +253,7 @@
         && !!changesGroups && !!changesEmpty
         && !!changesUnavailable && !!changesOpenScm && !!changesCrossMember
         && !!telemetryChanges
-        && !!window.__agentPivotConversationChanges;
+        && !!window.__agentPivotConversation.changes;
     var bookmarkUiAvailable = sidebarUiAvailable
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
@@ -273,7 +273,7 @@
         && !!subagentsSummary && !!subagentBanner && !!subagentBannerLabel
         && !!subagentsRunningOnly && !!closeSubagent
         && !!telemetrySubagents && !!telemetrySection
-        && !!window.__agentPivotConversationSubagents;
+        && !!window.__agentPivotConversation.subagents;
     var projectCommentUiAvailable = commentUiAvailable
         && !!projectCommentsRoot && !!projectCommentsHeader
         && !!projectCommentsContent && !!projectCommentComposer
@@ -319,7 +319,7 @@
         appliedHtmlSignature: undefined,
     };
     var readingAnchorController =
-        window.__agentPivotConversationReadingAnchor.create({
+        window.__agentPivotConversation.readingAnchor.create({
             scroll: scroll,
             messages: messages,
             messageSelector: conversationMessageSelector,
@@ -329,7 +329,7 @@
     var restoreReadingPosition = readingAnchorController.restore;
     var restoreViewportReadingPosition =
         readingAnchorController.restoreViewport;
-    var mermaidRenderer = window.__agentPivotConversationMermaid.create({
+    var mermaidRenderer = window.__agentPivotConversation.mermaid.create({
         source: mermaidSource,
         nonce: scriptNonce,
         messages: messages,
@@ -341,7 +341,7 @@
     var releaseMermaidObjectUrls = mermaidRenderer.release;
     var renderMermaidDiagrams = mermaidRenderer.render;
     var preserveMermaidContent = mermaidRenderer.preserve;
-    var reconcileController = window.__agentPivotConversationReconcile.create({
+    var reconcileController = window.__agentPivotConversation.reconcile.create({
         scroll: scroll,
         messages: messages,
         messageSelector: conversationMessageSelector,
@@ -363,7 +363,7 @@
     });
     var outlineController;
     var commentsController;
-    var sidebarController = window.__agentPivotConversationSidebar.create({
+    var sidebarController = window.__agentPivotConversation.sidebar.create({
         available: sidebarUiAvailable,
         vscodeApi: vscodeApi,
         sidebarToggle: sidebarToggle,
@@ -386,7 +386,7 @@
         telemetryChanges: telemetryChanges,
     });
     var changesController = changesUiAvailable
-        ? window.__agentPivotConversationChanges.create({
+        ? window.__agentPivotConversation.changes.create({
             post: post,
             telemetryChanges: telemetryChanges,
             telemetryChangesValue: telemetryChangesValue,
@@ -404,7 +404,7 @@
             subscriptionGeneration: state.subscriptionGeneration,
         })
         : null;
-    var outlineController = window.__agentPivotConversationOutline.create({
+    var outlineController = window.__agentPivotConversation.outline.create({
         available: sidebarUiAvailable,
         bookmarkAvailable: bookmarkUiAvailable,
         target: commentTarget,
@@ -424,7 +424,7 @@
         updateToggle: sidebarController.updateToggle,
     });
     var subagentsController = subagentUiAvailable
-        ? window.__agentPivotConversationSubagents.create({
+        ? window.__agentPivotConversation.subagents.create({
             listRoot: subagentsList,
             emptyRoot: subagentsEmpty,
             summaryRoot: subagentsSummary,
@@ -487,7 +487,7 @@
             }
         });
     }
-    var telemetryController = window.__agentPivotConversationTelemetry.create({
+    var telemetryController = window.__agentPivotConversation.telemetry.create({
         target: commentTarget,
         subscriptionGeneration: state.subscriptionGeneration,
         latestRequestId: function () {
@@ -505,7 +505,7 @@
         captureAnchor: captureReadingAnchor,
         restoreViewport: restoreViewportReadingPosition,
     });
-    var commentsController = window.__agentPivotConversationComments.create({
+    var commentsController = window.__agentPivotConversation.comments.create({
         available: commentUiAvailable,
         target: commentTarget,
         subscriptionGeneration: state.subscriptionGeneration,
@@ -554,8 +554,8 @@
         setSidebarView: sidebarController.setView,
         updateToggle: sidebarController.updateToggle,
     });
-    var findController = window.__agentPivotConversationFind
-        ? window.__agentPivotConversationFind.create({
+    var findController = window.__agentPivotConversation.find
+        ? window.__agentPivotConversation.find.create({
             available: findUiAvailable,
             root: findRoot,
             input: findInput,

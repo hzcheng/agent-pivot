@@ -296,6 +296,7 @@ import {
 } from './dashboard/worktreeGroupFormHandlers';
 import {
     normalizeWorktreeSetupCommand,
+    resolveMemberSetupCommand,
     WorktreeSetupRunner,
 } from './worktrees';
 import { ManagedWorktreeRemovalController } from './worktrees';
@@ -1367,20 +1368,14 @@ async function initializeDashboard(
         // Resource-scoped per repository (PRD §6.1): a cross-repo group can
         // mix Node/Java/Go stacks, so each member reads its own folder's
         // setup override.
-        getSetupCommand: repositoryKey => {
-            const workspace = getCurrentOpenWorkspace();
-            const repository = worktreeSnapshotCoordinator.getSnapshot()
-                ?.repositories.find(candidate =>
-                    candidate.repositoryKey === repositoryKey);
-            const binding = repository?.rootBindings.find(candidate =>
-                workspace?.roots.some(root => root.id === candidate.workspaceRootId));
-            const root = workspace?.roots.find(candidate =>
-                candidate.id === binding?.workspaceRootId);
-            return normalizeWorktreeSetupCommand(
-                getAgentPivotConfiguration(
-                    root ? vscode.Uri.parse(root.uri) : undefined
-                ).get<unknown>('worktreeSetupCommand', []));
-        },
+        getSetupCommand: repositoryKey => resolveMemberSetupCommand({
+            repositoryKey,
+            snapshot: worktreeSnapshotCoordinator.getSnapshot(),
+            workspaceRoots: getCurrentOpenWorkspace()?.roots || [],
+            readSetupCommand: scopeUri => getAgentPivotConfiguration(
+                scopeUri ? vscode.Uri.parse(scopeUri) : undefined
+            ).get<unknown>('worktreeSetupCommand', []),
+        }),
         getWorktreeDirectory: () => normalizeWorktreeDirectory(
             getAgentPivotConfiguration().get<unknown>('worktreeDirectory', '.worktrees')),
         getActiveEditorPath: () => vscode.window.activeTextEditor?.document.uri.fsPath,

@@ -71,6 +71,36 @@ export class WorktreeSetupRunner {
     }
 }
 
+/**
+ * Resource-scoped per repository (PRD §6.1): a cross-repo group can mix
+ * Node/Java/Go stacks, so each member reads its own folder's setup override.
+ * Resolves the member repository's bound workspace root and reads the setup
+ * command at that root's scope.
+ *
+ * Extracted from the composition root during the shell decomposition; the
+ * host URI plumbing stays with the caller.
+ */
+export function resolveMemberSetupCommand(input: {
+    repositoryKey: string;
+    snapshot: {
+        repositories: readonly {
+            repositoryKey: string;
+            rootBindings: readonly { workspaceRootId: string }[];
+        }[];
+    } | null;
+    workspaceRoots: readonly { id: string; uri: string }[] | null;
+    readSetupCommand: (scopeUri?: string) => unknown;
+}): string[] {
+    const workspaceRoots = input.workspaceRoots || [];
+    const repository = input.snapshot?.repositories.find(candidate =>
+        candidate.repositoryKey === input.repositoryKey);
+    const binding = repository?.rootBindings.find(candidate =>
+        workspaceRoots.some(root => root.id === candidate.workspaceRootId));
+    const root = workspaceRoots.find(candidate =>
+        candidate.id === binding?.workspaceRootId);
+    return normalizeWorktreeSetupCommand(input.readSetupCommand(root?.uri));
+}
+
 export function normalizeWorktreeSetupCommand(value: unknown): string[] {
     if (!Array.isArray(value) || value.length === 0 || value.length > MAX_SETUP_ARG_COUNT) {
         return [];

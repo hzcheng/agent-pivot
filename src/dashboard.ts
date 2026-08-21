@@ -29,6 +29,7 @@ import { initializePromptMementoStore } from './prompts/service';
 import { createPanelStack } from './dashboard/sections/panelStack';
 import { createProjectControllers } from './dashboard/sections/projectControllers';
 import { createAiSessionStack } from './dashboard/sections/aiSessionStack';
+import { createConversationStack } from './dashboard/sections/conversationStack';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
@@ -687,9 +688,6 @@ async function initializeDashboard(
         aiSessionProfileController,
         codexProfileSupportProbe,
     } = createAiSessionStack({ context, logError, logAiSessionDiagnostic });
-    const conversationCommentStore = new ConversationCommentFileStore(
-        context.globalStoragePath
-    );
     const workspaceContextResolver = new WorkspaceContextResolver();
     const currentWorkspaceSessionAuthority =
         new CurrentWorkspaceSessionAuthority(
@@ -712,12 +710,6 @@ async function initializeDashboard(
             workspaceScopeIdentity: activationWorkspace.scopeIdentity,
         });
     }
-    const projectCommentStore = new ProjectCommentFileStore(
-        context.globalStoragePath
-    );
-    const conversationBookmarkStore = new ConversationBookmarkFileStore(
-        context.globalStoragePath
-    );
     let followConversationSessionRebind = (
         _previous: { projectId: string; provider: AiSessionProviderId; sessionId: string },
         _next: { projectId: string; provider: AiSessionProviderId; sessionId: string }
@@ -745,69 +737,21 @@ async function initializeDashboard(
             operation
         )
     );
-    const conversationSessionRebindCoordinator =
-        new ConversationSessionRebindCoordinator({
-            globalStoragePath: context.globalStoragePath,
-            commentStore: conversationCommentStore,
-            bookmarkStore: conversationBookmarkStore,
-            isRuntimeRebindCommitted: async (previous, next) =>
-                hasCommittedConversationSessionRuntimeRebind(
-                    (await tmuxRuntimeStore.listKnown()).map(binding => ({
-                        provider: binding.provider,
-                        sessionId: binding.sessionId,
-                        projectId: currentWorkspaceSessionAuthority.getProjectId({
-                            workspaceScopeIdentity:
-                                binding.workspaceScopeIdentity,
-                            workspaceNavigationIdentity:
-                                binding.workspaceNavigationIdentity,
-                        }),
-                    })),
-                    previous,
-                    next
-                ),
-            onResult: (kind, result) => logAiSessionDiagnostic({
-                event: 'conversation-session-rebind-metadata',
-                kind,
-                result,
-            }),
-            onFailure: (kind, error) => logAiSessionRuntimeFailure(
-                `copy-conversation-${kind}-for-rebind`,
-                error
-            ),
-        });
-    const conversationViewerCommentStore = {
-        load: (target: { projectId: string; provider: AiSessionProviderId; sessionId: string }) =>
-            conversationCommentStore.load(
-                conversationSessionRebindCoordinator.resolve(target)
-            ),
-        save: (
-            target: { projectId: string; provider: AiSessionProviderId; sessionId: string },
-            snapshot: Parameters<typeof conversationCommentStore.save>[1]
-        ) => conversationCommentStore.save(
-            conversationSessionRebindCoordinator.resolve(target),
-            snapshot
-        ),
-    };
-    const conversationViewerBookmarkStore = {
-        load: (target: { projectId: string; provider: AiSessionProviderId; sessionId: string }) =>
-            conversationBookmarkStore.load(
-                conversationSessionRebindCoordinator.resolve(target)
-            ),
-        save: (
-            target: { projectId: string; provider: AiSessionProviderId; sessionId: string },
-            snapshot: Parameters<typeof conversationBookmarkStore.save>[1]
-        ) => conversationBookmarkStore.save(
-            conversationSessionRebindCoordinator.resolve(target),
-            snapshot
-        ),
-    };
-    const conversationSessionRebindRestoreTask =
-        conversationSessionRebindCoordinator.restore().catch(error => {
-            logAiSessionRuntimeFailure(
-                'restore-conversation-session-rebinds',
-                error
-            );
-        });
+    const {
+        conversationCommentStore,
+        projectCommentStore,
+        conversationBookmarkStore,
+        conversationSessionRebindCoordinator,
+        conversationViewerCommentStore,
+        conversationViewerBookmarkStore,
+        conversationSessionRebindRestoreTask,
+    } = createConversationStack({
+        context,
+        logAiSessionDiagnostic,
+        logAiSessionRuntimeFailure,
+        tmuxRuntimeStore,
+        currentWorkspaceSessionAuthority,
+    });
     const tmuxAttachBindingStore = new TmuxAttachBindingStore(context.workspaceState, error => {
         logAiSessionRuntimeFailure('persist-attach-binding', error);
     });

@@ -657,7 +657,16 @@ const guards = {
                 'the current card must consume the shared navigation-scoped authority exactly once');
         }
 
-        const dashboardSource = dashboard.getFullText();
+        const conversationSectionPath = 'src/dashboard/sections/conversationStack.ts';
+        const dashboardSource = dashboard.getFullText()
+            + (fs.existsSync(path.join(root, conversationSectionPath))
+                ? '\n' + parseTypescript(
+                    root,
+                    conversationSectionPath,
+                    this.id,
+                    risk
+                ).getFullText()
+                : '');
         if ((dashboardSource.match(/new CurrentWorkspaceSessionAuthority\s*\(/g) || []).length !== 1
             || (dashboardSource.match(
                 /currentWorkspaceSessionAuthority\.getProjectId\s*\(/g

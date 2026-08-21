@@ -23,6 +23,7 @@ function writeFixture(t, files) {
 function copyGuardFixture(t, mutationPath, mutate = source => source) {
     const relativePaths = [
         'src/dashboard.ts',
+        'src/dashboard/sections/conversationStack.ts',
         'src/workspaces/currentWorkspaceSessionAuthority.ts',
         'src/openWorkspaces/dashboardController.ts',
         'src/workspaces/sessionHydrationController.ts',

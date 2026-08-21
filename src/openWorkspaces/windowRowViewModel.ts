@@ -5,6 +5,8 @@
 // it into the open-workspaces update pipeline.
 
 import type { WorkspaceCardViewModel } from '../models';
+import { sanitizeProjectName } from '../models';
+import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 import { resolveWindowDisplayNames } from './windowDisplayNames';
 
 export interface OpenWindowRowViewModel {
@@ -32,17 +34,20 @@ export function buildOpenWindowRowViewModels(
     cards: readonly WorkspaceCardViewModel[],
     pathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
 ): OpenWindowRowViewModel[] {
+    // 与旧卡片一致：先剥掉 VS Code 窗口装饰（如 [Dev Container: ...]）再消歧。
+    const cleanName = (name: string): string =>
+        sanitizeProjectName(removeWorkspaceWindowDecorations(name)) || 'Workspace';
     const displayNames = resolveWindowDisplayNames(cards.map(card => ({
         id: card.id,
-        name: card.name,
+        name: cleanName(card.name),
         pathSegments: pathSegmentsByCardId?.get(card.id) || [],
     })));
     return cards.map(card => ({
         cardId: card.id,
         kind: card.kind,
         navigationIdentity: card.navigationIdentity,
-        displayName: displayNames.get(card.id) || card.name,
-        fullName: card.name,
+        displayName: displayNames.get(card.id) || cleanName(card.name),
+        fullName: cleanName(card.name),
         environmentLabel: card.environmentLabel || '',
         runningCount: Math.max(0, Math.floor(card.runningSessionCount || 0)),
         attentionCount: Math.max(0, Math.floor(card.attentionCount || 0)),

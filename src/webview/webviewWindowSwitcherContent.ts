@@ -15,7 +15,7 @@ function getWindowRowTooltip(row: OpenWindowRowViewModel): string {
     const lines = row.kind === 'current'
         ? [`Current window: ${row.fullName}`]
         : [`Focus window: ${row.fullName}`];
-    if (row.environmentLabel) {
+    if (row.environmentLabel && row.environmentLabel !== 'Local') {
         lines.push(row.environmentLabel);
     }
     return lines.join('\n');
@@ -43,7 +43,7 @@ export function getOpenWindowRowHtml(
     const escapedName = escapeAttribute(row.displayName);
     const escapedCardId = escapeAttribute(row.cardId);
     const escapedIdentity = escapeAttribute(row.navigationIdentity);
-    const envChip = row.environmentLabel
+    const envChip = row.environmentLabel && row.environmentLabel !== 'Local'
         ? `<span class="open-window-env-chip">${escapeAttribute(row.environmentLabel)}</span>`
         : '';
     const focusLabel = isCurrent

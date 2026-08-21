@@ -325,7 +325,7 @@ import { fallbackRepositoryLabel } from './workspaces/worktreeGroupProjection';
 import { handleAdoptWorktrees } from './worktrees';
 import type { WorktreeAdoptSettlement } from './worktrees';
 import type { WorktreeGroupMergeSettlement } from './worktrees';
-import { createGenerationClaimRecovery } from './worktrees';
+import { createGenerationClaimRecovery, createMemberSessionFreeze } from './worktrees';
 import {
     acceptedIsolatedSessionSettlement,
     cancelledMutationSettlement,
@@ -1653,33 +1653,9 @@ async function initializeDashboard(
     // unavailable contribute nothing; their sessions still fail closed to
     // the retired generation through the creation-time/unknown rules, so
     // an incomplete snapshot never mislabels an old session as current.
-    const snapshotMemberAffectedSessions = async (member: {
-        worktreeKey?: { repositoryKey: string; canonicalWorktreePath: string };
-        path: string;
-    }) => {
-        const memberPath = normalizeWorkspaceHostPath(
-            member.worktreeKey?.canonicalWorktreePath || member.path);
-        if (!memberPath) {
-            return [];
-        }
-        const results = aiSessionReadCoordinator.getResults({
-            candidatePaths: [member.path],
-            reason: 'worktree-deletion-snapshot',
-        });
-        const frozen: { provider: string; sessionId: string }[] = [];
-        for (const [providerId, result] of Object.entries(results)) {
-            if (!result.available) {
-                continue;
-            }
-            for (const session of result.sessions) {
-                const cwd = normalizeWorkspaceHostPath(session.cwd || '');
-                if (cwd && isWorkspaceHostPathContained(memberPath, cwd)) {
-                    frozen.push({ provider: providerId, sessionId: session.id });
-                }
-            }
-        }
-        return frozen;
-    };
+    const snapshotMemberAffectedSessions = createMemberSessionFreeze({
+        getResults: input => aiSessionReadCoordinator.getResults(input),
+    });
     worktreeDeletionController = new WorktreeDeletionController({
         store: worktreeGroupManifestStore,
         recheckBlocker: (_group, member) => member.worktreeKey

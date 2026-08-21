@@ -31,6 +31,7 @@ export { WorktreeMemberLifecycle } from './memberLifecycle';
 export { reconcileWorktreeGroupManifest } from './groupManifestReconciliation';
 export { resolveGenerationClaimDisposition } from './generationClaimReconciliation';
 export { createGenerationClaimRecovery } from './generationClaimRecovery';
+export { createMemberSessionFreeze } from './memberSessionFreeze';
 export { createSettlementReplayCache } from './settlementReplayCache';
 export {
     findLatestRetirementForKey,

@@ -24,8 +24,7 @@ import {
     WSL_DEFAULT_REGEX,
 } from './constants';
 
-import ColorService from './services/colorService';
-import ProjectService from './services/projectService';
+import { createProjectServices } from './dashboard/sections/projectServices';
 import { TodoService } from './todos/service';
 import { createTodoPanelCapability } from './todos/todoPanelCapability';
 import { PromptDashboardController } from './prompts/dashboardController';
@@ -34,7 +33,6 @@ import { PromptTerminalCommandController } from './prompts/terminalCommandContro
 import { getAiPanelContent, getPromptSurfaceContent } from './prompts/webviewContent';
 import { createSkillPanelCapability } from './skills/skillPanelCapability';
 import { SkillGroupStore } from './skills/skillGroupStore';
-import FileService from './services/fileService';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
 import KimiSessionService from './services/kimiSessionService';
@@ -46,7 +44,6 @@ import {
     openWorkingChangeDiff,
     registerGitDiffContentProvider,
 } from './services/gitChangesDiff';
-import ProjectWindowColorService from './services/projectWindowColorService';
 import AiSessionAliasStore from './aiSessions/aliasStore';
 import AiSessionProfileStore from './aiSessions/sessionProfileStore';
 import AiSessionProfileController from './aiSessions/sessionProfileController';
@@ -199,7 +196,6 @@ import {
 import { findSavedProjectForOpenProject } from './projects/openProjectMatcher';
 import { getWorkspacePath as resolveWorkspacePath } from './projects/workspaceHelpers';
 import RemoteProjectResolver from './projects/remoteProjectResolver';
-import GitRepositoryDetector from './projects/gitRepositoryDetector';
 import { AddProjectsFromFolderController } from './projects/addProjectsFromFolderController';
 import { CurrentProjectDetailsResolver } from './projects/currentProjectDetails';
 import { FavoriteProjectController } from './projects/favoriteProjectController';
@@ -619,19 +615,13 @@ async function initializeDashboard(
                 || storageMutationMessageTypes.has(messageType));
     };
 
-    const colorService = new ColorService(context);
-    const projectService = new ProjectService(context, colorService, {
-        onDiagnostic: event => logDashboardDiagnostic(event),
-        onConflict: projectIds => {
-            logDashboardDiagnostic({
-                event: 'project-catalog-sync-conflict-recovered',
-                projectIds,
-            });
-            void vscode.window.showInformationMessage(
-                'Agent Pivot recovered projects from a sync conflict.'
-            );
-        },
-    });
+    const {
+        colorService,
+        projectService,
+        projectWindowColorService,
+        fileService,
+        gitRepositoryDetector,
+    } = createProjectServices({ context, logDashboardDiagnostic });
     const todoService = new TodoService(context);
     const promptConfiguration = getAgentPivotConfiguration();
     const promptStore = await initializePromptMementoStore({
@@ -738,9 +728,6 @@ async function initializeDashboard(
         refreshAfterMutation: projectSurface.refreshAfterMutation,
         userCanceledToken: USER_CANCELED,
     });
-    const projectWindowColorService = new ProjectWindowColorService(context);
-    const fileService = new FileService(context);
-    const gitRepositoryDetector = new GitRepositoryDetector();
     const projectOpenController = new ProjectOpenController({
         getWorkspaceFile: () => vscode.workspace.workspaceFile,
         getWorkspaceFolders: () => vscode.workspace.workspaceFolders,

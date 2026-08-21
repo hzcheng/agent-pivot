@@ -30,6 +30,7 @@ import { createPanelStack } from './dashboard/sections/panelStack';
 import { createProjectControllers } from './dashboard/sections/projectControllers';
 import { createAiSessionStack } from './dashboard/sections/aiSessionStack';
 import { createConversationStack } from './dashboard/sections/conversationStack';
+import { createRuntimeStack } from './dashboard/sections/runtimeStack';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
@@ -717,26 +718,27 @@ async function initializeDashboard(
     let freezeConversationSessionMetadata = (
         _target: { projectId: string; provider: AiSessionProviderId; sessionId: string }
     ): Promise<boolean> => Promise.resolve(false);
-    const aiSessionTerminalBindingStore = new AiSessionTerminalBindingStore(context.workspaceState, error =>
-        logError('Failed to persist AI session terminal ownership.', error)
-    );
-    const aiSessionTerminalService = new AiSessionTerminalService(
-        context.globalStoragePath,
+    const {
+        aiSessionTerminalBindingStore,
+        aiSessionTerminalService,
+        aiSessionRuntimeConfiguration: initialAiSessionRuntimeConfiguration,
+        tmuxRuntimeStore,
+        tmuxAttachBindingStore,
+        tmuxClient,
+        tmuxRuntimeDiscovery,
+    } = createRuntimeStack({
+        context,
+        logError,
+        logAiSessionRuntimeFailure,
         aiSessionProviders,
-        undefined,
-        undefined,
-        aiSessionTerminalBindingStore
-    );
-    let aiSessionRuntimeConfiguration = readAiSessionRuntimeConfiguration(getAgentPivotConfiguration());
-    const tmuxRuntimeStore = new TmuxRuntimeBindingStore(
-        path.join(context.globalStoragePath, 'ai-session-tmux-runtimes'),
-        () => Date.now(),
-        operation => withTmuxCreationLock(
-            context.globalStoragePath,
-            'runtime-binding-final-records',
-            operation
-        )
-    );
+        aiSessionAliasController,
+        aiSessionProfileController,
+        currentWorkspaceSessionAuthority,
+        getConversationSessionRebindCoordinator: () => conversationSessionRebindCoordinator,
+        getFollowConversationSessionRebind: () => followConversationSessionRebind,
+        getFreezeConversationSessionMetadata: () => freezeConversationSessionMetadata,
+    });
+    let aiSessionRuntimeConfiguration = initialAiSessionRuntimeConfiguration;
     const {
         conversationCommentStore,
         projectCommentStore,
@@ -751,94 +753,6 @@ async function initializeDashboard(
         logAiSessionRuntimeFailure,
         tmuxRuntimeStore,
         currentWorkspaceSessionAuthority,
-    });
-    const tmuxAttachBindingStore = new TmuxAttachBindingStore(context.workspaceState, error => {
-        logAiSessionRuntimeFailure('persist-attach-binding', error);
-    });
-    const tmuxClient = new TmuxClient(aiSessionRuntimeConfiguration.tmuxPath);
-    const tmuxRuntimeDiscovery = new TmuxRuntimeDiscovery({
-        client: tmuxClient,
-        bindingStore: tmuxRuntimeStore,
-        codexRootThreadObserver: new ProcCodexRootThreadObserver(),
-        onSessionRebinding: async (previous, next) => {
-            const projectId = currentWorkspaceSessionAuthority.getProjectId(
-                previous
-            );
-            if (!projectId || !previous.sessionId || !next.sessionId
-                || previous.provider !== next.provider
-                || previous.workspaceNavigationIdentity
-                    !== next.workspaceNavigationIdentity) {
-                throw new Error('Invalid conversation Session rebind identity.');
-            }
-            await conversationSessionRebindCoordinator.prepare({
-                projectId,
-                provider: previous.provider,
-                sessionId: previous.sessionId,
-            }, {
-                projectId,
-                provider: next.provider,
-                sessionId: next.sessionId,
-            });
-        },
-        onSessionRebound: async (previous, next) => {
-            aiSessionAliasController.copyForRebind(
-                previous.provider,
-                previous.sessionId || '',
-                next.sessionId || ''
-            );
-            aiSessionProfileController.copyForRebind(
-                previous.provider,
-                previous.sessionId || '',
-                next.sessionId || ''
-            );
-            const projectId = currentWorkspaceSessionAuthority.getProjectId(
-                previous
-            );
-            if (!projectId || !previous.sessionId || !next.sessionId
-                || previous.provider !== next.provider
-                || previous.workspaceNavigationIdentity
-                    !== next.workspaceNavigationIdentity) {
-                return;
-            }
-            const previousTarget = {
-                projectId,
-                provider: previous.provider,
-                sessionId: previous.sessionId,
-            };
-            const nextTarget = {
-                projectId,
-                provider: next.provider,
-                sessionId: next.sessionId,
-            };
-            await freezeConversationSessionMetadata(previousTarget);
-            try {
-                await conversationSessionRebindCoordinator.commit(
-                    previousTarget,
-                    nextTarget
-                );
-            } catch (error) {
-                logAiSessionRuntimeFailure(
-                    'migrate-conversation-session-rebind',
-                    error
-                );
-            }
-            if (conversationSessionRebindCoordinator.resolve(previousTarget)
-                .sessionId !== nextTarget.sessionId) {
-                return;
-            }
-            try {
-                await followConversationSessionRebind(
-                    previousTarget,
-                    nextTarget
-                );
-            } catch (error) {
-                logAiSessionRuntimeFailure(
-                    'follow-conversation-session-rebind',
-                    error
-                );
-            }
-        },
-        markerIsCurrent: isCurrentRuntimeMarker,
     });
     const persistedInactiveRestoreTask = (async (): Promise<void> => {
         try {

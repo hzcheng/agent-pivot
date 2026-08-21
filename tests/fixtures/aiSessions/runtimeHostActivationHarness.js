@@ -323,10 +323,15 @@ async function main() {
         prototype[name] = replacement;
         restores.push(() => { prototype[name] = original; });
     };
+    const compositionSectionsPath = path.join(root, 'out', 'dashboard', 'sections');
+    const isCompositionSource = filename => filename === dashboardPath
+        || (filename && filename.startsWith(compositionSectionsPath + path.sep));
     Module._load = function (request, parent, isMain) {
         if (request === 'vscode') return vscode;
+        const isCompositionRequest = moduleName => isCompositionSource(parent?.filename)
+            && request.endsWith(`/${moduleName}`);
         const loaded = previousLoad.call(this, request, parent, isMain);
-        if (parent?.filename === dashboardPath && request === './workspaces/sessionHydrationController') {
+        if (isCompositionRequest('workspaces/sessionHydrationController')) {
             const Original = loaded.WorkspaceSessionHydrationController;
             return {
                 ...loaded,
@@ -361,7 +366,7 @@ async function main() {
                 },
             };
         }
-        if (parent?.filename === dashboardPath && request === './aiSessions/tmuxRuntimeBindingStore') {
+        if (isCompositionRequest('aiSessions/tmuxRuntimeBindingStore')) {
             const Original = loaded.TmuxRuntimeBindingStore;
             return {
                 ...loaded,
@@ -374,7 +379,7 @@ async function main() {
                 },
             };
         }
-        if (parent?.filename === dashboardPath && request === './aiSessions/tmuxCreationLock') {
+        if (isCompositionRequest('aiSessions/tmuxCreationLock')) {
             return {
                 ...loaded,
                 withTmuxCreationLock: (root, key, operation) => {

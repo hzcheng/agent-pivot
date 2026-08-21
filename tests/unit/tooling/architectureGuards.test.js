@@ -24,6 +24,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
     const relativePaths = [
         'src/dashboard.ts',
         'src/dashboard/sections/conversationStack.ts',
+        'src/dashboard/sections/runtimeStack.ts',
         'src/workspaces/currentWorkspaceSessionAuthority.ts',
         'src/openWorkspaces/dashboardController.ts',
         'src/workspaces/sessionHydrationController.ts',

@@ -658,15 +658,13 @@ const guards = {
         }
 
         const conversationSectionPath = 'src/dashboard/sections/conversationStack.ts';
+        const runtimeSectionPath = 'src/dashboard/sections/runtimeStack.ts';
         const dashboardSource = dashboard.getFullText()
-            + (fs.existsSync(path.join(root, conversationSectionPath))
-                ? '\n' + parseTypescript(
-                    root,
-                    conversationSectionPath,
-                    this.id,
-                    risk
-                ).getFullText()
-                : '');
+            + [conversationSectionPath, runtimeSectionPath]
+                .filter(sectionPath => fs.existsSync(path.join(root, sectionPath)))
+                .map(sectionPath => parseTypescript(root, sectionPath, this.id, risk).getFullText())
+                .map(text => '\n' + text)
+                .join('');
         if ((dashboardSource.match(/new CurrentWorkspaceSessionAuthority\s*\(/g) || []).length !== 1
             || (dashboardSource.match(
                 /currentWorkspaceSessionAuthority\.getProjectId\s*\(/g

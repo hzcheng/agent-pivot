@@ -4977,7 +4977,7 @@ function runWebviewContentChecks() {
     const sessionReducedMotionStyles = extractExactScssBlock(styles, '@media (prefers-reduced-motion: reduce)');
     assert.ok(sessionReducedMotionStyles.includes('.codex-sessions'));
     assert.ok(sessionReducedMotionStyles.includes('transition: none !important'));
-    const dashboard = fs.readFileSync(path.join(__dirname, '..', 'src', 'dashboard.ts'), 'utf8');
+    const dashboard = require('./lib/compositionSources').readCompositionSource(path.join(__dirname, '..'));
     const presentationMessageSource = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'aiSessions', 'presentationMessage.ts'),
         'utf8'
@@ -7385,7 +7385,7 @@ function runBatchAiSessionWebviewChecks() {
 
 function runAiSessionIncrementalRefreshSourceChecks() {
     const root = path.join(__dirname, '..');
-    const dashboard = fs.readFileSync(path.join(root, 'src', 'dashboard.ts'), 'utf8');
+    const dashboard = require('./lib/compositionSources').readCompositionSource(root);
     const readCoordinatorSource = fs.readFileSync(
         path.join(root, 'src', 'aiSessions', 'readCoordinator.ts'), 'utf8'
     );

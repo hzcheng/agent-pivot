@@ -95,8 +95,16 @@
         ],
         "exclude": []
       },
-      "publicEntrypoints": [
-        "src/aiSessions/conversation/**"
+"publicEntrypoints": [
+        "src/aiSessions/conversation/bookmarkStore.ts",
+        "src/aiSessions/conversation/commentStore.ts",
+        "src/aiSessions/conversation/composition.ts",
+        "src/aiSessions/conversation/displayMetadata.ts",
+        "src/aiSessions/conversation/panelRestoreCoordinator.ts",
+        "src/aiSessions/conversation/projectCommentStore.ts",
+        "src/aiSessions/conversation/sessionRebindCoordinator.ts",
+        "src/aiSessions/conversation/sessionStatusController.ts",
+        "src/aiSessions/conversation/submission.ts"
       ],
       "mayDependOn": [
         "MOD-AI-SESSION-PROVIDER",

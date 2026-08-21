@@ -7,19 +7,5 @@
         "Strict-mode blocking: a module cannot go strict while a 2-cycle fingerprint names it; the SCC cluster entry is cluster-level debt and blocks only whole-program acceptance.",
         "ARCH-CHANGE-002 retired ARCH-WAIVER-003 (the workspace↔worktree pair dissolved when the shared assignment utilities moved to the kernel) and updated ARCH-WAIVER-004 to the shrunken cluster (MOD-WORKTREE-LIFECYCLE is cycle-free)."
     ],
-    "waivers": [
-        {
-            "id": "ARCH-WAIVER-004",
-            "rule": "module-cycle",
-            "fingerprints": [
-                "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-RUNTIME|MOD-PROJECT-CATALOG"
-            ],
-            "owner": "hzcheng",
-            "reason": "Cluster-level symptom of the coarse registry phase: 12 modules form one cyclic component through the composition root. MOD-WORKTREE-LIFECYCLE left the cluster in ARCH-CHANGE-002. Tracked at cluster level; it does not block per-module strict mode but must be gone for program acceptance.",
-            "tracking": "architecture program acceptance (Stage 6)",
-            "createdAt": "2026-08-17",
-            "retiresWith": "WAVE-FINAL",
-            "expiresAt": null
-        }
-    ]
+    "waivers": []
 }

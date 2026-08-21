@@ -104,6 +104,7 @@ import {
 } from './dashboard/runningSessionJump';
 import { createSessionNavigationCoordinator } from './dashboard/sessionNavigationCoordinator';
 import { buildAiSessionsUpdatedMessage, buildOpenWorkspacesUpdatedMessage } from './dashboard/webviewUpdateMessages';
+import { getVsCodeGitApiForWorktreeMonitoring } from './dashboard/gitApiAcquisition';
 import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigationFocusExecutor';
 import {
     createSessionStatusCycleHandler,
@@ -126,7 +127,11 @@ import {
 } from './aiSessions/runningQueue';
 import { getAiSessionKey } from './aiSessions/sessionHelpers';
 import { createAiSessionProviderRegistry } from './aiSessions/providers';
-import { ProviderDirectoryCapabilityProbe } from './aiSessions/providerDirectoryCapability';
+import {
+    ProviderDirectoryCapabilityProbe,
+    resolveAiProviderExecutable,
+    runBoundedAiProviderHelp,
+} from './aiSessions/providerDirectoryCapability';
 import type {
     BoundedChildProcessOptions,
     BoundedChildProcessResult,
@@ -350,73 +355,6 @@ const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
 const DASHBOARD_MODULE_LOADED_AT_MS = performance.now();
 let activeAiSessionAttentionBridgeClient: AttentionBridgeClient | null = null;
 let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
-
-function resolveAiProviderExecutable(commandName: string): string | null {
-    if (!commandName) {
-        return null;
-    }
-    if (path.isAbsolute(commandName)) {
-        return existsSync(commandName) ? commandName : null;
-    }
-
-    const windows = process.platform === 'win32';
-    const pathValue = process.env.PATH || process.env.Path || '';
-    const extensions = windows
-        ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
-        : [''];
-    for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
-        for (const extension of extensions) {
-            const candidate = path.join(directory, `${commandName}${extension}`);
-            if (existsSync(candidate)) {
-                return candidate;
-            }
-        }
-    }
-    return null;
-}
-
-function runBoundedAiProviderHelp(
-    executable: string,
-    args: readonly string[],
-    options: BoundedChildProcessOptions
-): Promise<BoundedChildProcessResult> {
-    return new Promise(resolve => {
-        childProcess.execFile(executable, [...args], {
-            timeout: options.timeoutMs,
-            maxBuffer: options.maxOutputBytes,
-            encoding: 'utf8',
-            windowsHide: true,
-        }, (error, stdout, stderr) => {
-            const childError = error as unknown as NodeJS.ErrnoException & {
-                code?: string | number;
-                killed?: boolean;
-            };
-            resolve({
-                exitCode: error
-                    ? (typeof childError.code === 'number' ? childError.code : null)
-                    : 0,
-                stdout: typeof stdout === 'string' ? stdout : '',
-                stderr: typeof stderr === 'string' ? stderr : '',
-                timedOut: Boolean(error && childError.killed),
-            });
-        });
-    });
-}
-
-async function getVsCodeGitApiForWorktreeMonitoring(): Promise<GitApiLike | undefined> {
-    const extension = vscode.extensions.getExtension('vscode.git');
-    if (!extension) {
-        return undefined;
-    }
-    const exports = extension.isActive ? extension.exports : await extension.activate();
-    const api = (exports as { getAPI?: (version: number) => unknown } | undefined)
-        ?.getAPI?.(1) as GitApiLike | undefined;
-    return api && Array.isArray(api.repositories)
-        && typeof api.onDidOpenRepository === 'function'
-        && typeof api.onDidCloseRepository === 'function'
-        ? api
-        : undefined;
-}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     const monotonicNowMs = () => performance.now();

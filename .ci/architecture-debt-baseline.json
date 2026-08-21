@@ -4,9 +4,7 @@
   "note": "Exact violation fingerprints per implemented rule. Debt may shrink or stay; it may never grow, move, or change identity invisibly.",
   "rules": {
     "module-cycle": {
-      "fingerprints": [
-        "scc:MOD-AI-SESSION-ATTENTION|MOD-AI-SESSION-RUNTIME|MOD-PROJECT-CATALOG"
-      ]
+      "fingerprints": []
     }
   }
 }

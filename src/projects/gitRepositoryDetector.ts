@@ -2,6 +2,7 @@
 
 import * as path from 'path';
 import { existsSync, lstatSync } from 'fs';
+import { isUriString } from '../uriStrings';
 
 export default class GitRepositoryDetector {
     private readonly cache = new Map<string, boolean>();
@@ -30,7 +31,7 @@ export default class GitRepositoryDetector {
     }
 
     private getLocalStartDir(projectPath: string): string {
-        if (!projectPath || this.isUriString(projectPath)) {
+        if (!projectPath || isUriString(projectPath)) {
             return null;
         }
 
@@ -58,9 +59,5 @@ export default class GitRepositoryDetector {
         }
 
         return false;
-    }
-
-    private isUriString(projectPath: string): boolean {
-        return projectPath && projectPath.includes("://");
     }
 }

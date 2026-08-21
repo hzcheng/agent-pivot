@@ -2,7 +2,7 @@
 
 import * as path from 'path';
 import { lstatSync } from 'fs';
-import { isUriString } from '../projects/openProjectService';
+import { isUriString } from '../uriStrings';
 
 export function getUsableTerminalCwd(cwd: string): string {
     if (!cwd || isUriString(cwd)) {

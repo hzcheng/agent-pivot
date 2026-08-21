@@ -1,5 +1,6 @@
 'use strict';
 
+import { isUriString } from '../uriStrings';
 import * as vscode from 'vscode';
 
 import { getRemoteType, getRemoteTypeFromRemoteName, Project, ProjectRemoteType } from '../models';
@@ -123,8 +124,4 @@ export function getProjectPathPart(projectPath: string): string {
 
 export function uriToProjectPath(uri: vscode.Uri): string {
     return uri.scheme === "file" ? uri.fsPath.trim() : uri.toString().trim();
-}
-
-function isUriString(projectPath: string): boolean {
-    return projectPath && projectPath.includes("://");
 }

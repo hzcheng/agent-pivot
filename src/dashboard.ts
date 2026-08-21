@@ -28,6 +28,7 @@ import { createTodoPanelCapability } from './todos/todoPanelCapability';
 import { initializePromptMementoStore } from './prompts/service';
 import { createPanelStack } from './dashboard/sections/panelStack';
 import { createProjectControllers } from './dashboard/sections/projectControllers';
+import { createAiSessionStack } from './dashboard/sections/aiSessionStack';
 import { PromptTerminalCommandController } from './prompts/terminalCommandController';
 import CodexSessionService from './services/codexSessionService';
 import { ProcCodexRootThreadObserver } from './aiSessions/codexRootThreadObserver';
@@ -672,43 +673,20 @@ async function initializeDashboard(
             dashboardRuntimeController.applyProjectColorToCurrentWindow(project),
         revealDashboard: () => { void dashboardRuntimeController.revealAgentPivotDashboard(); },
     });
-    const codexSessionService = new CodexSessionService();
-    const kimiSessionService = new KimiSessionService();
-    const claudeSessionService = new ClaudeSessionService();
-    const aiSessionServices: Record<AiSessionProviderId, AiSessionService> = {
-        codex: codexSessionService,
-        kimi: kimiSessionService,
-        claude: claudeSessionService,
-    };
-    const aiSessionProviderRegistry = createAiSessionProviderRegistry(aiSessionServices);
-    const aiSessionProviders = aiSessionProviderRegistry.providers();
-    const aiSessionReadCoordinator = new AiSessionReadCoordinator(
+    const {
+        codexSessionService,
+        kimiSessionService,
+        claudeSessionService,
+        aiSessionServices,
+        aiSessionProviderRegistry,
         aiSessionProviders,
-        logAiSessionDiagnostic
-    );
-    const aiSessionAliasStore = new AiSessionAliasStore(context.globalStoragePath);
-    const aiSessionAliasController = new AiSessionAliasController({
-        store: aiSessionAliasStore,
-        isProviderId: isAiSessionProviderId,
-        getSessionKey: getAiSessionPinKey,
-        getProviderResult: (providerId, options) => aiSessionReadCoordinator.getProviderResult(providerId, options),
-        logError,
-        showSaveError: () => vscode.window.showErrorMessage("Could not save the chat name."),
-    });
-    const aiSessionProfileStore = new AiSessionProfileStore(context.globalStoragePath);
-    const aiSessionProfileController = new AiSessionProfileController({
-        store: aiSessionProfileStore,
-        isProviderId: isAiSessionProviderId,
-        getSessionKey: getAiSessionPinKey,
-        logError,
-        showSaveError: () => vscode.window.showErrorMessage('Could not save the Codex session profile.'),
-        lastUsedMemento: context.globalState,
-        isProfileAvailable: name => codexProfileFileExists(name),
-    });
-    const codexProfileSupportProbe = new CodexProfileSupportProbe({
-        executable: resolveAiProviderExecutable('codex') || 'codex',
-        memento: context.globalState,
-    });
+        aiSessionReadCoordinator,
+        aiSessionAliasStore,
+        aiSessionAliasController,
+        aiSessionProfileStore,
+        aiSessionProfileController,
+        codexProfileSupportProbe,
+    } = createAiSessionStack({ context, logError, logAiSessionDiagnostic });
     const conversationCommentStore = new ConversationCommentFileStore(
         context.globalStoragePath
     );

@@ -193,6 +193,7 @@
         var lastSelectSignature = '';
         var lastLiveText = '';
         var pendingMemberId = null;
+        var highestChangesVersion = 0;
 
         function exactKeys(value, required, optional) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -337,6 +338,7 @@
             if (repoName) repoName.textContent = '';
             if (repoLabel) repoLabel.removeAttribute('data-tooltip');
             if (outsideBadge) outsideBadge.hidden = true;
+            if (branchRoot) branchRoot.hidden = true;
             if (branchRoot) branchRoot.removeAttribute('data-tooltip');
             if (branchPrefix) branchPrefix.textContent = '';
             if (branchTail) branchTail.textContent = '';
@@ -356,6 +358,8 @@
                 taskTracking.removeAttribute('data-tooltip');
             }
             if (reviewButton) reviewButton.hidden = true;
+            if (refreshButton) refreshButton.disabled = true;
+            if (openScmButton) openScmButton.disabled = true;
             if (groupsRoot) clearChildren(groupsRoot);
             if (emptyRoot) emptyRoot.hidden = true;
             currentMemberId = null;
@@ -415,7 +419,7 @@
             var ahead = aheadText(aggregate);
             return ahead === null
                 ? workingText(aggregate) + ' uncommitted'
-                    + ' · commits unknown (no recorded task start)'
+                    + ' · commits unknown'
                 : workingText(aggregate) + ' uncommitted · '
                     + ahead + ' commits since baseline';
         }
@@ -547,6 +551,9 @@
             var member = selectedMemberOf(state);
             var count = state.members.length;
             var multi = count > 1;
+            if (branchRoot) branchRoot.hidden = !member;
+            if (refreshButton) refreshButton.disabled = false;
+            if (openScmButton) openScmButton.disabled = false;
             if (prevButton) {
                 prevButton.hidden = !multi;
             }
@@ -1326,6 +1333,11 @@
                 || !validState(message.changes)) {
                 return false;
             }
+            if (message.version === 1 && highestChangesVersion === 2) {
+                return false;
+            }
+            highestChangesVersion = Math.max(
+                highestChangesVersion, message.version);
             latestState = message.changes;
             if (!pendingMemberId
                 || latestState.selectedMemberId === pendingMemberId) {
@@ -1507,6 +1519,7 @@
                 latestState = null;
                 lastSelectSignature = '';
                 lastLiveText = '';
+                highestChangesVersion = 0;
                 memberContexts.clear();
                 pendingMemberId = null;
                 currentMemberId = null;

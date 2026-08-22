@@ -5300,6 +5300,7 @@ test('WORKTREE-CHANGES-PANEL-001 the viewer publishes collected working items fo
         await new Promise(resolve => setTimeout(resolve, 20));
         state = panel.postedMessages
             .filter(message => message.type === 'conversation-viewer-changes')
+            .filter(message => message.version === 2)
             .at(-1)?.changes;
     }
     assert.ok(state, 'a changes state is published');

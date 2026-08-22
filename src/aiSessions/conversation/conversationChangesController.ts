@@ -425,7 +425,7 @@ export class ConversationChangesController {
                     return null;
                 }
             }));
-        if (!this.matchesActive(target)) {
+        if (this.active !== active) {
             // Session switched mid-collection: discard in-flight results.
             return;
         }
@@ -439,7 +439,7 @@ export class ConversationChangesController {
 
     private publishState(active: ActiveChanges): void {
         const panel = this.options.getPanel();
-        if (!panel || !this.matchesActive(active.target)) {
+        if (!panel || this.active !== active) {
             return;
         }
         const snapshots = active.changeSet.members.map(member =>
@@ -476,15 +476,15 @@ export class ConversationChangesController {
         // the webview drops every message stamped with a stale generation.
         void Promise.resolve(panel.webview.postMessage({
             type: 'conversation-viewer-changes',
-            version: 1,
-            subscriptionGeneration: this.options.getSubscriptionGeneration(),
-            changes: legacyState,
-        }));
-        void Promise.resolve(panel.webview.postMessage({
-            type: 'conversation-viewer-changes',
             version: 2,
             subscriptionGeneration: this.options.getSubscriptionGeneration(),
             changes: state,
+        }));
+        void Promise.resolve(panel.webview.postMessage({
+            type: 'conversation-viewer-changes',
+            version: 1,
+            subscriptionGeneration: this.options.getSubscriptionGeneration(),
+            changes: legacyState,
         }));
     }
 }

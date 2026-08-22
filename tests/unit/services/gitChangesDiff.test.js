@@ -265,3 +265,31 @@ test('WORKTREE-CHANGES-PANEL-001 task result review fails closed when either Git
             `${failingCommand} failure must not open a partial review`);
     }
 });
+
+test('WORKTREE-CHANGES-PANEL-001 names the truncation when task review exceeds the file cap', async t => {
+    const repo = await repoFixture(t);
+    const originalExecFile = childProcess.execFile;
+    const manyFiles = Array.from({ length: 401 }, (_unused, index) =>
+        `file-${String(index).padStart(3, '0')}.ts`);
+    childProcess.execFile = ((file, args, options, callback) => {
+        if (args.includes('diff')) {
+            callback(null, manyFiles.join('\0') + '\0');
+            return;
+        }
+        return originalExecFile(file, args, options, callback);
+    });
+    const executed = [];
+    const service = loadService(executed, { failChanges: false });
+    try {
+        await service.openTaskResultReview(
+            repo.dir, repo.baseline, 'Task result');
+    } finally {
+        childProcess.execFile = originalExecFile;
+    }
+    const changes = executed.find(entry => entry[0] === 'vscode.changes');
+    assert.ok(changes);
+    assert.equal(changes[1],
+        'Task result (showing 400 of 401)',
+        'the review title discloses the cap instead of implying completeness');
+    assert.equal(changes[2].length, 400);
+});

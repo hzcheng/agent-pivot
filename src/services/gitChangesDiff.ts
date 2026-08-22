@@ -108,7 +108,8 @@ export async function openWorkingChangeDiff(
         const root = realpathSync(worktreePath);
         const candidate = realpathSync(fileUri.fsPath);
         const relative = path.relative(root, candidate);
-        return relative === '' || (!relative.startsWith('..')
+        return relative === '' || (relative !== '..'
+            && !relative.startsWith(`..${path.sep}`)
             && !path.isAbsolute(relative))
             ? true
             : false;
@@ -202,8 +203,11 @@ export async function openTaskResultReview(
         return;
     }
     const untrackedSet = new Set(untracked);
-    const files = [...new Set([...tracked, ...untracked])]
-        .slice(0, MAX_DIFF_FILES);
+    const allFiles = [...new Set([...tracked, ...untracked])];
+    const files = allFiles.slice(0, MAX_DIFF_FILES);
+    const reviewTitle = allFiles.length > files.length
+        ? `${title} (showing ${files.length} of ${allFiles.length})`
+        : title;
     if (!files.length) {
         return;
     }
@@ -222,7 +226,8 @@ export async function openTaskResultReview(
         ];
     });
     try {
-        await vscode.commands.executeCommand('vscode.changes', title, resources);
+        await vscode.commands.executeCommand(
+            'vscode.changes', reviewTitle, resources);
     } catch (error) {
         onError?.(
             'vscode.changes failed; falling back to a per-file diff list.',
@@ -231,7 +236,7 @@ export async function openTaskResultReview(
         // pick one file at a time, baseline → worktree.
         const picked = await vscode.window.showQuickPick(
             files.map((file, index) => ({ label: file, index })),
-            { placeHolder: title }
+            { placeHolder: reviewTitle }
         );
         if (!picked) {
             return;

@@ -95,7 +95,8 @@ function fixture(overrides = {}) {
 
 function lastChanges(posted) {
     return posted.filter(message =>
-        message.type === 'conversation-viewer-changes').at(-1)?.changes;
+        message.type === 'conversation-viewer-changes'
+        && message.version === 2).at(-1)?.changes;
 }
 
 test('WORKTREE-CHANGES-PANEL-001 resolves group members through the manifest and publishes aggregate state', async () => {
@@ -121,12 +122,11 @@ test('WORKTREE-CHANGES-PANEL-001 publishes legacy and current changes messages f
     await controller.activate(TARGET);
     const messages = posted.filter(message =>
         message.type === 'conversation-viewer-changes');
-    assert.deepEqual(messages.map(message => message.version), [1, 2]);
-    assert.ok(!('headSha' in messages[0].changes.members[0]));
-    assert.ok(!('upstream' in messages[0].changes.members[0]));
-    assert.ok('headSha' in messages[1].changes.members[0]
-        || 'upstream' in messages[1].changes.members[0]);
-    assert.ok('upstream' in messages[1].changes.members[0]);
+    assert.deepEqual(messages.map(message => message.version), [2, 1]);
+    assert.ok('headSha' in messages[0].changes.members[0]
+        || 'upstream' in messages[0].changes.members[0]);
+    assert.ok(!('headSha' in messages[1].changes.members[0]));
+    assert.ok(!('upstream' in messages[1].changes.members[0]));
 });
 
 test('WORKTREE-CHANGES-PANEL-001 member views carry headSha and the upstream tracking state', async () => {
@@ -444,6 +444,65 @@ test('WORKTREE-CHANGES-PANEL-001 drains queued collection for the latest active 
     assert.ok(posted.length > before,
         'the old collection drains and publishes the new session state');
     assert.equal(lastChanges(posted).members[0].branchName, 'new');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 discards an old active instance after A-B-A', async () => {
+    let releaseOldCollection;
+    const oldCollection = new Promise(resolve => {
+        releaseOldCollection = resolve;
+    });
+    let oldCollectionStarted = false;
+    const group = {
+        groupId: 'group-1',
+        members: [{
+            memberId: 'member-1',
+            repositoryKey: REPO_KEY,
+            worktreeKey: {
+                repositoryKey: REPO_KEY,
+                canonicalWorktreePath: WT_PATH,
+            },
+            branchName: 'stale',
+            path: WT_PATH,
+            state: 'ready',
+            baseline: BASELINE,
+        }],
+    };
+    const { posted, controller } = fixture({
+        findGroupByWorktreeKey: () => group,
+        collector: new ChangesCollector({
+            execGit: async args => {
+                if (args.includes('status') && !oldCollectionStarted) {
+                    oldCollectionStarted = true;
+                    await oldCollection;
+                }
+                if (args.includes('status')) {
+                    return { stdout: ' M a.ts\0', stderr: '' };
+                }
+                if (args.includes('merge-base')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (args.includes('rev-list')) {
+                    return { stdout: '2\n', stderr: '' };
+                }
+                if (args.includes('diff')) {
+                    return { stdout: 'a.ts\0', stderr: '' };
+                }
+                return { stdout: '', stderr: '' };
+            },
+            now: () => 1724000000000,
+        }),
+    });
+    const oldTarget = { ...TARGET, sessionId: 'session-a' };
+    const oldActivation = controller.activate(oldTarget);
+    await new Promise(resolve => setImmediate(resolve));
+    await controller.activate({ ...TARGET, sessionId: 'session-b' });
+    group.members[0].branchName = 'rebound';
+    const reboundActivation = controller.activate(oldTarget);
+    await reboundActivation;
+    releaseOldCollection();
+    await oldActivation;
+    assert.equal(lastChanges(posted).members[0].branchName, 'rebound',
+        'an instance captured before A-B-A cannot publish stale snapshots into the new A activation');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 refresh re-resolves membership changes', async () => {

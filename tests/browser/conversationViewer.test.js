@@ -12978,6 +12978,39 @@ test('WORKTREE-CHANGES-PANEL-001 keeps an adjacent version-1 script usable throu
         'the legacy version-1 payload remains applied after the version-2 payload is rejected');
 });
 
+test('WORKTREE-CHANGES-PANEL-001 ignores replayed lower versions after adopting version 2', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const full = changesFixture();
+    full.members[0] = {
+        ...full.members[0], upstream: { status: 'none' },
+    };
+    const legacy = {
+        ...full,
+        members: full.members.map(({ headSha, upstream, ...member }) => member),
+    };
+    const sendVersion = (version, changes) => page.evaluate(payload => {
+        window.dispatchEvent(new MessageEvent('message', { data: payload }));
+    }, {
+        type: 'conversation-viewer-changes',
+        version,
+        subscriptionGeneration: 1,
+        changes,
+    });
+    await sendVersion(2, full);
+    await sendVersion(1, legacy);
+    await page.locator('[data-telemetry-changes]').click();
+    const tracking = page.locator('[data-changes-task-tracking]');
+    await tracking.focus();
+    await sendVersion(2, full);
+    await sendVersion(1, legacy);
+    assert.equal(await tracking.isVisible(), true,
+        'the legacy replay cannot remove tracking after version 2 adoption');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-task-tracking]')), true,
+        'the legacy replay cannot steal focus from tracking');
+});
+
 test('WORKTREE-CHANGES-PANEL-001 compresses single-child directory chains like Source Control', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture({
@@ -13593,6 +13626,14 @@ test('WORKTREE-CHANGES-PANEL-001 clears old member data on terminal and reset st
     assert.equal(
         await page.locator('[data-changes-branch-tail]').textContent(), '',
         'retired state cannot retain the previous branch');
+    assert.equal(await page.locator('[data-changes-branch]').isHidden(), true,
+        'the focusable branch row leaves the tab order with no member');
+    assert.equal(
+        await page.locator('[data-changes-refresh]').isDisabled(), true,
+        'refresh has no active member to collect');
+    assert.equal(
+        await page.locator('[data-changes-open-scm]').isDisabled(), true,
+        'SCM has no active member to reveal');
     assert.equal(await page.locator('.conversation-changes-file').count(), 0);
     assert.equal(
         await page.locator('[data-changes-cross-member]').isHidden(), true);

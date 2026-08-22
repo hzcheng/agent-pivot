@@ -8,6 +8,7 @@ import type { WorkspaceCardViewModel } from '../models';
 import { sanitizeProjectName } from '../models';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 import { resolveWindowDisplayNames } from './windowDisplayNames';
+import { ProjectRemoteType } from '../models';
 
 export interface OpenWindowRowViewModel {
     cardId: string;
@@ -17,6 +18,7 @@ export interface OpenWindowRowViewModel {
     displayName: string;
     /** Undisambiguated workspace name for tooltips. */
     fullName: string;
+    remoteType: ProjectRemoteType;
     environmentLabel: string;
     runningCount: number;
     attentionCount: number;
@@ -24,6 +26,17 @@ export interface OpenWindowRowViewModel {
     /** False hides the pin affordances (e.g. the empty-window placeholder). */
     canPin: boolean;
     folderNames: string[];
+}
+
+function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment']): ProjectRemoteType {
+    switch (environment) {
+        case 'ssh': return ProjectRemoteType.SSH;
+        case 'wsl': return ProjectRemoteType.WSL;
+        case 'devContainer': return ProjectRemoteType.DevContainer;
+        case 'remote': return ProjectRemoteType.Remote;
+        case 'local':
+        default: return ProjectRemoteType.None;
+    }
 }
 
 /**
@@ -51,6 +64,7 @@ export function buildOpenWindowRowViewModels(
         navigationIdentity: card.navigationIdentity,
         displayName: displayNames.get(card.id) || cleanName(card.name),
         fullName: cleanName(card.name),
+        remoteType: getWorkspaceRemoteType(card.environment),
         environmentLabel: card.environmentLabel || '',
         runningCount: Math.max(0, Math.floor(card.runningSessionCount || 0)),
         attentionCount: Math.max(0, Math.floor(card.attentionCount || 0)),

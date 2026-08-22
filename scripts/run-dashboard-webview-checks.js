@@ -792,8 +792,10 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(navigationRow.includes('data-window-kind="navigation"'));
     assert.ok(navigationRow.includes('<span class="open-window-name">App</span>'),
         'window rows must not repeat VS Code remote window decorations in their name');
-    assert.ok(navigationRow.includes('open-window-env-chip">Dev Container<'),
-        'remote windows carry the environment chip');
+    assert.strictEqual(navigationRow.includes('open-window-env-chip'), false,
+        'remote windows do not spend title space on an environment chip');
+    assert.ok(navigationRow.includes('open-window-icon" title="Dev Container Project"'),
+        'remote windows express their environment through the shared project icon');
     assert.ok(navigationRow.includes('aria-label="Focus window: App'),
         'non-current rows announce the focus jump');
     assert.ok(navigationRow.includes('>●2</span>'),
@@ -826,7 +828,8 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(currentRow.includes('data-action="toggle-open-workspace-pin"'));
     assert.strictEqual(currentRow.includes('open-window-env-chip'), false,
         'local windows do not carry an environment chip');
-    assert.strictEqual(currentRow.includes('Local'), false);
+    assert.ok(currentRow.includes('open-window-icon" title="Local Project"'),
+        'local windows use the same folder-icon presentation as local projects');
     // PR-D：CHATS/ALL 已从 current-detail 卡片提升为一级 OPEN surface。
     assert.ok(workspaceHtml.includes('data-open-session-surface'));
     assert.strictEqual(workspaceHtml.includes('class="workspace-card'), false,

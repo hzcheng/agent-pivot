@@ -2301,7 +2301,8 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
             .getAttribute('aria-label'),
         '1 active AI session needs attention'
     );
-    assert.equal(await currentRow.locator('.open-window-attention').textContent(), '\u26A01');
+    assert.equal(await currentRow.locator('.open-window-attention').textContent(), '1');
+    assert.equal(await currentRow.locator('.open-window-attention-dot').count(), 1);
     assert.equal(
         await currentRow.locator('.open-window-attention').getAttribute('aria-label'),
         '1 session needs attention in this window'

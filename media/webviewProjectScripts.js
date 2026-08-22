@@ -240,11 +240,15 @@ function initProjects() {
             }
             return;
         }
-        var focusButton = e.target.closest('[data-action="focus-open-window"]');
-        if (!focusButton || !row.contains(focusButton)) {
+        if (row.getAttribute('data-window-kind') === 'current'
+            || row.getAttribute('data-navigation-disabled') === 'true') {
             return;
         }
-        if (focusButton.getAttribute('aria-disabled') === 'true') {
+        var interactiveControl = e.target.closest(
+            'button, input, select, textarea, a[href], [data-action]'
+        );
+        if (interactiveControl
+            && interactiveControl.getAttribute('data-action') !== 'focus-open-window') {
             return;
         }
         e.preventDefault();

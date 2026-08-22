@@ -18,6 +18,7 @@ function row(overrides = {}) {
         navigationIdentity: 'identity-1',
         displayName: 'beta',
         fullName: 'beta',
+        remoteType: 0,
         environmentLabel: 'Local',
         runningCount: 1,
         attentionCount: 0,
@@ -44,7 +45,8 @@ test('window switcher renderer: current row carries the triple encoding and aria
     assert.match(html, /title="Current window: alpha/);
     assert.match(html, /aria-pressed="true"/);
     assert.match(html, /●2/);
-    assert.match(html, /⚠3/);
+    assert.match(html, /open-window-attention-dot/);
+    assert.match(html, /open-window-attention-dot[^>]*><\/span>3/);
 });
 
 test('window switcher renderer: navigation row points at the focus affordance', () => {
@@ -68,15 +70,19 @@ test('window switcher renderer: singular count labels and slot roles', () => {
     assert.match(html, /aria-label="1 session needs attention in this window"/);
 });
 
-test('window switcher renderer: environment chip only for remote windows, and escaping', () => {
-    const remote = getOpenWindowRowHtml(row({ displayName: 'beta<b>', fullName: 'beta<b>', environmentLabel: 'SSH' }));
+test('window switcher renderer: semantic environment icon replaces the environment chip', () => {
+    const remote = getOpenWindowRowHtml(row({
+        displayName: 'beta<b>', fullName: 'beta<b>', environmentLabel: 'SSH', remoteType: 1,
+    }));
     assert.match(remote, /beta&lt;b&gt;/);
     assert.ok(!remote.includes('beta<b>'));
-    assert.match(remote, /open-window-env-chip">SSH</);
-    assert.match(remote, /\nSSH\n/);
-    const local = getOpenWindowRowHtml(row({ environmentLabel: 'Local' }));
-    assert.ok(!local.includes('open-window-env-chip'));
-    assert.ok(!local.includes('\nLocal\n'));
+    assert.match(remote, /open-window-icon" title="SSH Project"/);
+    assert.match(remote, /viewBox="0 0 640 512"/);
+    const container = getOpenWindowRowHtml(row({ remoteType: 3 }));
+    assert.match(container, /open-window-icon" title="Dev Container Project"/);
+    assert.match(container, /viewBox="0 0 24 24"/);
+    assert.ok(!remote.includes('open-window-env-chip'));
+    assert.ok(!remote.includes('>SSH<'));
 });
 
 test('window switcher group: list role, count badge, status slot, and live regions', () => {

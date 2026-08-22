@@ -12117,20 +12117,21 @@ test('CONVERSATION-COMMENTS-TABS-001 preserves per-tab filters and returns after
     assert.equal(await workspacePane.isVisible(), true);
     assert.equal(
         await page.evaluate(() => {
-            const panel = document.querySelector(
-                '[data-conversation-comments]'
+            const tabRow = document.querySelector(
+                '[data-comments-tabs]'
             ).getBoundingClientRect();
             const tabs = Array.from(document.querySelectorAll(
                 '[data-comments-tab]'
             ));
             const first = tabs[0].getBoundingClientRect();
             const last = tabs.at(-1).getBoundingClientRect();
-            const tabGroupCenter = (first.left + last.right) / 2;
-            const panelCenter = (panel.left + panel.right) / 2;
-            return Math.abs(tabGroupCenter - panelCenter) <= 1;
+            return Math.abs(first.width - last.width) <= 1
+                && Math.abs(
+                    first.left - tabRow.left - (tabRow.right - last.right)
+                ) <= 1;
         }),
         true,
-        'the Session/Workspace tab group must be centered'
+        'the Session/Workspace tabs must fill the row equally'
     );
     await page.setViewportSize({ width: 192, height: 700 });
     assert.deepEqual(
@@ -12145,13 +12146,17 @@ test('CONVERSATION-COMMENTS-TABS-001 preserves per-tab filters and returns after
             return {
                 panelVisible: panelBounds.left >= 0
                     && panelBounds.right <= window.innerWidth,
-                tabGroupCentered: (() => {
+                tabsFillRowEqually: (() => {
+                    const tabRow = document.querySelector(
+                        '[data-comments-tabs]'
+                    ).getBoundingClientRect();
                     const first = tabs[0].getBoundingClientRect();
                     const last = tabs.at(-1).getBoundingClientRect();
-                    const tabGroupCenter = (first.left + last.right) / 2;
-                    const panelCenter
-                        = (panelBounds.left + panelBounds.right) / 2;
-                    return Math.abs(tabGroupCenter - panelCenter) <= 1;
+                    return Math.abs(first.width - last.width) <= 1
+                        && Math.abs(
+                            first.left - tabRow.left
+                                - (tabRow.right - last.right)
+                        ) <= 1;
                 })(),
                 tabLabelsUnclipped: tabs.every(tab =>
                     tab.scrollWidth <= tab.clientWidth + 1
@@ -12165,7 +12170,7 @@ test('CONVERSATION-COMMENTS-TABS-001 preserves per-tab filters and returns after
         }),
         {
             panelVisible: true,
-            tabGroupCentered: true,
+            tabsFillRowEqually: true,
             tabLabelsUnclipped: true,
             tabsInsidePanel: true,
         }

@@ -1512,25 +1512,32 @@ body[data-conversation-loading='true'] .conversation-messages {
 }
 
 .conversation-comments-tabs {
-    display: flex;
+    display: grid;
     flex: 0 0 auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     box-sizing: border-box;
     min-width: 0;
-    justify-content: center;
-    gap: 0.15rem;
-    align-items: baseline;
-    padding: 0.15rem 0.5rem 0;
+    gap: 0.2rem;
+    align-items: stretch;
+    padding: 0.2rem 0.4rem;
     border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(
+        --vscode-sideBarSectionHeader-background,
+        var(--vscode-sideBar-background, var(--vscode-editor-background))
+    );
 }
 
 .conversation-comments-tab {
-    flex: 0 1 auto;
-    overflow: hidden;
+    display: inline-flex;
     min-width: 0;
+    min-height: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
     margin: 0;
-    padding: 0.2rem 0.3rem;
-    border: 0;
-    border-bottom: 2px solid transparent;
+    padding: 0.1rem 0;
+    border-color: transparent;
+    border-radius: 5px;
     background: transparent;
     color: var(--vscode-descriptionForeground);
     font-size: 0.72rem;
@@ -1539,14 +1546,23 @@ body[data-conversation-loading='true'] .conversation-messages {
     text-overflow: ellipsis;
     white-space: nowrap;
     cursor: pointer;
+    transition: color 120ms ease, background-color 120ms ease,
+        border-color 120ms ease, box-shadow 120ms ease;
 
     &:hover {
-        color: var(--vscode-foreground);
+        color: var(--vscode-editor-foreground);
+        background: var(--vscode-toolbar-hoverBackground);
     }
 
     &[aria-selected="true"] {
-        color: var(--vscode-foreground);
-        border-bottom-color: var(--vscode-focusBorder);
+        color: var(--vscode-editor-foreground);
+        border-color: var(--vscode-panel-border);
+        background: var(
+            --vscode-editorWidget-background,
+            var(--vscode-editor-background)
+        );
+        box-shadow: 0 1px 3px
+            var(--vscode-widget-shadow, rgba(0, 0, 0, 0.16));
     }
 
     &:disabled {

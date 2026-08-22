@@ -11,7 +11,7 @@ const { chromium } = require('playwright-chromium');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 const skillPanelScript = fs.readFileSync(
-    path.join(__dirname, '../../media/webviewSkillPanelScripts.js'),
+    path.join(__dirname, '../../src/webview/webviewSkillPanelScripts.js'),
     'utf8'
 );
 

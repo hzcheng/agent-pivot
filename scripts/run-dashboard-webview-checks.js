@@ -7,6 +7,10 @@ const path = require('path');
 const vm = require('vm');
 const CleanCSS = require('clean-css');
 const sass = require('sass');
+const {
+    listDirectCopies,
+    syncWebviewDirectCopies,
+} = require('./lib/webviewDirectCopies');
 const dashboardErrorContent = require('../out/dashboard/errorContent');
 let workspaceConfigurationResolver = () => ({ marker: 'agent-pivot-configuration' });
 const configurationReads = [];
@@ -4547,31 +4551,17 @@ function runTodoComposePendingInteractionChecks() {
 
 function runSourceContractChecks(source) {
     const projectSource = readProjectWebviewSource();
-    assert.deepStrictEqual(
-        fs.readFileSync(path.join(root, 'media', 'webviewScrollStateScripts.js')),
-        fs.readFileSync(scrollStateScriptPath),
-        'generated media/webviewScrollStateScripts.js must match its source byte-for-byte'
-    );
-    assert.deepStrictEqual(
-        fs.readFileSync(path.join(root, 'media', 'webviewPromptProtocolScripts.js')),
-        fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptProtocolScripts.js')),
-        'generated media/webviewPromptProtocolScripts.js must match its source byte-for-byte'
-    );
-    assert.deepStrictEqual(
-        fs.readFileSync(path.join(root, 'media', 'webviewPromptScripts.js')),
-        fs.readFileSync(promptScriptPath),
-        'generated media/webviewPromptScripts.js must match its source byte-for-byte'
-    );
-    assert.deepStrictEqual(
-        fs.readFileSync(path.join(root, 'media', 'webviewSkillPanelScripts.js')),
-        fs.readFileSync(skillPanelScriptPath),
-        'generated media/webviewSkillPanelScripts.js must match its source byte-for-byte'
-    );
-    assert.deepStrictEqual(
-        fs.readFileSync(path.join(root, 'media', 'webviewProjectsPanelScripts.js')),
-        fs.readFileSync(projectsPanelScriptPath),
-        'generated media/webviewProjectsPanelScripts.js must match its source byte-for-byte'
-    );
+    // P0-A: media/*.js copies are build outputs generated from src/webview.
+    // Sync first so standalone runs work, then verify every manifest-declared
+    // copy matches its source byte-for-byte.
+    syncWebviewDirectCopies(root);
+    for (const { source: copySource, output } of listDirectCopies(root)) {
+        assert.deepStrictEqual(
+            fs.readFileSync(path.join(root, output)),
+            fs.readFileSync(path.join(root, copySource)),
+            `generated ${output} must match its source byte-for-byte`
+        );
+    }
     const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
     const filterSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewFilterScripts.js'), 'utf8');
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');

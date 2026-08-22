@@ -33,9 +33,11 @@ function copyNodeAssets() {
 }
 
 function copyWebviewAssets() {
-    return gulp.src([
-        'src/webview/*.js'
-    ]).pipe(gulp.dest('media'));
+    // Manifest-declared direct copies (same logic the bundle builder runs);
+    // the gulp task remains for watch mode.
+    const { syncWebviewDirectCopies } = require('./scripts/lib/webviewDirectCopies');
+    syncWebviewDirectCopies(__dirname);
+    return Promise.resolve();
 }
 
 function buildDashboardBundle(done) {

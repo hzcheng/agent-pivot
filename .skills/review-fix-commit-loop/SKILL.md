@@ -109,8 +109,10 @@ Summarize:
 
 - Do not call a review complete until fresh verification has run after the final fix.
 - `npx gulp` (default task) ends in watch mode under development and never
-  exits; rebuild styles/webview assets one-shot with `npx gulp
-  --production` — the same mode CI uses.
+  exits. The `media/` script copies need no manual step at all (every build
+  regenerates them from `src/webview/`); SCSS styles are still compiled into
+  the tracked minified CSS — rebuild one-shot with `npx gulp buildStyles`
+  (or `npx gulp --production`), the same mode CI uses.
 - Do not bury review fixes inside unrelated feature commits unless the user requested squashing.
 - Do not trust subagent output blindly; inspect the actual diff and rerun evidence-producing commands.
 - Do not treat a pre-commit behavior-contract pass as proof of commit-level audit currency (the audit itself was pruned in PR #309; the manifest is historical).

@@ -10,6 +10,7 @@ const {
     validateScheduledWorkflow: validateScheduledWorkflowSource,
     validateVerifyWorkflow,
 } = require('./lib/ciContracts');
+const { listDirectCopies } = require('./lib/webviewDirectCopies');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 
@@ -625,34 +626,38 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
                 `release archive must not retain seeded stale output in ${fileName}`);
         }
     }
-    for (const [archiveEntry, localPath] of [
-        ['extension/media/styles.css', 'media/styles.css'],
-        ['extension/media/webviewAiSessionViewStateScripts.js', 'media/webviewAiSessionViewStateScripts.js'],
-        ['extension/media/webviewWorkspaceUpdateScripts.js', 'media/webviewWorkspaceUpdateScripts.js'],
-        ['extension/media/webviewTodoGroupScripts.js', 'media/webviewTodoGroupScripts.js'],
-        ['extension/media/webviewProjectCollapseScripts.js', 'media/webviewProjectCollapseScripts.js'],
-        ['extension/media/webviewOpenWindowNavigationScripts.js', 'media/webviewOpenWindowNavigationScripts.js'],
-        ['extension/media/webviewTodoControlScripts.js', 'media/webviewTodoControlScripts.js'],
-        ['extension/media/webviewProjectContextMenuScripts.js', 'media/webviewProjectContextMenuScripts.js'],
-        ['extension/media/webviewProjectAiUpdateScripts.js', 'media/webviewProjectAiUpdateScripts.js'],
-        ['extension/media/webviewProjectAiSessionControlsScripts.js', 'media/webviewProjectAiSessionControlsScripts.js'],
-        ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
-        ['extension/media/webviewSkillPanelScripts.js', 'media/webviewSkillPanelScripts.js'],
-        ['extension/media/webviewProjectsPanelScripts.js', 'media/webviewProjectsPanelScripts.js'],
-        ['extension/media/webviewDashboardValidationScripts.js', 'media/webviewDashboardValidationScripts.js'],
-        ['extension/media/webviewDashboardSearchScripts.js', 'media/webviewDashboardSearchScripts.js'],
-        ['extension/media/webviewDashboardProjectsPanelScripts.js', 'media/webviewDashboardProjectsPanelScripts.js'],
-        ['extension/media/webviewDashboardTodoPanelScripts.js', 'media/webviewDashboardTodoPanelScripts.js'],
-        ['extension/media/webviewDashboardAiPanelScripts.js', 'media/webviewDashboardAiPanelScripts.js'],
-        ['extension/media/webviewPromptProtocolScripts.js', 'media/webviewPromptProtocolScripts.js'],
-        ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
-        ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
-        ['extension/media/webviewTodoRenderScripts.js', 'media/webviewTodoRenderScripts.js'],
-        ['extension/media/webviewTodoScripts.js', 'media/webviewTodoScripts.js'],
-    ]) {
-        assert.deepStrictEqual(mainEntries.get(archiveEntry), fs.readFileSync(path.join(repositoryRoot, localPath)),
-            `${archiveEntry} must match the production-generated local asset`);
+    assert.deepStrictEqual(
+        mainEntries.get('extension/media/styles.css'),
+        fs.readFileSync(path.join(repositoryRoot, 'media/styles.css')),
+        'extension/media/styles.css must match the production-generated local asset'
+    );
+    // P0-A: webview script copies are build outputs. The packaged bytes must
+    // equal the src/webview source for every manifest-declared direct copy —
+    // the assertion is defense in depth; the build-time regeneration is the
+    // mechanism.
+    for (const { source } of listDirectCopies(repositoryRoot)) {
+        const archiveEntry = `extension/media/${path.basename(source)}`;
+        assert.deepStrictEqual(
+            mainEntries.get(archiveEntry),
+            fs.readFileSync(path.join(repositoryRoot, source)),
+            `${archiveEntry} must match the ${source} source byte-for-byte`
+        );
     }
+    // The dashboard bundle is a derived artifact, not a byte mirror of any
+    // single source: the builder must be deterministic and the packaged bytes
+    // must equal this build's output.
+    const bundleBuilder = require('./build-dashboard-webview-bundle');
+    bundleBuilder.buildDashboardWebviewBundle();
+    const firstBuild = fs.readFileSync(bundleBuilder.outputPath);
+    bundleBuilder.buildDashboardWebviewBundle();
+    const secondBuild = fs.readFileSync(bundleBuilder.outputPath);
+    assert.deepStrictEqual(firstBuild, secondBuild,
+        'dashboard webview bundle builder must be deterministic');
+    assert.deepStrictEqual(
+        mainEntries.get('extension/media/webviewDashboardBundle.js'),
+        secondBuild,
+        'packaged dashboard bundle must match the built output byte-for-byte'
+    );
 }
 
 function extractMarkedRows(source, marker) {

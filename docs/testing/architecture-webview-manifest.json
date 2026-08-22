@@ -1,14 +1,16 @@
 {
-  "version": 2,
+  "version": 3,
   "title": "Webview script manifest (declared bundles, load order, permitted globals)",
   "notes": [
     "Bundles: exact-once membership over src/webview/*.js and load-order fidelity with scripts/build-dashboard-webview-bundle.js (dashboard) and src/aiSessions/conversation/viewerDocument.ts (conversation-viewer).",
-    "Globals (review R7): every window.*/globalThis.* reference must be declared here. A script-produced symbol has exactly one producer script and an exact consumers set; producer and consumers must share a bundle, and a consumer with a load-time (top-level) read must load after the producer. 'host' symbols are injected by the extension backend HTML (e.g. window.vscode), 'vendor' symbols by media vendor files, 'builtin' symbols are platform APIs. Unused entries are stale and fail."
+    "Globals (review R7): every window.*/globalThis.* reference must be declared here. A script-produced symbol has exactly one producer script and an exact consumers set; producer and consumers must share a bundle, and a consumer with a load-time (top-level) read must load after the producer. 'host' symbols are injected by the extension backend HTML (e.g. window.vscode), 'vendor' symbols by media vendor files, 'builtin' symbols are platform APIs. Unused entries are stale and fail.",
+    "Direct copies (Harness efficiency PRD, P0-A): directCopies maps each source script to its byte-identical media/ build output. The copies are generated at build time by scripts/lib/webviewDirectCopies.js and are never committed. Fail-closed rule: every bundle script must declare a directCopies entry unless explicitly listed in the bundle's bundledOnly array; individually loaded bundles (conversation-viewer) must keep bundledOnly empty. The dashboard bundle additionally declares its derived output (media/webviewDashboardBundle.js), which is a concatenation product, not a byte mirror of any single source."
   ],
   "bundles": [
     {
       "id": "dashboard",
       "builtBy": "scripts/build-dashboard-webview-bundle.js",
+      "output": "media/webviewDashboardBundle.js",
       "vendor": [
         "node_modules/fitty/dist/fitty.min.js",
         "node_modules/dragula/dist/dragula.min.js",
@@ -41,7 +43,36 @@
         "src/webview/webviewTodoScripts.js",
         "src/webview/webviewDnDScripts.js",
         "src/webview/webviewFilterScripts.js"
-      ]
+      ],
+      "bundledOnly": [],
+      "directCopies": {
+        "src/webview/webviewScrollStateScripts.js": "media/webviewScrollStateScripts.js",
+        "src/webview/webviewAiSessionViewStateScripts.js": "media/webviewAiSessionViewStateScripts.js",
+        "src/webview/webviewWorkspaceUpdateScripts.js": "media/webviewWorkspaceUpdateScripts.js",
+        "src/webview/webviewTodoGroupScripts.js": "media/webviewTodoGroupScripts.js",
+        "src/webview/webviewProjectCollapseScripts.js": "media/webviewProjectCollapseScripts.js",
+        "src/webview/webviewOpenWindowNavigationScripts.js": "media/webviewOpenWindowNavigationScripts.js",
+        "src/webview/webviewTodoControlScripts.js": "media/webviewTodoControlScripts.js",
+        "src/webview/webviewProjectContextMenuScripts.js": "media/webviewProjectContextMenuScripts.js",
+        "src/webview/webviewProjectAiUpdateScripts.js": "media/webviewProjectAiUpdateScripts.js",
+        "src/webview/webviewGroupFormScripts.js": "media/webviewGroupFormScripts.js",
+        "src/webview/webviewProjectAiSessionControlsScripts.js": "media/webviewProjectAiSessionControlsScripts.js",
+        "src/webview/webviewProjectScripts.js": "media/webviewProjectScripts.js",
+        "src/webview/webviewSkillPanelScripts.js": "media/webviewSkillPanelScripts.js",
+        "src/webview/webviewProjectsPanelScripts.js": "media/webviewProjectsPanelScripts.js",
+        "src/webview/webviewDashboardValidationScripts.js": "media/webviewDashboardValidationScripts.js",
+        "src/webview/webviewDashboardSearchScripts.js": "media/webviewDashboardSearchScripts.js",
+        "src/webview/webviewDashboardProjectsPanelScripts.js": "media/webviewDashboardProjectsPanelScripts.js",
+        "src/webview/webviewDashboardTodoPanelScripts.js": "media/webviewDashboardTodoPanelScripts.js",
+        "src/webview/webviewDashboardAiPanelScripts.js": "media/webviewDashboardAiPanelScripts.js",
+        "src/webview/webviewDashboardScripts.js": "media/webviewDashboardScripts.js",
+        "src/webview/webviewPromptProtocolScripts.js": "media/webviewPromptProtocolScripts.js",
+        "src/webview/webviewPromptScripts.js": "media/webviewPromptScripts.js",
+        "src/webview/webviewTodoRenderScripts.js": "media/webviewTodoRenderScripts.js",
+        "src/webview/webviewTodoScripts.js": "media/webviewTodoScripts.js",
+        "src/webview/webviewDnDScripts.js": "media/webviewDnDScripts.js",
+        "src/webview/webviewFilterScripts.js": "media/webviewFilterScripts.js"
+      }
     },
     {
       "id": "conversation-viewer",
@@ -65,7 +96,22 @@
         "src/webview/conversationReconcileScripts.js",
         "src/webview/conversationFindScripts.js",
         "src/webview/conversationViewerScripts.js"
-      ]
+      ],
+      "bundledOnly": [],
+      "directCopies": {
+        "src/webview/conversationRegistryScripts.js": "media/conversationRegistryScripts.js",
+        "src/webview/conversationReadingAnchorScripts.js": "media/conversationReadingAnchorScripts.js",
+        "src/webview/conversationMermaidScripts.js": "media/conversationMermaidScripts.js",
+        "src/webview/conversationOutlineScripts.js": "media/conversationOutlineScripts.js",
+        "src/webview/conversationSubagentsScripts.js": "media/conversationSubagentsScripts.js",
+        "src/webview/conversationChangesScripts.js": "media/conversationChangesScripts.js",
+        "src/webview/conversationTelemetryScripts.js": "media/conversationTelemetryScripts.js",
+        "src/webview/conversationCommentsScripts.js": "media/conversationCommentsScripts.js",
+        "src/webview/conversationSidebarScripts.js": "media/conversationSidebarScripts.js",
+        "src/webview/conversationReconcileScripts.js": "media/conversationReconcileScripts.js",
+        "src/webview/conversationFindScripts.js": "media/conversationFindScripts.js",
+        "src/webview/conversationViewerScripts.js": "media/conversationViewerScripts.js"
+      }
     }
   ],
   "globals": [

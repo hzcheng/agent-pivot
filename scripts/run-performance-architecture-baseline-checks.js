@@ -6,6 +6,10 @@ const path = require('path');
 
 const root = path.resolve(__dirname, '..');
 
+// media/*.js script copies are build outputs (P0-A); regenerate them so the
+// baseline below never reads a stale copy.
+require('./lib/webviewDirectCopies').syncWebviewDirectCopies(root);
+
 function read(relativePath) {
     return fs.readFileSync(path.join(root, relativePath), 'utf8');
 }

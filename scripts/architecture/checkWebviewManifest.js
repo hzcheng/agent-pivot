@@ -21,6 +21,12 @@
  *   host/vendor/builtin symbols.
  * - staleness: a declared symbol nobody references fails; a declared consumer
  *   that never reads fails; an undeclared reader fails.
+ * - direct copies (Harness efficiency PRD, P0-A): every bundle script declares
+ *   a directCopies entry mapping it to its byte-identical media/ build output,
+ *   unless explicitly listed in the bundle's bundledOnly array; individually
+ *   loaded bundles (conversation-viewer) must keep bundledOnly empty. Copy
+ *   targets are unique media/<basename> paths. The dashboard bundle declares
+ *   its derived output, which the builder must actually write.
  */
 
 const fs = require('fs');
@@ -161,8 +167,8 @@ function runWebviewManifestCheck(rootDirectory) {
     const errors = [];
     const manifest = readJson(rootDirectory, MANIFEST_PATH, errors);
     if (!manifest) { return { errors }; }
-    if (manifest.version !== 2) {
-        errors.push('webview-manifest: version must be 2 (symbol-level globals, review R7)');
+    if (manifest.version !== 3) {
+        errors.push('webview-manifest: version must be 3 (direct-copy distribution, P0-A)');
     }
     const bundles = Array.isArray(manifest.bundles) ? manifest.bundles : [];
 
@@ -205,6 +211,69 @@ function runWebviewManifestCheck(rootDirectory) {
             if (JSON.stringify(bundle.scripts) !== JSON.stringify(viewerOrder)) {
                 errors.push('webview-manifest: conversation-viewer bundle order differs from '
                     + `${VIEWER_DOCUMENT} script emission order`);
+            }
+        }
+    }
+
+    // Direct-copy distribution (P0-A): fail closed so a new script can never
+    // be added to a bundle without deciding how it ships.
+    for (const bundle of bundles) {
+        const label = `webview-manifest: bundle '${bundle.id}'`;
+        const scripts = bundle.scripts || [];
+        const bundledOnly = bundle.bundledOnly || [];
+        if (!Array.isArray(bundledOnly)) {
+            errors.push(`${label}: bundledOnly must be an array when present`);
+            continue;
+        }
+        if (bundle.id === 'conversation-viewer' && bundledOnly.length > 0) {
+            errors.push(`${label}: individually loaded bundles must keep bundledOnly empty`);
+        }
+        const directCopies = bundle.directCopies || {};
+        if (typeof directCopies !== 'object'
+            || directCopies === null
+            || Array.isArray(directCopies)) {
+            errors.push(`${label}: directCopies must be an object mapping source to output`);
+            continue;
+        }
+        for (const script of bundledOnly) {
+            if (!scripts.includes(script)) {
+                errors.push(`${label}: bundledOnly entry ${script} is not a bundle member`);
+            }
+            if (directCopies[script] !== undefined) {
+                errors.push(`${label}: ${script} is both bundledOnly and direct-copied`);
+            }
+        }
+        for (const script of scripts) {
+            if (!bundledOnly.includes(script) && directCopies[script] === undefined) {
+                errors.push(`${label}: ${script} declares no directCopies entry — `
+                    + 'declare its media output or mark it bundledOnly');
+            }
+        }
+        for (const [source, output] of Object.entries(directCopies)) {
+            if (!scripts.includes(source)) {
+                errors.push(`${label}: directCopies key ${source} is not a bundle member`);
+                continue;
+            }
+            // Basename-faithful targets are unique by construction: bundle
+            // members all live in the flat src/webview/ directory.
+            const expected = `media/${path.basename(source)}`;
+            if (output !== expected) {
+                errors.push(`${label}: directCopies ${source} must map to ${expected}`);
+            }
+        }
+        if (bundle.output !== undefined) {
+            if (typeof bundle.output !== 'string' || !bundle.output.startsWith('media/')) {
+                errors.push(`${label}: output must be a media/ path`);
+            } else if (bundle.id === 'dashboard') {
+                const builderText = fs.readFileSync(
+                    path.join(rootDirectory, BUNDLE_BUILDER), 'utf8');
+                const segments = bundle.output.split('/');
+                const written = segments.every(segment =>
+                    builderText.includes(`'${segment}'`));
+                if (!written) {
+                    errors.push(`${label}: declared output ${bundle.output} is not written by `
+                        + BUNDLE_BUILDER);
+                }
             }
         }
     }
@@ -318,7 +387,8 @@ function main() {
         return;
     }
     console.log('Webview manifest checks passed: exact-once membership, load-order '
-        + 'fidelity with both builders, and closed-world symbol-level globals.');
+        + 'fidelity with both builders, closed-world symbol-level globals, and '
+        + 'fail-closed direct-copy distribution.');
 }
 
 if (require.main === module) { main(); }

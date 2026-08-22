@@ -5824,6 +5824,22 @@
     ]
   },
   {
+    "id": "CONVERSATION-TELEMETRY-VISUAL-001",
+    "domain": "webview",
+    "title": "AI Conversation telemetry visuals are asserted in rendered pixels: the provider icon's session-state ring paints the correct theme color per lifecycle state (running/attention/idle/none) outside the border box, the status dots paint and dim their per-kind colors, and non-allowlisted header/telemetry segments never clip at default and minimum widths",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "media/conversationTelemetry.css",
+      "media/conversationViewer.scss",
+      "src/webview/conversationTelemetryScripts.js",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-TELEMETRY-001",
     "domain": "webview",
     "title": "AI Conversation shows a provider identity icon, correlated provider model, current worktree, context-window usage, and quota windows without replacing conversation content or accepting stale Session data",
@@ -6783,7 +6799,7 @@
   {
     "id": "ARCH-WEBVIEW-MANIFEST-001",
     "domain": "architecture",
-    "title": "Every webview script belongs to exactly one declared bundle with builder-faithful load order, and every cross-script window global is declared; dynamic window access fails closed",
+    "title": "Every webview script belongs to exactly one declared bundle with builder-faithful load order, every cross-script window global is declared, dynamic window access fails closed, and every bundle script declares its byte-identical media direct copy (or an explicit bundledOnly opt-out) with the dashboard bundle's derived output pinned",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -6791,6 +6807,8 @@
     ],
     "evidence": [
       "scripts/architecture/checkWebviewManifest.js",
+      "scripts/lib/webviewDirectCopies.js",
+      "scripts/build-dashboard-webview-bundle.js",
       "docs/testing/architecture-webview-manifest.json"
     ]
   },

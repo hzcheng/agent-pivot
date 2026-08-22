@@ -151,6 +151,7 @@ export function createDashboardMessageHandlers(
                 return;
             }
             await aiSessionCommandController.selectChatsViewMode(e.projectId, e.viewMode);
+            refreshStewardViews('select-ai-session-chats-view-mode');
         },
         'set-ai-session-collapsed-worktree-groups': async e => {
             const keys = Object.keys(e).sort();

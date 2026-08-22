@@ -446,6 +446,7 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protoc
     assert.deepEqual(calls, [
         ['selectWindowViewTab', 'p1', 'all'],
         ['selectChatsViewMode', 'p1', 'tree'],
+        ['refreshStewardViews', 'select-ai-session-chats-view-mode'],
         ['setCollapsedWorktreeGroups', 'p1', ['["__anchor__"]']],
         ['importLegacyWindowViewTab', 'p1', 'chats'],
     ]);

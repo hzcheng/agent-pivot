@@ -756,6 +756,46 @@ test('WORKTREE-GROUPING-UI-001 renders the host-persisted view tab without a res
     assert.match(html, /data-ai-session-panel="all"(?![^>]*hidden)/);
 });
 
+test('WORKTREE-GROUPING-UI-001 renders a persisted recency-sorted CHATS list with branch chips', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'view-state-list',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        codexSessions: [], kimiSessions: [], claudeSessions: [],
+        windowViewState: { tab: 'chats', chatsViewMode: 'list' },
+        worktrees: [{
+            kind: 'ready', activity: 'active', sessions: [], authority: {},
+            git: {
+                key: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/.worktrees/fix-login' },
+                branchRef: 'refs/heads/agent-pivot/fix-login', head: 'abc12345',
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            },
+        }],
+        activeAiSessions: [
+            {
+                key: 'codex:older', provider: 'codex', sessionId: 'older', name: 'Older',
+                executionState: 'running', focused: false, needsAttention: false, pending: false,
+                backend: 'vscode', attached: true, updatedAt: '2026-07-20T00:00:00.000Z',
+            },
+            {
+                key: 'codex:newer', provider: 'codex', sessionId: 'newer', name: 'Newer',
+                executionState: 'running', focused: false, needsAttention: false, pending: false,
+                backend: 'vscode', attached: true, updatedAt: '2026-07-22T00:00:00.000Z',
+                worktreeKey: { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo/.worktrees/fix-login' },
+            },
+        ],
+    });
+    assert.match(html, /data-chats-view-mode="list"/);
+    assert.match(html, /ai-session-chats-list-panel/);
+    assert.ok(html.indexOf('Newer') < html.indexOf('Older'),
+        'list mode orders active sessions by most recent activity');
+    assert.match(html, /agent-pivot\/fix-login/);
+    assert.match(html, />Current<\/span>/,
+        'keyless active sessions keep an explicit Current chip');
+    assert.match(html, /aria-checked="false"[^>]*data-view-mode="tree"/);
+    assert.match(html, /aria-checked="true"[^>]*data-view-mode="list"/);
+});
+
 test('WORKTREE-GROUPING-UI-001 keeps CHATS available when no worktrees exist', () => {
     const html = webviewModules.content.getAiSessionsDiv({
         id: 'flat-default',

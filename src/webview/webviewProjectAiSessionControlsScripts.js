@@ -436,7 +436,6 @@ function initProjectAiSessionControls(options) {
             return true;
         }
 
-        // CHATS ▾ 视图菜单（M2 壳：tree 为唯一视图；list 随 M3 到达）。
         // PRD：非活动 tab 上的 ▾ 点击 = 先激活 CHATS 再开菜单。
         var viewMenuTrigger = target.closest('[data-action="toggle-chats-view-menu"]');
         if (viewMenuTrigger) {
@@ -457,8 +456,18 @@ function initProjectAiSessionControls(options) {
         }
         var viewModeItem = target.closest('[data-action="select-chats-view-mode"][data-view-mode]');
         if (viewModeItem) {
+            var viewMode = viewModeItem.getAttribute('data-view-mode');
+            if (viewMode !== 'tree' && viewMode !== 'list') {
+                return true;
+            }
+            setChatsViewModeDom(projectDiv, viewMode);
             closeChatsViewMenu(projectDiv, true);
-            // tree 是 M2 唯一视图；选择当前视图只关闭菜单，不发持久化写。
+            window.vscode.postMessage({
+                type: 'select-ai-session-chats-view-mode',
+                version: 1,
+                projectId: projectId,
+                viewMode: viewMode,
+            });
             return true;
         }
 
@@ -2733,11 +2742,29 @@ function initProjectAiSessionControls(options) {
         trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
         menu.hidden = !open;
         if (open) {
-            var current = menu.querySelector('[role="menuitemradio"]');
+            var current = menu.querySelector('[role="menuitemradio"][aria-checked="true"]')
+                || menu.querySelector('[role="menuitemradio"]');
             if (current && typeof current.focus === 'function') {
                 current.focus();
             }
         }
+    }
+
+    function setChatsViewModeDom(projectDiv, viewMode) {
+        if (!projectDiv || (viewMode !== 'tree' && viewMode !== 'list')) {
+            return;
+        }
+        var region = projectDiv.querySelector('[data-ai-session-region]');
+        if (region) {
+            region.setAttribute('data-chats-view-mode', viewMode);
+        }
+        projectDiv.querySelectorAll('[data-action="select-chats-view-mode"][data-view-mode]')
+            .forEach(item => {
+                var selected = item.getAttribute('data-view-mode') === viewMode;
+                item.setAttribute('aria-checked', selected ? 'true' : 'false');
+                var check = item.querySelector('.ai-session-view-menu-check');
+                if (check) check.textContent = selected ? '✓' : '';
+            });
     }
 
     function closeChatsViewMenu(projectDiv, restoreFocus) {
@@ -3035,6 +3062,7 @@ function initProjectAiSessionControls(options) {
         closeAiSessionProviderMenu: closeAiSessionProviderMenu,
         closeAiSessionProviderMenus: closeAiSessionProviderMenus,
         setChatsViewMenuOpen: setChatsViewMenuOpen,
+        setChatsViewModeDom: setChatsViewModeDom,
         closeChatsViewMenu: closeChatsViewMenu,
         closeChatsViewMenus: closeChatsViewMenus,
         closeAiSessionWorktreeMenu: closeAiSessionWorktreeMenu,

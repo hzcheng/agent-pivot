@@ -174,6 +174,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var selectedTab: AiSessionTabId = rawTab === 'all' || (rawTab as string) === 'sessions'
         ? 'all'
         : 'chats';
+    var chatsViewMode = project.windowViewState?.chatsViewMode === 'list' ? 'list' : 'tree';
     project = { ...project, activeAiSessionTab: selectedTab };
     var totalSessionCount = codexSessions.length + kimiSessions.length + claudeSessions.length;
     var quickCreateProvider = isAiProvider(project.quickCreateProvider)
@@ -189,7 +190,7 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
     var provisioningWorktrees = getProvisioningWorktrees(project.worktrees);
 
     return `
-<div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-chats-view-mode="tree" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
+<div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-chats-view-mode="${chatsViewMode}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
     <div class="ai-session-chats-toolbar">
         <div class="ai-session-tabs" role="tablist" aria-label="Chat views">
             ${getChatsViewTabButton(project, activeSessions)}
@@ -202,7 +203,9 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
             </span>
         </div>
     </div>
-    ${getChatsTreePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, provisioningWorktrees)}
+    ${chatsViewMode === 'list'
+        ? getChatsListPanel(project, options)
+        : getChatsTreePanel(project, selectedProviders, options, quickCreateProvider, quickCreateProfile, provisioningWorktrees)}
     ${getAllSessionsPanel(project, activeProvider, selectedProviders, options)}
     <div class="ai-session-live-region" data-ai-session-live-region aria-live="polite" aria-atomic="true"></div>
 </div>`;
@@ -237,8 +240,11 @@ function getAllSessionsTabButton(project: AiSessionSurfaceViewModel, totalSessio
 // CHATS ▾ 视图菜单（M2 壳）：tree 是当前唯一视图；View as List 随 M3 到达。
 function getChatsViewMenu(project: AiSessionSurfaceViewModel): string {
     var projectId = escapeAttribute(project.id || 'project');
+    var viewMode = project.windowViewState?.chatsViewMode === 'list' ? 'list' : 'tree';
+    var item = (mode: 'tree' | 'list', label: string) => `<div class="ai-session-view-menu-item" role="menuitemradio" aria-checked="${viewMode === mode}" tabindex="-1" data-action="select-chats-view-mode" data-view-mode="${mode}"><span class="ai-session-view-menu-check" aria-hidden="true">${viewMode === mode ? '✓' : ''}</span>${label}</div>`;
     return `<div id="ai-session-chats-view-menu-${projectId}" class="ai-session-view-menu" data-chats-view-menu role="menu" aria-label="CHATS view" hidden>
-    <div class="ai-session-view-menu-item" role="menuitemradio" aria-checked="true" tabindex="-1" data-action="select-chats-view-mode" data-view-mode="tree"><span class="ai-session-view-menu-check" aria-hidden="true">✓</span>View as Tree</div>
+    ${item('tree', 'View as Tree')}
+    ${item('list', 'View as List')}
 </div>`;
 }
 
@@ -388,6 +394,45 @@ function getChatsTreePanel(
             : ''}
         ${treeBody}
     </div>`;
+}
+
+// CHATS list view keeps exactly the same active-session domain as the tree,
+// but removes the worktree hierarchy for a recency-first scanning path.
+function getChatsListPanel(
+    project: AiSessionSurfaceViewModel,
+    options: AiSessionRenderOptions,
+): string {
+    const projectId = escapeAttribute(project.id || 'project');
+    const selected = project.activeAiSessionTab !== 'all';
+    const activeSessions = (project.activeAiSessions || []).slice().sort((left, right) =>
+        getActiveSessionActivityTimestamp(right) - getActiveSessionActivityTimestamp(left)
+        || left.provider.localeCompare(right.provider)
+        || left.name.localeCompare(right.name)
+        || left.key.localeCompare(right.key));
+    const worktreeLabels = getWorktreeLabels(getReadyWorktrees(project.worktrees));
+    const rows = activeSessions.map(session => getActiveAiSessionRow(
+        session,
+        options.showRootChips,
+        options.runningIconAnimation,
+        project.id || 'project',
+        worktreeLabelForKey(worktreeLabels, session.worktreeKey) || 'Current',
+    )).join('\n');
+    const body = rows || `<div class="codex-sessions-empty ai-session-chats-empty">
+        <strong>No active sessions</strong>
+        <span>Start a new AI session or open one from All.</span>
+        <span class="ai-session-empty-actions">
+            <button type="button" data-action="create-ai-session">New Session</button>
+            <button type="button" data-action="select-ai-session-tab" data-tab="all">View All</button>
+        </span>
+    </div>`;
+    return `<div id="ai-session-chats-${projectId}" class="ai-session-tab-panel ai-session-chats-panel ai-session-chats-list-panel" role="tabpanel" data-ai-session-panel="chats" aria-labelledby="ai-session-chats-tab-${projectId}"${selected ? '' : ' hidden'}>
+        <div class="codex-sessions-list ai-session-chats-list" data-ai-session-chats-list>${body}</div>
+    </div>`;
+}
+
+function getActiveSessionActivityTimestamp(session: ActiveAiSessionViewModel): number {
+    const timestamp = Date.parse(session.updatedAt || session.createdAt || '');
+    return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function getAllSessionsTabId(project: AiSessionSurfaceViewModel): string {

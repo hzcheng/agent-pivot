@@ -991,10 +991,27 @@ test('OPEN-WINDOW-SWITCHER-UI-001 CHATS view menu: split trigger, keyboard, and 
     assert.equal(await menu.isVisible(), true);
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     const treeItem = menu.locator('[role="menuitemradio"][data-view-mode="tree"]');
+    const listItem = menu.locator('[role="menuitemradio"][data-view-mode="list"]');
     assert.equal(await treeItem.getAttribute('aria-checked'), 'true');
+    assert.equal(await listItem.getAttribute('aria-checked'), 'false');
     assert.equal(await treeItem.evaluate(node => document.activeElement === node), true);
 
+    // Selecting List synchronizes the radio state and persists through the
+    // existing host-owned window view-state message.
+    await listItem.click();
+    assert.equal(await menu.isVisible(), false);
+    assert.equal(await page.locator('[data-ai-session-region]').getAttribute('data-chats-view-mode'), 'list');
+    assert.equal(await listItem.getAttribute('aria-checked'), 'true');
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages.at(-1)), {
+        type: 'select-ai-session-chats-view-mode',
+        version: 1,
+        projectId: currentCard.id,
+        viewMode: 'list',
+    });
+
     // Esc 关闭并把焦点还给触发按钮。
+    await trigger.click();
+    assert.equal(await listItem.evaluate(node => document.activeElement === node), true);
     await page.keyboard.press('Escape');
     assert.equal(await menu.isVisible(), false);
     assert.equal(await trigger.evaluate(node => document.activeElement === node), true,
@@ -1012,7 +1029,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 CHATS view menu: split trigger, keyboard, and 
     await trigger.focus();
     await page.keyboard.press('ArrowDown');
     assert.equal(await menu.isVisible(), true);
-    assert.equal(await treeItem.evaluate(node => document.activeElement === node), true);
+    assert.equal(await listItem.evaluate(node => document.activeElement === node), true);
     await page.keyboard.press('Escape');
 });
 

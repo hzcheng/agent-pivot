@@ -3175,6 +3175,29 @@ body.vscode-high-contrast-light {
     color: var(--vscode-textLink-foreground);
 }
 
+// Row 3 (PRD §15.3): the left slot stays empty until the Files|Commits
+// subtabs land; the fold actions sit on the right. The fixed-size icon
+// buttons never wrap, shrink, or overflow on extremely narrow panels.
+.conversation-changes-actions {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+    justify-content: space-between;
+    min-height: 22px;
+}
+
+.conversation-changes-subtabs {
+    flex: 1;
+    min-width: 0;
+}
+
+.conversation-changes-fold {
+    display: flex;
+    flex: none;
+    flex-wrap: nowrap;
+    gap: 0.1rem;
+}
+
 .conversation-changes-task {
     align-items: baseline;
     display: flex;
@@ -3231,14 +3254,33 @@ body.vscode-high-contrast-light {
 }
 
 .conversation-changes-group-header {
+    background: none;
+    border: none;
     color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    display: block;
+    font: inherit;
     font-size: 0.8em;
-    padding: 0.25rem 0 0.1rem;
+    overflow: hidden;
+    padding: 0.25rem 0.2rem 0.1rem;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+
+    &:hover,
+    &:focus-visible {
+        background: var(--vscode-list-hoverBackground);
+    }
 }
 
 .conversation-changes-group-list {
     display: flex;
     flex-direction: column;
+
+    &[hidden] {
+        display: none;
+    }
 }
 
 .conversation-changes-file {

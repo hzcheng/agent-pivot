@@ -619,6 +619,37 @@ export function renderConversationViewerDocument(
                         data-changes-cross-member-summary></span><span
                         class="conversation-changes-cross-member-go"
                         data-changes-cross-member-go></span></button>
+                <div class="conversation-changes-actions"
+                    data-changes-actions>
+                    <div class="conversation-changes-subtabs"
+                        data-changes-subtabs></div>
+                    <div class="conversation-changes-fold">
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-collapse-all
+                            data-tooltip="Collapse all"
+                            aria-label="Collapse all"
+                            disabled><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M2.5 3h11"/>
+                                <path d="M5 12.5 8 9.5l3 3"/></svg>
+                        </button>
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-expand-all
+                            data-tooltip="Expand all"
+                            aria-label="Expand all"
+                            disabled><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M5 6.5 8 9.5l3-3"/>
+                                <path d="M2.5 13h11"/></svg>
+                        </button>
+                    </div>
+                </div>
                 <div class="conversation-changes-task" data-changes-task
                     hidden>
                     <div class="conversation-changes-task-lines">

@@ -178,6 +178,8 @@
         var taskSummary = options.taskSummary;
         var taskTracking = options.taskTracking;
         var reviewButton = options.reviewButton;
+        var collapseAllButton = options.collapseAllButton;
+        var expandAllButton = options.expandAllButton;
         var groupsRoot = options.groupsRoot;
         var emptyRoot = options.emptyRoot;
         var unavailableRoot = options.unavailableRoot;
@@ -761,7 +763,23 @@
             return row;
         }
 
-        var collapsedFolders = {};
+        // Per-member UI context (PRD §15.2): fold state (folders + group
+        // headers) and the content scroll position are remembered per
+        // member for the panel's lifetime — switching away and back
+        // restores both. Nothing persists; resetSession drops everything.
+        var memberContexts = {};
+        var currentMemberId = null;
+
+        function contextFor(memberId) {
+            if (!memberContexts[memberId]) {
+                memberContexts[memberId] = {
+                    collapsedFolders: {},
+                    collapsedGroups: {},
+                    scrollTop: 0,
+                };
+            }
+            return memberContexts[memberId];
+        }
 
         function folderKey(group, folderPath) {
             return group + ':' + folderPath;
@@ -817,12 +835,12 @@
             return { name: names.join('/'), node: node };
         }
 
-        function renderTreeNode(group, node, container, memberId, depth) {
+        function renderTreeNode(group, node, container, memberId, depth, context) {
             node.dirOrder.forEach(function (name) {
                 var compressed = compressDir(node.dirs[name]);
                 var dir = compressed.node;
                 var key = folderKey(group, dir.fullPath);
-                var collapsed = !!collapsedFolders[key];
+                var collapsed = !!context.collapsedFolders[key];
                 var folderRow = document.createElement('button');
                 folderRow.type = 'button';
                 folderRow.className = 'conversation-changes-folder';
@@ -841,7 +859,7 @@
                 var children = document.createElement('div');
                 children.hidden = collapsed;
                 folderRow.addEventListener('click', function () {
-                    collapsedFolders[key] = !collapsed;
+                    context.collapsedFolders[key] = !collapsed;
                     children.hidden = !children.hidden;
                     chevron.textContent = children.hidden ? '▸' : '▾';
                     folderRow.setAttribute('aria-expanded',
@@ -849,7 +867,8 @@
                 });
                 container.appendChild(folderRow);
                 container.appendChild(children);
-                renderTreeNode(group, dir, children, memberId, depth + 1);
+                renderTreeNode(group, dir, children, memberId, depth + 1,
+                    context);
             });
             node.files.forEach(function (item) {
                 var row = renderFileRow(memberId, item);
@@ -860,6 +879,15 @@
 
         function renderGroups(detail) {
             if (!groupsRoot) return;
+            // A member switch captures the outgoing member's scroll
+            // position synchronously — the rebuild clamps scrollTop to 0
+            // and the async scroll event would otherwise land on the new
+            // member's context.
+            if (currentMemberId && currentMemberId !== detail.memberId) {
+                contextFor(currentMemberId).scrollTop = groupsRoot.scrollTop;
+            }
+            currentMemberId = detail.memberId;
+            var context = contextFor(detail.memberId);
             // Rebuilt rows orphan any trigger the overlay points at —
             // close it instead of leaving a stale hint mid-viewport.
             tooltip.hide();
@@ -870,20 +898,99 @@
                     return sectionGroups.indexOf(item.group) !== -1;
                 });
                 if (!items.length) return;
+                var collapsed = !!context.collapsedGroups[group];
                 var section = document.createElement('div');
                 section.className = 'conversation-changes-group';
-                var header = document.createElement('div');
+                // Group headers are fold buttons (PRD §15.3): chevron +
+                // title + the item-row count (a file staged and unstaged
+                // counts twice — the workingItemCount reference frame).
+                var header = document.createElement('button');
+                header.type = 'button';
                 header.className = 'conversation-changes-group-header';
-                header.textContent = GROUP_TITLES[group];
+                header.setAttribute('aria-expanded',
+                    collapsed ? 'false' : 'true');
+                var chevron = document.createElement('span');
+                chevron.className = 'conversation-changes-group-chevron';
+                chevron.setAttribute('aria-hidden', 'true');
+                chevron.textContent = collapsed ? '▸' : '▾';
+                header.appendChild(chevron);
+                header.appendChild(document.createTextNode(' '));
+                var title = document.createElement('span');
+                title.className = 'conversation-changes-group-title';
+                title.textContent = GROUP_TITLES[group];
+                header.appendChild(title);
+                var count = document.createElement('span');
+                count.className = 'conversation-changes-group-count';
+                count.textContent = ' · ' + items.length;
+                header.appendChild(count);
                 section.appendChild(header);
                 var list = document.createElement('div');
                 list.className = 'conversation-changes-group-list';
+                list.hidden = collapsed;
+                header.addEventListener('click', function () {
+                    var nowCollapsed = !context.collapsedGroups[group];
+                    context.collapsedGroups[group] = nowCollapsed;
+                    list.hidden = nowCollapsed;
+                    chevron.textContent = nowCollapsed ? '▸' : '▾';
+                    header.setAttribute('aria-expanded',
+                        nowCollapsed ? 'false' : 'true');
+                });
                 var tree = buildTree(items);
                 sortTree(tree);
-                renderTreeNode(group, tree, list, detail.memberId, 0);
+                renderTreeNode(group, tree, list, detail.memberId, 0, context);
                 section.appendChild(list);
                 groupsRoot.appendChild(section);
             });
+            // Restore the member's remembered scroll position after the
+            // rebuild (PRD §15.2); the browser clamps stale values.
+            groupsRoot.scrollTop = context.scrollTop;
+        }
+
+        // Collapse/Expand All (PRD §15.3): every group header and every
+        // directory of the current member at once — Collapse All leaves a
+        // plain list of group header rows.
+        function collectFolderKeys(group, node, keys) {
+            node.dirOrder.forEach(function (name) {
+                var compressed = compressDir(node.dirs[name]);
+                var dir = compressed.node;
+                keys.push(folderKey(group, dir.fullPath));
+                collectFolderKeys(group, dir, keys);
+            });
+        }
+
+        function setAllCollapsed(collapsed) {
+            if (!latestState || !latestState.detail) {
+                return;
+            }
+            var detail = latestState.detail;
+            var context = contextFor(detail.memberId);
+            SECTION_GROUPS.forEach(function (sectionGroups) {
+                var group = sectionGroups[0];
+                var items = detail.items.filter(function (item) {
+                    return sectionGroups.indexOf(item.group) !== -1;
+                });
+                if (!items.length) return;
+                context.collapsedGroups[group] = collapsed;
+                var keys = [];
+                collectFolderKeys(group, buildTree(items), keys);
+                keys.forEach(function (key) {
+                    context.collapsedFolders[key] = collapsed;
+                });
+            });
+            renderGroups(detail);
+        }
+
+        // The fold actions die when there is nothing to fold (PRD §15.3:
+        // the no-changes empty state disables both buttons).
+        function updateFoldActions() {
+            var empty = !latestState || !latestState.detail
+                || latestState.detail.items.length === 0;
+            if (collapseAllButton) {
+                collapseAllButton.disabled = empty;
+            }
+            if (expandAllButton) {
+                expandAllButton.disabled = empty;
+            }
         }
 
         function renderPanel(state) {
@@ -963,6 +1070,7 @@
             }
             latestState = message.changes;
             renderButton(latestState);
+            updateFoldActions();
             renderPanel(latestState);
             return true;
         }
@@ -1023,6 +1131,27 @@
                     }
                 });
             }
+            if (collapseAllButton) {
+                collapseAllButton.addEventListener('click', function () {
+                    setAllCollapsed(true);
+                });
+            }
+            if (expandAllButton) {
+                expandAllButton.addEventListener('click', function () {
+                    setAllCollapsed(false);
+                });
+            }
+            if (groupsRoot) {
+                // Track the live scroll position into the bound member's
+                // context so same-member re-renders and later switches
+                // back restore it (PRD §15.2).
+                groupsRoot.addEventListener('scroll', function () {
+                    if (currentMemberId) {
+                        contextFor(currentMemberId).scrollTop =
+                            groupsRoot.scrollTop;
+                    }
+                });
+            }
             if (openScmButton) {
                 openScmButton.addEventListener('click', function () {
                     if (latestState && latestState.selectedMemberId) {
@@ -1048,7 +1177,9 @@
                 latestState = null;
                 lastSelectSignature = '';
                 lastLiveText = '';
-                collapsedFolders = {};
+                memberContexts = {};
+                currentMemberId = null;
+                updateFoldActions();
                 tooltip.hide();
                 if (button) {
                     button.hidden = true;

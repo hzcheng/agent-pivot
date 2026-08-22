@@ -5149,7 +5149,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '',
+        '749e6ca09e9bbdec01c2cefd2ca081a9b1107ca82c1f476dbba840351b5e76b0',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -12687,10 +12687,11 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
 
     // Working groups render in SCM order; Untracked merges into Changes —
     // the U badge already marks untracked rows, so a separate section only
-    // repeats information.
+    // repeats information. Group headers are fold buttons carrying a
+    // chevron and the item-row count (PRD §15.3).
     const groupHeaders = await page.locator(
         '.conversation-changes-group-header').allInnerTexts();
-    assert.deepEqual(groupHeaders, ['Staged Changes', 'Changes']);
+    assert.deepEqual(groupHeaders, ['▾ Staged Changes · 1', '▾ Changes · 2']);
     const rows = await page.locator('.conversation-changes-file').allInnerTexts();
     assert.equal(rows.length, 3);
     // Tree view: file rows show basenames; single-child directory chains
@@ -12699,7 +12700,7 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
 
     const changesGroup = page.locator('.conversation-changes-group', {
         has: page.locator('.conversation-changes-group-header', {
-            hasText: /^Changes$/,
+            hasText: /^▾ Changes · 2$/,
         }),
     });
     const folders = await changesGroup.locator(
@@ -13380,7 +13381,7 @@ test('WORKTREE-CHANGES-PANEL-001 renders the tracking line from the selected mem
     assert.equal(await tracking.isHidden(), true);
 });
 
-test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → refresh → SCM → hint → content', async t => {
+test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → refresh → SCM → hint → fold actions → content', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture());
     await page.locator('[data-telemetry-changes]').click();
@@ -13392,6 +13393,8 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
         '[data-changes-refresh]',
         '[data-changes-open-scm]',
         '[data-changes-cross-member]',
+        '[data-changes-collapse-all]',
+        '[data-changes-expand-all]',
         '[data-changes-review]',
     ];
     for (const selector of stops) {
@@ -13424,9 +13427,302 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
     assert.equal(
         await page.evaluate(() =>
             document.activeElement
+                === document.querySelector('[data-changes-collapse-all]')),
+        true,
+        'with no hint rendered, SCM tabs into the fold actions');
+    await page.keyboard.press('Tab');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement
+                === document.querySelector('[data-changes-expand-all]')),
+        true);
+    await page.keyboard.press('Tab');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement
                 === document.querySelector('[data-changes-review]')),
         true,
-        'with no hint rendered, SCM tabs straight into the content area');
+        'the fold actions lead straight into the content area');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 renders group headers as collapsible buttons with item-row counts', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+
+    const stagedHeader = page.locator('.conversation-changes-group-header', {
+        hasText: 'Staged Changes',
+    });
+    // A native button exposes the fold state through aria-expanded; the
+    // count follows the item-row reference frame (a file staged and
+    // unstaged counts twice), never a file count (PRD §15.3).
+    assert.equal(
+        await stagedHeader.evaluate(element => element.tagName), 'BUTTON');
+    assert.equal(await stagedHeader.getAttribute('type'), 'button');
+    assert.equal(await stagedHeader.getAttribute('aria-expanded'), 'true');
+    assert.equal(await stagedHeader.innerText(), '▾ Staged Changes · 1');
+    assert.equal(await stagedHeader.getAttribute('title'), null,
+        'no native title anywhere (PRD §17)');
+    // The empty Merge group never renders at all (unchanged Part I rule).
+    assert.equal(
+        await page.locator('.conversation-changes-group-header', {
+            hasText: 'Merge Changes',
+        }).count(),
+        0);
+
+    // Clicking the header folds the whole section; the count stays.
+    const sessionRow = page.locator(
+        '.conversation-changes-file[data-tooltip="src/auth/session.ts"]');
+    assert.equal(await sessionRow.isVisible(), true);
+    await stagedHeader.click();
+    assert.equal(await stagedHeader.getAttribute('aria-expanded'), 'false');
+    assert.equal(await stagedHeader.innerText(), '▸ Staged Changes · 1',
+        'the count stays visible on the collapsed header');
+    assert.equal(await sessionRow.isVisible(), false,
+        'the section list hides with the group');
+    await stagedHeader.click();
+    assert.equal(await stagedHeader.getAttribute('aria-expanded'), 'true');
+    assert.equal(await stagedHeader.innerText(), '▾ Staged Changes · 1');
+    assert.equal(await sessionRow.isVisible(), true);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder from the row-3 action slot', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        viewport: { width: 192, height: 500 },
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+
+    // Row 3: an empty left slot (future subtabs) plus the two fold
+    // actions on the right — VS Code collapse-all/expand-all glyphs with
+    // aria-labels and overlay tooltips, never a native title (PRD §17).
+    const collapseAll = page.locator('[data-changes-collapse-all]');
+    const expandAll = page.locator('[data-changes-expand-all]');
+    assert.equal(await collapseAll.isVisible(), true);
+    assert.equal(await expandAll.isVisible(), true);
+    assert.equal(await collapseAll.isEnabled(), true);
+    assert.equal(await expandAll.isEnabled(), true);
+    assert.equal(await collapseAll.getAttribute('aria-label'), 'Collapse all');
+    assert.equal(await collapseAll.getAttribute('data-tooltip'), 'Collapse all');
+    assert.equal(await collapseAll.getAttribute('title'), null);
+    assert.equal(await expandAll.getAttribute('aria-label'), 'Expand all');
+    assert.equal(await expandAll.getAttribute('data-tooltip'), 'Expand all');
+    assert.equal(await expandAll.getAttribute('title'), null);
+    assert.equal(await collapseAll.locator('svg[aria-hidden="true"]').count(),
+        1, 'the glyph is decorative — the name rides aria-label');
+    assert.equal(await expandAll.locator('svg[aria-hidden="true"]').count(), 1);
+
+    // Extremely narrow panel: the row stays on one line without
+    // overflowing or compressing the buttons (PRD §16).
+    const row3 = await page.locator('[data-changes-actions]')
+        .evaluate(element => ({
+            overflow: element.scrollWidth - element.clientWidth,
+            tops: Array.from(element.querySelectorAll(
+                '.conversation-changes-fold button'))
+                .map(button => button.offsetTop),
+            widths: Array.from(element.querySelectorAll(
+                '.conversation-changes-fold button'))
+                .map(button => button.getBoundingClientRect().width),
+        }));
+    assert.ok(row3.overflow <= 0,
+        `row 3 never overflows horizontally, overflow=${row3.overflow}`);
+    assert.equal(row3.tops[0], row3.tops[1],
+        'the fold buttons stay on one line');
+    assert.ok(row3.widths.every(width => width >= 22),
+        'the icon buttons are never compressed');
+
+    // Collapse all: only the group header rows remain.
+    await collapseAll.click();
+    assert.deepEqual(
+        await page.locator('.conversation-changes-group-header')
+            .allInnerTexts(),
+        ['▸ Staged Changes · 1', '▸ Changes · 2'],
+        'both groups collapse to their header rows');
+    assert.equal(
+        await page.locator('.conversation-changes-folder:visible').count(),
+        0, 'every folder row folds away');
+    assert.equal(
+        await page.locator('.conversation-changes-file:visible').count(),
+        0, 'every file row folds away');
+    assert.equal(
+        await page.locator('.conversation-changes-group-header[aria-expanded="false"]').count(),
+        2);
+
+    // Expand all restores groups, folders, and files.
+    await expandAll.click();
+    assert.deepEqual(
+        await page.locator('.conversation-changes-group-header')
+            .allInnerTexts(),
+        ['▾ Staged Changes · 1', '▾ Changes · 2']);
+    assert.equal(
+        await page.locator('.conversation-changes-folder:visible').count(),
+        2);
+    assert.equal(
+        await page.locator('.conversation-changes-file:visible').count(),
+        3);
+
+    // No-changes empty state disables both actions (PRD §15.3).
+    await sendChanges(page, changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 0, taskFileCount: 0,
+            items: [], truncated: false,
+        },
+    }));
+    assert.equal(await collapseAll.isDisabled(), true);
+    assert.equal(await expandAll.isDisabled(), true);
+    await sendChanges(page, changesFixture());
+    assert.equal(await collapseAll.isEnabled(), true,
+        'the actions wake up with the next non-empty state');
+    assert.equal(await expandAll.isEnabled(), true);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 remembers fold state and scroll position per member', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const apiItems = [
+        { group: 'staged', xy: 'M ', path: 'src/auth/session.ts' },
+        ...Array.from({ length: 60 }, (_unused, index) => ({
+            group: 'changes',
+            xy: ' M',
+            path: `src/deeply/nested/directory/structure/file-${String(index).padStart(2, '0')}.ts`,
+        })),
+    ];
+    const webItems = Array.from({ length: 5 }, (_unused, index) => ({
+        group: 'changes',
+        xy: ' M',
+        path: `lib/widgets/widget-${index}.ts`,
+    }));
+    const detailFor = (memberId, items) => ({
+        memberId, availability: 'available',
+        baselineSha: 'a'.repeat(40), aheadCount: 0, taskFileCount: 1,
+        items, truncated: false,
+    });
+    const state = changesFixture({ detail: detailFor('m-api', apiItems) });
+    await sendChanges(page, state);
+    await page.locator('[data-telemetry-changes]').click();
+
+    const groups = page.locator('[data-changes-groups]');
+    // m-api: collapse one folder (the group itself stays open) and scroll.
+    await page.locator('.conversation-changes-folder', {
+        hasText: 'src/auth',
+    }).click();
+    assert.equal(
+        await page.locator('.conversation-changes-file'
+            + '[data-tooltip="src/auth/session.ts"]').isVisible(),
+        false);
+    await groups.evaluate(element => {
+        element.scrollTop = 120;
+    });
+
+    // m-web starts fully expanded at the top; collapse its only group.
+    await sendChanges(page, {
+        ...state,
+        selectedMemberId: 'm-web',
+        detail: detailFor('m-web', webItems),
+    });
+    const webGroupHeader = page.locator(
+        '.conversation-changes-group-header');
+    assert.equal(await webGroupHeader.count(), 1);
+    assert.equal(await webGroupHeader.getAttribute('aria-expanded'), 'true',
+        'a member never inherits another member\'s folds');
+    assert.equal(await groups.evaluate(element => element.scrollTop), 0);
+    await webGroupHeader.click();
+    assert.equal(await webGroupHeader.getAttribute('aria-expanded'), 'false');
+
+    // Back to m-api: the collapsed folder, the expanded group, and the
+    // scroll position all come back (PRD §15.2).
+    await sendChanges(page, {
+        ...state,
+        selectedMemberId: 'm-api',
+        detail: detailFor('m-api', apiItems),
+    });
+    const stagedHeader = page.locator('.conversation-changes-group-header', {
+        hasText: 'Staged Changes',
+    });
+    assert.equal(await stagedHeader.getAttribute('aria-expanded'), 'true',
+        'only the folder was collapsed, never its group');
+    assert.equal(
+        await page.locator('.conversation-changes-file'
+            + '[data-tooltip="src/auth/session.ts"]').isVisible(),
+        false,
+        'm-api keeps its collapsed folder');
+    assert.equal(await groups.evaluate(element => element.scrollTop), 120,
+        'm-api scroll position is restored');
+
+    // m-web again: its collapsed group is remembered too.
+    await sendChanges(page, {
+        ...state,
+        selectedMemberId: 'm-web',
+        detail: detailFor('m-web', webItems),
+    });
+    assert.equal(await page.locator('.conversation-changes-group-header')
+        .getAttribute('aria-expanded'), 'false',
+        'm-web keeps its own collapsed group');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+    const stagedHeader = page.locator('.conversation-changes-group-header', {
+        hasText: 'Staged Changes',
+    });
+    await stagedHeader.click();
+    assert.equal(await stagedHeader.getAttribute('aria-expanded'), 'false');
+
+    // A session switch advances the subscription generation; the changes
+    // controller adopts it through resetSession, which wipes every
+    // remembered fold and pulls a fresh state (PRD §15.2/§15.3).
+    const generation = await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 100,
+        subscriptionGeneration: generation + 1,
+        updateKind: 'initial',
+        html: messageHtml('next-session', 1),
+        outline: [{
+            interactionId: 'next-session-0',
+            userPreview: 'next session',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'next-session-0',
+        selectedInput: 1,
+        totalInputs: 1,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId: 'session-next',
+            interactionId: 'next-session-0',
+            displayName: 'Next session',
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    assert.deepEqual((await postedIntents(page)).at(-1), {
+        type: 'conversation-viewer-changes-refresh',
+        version: 1,
+    }, 'resetSession pulls the new session\'s state');
+    assert.equal(
+        await page.locator('[data-changes-collapse-all]').isDisabled(), true,
+        'no state means nothing to fold');
+
+    // The new session's state starts from clean fold defaults even though
+    // the member ids repeat.
+    await sendChanges(page, changesFixture());
+    const headerAgain = page.locator('.conversation-changes-group-header', {
+        hasText: 'Staged Changes',
+    });
+    assert.equal(await headerAgain.getAttribute('aria-expanded'), 'true',
+        'reset clears the remembered collapse');
+    assert.equal(
+        await page.locator('[data-changes-collapse-all]').isEnabled(), true);
 });
 
 test('WORKTREE-CHANGES-PANEL-001 scrolls long change lists instead of clipping them', async t => {
@@ -14140,6 +14436,16 @@ test('WORKTREE-CHANGES-PANEL-001 migrates every native title in the Changes pane
         'Open in Source Control');
     assert.equal(await openScm.getAttribute('aria-label'),
         'Open in Source Control');
+
+    for (const [selector, label] of [
+        ['[data-changes-collapse-all]', 'Collapse all'],
+        ['[data-changes-expand-all]', 'Expand all'],
+    ]) {
+        const foldAction = page.locator(selector);
+        assert.equal(await foldAction.getAttribute('title'), null);
+        assert.equal(await foldAction.getAttribute('data-tooltip'), label);
+        assert.equal(await foldAction.getAttribute('aria-label'), label);
+    }
 
     const taskSummary = page.locator('[data-changes-task-summary]');
     assert.equal(await taskSummary.getAttribute('title'), null);

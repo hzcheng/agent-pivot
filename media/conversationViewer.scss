@@ -1511,6 +1511,72 @@ body[data-conversation-loading='true'] .conversation-messages {
     padding: 0;
 }
 
+.conversation-comments-tabs {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    box-sizing: border-box;
+    min-width: 0;
+    gap: 0.2rem;
+    align-items: stretch;
+    padding: 0.2rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(
+        --vscode-sideBarSectionHeader-background,
+        var(--vscode-sideBar-background, var(--vscode-editor-background))
+    );
+}
+
+.conversation-comments-tab {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin: 0;
+    padding: 0.1rem 0;
+    border-color: transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 120ms ease, background-color 120ms ease,
+        border-color 120ms ease, box-shadow 120ms ease;
+
+    &:hover {
+        color: var(--vscode-editor-foreground);
+        background: var(--vscode-toolbar-hoverBackground);
+    }
+
+    &[aria-selected="true"] {
+        color: var(--vscode-editor-foreground);
+        border-color: var(--vscode-panel-border);
+        background: var(
+            --vscode-editorWidget-background,
+            var(--vscode-editor-background)
+        );
+        box-shadow: 0 1px 3px
+            var(--vscode-widget-shadow, rgba(0, 0, 0, 0.16));
+    }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+}
+
+.conversation-comments-tab-count {
+    padding-left: 0.3rem;
+    color: var(--vscode-descriptionForeground);
+    font-weight: 400;
+}
+
 .conversation-comments-body {
     display: flex;
     min-height: 0;
@@ -1518,7 +1584,21 @@ body[data-conversation-loading='true'] .conversation-messages {
     flex-direction: column;
     gap: 0.25rem;
     overflow: hidden;
-    padding: 0.15rem 0.5rem 0.5rem;
+    padding: 0.15rem 0 0;
+}
+
+.conversation-comments-pane {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.25rem;
+    overflow: hidden;
+}
+
+.conversation-comments-pane[hidden] {
+    display: none;
 }
 
 .conversation-comments-resizer {
@@ -1669,6 +1749,60 @@ body[data-conversation-loading='true'] .conversation-messages {
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+.conversation-comment-clampable {
+    position: relative;
+
+    &.is-clamped {
+        // ≈7 lines at 0.78rem/1.5; the full text stays in the DOM.
+        max-height: 8.3rem;
+        overflow: hidden;
+    }
+}
+
+.conversation-comment-clamp-fade {
+    display: none;
+}
+
+.conversation-comment-clampable.is-clamped .conversation-comment-clamp-fade {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: block;
+    height: 1.4rem;
+    pointer-events: none;
+    background: linear-gradient(
+        to bottom,
+        transparent,
+        var(--vscode-editor-background)
+    );
+}
+
+blockquote.conversation-comment-clampable.is-clamped {
+    // Quotes are context, not the main content: keep them to roughly three
+    // lines while preserving the complete source text in the DOM.
+    max-height: 3.9rem;
+}
+
+.conversation-comment-clamp-toggle {
+    display: block;
+    margin-top: 0.25rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--vscode-textLink-foreground);
+    font-size: 0.72rem;
+    cursor: pointer;
+
+    &:hover {
+        text-decoration: underline;
+    }
+
+    &[hidden] {
+        display: none;
+    }
 }
 
 .conversation-comment-meta {
@@ -1871,66 +2005,17 @@ body[data-conversation-loading='true'] .conversation-messages {
     flex: 0 0 auto;
     box-sizing: border-box;
     min-width: 0;
-    margin: 0 -0.5rem;
+    margin: 0;
     gap: 0.3rem;
     align-items: center;
-    padding: 0.2rem 0.5rem;
+    padding: 0.2rem 0.4rem;
     background: var(--vscode-panelSectionHeader-background, var(--vscode-editorGroupHeader-tabsBackground));
     border-bottom: 1px solid var(--vscode-panel-border);
-    cursor: pointer;
-    user-select: none;
 }
 
-.conversation-comments-section-header-session {
-    border-top: 2px solid var(--vscode-panel-border);
-}
-
-.conversation-comments-section-sash {
-    position: relative;
-    flex: 0 0 auto;
-    height: 0.35rem;
-    cursor: row-resize;
-    touch-action: none;
-
-    &::after {
-        position: absolute;
-        top: calc(50% - 0.5px);
-        right: 0;
-        left: 0;
-        height: 1px;
-        background: var(--vscode-panel-border);
-        content: "";
-    }
-
-    &:hover::after,
-    &:focus-visible::after {
-        top: calc(50% - 1px);
-        height: 2px;
-        background: var(--vscode-focusBorder);
-    }
-
-    &:focus-visible {
-        outline: none;
-    }
-}
-
-.conversation-comments-section-sash[hidden],
 .conversation-project-comments[hidden],
 .conversation-comments-session-region[hidden] {
     display: none;
-}
-
-.conversation-comments-section-title {
-    flex: 0 1 auto;
-    overflow: hidden;
-    min-width: 0;
-    color: var(--vscode-foreground);
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-overflow: ellipsis;
-    text-transform: uppercase;
-    white-space: nowrap;
 }
 
 .conversation-comments-section-header
@@ -1943,22 +2028,12 @@ body[data-conversation-loading='true'] .conversation-messages {
     margin-left: auto;
 }
 
-.conversation-comments-section-count {
-    flex: 0 0 auto;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.66rem;
-}
-
-.conversation-comments-section-toggle {
-    flex: 0 0 auto;
-    margin: -0.15rem 0;
-}
-
 .conversation-comments-section-content {
     display: flex;
     min-width: 0;
     flex-direction: column;
     gap: 0.5rem;
+    padding: 0 0.5rem 0.5rem;
 }
 
 .conversation-comments-section-content[hidden] {
@@ -1977,22 +2052,14 @@ body[data-conversation-loading='true'] .conversation-messages {
     flex: 1 1 0;
     flex-direction: column;
     gap: 0.4rem;
+    padding: 0 0.5rem 0.5rem;
     overflow-y: auto;
 }
 
 .conversation-comments-session-region {
-    flex: 0 0 auto;
-    max-height: 45%;
+    min-height: 0;
+    flex: 1 1 auto;
     overflow-y: auto;
-}
-
-.conversation-comments-body[data-workspace-collapsed="true"]
-.conversation-comments-session-region {
-    // With the Workspace group folded away (and the sash hidden), the
-    // Session region takes the whole panel; any sash-dragged height is
-    // suspended until the group expands again.
-    flex: 1 1 0;
-    max-height: none;
 }
 
 .conversation-project-comment-composer {
@@ -2187,8 +2254,8 @@ button.conversation-comment-status-chip {
     gap: 0.25rem;
     align-items: center;
     flex-wrap: wrap;
-    padding: 0.25rem 0.5rem;
-    border-bottom: 1px solid var(--vscode-panel-border);
+    padding: 0.25rem 0.4rem;
+    border-top: 1px solid var(--vscode-panel-border);
 }
 
 .conversation-comments-filter-bar[hidden] {

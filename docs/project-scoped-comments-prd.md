@@ -4,6 +4,12 @@
 
 状态：草案，待确认
 
+> 修订提示（2026-08-22）：本文 §6.1/§7 的「按 `projectId` 键控」作用域决策已被
+> `comments-panel-v2-prd.md` §7 取代（改为窗口级 `navigationIdentity` 键控 +
+> 惰性迁 key）；§7 的「跨 viewer 广播」设计当时未落地（实现为单例 viewer +
+> restore-on-switch），窗口级键控后亦不再需要。「Workspace」术语与双区堆叠布局
+> 以该文为准。其余模型、交互与存储机制描述仍然有效。
+
 ## 1. 背景
 
 Agent Pivot 的 AI Conversation viewer 已提供批注（comment）能力：选中对话原文添加**引用批注**，或添加不带引用的 **Session note**。两者都按 `(projectId, provider, sessionId)` 存储，严格属于单个 session，主流程是「起草 → 发送 → 注入该 session 的 terminal 输入框」。

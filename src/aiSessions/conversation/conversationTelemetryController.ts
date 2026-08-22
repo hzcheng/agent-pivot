@@ -454,10 +454,10 @@ export function renderConversationTelemetry(
             class="conversation-telemetry-comments conversation-telemetry-tooltip"
             data-telemetry-comments
             aria-pressed="false"
-            aria-label="0 comments — click to review"
-            title="0 comments — click to review"
-            data-tooltip="0 comments — click to review">
-            ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value>0</span>
+            aria-label="0 open session comments · 0 open workspace notes — click to review"
+            title="0 open session comments · 0 open workspace notes — click to review"
+            data-tooltip="0 open session comments · 0 open workspace notes — click to review">
+            ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value>0 · 0</span>
         </button>
         <button type="button"
             class="conversation-telemetry-subagents conversation-telemetry-tooltip"

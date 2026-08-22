@@ -4720,7 +4720,7 @@
   {
     "id": "CONVERSATION-COMMENTS-UI-001",
     "domain": "webview",
-    "title": "AI Conversation collects selected excerpts and session-wide notes, then stages one correlated comment batch in the session input",
+    "title": "AI Conversation collects selected excerpts and session-wide notes, keeps filters scoped to the active Comments tab, and stages one correlated comment batch in the session input",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -4843,7 +4843,7 @@
   {
     "id": "PROJECT-COMMENTS-UI-001",
     "domain": "webview",
-    "title": "The Comments side panel splits into a project section with quick capture, tag editing and tag filtering, and an untouched session section, sharing the correlated Host-authoritative mutation protocol",
+    "title": "The Comments side panel exposes Workspace notes in a full-height tab with quick capture, tag editing and tab-scoped filtering, sharing the correlated Host-authoritative mutation protocol with Session comments",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -5187,7 +5187,7 @@
   {
     "id": "CONVERSATION-COMMENTS-LAYOUT-001",
     "domain": "webview",
-    "title": "The Comments panel keeps a compact grouped action bar and fully visible cards across extreme widths while remaining collapsible, resizable, and locally restorable",
+    "title": "The tabbed Comments panel keeps a compact grouped action bar and clamps long card bodies behind a Show more toggle (full text kept in the DOM) across extreme widths while remaining collapsible, resizable, and locally restorable",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -5195,6 +5195,50 @@
     ],
     "evidence": [
       "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-PILL-001",
+    "domain": "webview",
+    "title": "The telemetry comments pill shows session · workspace open counts refreshed from both stacks, stays visible at zero, and spells out both counts in its tooltip",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationCommentsScripts.js",
+      "src/aiSessions/conversation/conversationTelemetryController.ts"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-CLAMP-001",
+    "domain": "webview",
+    "title": "Long open comment cards clamp their body or quote behind one Show more toggle with the full text kept in the DOM, in-memory expansion, done cards exempt, both stacks consistent, and marker reveal auto-expanding clamped cards",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationCommentsScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-COMMENTS-TABS-001",
+    "domain": "webview",
+    "title": "The Comments panel switches between Session and Workspace with accessible auto-activating tabs, persisted tab state, per-stack filters, legacy filter migration, and symmetric return-on-cancel for cross-tab composers",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationCommentsScripts.js",
+      "src/webview/conversationViewerScripts.js",
+      "src/aiSessions/conversation/viewerDocument.ts",
       "media/conversationViewer.scss"
     ]
   },

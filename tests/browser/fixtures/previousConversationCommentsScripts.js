@@ -31,25 +31,12 @@
         var projectCommentsContent = options.projectCommentsContent;
         var sessionCommentsHeader = options.sessionCommentsHeader;
         var sessionCommentsContent = options.sessionCommentsContent;
-        // An adjacent-generation Viewer wrapper may predate the tab options
-        // while rendering this tabbed document. Resolve the authoritative
-        // DOM directly so the newer Comments module remains available.
-        var sessionCommentsTab = options.sessionCommentsTab
-            || (commentsRoot
-                ? commentsRoot.querySelector('[data-comments-tab="session"]')
-                : null);
-        var workspaceCommentsTab = options.workspaceCommentsTab
-            || (commentsRoot
-                ? commentsRoot.querySelector('[data-comments-tab="workspace"]')
-                : null);
-        var sessionCommentsPane = options.sessionCommentsPane
-            || (commentsRoot
-                ? commentsRoot.querySelector('[data-comments-panel="session"]')
-                : null);
-        var workspaceCommentsPane = options.workspaceCommentsPane
-            || (commentsRoot
-                ? commentsRoot.querySelector('[data-comments-panel="workspace"]')
-                : null);
+        var commentsSectionSash = options.commentsSectionSash;
+        var sessionCommentsCount = options.sessionCommentsCount;
+        var projectCommentsCount = options.projectCommentsCount;
+        var commentsBody = commentsRoot
+            ? commentsRoot.querySelector('[data-comments-body]')
+            : null;
         var projectCommentComposer = options.projectCommentComposer;
         var projectCommentSource = options.projectCommentSource;
         var projectCommentSourceLabel = options.projectCommentSourceLabel;
@@ -76,9 +63,7 @@
             expandedDoneComments: new Set(),
             expandedClampedComments: new Set(),
             draggedCommentId: null,
-            commentsPanelFilters: { session: null, workspace: null },
-            activeTab: 'session',
-            previousTab: null,
+            commentsPanelFilter: null,
             projectComments: [],
             projectCommentRevision: 0,
             projectCommentRequestSequence: 0,
@@ -90,6 +75,8 @@
             projectTagEditor: null,
             expandedDoneProjectComments: new Set(),
             expandedClampedProjectComments: new Set(),
+            projectSectionCollapsed: false,
+            sessionSectionCollapsed: false,
             draggedProjectCommentId: null,
             sessionTagEditor: null,
             projectClearAllConfirmation: false,
@@ -242,6 +229,8 @@
                 failed: 'The comment action failed. Your comments were kept.',
             },
             pendingRoots: [
+                commentsFilterBar,
+                projectCommentsHeader,
                 sessionCommentsHeader,
                 sessionCommentsContent,
             ].filter(Boolean),
@@ -482,37 +471,12 @@
             }, 0);
         }
 
-        function writeCommentsTabLabel(tab, name, openCount, noun) {
-            if (!tab) return;
-            var count = tab.querySelector('[data-comments-tab-count]');
-            if (count) {
-                count.textContent = '· ' + openCount;
-            }
-            var label = name + ': ' + openCount + ' open ' + noun;
-            tab.title = label;
-            tab.setAttribute('aria-label', label);
-        }
-
-        function updateCommentsTabLabels() {
-            if (!commentUiAvailable) return;
-            var workspaceCounts = { open: 0, done: 0 };
-            if (projectCommentsAvailable) {
-                state.projectComments.forEach(function (comment) {
-                    workspaceCounts[comment.status] += 1;
-                });
-            }
-            writeCommentsTabLabel(
-                sessionCommentsTab,
-                'Session',
-                commentStatusCounts().open,
-                'comments'
-            );
-            writeCommentsTabLabel(
-                workspaceCommentsTab,
-                'Workspace',
-                workspaceCounts.open,
-                'notes'
-            );
+        function updateSectionCount(element, counts, noun) {
+            var total = counts.open + counts.done;
+            element.textContent = counts.open + '/' + total;
+            var label = counts.open + ' open of ' + total + ' ' + noun;
+            element.title = label;
+            element.setAttribute('aria-label', label);
         }
 
         function resetStackClearAllConfirmation(stack) {
@@ -533,7 +497,7 @@
             var counts = commentStatusCounts();
             var pending = !!state.pendingCommentRequest
                 || !!state.pendingLocateRequest;
-            updateCommentsTabLabels();
+            updateSectionCount(sessionCommentsCount, counts, 'comments');
             if (commentCount) {
                 commentCount.textContent = String(state.comments.length);
                 commentCount.setAttribute(
@@ -613,7 +577,6 @@
                 'aria-busy',
                 pending ? 'true' : 'false'
             );
-            updateFilterBarPending();
         }
 
         function postStackOperation(stack, operation, payload, focusCommentId) {
@@ -771,50 +734,30 @@
             return Math.floor(elapsed / 86400000) + 'd ago';
         }
 
-        function validPanelFilter(filter) {
-            if (!filter || typeof filter !== 'object'
-                || Array.isArray(filter)) {
-                return null;
-            }
-            if (filter.type === 'status'
-                && (filter.value === 'open'
-                    || filter.value === 'done')) {
-                return { type: 'status', value: filter.value };
-            }
-            if (filter.type === 'tag'
-                && typeof filter.value === 'string'
-                && filter.value) {
-                return { type: 'tag', value: filter.value };
-            }
-            return null;
-        }
-
-        function readCommentsPanelFilters() {
-            var fallback = { session: null, workspace: null };
+        function readCommentsPanelFilter() {
             if (!vscodeApi || typeof vscodeApi.getState !== 'function') {
-                return fallback;
+                return null;
             }
             try {
                 var saved = vscodeApi.getState();
                 var filter = saved && saved.conversationCommentsPanelFilter;
                 if (!filter || typeof filter !== 'object'
                     || Array.isArray(filter)) {
-                    return fallback;
+                    return null;
                 }
-                // v1 kept one filter shared by both stacks; it becomes the
-                // session filter.
-                if (filter.type) {
-                    return {
-                        session: validPanelFilter(filter),
-                        workspace: null,
-                    };
+                if (filter.type === 'status'
+                    && (filter.value === 'open'
+                        || filter.value === 'done')) {
+                    return { type: 'status', value: filter.value };
                 }
-                return {
-                    session: validPanelFilter(filter.session),
-                    workspace: validPanelFilter(filter.workspace),
-                };
+                if (filter.type === 'tag'
+                    && typeof filter.value === 'string'
+                    && filter.value) {
+                    return { type: 'tag', value: filter.value };
+                }
+                return null;
             } catch (_error) {
-                return fallback;
+                return null;
             }
         }
 
@@ -831,7 +774,7 @@
                     ? Object.assign({}, saved)
                     : {};
                 next.conversationCommentsPanelFilter
-                    = state.commentsPanelFilters;
+                    = state.commentsPanelFilter;
                 vscodeApi.setState(next);
             } catch (_error) {
                 // Filter persistence is best-effort local Webview state.
@@ -842,7 +785,8 @@
             renderCommentsFilterBar();
         }
 
-        function commentMatchesPanelFilter(comment, filter) {
+        function commentMatchesPanelFilter(comment) {
+            var filter = state.commentsPanelFilter;
             if (!filter) return true;
             if (filter.type === 'status') {
                 return comment.status === filter.value;
@@ -853,13 +797,12 @@
         }
 
         function visibleCommentEntries() {
-            var filter = state.commentsPanelFilters.session;
             return state.comments
                 .map(function (comment, index) {
                     return { comment: comment, index: index };
                 })
                 .filter(function (entry) {
-                    return commentMatchesPanelFilter(entry.comment, filter);
+                    return commentMatchesPanelFilter(entry.comment);
                 });
         }
 
@@ -894,9 +837,6 @@
             if (!list) return;
             var cards = list.querySelectorAll('[' + idAttribute + ']');
             Array.prototype.forEach.call(cards, function (card) {
-                // A zero-height card is inside a hidden panel; keep the last
-                // measurement instead of mistaking layout absence for fit.
-                if (!card.offsetHeight) return;
                 var toggle = card.querySelector('[' + toggleAttribute + ']');
                 if (card.getAttribute('data-comment-status') !== 'open') {
                     // Done cards never clamp; drop a stale toggle if the
@@ -913,27 +853,18 @@
                     }
                     return;
                 }
-                var clampable = card.querySelectorAll(
+                var body = card.querySelector(
                     '.conversation-comment-clampable'
                 );
-                if (!clampable.length) return;
-                var overflow = false;
-                Array.prototype.forEach.call(clampable, function (element) {
-                    // Hidden subtrees (closed panel) report zero heights;
-                    // the ResizeObserver re-measures once they become visible.
-                    var elementOverflows
-                        = element.scrollHeight > element.clientHeight + 1;
-                    if (elementOverflows) {
-                        element.classList.add('is-clamped');
-                        overflow = true;
-                    } else {
-                        element.classList.remove('is-clamped');
-                    }
-                });
+                if (!body) return;
+                if (!body.classList.contains('is-clamped')) {
+                    body.classList.add('is-clamped');
+                }
+                // Hidden subtrees (closed panel) report zero heights; the
+                // ResizeObserver re-measures once they become visible.
+                var overflow = body.scrollHeight > body.clientHeight + 1;
                 if (!overflow) {
-                    Array.prototype.forEach.call(clampable, function (element) {
-                        element.classList.remove('is-clamped');
-                    });
+                    body.classList.remove('is-clamped');
                     if (toggle) toggle.remove();
                     return;
                 }
@@ -1160,9 +1091,6 @@
                     quoteLabel.textContent = 'Selected text';
                     var quote = document.createElement('blockquote');
                     quote.textContent = comment.quote;
-                    if (comment.status === 'open' && !clampExpanded) {
-                        markCommentClampable(quote);
-                    }
                     quoteGroup.append(quoteLabel, quote);
                     item.appendChild(quoteGroup);
                 }
@@ -1217,9 +1145,9 @@
                     && entries.length === 0;
                 commentFilterEmpty.hidden = !filteredOut;
                 commentFilterEmpty.textContent = filteredOut
-                    ? state.commentsPanelFilters.session
-                        && state.commentsPanelFilters.session.type === 'status'
-                        ? state.commentsPanelFilters.session.value === 'open'
+                    ? state.commentsPanelFilter
+                        && state.commentsPanelFilter.type === 'status'
+                        ? state.commentsPanelFilter.value === 'open'
                             ? 'No open comments.'
                             : 'No done comments.'
                         : 'No comments match this filter.'
@@ -1301,10 +1229,6 @@
 
         function focusStackDragHandle(stack, commentId) {
             if (!commentId || !stack.available) return;
-            // A settlement landing while its stack's tab is hidden must not
-            // try to focus a hidden card.
-            if (stack === sessionStack && state.activeTab !== 'session') return;
-            if (stack === projectStack && state.activeTab !== 'workspace') return;
             var card = stack.list.querySelector(
                 '[' + stack.idAttribute + '="' + CSS.escape(commentId) + '"]'
             );
@@ -1321,31 +1245,20 @@
                 return candidate.id === commentId;
             });
             if (!comment) return false;
-            var initialCard = commentList.querySelector(
-                '[data-comment-id="' + CSS.escape(commentId) + '"]'
-            );
-            var shouldExpandClamp = !!initialCard
-                && comment.status === 'open'
-                && !!initialCard.querySelector('[data-comment-clamp-toggle]');
             var needsRender = false;
             if (comment.status === 'done'
                 && !state.expandedDoneComments.has(commentId)) {
                 state.expandedDoneComments.add(commentId);
                 needsRender = true;
             }
-            if (!commentMatchesPanelFilter(
-                comment,
-                state.commentsPanelFilters.session
-            )) {
-                state.commentsPanelFilters.session = null;
+            if (!commentMatchesPanelFilter(comment)) {
+                state.commentsPanelFilter = null;
                 saveCommentsPanelFilter();
                 needsRender = true;
             }
             if (needsRender) {
                 renderComments();
             }
-            // A marker jump always lands on the Session tab.
-            setActiveTab('session', true);
             setSidebarView('comments', true, true);
             // The panel may have been hidden while renderComments() ran; now
             // that it is visible, clamp measurements are meaningful again.
@@ -1354,8 +1267,10 @@
                 '[data-comment-id="' + CSS.escape(commentId) + '"]'
             );
             if (!card) return false;
-            if (shouldExpandClamp
-                && !state.expandedClampedComments.has(commentId)) {
+            var clampToggle = card.querySelector(
+                '[data-comment-clamp-toggle]'
+            );
+            if (clampToggle && !state.expandedClampedComments.has(commentId)) {
                 // Reveal the full card when its content is clamped (a
                 // rendered toggle means the measurement found overflow).
                 state.expandedClampedComments.add(commentId);
@@ -1721,11 +1636,8 @@
 
         function openCommentComposer() {
             if (!state.selectedCommentText) return;
-            state.previousTab = state.activeTab === 'session'
-                ? null
-                : state.activeTab;
             setSidebarView('comments', true, true);
-            setActiveTab('session', true);
+            expandSessionSection();
             addComment.hidden = true;
             commentSelection.textContent = state.selectedCommentText.quote;
             commentComposer.setAttribute('data-comment-composer-scope', 'selection');
@@ -1739,7 +1651,7 @@
                 || state.pendingCommentRequest
                 || state.pendingLocateRequest) return;
             setSidebarView('comments', true, true);
-            setActiveTab('session', true);
+            expandSessionSection();
             addComment.hidden = true;
             state.selectedCommentText = { scope: 'session' };
             commentSelection.textContent = 'Session note';
@@ -1946,11 +1858,8 @@
 
         function visibleProjectComments() {
             var ordered = orderedProjectComments();
-            var filter = state.commentsPanelFilters.workspace;
-            if (!filter) return ordered;
-            return ordered.filter(function (comment) {
-                return commentMatchesPanelFilter(comment, filter);
-            });
+            if (!state.commentsPanelFilter) return ordered;
+            return ordered.filter(commentMatchesPanelFilter);
         }
 
         function projectTagColorKey(tag) {
@@ -2081,22 +1990,26 @@
             updateProjectComposerControls();
         }
 
-        function readActiveTab() {
+        function readCommentSectionState() {
             if (!vscodeApi || typeof vscodeApi.getState !== 'function') {
-                return 'session';
+                return;
             }
             try {
                 var saved = vscodeApi.getState();
-                return saved
-                    && saved.conversationCommentsActiveTab === 'workspace'
-                    ? 'workspace'
-                    : 'session';
+                var sections = saved && saved.conversationCommentsSections;
+                if (sections && typeof sections === 'object'
+                    && !Array.isArray(sections)) {
+                    state.projectSectionCollapsed
+                        = sections.project === true;
+                    state.sessionSectionCollapsed
+                        = sections.session === true;
+                }
             } catch (_error) {
-                return 'session';
+                // Section state persistence is best-effort.
             }
         }
 
-        function saveActiveTab() {
+        function saveCommentSectionState() {
             if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
                 return;
             }
@@ -2108,89 +2021,222 @@
                     && !Array.isArray(saved)
                     ? Object.assign({}, saved)
                     : {};
-                next.conversationCommentsActiveTab = state.activeTab;
+                next.conversationCommentsSections = {
+                    project: state.projectSectionCollapsed,
+                    session: state.sessionSectionCollapsed,
+                };
                 vscodeApi.setState(next);
             } catch (_error) {
-                // Tab persistence is best-effort local Webview state.
+                // Section state persistence is best-effort.
             }
         }
 
-        function updateFilterBarPending() {
-            if (!commentUiAvailable || !commentsFilterBar) return;
-            var barPending = state.activeTab === 'workspace'
-                && projectCommentsAvailable
-                ? !!state.pendingProjectCommentRequest
-                : !!(state.pendingCommentRequest || state.pendingLocateRequest);
-            Array.prototype.forEach.call(
-                commentsFilterBar.querySelectorAll('button'),
-                function (control) {
-                    control.disabled = barPending;
-                }
+        function applySectionToggle(header, content, collapsed) {
+            var toggle = header.querySelector('[data-comments-section-toggle]');
+            if (toggle) {
+                toggle.setAttribute(
+                    'aria-expanded',
+                    collapsed ? 'false' : 'true'
+                );
+                var label = collapsed ? 'Expand section' : 'Collapse section';
+                toggle.title = label;
+                toggle.setAttribute('aria-label', label);
+            }
+            content.hidden = collapsed;
+        }
+
+        function applyCommentSectionState() {
+            applySectionToggle(
+                sessionCommentsHeader,
+                sessionCommentsContent,
+                state.sessionSectionCollapsed
+            );
+            if (projectCommentsAvailable) {
+                applySectionToggle(
+                    projectCommentsHeader,
+                    projectCommentsContent,
+                    state.projectSectionCollapsed
+                );
+            }
+            if (commentsSectionSash) {
+                commentsSectionSash.hidden = state.projectSectionCollapsed
+                    || state.sessionSectionCollapsed;
+            }
+            if (commentsBody) {
+                commentsBody.setAttribute(
+                    'data-workspace-collapsed',
+                    state.projectSectionCollapsed ? 'true' : 'false'
+                );
+            }
+        }
+
+        function toggleSessionSection() {
+            state.sessionSectionCollapsed = !state.sessionSectionCollapsed;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
+
+        var SESSION_REGION_MIN_HEIGHT = 56;
+
+        function clampSessionRegionHeight(height) {
+            var bodyHeight = commentsBody
+                ? commentsBody.getBoundingClientRect().height
+                : 0;
+            var max = bodyHeight > 0 ? bodyHeight * 0.7 : height;
+            return Math.max(
+                SESSION_REGION_MIN_HEIGHT,
+                Math.min(Math.round(height), Math.round(max))
             );
         }
 
-        function applyActiveTab(rerenderStack) {
+        function setSessionRegionHeight(height, persist) {
             if (!commentUiAvailable) return;
-            if (state.activeTab === 'workspace' && !projectCommentsAvailable) {
-                state.activeTab = 'session';
-            }
-            var workspaceActive = state.activeTab === 'workspace';
-            if (sessionCommentsTab && workspaceCommentsTab
-                && sessionCommentsPane && workspaceCommentsPane) {
-                workspaceCommentsTab.disabled = !projectCommentsAvailable;
-                sessionCommentsTab.setAttribute(
-                    'aria-selected',
-                    workspaceActive ? 'false' : 'true'
+            sessionCommentsContent.style.height = height + 'px';
+            sessionCommentsContent.style.maxHeight = 'none';
+            sessionCommentsContent.setAttribute('data-explicit-height', '');
+            var bodyHeight = commentsBody.getBoundingClientRect().height;
+            if (bodyHeight > 0) {
+                commentsSectionSash.setAttribute(
+                    'aria-valuenow',
+                    String(Math.round((height / bodyHeight) * 100))
                 );
-                workspaceCommentsTab.setAttribute(
-                    'aria-selected',
-                    workspaceActive ? 'true' : 'false'
-                );
-                sessionCommentsTab.tabIndex = workspaceActive ? -1 : 0;
-                workspaceCommentsTab.tabIndex = workspaceActive ? 0 : -1;
-                sessionCommentsPane.hidden = workspaceActive;
-                workspaceCommentsPane.hidden = !workspaceActive;
-            }
-            renderCommentsFilterBar();
-            // Re-render the now-visible stack as well as its filter bar. A
-            // tag vocabulary can disappear while its tab is hidden; clearing
-            // only the chip would leave the old empty list behind.
-            if (rerenderStack !== false
-                && workspaceActive && projectCommentsAvailable) {
-                renderProjectComments();
-            } else if (rerenderStack !== false && !workspaceActive) {
-                renderComments();
-            }
-            updateFilterBarPending();
-        }
-
-        function setActiveTab(tab, persist) {
-            if (tab !== 'session' && tab !== 'workspace') return;
-            if (tab === 'workspace' && !projectCommentsAvailable) return;
-            var tabChanged = state.activeTab !== tab;
-            state.activeTab = tab;
-            applyActiveTab(tabChanged);
-            resetStackClearAllConfirmation(sessionStack);
-            if (projectCommentsAvailable) {
-                resetStackClearAllConfirmation(projectStack);
             }
             if (persist) {
-                saveActiveTab();
+                saveSessionRegionHeight(height);
             }
         }
 
-        function returnToPreviousTab() {
-            var target = state.previousTab;
-            state.previousTab = null;
-            if (target && target !== state.activeTab) {
-                setActiveTab(target, true);
+        function resetSessionRegionHeight() {
+            if (!commentUiAvailable) return;
+            sessionCommentsContent.style.height = '';
+            sessionCommentsContent.style.maxHeight = '';
+            sessionCommentsContent.removeAttribute('data-explicit-height');
+            commentsSectionSash.setAttribute('aria-valuenow', '45');
+            saveSessionRegionHeight(null);
+        }
+
+        function saveSessionRegionHeight(height) {
+            if (!vscodeApi || typeof vscodeApi.setState !== 'function') {
+                return;
+            }
+            try {
+                var saved = typeof vscodeApi.getState === 'function'
+                    ? vscodeApi.getState()
+                    : null;
+                var next = saved && typeof saved === 'object'
+                    && !Array.isArray(saved)
+                    ? Object.assign({}, saved)
+                    : {};
+                next.conversationCommentsSessionRegionHeight =
+                    Number.isFinite(height) ? height : null;
+                vscodeApi.setState(next);
+            } catch (_error) {
+                // Region height persistence is best-effort.
             }
         }
 
+        function restoreSessionRegionHeight() {
+            if (!commentUiAvailable) return;
+            try {
+                var saved = vscodeApi && typeof vscodeApi.getState === 'function'
+                    ? vscodeApi.getState()
+                    : null;
+                var height = saved
+                    && saved.conversationCommentsSessionRegionHeight;
+                if (Number.isFinite(height)) {
+                    setSessionRegionHeight(
+                        clampSessionRegionHeight(height),
+                        false
+                    );
+                }
+            } catch (_error) {
+                // Region height persistence is best-effort.
+            }
+        }
+
+        function attachCommentsSectionSash() {
+            if (!commentUiAvailable) return;
+            var sashPointerId = null;
+            commentsSectionSash.addEventListener('pointerdown', function (event) {
+                if (event.button !== 0) return;
+                sashPointerId = event.pointerId;
+                commentsSectionSash.setPointerCapture(event.pointerId);
+                event.preventDefault();
+            });
+            commentsSectionSash.addEventListener('pointermove', function (event) {
+                if (event.pointerId !== sashPointerId) return;
+                var bounds = commentsBody.getBoundingClientRect();
+                setSessionRegionHeight(
+                    clampSessionRegionHeight(bounds.bottom - event.clientY),
+                    false
+                );
+            });
+            function finishSashResize(event) {
+                if (event.pointerId !== sashPointerId) return;
+                sashPointerId = null;
+                saveSessionRegionHeight(
+                    sessionCommentsContent.getBoundingClientRect().height
+                );
+            }
+            commentsSectionSash.addEventListener('pointerup', finishSashResize);
+            commentsSectionSash.addEventListener(
+                'pointercancel',
+                finishSashResize
+            );
+            commentsSectionSash.addEventListener('dblclick', function () {
+                resetSessionRegionHeight();
+            });
+            commentsSectionSash.addEventListener('keydown', function (event) {
+                var current = sessionCommentsContent
+                    .getBoundingClientRect().height;
+                var bodyHeight = commentsBody.getBoundingClientRect().height;
+                var nextHeight;
+                if (event.key === 'ArrowUp') {
+                    nextHeight = current - 16;
+                } else if (event.key === 'ArrowDown') {
+                    nextHeight = current + 16;
+                } else if (event.key === 'Home') {
+                    nextHeight = SESSION_REGION_MIN_HEIGHT;
+                } else if (event.key === 'End') {
+                    nextHeight = bodyHeight * 0.7;
+                } else {
+                    return;
+                }
+                event.preventDefault();
+                setSessionRegionHeight(
+                    clampSessionRegionHeight(nextHeight),
+                    true
+                );
+            });
+        }
+
+        function toggleProjectSection() {
+            state.projectSectionCollapsed = !state.projectSectionCollapsed;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
+
+        function expandSessionSection() {
+            if (!state.sessionSectionCollapsed) return;
+            state.sessionSectionCollapsed = false;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
+
+        function expandProjectSection() {
+            if (!projectCommentsAvailable
+                || !state.projectSectionCollapsed) return;
+            state.projectSectionCollapsed = false;
+            applyCommentSectionState();
+            saveCommentSectionState();
+        }
 
         function openProjectCommentComposer() {
             if (!projectCommentsAvailable
                 || state.pendingProjectCommentRequest) return;
+            // Opening the composer from a collapsed section must unfold the
+            // group first, or the composer surfaces inside hidden content.
+            expandProjectSection();
             projectCommentComposer.hidden = false;
             updateProjectComposerControls();
             projectCommentInput.focus();
@@ -2221,10 +2267,6 @@
                 selection.removeAllRanges();
             }
             setSidebarView('comments', true, true);
-            state.previousTab = state.activeTab === 'workspace'
-                ? null
-                : state.activeTab;
-            setActiveTab('workspace', true);
             updateProjectSourcePreview();
             openProjectCommentComposer();
         }
@@ -2246,7 +2288,6 @@
                     state.projectPendingSource
                 );
             }
-            state.previousTab = null;
             closeProjectCommentComposer();
             postStackOperation(projectStack, 'add', payload);
         }
@@ -2405,10 +2446,6 @@
                 if (comment.source.quote) {
                     var quote = document.createElement('blockquote');
                     quote.textContent = comment.source.quote;
-                    if (comment.status === 'open'
-                        && !projectClampExpanded) {
-                        markCommentClampable(quote);
-                    }
                     quoteGroup.appendChild(quote);
                 }
                 item.appendChild(quoteGroup);
@@ -2449,17 +2486,12 @@
 
         function renderCommentsFilterBar() {
             if (!commentUiAvailable) return;
-            var workspaceTab = state.activeTab === 'workspace'
-                && projectCommentsAvailable;
-            var items = workspaceTab ? state.projectComments : state.comments;
-            var filter = workspaceTab
-                ? state.commentsPanelFilters.workspace
-                : state.commentsPanelFilters.session;
             var vocabulary = [];
             var counts = new Map();
             var openCount = 0;
             var doneCount = 0;
-            items.forEach(function (comment) {
+            var totalCount = state.comments.length;
+            state.comments.forEach(function (comment) {
                 if (comment.status === 'open') {
                     openCount += 1;
                 } else {
@@ -2474,18 +2506,33 @@
                     counts.set(key, counts.get(key) + 1);
                 });
             });
-            if (filter && filter.type === 'tag' && !counts.has(filter.value)) {
-                filter = null;
-                if (workspaceTab) {
-                    state.commentsPanelFilters.workspace = null;
-                } else {
-                    state.commentsPanelFilters.session = null;
-                }
+            if (projectCommentsAvailable) {
+                totalCount += state.projectComments.length;
+                state.projectComments.forEach(function (comment) {
+                    if (comment.status === 'open') {
+                        openCount += 1;
+                    } else {
+                        doneCount += 1;
+                    }
+                    comment.tags.forEach(function (tag) {
+                        var key = tag.toLowerCase();
+                        if (!counts.has(key)) {
+                            counts.set(key, 0);
+                            vocabulary.push(tag);
+                        }
+                        counts.set(key, counts.get(key) + 1);
+                    });
+                });
+            }
+            if (state.commentsPanelFilter
+                && state.commentsPanelFilter.type === 'tag'
+                && !counts.has(state.commentsPanelFilter.value)) {
+                state.commentsPanelFilter = null;
                 saveCommentsPanelFilter();
             }
             commentsFilterBar.replaceChildren();
-            commentsFilterBar.hidden = items.length === 0;
-            if (!items.length) return;
+            commentsFilterBar.hidden = totalCount === 0;
+            if (!totalCount) return;
 
             function filterChip(label, pressed, attributes) {
                 var chip = document.createElement('button');
@@ -2504,11 +2551,9 @@
                 return chip;
             }
 
-            var filter = workspaceTab
-                ? state.commentsPanelFilters.workspace
-                : state.commentsPanelFilters.session;
+            var filter = state.commentsPanelFilter;
             filterChip(
-                'All · ' + items.length,
+                'All · ' + totalCount,
                 filter === null,
                 { 'data-comment-filter': 'all' }
             );
@@ -2573,7 +2618,14 @@
                 projectCommentEmpty.hidden = false;
                 projectCommentEmpty.textContent = 'No notes match this filter.';
             }
-            updateCommentsTabLabels();
+            updateSectionCount(
+                projectCommentsCount,
+                state.projectComments.reduce(function (counts, comment) {
+                    counts[comment.status] += 1;
+                    return counts;
+                }, { open: 0, done: 0 }),
+                'notes'
+            );
             if (state.projectTagEditor) {
                 var editorInput = projectCommentList.querySelector(
                     '[data-project-comment-tag-input]'
@@ -2715,43 +2767,7 @@
 
         function attach() {
             if (!commentUiAvailable) return;
-            var tabButtons = [
-                sessionCommentsTab,
-                workspaceCommentsTab,
-            ].filter(Boolean);
-            tabButtons.forEach(function (tab) {
-                tab.addEventListener('click', function () {
-                    state.previousTab = null;
-                    setActiveTab(tab.getAttribute('data-comments-tab'), true);
-                });
-                tab.addEventListener('keydown', function (event) {
-                    var navigable = tabButtons.filter(function (candidate) {
-                        return !candidate.disabled;
-                    });
-                    var index = navigable.indexOf(tab);
-                    var nextIndex = null;
-                    if (event.key === 'ArrowLeft') {
-                        nextIndex = (index - 1 + navigable.length)
-                            % navigable.length;
-                    } else if (event.key === 'ArrowRight') {
-                        nextIndex = (index + 1) % navigable.length;
-                    } else if (event.key === 'Home') {
-                        nextIndex = 0;
-                    } else if (event.key === 'End') {
-                        nextIndex = navigable.length - 1;
-                    } else {
-                        return;
-                    }
-                    event.preventDefault();
-                    var next = navigable[nextIndex];
-                    state.previousTab = null;
-                    setActiveTab(
-                        next.getAttribute('data-comments-tab'),
-                        true
-                    );
-                    next.focus();
-                });
-            });
+            attachCommentsSectionSash();
             if (typeof ResizeObserver === 'function') {
                 // Re-measure clamp overflow whenever a list changes size:
                 // panel open, sidebar view switch, panel width drag. The
@@ -2849,19 +2865,12 @@
                 var button = event.target && event.target.closest
                     ? event.target.closest('[data-comment-action]')
                     : null;
-                if (!button || !commentsRoot.contains(button)) {
+                if (!button || !commentsRoot.contains(button)
+                    || state.pendingCommentRequest
+                    || state.pendingLocateRequest) {
                     return;
                 }
                 var action = button.getAttribute('data-comment-action');
-                // Filter chips stay live while the *other* stack is pending;
-                // everything else waits for the session stack to settle.
-                var sessionPending = state.pendingCommentRequest
-                    || state.pendingLocateRequest;
-                if (sessionPending && (action !== 'filter'
-                    || state.activeTab !== 'workspace'
-                    || !projectCommentsAvailable)) {
-                    return;
-                }
                 if (action !== 'clearAll' && state.clearAllConfirmation) {
                     resetStackClearAllConfirmation(sessionStack);
                 }
@@ -2871,7 +2880,6 @@
                 }
                 if (action === 'cancel-add') {
                     closeCommentComposer();
-                    returnToPreviousTab();
                     return;
                 }
                 if (action === 'confirm-add') {
@@ -2886,14 +2894,11 @@
                         state.selectedCommentText,
                         { comment: text }
                     );
-                    state.previousTab = null;
                     closeCommentComposer();
                     postStackOperation(sessionStack, 'add', payload);
                     return;
                 }
                 if (action === 'filter') {
-                    var workspaceTab = state.activeTab === 'workspace'
-                        && projectCommentsAvailable;
                     var statusValue = button.getAttribute(
                         'data-comment-filter'
                     );
@@ -2903,27 +2908,15 @@
                         : statusValue === 'open' || statusValue === 'done'
                             ? { type: 'status', value: statusValue }
                             : null;
-                    var currentFilter = workspaceTab
-                        ? state.commentsPanelFilters.workspace
-                        : state.commentsPanelFilters.session;
-                    var appliedFilter = projectCommentFilterEquals(
-                        currentFilter,
+                    state.commentsPanelFilter = projectCommentFilterEquals(
+                        state.commentsPanelFilter,
                         nextFilter
                     )
                         ? null
                         : nextFilter;
-                    if (workspaceTab) {
-                        state.commentsPanelFilters.workspace = appliedFilter;
-                    } else {
-                        state.commentsPanelFilters.session = appliedFilter;
-                    }
                     saveCommentsPanelFilter();
-                    renderCommentsFilterBar();
-                    if (workspaceTab) {
-                        renderProjectComments();
-                    } else {
-                        renderComments();
-                    }
+                    renderComments();
+                    renderProjectComments();
                     return;
                 }
                 if (action === 'send') {
@@ -3081,9 +3074,20 @@
                             }
                             return;
                         }
+                        toggleProjectSection();
                     }
                 );
             }
+            sessionCommentsHeader.addEventListener('click', function (event) {
+                var actionElement = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-action]')
+                    : null;
+                if (actionElement
+                    && sessionCommentsHeader.contains(actionElement)) {
+                    return;
+                }
+                toggleSessionSection();
+            });
             if (projectCommentsAvailable) {
                 projectCommentInput.addEventListener('input', function () {
                     autosizeCommentInput(projectCommentInput);
@@ -3149,7 +3153,6 @@
                     if (action === 'cancel-add') {
                         closeProjectCommentComposer();
                         status.textContent = 'Project note cancelled.';
-                        returnToPreviousTab();
                         return;
                     }
                     if (action === 'add') {
@@ -3388,7 +3391,6 @@
                 && !state.pendingProjectCommentRequest) {
                 event.preventDefault();
                 closeProjectCommentComposer();
-                returnToPreviousTab();
                 return true;
             }
             if (projectCommentsAvailable && state.projectTagEditor) {
@@ -3437,19 +3439,16 @@
             if (commentUiAvailable && !commentComposer.hidden) {
                 event.preventDefault();
                 closeCommentComposer();
-                returnToPreviousTab();
                 return true;
             }
             return false;
         }
 
         function initializeComments() {
-            state.commentsPanelFilters = readCommentsPanelFilters();
-            // Persist the v1 → v2 filter migration immediately so a later
-            // legacy-shaped read cannot resurrect the shared-stack filter.
-            saveCommentsPanelFilter();
-            state.activeTab = readActiveTab();
-            applyActiveTab();
+            state.commentsPanelFilter = readCommentsPanelFilter();
+            readCommentSectionState();
+            applyCommentSectionState();
+            restoreSessionRegionHeight();
             if (projectCommentsAvailable) {
                 var initialProjectComments = readJsonAttribute(
                     'data-initial-project-comments'
@@ -3496,8 +3495,6 @@
             state.editingComment = null;
             state.sessionTagEditor = null;
             state.expandedDoneComments.clear();
-            state.expandedClampedComments.clear();
-            state.previousTab = null;
             if (projectCommentsAvailable) {
                 state.projectComments = projectSnapshot.comments.map(
                     cloneProjectComment
@@ -3507,7 +3504,6 @@
                 state.editingProjectComment = null;
                 state.projectTagEditor = null;
                 state.expandedDoneProjectComments.clear();
-                state.expandedClampedProjectComments.clear();
                 closeProjectCommentComposer();
                 renderProjectComments();
             }

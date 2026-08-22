@@ -5916,25 +5916,30 @@ test('CONVERSATION-COMMENTS-TABS-001 PROJECT-COMMENTS-UI-001 captures, tags, fil
     );
     assert.deepEqual(
         await page.evaluate(() => {
-            const tabs = document.querySelector(
-                '[data-comments-tabs]'
-            ).getBoundingClientRect();
-            const header = document.querySelector(
+            const headerElement = document.querySelector(
                 '[data-project-comments-header]'
-            ).getBoundingClientRect();
+            );
+            const header = headerElement.getBoundingClientRect();
             const filter = document.querySelector(
                 '[data-comments-filter-bar]'
             ).getBoundingClientRect();
             const card = document.querySelector(
                 '[data-project-comment-id]'
             ).getBoundingClientRect();
+            const toolbarButtons = Array.from(headerElement.querySelectorAll(
+                'button'
+            )).map(button => button.getBoundingClientRect());
             const panel = document.querySelector(
                 '[data-conversation-comments]'
             ).getBoundingClientRect();
             return {
-                toolbarMatchesTabs:
-                    Math.abs(header.left - tabs.left) <= 1
-                    && Math.abs(header.right - tabs.right) <= 1,
+                toolbarEdgesFlush:
+                    Math.abs(header.left - panel.left) <= 1
+                    && Math.abs(header.right - panel.right) <= 1,
+                toolbarButtonsInset:
+                    toolbarButtons[0].left >= header.left + 6
+                    && toolbarButtons.at(-1).right
+                        <= header.right - 6,
                 toolbarWiderThanCards: header.left < card.left - 1
                     && header.right > card.right + 1,
                 filterPinnedBelowCards:
@@ -5943,7 +5948,8 @@ test('CONVERSATION-COMMENTS-TABS-001 PROJECT-COMMENTS-UI-001 captures, tags, fil
             };
         }),
         {
-            toolbarMatchesTabs: true,
+            toolbarEdgesFlush: true,
+            toolbarButtonsInset: true,
             toolbarWiderThanCards: true,
             filterPinnedBelowCards: true,
         }

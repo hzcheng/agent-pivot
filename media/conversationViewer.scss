@@ -1519,7 +1519,7 @@ body[data-conversation-loading='true'] .conversation-messages {
     min-width: 0;
     gap: 0.2rem;
     align-items: stretch;
-    padding: 0.2rem 0.4rem;
+    padding: 0.2rem;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(
         --vscode-sideBarSectionHeader-background,
@@ -1584,7 +1584,7 @@ body[data-conversation-loading='true'] .conversation-messages {
     flex-direction: column;
     gap: 0.25rem;
     overflow: hidden;
-    padding: 0.15rem 0.5rem 0.5rem;
+    padding: 0.15rem 0 0;
 }
 
 .conversation-comments-pane {
@@ -2005,7 +2005,7 @@ blockquote.conversation-comment-clampable.is-clamped {
     flex: 0 0 auto;
     box-sizing: border-box;
     min-width: 0;
-    margin: 0 -0.5rem;
+    margin: 0;
     gap: 0.3rem;
     align-items: center;
     padding: 0.2rem 0.4rem;
@@ -2033,6 +2033,7 @@ blockquote.conversation-comment-clampable.is-clamped {
     min-width: 0;
     flex-direction: column;
     gap: 0.5rem;
+    padding: 0 0.5rem 0.5rem;
 }
 
 .conversation-comments-section-content[hidden] {
@@ -2051,6 +2052,7 @@ blockquote.conversation-comment-clampable.is-clamped {
     flex: 1 1 0;
     flex-direction: column;
     gap: 0.4rem;
+    padding: 0 0.5rem 0.5rem;
     overflow-y: auto;
 }
 

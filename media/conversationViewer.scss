@@ -1516,6 +1516,7 @@ body[data-conversation-loading='true'] .conversation-messages {
     flex: 0 0 auto;
     box-sizing: border-box;
     min-width: 0;
+    justify-content: center;
     gap: 0.15rem;
     align-items: baseline;
     padding: 0.15rem 0.5rem 0;

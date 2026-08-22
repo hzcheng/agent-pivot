@@ -12115,6 +12115,23 @@ test('CONVERSATION-COMMENTS-TABS-001 preserves per-tab filters and returns after
     // The legacy single-filter value migrates to Session only. Workspace
     // starts unfiltered even while Session has a persisted filter.
     assert.equal(await workspacePane.isVisible(), true);
+    assert.equal(
+        await page.evaluate(() => {
+            const panel = document.querySelector(
+                '[data-conversation-comments]'
+            ).getBoundingClientRect();
+            const tabs = Array.from(document.querySelectorAll(
+                '[data-comments-tab]'
+            ));
+            const first = tabs[0].getBoundingClientRect();
+            const last = tabs.at(-1).getBoundingClientRect();
+            const tabGroupCenter = (first.left + last.right) / 2;
+            const panelCenter = (panel.left + panel.right) / 2;
+            return Math.abs(tabGroupCenter - panelCenter) <= 1;
+        }),
+        true,
+        'the Session/Workspace tab group must be centered'
+    );
     await page.setViewportSize({ width: 192, height: 700 });
     assert.deepEqual(
         await page.evaluate(() => {
@@ -12128,6 +12145,14 @@ test('CONVERSATION-COMMENTS-TABS-001 preserves per-tab filters and returns after
             return {
                 panelVisible: panelBounds.left >= 0
                     && panelBounds.right <= window.innerWidth,
+                tabGroupCentered: (() => {
+                    const first = tabs[0].getBoundingClientRect();
+                    const last = tabs.at(-1).getBoundingClientRect();
+                    const tabGroupCenter = (first.left + last.right) / 2;
+                    const panelCenter
+                        = (panelBounds.left + panelBounds.right) / 2;
+                    return Math.abs(tabGroupCenter - panelCenter) <= 1;
+                })(),
                 tabLabelsUnclipped: tabs.every(tab =>
                     tab.scrollWidth <= tab.clientWidth + 1
                 ),
@@ -12140,6 +12165,7 @@ test('CONVERSATION-COMMENTS-TABS-001 preserves per-tab filters and returns after
         }),
         {
             panelVisible: true,
+            tabGroupCentered: true,
             tabLabelsUnclipped: true,
             tabsInsidePanel: true,
         }

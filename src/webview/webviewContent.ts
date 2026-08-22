@@ -71,6 +71,7 @@ export function getStewardContent(
     readyDocumentGeneration: number = 1,
     initialAiSessionPresentation?: AiSessionPresentationStateMessage,
     windowPathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
+    showOpenTabLayoutNotice: boolean = false,
 ): string {
     var safeReadyDocumentGeneration = Number.isSafeInteger(readyDocumentGeneration)
         && readyDocumentGeneration > 0
@@ -175,6 +176,7 @@ export function getStewardContent(
         </div>
         <main class="dashboard-content">
             <section id="dashboard-tab-open" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-open-button">
+                ${showOpenTabLayoutNotice ? getOpenTabLayoutMigrationNotice() : ''}
                 <div class="sticky-groups-wrapper">
                     ${openWorkspacesContent}
                 </div>
@@ -267,6 +269,16 @@ export function getStewardContent(
 
 
 </html>`;
+}
+
+function getOpenTabLayoutMigrationNotice(): string {
+    return `<aside class="open-tab-layout-notice" data-open-tab-layout-notice role="status" aria-label="OPEN tab layout update">
+        <span class="open-tab-layout-notice-copy"><strong>OPEN has a new layout.</strong> WINDOWS is always visible; CHATS contains active sessions and ALL contains every session. Your previous Worktree view is now CHATS in Tree view.</span>
+        <span class="open-tab-layout-notice-actions">
+            <button type="button" class="steward-button" data-action="open-open-tab-layout-migration-guide">Learn more</button>
+            <button type="button" class="steward-icon-button" data-action="dismiss-open-tab-layout-notice" aria-label="Dismiss OPEN tab layout update" title="Dismiss">×</button>
+        </span>
+    </aside>`;
 }
 
 export function getOpenSessionSurfaceContent(

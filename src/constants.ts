@@ -44,6 +44,10 @@ export const WORKSPACE_AI_SESSION_SURFACE_KEY = 'workspaceAiSessionSurface.v1';
 // pre-M2 surface tabs; this record is backfilled from it until PR-D retires
 // the surface model.
 export const WORKSPACE_AI_SESSION_VIEW_STATE_KEY = 'workspaceAiSessionViewState.v1';
+// A single global acknowledgement for the OPEN tab IA change. This stores no
+// workspace or session identity: it only prevents the migration notice from
+// returning after the user has dismissed it.
+export const OPEN_TAB_LAYOUT_NOTICE_DISMISSED_KEY = 'openTabLayoutNoticeDismissed.v1';
 
 export enum StorageOption {
     GlobalState,

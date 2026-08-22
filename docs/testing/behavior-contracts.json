@@ -2932,7 +2932,7 @@
   {
     "id": "OPEN-WINDOW-SWITCHER-UI-001",
     "domain": "webview",
-    "title": "OPEN tab window switcher renders single-line rows with fixed slots (indicator/icon/name/running/attention/pin/more), a three-state current-row model (current/pending/error) with zero-displacement transitions, and the responsive width matrix",
+    "title": "OPEN tab window switcher renders single-line rows with fixed slots (indicator/icon/name/running/attention/pin/more), a three-state current-row model (current/pending/error) with zero-displacement transitions, the responsive width matrix, and a one-time dismissible layout-migration notice",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -2942,6 +2942,8 @@
       "src/webview/webviewWindowSwitcherContent.ts",
       "src/openWorkspaces/windowRowViewModel.ts",
       "src/webview/webviewOpenWindowNavigationScripts.js",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectScripts.js",
       "media/styles.scss"
     ]
   },

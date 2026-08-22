@@ -6,6 +6,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Changed
 
+- The OPEN tab now keeps a fixed WINDOWS switcher above the current window's
+  sessions. CHATS shows active sessions (Tree or List view), while ALL keeps
+  the complete session history and its management tools. Existing Worktree
+  view users land in CHATS Tree view; a one-time in-product mapping explains
+  the change.
 - Removed the global TODO Dashboard tab, its search results, and its
   synchronized data setting. Existing TODO data is left untouched in VS Code
   storage/settings but is no longer read or displayed.

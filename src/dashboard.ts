@@ -17,6 +17,7 @@ import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
+    OPEN_TAB_LAYOUT_NOTICE_DISMISSED_KEY,
     USER_CANCELED,
     RelevantExtensions,
     REOPEN_KEY,
@@ -2043,6 +2044,13 @@ async function initializeDashboard(
             ['hzcheng.agent-pivot-attention-ui-bridge'],
         ),
         showSponsorOptions,
+        dismissOpenTabLayoutNotice: () => context.globalState.update(
+            OPEN_TAB_LAYOUT_NOTICE_DISMISSED_KEY,
+            true,
+        ),
+        openOpenTabLayoutMigrationGuide: () => vscode.env.openExternal(vscode.Uri.parse(
+            'https://github.com/hzcheng/agent-pivot/blob/main/docs/open-tab-window-switcher-migration.md',
+        )),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
     // Idempotency cache for group rename settlements (PRD §6.4 protocol
@@ -2343,6 +2351,7 @@ async function initializeDashboard(
                     currentWorktreeGroupsAggregateRevision(),
                 ),
                 openWorkspaceDashboardController.getWindowPathSegmentsByCardId(),
+                context.globalState.get<boolean>(OPEN_TAB_LAYOUT_NOTICE_DISMISSED_KEY) !== true,
             );
         },
         renderError: getErrorContent,

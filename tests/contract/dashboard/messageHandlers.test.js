@@ -74,6 +74,9 @@ function createFixture(overrides = {}) {
         showAgentPivotSettings: async () => { calls.push(['showSettings']); },
         showBridgeExtension: async () => { calls.push(['showBridgeExtension']); },
         showSponsorOptions: async () => { calls.push(['showSponsorOptions']); },
+        dismissOpenTabLayoutNotice: overrides.dismissOpenTabLayoutNotice
+            || (async () => { calls.push(['dismissOpenTabLayoutNotice']); }),
+        openOpenTabLayoutMigrationGuide: async () => { calls.push(['openOpenTabLayoutMigrationGuide']); },
         showWarningMessage: message => calls.push(['showWarningMessage', message]),
     });
     return { handlers, calls, posted };
@@ -92,6 +95,8 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'select-ai-session-view-tab',
         'select-ai-session-chats-view-mode',
         'open-tab-telemetry',
+        'dismiss-open-tab-layout-notice',
+        'open-open-tab-layout-migration-guide',
         'set-ai-session-collapsed-worktree-groups',
         'migrate-ai-session-view-state',
         'select-ai-session-providers',
@@ -480,6 +485,43 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protoc
         type: 'migrate-ai-session-view-state', version: 1, projectId: 'p1',
     });
     assert.equal(calls.length, 0, 'wrong versions and missing/extra keys must be rejected');
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 persists or opens the layout migration notice only from exact envelopes', async () => {
+    const { handlers, calls, posted } = createFixture();
+
+    await handlers['dismiss-open-tab-layout-notice']({
+        type: 'dismiss-open-tab-layout-notice', version: 1,
+    });
+    await handlers['open-open-tab-layout-migration-guide']({
+        type: 'open-open-tab-layout-migration-guide', version: 1,
+    });
+    assert.deepEqual(calls, [
+        ['dismissOpenTabLayoutNotice'],
+        ['openOpenTabLayoutMigrationGuide'],
+    ]);
+    assert.deepEqual(posted, [{
+        type: 'open-tab-layout-notice-dismissed', version: 1, outcome: 'dismissed',
+    }]);
+
+    calls.length = 0;
+    await handlers['dismiss-open-tab-layout-notice']({
+        type: 'dismiss-open-tab-layout-notice', version: 1, extra: true,
+    });
+    await handlers['open-open-tab-layout-migration-guide']({
+        type: 'open-open-tab-layout-migration-guide', version: 2,
+    });
+    assert.equal(calls.length, 0, 'invalid notice messages must stay ignored');
+
+    const failure = createFixture({
+        dismissOpenTabLayoutNotice: async () => { throw new Error('storage unavailable'); },
+    });
+    await failure.handlers['dismiss-open-tab-layout-notice']({
+        type: 'dismiss-open-tab-layout-notice', version: 1,
+    });
+    assert.deepEqual(failure.posted, [{
+        type: 'open-tab-layout-notice-dismissed', version: 1, outcome: 'failed',
+    }]);
 });
 
 test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 delegates archive, provider, and pin mutations', async () => {

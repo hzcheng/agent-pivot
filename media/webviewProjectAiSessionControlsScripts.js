@@ -239,7 +239,8 @@ function initProjectAiSessionControls(options) {
     window.__agentPivotBatchAiSessions = batchAiSessionManager;
 
     function onTriggerAiSessionAction(target, projectId) {
-        var projectDiv = target.closest('.project[data-id]');
+        var projectDiv = target.closest('.project[data-id]')
+            || target.closest('[data-open-session-surface][data-id]');
         var managedWorktreeRemoveAction = target.closest(
             '[data-action="remove-managed-worktree"]'
         );
@@ -435,11 +436,10 @@ function initProjectAiSessionControls(options) {
             return true;
         }
 
-        // CHATS ▾ 视图菜单（M2 壳：tree 为唯一视图；list 随 M3 到达）。
         // PRD：非活动 tab 上的 ▾ 点击 = 先激活 CHATS 再开菜单。
         var viewMenuTrigger = target.closest('[data-action="toggle-chats-view-menu"]');
         if (viewMenuTrigger) {
-            var menuProjectDiv = viewMenuTrigger.closest('.project[data-id]');
+            var menuProjectDiv = viewMenuTrigger.closest('[data-open-session-surface][data-id]');
             if (menuProjectDiv) {
                 var chatsTabSelected = menuProjectDiv.querySelector(
                     '[data-ai-session-tab="chats"]'
@@ -452,12 +452,29 @@ function initProjectAiSessionControls(options) {
                 }
             }
             toggleChatsViewMenu(projectDiv, viewMenuTrigger);
+            if (viewMenuTrigger.getAttribute('aria-expanded') === 'true') {
+                window.vscode.postMessage({
+                    type: 'open-tab-telemetry',
+                    version: 1,
+                    event: 'chats-view-menu-opened',
+                });
+            }
             return true;
         }
         var viewModeItem = target.closest('[data-action="select-chats-view-mode"][data-view-mode]');
         if (viewModeItem) {
+            var viewMode = viewModeItem.getAttribute('data-view-mode');
+            if (viewMode !== 'tree' && viewMode !== 'list') {
+                return true;
+            }
+            setChatsViewModeDom(projectDiv, viewMode);
             closeChatsViewMenu(projectDiv, true);
-            // tree 是 M2 唯一视图；选择当前视图只关闭菜单，不发持久化写。
+            window.vscode.postMessage({
+                type: 'select-ai-session-chats-view-mode',
+                version: 1,
+                projectId: projectId,
+                viewMode: viewMode,
+            });
             return true;
         }
 
@@ -952,6 +969,8 @@ function initProjectAiSessionControls(options) {
             });
         } else if (action === 'worktree-remove' && context.canRemove) {
             var projectDiv = document.querySelector(
+                '[data-open-session-surface][data-id="' + CSS.escape(context.projectId) + '"]'
+            ) || document.querySelector(
                 '.project[data-id="' + CSS.escape(context.projectId) + '"]'
             );
             var group = projectDiv && projectDiv.querySelector(
@@ -1235,7 +1254,8 @@ function initProjectAiSessionControls(options) {
             } else if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupRename(section.closest('.project'));
+                cancelWorktreeGroupRename(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         if (!options || !options.skipFocus) {
@@ -1264,7 +1284,8 @@ function initProjectAiSessionControls(options) {
 
     function submitWorktreeGroupRenameEditor(section, editor, input) {
         if (editor.getAttribute('data-rename-pending') === 'true') return;
-        var projectDiv = section.closest('.project');
+        var projectDiv = section.closest('.project')
+            || section.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section.getAttribute('data-group-id') || '';
         var baseRevision = parseInt(
@@ -1502,7 +1523,8 @@ function initProjectAiSessionControls(options) {
             if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupDeletionCard(section.closest('.project'));
+                cancelWorktreeGroupDeletionCard(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         return card;
@@ -1834,7 +1856,8 @@ function initProjectAiSessionControls(options) {
     function confirmWorktreeGroupMemberDeletion(card) {
         if (!card || card.getAttribute('data-deletion-pending') === 'true') return;
         var section = card.closest('.ai-session-worktree-group');
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id');
         var memberId = card.getAttribute('data-member-id') || '';
@@ -1889,7 +1912,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupDeletionOperation(button, kind) {
         var banner = button && button.closest('.ai-session-worktree-deletion');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = button.getAttribute('data-group-id') || '';
         var operationId = button.getAttribute('data-operation-id') || '';
@@ -1921,7 +1945,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupClaimDiscard(button) {
         var card = button && button.closest('.ai-session-worktree-deletion-card');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id') || '';
         var claimId = button.getAttribute('data-claim-id') || '';
@@ -2171,7 +2196,8 @@ function initProjectAiSessionControls(options) {
 
     function startWorktreeAdopt(button) {
         var suggestion = button.closest('.ai-session-worktree-adopt-suggestion');
-        var projectDiv = button.closest('.project');
+        var projectDiv = button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]');
         if (!suggestion || !projectDiv) return;
         var existing = findWorktreeAdoptCard(projectDiv);
         if (existing) {
@@ -2266,7 +2292,8 @@ function initProjectAiSessionControls(options) {
 
     function confirmWorktreeAdopt(card) {
         if (!card || card.getAttribute('data-adopt-pending') === 'true') return;
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         if (!projectId) return;
         var members = [];
@@ -2564,7 +2591,7 @@ function initProjectAiSessionControls(options) {
             '.codex-session-row[data-session-provider="' + pending.provider
                 + '"][data-session-id="' + CSS.escape(pending.sessionId) + '"]'
         );
-        var project = row && row.closest('.workspace-card[data-current-workspace]');
+        var project = row && row.closest('[data-open-session-surface][data-current-workspace]');
         var liveRegion = project && project.querySelector('[data-ai-session-live-region]');
         if (liveRegion) liveRegion.textContent = message;
     }
@@ -2697,7 +2724,7 @@ function initProjectAiSessionControls(options) {
     }
 
     function closeAiSessionProviderMenus(exceptProjectDiv) {
-        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+        document.querySelectorAll('.project[data-id], [data-open-session-surface][data-id]').forEach(projectDiv => {
             if (projectDiv !== exceptProjectDiv) {
                 setAiSessionProviderMenuOpen(projectDiv, false);
             }
@@ -2724,11 +2751,29 @@ function initProjectAiSessionControls(options) {
         trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
         menu.hidden = !open;
         if (open) {
-            var current = menu.querySelector('[role="menuitemradio"]');
+            var current = menu.querySelector('[role="menuitemradio"][aria-checked="true"]')
+                || menu.querySelector('[role="menuitemradio"]');
             if (current && typeof current.focus === 'function') {
                 current.focus();
             }
         }
+    }
+
+    function setChatsViewModeDom(projectDiv, viewMode) {
+        if (!projectDiv || (viewMode !== 'tree' && viewMode !== 'list')) {
+            return;
+        }
+        var region = projectDiv.querySelector('[data-ai-session-region]');
+        if (region) {
+            region.setAttribute('data-chats-view-mode', viewMode);
+        }
+        projectDiv.querySelectorAll('[data-action="select-chats-view-mode"][data-view-mode]')
+            .forEach(item => {
+                var selected = item.getAttribute('data-view-mode') === viewMode;
+                item.setAttribute('aria-checked', selected ? 'true' : 'false');
+                var check = item.querySelector('.ai-session-view-menu-check');
+                if (check) check.textContent = selected ? '✓' : '';
+            });
     }
 
     function closeChatsViewMenu(projectDiv, restoreFocus) {
@@ -2748,7 +2793,7 @@ function initProjectAiSessionControls(options) {
     }
 
     function closeChatsViewMenus(exceptProjectDiv) {
-        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+        document.querySelectorAll('[data-open-session-surface][data-id]').forEach(projectDiv => {
             if (projectDiv !== exceptProjectDiv) {
                 setChatsViewMenuOpen(projectDiv, false);
             }
@@ -2818,13 +2863,6 @@ function initProjectAiSessionControls(options) {
             exitAiSessionBatchManagement();
         }
         projectDiv.toggleAttribute("data-codex-expanded", expanded);
-        // Keep the CURRENT WINDOW group class in sync so the open-tab fit
-        // layout (no :has(), for older webview Chromium) reacts immediately;
-        // authoritative group re-renders replay the same class afterwards.
-        var currentWorkspaceGroup = projectDiv.closest(".open-current-workspace-group");
-        if (currentWorkspaceGroup) {
-            currentWorkspaceGroup.classList.toggle("current-card-expanded", expanded);
-        }
         updateStickyGroupHeaderOffset();
 
         window.vscode.postMessage({
@@ -2853,7 +2891,11 @@ function initProjectAiSessionControls(options) {
 
     function syncAiSessionBatchManagementDom(projectDiv) {
         var snapshot = batchAiSessionManager.snapshot();
-        document.querySelectorAll('.project[data-ai-session-managing], .project[data-ai-session-pending]').forEach(project => {
+        document.querySelectorAll(
+            '.project[data-ai-session-managing], .project[data-ai-session-pending], '
+            + '[data-open-session-surface][data-ai-session-managing], '
+            + '[data-open-session-surface][data-ai-session-pending]'
+        ).forEach(project => {
             if (project !== projectDiv || project.getAttribute("data-id") !== snapshot.projectId) {
                 project.removeAttribute("data-ai-session-managing");
                 project.removeAttribute("data-ai-session-pending");
@@ -3029,6 +3071,7 @@ function initProjectAiSessionControls(options) {
         closeAiSessionProviderMenu: closeAiSessionProviderMenu,
         closeAiSessionProviderMenus: closeAiSessionProviderMenus,
         setChatsViewMenuOpen: setChatsViewMenuOpen,
+        setChatsViewModeDom: setChatsViewModeDom,
         closeChatsViewMenu: closeChatsViewMenu,
         closeChatsViewMenus: closeChatsViewMenus,
         closeAiSessionWorktreeMenu: closeAiSessionWorktreeMenu,

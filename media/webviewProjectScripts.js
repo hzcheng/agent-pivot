@@ -186,7 +186,8 @@ function initProjects() {
         if (!e.target)
             return;
 
-        var projectDiv = e.target.closest('.project');
+        var projectDiv = e.target.closest('.project')
+            || e.target.closest('[data-open-session-surface][data-id]');
         if (!projectDiv)
             return;
 
@@ -270,6 +271,13 @@ function initProjects() {
 
         if (projectDiv.hasAttribute("data-current-workspace")) {
             if (e.target.closest('[data-ai-session-region]'))
+                return;
+
+            // The lifted OPEN session surface is permanently expanded. Its
+            // surrounding region remains an interaction boundary for menus
+            // and keyboard handling, but must not revive the retired card
+            // expand/collapse behavior when its chrome is clicked.
+            if (projectDiv.hasAttribute('data-open-session-surface'))
                 return;
 
             aiSessionControls.toggleCodexSessions(projectDiv, dataId);
@@ -451,6 +459,34 @@ function initProjects() {
             aiSessionControls.closeChatsViewMenus();
         }
 
+        var openTabLayoutNotice = e.target.closest('[data-open-tab-layout-notice]');
+        if (openTabLayoutNotice) {
+            if (e.target.closest('[data-action="dismiss-open-tab-layout-notice"]')) {
+                var dismissButton = openTabLayoutNotice.querySelector(
+                    '[data-action="dismiss-open-tab-layout-notice"]'
+                );
+                if (dismissButton && dismissButton.disabled) {
+                    return;
+                }
+                if (dismissButton) {
+                    dismissButton.disabled = true;
+                }
+                openTabLayoutNotice.setAttribute('aria-busy', 'true');
+                window.vscode.postMessage({
+                    type: 'dismiss-open-tab-layout-notice',
+                    version: 1,
+                });
+                return;
+            }
+            if (e.target.closest('[data-action="open-open-tab-layout-migration-guide"]')) {
+                window.vscode.postMessage({
+                    type: 'open-open-tab-layout-migration-guide',
+                    version: 1,
+                });
+                return;
+            }
+        }
+
         if (e.target.closest('[data-action="toggle-all-groups"]')) {
             groupCollapse.toggleAllGroups();
             return;
@@ -494,7 +530,8 @@ function initProjects() {
             return;
         }
 
-        var projectDiv = e.target.closest('.project');
+        var projectDiv = e.target.closest('.project')
+            || e.target.closest('[data-open-session-surface][data-id]');
         if (projectDiv) {
             onInsideProjectClick(e, projectDiv);
             return;
@@ -525,6 +562,28 @@ function initProjects() {
 
     function onWindowMessage(e) {
         var message = e && e.data;
+        if (message && message.type === 'open-tab-layout-notice-dismissed') {
+            var isNoticeSettlement = message.version === 1
+                && (message.outcome === 'dismissed' || message.outcome === 'failed')
+                && Object.keys(message).sort().join('\n') === ['outcome', 'type', 'version'].join('\n');
+            if (!isNoticeSettlement) {
+                return;
+            }
+            var openTabLayoutNotice = document.querySelector('[data-open-tab-layout-notice]');
+            if (!openTabLayoutNotice) {
+                return;
+            }
+            var dismissButton = openTabLayoutNotice.querySelector(
+                '[data-action="dismiss-open-tab-layout-notice"]'
+            );
+            openTabLayoutNotice.removeAttribute('aria-busy');
+            if (message.outcome === 'dismissed') {
+                openTabLayoutNotice.hidden = true;
+            } else if (dismissButton) {
+                dismissButton.disabled = false;
+            }
+            return;
+        }
         if (message
             && message.type === 'focus-ai-session-conversation-origin') {
             focusAiSessionConversationOrigin(message);
@@ -768,7 +827,8 @@ function initProjects() {
             && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
                 || e.key === 'Home' || e.key === 'End')) {
             e.preventDefault();
-            var triggerProject = aiSessionProviderTrigger.closest('.project[data-id]');
+            var triggerProject = aiSessionProviderTrigger.closest('.project[data-id]')
+                || aiSessionProviderTrigger.closest('[data-open-session-surface][data-id]');
             aiSessionControls.closeAiSessionProviderMenus(triggerProject);
             aiSessionControls.setAiSessionProviderMenuOpen(triggerProject, true);
             var triggerOptions = aiSessionControls.getAiSessionProviderOptions(triggerProject);
@@ -781,7 +841,8 @@ function initProjects() {
         if (aiSessionProviderTrigger && e.key === 'Escape') {
             e.preventDefault();
             aiSessionControls.closeAiSessionProviderMenu(
-                aiSessionProviderTrigger.closest('.project[data-id]'),
+                aiSessionProviderTrigger.closest('.project[data-id]')
+                || aiSessionProviderTrigger.closest('[data-open-session-surface][data-id]'),
                 true
             );
             return;
@@ -791,7 +852,8 @@ function initProjects() {
             ? e.target.closest('[data-ai-provider-option][data-provider]')
             : null;
         if (aiSessionProviderOption) {
-            var providerProject = aiSessionProviderOption.closest('.project[data-id]');
+            var providerProject = aiSessionProviderOption.closest('.project[data-id]')
+                || aiSessionProviderOption.closest('[data-open-session-surface][data-id]');
             var providerOptions = aiSessionControls.getAiSessionProviderOptions(providerProject);
             var providerOptionIndex = providerOptions.indexOf(aiSessionProviderOption);
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp'
@@ -931,7 +993,8 @@ function initProjects() {
             && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
                 || e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault();
-            var triggerProject = viewMenuTrigger.closest('.project[data-id]');
+            var triggerProject = viewMenuTrigger.closest('.project[data-id]')
+                || viewMenuTrigger.closest('[data-open-session-surface][data-id]');
             aiSessionControls.setChatsViewMenuOpen(triggerProject, true);
             return;
         }
@@ -939,7 +1002,8 @@ function initProjects() {
             ? e.target.closest('[data-chats-view-menu] [role="menuitemradio"]')
             : null;
         if (viewMenuItem) {
-            var menuProject = viewMenuItem.closest('.project[data-id]');
+            var menuProject = viewMenuItem.closest('.project[data-id]')
+                || viewMenuItem.closest('[data-open-session-surface][data-id]');
             if (e.key === 'Escape') {
                 e.preventDefault();
                 aiSessionControls.closeChatsViewMenu(menuProject, true);
@@ -966,7 +1030,8 @@ function initProjects() {
             && viewMenuTrigger.getAttribute('aria-expanded') === 'true') {
             e.preventDefault();
             aiSessionControls.closeChatsViewMenu(
-                viewMenuTrigger.closest('.project[data-id]'), false);
+                viewMenuTrigger.closest('.project[data-id]')
+                || viewMenuTrigger.closest('[data-open-session-surface][data-id]'), false);
             return;
         }
 
@@ -974,7 +1039,8 @@ function initProjects() {
         if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
             e.preventDefault();
             var nextTabId = getAdjacentAiSessionTab(tab.getAttribute('data-ai-session-tab'), e.key);
-            var projectDiv = tab.closest('.project[data-id]');
+            var projectDiv = tab.closest('.project[data-id]')
+                || tab.closest('[data-open-session-surface][data-id]');
             var nextTab = projectDiv && Array.from(projectDiv.querySelectorAll('[data-ai-session-tab]'))
                 .find(candidate => candidate.getAttribute('data-ai-session-tab') === nextTabId);
             nextTab?.focus();
@@ -982,7 +1048,8 @@ function initProjects() {
         }
         if (tab && (e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault();
-            var tabProject = tab.closest('.project[data-id]');
+            var tabProject = tab.closest('.project[data-id]')
+                || tab.closest('[data-open-session-surface][data-id]');
             var tabProjectId = tabProject && tabProject.getAttribute('data-id');
             if (tabProjectId) aiSessionControls.onTriggerAiSessionAction(tab, tabProjectId);
             return;

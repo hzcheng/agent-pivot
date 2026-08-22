@@ -42,6 +42,8 @@ export interface DashboardMessageHandlersOptions {
     showAgentPivotSettings: () => Promise<void>;
     showBridgeExtension: () => Thenable<unknown>;
     showSponsorOptions: () => Promise<void>;
+    dismissOpenTabLayoutNotice: () => Thenable<unknown>;
+    openOpenTabLayoutMigrationGuide: () => Thenable<unknown>;
     showWarningMessage: (message: string) => void;
 }
 
@@ -76,6 +78,8 @@ export function createDashboardMessageHandlers(
     const showAgentPivotSettings = options.showAgentPivotSettings;
     const showBridgeExtension = options.showBridgeExtension;
     const showSponsorOptions = options.showSponsorOptions;
+    const dismissOpenTabLayoutNotice = options.dismissOpenTabLayoutNotice;
+    const openOpenTabLayoutMigrationGuide = options.openOpenTabLayoutMigrationGuide;
     const showWarningMessage = options.showWarningMessage;
     const attentionAcknowledgementFlights = new Map<string, {
         eventIdsFingerprint: string;
@@ -151,6 +155,45 @@ export function createDashboardMessageHandlers(
                 return;
             }
             await aiSessionCommandController.selectChatsViewMode(e.projectId, e.viewMode);
+            refreshStewardViews('select-ai-session-chats-view-mode');
+        },
+        'open-tab-telemetry': e => {
+            if (Object.keys(e).sort().join('\n') !== ['event', 'type', 'version'].join('\n')
+                || e.type !== 'open-tab-telemetry'
+                || e.version !== 1
+                || e.event !== 'chats-view-menu-opened') {
+                return;
+            }
+            logOpenWorkspaceDiagnostic('Telemetry', { event: 'open-tab-chats-view-menu-opened' });
+        },
+        'dismiss-open-tab-layout-notice': async e => {
+            if (Object.keys(e).sort().join('\n') !== ['type', 'version'].join('\n')
+                || e.type !== 'dismiss-open-tab-layout-notice'
+                || e.version !== 1) {
+                return;
+            }
+            try {
+                await dismissOpenTabLayoutNotice();
+                await postMessage({
+                    type: 'open-tab-layout-notice-dismissed',
+                    version: 1,
+                    outcome: 'dismissed',
+                });
+            } catch (_error) {
+                await postMessage({
+                    type: 'open-tab-layout-notice-dismissed',
+                    version: 1,
+                    outcome: 'failed',
+                });
+            }
+        },
+        'open-open-tab-layout-migration-guide': async e => {
+            if (Object.keys(e).sort().join('\n') !== ['type', 'version'].join('\n')
+                || e.type !== 'open-open-tab-layout-migration-guide'
+                || e.version !== 1) {
+                return;
+            }
+            await openOpenTabLayoutMigrationGuide();
         },
         'set-ai-session-collapsed-worktree-groups': async e => {
             const keys = Object.keys(e).sort();

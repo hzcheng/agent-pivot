@@ -98,11 +98,9 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
             <body class="steward-sidebar">
                 <div class="steward-sticky-header"></div>
                 <div class="sticky-groups-wrapper">
-                    <div class="open-current-workspace-group">
-                        <div class="project workspace-card" data-id="project-a" data-current-workspace
-                            data-workspace-scope-identity="scope-project-a"
-                            data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
-                    </div>
+                    <div class="open-session-surface" data-open-session-surface data-id="project-a"
+                        data-current-workspace data-workspace-scope-identity="scope-project-a"
+                        data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
                     <div class="project workspace-card" data-id="project-b"
                         data-workspace-navigation-identity="navigation-project-b">${secondPanel}</div>
                 </div>
@@ -135,12 +133,10 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
 }
 
 function getAiSessionsUpdateHtml(selectedProviders) {
-    return `<div class="open-current-workspace-group">
-        <div class="project workspace-card" data-id="project-a" data-current-workspace
-            data-workspace-scope-identity="scope-project-a"
-            data-workspace-navigation-identity="navigation-project-a">
-            ${getAiSessionsDiv(getSessionSurface('project-a', selectedProviders))}
-        </div>
+    return `<div class="open-session-surface" data-open-session-surface data-id="project-a"
+        data-current-workspace data-workspace-scope-identity="scope-project-a"
+        data-workspace-navigation-identity="navigation-project-a">
+        ${getAiSessionsDiv(getSessionSurface('project-a', selectedProviders))}
     </div>`;
 }
 
@@ -184,7 +180,7 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 AI-SESSION-PROVIDER-MENU-001 opens and posts the complete selected provider set', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
 
     await trigger.click();
@@ -201,7 +197,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 AI-SESSION-PROVIDER-MENU-001 op
 
 test('AI-SESSION-PROVIDER-MENU-002 refuses pointer and keyboard removal of the last provider', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     const codex = project.locator('[data-ai-provider-option][data-provider="codex"]');
 
@@ -215,7 +211,7 @@ test('AI-SESSION-PROVIDER-MENU-002 refuses pointer and keyboard removal of the l
 
 test('AI-SESSION-PROVIDER-MENU-003 supports roving keyboard focus and Escape restoration', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     const codex = project.locator('[data-ai-provider-option][data-provider="codex"]');
     const kimi = project.locator('[data-ai-provider-option][data-provider="kimi"]');
@@ -238,7 +234,7 @@ test('AI-SESSION-PROVIDER-MENU-003 supports roving keyboard focus and Escape res
 
 test('AI-SESSION-PROVIDER-MENU-004 activates options with Space and Enter', async t => {
     const spacePage = await openMenuPage(t);
-    const spaceProject = spacePage.locator('.project[data-id="project-a"]');
+    const spaceProject = spacePage.locator('[data-open-session-surface][data-id="project-a"]');
     const spaceTrigger = spaceProject.locator('[data-ai-provider-menu-trigger]');
     const spaceKimi = spaceProject.locator('[data-ai-provider-option][data-provider="kimi"]');
 
@@ -255,7 +251,7 @@ test('AI-SESSION-PROVIDER-MENU-004 activates options with Space and Enter', asyn
     });
 
     const enterPage = await openMenuPage(t);
-    const enterProject = enterPage.locator('.project[data-id="project-a"]');
+    const enterProject = enterPage.locator('[data-open-session-surface][data-id="project-a"]');
     const enterTrigger = enterProject.locator('[data-ai-provider-menu-trigger]');
     const enterKimi = enterProject.locator('[data-ai-provider-option][data-provider="kimi"]');
     await enterTrigger.click();
@@ -272,7 +268,7 @@ test('AI-SESSION-PROVIDER-MENU-004 activates options with Space and Enter', asyn
 
 test('AI-SESSION-PROVIDER-MENU-005 keeps one popup open and closes it on outside click', async t => {
     const page = await openMenuPage(t);
-    const firstProject = page.locator('.project[data-id="project-a"]');
+    const firstProject = page.locator('[data-open-session-surface][data-id="project-a"]');
     const secondProject = page.locator('.project[data-id="project-b"]');
     const firstTrigger = firstProject.locator('[data-ai-provider-menu-trigger]');
     const secondTrigger = secondProject.locator('[data-ai-provider-menu-trigger]');
@@ -287,7 +283,7 @@ test('AI-SESSION-PROVIDER-MENU-005 keeps one popup open and closes it on outside
 
 test('AI-SESSION-PROVIDER-MENU-006 blocks provider changes while a batch archive is pending', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     const claude = project.locator('[data-ai-provider-option][data-provider="claude"]');
 
@@ -323,7 +319,7 @@ test('AI-SESSION-PROVIDER-MENU-007 selects a hidden search-result provider befor
 
 test('AI-SESSION-PROVIDER-MENU-008 locks stale provider choices until authoritative refresh', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     const claude = project.locator('[data-ai-provider-option][data-provider="claude"]');
     const kimi = project.locator('[data-ai-provider-option][data-provider="kimi"]');
@@ -344,7 +340,7 @@ test('AI-SESSION-PROVIDER-MENU-008 locks stale provider choices until authoritat
 
 test('AI-SESSION-PROVIDER-MENU-009 forced Manage cannot bypass provider-selection pending', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     const options = project.locator('[data-ai-provider-option]');
 
@@ -367,7 +363,7 @@ test('AI-SESSION-PROVIDER-MENU-009 forced Manage cannot bypass provider-selectio
 
 test('AI-SESSION-PROVIDER-MENU-010 unlocks success only after a matching authoritative replacement', async t => {
     const page = await openMenuPage(t, ['kimi', 'claude']);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     await trigger.click();
     await project.locator('[data-ai-provider-option][data-provider="codex"]').click();
@@ -404,7 +400,7 @@ test('AI-SESSION-PROVIDER-MENU-010 unlocks success only after a matching authori
 
 test('AI-SESSION-PROVIDER-MENU-011 correlated stale-target failure unlocks unchanged state and permits retry', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     await trigger.click();
     await project.locator('[data-ai-provider-option][data-provider="claude"]').click();
@@ -449,7 +445,7 @@ test('AI-SESSION-PROVIDER-MENU-011 correlated stale-target failure unlocks uncha
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 preserves an open provider popup and matching focus across authoritative replacements', async t => {
     const page = await openMenuPage(t, ['codex', 'claude']);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
 
     await trigger.click();
@@ -468,14 +464,14 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 preserves an open provider popu
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider popup or hidden focus after selection submission', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     const kimi = project.locator('[data-ai-provider-option][data-provider="kimi"]');
 
     await trigger.click();
     await project.locator('[data-ai-provider-option][data-provider="claude"]').click();
     await page.evaluate(() => {
-        const projectElement = document.querySelector('.project[data-id="project-a"]');
+        const projectElement = document.querySelector('[data-open-session-surface][data-id="project-a"]');
         const staleTrigger = projectElement.querySelector('[data-ai-provider-menu-trigger]');
         staleTrigger.setAttribute('aria-expanded', 'true');
         projectElement.querySelector('[data-ai-provider-menu]').hidden = false;
@@ -490,7 +486,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider pop
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider popup or hidden focus while batch archive is pending', async t => {
     const page = await openMenuPage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const trigger = project.locator('[data-ai-provider-menu-trigger]');
     const kimi = project.locator('[data-ai-provider-option][data-provider="kimi"]');
 
@@ -498,7 +494,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider pop
     await project.locator('.codex-session-row[data-session-id="project-a-codex"]').click();
     await project.locator('[data-action="archive-selected-ai-sessions"]').click();
     await page.evaluate(() => {
-        const projectElement = document.querySelector('.project[data-id="project-a"]');
+        const projectElement = document.querySelector('[data-open-session-surface][data-id="project-a"]');
         const staleTrigger = projectElement.querySelector('[data-ai-provider-menu-trigger]');
         staleTrigger.setAttribute('aria-expanded', 'true');
         projectElement.querySelector('[data-ai-provider-menu]').hidden = false;
@@ -513,7 +509,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 does not restore a provider pop
 
 test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces partial and malformed aggregate outcomes in the polite live region', async t => {
     const page = await openMenuPage(t, ['codex', 'claude']);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const liveRegion = project.locator('[data-ai-session-live-region]');
 
     await project.locator('[data-action="manage-ai-sessions"]').click();
@@ -583,8 +579,7 @@ test('AI-SESSION-PROVIDER-MENU-007 reveal targets the selected ALL panel when a 
     });
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
         <div class="sticky-groups-wrapper">
-            <div class="project workspace-card" data-id="project-a" data-current-workspace
-                data-codex-expanded
+            <div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace
                 data-workspace-scope-identity="scope-project-a"
                 data-workspace-navigation-identity="navigation-project-a">${surface}</div>
         </div>

@@ -83,7 +83,8 @@ function initProjectContextMenus(options) {
                 || sessionRow;
             contextMenuAiSessionId = sessionRow.getAttribute("data-session-id");
             contextMenuAiSessionProvider = sessionRow.getAttribute("data-session-provider");
-            var sessionProjectDiv = sessionRow.closest('.project[data-id]');
+            var sessionProjectDiv = sessionRow.closest('.project[data-id]')
+                || sessionRow.closest('[data-open-session-surface][data-id]');
             contextMenuAiSessionProjectId = sessionProjectDiv ? sessionProjectDiv.getAttribute("data-id") : null;
             contextMenuAiSessionActive = sessionRow.hasAttribute('data-session-active');
             contextMenuAiSessionBackend = sessionRow.getAttribute('data-session-backend') || 'vscode';
@@ -129,7 +130,8 @@ function initProjectContextMenus(options) {
             return;
         }
 
-        var projectDiv = e.target.closest('.project[data-id]');
+        var projectDiv = e.target.closest('.project[data-id]')
+            || e.target.closest('[data-open-session-surface][data-id]');
         var groupDiv = e.target.closest('.group-title')
         if (!projectDiv && !groupDiv)
             return;

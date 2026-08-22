@@ -33,10 +33,13 @@ window picker when a direct workspace target cannot be established safely.
 
 ## Agent sessions
 
-Open the current workspace card to see `ACTIVE` and `SESSIONS`. Active rows
-focus an existing terminal or attach to an existing managed tmux runtime;
-selecting the already-focused Active row opens its AI Conversation at the
-latest input.
+The OPEN tab keeps `WINDOWS` visible for switching among VS Code windows.
+Below it, `CHATS` shows active sessions and `ALL` shows the complete session
+history. CHATS defaults to Tree view, which keeps every ready worktree visible
+for management even when it has no active session; its menu can switch to a
+recent-activity List view with branch chips. Active rows focus an existing
+terminal or attach to an existing managed tmux runtime; selecting the
+already-focused active row opens its AI Conversation at the latest input.
 Inactive history rows resume the selected provider session. For multi-root
 workspaces, Agent Pivot uses the provider's native additional-directory option
 so the session can work with all workspace folders.

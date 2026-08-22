@@ -1628,7 +1628,7 @@ const guards = {
             )
             || applyWorkspaceUpdateSource.indexOf(
                 '!options.validateReplacement(replacement)'
-            ) >= applyWorkspaceUpdateSource.indexOf('currentGroup.replaceWith(replacement)')
+            ) >= applyWorkspaceUpdateSource.indexOf('currentSurface.replaceWith(replacement)')
             || applyOpenWorkspacesUpdateSource.indexOf(
                 '!isOpenWorkspacesUpdateDomConsistent(message, holder)'
             ) >= applyOpenWorkspacesUpdateSource.indexOf(

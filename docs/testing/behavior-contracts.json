@@ -2932,7 +2932,7 @@
   {
     "id": "OPEN-WINDOW-SWITCHER-UI-001",
     "domain": "webview",
-    "title": "OPEN tab window switcher renders single-line rows with fixed slots (indicator/icon/name/running/attention/pin/more), a three-state current-row model (current/pending/error) with zero-displacement transitions, and the responsive width matrix",
+    "title": "OPEN tab window switcher renders single-line rows with fixed slots (indicator/icon/name/running/attention/pin/more), a three-state current-row model (current/pending/error) with zero-displacement transitions, the responsive width matrix, and a one-time dismissible layout-migration notice",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -2942,13 +2942,15 @@
       "src/webview/webviewWindowSwitcherContent.ts",
       "src/openWorkspaces/windowRowViewModel.ts",
       "src/webview/webviewOpenWindowNavigationScripts.js",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectScripts.js",
       "media/styles.scss"
     ]
   },
   {
     "id": "OPEN-WINDOW-NAVIGATION-SETTLEMENT-001",
     "domain": "open-project",
-    "title": "Open-window navigation uses a versioned request/settlement protocol: every request carries requestId+cardId, settles exactly once (focused/stale-target/untitled-workspace/failed/malformed), and the webview ignores stale or duplicate receipts, supersedes consecutive clicks, times out into an inline error with retry, and replays pending/error state after authoritative DOM replacements",
+    "title": "Open-window navigation uses a versioned request/settlement protocol: every request carries requestId+cardId, settles exactly once (focused/stale-target/untitled-workspace/failed/malformed), records only aggregate outcome/duration plus timestamp-only rapid-correction diagnostics, and the webview ignores stale or duplicate receipts, supersedes consecutive clicks, times out into an inline error with retry, and replays pending/error state after authoritative DOM replacements",
     "priority": "P0",
     "status": "automated",
     "owners": [

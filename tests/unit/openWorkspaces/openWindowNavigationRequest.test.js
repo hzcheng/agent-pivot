@@ -25,8 +25,9 @@ function makeRequest(overrides = {}) {
     };
 }
 
-function createHarness(navigate) {
+function createHarness(navigate, options = {}) {
     const posted = [];
+    const telemetry = [];
     const controller = new OpenWindowNavigationRequestController({
         navigate,
         postMessage: message => {
@@ -34,12 +35,15 @@ function createHarness(navigate) {
             return Promise.resolve(true);
         },
         logError: () => {},
+        recordTelemetry: event => telemetry.push(event),
+        nowMs: () => 125,
+        ...options,
     });
-    return { controller, posted };
+    return { controller, posted, telemetry };
 }
 
 test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: successful navigation settles with focused', async () => {
-    const { controller, posted } = createHarness(async () => 'focused');
+    const { controller, posted, telemetry } = createHarness(async () => 'focused');
     await controller.handle(makeRequest());
     assert.equal(posted.length, 1);
     assert.deepEqual(posted[0], {
@@ -49,6 +53,47 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: successful navigation settles with 
         cardId: VALID_CARD_ID,
         outcome: 'focused',
     });
+    assert.deepEqual(telemetry, [{
+        event: 'open-tab-window-navigation', outcome: 'focused', durationMs: 0,
+    }], 'telemetry records only aggregate outcome and duration, never card identity');
+});
+
+test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: a rapid second switch records only a timestamp-based suspected correction', async () => {
+    const writes = [];
+    const { controller, telemetry } = createHarness(async () => 'focused', {
+        readLastFocusedNavigationAtMs: () => 10_000,
+        writeLastFocusedNavigationAtMs: atMs => {
+            writes.push(atMs);
+            return Promise.resolve();
+        },
+        nowEpochMs: () => 12_500,
+    });
+    await controller.handle(makeRequest());
+    assert.deepEqual(telemetry, [
+        {
+            event: 'open-tab-window-navigation-suspected-correction',
+            delayMs: 2500,
+        },
+        { event: 'open-tab-window-navigation', outcome: 'focused', durationMs: 0 },
+    ], 'the correction event must not contain a card, window, or session identity');
+    assert.deepEqual(writes, [12_500]);
+});
+
+test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: stale or failed switches do not refresh the correction marker', async () => {
+    const writes = [];
+    const { controller, telemetry } = createHarness(async () => 'failed', {
+        readLastFocusedNavigationAtMs: () => 1,
+        writeLastFocusedNavigationAtMs: atMs => {
+            writes.push(atMs);
+            return Promise.resolve();
+        },
+        nowEpochMs: () => 10_000,
+    });
+    await controller.handle(makeRequest());
+    assert.deepEqual(telemetry, [
+        { event: 'open-tab-window-navigation', outcome: 'failed', durationMs: 0 },
+    ]);
+    assert.deepEqual(writes, []);
 });
 
 test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: stale target settles with stale-target', async () => {
@@ -77,7 +122,7 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: navigation throw settles with faile
 });
 
 test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: malformed request settles when association fields are salvageable', async () => {
-    const { controller, posted } = createHarness(async () => 'focused');
+    const { controller, posted, telemetry } = createHarness(async () => 'focused');
     await controller.handle({
         type: 'open-window-navigation-request',
         version: 1,
@@ -89,6 +134,9 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: malformed request settles when asso
     assert.equal(posted[0].outcome, 'malformed-request');
     assert.equal(posted[0].requestId, 42);
     assert.equal(posted[0].cardId, VALID_CARD_ID);
+    assert.deepEqual(telemetry, [{
+        event: 'open-tab-window-navigation', outcome: 'malformed-request', durationMs: 0,
+    }]);
 });
 
 test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001: malformed request without salvageable association fields settles nothing', async () => {

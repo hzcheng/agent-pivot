@@ -471,18 +471,29 @@ function initAiSessionPresentationDom(options) {
     function getAiSessionPresentationCurrentCards(message, root) {
         if (typeof message.workspaceNavigationIdentity !== 'string'
             || !message.workspaceNavigationIdentity) return [];
-        return Array.from((root || document).querySelectorAll(
-            '.workspace-card[data-workspace-navigation-identity="'
-                + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-current-workspace]'
-        ));
+        var selector = '[data-open-session-surface][data-workspace-navigation-identity="'
+            + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
+            + '[data-current-workspace]';
+        var projectionRoot = root || document;
+        // Incremental AI updates replace the surface itself. Element
+        // querySelectorAll() excludes that root node, so include it before
+        // scanning descendants or every valid replacement is rejected as a
+        // cross-workspace presentation.
+        var currentCards = projectionRoot !== document
+            && typeof projectionRoot.matches === 'function'
+            && projectionRoot.matches(selector)
+            ? [projectionRoot]
+            : [];
+        return currentCards.concat(Array.from(projectionRoot.querySelectorAll(selector)));
     }
     function canApplyAiSessionPresentationDom(message, root) {
         var projectionRoot = root || document;
         if (message.workspaceNavigationIdentity === null) {
-            return !projectionRoot.querySelector(
-                '.workspace-card[data-current-workspace]'
-            );
+            var currentSelector = '[data-open-session-surface][data-current-workspace]';
+            return !(projectionRoot !== document
+                && typeof projectionRoot.matches === 'function'
+                && projectionRoot.matches(currentSelector))
+                && !projectionRoot.querySelector(currentSelector);
         }
         return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;
     }
@@ -621,7 +632,9 @@ function initProjectAiSessionsUpdate(options) {
             return null;
         }
 
-        var projects = document.querySelectorAll('.workspace-card[data-current-workspace][data-id]');
+        var projects = document.querySelectorAll(
+            '[data-open-session-surface][data-current-workspace][data-id]'
+        );
         for (var projectDiv of projects) {
             if (projectDiv.getAttribute("data-id") === projectId) {
                 return projectDiv;
@@ -635,10 +648,21 @@ function initProjectAiSessionsUpdate(options) {
         if (!navigationIdentity) {
             return null;
         }
-        var workspaces = document.querySelectorAll('.workspace-card[data-workspace-navigation-identity]');
-        for (var workspaceDiv of workspaces) {
+        var sessionSurfaces = document.querySelectorAll(
+            '[data-open-session-surface][data-workspace-navigation-identity]'
+        );
+        for (var workspaceDiv of sessionSurfaces) {
             if (workspaceDiv.getAttribute('data-workspace-navigation-identity') === navigationIdentity) {
                 return workspaceDiv;
+            }
+        }
+
+        var windowRows = document.querySelectorAll(
+            '[data-open-window-row][data-workspace-navigation-identity]'
+        );
+        for (var windowRow of windowRows) {
+            if (windowRow.getAttribute('data-workspace-navigation-identity') === navigationIdentity) {
+                return windowRow;
             }
         }
         return null;
@@ -669,9 +693,6 @@ function initProjectAiSessionsUpdate(options) {
             return false;
         }
         var workspaceId = workspaceDiv.getAttribute('data-id');
-        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
-            toggleCodexSessions(workspaceDiv, workspaceId);
-        }
         selectAiSessionTabDom(workspaceDiv, 'all');
         writeAiSessionTabState(window.vscode, workspaceId, 'all');
         postSelectedAiSessionViewTab(workspaceId, 'all');
@@ -710,9 +731,6 @@ function initProjectAiSessionsUpdate(options) {
             return false;
         }
         var workspaceId = workspaceDiv.getAttribute('data-id');
-        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
-            toggleCodexSessions(workspaceDiv, workspaceId);
-        }
         selectAiSessionTabDom(workspaceDiv, 'chats');
         writeAiSessionTabState(window.vscode, workspaceId, 'chats');
         postSelectedAiSessionViewTab(workspaceId, 'chats');

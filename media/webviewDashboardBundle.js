@@ -316,7 +316,7 @@ function revealAiSessionInWorkspace(message) {
         return false;
     }
     var projectDiv = Array.from(document.querySelectorAll(
-        '.workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     )).find(candidate =>
         candidate.getAttribute('data-id') === request.projectId
     );
@@ -364,7 +364,7 @@ function focusAiSessionConversationOrigin(message) {
         return false;
     }
     var projectDiv = Array.from(document.querySelectorAll(
-        '.workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     )).find(candidate =>
         candidate.getAttribute('data-id') === origin.projectId
     );
@@ -472,7 +472,7 @@ function selectAiSessionTabDom(projectDiv, tab) {
 function restoreAiSessionTabsFromState(root, vscodeApi) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
     var tabs = readAiSessionTabState(vscodeApi);
-    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]').forEach(projectDiv => {
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]').forEach(projectDiv => {
         var projectId = projectDiv.getAttribute('data-id');
         if (Object.prototype.hasOwnProperty.call(tabs, projectId)) {
             selectAiSessionTabDom(projectDiv, tabs[projectId]);
@@ -503,7 +503,7 @@ function maybeImportLegacyAiSessionViewState(vscodeApi, root) {
     }
     var tabs = readAiSessionTabState(vscodeApi);
     var currentCard = (root || document).querySelector(
-        '.workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     );
     var projectId = currentCard && currentCard.getAttribute('data-id');
     var legacyTab = projectId && Object.prototype.hasOwnProperty.call(tabs, projectId)
@@ -532,10 +532,25 @@ function getAiSessionScrollItemKey(row) {
 }
 
 function captureAiSessionListAnchor(list) {
-    return window.__agentPivotScrollState.capture(list, {
+    var anchor = window.__agentPivotScrollState.capture(list, {
         itemSelector: '.codex-session-row',
         getKey: getAiSessionScrollItemKey,
     });
+    // A focused session is the user's explicit reading position. Prefer it
+    // over the first visible row so a reordered history list keeps the
+    // active keyboard target in place through an authoritative refresh.
+    var focused = typeof document !== 'undefined' ? document.activeElement : null;
+    var focusedRow = focused && typeof focused.closest === 'function'
+        ? focused.closest('.codex-session-row')
+        : null;
+    if (!anchor || !focusedRow || !list.contains(focusedRow)) {
+        return anchor;
+    }
+    var listRect = list.getBoundingClientRect();
+    var rowRect = focusedRow.getBoundingClientRect();
+    anchor.itemKey = getAiSessionScrollItemKey(focusedRow);
+    anchor.itemOffset = rowRect.top - listRect.top;
+    return anchor;
 }
 
 function restoreAiSessionListAnchor(list, anchor) {
@@ -564,7 +579,9 @@ function captureAiSessionViewState(projectDiv) {
     var allList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
     var focused = typeof document !== 'undefined' ? document.activeElement : null;
     var focusedSession = getFocusedAiSessionCardIdentity(projectDiv);
-    var focusedInside = focused && typeof focused.closest === 'function' && focused.closest('.project[data-id]') === projectDiv;
+    var focusedInside = focused && typeof focused.closest === 'function'
+        && (focused.closest('.project[data-id]')
+            || focused.closest('[data-open-session-surface][data-id]')) === projectDiv;
     var focusedRow = focusedInside ? focused.closest('.codex-session-row') : null;
     var focusedTab = focusedInside ? focused.closest('[data-ai-session-tab]') : null;
     var selectedTab = getSelectedAiSessionTab(projectDiv) || 'chats';
@@ -692,7 +709,7 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
 function revealChangedFocusedAiSessionCard(root, states) {
     if (!root || typeof root.querySelectorAll !== 'function'
         || !states || typeof states.get !== 'function') return;
-    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]').forEach(projectDiv => {
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]').forEach(projectDiv => {
         var state = states.get(projectDiv.getAttribute('data-id'));
         var previous = state && state.view ? state.view.focusedSession : null;
         var row = projectDiv.querySelector(
@@ -734,7 +751,8 @@ function captureAiSessionProviderMenuState(projectDiv) {
             && !menu.hidden,
         focus: focusedTrigger
             ? { kind: 'trigger' }
-            : focusedOption && focusedOption.closest('.project[data-id]') === projectDiv
+            : focusedOption && (focusedOption.closest('.project[data-id]')
+                || focusedOption.closest('[data-open-session-surface][data-id]')) === projectDiv
                 ? {
                     kind: 'option',
                     provider: focusedOption.getAttribute('data-provider') || '',
@@ -772,7 +790,7 @@ function restoreAiSessionProviderMenuState(projectDiv, menuState, allowed) {
 function captureCurrentWorkspaceAiSessionStates(root) {
     var states = new Map();
     if (!root || typeof root.querySelectorAll !== 'function') return states;
-    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var projectId = projectDiv.getAttribute('data-id');
             if (!projectId) return;
@@ -824,15 +842,17 @@ function restoreAiSessionListScrolls(projectDiv, scrolls) {
 
 function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProviderMenu) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
-    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var projectId = projectDiv.getAttribute('data-id');
             var state = states.get(projectId);
             if (!state) return;
+            // Restore the raw fallback first; semantic list anchors are more
+            // precise after reordering and must be the final scroll writer.
+            restoreAiSessionListScrolls(projectDiv, state.listScrolls);
             restoreAiSessionViewState(projectDiv, state.view, state.view.selectedTab, {
                 restoreFocus: false,
             });
-            restoreAiSessionListScrolls(projectDiv, state.listScrolls);
             restoreAiSessionProviderMenuState(
                 projectDiv,
                 state.providerMenu,
@@ -843,7 +863,7 @@ function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProv
 
 function restoreCurrentWorkspaceAiSessionAnchorsAndFocus(root, states) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
-    root.querySelectorAll('.workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var state = states.get(projectDiv.getAttribute('data-id'));
             if (!state) return;
@@ -859,12 +879,14 @@ function restoreCurrentWorkspaceAiSessionAnchorsAndFocus(root, states) {
 
 /* src/webview/webviewWorkspaceUpdateScripts.js */
 function getWorkspaceUpdateDomState(root) {
-    var currentGroup = root.matches?.('.open-current-workspace-group')
+    var currentSurface = root.matches?.('[data-open-session-surface]')
         ? root
-        : root.querySelector('.open-current-workspace-group');
+        : root.querySelector('[data-open-session-surface]');
     return {
-        currentWorkspaceCount: currentGroup
-            ? currentGroup.querySelectorAll('.workspace-card[data-workspace-scope-identity]').length
+        currentWorkspaceCount: currentSurface
+            && currentSurface.hasAttribute('data-current-workspace')
+            && currentSurface.hasAttribute('data-workspace-scope-identity')
+            ? 1
             : 0,
     };
 }
@@ -913,8 +935,6 @@ function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
     list.scrollTop = Math.min(Math.max(0, Number(fallbackTop) || 0), maxScrollTop);
 }
 
-var OPEN_TAB_CURRENT_LIST_SELECTOR = '.open-current-workspace-group .group-list';
-var OPEN_TAB_CURRENT_ITEM_SELECTOR = '.workspace-card[data-workspace-scope-identity]';
 var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-window-switcher-group [data-open-window-switcher-list]';
 var OPEN_TAB_OTHER_ITEM_SELECTOR = '[data-open-window-row][data-workspace-navigation-identity]';
 
@@ -936,12 +956,8 @@ function applyWorkspaceUpdate(message, options) {
     }
 
     var wrapper = document.querySelector('.sticky-groups-wrapper');
-    var currentGroup = wrapper && wrapper.querySelector('.open-current-workspace-group');
-    if (!wrapper || !currentGroup || typeof document.createElement !== 'function') {
-        return false;
-    }
-    var currentCards = Array.from(wrapper.querySelectorAll('.workspace-card[data-current-workspace][data-workspace-scope-identity]'));
-    if (currentCards.some(card => !currentGroup.contains(card))) {
+    var currentSurface = wrapper && wrapper.querySelector('[data-open-session-surface]');
+    if (!wrapper || !currentSurface || typeof document.createElement !== 'function') {
         return false;
     }
     var holder = document.createElement('div');
@@ -949,7 +965,7 @@ function applyWorkspaceUpdate(message, options) {
     var replacement = holder.firstElementChild;
     if (!replacement
         || holder.children.length !== 1
-        || !replacement.matches('.open-current-workspace-group')
+        || !replacement.matches('[data-open-session-surface]')
         || !isWorkspaceUpdateDomConsistent(message, replacement)) {
         return false;
     }
@@ -958,37 +974,29 @@ function applyWorkspaceUpdate(message, options) {
         return false;
     }
 
-    var aiSessionStates = captureCurrentWorkspaceAiSessionStates(currentGroup);
-    var currentListScroll = captureOpenTabListScroll(
-        queryOpenTabList(currentGroup, '.group-list'),
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
+    // State helpers query descendants; capture from the wrapper so the
+    // surface itself is included (querySelectorAll on the surface excludes
+    // its own node).
+    var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     // The creation form re-renders after the replacement (reconcileDom), so
     // its focus must be captured while the old DOM is still mounted.
     if (window.__agentPivotWorktreeGroupForm
         && typeof window.__agentPivotWorktreeGroupForm.captureFocus === 'function') {
         window.__agentPivotWorktreeGroupForm.captureFocus();
     }
-    currentGroup.replaceWith(replacement);
-    restoreOpenTabListScroll(
-        queryOpenTabList(replacement, '.group-list'),
-        currentListScroll,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
+    currentSurface.replaceWith(replacement);
     if (typeof restoreAiSessionTabsFromState === 'function') {
-        restoreAiSessionTabsFromState(replacement, window.vscode);
+        restoreAiSessionTabsFromState(wrapper, window.vscode);
     }
     restoreCurrentWorkspaceAiSessionViewStates(
-        replacement,
+        wrapper,
         aiSessionStates,
         projectId => options
             && typeof options.canRestoreAiSessionProviderMenu === 'function'
             && options.canRestoreAiSessionProviderMenu(projectId)
     );
-    restoreCurrentWorkspaceAiSessionAnchorsAndFocus(replacement, aiSessionStates);
-    revealChangedFocusedAiSessionCard(replacement, aiSessionStates);
+    restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
+    revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();
     }
@@ -1135,7 +1143,7 @@ function requestOpenWorkspacePin(button, cardId) {
         ? 1
         : nextOpenWorkspacePinRequestId + 1;
     var pinned = button.getAttribute('aria-pressed') !== 'true';
-    var card = button.closest('[data-open-window-row]') || button.closest('.workspace-card');
+    var card = button.closest('[data-open-window-row]');
     var name = card?.querySelector('.open-window-name, .project-header')?.textContent?.trim() || 'window';
     var pending = {
         requestId: nextOpenWorkspacePinRequestId,
@@ -1241,14 +1249,9 @@ function applyOpenWorkspacesUpdate(message, options) {
     var previousHtml = wrapper.innerHTML;
     var focusedRowControl = captureOpenWindowRowFocus();
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
-    // This path replaces the whole wrapper, so beyond the other-windows list
-    // it must also carry the current-workspace list scroll (path A keeps it
-    // across workspace-updated) and the window position.
-    var currentListScroll = captureOpenTabListScroll(
-        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
+    // This path replaces the whole wrapper, so preserve the WINDOWS list and
+    // the dashboard window position. Session-list scroll is captured with the
+    // session view state below, where its semantic item identity is known.
     var otherListScroll = captureOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         OPEN_TAB_OTHER_ITEM_SELECTOR,
@@ -1263,12 +1266,6 @@ function applyOpenWorkspacesUpdate(message, options) {
     wrapper.innerHTML = holder ? holder.innerHTML : message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
-        restoreOpenTabListScroll(
-            queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-            currentListScroll,
-            OPEN_TAB_CURRENT_ITEM_SELECTOR,
-            'data-workspace-scope-identity'
-        );
         restoreOpenTabListScroll(
             queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
             otherListScroll,
@@ -1285,12 +1282,6 @@ function applyOpenWorkspacesUpdate(message, options) {
         restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
         return false;
     }
-    restoreOpenTabListScroll(
-        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-        currentListScroll,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
     restoreOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         otherListScroll,
@@ -1353,7 +1344,7 @@ function getOpenWorkspacesUpdateDomState(root) {
         navigationWindowRowCount: navigationRows.length,
         currentDetailCount: projectionRoot.querySelectorAll(
             wrapperPrefix
-                + '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
+                + '[data-open-session-surface][data-current-workspace][data-workspace-scope-identity]'
         ).length,
         hasUniqueNavigationIdentities: navigationIdentities.every(identity => !!identity)
             && new Set(navigationIdentities).size === navigationIdentities.length,
@@ -2021,7 +2012,8 @@ function initProjectContextMenus(options) {
                 || sessionRow;
             contextMenuAiSessionId = sessionRow.getAttribute("data-session-id");
             contextMenuAiSessionProvider = sessionRow.getAttribute("data-session-provider");
-            var sessionProjectDiv = sessionRow.closest('.project[data-id]');
+            var sessionProjectDiv = sessionRow.closest('.project[data-id]')
+                || sessionRow.closest('[data-open-session-surface][data-id]');
             contextMenuAiSessionProjectId = sessionProjectDiv ? sessionProjectDiv.getAttribute("data-id") : null;
             contextMenuAiSessionActive = sessionRow.hasAttribute('data-session-active');
             contextMenuAiSessionBackend = sessionRow.getAttribute('data-session-backend') || 'vscode';
@@ -2067,7 +2059,8 @@ function initProjectContextMenus(options) {
             return;
         }
 
-        var projectDiv = e.target.closest('.project[data-id]');
+        var projectDiv = e.target.closest('.project[data-id]')
+            || e.target.closest('[data-open-session-surface][data-id]');
         var groupDiv = e.target.closest('.group-title')
         if (!projectDiv && !groupDiv)
             return;
@@ -2767,18 +2760,29 @@ function initAiSessionPresentationDom(options) {
     function getAiSessionPresentationCurrentCards(message, root) {
         if (typeof message.workspaceNavigationIdentity !== 'string'
             || !message.workspaceNavigationIdentity) return [];
-        return Array.from((root || document).querySelectorAll(
-            '.workspace-card[data-workspace-navigation-identity="'
-                + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-current-workspace]'
-        ));
+        var selector = '[data-open-session-surface][data-workspace-navigation-identity="'
+            + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
+            + '[data-current-workspace]';
+        var projectionRoot = root || document;
+        // Incremental AI updates replace the surface itself. Element
+        // querySelectorAll() excludes that root node, so include it before
+        // scanning descendants or every valid replacement is rejected as a
+        // cross-workspace presentation.
+        var currentCards = projectionRoot !== document
+            && typeof projectionRoot.matches === 'function'
+            && projectionRoot.matches(selector)
+            ? [projectionRoot]
+            : [];
+        return currentCards.concat(Array.from(projectionRoot.querySelectorAll(selector)));
     }
     function canApplyAiSessionPresentationDom(message, root) {
         var projectionRoot = root || document;
         if (message.workspaceNavigationIdentity === null) {
-            return !projectionRoot.querySelector(
-                '.workspace-card[data-current-workspace]'
-            );
+            var currentSelector = '[data-open-session-surface][data-current-workspace]';
+            return !(projectionRoot !== document
+                && typeof projectionRoot.matches === 'function'
+                && projectionRoot.matches(currentSelector))
+                && !projectionRoot.querySelector(currentSelector);
         }
         return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;
     }
@@ -2917,7 +2921,9 @@ function initProjectAiSessionsUpdate(options) {
             return null;
         }
 
-        var projects = document.querySelectorAll('.workspace-card[data-current-workspace][data-id]');
+        var projects = document.querySelectorAll(
+            '[data-open-session-surface][data-current-workspace][data-id]'
+        );
         for (var projectDiv of projects) {
             if (projectDiv.getAttribute("data-id") === projectId) {
                 return projectDiv;
@@ -2931,10 +2937,21 @@ function initProjectAiSessionsUpdate(options) {
         if (!navigationIdentity) {
             return null;
         }
-        var workspaces = document.querySelectorAll('.workspace-card[data-workspace-navigation-identity]');
-        for (var workspaceDiv of workspaces) {
+        var sessionSurfaces = document.querySelectorAll(
+            '[data-open-session-surface][data-workspace-navigation-identity]'
+        );
+        for (var workspaceDiv of sessionSurfaces) {
             if (workspaceDiv.getAttribute('data-workspace-navigation-identity') === navigationIdentity) {
                 return workspaceDiv;
+            }
+        }
+
+        var windowRows = document.querySelectorAll(
+            '[data-open-window-row][data-workspace-navigation-identity]'
+        );
+        for (var windowRow of windowRows) {
+            if (windowRow.getAttribute('data-workspace-navigation-identity') === navigationIdentity) {
+                return windowRow;
             }
         }
         return null;
@@ -2965,9 +2982,6 @@ function initProjectAiSessionsUpdate(options) {
             return false;
         }
         var workspaceId = workspaceDiv.getAttribute('data-id');
-        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
-            toggleCodexSessions(workspaceDiv, workspaceId);
-        }
         selectAiSessionTabDom(workspaceDiv, 'all');
         writeAiSessionTabState(window.vscode, workspaceId, 'all');
         postSelectedAiSessionViewTab(workspaceId, 'all');
@@ -3006,9 +3020,6 @@ function initProjectAiSessionsUpdate(options) {
             return false;
         }
         var workspaceId = workspaceDiv.getAttribute('data-id');
-        if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
-            toggleCodexSessions(workspaceDiv, workspaceId);
-        }
         selectAiSessionTabDom(workspaceDiv, 'chats');
         writeAiSessionTabState(window.vscode, workspaceId, 'chats');
         postSelectedAiSessionViewTab(workspaceId, 'chats');
@@ -4399,7 +4410,8 @@ function initProjectAiSessionControls(options) {
     window.__agentPivotBatchAiSessions = batchAiSessionManager;
 
     function onTriggerAiSessionAction(target, projectId) {
-        var projectDiv = target.closest('.project[data-id]');
+        var projectDiv = target.closest('.project[data-id]')
+            || target.closest('[data-open-session-surface][data-id]');
         var managedWorktreeRemoveAction = target.closest(
             '[data-action="remove-managed-worktree"]'
         );
@@ -4595,11 +4607,10 @@ function initProjectAiSessionControls(options) {
             return true;
         }
 
-        // CHATS ▾ 视图菜单（M2 壳：tree 为唯一视图；list 随 M3 到达）。
         // PRD：非活动 tab 上的 ▾ 点击 = 先激活 CHATS 再开菜单。
         var viewMenuTrigger = target.closest('[data-action="toggle-chats-view-menu"]');
         if (viewMenuTrigger) {
-            var menuProjectDiv = viewMenuTrigger.closest('.project[data-id]');
+            var menuProjectDiv = viewMenuTrigger.closest('[data-open-session-surface][data-id]');
             if (menuProjectDiv) {
                 var chatsTabSelected = menuProjectDiv.querySelector(
                     '[data-ai-session-tab="chats"]'
@@ -4612,12 +4623,29 @@ function initProjectAiSessionControls(options) {
                 }
             }
             toggleChatsViewMenu(projectDiv, viewMenuTrigger);
+            if (viewMenuTrigger.getAttribute('aria-expanded') === 'true') {
+                window.vscode.postMessage({
+                    type: 'open-tab-telemetry',
+                    version: 1,
+                    event: 'chats-view-menu-opened',
+                });
+            }
             return true;
         }
         var viewModeItem = target.closest('[data-action="select-chats-view-mode"][data-view-mode]');
         if (viewModeItem) {
+            var viewMode = viewModeItem.getAttribute('data-view-mode');
+            if (viewMode !== 'tree' && viewMode !== 'list') {
+                return true;
+            }
+            setChatsViewModeDom(projectDiv, viewMode);
             closeChatsViewMenu(projectDiv, true);
-            // tree 是 M2 唯一视图；选择当前视图只关闭菜单，不发持久化写。
+            window.vscode.postMessage({
+                type: 'select-ai-session-chats-view-mode',
+                version: 1,
+                projectId: projectId,
+                viewMode: viewMode,
+            });
             return true;
         }
 
@@ -5112,6 +5140,8 @@ function initProjectAiSessionControls(options) {
             });
         } else if (action === 'worktree-remove' && context.canRemove) {
             var projectDiv = document.querySelector(
+                '[data-open-session-surface][data-id="' + CSS.escape(context.projectId) + '"]'
+            ) || document.querySelector(
                 '.project[data-id="' + CSS.escape(context.projectId) + '"]'
             );
             var group = projectDiv && projectDiv.querySelector(
@@ -5395,7 +5425,8 @@ function initProjectAiSessionControls(options) {
             } else if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupRename(section.closest('.project'));
+                cancelWorktreeGroupRename(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         if (!options || !options.skipFocus) {
@@ -5424,7 +5455,8 @@ function initProjectAiSessionControls(options) {
 
     function submitWorktreeGroupRenameEditor(section, editor, input) {
         if (editor.getAttribute('data-rename-pending') === 'true') return;
-        var projectDiv = section.closest('.project');
+        var projectDiv = section.closest('.project')
+            || section.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section.getAttribute('data-group-id') || '';
         var baseRevision = parseInt(
@@ -5662,7 +5694,8 @@ function initProjectAiSessionControls(options) {
             if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupDeletionCard(section.closest('.project'));
+                cancelWorktreeGroupDeletionCard(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         return card;
@@ -5994,7 +6027,8 @@ function initProjectAiSessionControls(options) {
     function confirmWorktreeGroupMemberDeletion(card) {
         if (!card || card.getAttribute('data-deletion-pending') === 'true') return;
         var section = card.closest('.ai-session-worktree-group');
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id');
         var memberId = card.getAttribute('data-member-id') || '';
@@ -6049,7 +6083,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupDeletionOperation(button, kind) {
         var banner = button && button.closest('.ai-session-worktree-deletion');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = button.getAttribute('data-group-id') || '';
         var operationId = button.getAttribute('data-operation-id') || '';
@@ -6081,7 +6116,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupClaimDiscard(button) {
         var card = button && button.closest('.ai-session-worktree-deletion-card');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id') || '';
         var claimId = button.getAttribute('data-claim-id') || '';
@@ -6331,7 +6367,8 @@ function initProjectAiSessionControls(options) {
 
     function startWorktreeAdopt(button) {
         var suggestion = button.closest('.ai-session-worktree-adopt-suggestion');
-        var projectDiv = button.closest('.project');
+        var projectDiv = button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]');
         if (!suggestion || !projectDiv) return;
         var existing = findWorktreeAdoptCard(projectDiv);
         if (existing) {
@@ -6426,7 +6463,8 @@ function initProjectAiSessionControls(options) {
 
     function confirmWorktreeAdopt(card) {
         if (!card || card.getAttribute('data-adopt-pending') === 'true') return;
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         if (!projectId) return;
         var members = [];
@@ -6724,7 +6762,7 @@ function initProjectAiSessionControls(options) {
             '.codex-session-row[data-session-provider="' + pending.provider
                 + '"][data-session-id="' + CSS.escape(pending.sessionId) + '"]'
         );
-        var project = row && row.closest('.workspace-card[data-current-workspace]');
+        var project = row && row.closest('[data-open-session-surface][data-current-workspace]');
         var liveRegion = project && project.querySelector('[data-ai-session-live-region]');
         if (liveRegion) liveRegion.textContent = message;
     }
@@ -6857,7 +6895,7 @@ function initProjectAiSessionControls(options) {
     }
 
     function closeAiSessionProviderMenus(exceptProjectDiv) {
-        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+        document.querySelectorAll('.project[data-id], [data-open-session-surface][data-id]').forEach(projectDiv => {
             if (projectDiv !== exceptProjectDiv) {
                 setAiSessionProviderMenuOpen(projectDiv, false);
             }
@@ -6884,11 +6922,29 @@ function initProjectAiSessionControls(options) {
         trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
         menu.hidden = !open;
         if (open) {
-            var current = menu.querySelector('[role="menuitemradio"]');
+            var current = menu.querySelector('[role="menuitemradio"][aria-checked="true"]')
+                || menu.querySelector('[role="menuitemradio"]');
             if (current && typeof current.focus === 'function') {
                 current.focus();
             }
         }
+    }
+
+    function setChatsViewModeDom(projectDiv, viewMode) {
+        if (!projectDiv || (viewMode !== 'tree' && viewMode !== 'list')) {
+            return;
+        }
+        var region = projectDiv.querySelector('[data-ai-session-region]');
+        if (region) {
+            region.setAttribute('data-chats-view-mode', viewMode);
+        }
+        projectDiv.querySelectorAll('[data-action="select-chats-view-mode"][data-view-mode]')
+            .forEach(item => {
+                var selected = item.getAttribute('data-view-mode') === viewMode;
+                item.setAttribute('aria-checked', selected ? 'true' : 'false');
+                var check = item.querySelector('.ai-session-view-menu-check');
+                if (check) check.textContent = selected ? '✓' : '';
+            });
     }
 
     function closeChatsViewMenu(projectDiv, restoreFocus) {
@@ -6908,7 +6964,7 @@ function initProjectAiSessionControls(options) {
     }
 
     function closeChatsViewMenus(exceptProjectDiv) {
-        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+        document.querySelectorAll('[data-open-session-surface][data-id]').forEach(projectDiv => {
             if (projectDiv !== exceptProjectDiv) {
                 setChatsViewMenuOpen(projectDiv, false);
             }
@@ -6978,13 +7034,6 @@ function initProjectAiSessionControls(options) {
             exitAiSessionBatchManagement();
         }
         projectDiv.toggleAttribute("data-codex-expanded", expanded);
-        // Keep the CURRENT WINDOW group class in sync so the open-tab fit
-        // layout (no :has(), for older webview Chromium) reacts immediately;
-        // authoritative group re-renders replay the same class afterwards.
-        var currentWorkspaceGroup = projectDiv.closest(".open-current-workspace-group");
-        if (currentWorkspaceGroup) {
-            currentWorkspaceGroup.classList.toggle("current-card-expanded", expanded);
-        }
         updateStickyGroupHeaderOffset();
 
         window.vscode.postMessage({
@@ -7013,7 +7062,11 @@ function initProjectAiSessionControls(options) {
 
     function syncAiSessionBatchManagementDom(projectDiv) {
         var snapshot = batchAiSessionManager.snapshot();
-        document.querySelectorAll('.project[data-ai-session-managing], .project[data-ai-session-pending]').forEach(project => {
+        document.querySelectorAll(
+            '.project[data-ai-session-managing], .project[data-ai-session-pending], '
+            + '[data-open-session-surface][data-ai-session-managing], '
+            + '[data-open-session-surface][data-ai-session-pending]'
+        ).forEach(project => {
             if (project !== projectDiv || project.getAttribute("data-id") !== snapshot.projectId) {
                 project.removeAttribute("data-ai-session-managing");
                 project.removeAttribute("data-ai-session-pending");
@@ -7189,6 +7242,7 @@ function initProjectAiSessionControls(options) {
         closeAiSessionProviderMenu: closeAiSessionProviderMenu,
         closeAiSessionProviderMenus: closeAiSessionProviderMenus,
         setChatsViewMenuOpen: setChatsViewMenuOpen,
+        setChatsViewModeDom: setChatsViewModeDom,
         closeChatsViewMenu: closeChatsViewMenu,
         closeChatsViewMenus: closeChatsViewMenus,
         closeAiSessionWorktreeMenu: closeAiSessionWorktreeMenu,
@@ -7399,7 +7453,8 @@ function initProjects() {
         if (!e.target)
             return;
 
-        var projectDiv = e.target.closest('.project');
+        var projectDiv = e.target.closest('.project')
+            || e.target.closest('[data-open-session-surface][data-id]');
         if (!projectDiv)
             return;
 
@@ -7483,6 +7538,13 @@ function initProjects() {
 
         if (projectDiv.hasAttribute("data-current-workspace")) {
             if (e.target.closest('[data-ai-session-region]'))
+                return;
+
+            // The lifted OPEN session surface is permanently expanded. Its
+            // surrounding region remains an interaction boundary for menus
+            // and keyboard handling, but must not revive the retired card
+            // expand/collapse behavior when its chrome is clicked.
+            if (projectDiv.hasAttribute('data-open-session-surface'))
                 return;
 
             aiSessionControls.toggleCodexSessions(projectDiv, dataId);
@@ -7664,6 +7726,34 @@ function initProjects() {
             aiSessionControls.closeChatsViewMenus();
         }
 
+        var openTabLayoutNotice = e.target.closest('[data-open-tab-layout-notice]');
+        if (openTabLayoutNotice) {
+            if (e.target.closest('[data-action="dismiss-open-tab-layout-notice"]')) {
+                var dismissButton = openTabLayoutNotice.querySelector(
+                    '[data-action="dismiss-open-tab-layout-notice"]'
+                );
+                if (dismissButton && dismissButton.disabled) {
+                    return;
+                }
+                if (dismissButton) {
+                    dismissButton.disabled = true;
+                }
+                openTabLayoutNotice.setAttribute('aria-busy', 'true');
+                window.vscode.postMessage({
+                    type: 'dismiss-open-tab-layout-notice',
+                    version: 1,
+                });
+                return;
+            }
+            if (e.target.closest('[data-action="open-open-tab-layout-migration-guide"]')) {
+                window.vscode.postMessage({
+                    type: 'open-open-tab-layout-migration-guide',
+                    version: 1,
+                });
+                return;
+            }
+        }
+
         if (e.target.closest('[data-action="toggle-all-groups"]')) {
             groupCollapse.toggleAllGroups();
             return;
@@ -7707,7 +7797,8 @@ function initProjects() {
             return;
         }
 
-        var projectDiv = e.target.closest('.project');
+        var projectDiv = e.target.closest('.project')
+            || e.target.closest('[data-open-session-surface][data-id]');
         if (projectDiv) {
             onInsideProjectClick(e, projectDiv);
             return;
@@ -7738,6 +7829,28 @@ function initProjects() {
 
     function onWindowMessage(e) {
         var message = e && e.data;
+        if (message && message.type === 'open-tab-layout-notice-dismissed') {
+            var isNoticeSettlement = message.version === 1
+                && (message.outcome === 'dismissed' || message.outcome === 'failed')
+                && Object.keys(message).sort().join('\n') === ['outcome', 'type', 'version'].join('\n');
+            if (!isNoticeSettlement) {
+                return;
+            }
+            var openTabLayoutNotice = document.querySelector('[data-open-tab-layout-notice]');
+            if (!openTabLayoutNotice) {
+                return;
+            }
+            var dismissButton = openTabLayoutNotice.querySelector(
+                '[data-action="dismiss-open-tab-layout-notice"]'
+            );
+            openTabLayoutNotice.removeAttribute('aria-busy');
+            if (message.outcome === 'dismissed') {
+                openTabLayoutNotice.hidden = true;
+            } else if (dismissButton) {
+                dismissButton.disabled = false;
+            }
+            return;
+        }
         if (message
             && message.type === 'focus-ai-session-conversation-origin') {
             focusAiSessionConversationOrigin(message);
@@ -7981,7 +8094,8 @@ function initProjects() {
             && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
                 || e.key === 'Home' || e.key === 'End')) {
             e.preventDefault();
-            var triggerProject = aiSessionProviderTrigger.closest('.project[data-id]');
+            var triggerProject = aiSessionProviderTrigger.closest('.project[data-id]')
+                || aiSessionProviderTrigger.closest('[data-open-session-surface][data-id]');
             aiSessionControls.closeAiSessionProviderMenus(triggerProject);
             aiSessionControls.setAiSessionProviderMenuOpen(triggerProject, true);
             var triggerOptions = aiSessionControls.getAiSessionProviderOptions(triggerProject);
@@ -7994,7 +8108,8 @@ function initProjects() {
         if (aiSessionProviderTrigger && e.key === 'Escape') {
             e.preventDefault();
             aiSessionControls.closeAiSessionProviderMenu(
-                aiSessionProviderTrigger.closest('.project[data-id]'),
+                aiSessionProviderTrigger.closest('.project[data-id]')
+                || aiSessionProviderTrigger.closest('[data-open-session-surface][data-id]'),
                 true
             );
             return;
@@ -8004,7 +8119,8 @@ function initProjects() {
             ? e.target.closest('[data-ai-provider-option][data-provider]')
             : null;
         if (aiSessionProviderOption) {
-            var providerProject = aiSessionProviderOption.closest('.project[data-id]');
+            var providerProject = aiSessionProviderOption.closest('.project[data-id]')
+                || aiSessionProviderOption.closest('[data-open-session-surface][data-id]');
             var providerOptions = aiSessionControls.getAiSessionProviderOptions(providerProject);
             var providerOptionIndex = providerOptions.indexOf(aiSessionProviderOption);
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp'
@@ -8144,7 +8260,8 @@ function initProjects() {
             && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
                 || e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault();
-            var triggerProject = viewMenuTrigger.closest('.project[data-id]');
+            var triggerProject = viewMenuTrigger.closest('.project[data-id]')
+                || viewMenuTrigger.closest('[data-open-session-surface][data-id]');
             aiSessionControls.setChatsViewMenuOpen(triggerProject, true);
             return;
         }
@@ -8152,7 +8269,8 @@ function initProjects() {
             ? e.target.closest('[data-chats-view-menu] [role="menuitemradio"]')
             : null;
         if (viewMenuItem) {
-            var menuProject = viewMenuItem.closest('.project[data-id]');
+            var menuProject = viewMenuItem.closest('.project[data-id]')
+                || viewMenuItem.closest('[data-open-session-surface][data-id]');
             if (e.key === 'Escape') {
                 e.preventDefault();
                 aiSessionControls.closeChatsViewMenu(menuProject, true);
@@ -8179,7 +8297,8 @@ function initProjects() {
             && viewMenuTrigger.getAttribute('aria-expanded') === 'true') {
             e.preventDefault();
             aiSessionControls.closeChatsViewMenu(
-                viewMenuTrigger.closest('.project[data-id]'), false);
+                viewMenuTrigger.closest('.project[data-id]')
+                || viewMenuTrigger.closest('[data-open-session-surface][data-id]'), false);
             return;
         }
 
@@ -8187,7 +8306,8 @@ function initProjects() {
         if (tab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
             e.preventDefault();
             var nextTabId = getAdjacentAiSessionTab(tab.getAttribute('data-ai-session-tab'), e.key);
-            var projectDiv = tab.closest('.project[data-id]');
+            var projectDiv = tab.closest('.project[data-id]')
+                || tab.closest('[data-open-session-surface][data-id]');
             var nextTab = projectDiv && Array.from(projectDiv.querySelectorAll('[data-ai-session-tab]'))
                 .find(candidate => candidate.getAttribute('data-ai-session-tab') === nextTabId);
             nextTab?.focus();
@@ -8195,7 +8315,8 @@ function initProjects() {
         }
         if (tab && (e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault();
-            var tabProject = tab.closest('.project[data-id]');
+            var tabProject = tab.closest('.project[data-id]')
+                || tab.closest('[data-open-session-surface][data-id]');
             var tabProjectId = tabProject && tabProject.getAttribute('data-id');
             if (tabProjectId) aiSessionControls.onTriggerAiSessionAction(tab, tabProjectId);
             return;

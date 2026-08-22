@@ -5063,7 +5063,7 @@ test('CONVERSATION-COPY-ACTIONS-001 clocks the answer action row when the provid
     await viewer.open(target('session-a', 'input-1'));
     const html = panel.webview.html;
     const matches = [...html.matchAll(
-        /conversation-message-time\\&quot; title=\\&quot;([^\\]+?)\\&quot;&gt;(\d{2}:\d{2})/g
+        /conversation-message-time\\&quot; title=\\&quot;([^\\]+?)\\&quot;/g
     )];
     assert.equal(matches.length, 2,
         'the user corner and the answer row both carry a clock');

@@ -50,8 +50,8 @@ test('open-workspaces-updated v4 carries explicit window-row counts and switcher
     assert.equal(message.currentDetailCount, 1);
     assert.match(message.html, /data-group-id="open-window-switcher"/);
     assert.match(message.html, /data-open-window-row/);
-    // 过渡形态：无头 current-detail 壳仍在，且无分组头。
-    assert.match(message.html, /open-current-workspace-group/);
+    // CHATS/ALL is a direct sibling of the WINDOWS switcher, not a card shell.
+    assert.match(message.html, /data-open-session-surface/);
     assert.ok(!message.html.includes('CURRENT WINDOW'));
     assert.ok(!message.html.includes('open-tab-split-resizer'));
     assert.equal(message.semanticRevision, 'rev-1');

@@ -152,7 +152,7 @@ export interface WorktreeQuickCreatePreferences {
     profile?: string;
 }
 
-export type AiSessionTabId = 'active' | 'sessions';
+export type AiSessionTabId = 'chats' | 'all';
 
 /**
  * The Codex configuration profile decision recorded for a session at creation
@@ -348,8 +348,12 @@ export interface WorkspaceAiSessionViewModel {
     aiSessionCount: number;
     attentionCount: number;
     defaultTab: AiSessionTabId;
-    /** The surface the user last selected; absent renders the Chats default. */
-    selectedSurface?: 'worktree' | 'chats';
+    /**
+     * M2 window-scoped view state (CHATS/ALL tab, CHATS view mode, collapsed
+     * worktree groups), resolved host-side with defaults; drives the CHATS/ALL
+     * render at the PR-D cutover.
+     */
+    windowViewState?: import('./workspaceStateStore').AiSessionWindowViewState;
     activeSessions: ActiveAiSessionViewModel[];
     activeSessionCount: number;
     activeAttentionCount: number;

@@ -949,3 +949,132 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 a late focused receipt clears the ti
     }, cardId);
     assert.deepEqual(await rowState(cardId), { state: null, outcome: null, retryHidden: true });
 });
+
+test('OPEN-WINDOW-SWITCHER-UI-001 CHATS view menu: split trigger, keyboard, and dismissal semantics', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', {
+        name: 'alpha',
+        aiSessions: {
+            workspaceScopeIdentity: 'scope-alpha',
+            workspaceNavigationIdentity: 'identity-alpha',
+            activeProvider: 'codex',
+            selectedProviders: ['codex'],
+            expanded: true,
+            providers: [{ id: 'codex', label: 'Codex', count: 0 }],
+            sessionsByProvider: { codex: [] },
+            unavailableProviders: [],
+            aiSessionCount: 0,
+            attentionCount: 0,
+            defaultTab: 'chats',
+            activeSessions: [],
+            activeSessionCount: 0,
+            activeAttentionCount: 0,
+            worktrees: [],
+        },
+    });
+    const page = await openProductionOpenTabPage(t, [currentCard]);
+
+    // ▾ 是与 tab 相邻的独立控件（不嵌进 role="tab"），命中区与 aria 契约。
+    const trigger = page.locator('[data-action="toggle-chats-view-menu"]');
+    assert.equal(await trigger.count(), 1);
+    assert.equal(await trigger.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
+    const tabBox = await page.locator('[data-ai-session-tab="chats"]').boundingBox();
+    const triggerBox = await trigger.boundingBox();
+    assert.ok(tabBox && triggerBox && triggerBox.width >= 24 && triggerBox.height >= 24,
+        'the ▾ trigger keeps the >=24px hit area');
+    assert.ok(triggerBox.x >= tabBox.x + tabBox.width + 3,
+        'the ▾ trigger sits beside the tab with the dead zone');
+
+    // 点击打开：菜单可见、trigger aria-expanded、当前项聚焦。
+    await trigger.click();
+    const menu = page.locator('[data-chats-view-menu]');
+    assert.equal(await menu.isVisible(), true);
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    const treeItem = menu.locator('[role="menuitemradio"][data-view-mode="tree"]');
+    assert.equal(await treeItem.getAttribute('aria-checked'), 'true');
+    assert.equal(await treeItem.evaluate(node => document.activeElement === node), true);
+
+    // Esc 关闭并把焦点还给触发按钮。
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.isVisible(), false);
+    assert.equal(await trigger.evaluate(node => document.activeElement === node), true,
+        'Escape returns focus to the ▾ trigger');
+
+    // 外部点击关闭且不夺焦点。
+    await trigger.click();
+    assert.equal(await menu.isVisible(), true);
+    await page.locator('[data-group-id="open-window-switcher"] .group-title-text').first().click();
+    assert.equal(await menu.isVisible(), false);
+    assert.equal(await trigger.evaluate(node => document.activeElement === node), false,
+        'outside-click dismissal must not yank focus back to the ▾ trigger');
+
+    // 键盘：触发按钮上 ↓ 直接开菜单并聚焦当前项。
+    await trigger.focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await menu.isVisible(), true);
+    assert.equal(await treeItem.evaluate(node => document.activeElement === node), true);
+    await page.keyboard.press('Escape');
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 CHATS view menu anchors to the trigger and activates CHATS from ALL', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', {
+        name: 'alpha',
+        aiSessions: {
+            workspaceScopeIdentity: 'scope-alpha',
+            workspaceNavigationIdentity: 'identity-alpha',
+            activeProvider: 'codex',
+            selectedProviders: ['codex'],
+            expanded: true,
+            providers: [{ id: 'codex', label: 'Codex', count: 0 }],
+            sessionsByProvider: { codex: [] },
+            unavailableProviders: [],
+            aiSessionCount: 0,
+            attentionCount: 0,
+            defaultTab: 'chats',
+            activeSessions: [],
+            activeSessionCount: 0,
+            activeAttentionCount: 0,
+            worktrees: [],
+        },
+    });
+    const page = await openProductionOpenTabPage(t, [currentCard]);
+    const trigger = page.locator('[data-action="toggle-chats-view-menu"]');
+    const menu = page.locator('[data-chats-view-menu]');
+
+    // 几何：菜单贴着 trigger 下方（同一相对定位容器），而不是卡片底部。
+    await trigger.click();
+    const geometry = await page.evaluate(() => {
+        const triggerRect = document.querySelector('[data-action="toggle-chats-view-menu"]')
+            .getBoundingClientRect();
+        const pairRect = document.querySelector('.ai-session-tab-pair').getBoundingClientRect();
+        const menuRect = document.querySelector('[data-chats-view-menu]').getBoundingClientRect();
+        return {
+            triggerBottom: triggerRect.bottom,
+            pairLeft: pairRect.left,
+            menuTop: menuRect.top,
+            menuLeft: menuRect.left,
+            menuHeight: menuRect.height,
+            menuOffsetParent: document.querySelector('[data-chats-view-menu]').offsetParent?.className || null,
+        };
+    });
+    assert.ok(geometry.menuHeight > 0, 'the menu is laid out');
+    assert.ok(Math.abs(geometry.menuTop - geometry.triggerBottom) <= 8,
+        `the menu must open right below the trigger, got ${JSON.stringify(geometry)}`);
+    assert.ok(Math.abs(geometry.menuLeft - geometry.pairLeft) <= 2,
+        `the split menu left-aligns with the tab pair, got ${JSON.stringify(geometry)}`);
+    assert.match(geometry.menuOffsetParent || '', /ai-session-tab-pair/,
+        'the menu anchors to the tab pair, not the card');
+    await page.keyboard.press('Escape');
+
+    // PRD：非活动 tab 上的 ▾ 点击 = 激活 CHATS 并开菜单（菜单不得随隐藏面板不可见）。
+    await page.locator('[data-ai-session-tab="all"]').click();
+    await trigger.click();
+    assert.equal(await page.locator('[data-ai-session-tab="chats"]').getAttribute('aria-selected'), 'true',
+        'the ▾ on an inactive CHATS tab activates CHATS first');
+    assert.equal(await menu.isVisible(), true, 'the menu stays visible after activating CHATS');
+    const posts = await page.evaluate(() => window.__postedMessages
+        .filter(message => message.type === 'select-ai-session-view-tab'));
+    assert.equal(posts.at(-1)?.tab, 'chats',
+        'the activation persists the CHATS tab host-side');
+    await page.keyboard.press('Escape');
+});

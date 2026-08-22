@@ -356,12 +356,12 @@ async function relativeTop(locator) {
     return locator.evaluate((node, selector) => {
         const container = node.closest(selector);
         return node.getBoundingClientRect().top - container.getBoundingClientRect().top;
-    }, '.codex-sessions-list');
+    }, '.codex-sessions-list, .ai-session-worktree-list');
 }
 
 async function isRowFullyVisibleInList(rowLocator) {
     return rowLocator.evaluate(node => {
-        const list = node.closest('.codex-sessions-list');
+        const list = node.closest('.codex-sessions-list, .ai-session-worktree-list');
         if (!list || node.offsetParent === null) return false;
         const listRect = list.getBoundingClientRect();
         const rowRect = node.getBoundingClientRect();
@@ -469,7 +469,11 @@ async function openListPage(t, activeAiSessions, historySessions) {
     const page = await browser.newPage({ viewport: { width: 360, height: 320 } });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
-    await page.setContent(`<!doctype html><html><head><style>${styles}</style></head>
+    // The CHATS tree list only scrolls inside the expanded fit layout; the
+    // test page caps it explicitly so the scroll-anchor assertions exercise
+    // list-level scrolling like the production card does.
+    await page.setContent(`<!doctype html><html><head><style>${styles}</style>
+        <style>.ai-session-worktree-list { max-height: 150px; overflow-y: auto; }\n        .ai-session-worktree-group { flex-shrink: 0; }</style></head>
         <body class="steward-sidebar"><div class="steward-sticky-header"></div>
         <div class="sticky-groups-wrapper"><div class="open-current-workspace-group">
         ${listProjectMarkup(activeAiSessions, historySessions)}</div></div></body></html>`);
@@ -705,7 +709,7 @@ async function assertAttentionCleared(page, provider, sessionId) {
     assert.equal(await sessionRow.getAttribute('data-session-event-id'), null);
     assert.equal(await sessionRow.getAttribute('data-attention-acknowledgement-pending'), null);
     assert.equal(await sessionRow.locator('.ai-session-attention-indicator').count(), 0);
-    assert.equal(await project.locator('[data-ai-session-tab="active"] .ai-session-tab-attention').count(), 0);
+    assert.equal(await project.locator('[data-ai-session-tab="chats"] .ai-session-tab-attention').count(), 0);
     assert.equal(await project.locator('.ai-session-attention-count').count(), 0);
     assert.equal(
         await project.locator('.project-codex-badge').getAttribute('data-ai-session-attention-count'),
@@ -731,11 +735,11 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
     const page = await openListPage(t, active, history);
     const activeAnchor = row(page, 'codex', 'active-5');
     await waitForPageCondition(page, () => {
-        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        const list = document.querySelector('[data-ai-session-panel="chats"] .ai-session-worktree-list');
         return list && list.scrollHeight > list.clientHeight;
     });
     const activeBefore = await activeAnchor.evaluate(node => {
-        const list = node.closest('.codex-sessions-list');
+        const list = node.closest('.codex-sessions-list, .ai-session-worktree-list');
         list.scrollTop = node.offsetTop - list.offsetTop - 22;
         node.querySelector('.ai-session-primary-action').focus();
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
@@ -745,15 +749,15 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
     ], history);
     const activeRestored = row(page, 'codex', 'active-5');
     assert.ok(Math.abs((await relativeTop(activeRestored)) - activeBefore) <= 1);
-    assert.equal(await page.locator('[data-ai-session-tab="active"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('[data-ai-session-tab="chats"]').getAttribute('aria-selected'), 'true');
     assert.equal(await activeRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
 
-    await page.locator('[data-ai-session-tab="sessions"]').click();
+    await page.locator('[data-ai-session-tab="all"]').click();
     const historyAnchor = page.locator(
         '.ai-session-history-panel .codex-session-row[data-session-id="history-5"]'
     );
     await waitForPageCondition(page, () => {
-        const list = document.querySelector('[data-ai-session-panel="sessions"] .codex-sessions-list');
+        const list = document.querySelector('[data-ai-session-panel="all"] .codex-sessions-list');
         return list && list.scrollHeight > list.clientHeight;
     });
     const historyBefore = await historyAnchor.evaluate(node => {
@@ -770,7 +774,7 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History a
         '.ai-session-history-panel .codex-session-row[data-session-id="history-5"]'
     );
     assert.ok(Math.abs((await relativeTop(historyRestored)) - historyBefore) <= 1);
-    assert.equal(await page.locator('[data-ai-session-tab="sessions"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('[data-ai-session-tab="all"]').getAttribute('aria-selected'), 'true');
     assert.equal(await historyRestored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node), true);
 });
 
@@ -821,7 +825,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI 
     );
     const page = await openListPage(t, active, history);
     await waitForPageCondition(page, () => {
-        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        const list = document.querySelector('[data-ai-session-panel="chats"] .ai-session-worktree-list');
         return list && list.scrollHeight > list.clientHeight;
     });
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
@@ -832,9 +836,9 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI 
     })), history);
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);
 
-    await page.locator('[data-ai-session-tab="sessions"]').click();
+    await page.locator('[data-ai-session-tab="all"]').click();
     assert.equal(
-        await page.locator('[data-ai-session-tab="sessions"]').getAttribute('aria-selected'),
+        await page.locator('[data-ai-session-tab="all"]').getAttribute('aria-selected'),
         'true'
     );
     await postListOpenWorkspacesUpdate(page, active.map((entry, index) => ({
@@ -842,7 +846,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI 
         focused: index === 1,
     })), history, 'active', 3);
     assert.equal(
-        await page.locator('[data-ai-session-tab="active"]').getAttribute('aria-selected'),
+        await page.locator('[data-ai-session-tab="chats"]').getAttribute('aria-selected'),
         'true'
     );
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-2')), true);
@@ -2317,7 +2321,7 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         '1 AI session needs attention'
     );
     assert.equal(
-        await project.locator('[data-ai-session-tab="active"] .ai-session-tab-attention')
+        await project.locator('[data-ai-session-tab="chats"] .ai-session-tab-attention')
             .getAttribute('aria-label'),
         '1 active AI session needs attention'
     );
@@ -2505,7 +2509,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
             );
             return {
                 rowAttention: row.hasAttribute('data-ai-session-attention'),
-                tabAttention: !!card.querySelector('[data-ai-session-tab="active"] .ai-session-tab-attention'),
+                tabAttention: !!card.querySelector('[data-ai-session-tab="chats"] .ai-session-tab-attention'),
                 summaryAttention: Number(summary.getAttribute('data-ai-session-attention-count')),
                 rowRunning: row.getAttribute('data-execution-state') === 'running'
                     && row.getAttribute('data-session-icon-fx') === 'current',
@@ -2654,7 +2658,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals a newer direct focus projection in
     );
     const page = await openListPage(t, active, history);
     await waitForPageCondition(page, () => {
-        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        const list = document.querySelector('[data-ai-session-panel="chats"] .ai-session-worktree-list');
         return list && list.scrollHeight > list.clientHeight;
     });
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
@@ -2693,7 +2697,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 scrolls the origin card into view when con
     );
     const page = await openListPage(t, active, history);
     await waitForPageCondition(page, () => {
-        const list = document.querySelector('[data-ai-session-panel="active"] .codex-sessions-list');
+        const list = document.querySelector('[data-ai-session-panel="chats"] .ai-session-worktree-list');
         return list && list.scrollHeight > list.clientHeight;
     });
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false);
@@ -2751,7 +2755,7 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a history row View Conversation butto
         window.__postedMessages = [];
         window.vscode.postMessage = message => window.__postedMessages.push(message);
     });
-    await page.locator('[data-ai-session-tab="sessions"]').click();
+    await page.locator('[data-ai-session-tab="all"]').click();
     const historyRow = page.locator(
         '.ai-session-history-panel .codex-session-row[data-session-id="history-1"]'
     );
@@ -2843,7 +2847,7 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 a history row keeps a readable title at
         { width: 170, height: 600 },
         currentWorkspaceGroupMarkup([], 0, { historySessions: history })
     );
-    await page.locator('[data-ai-session-tab="sessions"]').click();
+    await page.locator('[data-ai-session-tab="all"]').click();
     const historyRow = page.locator(
         '.ai-session-history-panel .codex-session-row[data-session-id="history-1"]'
     );
@@ -2881,25 +2885,26 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 a history row keeps a readable title at
         'the revealed actions must not introduce horizontal overflow');
 });
 
-test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card header without focusing another session', async t => {
+test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores CHATS and the origin card header without focusing another session', async t => {
     const page = await openCardPage(t, [
         session('codex', 'session-a', true),
         session('kimi', 'session-b', false),
     ]);
     const focused = row(page, 'codex', 'session-a');
-    const activeTab = page.locator('[data-ai-session-tab="active"]');
-    const sessionsTab = page.locator('[data-ai-session-tab="sessions"]');
+    const activeTab = page.locator('[data-ai-session-tab="chats"]');
+    const sessionsTab = page.locator('[data-ai-session-tab="all"]');
     await sessionsTab.click();
     assert.equal(await sessionsTab.getAttribute('aria-selected'), 'true');
 
     await postHostMessage(page, focusOrigin());
     assert.equal(await activeTab.getAttribute('aria-selected'), 'true');
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'select-ai-session-surface',
+    assert.deepEqual((await postedMessages(page))
+        .filter(message => message.type === 'select-ai-session-view-tab').at(-1), {
+        type: 'select-ai-session-view-tab',
         version: 1,
         projectId: 'project-a',
-        surface: 'chats',
-    }, 'focusing a conversation origin must report the Chats surface for future renders');
+        tab: 'chats',
+    }, 'focusing a conversation origin must report the CHATS tab for future renders');
     assert.equal(
         await focused.locator('.ai-session-primary-action')
             .evaluate(header => document.activeElement === header),
@@ -2913,10 +2918,10 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores ACTIVE and the origin card 
     );
 });
 
-test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the worktree surface when the session lives there', async t => {
+test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the CHATS tree when the session lives in a worktree group', async t => {
     // Annotation feedback: closing the conversation viewer must not switch
-    // the panel back to Chats when the origin session lives in a worktree
-    // group — the view follows the session instead.
+    // the panel away from the CHATS tree when the origin session lives in a
+    // worktree group — the view follows the session instead.
     const worktreeKey = {
         repositoryKey: '/alpha/.git',
         canonicalWorktreePath: '/alpha/.worktrees/fix-login',
@@ -2929,15 +2934,14 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the wor
                 id: 'project-a',
                 activeAiSessionProvider: 'codex',
                 selectedAiSessionProviders: ['codex'],
-                activeAiSessionTab: 'active',
-                selectedSurface: 'worktree',
+                activeAiSessionTab: 'chats',
                 codexSessions: [],
                 kimiSessions: [],
                 claudeSessions: [],
                 activeAiSessions: [{
                     key: 'codex:s-w1', provider: 'codex', sessionId: 's-w1',
                     name: 'Worktree session', executionState: 'running',
-                    focused: false, needsAttention: false, pending: false,
+                    focused: true, needsAttention: false, pending: false,
                     backend: 'vscode', attached: true, worktreeKey,
                 }],
                 worktreeGroups: [{
@@ -2961,24 +2965,24 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the wor
         </div>
     </div>`;
     const page = await openCardPage(t, [], { width: 360, height: 900 }, markup);
-    const worktreeTab = page.locator('[data-ai-session-surface-tab="worktree"]');
-    const chatsTab = page.locator('[data-ai-session-surface-tab="chats"]');
-    assert.equal(await worktreeTab.getAttribute('aria-selected'), 'true',
-        'the fixture starts on the worktree surface');
+    const chatsTab = page.locator('[data-ai-session-tab="chats"]');
+    const allTab = page.locator('[data-ai-session-tab="all"]');
+    assert.equal(await chatsTab.getAttribute('aria-selected'), 'true',
+        'the fixture starts on the CHATS tree');
 
     await postHostMessage(page, focusOrigin({ provider: 'codex', sessionId: 's-w1' }));
 
-    assert.equal(await worktreeTab.getAttribute('aria-selected'), 'true',
-        'closing the conversation keeps the worktree surface');
-    assert.equal(await chatsTab.getAttribute('aria-selected'), 'false');
-    assert.deepEqual((await postedMessages(page)).find(message => message.type === 'select-ai-session-surface'), {
-        type: 'select-ai-session-surface',
+    assert.equal(await chatsTab.getAttribute('aria-selected'), 'true',
+        'closing the conversation keeps the CHATS tree');
+    assert.equal(await allTab.getAttribute('aria-selected'), 'false');
+    assert.deepEqual((await postedMessages(page)).find(message => message.type === 'select-ai-session-view-tab'), {
+        type: 'select-ai-session-view-tab',
         version: 1,
         projectId: 'project-a',
-        surface: 'worktree',
-    }, 'the host persists the worktree surface for future renders');
+        tab: 'chats',
+    }, 'the host persists the CHATS tab for future renders');
     const originAction = page.locator(
-        '[data-ai-session-surface-panel="worktree"]'
+        '[data-ai-session-panel="chats"]'
         + ' .codex-session-row[data-session-provider="codex"][data-session-id="s-w1"]'
         + ' .ai-session-primary-action'
     );
@@ -2986,13 +2990,13 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the wor
         'the origin row regains focus inside the worktree panel');
 });
 
-test('ACTIVE-SESSION-CONVERSATION-FOCUS-002 falls back to ACTIVE for a stale same-project origin and ignores malformed or wrong-project messages', async t => {
+test('ACTIVE-SESSION-CONVERSATION-FOCUS-002 falls back to CHATS for a stale same-project origin and ignores malformed or wrong-project messages', async t => {
     const page = await openCardPage(t, [
         session('codex', 'session-a', true),
         session('kimi', 'session-b', false),
     ]);
-    const sessionsTab = page.locator('[data-ai-session-tab="sessions"]');
-    const activeTab = page.locator('[data-ai-session-tab="active"]');
+    const sessionsTab = page.locator('[data-ai-session-tab="all"]');
+    const activeTab = page.locator('[data-ai-session-tab="chats"]');
     await sessionsTab.focus();
 
     await postHostMessage(page, focusOrigin({
@@ -3022,12 +3026,12 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-002 falls back to ACTIVE for a stale sam
     );
 });
 
-test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 sub-tab and surface clicks mirror into the window view-state protocol', async t => {
+test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 sub-tab clicks mirror into the window view-state protocol', async t => {
     const active = [session('codex', 'active-1', true)];
     const page = await openCardPage(t, active);
 
-    await page.locator('[data-ai-session-tab="sessions"]').click();
-    await page.locator('[data-ai-session-tab="active"]').click();
+    await page.locator('[data-ai-session-tab="all"]').click();
+    await page.locator('[data-ai-session-tab="chats"]').click();
     let posts = await page.evaluate(() =>
         window.__postedMessages.filter(message => message.type === 'select-ai-session-view-tab'));
     assert.deepEqual(posts, [
@@ -3035,17 +3039,8 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 sub-tab and surface clicks mirror i
         { type: 'select-ai-session-view-tab', version: 1, projectId: 'project-a', tab: 'chats' },
     ], 'sub-tab clicks mirror ACTIVE→chats / ALL→all into the host-persisted view state');
 
-    // Switching to the CHATS surface mirrors the current sub-tab; the WORKTREE
-    // surface maps host-side instead (no webview view-tab post).
-    await page.locator('[data-action="select-ai-session-surface"][data-surface="worktree"]').click();
-    await page.locator('[data-action="select-ai-session-surface"][data-surface="chats"]').click();
-    posts = await page.evaluate(() =>
-        window.__postedMessages.filter(message => message.type === 'select-ai-session-view-tab'));
-    assert.equal(posts.length, 3);
-    assert.equal(posts[2].tab, 'chats', 'the current ACTIVE sub-tab maps to the CHATS view tab');
-    const surfaces = await page.evaluate(() =>
-        window.__postedMessages.filter(message => message.type === 'select-ai-session-surface'));
-    assert.equal(surfaces.length, 2, 'the legacy surface message still posts for both clicks');
+    // The legacy surface switcher is retired (PR-D1): no surface tabs remain.
+    assert.equal(await page.locator('[data-action="select-ai-session-surface"]').count(), 0);
 });
 
 test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 boot imports the legacy webview sub-tab selection once', async t => {

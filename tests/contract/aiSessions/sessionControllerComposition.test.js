@@ -283,7 +283,7 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 wires refresh cadence, markers,
     creation.showActiveTab('project-1');
     creation.announceStatus('project-1', 'ready');
     assert.deepEqual(calls.filter(call => call[0] === 'postMessage'), [
-        ['postMessage', { type: 'ai-session-tab-selection-requested', projectId: 'project-1', tab: 'active' }],
+        ['postMessage', { type: 'ai-session-tab-selection-requested', projectId: 'project-1', tab: 'chats' }],
         ['postMessage', { type: 'ai-session-status-announcement', projectId: 'project-1', message: 'ready' }],
     ]);
     assert.equal(creation.nowMs(), 1234);

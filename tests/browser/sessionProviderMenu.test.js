@@ -561,3 +561,71 @@ test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces partial and malformed a
         'Archive completed, but its result summary was unavailable.'
     );
 });
+
+test('AI-SESSION-PROVIDER-MENU-007 reveal targets the selected ALL panel when a session renders in both panels', async t => {
+    // ALL ⊇ CHATS: an active session renders once in the CHATS tree and once in
+    // the ALL list. The reveal must focus the visible ALL copy, never the
+    // hidden tree copy (regression: a card-wide query hit the hidden row first).
+    const page = await browser.newPage({ viewport: { width: 360, height: 900 } });
+    t.after(() => page.close());
+    const surface = getAiSessionsDiv({
+        id: 'project-a',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'sessions',
+        codexSessions: [{ id: 'dual-1', name: 'Dual session', provider: 'codex' }],
+        kimiSessions: [],
+        claudeSessions: [],
+        activeAiSessions: [{
+            key: 'codex:dual-1', provider: 'codex', sessionId: 'dual-1',
+            name: 'Dual session', executionState: 'running', backend: 'vscode', attached: true,
+        }],
+    });
+    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
+        <div class="sticky-groups-wrapper">
+            <div class="project workspace-card" data-id="project-a" data-current-workspace
+                data-codex-expanded
+                data-workspace-scope-identity="scope-project-a"
+                data-workspace-navigation-identity="navigation-project-a">${surface}</div>
+        </div>
+    </body></html>`);
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+        window.vscode = {
+            getState: () => undefined,
+            setState: () => undefined,
+            postMessage: message => window.__postedMessages.push(message),
+        };
+    });
+    for (const source of [
+        scrollStateScript, viewStateScript, workspaceUpdateScript, todoGroupScript,
+        projectCollapseScript, todoControlScript, projectContextMenuScript, projectAiUpdateScript,
+        groupFormScript, aiSessionControlsScript, projectScript,
+    ]) {
+        await page.addScriptTag({ content: source });
+    }
+    await page.evaluate(() => {
+        // The reveal functions register during initProjects; the production
+        // wiring needs the full script set for that call to work.
+        if (typeof initProjects === 'function') {
+            initProjects();
+        }
+        window.__postedMessages.length = 0;
+    });
+
+    assert.equal(await page.evaluate(() => window.__agentPivotRevealWorkspaceSession(
+        'navigation-project-a', 'codex', 'dual-1'
+    )), true);
+    const focused = await page.evaluate(() => {
+        const row = document.activeElement?.closest?.('.codex-session-row');
+        return {
+            panel: row?.closest('[data-ai-session-panel]')?.getAttribute('data-ai-session-panel') || null,
+            rowVisible: row ? row.offsetParent !== null : null,
+        };
+    });
+    assert.deepEqual(focused, { panel: 'all', rowVisible: true },
+        'the focused reveal row must live in the visible ALL panel');
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('.codex-sessions')?.getAttribute('data-selected-ai-session-tab')), 'all');
+});

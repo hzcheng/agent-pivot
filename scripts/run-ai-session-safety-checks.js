@@ -6765,17 +6765,19 @@ function runBatchAiSessionWebviewChecks() {
     };
 
     vm.runInNewContext(source, context);
-    assert.strictEqual(context.normalizeAiSessionTab('active'), 'active');
-    assert.strictEqual(context.normalizeAiSessionTab('unknown'), 'sessions');
-    assert.strictEqual(context.getAdjacentAiSessionTab('active', 'ArrowRight'), 'sessions');
-    assert.strictEqual(context.getAdjacentAiSessionTab('sessions', 'ArrowLeft'), 'active');
-    assert.strictEqual(context.getAdjacentAiSessionTab('sessions', 'Home'), 'active');
-    assert.strictEqual(context.getAdjacentAiSessionTab('active', 'End'), 'sessions');
-    context.writeAiSessionTabState(context.window.vscode, 'project-a', 'active');
-    context.writeAiSessionTabState(context.window.vscode, 'project-b', 'sessions');
+    assert.strictEqual(context.normalizeAiSessionTab('chats'), 'chats');
+    assert.strictEqual(context.normalizeAiSessionTab('all'), 'all');
+    assert.strictEqual(context.normalizeAiSessionTab('active'), 'chats');
+    assert.strictEqual(context.normalizeAiSessionTab('unknown'), 'chats');
+    assert.strictEqual(context.getAdjacentAiSessionTab('chats', 'ArrowRight'), 'all');
+    assert.strictEqual(context.getAdjacentAiSessionTab('all', 'ArrowLeft'), 'chats');
+    assert.strictEqual(context.getAdjacentAiSessionTab('all', 'Home'), 'chats');
+    assert.strictEqual(context.getAdjacentAiSessionTab('chats', 'End'), 'all');
+    context.writeAiSessionTabState(context.window.vscode, 'project-a', 'chats');
+    context.writeAiSessionTabState(context.window.vscode, 'project-b', 'all');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(context.readAiSessionTabState(context.window.vscode))), {
-        'project-a': 'active',
-        'project-b': 'sessions',
+        'project-a': 'chats',
+        'project-b': 'all',
     });
     assert.strictEqual(webviewState.unrelated, 'preserved');
 
@@ -6804,16 +6806,16 @@ function runBatchAiSessionWebviewChecks() {
             querySelector: () => null,
         };
     };
-    const activeTabElement = createTabElement('active');
-    const sessionsTabElement = createTabElement('sessions');
-    const activePanelElement = createTabPanel('active', activeListState);
-    const historyPanelElement = createTabPanel('sessions', historyListState);
+    const activeTabElement = createTabElement('chats');
+    const sessionsTabElement = createTabElement('all');
+    const activePanelElement = createTabPanel('chats', activeListState);
+    const historyPanelElement = createTabPanel('all', historyListState);
     const tabStateProject = {
         querySelector: selector => {
             if (selector === '.codex-sessions') return { setAttribute: () => {} };
-            if (selector === '.ai-session-active-panel .codex-sessions-list') return activeListState;
+            if (selector === '.ai-session-chats-panel .ai-session-worktree-list') return activeListState;
             if (selector === '.ai-session-history-panel .codex-sessions-list') return historyListState;
-            if (selector === '[data-ai-session-panel="active"]') return activePanelElement;
+            if (selector === '[data-ai-session-panel="chats"]') return activePanelElement;
             return null;
         },
         querySelectorAll: selector => {
@@ -6824,12 +6826,12 @@ function runBatchAiSessionWebviewChecks() {
         },
     };
     context.restoreAiSessionViewState(tabStateProject, {
-        activeAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0, atEnd: false },
-        historyAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0, atEnd: false },
+        chatsAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0, atEnd: false },
+        allAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0, atEnd: false },
         restoreFocus: false,
-    }, 'active');
+    }, 'chats');
     assert.strictEqual(activeListState.scrollTop, 17);
-    assert.strictEqual(historyListState.scrollTop, 29, 'a hidden Session Tab must retain its own scroll position');
+    assert.strictEqual(historyListState.scrollTop, 29, 'a hidden ALL tab must retain its own scroll position');
     assert.strictEqual(activeTabElement.getAttribute('aria-selected'), 'true');
     assert.strictEqual(sessionsTabElement.getAttribute('aria-selected'), 'false');
     context.initProjects();

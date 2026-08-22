@@ -105,7 +105,8 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     activePresentation?: WorkspaceActiveSessionPresentation;
     activeProvider?: AiSessionProviderId;
     providerSelection?: AiSessionProviderSelection;
-    selectedSurface?: 'worktree' | 'chats';
+    /** M2 window-scoped view state (CHATS/ALL tab, view mode, collapsed groups). */
+    windowViewState?: import('../aiSessions/workspaceStateStore').AiSessionWindowViewState;
     expanded?: boolean;
 }
 
@@ -240,7 +241,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         attentionCount: activePresentation.attentionCount,
         activeProvider: input.activeProvider,
         providerSelection: input.providerSelection,
-        selectedSurface: input.selectedSurface,
+        windowViewState: input.windowViewState,
         expanded: input.expanded,
         quickCreateProfile: input.quickCreateProfile,
         quickCreateProvider: input.quickCreateProvider,

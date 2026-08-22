@@ -132,9 +132,10 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getProviderSelection: (
         workspaceScopeIdentity: string
     ) => AiSessionProviderSelection | undefined;
-    getSelectedSurface?: (
+    /** M2 window view state (CHATS/ALL tab, view mode, collapsed groups). */
+    getWindowViewState?: (
         workspaceScopeIdentity: string
-    ) => 'worktree' | 'chats' | undefined;
+    ) => import('../aiSessions/workspaceStateStore').AiSessionWindowViewState | undefined;
     getExpanded: (workspaceScopeIdentity: string) => boolean;
     getProjectionSnapshot: () => AiSessionProjectionSnapshot<TTerminal>;
     getProvisioningWorktrees?: (
@@ -243,7 +244,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
                 this.options.isRetiredStoreCorrupt?.(workspace.navigationIdentity) || false,
             activePresentation,
             providerSelection: this.options.getProviderSelection(workspace.scopeIdentity),
-            selectedSurface: this.options.getSelectedSurface?.(workspace.scopeIdentity),
+            windowViewState: this.options.getWindowViewState?.(workspace.scopeIdentity),
             expanded: this.options.getExpanded(workspace.scopeIdentity),
         });
         this.logDiagnostic({

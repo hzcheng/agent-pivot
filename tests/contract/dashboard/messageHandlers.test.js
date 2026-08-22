@@ -88,8 +88,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'prompt-command',
         'prompt-insert-terminal',
         'toggle-codex-sessions',
-        'select-ai-session-surface',
-        // M2 window view-state protocol (PR-C; the PR-D cutover consumes it).
+        // M2 window view-state protocol (the surface route retired with PR-D1).
         'select-ai-session-view-tab',
         'select-ai-session-chats-view-mode',
         'set-ai-session-collapsed-worktree-groups',
@@ -426,26 +425,6 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with the tmux b
         projectId: 'p1', providerId: 'kimi', sessionId: 's9',
         pendingCreatedAt: 'pc9', expectedBackend: 'tmux',
     }]);
-});
-
-test('WORKTREE-GROUPING-UI-001 stores the surface selection only from exact envelopes', async () => {
-    const { handlers, calls } = createFixture();
-
-    await handlers['select-ai-session-surface']({
-        type: 'select-ai-session-surface', version: 1,
-        projectId: 'p1', surface: 'worktree',
-    });
-    assert.deepEqual(calls, [['selectSurface', 'p1', 'worktree']]);
-
-    await handlers['select-ai-session-surface']({
-        type: 'select-ai-session-surface', version: 1,
-        projectId: 'p1', surface: 'worktree', extra: true,
-    });
-    await handlers['select-ai-session-surface']({
-        type: 'select-ai-session-surface', version: 2,
-        projectId: 'p1', surface: 'chats',
-    });
-    assert.equal(calls.length, 1, 'extra keys and wrong versions must be rejected');
 });
 
 test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protocol only from exact envelopes', async () => {

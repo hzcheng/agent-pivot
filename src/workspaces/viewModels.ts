@@ -32,8 +32,8 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     quickCreateProfile?: string;
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
-    /** The AI session surface the user last selected for this workspace. */
-    selectedSurface?: 'worktree' | 'chats';
+    /** M2 window-scoped view state (CHATS/ALL tab, view mode, collapsed groups). */
+    windowViewState?: import('../aiSessions/workspaceStateStore').AiSessionWindowViewState;
     worktreeSnapshot?: WorktreeSnapshot | null;
     provisioningWorktrees?: readonly ProvisioningWorktreeRow[];
     /** Authoritative manifest bucket for this workspace (PRD §5.2). */
@@ -96,10 +96,8 @@ export function buildWorkspaceAiSessionViewModel(
             .map(provider => provider.id),
         aiSessionCount: providers.reduce((count, provider) => count + provider.count, 0),
         attentionCount: input.attentionCount,
-        defaultTab: activeSessions.length ? 'active' : 'sessions',
-        ...(input.selectedSurface === 'worktree' || input.selectedSurface === 'chats'
-            ? { selectedSurface: input.selectedSurface }
-            : {}),
+        defaultTab: 'chats',
+        ...(input.windowViewState ? { windowViewState: input.windowViewState } : {}),
         activeSessions,
         activeSessionCount: activeSessions.length,
         activeAttentionCount: activeSessions.filter(session => session.needsAttention).length,

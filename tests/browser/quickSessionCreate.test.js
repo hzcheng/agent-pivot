@@ -90,7 +90,7 @@ function getSessionSurface(id, activeProvider, extras = {}) {
         id,
         activeAiSessionProvider: activeProvider,
         selectedAiSessionProviders: [activeProvider],
-        activeAiSessionTab: 'sessions',
+        activeAiSessionTab: 'chats',
         codexSessions: [{ id: `${id}-codex`, name: 'Codex history', provider: 'codex' }],
         kimiSessions: [{ id: `${id}-kimi`, name: 'Kimi history', provider: 'kimi' }],
         claudeSessions: [{ id: `${id}-claude`, name: 'Claude history', provider: 'claude' }],
@@ -232,9 +232,6 @@ test('WORKTREE-PROVISIONING-UI-001 a failed row shows a readable reason and can 
             errorCode: 'repository-has-no-commits',
         }],
     });
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
     const row = page.locator('.ai-session-provisioning-row');
     assert.match(await row.locator('.ai-session-provisioning-error').textContent(),
         /no commits yet/, 'the row explains the failure in plain language');
@@ -273,12 +270,12 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 the anchor menu opens the inline group 
     await newWorktreeItem.evaluate(item => item.click());
     const messages = await postedMessages(page);
     assert.deepEqual(messages[0], {
-        type: 'select-ai-session-surface', version: 1,
-        projectId: 'project-a', surface: 'worktree',
-    }, 'opening the form follows it into the Worktree surface');
+        type: 'select-ai-session-view-tab', version: 1,
+        projectId: 'project-a', tab: 'chats',
+    }, 'opening the form selects the CHATS tree tab for authoritative re-renders');
     assert.equal(
-        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
-        'worktree'
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-tab'),
+        'chats'
     );
     assert.deepEqual(messages[1], {
         type: 'open-worktree-group-form', version: 1,
@@ -320,9 +317,6 @@ test('WORKTREE-MANAGED-CLEANUP-001 removal stays discoverable for busy managed w
         },
         activity: 'attention', sessions: [], authority: { canResume: true, canRemove: true },
     }] });
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
     await page.locator('.project[data-id="project-a"] .ai-session-worktree-more').click();
     const removeItem = page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]');
     assert.equal(await removeItem.isVisible(), true,
@@ -343,9 +337,6 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         activity: 'idle', sessions: [], authority: { canResume: true, canRemove: true },
     }] });
     const project = page.locator('.project[data-id="project-a"]');
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
     const button = project.locator('.ai-session-worktree-more');
     const menu = page.locator('#aiSessionWorktreeMenu');
     const removeItem = menu.locator('[data-action="worktree-remove"]');
@@ -418,10 +409,6 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact
     const button = page.locator(
         '.project[data-id="project-a"] .ai-session-worktree-more'
     );
-
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
     await button.click();
     const menu = page.locator('#aiSessionWorktreeMenu');
     const quickItem = menu.locator('[data-action="worktree-quick-create"]');
@@ -459,9 +446,6 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 the menu offers every provider for the 
             sessions: [],
             authority: { canResume: true },
         }],
-    });
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
     });
     await page.locator('.project[data-id="project-a"] .ai-session-worktree-more').click();
     const menu = page.locator('#aiSessionWorktreeMenu');
@@ -508,9 +492,6 @@ test('WORKTREE-GROUPING-UI-001 collapsing a worktree really hides every session 
             authority: { canResume: true },
         }],
     });
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
     const group = page.locator('.project[data-id="project-a"] .ai-session-worktree-group');
     const rows = group.locator('.codex-session-row');
     assert.equal(await rows.count(), 2);
@@ -548,9 +529,6 @@ test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon seeds the creation form 
             sessions: [],
             authority: { canResume: true },
         }],
-    });
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
     });
     const button = page.locator(
         '.project[data-id="project-a"] .ai-session-worktree-more'
@@ -598,10 +576,9 @@ test('WORKTREE-GROUPING-UI-001 revealing a switched session follows it into its 
         }],
     });
     const project = page.locator('.project[data-id="project-a"]');
-    // Start on Chats with the worktree group collapsed.
+    // Start with the worktree group collapsed.
     await page.evaluate(() => {
         const projectDiv = document.querySelector('.project[data-id="project-a"]');
-        selectAiSessionSurfaceDom(projectDiv, 'chats');
         setAiSessionWorktreeGroupExpanded(
             projectDiv,
             projectDiv.querySelector('.ai-session-worktree-group'),
@@ -615,21 +592,21 @@ test('WORKTREE-GROUPING-UI-001 revealing a switched session follows it into its 
     } })));
 
     assert.equal(
-        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
-        'worktree',
-        'the view follows a worktree session into the Worktree surface'
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-tab'),
+        'chats',
+        'the view follows a worktree session into the CHATS tree'
     );
     assert.equal(
         await project.locator('.ai-session-worktree-group .codex-session-row').first().isVisible(),
         true,
         'the group expands so the session row is visible'
     );
-    assert.deepEqual((await postedMessages(page)).find(message => message.type === 'select-ai-session-surface'), {
-        type: 'select-ai-session-surface',
+    assert.deepEqual((await postedMessages(page)).find(message => message.type === 'select-ai-session-view-tab'), {
+        type: 'select-ai-session-view-tab',
         version: 1,
         projectId: 'project-a',
-        surface: 'worktree',
-    }, 'the follow reports the surface for authoritative re-renders');
+        tab: 'chats',
+    }, 'the follow persists the tab for authoritative re-renders');
 });
 
 test('WORKTREE-GROUPING-UI-001 revealing a plain session lands on Chats active', async t => {
@@ -641,9 +618,6 @@ test('WORKTREE-GROUPING-UI-001 revealing a plain session lands on Chats active',
         }],
     });
     const project = page.locator('.project[data-id="project-a"]');
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
 
     await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'reveal-ai-session-requested', version: 1,
@@ -651,19 +625,24 @@ test('WORKTREE-GROUPING-UI-001 revealing a plain session lands on Chats active',
     } })));
 
     assert.equal(
-        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-tab'),
         'chats'
     );
     assert.equal(
-        await project.locator('[data-ai-session-tab="active"]').getAttribute('aria-selected'),
+        await project.locator('[data-ai-session-tab="chats"]').getAttribute('aria-selected'),
         'true'
+    );
+    assert.equal(
+        await project.locator('[data-ai-session-panel="chats"] .codex-session-row[data-session-id="plain-session"]').count(),
+        1,
+        'the plain session renders in the CHATS tree'
     );
     await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'reveal-ai-session-requested', version: 1,
         projectId: 'project-a', provider: 'codex', sessionId: 'plain-session', forged: true,
     } })));
     assert.equal(
-        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-surface'),
+        await project.locator('.codex-sessions').getAttribute('data-selected-ai-session-tab'),
         'chats',
         'malformed reveal requests are ignored'
     );
@@ -709,11 +688,8 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
         '.ai-session-surface-bar [data-action="toggle-all-ai-session-worktrees"]'
     ).count(), 0, 'the button no longer sits next to the surface tabs');
     assert.equal(await project.locator(
-        '[data-ai-session-surface-panel="worktree"] [data-action="toggle-all-ai-session-worktrees"]'
+        '[data-ai-session-panel="chats"] [data-action="toggle-all-ai-session-worktrees"]'
     ).count(), 1, 'collapse-all lives inside the Worktree panel');
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project[data-id="project-a"]'), 'worktree');
-    });
     assert.equal(await rows.first().isVisible(), true);
 
     await toggleAll.click();
@@ -739,31 +715,30 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
         'one expanded group left means collapse-all still collapses the rest');
 });
 
-test('WORKTREE-GROUPING-UI-001 selecting a surface reports it for authoritative re-renders', async t => {
+test('WORKTREE-GROUPING-UI-001 selecting a CHATS/ALL tab reports it for authoritative re-renders', async t => {
     const page = await openQuickCreatePage(t);
     const project = page.locator('.project[data-id="project-a"]');
 
-    await project.locator('[data-ai-session-surface-tab="worktree"]').click();
+    await project.locator('[data-ai-session-tab="all"]').click();
     assert.deepEqual(await postedMessages(page), [{
-        type: 'select-ai-session-surface',
+        type: 'select-ai-session-view-tab',
         version: 1,
         projectId: 'project-a',
-        surface: 'worktree',
+        tab: 'all',
     }]);
     assert.equal(
-        await project.locator('[data-ai-session-surface-tab="worktree"]')
-            .getAttribute('aria-selected'),
+        await project.locator('[data-ai-session-tab="all"]').getAttribute('aria-selected'),
         'true'
     );
 
-    await project.locator('[data-ai-session-surface-tab="chats"]').click();
+    await project.locator('[data-ai-session-tab="chats"]').click();
     assert.deepEqual((await postedMessages(page)).find(
-        message => message.type === 'select-ai-session-surface' && message.surface === 'chats'
+        message => message.type === 'select-ai-session-view-tab' && message.tab === 'chats'
     ), {
-        type: 'select-ai-session-surface',
+        type: 'select-ai-session-view-tab',
         version: 1,
         projectId: 'project-a',
-        surface: 'chats',
+        tab: 'chats',
     });
 });
 

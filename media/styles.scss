@@ -2053,6 +2053,12 @@ body .project {
             overflow-y: auto;
             overscroll-behavior: contain;
             scrollbar-gutter: stable;
+
+            // Same old-Chromium fallback as the base rule: keep the scrollbar
+            // lane reserved so its appearance never changes the row width.
+            @supports not (scrollbar-gutter: stable) {
+                overflow-y: scroll;
+            }
         }
     }
 
@@ -2162,12 +2168,64 @@ body .project {
         }
     }
 
+    // PRD 渲染约束：bridge 状态条占用固定槽位——ready 时槽位留空但高度保留，
+    // connecting/unavailable/update-required 出现/消失都不推挤窗口行与下方内容。
+    .open-window-switcher-status {
+        flex: 0 0 auto;
+        height: 24px;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+    }
+
+    .open-other-windows-state {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 6px;
+        font-size: 11px;
+        line-height: 16px;
+        color: var(--vscode-descriptionForeground);
+
+        p {
+            flex: 1 1 auto;
+            min-width: 0;
+            margin: 0;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .project-action {
+            flex: 0 0 auto;
+            padding: 0 4px;
+            border: none;
+            border-radius: 3px;
+            background: none;
+            color: var(--vscode-textLink-foreground);
+            font: inherit;
+            cursor: pointer;
+
+            &:hover {
+                text-decoration: underline;
+            }
+        }
+    }
+
     .open-window-switcher-list {
-        // Internal scroll with a stable scrollbar reservation (fallback for
-        // scrollbar-gutter on the old Chromium the extension still supports).
+        // Internal scroll with a stable scrollbar reservation.
         overflow-y: auto;
         scrollbar-gutter: stable;
         overscroll-behavior: contain;
+
+        // scrollbar-gutter needs Chromium ≥94 (VS Code ≥1.64); on the older
+        // engines the extension still declares, always show the scrollbar lane
+        // so its appearance never changes the row width.
+        @supports not (scrollbar-gutter: stable) {
+            overflow-y: scroll;
+        }
     }
 }
 
@@ -2281,9 +2339,9 @@ body .project {
         outline-offset: -1px;
     }
 
-    // pin 置顶跳动的确认闪烁（≤150ms 颜色渐变预算外的一次性提示）。
+    // pin 置顶跳动的确认闪烁（PRD：≤150ms 的一次性提示；JS 同步摘除 class）。
     &.open-window-row-pin-flash {
-        animation: open-window-pin-flash 450ms ease-out;
+        animation: open-window-pin-flash 150ms ease-out;
     }
 
     // bridge 未就绪：非当前行置灰、光标不暗示跳转（PRD 三态之禁用态）。

@@ -108,7 +108,8 @@
       "symbol": "window.__agentPivotOpenWindowNavigation",
       "producer": "src/webview/webviewOpenWindowNavigationScripts.js",
       "consumers": [
-        "src/webview/webviewProjectScripts.js"
+        "src/webview/webviewProjectScripts.js",
+        "src/webview/webviewWorkspaceUpdateScripts.js"
       ]
     },
     {

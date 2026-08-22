@@ -176,6 +176,60 @@ function clearOpenWorkspacePinPending(cardId, button) {
     setOpenWorkspacePinPending(button, false);
 }
 
+// Window-row focus capture/restore across authoritative replacements: the
+// keyboard user may be on any of the row's controls (primary, pin, more,
+// retry), so record {cardId, controlKind} and re-focus the same control in
+// the rebuilt row (retry is re-unhidden by the navigation reconcile first).
+var OPEN_WINDOW_ROW_FOCUS_CONTROLS = [
+    { kind: 'focus', selector: '[data-action="focus-open-window"]' },
+    { kind: 'pin', selector: '[data-action="toggle-open-workspace-pin"]' },
+    { kind: 'more', selector: '[data-action="open-window-menu"]' },
+    { kind: 'retry', selector: '[data-action="retry-open-window-navigation"]' },
+];
+
+function captureOpenWindowRowFocus() {
+    var active = document.activeElement;
+    if (!active || typeof active.closest !== 'function') {
+        return null;
+    }
+    var row = active.closest('[data-open-window-row][data-id]');
+    if (!row) {
+        return null;
+    }
+    if (typeof active.matches !== 'function') {
+        return null;
+    }
+    for (var i = 0; i < OPEN_WINDOW_ROW_FOCUS_CONTROLS.length; i++) {
+        if (active.matches(OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].selector)) {
+            return {
+                cardId: row.getAttribute('data-id'),
+                controlKind: OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].kind,
+            };
+        }
+    }
+    return null;
+}
+
+function findOpenWindowRowControl(cardId, controlKind, root) {
+    var selector = null;
+    for (var i = 0; i < OPEN_WINDOW_ROW_FOCUS_CONTROLS.length; i++) {
+        if (OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].kind === controlKind) {
+            selector = OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].selector;
+            break;
+        }
+    }
+    if (!selector) {
+        return null;
+    }
+    var rows = (root || document).querySelectorAll('[data-open-window-row][data-id]');
+    for (var j = 0; j < rows.length; j++) {
+        if (rows[j].getAttribute('data-id') === cardId) {
+            return rows[j].querySelector(selector);
+        }
+    }
+    return null;
+}
+
 function reconcilePendingOpenWorkspacePins(root) {
     pendingOpenWorkspacePins.forEach((pending, cardId) => {
         var button = findOpenWorkspacePinButton(cardId, root || document);
@@ -195,7 +249,7 @@ function reconcilePendingOpenWorkspacePins(root) {
     });
 }
 
-// PRD：pin 置顶导致行跳动时，该行保持可见并给一次短闪烁确认。
+// PRD：pin 置顶导致行跳动时，该行保持可见并给一次 ≤150ms 短闪烁确认。
 function flashOpenWindowRow(cardId) {
     var button = findOpenWorkspacePinButton(cardId);
     var row = button && button.closest('[data-open-window-row]');
@@ -208,7 +262,7 @@ function flashOpenWindowRow(cardId) {
     if (row.classList && typeof row.classList.add === 'function') {
         row.classList.add('open-window-row-pin-flash');
         if (typeof window.setTimeout === 'function' && row.classList.remove) {
-            window.setTimeout(() => row.classList.remove('open-window-row-pin-flash'), 450);
+            window.setTimeout(() => row.classList.remove('open-window-row-pin-flash'), 150);
         }
     }
 }
@@ -325,12 +379,7 @@ function applyOpenWorkspacesUpdate(message, options) {
         return false;
     }
     var previousHtml = wrapper.innerHTML;
-    var focusedPinButton = document.activeElement
-        && document.activeElement.matches?.(
-            '.open-window-pin[data-action="toggle-open-workspace-pin"]'
-        )
-        ? document.activeElement.closest('[data-open-window-row]')?.getAttribute('data-id')
-        : null;
+    var focusedRowControl = captureOpenWindowRowFocus();
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     // This path replaces the whole wrapper, so beyond the other-windows list
     // it must also carry the current-workspace list scroll (path A keeps it
@@ -401,11 +450,18 @@ function applyOpenWorkspacesUpdate(message, options) {
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
     revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     reconcilePendingOpenWorkspacePins(wrapper);
-    var restoredPinButton = focusedPinButton
-        ? findOpenWorkspacePinButton(focusedPinButton, wrapper)
+    // Replay the navigation pending/error row state before restoring focus so
+    // an error row's Retry control is visible (focusable) again. The caller
+    // reconciles once more afterwards; both passes are idempotent.
+    if (window.__agentPivotOpenWindowNavigation
+        && typeof window.__agentPivotOpenWindowNavigation.reconcile === 'function') {
+        window.__agentPivotOpenWindowNavigation.reconcile(wrapper);
+    }
+    var restoredRowControl = focusedRowControl
+        ? findOpenWindowRowControl(focusedRowControl.cardId, focusedRowControl.controlKind, wrapper)
         : null;
-    if (restoredPinButton && typeof restoredPinButton.focus === 'function') {
-        restoredPinButton.focus({ preventScroll: true });
+    if (restoredRowControl && typeof restoredRowControl.focus === 'function') {
+        restoredRowControl.focus({ preventScroll: true });
     }
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();

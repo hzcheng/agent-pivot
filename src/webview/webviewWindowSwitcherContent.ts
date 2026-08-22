@@ -59,7 +59,12 @@ export function getOpenWindowRowHtml(
         isCurrent ? 'aria-disabled="true" aria-current="true"' : '',
         disabled ? 'aria-disabled="true"' : '',
     ].filter(Boolean).join(' ');
-    return `<div class="open-window-row${isCurrent ? ' open-window-row-current' : ''}${row.pinned ? ' open-window-row-pinned' : ''}${disabled ? ' open-window-row-disabled' : ''}" role="listitem" data-open-window-row data-id="${escapedCardId}" data-workspace-navigation-identity="${escapedIdentity}" data-window-kind="${row.kind}"${disabled ? ' data-navigation-disabled="true"' : ''}>
+    // canPin=false（空窗口占位行）不渲染 pin 入口：宿主按协议会拒绝该行的
+    // pin 请求，渲染出来只能收获失败回执。
+    const pinButton = row.canPin === false
+        ? ''
+        : `<button type="button" class="open-window-pin${row.pinned ? ' active' : ''}" data-action="toggle-open-workspace-pin" title="${pinTitle}" aria-label="${pinTitle}" aria-pressed="${row.pinned ? 'true' : 'false'}">${Icons.pin}</button>`;
+    return `<div class="open-window-row${isCurrent ? ' open-window-row-current' : ''}${row.pinned ? ' open-window-row-pinned' : ''}${disabled ? ' open-window-row-disabled' : ''}" role="listitem" data-open-window-row data-id="${escapedCardId}" data-workspace-navigation-identity="${escapedIdentity}" data-window-kind="${row.kind}"${disabled ? ' data-navigation-disabled="true"' : ''}${row.canPin === false ? ' data-can-pin="false"' : ''}>
     <span class="open-window-indicator" aria-hidden="true"></span>
     <button type="button" class="open-window-focus" data-action="focus-open-window" title="${escapeAttribute(tooltip)}" aria-label="${escapeAttribute(focusLabel)}"${focusAria ? ' ' + focusAria : ''}>
         <span class="open-window-icon" aria-hidden="true">${Icons.remote}</span>
@@ -69,7 +74,7 @@ export function getOpenWindowRowHtml(
     </button>
     ${getCountSlot(row.runningCount, 'open-window-running', '\u25CF', count => `${count} session${count === 1 ? '' : 's'} running in this window`, 'No running sessions')}
     ${getCountSlot(row.attentionCount, 'open-window-attention', '\u26A0', count => `${count} session${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} attention in this window`, 'Nothing needs attention')}
-    <button type="button" class="open-window-pin${row.pinned ? ' active' : ''}" data-action="toggle-open-workspace-pin" title="${pinTitle}" aria-label="${pinTitle}" aria-pressed="${row.pinned ? 'true' : 'false'}">${Icons.pin}</button>
+    ${pinButton}
     <button type="button" class="open-window-more" data-action="open-window-menu" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
     <button type="button" class="open-window-retry" data-action="retry-open-window-navigation" hidden>Retry</button>
 </div>`;

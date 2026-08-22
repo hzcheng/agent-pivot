@@ -1570,7 +1570,7 @@ const guards = {
                 'getCurrentRenderedWorkspaceNavigationIdentity(): string | null'
             )
             || !presentationMessageSource.includes(
-                "cards.find(card => card.kind === 'current')?.navigationIdentity || null"
+                "cards.find(card => card.kind === 'current' && card.roots.length > 0)?.navigationIdentity || null"
             )
             || !presentationMessageSource.includes(
                 'workspaceNavigationIdentity: renderedWorkspaceNavigationIdentity,'

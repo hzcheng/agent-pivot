@@ -430,6 +430,31 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(aiMessage.projectionRevision, 7);
     assert.strictEqual(aiMessage.presentation.projectionRevision, 7);
     assert.strictEqual(aiMessage.currentWorkspaceCount, 1);
+    // Empty-window clause: a zero-root current card renders no .workspace-card
+    // in the current group, so the incremental channel must declare 0 —
+    // declaring 1 splits declared/rendered and force-refreshes every watcher
+    // update for empty windows.
+    const emptyWindowMessage = dashboardUpdateMessages.buildAiSessionsUpdatedMessage({
+        groups: [],
+        cards: [{ ...workspaceCard, roots: [] }],
+        sequence: 8,
+        generatedAt: '2026-07-17T00:00:00.000Z',
+        todoSearchItems,
+        presentation: makePresentation(8),
+    });
+    assert.strictEqual(emptyWindowMessage.currentWorkspaceCount, 0,
+        'a zero-root (empty-window) current card is not renderable and must not be declared');
+    assert.ok(!emptyWindowMessage.html.includes('data-current-workspace'),
+        'the empty-window current group renders the empty state instead of a card');
+    const presentationMessage = require('../out/aiSessions/presentationMessage');
+    assert.strictEqual(presentationMessage.getRenderedCurrentWorkspaceNavigationIdentity([
+        { kind: 'current', navigationIdentity: 'empty-window', roots: [] },
+    ]), null,
+    'an unrendered (zero-root) current placeholder owns no presentation identity');
+    assert.strictEqual(presentationMessage.getRenderedCurrentWorkspaceNavigationIdentity([
+        { kind: 'current', navigationIdentity: 'navigation-dashboard', roots: workspaceCard.roots },
+    ]), 'navigation-dashboard',
+    'a rendered current card keeps owning the presentation identity');
     assert.strictEqual(aiMessage.searchCatalog.version, 3);
     assert.deepStrictEqual(aiMessage.searchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.ok(aiMessage.html.includes('data-current-workspace'));

@@ -39,6 +39,13 @@ silently ships without it while unit checks keep passing:
 Find every consumer by grepping an existing sibling script name (e.g.
 `conversationReconcileScripts`) across the repository.
 
+Cross-script `window.__agentPivot*` globals are a declared contract:
+`docs/testing/architecture-webview-manifest.json` lists each global's single
+producer and every consumer script. Reading another bundle script's global
+without adding your script to its `consumers` fails `ARCH-WEBVIEW-MANIFEST-001`
+— register the consumer in the same commit with a targeted text edit (never a
+programmatic JSON rewrite).
+
 Styles follow the same generated-copy pattern: edit `media/styles.scss` and
 regenerate the tracked, minified `media/styles.css` with
 `npx gulp buildStyles` in the same commit. `test-compile` does not rebuild

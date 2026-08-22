@@ -21,6 +21,8 @@ export interface OpenWindowRowViewModel {
     runningCount: number;
     attentionCount: number;
     pinned: boolean;
+    /** False hides the pin affordances (e.g. the empty-window placeholder). */
+    canPin: boolean;
     folderNames: string[];
 }
 
@@ -53,6 +55,7 @@ export function buildOpenWindowRowViewModels(
         runningCount: Math.max(0, Math.floor(card.runningSessionCount || 0)),
         attentionCount: Math.max(0, Math.floor(card.attentionCount || 0)),
         pinned: card.pinned === true,
+        canPin: card.canPin !== false,
         folderNames: card.roots.map(root => root.name),
     }));
 }

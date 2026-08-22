@@ -382,7 +382,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
 
 // --- production OPEN tab end-to-end (PR-B) ---------------------------------
 
-function loadWebviewContent() {
+function loadWithFakeVscode(requestPath) {
     const vscode = createFakeVscode({});
     vscode.Uri = {
         file: value => ({ fsPath: value, path: value, toString: () => `file://${value}` }),
@@ -393,13 +393,14 @@ function loadWebviewContent() {
             if (request === 'vscode') return vscode;
             return previousLoad.call(this, request, parent, isMain);
         };
-        return require('../../out/webview/webviewContent');
+        return require(requestPath);
     } finally {
         Module._load = previousLoad;
     }
 }
 
-const productionContent = loadWebviewContent();
+const productionContent = loadWithFakeVscode('../../out/webview/webviewContent');
+const productionUpdateMessages = loadWithFakeVscode('../../out/dashboard/webviewUpdateMessages');
 
 // Same script set (and order) as scripts/build-dashboard-webview-bundle.js.
 const productionScriptNames = [
@@ -653,4 +654,303 @@ test('OPEN-WINDOW-SWITCHER-UI-001 bridge-not-ready disables non-current rows and
         /Looking for your other open windows/);
     // The current row stays on top while the bridge is not ready.
     assert.equal(await page.locator('[data-open-window-row]').first().getAttribute('data-window-kind'), 'current');
+});
+
+
+// --- review follow-ups -------------------------------------------------------
+
+function makeSwitcherPresentation(projectionRevision, overrides = {}) {
+    return {
+        type: 'ai-session-presentation-state',
+        version: 1,
+        projectionRevision,
+        workspaceScopeIdentity: null,
+        workspaceNavigationIdentity: null,
+        attentionCount: 0,
+        activeAttentionCount: 0,
+        runningSessionCount: 0,
+        runningCardAnimation: 'current',
+        runningIconAnimation: 'current',
+        revealFocused: false,
+        focusedTarget: null,
+        attentionSessions: [],
+        sessions: [],
+        ...overrides,
+    };
+}
+
+function makeSwitcherCatalog(cards) {
+    return {
+        version: 3,
+        sessions: [],
+        worktrees: [],
+        openWorkspaces: cards.map(card => ({ identity: card.navigationIdentity })),
+        savedProjects: [],
+        todos: [],
+    };
+}
+
+// Dispatches an authoritative v4 open-workspaces update whose counts and html
+// are derived from the given cards (the same shape the host posts).
+async function postOpenWorkspacesUpdate(page, cards, otherWindowsStatus, revision) {
+    const html = productionContent.getOpenWorkspacesGroupContent(cards, otherWindowsStatus);
+    const current = cards.find(card => card.kind === 'current') || null;
+    const navigationRowCount = cards.filter(card => card.kind === 'navigation').length;
+    await page.evaluate(message => {
+        window.dispatchEvent(new MessageEvent('message', { data: message }));
+    }, {
+        type: 'open-workspaces-updated',
+        version: 4,
+        semanticRevision: `review-followup-${revision}`,
+        projectionRevision: revision,
+        windowRowCount: (current ? 1 : 0) + navigationRowCount,
+        currentWindowRowCount: current ? 1 : 0,
+        navigationWindowRowCount: navigationRowCount,
+        currentDetailCount: current && current.roots.length > 0 ? 1 : 0,
+        otherWindowsStatus,
+        html,
+        searchCatalog: makeSwitcherCatalog(cards),
+        presentation: makeSwitcherPresentation(
+            revision,
+            current && current.roots.length > 0
+                ? {
+                    workspaceScopeIdentity: current.scopeIdentity,
+                    workspaceNavigationIdentity: current.navigationIdentity,
+                }
+                : {},
+        ),
+    });
+}
+
+test('OPEN-WINDOW-SWITCHER-UI-001 empty window accepts incremental ai-sessions updates without a full refresh', async t => {
+    const emptyCard = makeCard('__currentWorkspace-empty', 'current', {
+        name: 'This Window',
+        roots: [],
+        canPin: false,
+    });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [emptyCard, navigationCard]);
+
+    // The host builder must not declare an unrenderable current card: the
+    // webview filters zero-root cards, so declaring one splits declared 1 vs
+    // rendered 0 and the consistency guard force-refreshes every update.
+    const message = productionUpdateMessages.buildAiSessionsUpdatedMessage({
+        groups: [],
+        cards: [emptyCard, navigationCard],
+        sequence: 42,
+        generatedAt: '2026-08-22T00:00:00.000Z',
+        todoSearchItems: [],
+        presentation: makeSwitcherPresentation(42),
+    });
+    assert.equal(message.currentWorkspaceCount, 0,
+        'the zero-root (empty-window) current card is not renderable and must not be declared');
+    assert.ok(!message.html.includes('data-current-workspace'),
+        'the empty window renders the empty state instead of a workspace card');
+
+    await page.evaluate(update => {
+        window.dispatchEvent(new MessageEvent('message', { data: update }));
+    }, message);
+
+    const posted = await page.evaluate(() => window.__postedMessages);
+    assert.equal(
+        posted.filter(postedMessage => postedMessage.type === 'request-full-refresh').length,
+        0,
+        'an empty-window incremental update must not trip the workspace consistency guard',
+    );
+    assert.equal(await page.locator('.open-current-workspace-group .open-current-workspace-empty').count(), 1,
+        'the empty state stays rendered after the incremental update');
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 bridge status transitions keep the switcher geometry constant', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+
+    const measure = () => page.evaluate(() => {
+        const group = document.querySelector('[data-group-id="open-window-switcher"]');
+        const status = group.querySelector('[data-open-window-switcher-status]');
+        const list = group.querySelector('[data-open-window-switcher-list]');
+        return {
+            groupHeight: group.getBoundingClientRect().height,
+            statusHeight: status.getBoundingClientRect().height,
+            listTop: list.getBoundingClientRect().top,
+            rowTops: Array.from(list.querySelectorAll('[data-open-window-row]'))
+                .map(row => row.getBoundingClientRect().top),
+        };
+    });
+
+    const ready = await measure();
+    assert.ok(ready.statusHeight > 0,
+        'the status slot stays reserved while the bridge is ready (fixed slot, zero displacement)');
+    assert.equal(ready.rowTops.length, 2);
+
+    let revision = 10;
+    for (const status of ['connecting', 'unavailable', 'update-required', 'ready']) {
+        await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], status, ++revision);
+        const next = await measure();
+        assert.deepEqual(next, ready,
+            `bridge status "${status}" must not shift the switcher geometry`);
+    }
+    // The status text still renders inside the fixed slot.
+    await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], 'connecting', ++revision);
+    assert.match(await page.locator('[data-open-window-switcher-status]').textContent() || '',
+        /Looking for your other open windows/);
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 v4 replacement restores focus to the same row control', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+    const navigationRow = `[data-open-window-row][data-id="${navigationCard.id}"]`;
+
+    const assertFocusRestored = async (action, revision) => {
+        await page.locator(`${navigationRow} [data-action="${action}"]`).focus();
+        await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], 'ready', revision);
+        const focused = await page.evaluate(() => ({
+            action: document.activeElement?.getAttribute('data-action'),
+            cardId: document.activeElement?.closest('[data-open-window-row]')?.getAttribute('data-id'),
+        }));
+        assert.deepEqual(focused, { action, cardId: navigationCard.id },
+            `the ${action} control keeps focus across the authoritative replacement`);
+    };
+
+    await assertFocusRestored('focus-open-window', 21);
+    await assertFocusRestored('open-window-menu', 22);
+    await assertFocusRestored('toggle-open-workspace-pin', 23);
+
+    // Retry: error the row, focus its retry control, then replace — the
+    // navigation reconcile must re-unhide retry before the focus restore.
+    await page.evaluate(cardId => {
+        window.__agentPivotOpenWindowNavigation.request(cardId);
+        window.__agentPivotOpenWindowNavigation.complete({
+            type: 'open-window-navigation-result',
+            version: 1,
+            requestId: 1,
+            cardId,
+            outcome: 'failed',
+        });
+    }, navigationCard.id);
+    await assertFocusRestored('retry-open-window-navigation', 24);
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 outside-click menu close does not steal focus back to the trigger', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+
+    const moreButton = page.locator('[data-open-window-row][data-window-kind="navigation"] [data-action="open-window-menu"]');
+    await moreButton.click();
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 1);
+
+    // Clicking elsewhere dismisses the menu; focus follows the click, not the trigger.
+    await page.locator('[data-group-id="open-window-switcher"] .group-title-text').first().click();
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 0);
+    const activeAction = await page.evaluate(() => document.activeElement?.getAttribute('data-action'));
+    assert.notEqual(activeAction, 'open-window-menu',
+        'outside-click dismissal must not yank focus back to the ⋯ trigger');
+
+    // Escape still returns focus to the trigger (keyboard dismissal contract).
+    await moreButton.click();
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 1);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-action')), 'open-window-menu',
+        'Escape dismissal still returns focus to the ⋯ trigger');
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 empty window row renders no pin entry points', async t => {
+    const emptyCard = makeCard('__currentWorkspace-empty', 'current', {
+        name: 'This Window',
+        roots: [],
+        canPin: false,
+    });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [emptyCard, navigationCard]);
+
+    const emptyRow = page.locator('[data-open-window-row][data-id="__currentWorkspace-empty"]');
+    assert.equal(await emptyRow.getAttribute('data-can-pin'), 'false');
+    assert.equal(await emptyRow.locator('[data-action="toggle-open-workspace-pin"]').count(), 0,
+        'the empty window must not offer a pin the host protocol rejects');
+    assert.equal(
+        await page.locator('[data-open-window-row][data-window-kind="navigation"] [data-action="toggle-open-workspace-pin"]').count(),
+        1,
+        'regular rows keep their pin button',
+    );
+
+    // The ⋯ menu hides the Pin item for the empty row but keeps Save Workspace.
+    await emptyRow.locator('[data-action="open-window-menu"]').click();
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('#openWindowMenu [data-open-window-menu-pin]')?.hidden), true);
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('#openWindowMenu [data-open-window-menu-current]')?.hidden), false);
+    await page.keyboard.press('Escape');
+
+    // The menu Pin item comes back for pinnable rows.
+    await page.locator('[data-open-window-row][data-window-kind="navigation"] [data-action="open-window-menu"]').click();
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('#openWindowMenu [data-open-window-menu-pin]')?.hidden), false);
+    await page.keyboard.press('Escape');
+});
+
+test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 a late focused receipt clears the timeout error state', async t => {
+    const page = await browser.newPage({ viewport: { width: 360, height: 600 } });
+    t.after(() => page.close());
+    page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
+    await page.setContent(
+        `<!DOCTYPE html><html><head><style>${dashboardStyles}</style></head><body>${renderSwitcherHtml()}</body></html>`,
+        { waitUntil: 'load' },
+    );
+    const cardId = '__openWorkspaceNavigation-' + 'b'.repeat(24);
+    await page.evaluate(source => {
+        window.__postedMessages = [];
+        window.__timeoutCallbacks = [];
+        window.setTimeout = callback => {
+            window.__timeoutCallbacks.push(callback);
+            return window.__timeoutCallbacks.length;
+        };
+        window.vscode = {
+            postMessage(message) { window.__postedMessages.push(message); return true; },
+        };
+        eval(source);
+    }, navigationScript);
+
+    const rowState = id => page.evaluate(rowId => ({
+        state: document.querySelector(`[data-open-window-row][data-id="${rowId}"]`).getAttribute('data-navigation-state'),
+        outcome: document.querySelector(`[data-open-window-row][data-id="${rowId}"]`).getAttribute('data-navigation-outcome'),
+        retryHidden: document.querySelector(`[data-open-window-row][data-id="${rowId}"] [data-action="retry-open-window-navigation"]`).hidden,
+    }), id);
+
+    // The request times out into the error state…
+    await page.evaluate(id => window.__agentPivotOpenWindowNavigation.request(id), cardId);
+    await page.evaluate(() => window.__timeoutCallbacks[0]());
+    assert.deepEqual(await rowState(cardId), { state: 'error', outcome: 'failed', retryHidden: false });
+
+    // …but the host never cancelled the switch: its late focused receipt
+    // clears the error instead of being dropped as a stale settlement.
+    await page.evaluate(id => {
+        window.__agentPivotOpenWindowNavigation.complete({
+            type: 'open-window-navigation-result', version: 1, requestId: 1, cardId: id, outcome: 'focused',
+        });
+    }, cardId);
+    assert.deepEqual(await rowState(cardId), { state: null, outcome: null, retryHidden: true });
+
+    // A late receipt that does not match the error's requestId is still ignored.
+    await page.evaluate(id => window.__agentPivotOpenWindowNavigation.request(id), cardId);
+    await page.evaluate(() => window.__timeoutCallbacks[1]());
+    assert.deepEqual(await rowState(cardId), { state: 'error', outcome: 'failed', retryHidden: false });
+    await page.evaluate(id => {
+        window.__agentPivotOpenWindowNavigation.complete({
+            type: 'open-window-navigation-result', version: 1, requestId: 99, cardId: id, outcome: 'focused',
+        });
+    }, cardId);
+    assert.deepEqual(await rowState(cardId), { state: 'error', outcome: 'failed', retryHidden: false },
+        'an unmatched late receipt must not clear the error state');
+
+    // A newer request supersedes the error: its own settlement wins.
+    await page.evaluate(id => window.__agentPivotOpenWindowNavigation.request(id), cardId);
+    await page.evaluate(id => {
+        window.__agentPivotOpenWindowNavigation.complete({
+            type: 'open-window-navigation-result', version: 1, requestId: 3, cardId: id, outcome: 'focused',
+        });
+    }, cardId);
+    assert.deepEqual(await rowState(cardId), { state: null, outcome: null, retryHidden: true });
 });

@@ -5,9 +5,14 @@ import type { WorkspaceCardViewModel } from '../models';
 import type { AiSessionPresentationTransaction } from '../workspaces/sessionHydrationController';
 
 export function getRenderedCurrentWorkspaceNavigationIdentity(
-    cards: readonly Pick<WorkspaceCardViewModel, 'kind' | 'navigationIdentity'>[]
+    cards: readonly Pick<WorkspaceCardViewModel, 'kind' | 'navigationIdentity' | 'roots'>[]
 ): string | null {
-    return cards.find(card => card.kind === 'current')?.navigationIdentity || null;
+    // Only a renderable current card owns the rendered identity: the webview
+    // filters zero-root (empty-window) placeholder cards out of the DOM, so
+    // the presentation identity must describe what is actually on screen —
+    // an unrendered placeholder would fail the webview's workspace match and
+    // force a full refresh on every incremental update.
+    return cards.find(card => card.kind === 'current' && card.roots.length > 0)?.navigationIdentity || null;
 }
 
 export function buildAiSessionPresentationState<TTerminal>(

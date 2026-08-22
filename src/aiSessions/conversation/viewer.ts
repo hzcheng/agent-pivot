@@ -961,6 +961,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.target = undefined;
         this.stale = false;
         this.telemetryController.reset();
+        this.changesController?.reset();
         this.latestPublication = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
@@ -986,6 +987,27 @@ export class ConversationViewer implements ConversationViewerApi {
         if (parsed.type === 'conversation-viewer-open-link') {
             await this.openLink(parsed.href);
             return;
+        }
+        if (parsed.type === 'conversation-viewer-changes-refresh'
+            || parsed.type === 'conversation-viewer-changes-select'
+            || parsed.type === 'conversation-viewer-changes-open-file'
+            || parsed.type === 'conversation-viewer-changes-review'
+            || parsed.type === 'conversation-viewer-changes-open-scm') {
+            // Changes actions are bound to the authoritative target and
+            // generation: an intent stranded by a session switch must not
+            // act on the newly active session when member IDs overlap.
+            const target = this.target;
+            if (!target
+                || parsed.subscriptionGeneration
+                    !== this.subscriptionGeneration
+                || parsed.projectId !== target.projectId
+                || parsed.provider !== target.provider
+                || parsed.sessionId !== target.sessionId) {
+                this.emitDiagnostic('changes-action-dropped-stale', {
+                    requestGeneration: parsed.subscriptionGeneration,
+                });
+                return;
+            }
         }
         if (parsed.type === 'conversation-viewer-changes-refresh') {
             await this.changesController?.handleRefresh();

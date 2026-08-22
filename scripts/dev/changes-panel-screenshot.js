@@ -4,7 +4,8 @@
  * Rendered-output verification for the conversation changes panel
  * (review-fix-commit-loop skill): loads the real viewer document in
  * headless Chromium, feeds it a changes state, and screenshots the
- * sidebar at default (240px) and minimum (192px) widths.
+ * sidebar at default (240px), recommended (320px), and minimum (192px)
+ * widths.
  *
  * Usage: node scripts/dev/changes-panel-screenshot.js <outDir>
  */
@@ -156,6 +157,14 @@ async function main() {
         await page.screenshot({
             path: path.join(outDir, 'changes-default-240.png'),
         });
+        // First-open recommendation width for new Webview state (PRD §15.6).
+        await page.evaluate(() => {
+            document.querySelector('.conversation-workspace')
+                .style.setProperty('--conversation-comments-width', '320px');
+        });
+        await page.screenshot({
+            path: path.join(outDir, 'changes-recommended-320.png'),
+        });
         // Minimum supported sidebar width (192px, per the resizer clamp).
         await page.evaluate(() => {
             document.querySelector('.conversation-workspace')
@@ -171,7 +180,11 @@ async function main() {
                 selectClipped: (() => {
                     const select = panel.querySelector(
                         '[data-changes-member-select]');
-                    return select.scrollWidth > select.clientWidth + 1;
+                    // Single-member sessions render no select at all — the
+                    // repo name is a plain text title (PRD §15.1).
+                    return select
+                        ? select.scrollWidth > select.clientWidth + 1
+                        : null;
                 })(),
             };
         });

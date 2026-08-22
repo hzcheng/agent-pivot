@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const Module = require('node:module');
 const os = require('node:os');
 const path = require('node:path');
+const { symlinkSync } = fs;
 const test = require('node:test');
 
 function loadService(executed, options = {}) {
@@ -119,6 +120,25 @@ test('WORKTREE-CHANGES-PANEL-001 renames carry the original path on the git side
     assert.equal(title, 'src/old.ts → src/new.ts');
 });
 
+test('WORKTREE-CHANGES-PANEL-001 refuses a working-change symlink escaping the worktree', async t => {
+    const base = await fs.promises.mkdtemp(path.join(os.tmpdir(),
+        'agent-pivot-symlink-'));
+    const dir = path.join(base, 'worktree');
+    const outside = path.join(base, 'outside.txt');
+    const link = path.join(dir, 'inside.txt');
+    await fs.promises.mkdir(dir);
+    await fs.promises.writeFile(outside, 'secret\n');
+    symlinkSync(outside, link);
+    t.after(() => fs.promises.rm(base, { recursive: true, force: true }));
+    const executed = [];
+    const service = loadService(executed);
+    await service.openWorkingChangeDiff(dir, {
+        group: 'untracked', xy: '??', path: 'inside.txt',
+    });
+    assert.equal(executed.length, 0,
+        'an in-tree name that resolves outside the worktree never opens');
+});
+
 async function repoFixture(t) {
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-review-'));
     const git = args => childProcess.execFileSync('git', ['-C', dir, ...args], {
@@ -191,4 +211,85 @@ test('WORKTREE-CHANGES-PANEL-001 task result review falls back to a per-file lis
     assert.equal(diffQuery(diff[1]).path, 'c.txt');
     assert.equal(diffQuery(diff[2]).ref, '~empty~');
     assert.equal(diff[3], 'c.txt');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 task result review includes untracked files with an empty baseline side', async t => {
+    const repo = await repoFixture(t);
+    await fs.promises.writeFile(path.join(repo.dir, 'new.txt'), 'new\n');
+    const executed = [];
+    const service = loadService(executed, { failChanges: false });
+
+    await service.openTaskResultReview(repo.dir, repo.baseline, 'Task result');
+
+    assert.equal(executed.length, 1, 'the multi-diff opens without a diff fallback');
+    const [command, , resources] = executed[0];
+    assert.equal(command, 'vscode.changes');
+    // Task result ⊃ Working changes (PRD §4.3): the untracked file joins
+    // the tracked diff (a.txt modified + c.txt deleted + new.txt untracked).
+    assert.equal(resources.length, 3);
+    const byName = Object.fromEntries(
+        resources.map(entry => [path.basename(entry[0].fsPath), entry]));
+    assert.ok(byName['new.txt'], 'the untracked file is part of the review');
+    assert.equal(diffQuery(byName['new.txt'][1]).ref, '~empty~',
+        'an untracked file has no baseline side — empty original');
+    assert.equal(byName['new.txt'][2].scheme, 'file',
+        'an untracked file renders its working-tree document');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 task result review fails closed when either Git listing fails', async t => {
+    const repo = await repoFixture(t);
+    const originalExecFile = childProcess.execFile;
+    for (const failingCommand of ['diff', 'ls-files']) {
+        const executed = [];
+        const errors = [];
+        childProcess.execFile = ((file, args, options, callback) => {
+            if (args.includes(failingCommand)) {
+                callback(new Error(`${failingCommand} failed`));
+                return;
+            }
+            return originalExecFile(file, args, options, callback);
+        });
+        const service = loadService(executed, { failChanges: false });
+        try {
+            await service.openTaskResultReview(
+                repo.dir, repo.baseline, 'Task result',
+                (message, error) => errors.push([message, error]));
+        } finally {
+            childProcess.execFile = originalExecFile;
+        }
+        assert.equal(errors.length, 1,
+            `${failingCommand} failure reaches the log sink`);
+        assert.match(errors[0][0], /could not list all files/);
+        assert.equal(errors[0][1].message, `${failingCommand} failed`);
+        assert.equal(executed.length, 0,
+            `${failingCommand} failure must not open a partial review`);
+    }
+});
+
+test('WORKTREE-CHANGES-PANEL-001 names the truncation when task review exceeds the file cap', async t => {
+    const repo = await repoFixture(t);
+    const originalExecFile = childProcess.execFile;
+    const manyFiles = Array.from({ length: 401 }, (_unused, index) =>
+        `file-${String(index).padStart(3, '0')}.ts`);
+    childProcess.execFile = ((file, args, options, callback) => {
+        if (args.includes('diff')) {
+            callback(null, manyFiles.join('\0') + '\0');
+            return;
+        }
+        return originalExecFile(file, args, options, callback);
+    });
+    const executed = [];
+    const service = loadService(executed, { failChanges: false });
+    try {
+        await service.openTaskResultReview(
+            repo.dir, repo.baseline, 'Task result');
+    } finally {
+        childProcess.execFile = originalExecFile;
+    }
+    const changes = executed.find(entry => entry[0] === 'vscode.changes');
+    assert.ok(changes);
+    assert.equal(changes[1],
+        'Task result (showing 400 of 401)',
+        'the review title discloses the cap instead of implying completeness');
+    assert.equal(changes[2].length, 400);
 });

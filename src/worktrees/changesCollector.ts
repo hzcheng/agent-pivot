@@ -33,6 +33,29 @@ export type MemberChangesAvailability =
   | 'historyRewritten'
   | 'unreadable';
 
+/**
+ * Tracking-branch state (changes-panel PRD §14.1): `none` is the stated
+ * fact "no upstream configured" (or a detached HEAD), `unknown` means the
+ * fact query itself failed — unknown is never rendered as zero.
+ */
+export type MemberUpstreamState =
+  | {
+        status: 'tracked';
+        /**
+         * Upstream full ref (e.g. 'refs/remotes/origin/fix-x'). The field
+         * carries only the full ref; the display short name ('origin/fix-x')
+         * is derived by stripping the 'refs/remotes/' prefix in the webview
+         * — the simplest side, since that is where rendering happens.
+         */
+        fullRef: string;
+        /** Resolved sha of the upstream ref at collection time. */
+        sha: string;
+        ahead: number;
+        behind: number;
+    }
+  | { status: 'none' }
+  | { status: 'unknown' };
+
 export interface MemberChangesSnapshot {
     availability: MemberChangesAvailability;
     /** Parsed working items (bounded by MAX_STATUS_ENTRIES per group). */
@@ -49,9 +72,21 @@ export interface MemberChangesSnapshot {
     /**
      * Task-result file count (changes-panel PRD §5.3): files whose net
      * content differs between the baseline and the current worktree
-     * (committed + uncommitted, untracked excluded). Absent when unknown.
+     * (committed + uncommitted + untracked — Task result ⊃ Working
+     * changes, PRD §4.3). Absent when unknown.
      */
     taskFileCount?: number;
+    /**
+     * HEAD commit sha at collection time (changes-panel PRD §14.4);
+     * absent when the member is unreadable or the rev-parse failed.
+     */
+    headSha?: string;
+    /**
+     * Tracking-branch state (changes-panel PRD §14.1 three-state chain),
+     * collected independently of the baseline; absent only when the
+     * member is unreadable.
+     */
+    upstream?: MemberUpstreamState;
     collectedAt: number;
 }
 
@@ -81,6 +116,16 @@ function defaultExecGit(args: string[], cwd: string) {
 }
 
 const UNMERGED_XY = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/u;
+
+/** Exit code of a failed git process, when the error carries one. */
+function exitCode(error: unknown): number | undefined {
+    if (error && typeof error === 'object'
+        && typeof (error as { code?: unknown }).code === 'number') {
+        return (error as { code: number }).code;
+    }
+    return undefined;
+}
 
 /**
  * Classifies one porcelain XY pair the way Source Control groups it
@@ -151,7 +196,8 @@ export function parsePorcelainZ(input: string): { xy: string; path: string; orig
  * §4.3): working four-group status self-collected with
  * `--untracked-files=all` (independent of the user's SCM untracked
  * setting), plus the ahead count against the frozen baseline with an
- * ancestry check. Git failures degrade to 'unreadable' — never throw,
+ * ancestry check, plus the tracking-branch state (PRD §14.1) with the
+ * HEAD sha. Git failures degrade to 'unreadable' — never throw,
  * never report unknown as zero.
  */
 export class ChangesCollector {
@@ -208,6 +254,14 @@ export class ChangesCollector {
             truncated,
             collectedAt,
         };
+        // Tracking state rides the same readability gate as the status
+        // but is independent of the baseline (PRD §14.1): a member with
+        // no recorded task start still reports its upstream facts.
+        const tracking = await this.collectTracking(worktreePath);
+        if (tracking.headSha !== undefined) {
+            snapshot.headSha = tracking.headSha;
+        }
+        snapshot.upstream = tracking.upstream;
         if (!baseline) {
             return snapshot;
         }
@@ -241,13 +295,135 @@ export class ChangesCollector {
                 '-C', worktreePath,
                 'diff', '--name-only', '-z', baseline.commitSha,
             ], worktreePath);
-            snapshot.taskFileCount = diff.stdout.split('\0')
-                .filter(token => token && token.length <= MAX_PATH_LENGTH)
-                .length;
+            const others = await this.execGit([
+                '-C', worktreePath,
+                'ls-files', '--others', '--exclude-standard', '-z',
+            ], worktreePath);
+            // Task result ⊃ Working changes (PRD §4.3): the tracked diff
+            // alone silently drops untracked files. Both listings must
+            // succeed — a tracked-only count would fake completeness.
+            const paths = new Set<string>();
+            for (const output of [diff.stdout, others.stdout]) {
+                for (const token of output.split('\0')) {
+                    if (token && token.length <= MAX_PATH_LENGTH) {
+                        paths.add(token);
+                    }
+                }
+            }
+            snapshot.taskFileCount = paths.size;
         } catch (_error) {
             // taskFileCount stays unknown; the task layer hides itself.
         }
         return snapshot;
+    }
+
+    /**
+     * Tracking-branch fact chain (changes-panel PRD §14.1 附注): four
+     * read-only queries, each independently degraded — a failure yields
+     * 'unknown', never a faked count; a successful but empty upstream
+     * query is the fact 'none'. headSha rides the step ③ rev-parse (HEAD
+     * alone when no upstream ref exists) so every readable member reports
+     * it. Never throws; ≤4 extra git processes per member.
+     */
+    private async collectTracking(
+        worktreePath: string
+    ): Promise<{ headSha?: string; upstream: MemberUpstreamState }> {
+        // ① Current branch ref. `symbolic-ref -q` exits 1 quietly on a
+        // detached HEAD — that is the fact "no branch" (→ none), while a
+        // genuine failure (timeout, git gone) degrades to unknown.
+        let branchRef: string | undefined;
+        try {
+            const symbolic = await this.execGit([
+                '-C', worktreePath, 'symbolic-ref', '-q', 'HEAD',
+            ], worktreePath);
+            branchRef = symbolic.stdout.trim() || undefined;
+        } catch (error) {
+            if (exitCode(error) !== 1) {
+                return {
+                    headSha: await this.revParseHead(worktreePath),
+                    upstream: { status: 'unknown' },
+                };
+            }
+        }
+        // ② Upstream full ref for the branch; empty output = none.
+        let fullRef: string | undefined;
+        if (branchRef) {
+            try {
+                const refs = await this.execGit([
+                    '-C', worktreePath,
+                    'for-each-ref', '--format=%(upstream)', branchRef,
+                ], worktreePath);
+                fullRef = refs.stdout.trim() || undefined;
+            } catch (_error) {
+                return {
+                    headSha: await this.revParseHead(worktreePath),
+                    upstream: { status: 'unknown' },
+                };
+            }
+        }
+        if (!fullRef) {
+            return {
+                headSha: await this.revParseHead(worktreePath),
+                upstream: { status: 'none' },
+            };
+        }
+        // ③ One rev-parse process resolves HEAD and the upstream sha.
+        let headSha: string | undefined;
+        let upstreamSha: string | undefined;
+        try {
+            const shas = await this.execGit([
+                '-C', worktreePath, 'rev-parse', 'HEAD', fullRef,
+            ], worktreePath);
+            const lines = shas.stdout.split('\n')
+                .map(line => line.trim()).filter(Boolean);
+            headSha = FULL_SHA_PATTERN.test(lines[0] || '')
+                ? lines[0] : undefined;
+            upstreamSha = FULL_SHA_PATTERN.test(lines[1] || '')
+                ? lines[1] : undefined;
+        } catch (_error) {
+            return { upstream: { status: 'unknown' } };
+        }
+        if (!headSha || !upstreamSha) {
+            return { headSha, upstream: { status: 'unknown' } };
+        }
+        // ④ Fork counts: left = behind, right = ahead (PRD §14.1 — the
+        // order is easy to swap; the assertion message lives in tests).
+        try {
+            const counts = await this.execGit([
+                '-C', worktreePath,
+                'rev-list', '--left-right', '--count',
+                `${upstreamSha}...${headSha}`,
+            ], worktreePath);
+            const match = /^(\d+)\t(\d+)$/u.exec(counts.stdout.trim());
+            if (!match) {
+                return { headSha, upstream: { status: 'unknown' } };
+            }
+            return {
+                headSha,
+                upstream: {
+                    status: 'tracked',
+                    fullRef,
+                    sha: upstreamSha,
+                    ahead: Number.parseInt(match[2], 10),
+                    behind: Number.parseInt(match[1], 10),
+                },
+            };
+        } catch (_error) {
+            return { headSha, upstream: { status: 'unknown' } };
+        }
+    }
+
+    /** HEAD sha for members without a resolved upstream ref. */
+    private async revParseHead(worktreePath: string): Promise<string | undefined> {
+        try {
+            const result = await this.execGit([
+                '-C', worktreePath, 'rev-parse', 'HEAD',
+            ], worktreePath);
+            const sha = result.stdout.trim();
+            return FULL_SHA_PATTERN.test(sha) ? sha : undefined;
+        } catch (_error) {
+            return undefined;
+        }
     }
 }
 

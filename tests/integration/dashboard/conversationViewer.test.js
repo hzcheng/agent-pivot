@@ -5300,6 +5300,7 @@ test('WORKTREE-CHANGES-PANEL-001 the viewer publishes collected working items fo
         await new Promise(resolve => setTimeout(resolve, 20));
         state = panel.postedMessages
             .filter(message => message.type === 'conversation-viewer-changes')
+            .filter(message => message.version === 2)
             .at(-1)?.changes;
     }
     assert.ok(state, 'a changes state is published');
@@ -5308,4 +5309,181 @@ test('WORKTREE-CHANGES-PANEL-001 the viewer publishes collected working items fo
     assert.deepEqual(state.detail.items.map(item => item.path),
         ['changed.ts'],
         'the modified file reaches the webview');
+    const member = state.members[0];
+    assert.equal(member.headSha,
+        git(fixture.worktreePath, ['rev-parse', 'HEAD']),
+        'the member view carries the collected HEAD sha');
+    assert.deepEqual(member.upstream, { status: 'none' },
+        'the fixture worktree has no tracking branch — a stated fact');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 disposing the viewer resets the changes controller and its watcher', async t => {
+    const fixture = await worktreeChangesFixture(t);
+    const baseline = {
+        commitSha: fixture.baselineSha,
+        capturedAt: Date.now(),
+        source: { kind: 'branch', fullRef: 'refs/heads/main' },
+    };
+    const worktreeKey = {
+        repositoryKey: await fs.promises.realpath(path.join(fixture.repo, '.git')),
+        canonicalWorktreePath: await fs.promises.realpath(fixture.worktreePath),
+    };
+    const watchers = [];
+    const { viewer, panel } = createViewer({
+        changes: {
+            resolveSessionIdentity: async () => ({
+                worktreeKey,
+                navigationIdentity: 'nav',
+            }),
+            resolveWorktreeKey: async () => undefined,
+            findGroupByWorktreeKey: () => ({
+                groupId: 'group-1',
+                primaryMemberId: 'member-1',
+                members: [{
+                    memberId: 'member-1',
+                    repositoryKey: worktreeKey.repositoryKey,
+                    worktreeKey,
+                    branchName: 'agent-pivot/task',
+                    path: worktreeKey.canonicalWorktreePath,
+                    state: 'ready',
+                    baseline,
+                }],
+            }),
+            listRetiredIdentities: () => [],
+            collector: new ChangesCollector(),
+            openWorkingChangeDiff: async () => {},
+            openTaskResultReview: async () => {},
+            showWorktreeInSourceControl: async () => {},
+            watchRepositoryChanges: (_paths, _onChange) => {
+                const watcher = { disposed: false,
+                    dispose() { this.disposed = true; } };
+                watchers.push(watcher);
+                return watcher;
+            },
+        },
+    });
+    t.after(() => viewer.dispose());
+
+    await viewer.open(target('session-1'));
+
+    let state;
+    for (let attempt = 0; attempt < 50 && !state; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        state = panel.postedMessages
+            .filter(message => message.type === 'conversation-viewer-changes')
+            .filter(message => message.version === 2)
+            .at(-1)?.changes;
+    }
+    assert.ok(state, 'a changes state is published');
+    assert.ok(watchers.length > 0, 'the active collection owns a watcher');
+
+    viewer.dispose();
+    assert.ok(watchers.every(watcher => watcher.disposed),
+        'disposal resets the changes controller and disposes its watcher');
+
+    const published = panel.postedMessages
+        .filter(message => message.type === 'conversation-viewer-changes')
+        .length;
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.equal(
+        panel.postedMessages
+            .filter(message => message.type === 'conversation-viewer-changes')
+            .length,
+        published,
+        'no changes collection or publication outlives the viewer');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 drops changes actions stranded by a session switch', async t => {
+    const fixture = await worktreeChangesFixture(t);
+    const baseline = {
+        commitSha: fixture.baselineSha,
+        capturedAt: Date.now(),
+        source: { kind: 'branch', fullRef: 'refs/heads/main' },
+    };
+    const worktreeKey = {
+        repositoryKey: await fs.promises.realpath(path.join(fixture.repo, '.git')),
+        canonicalWorktreePath: await fs.promises.realpath(fixture.worktreePath),
+    };
+    let reviewCalls = 0;
+    let scmCalls = 0;
+    const { viewer, panel } = createViewer({
+        changes: {
+            resolveSessionIdentity: async () => ({
+                worktreeKey,
+                navigationIdentity: 'nav',
+            }),
+            resolveWorktreeKey: async () => undefined,
+            findGroupByWorktreeKey: () => ({
+                groupId: 'group-1',
+                primaryMemberId: 'member-1',
+                members: [{
+                    memberId: 'member-1',
+                    repositoryKey: worktreeKey.repositoryKey,
+                    worktreeKey,
+                    branchName: 'agent-pivot/task',
+                    path: worktreeKey.canonicalWorktreePath,
+                    state: 'ready',
+                    baseline,
+                }],
+            }),
+            listRetiredIdentities: () => [],
+            collector: new ChangesCollector(),
+            openWorkingChangeDiff: async () => {},
+            openTaskResultReview: async () => {
+                reviewCalls += 1;
+            },
+            showWorktreeInSourceControl: async () => {
+                scmCalls += 1;
+            },
+        },
+    });
+    t.after(() => viewer.dispose());
+
+    await viewer.open(target('session-1'));
+
+    let publication;
+    for (let attempt = 0; attempt < 50 && !publication; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        publication = panel.postedMessages
+            .filter(message => message.type === 'conversation-viewer-changes')
+            .filter(message => message.version === 2)
+            .at(-1);
+    }
+    assert.ok(publication, 'a changes state is published');
+    const generationA = publication.subscriptionGeneration;
+    const intent = (overrides) => ({
+        type: 'conversation-viewer-changes-review',
+        version: 1,
+        subscriptionGeneration: generationA,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-1',
+        memberId: 'member-1',
+        ...overrides,
+    });
+
+    // The correctly correlated intent still executes.
+    await panel.receive(intent());
+    assert.equal(reviewCalls, 1, 'the current intent reaches the review');
+
+    // A stale generation, a foreign session, or a foreign project fails
+    // closed without touching the controller.
+    await panel.receive(intent({ subscriptionGeneration: generationA - 1 }));
+    await panel.receive(intent({ sessionId: 'session-2' }));
+    await panel.receive(intent({ projectId: 'project-b' }));
+    assert.equal(reviewCalls, 1,
+        'stale or foreign intents are dropped before dispatch');
+
+    // Switch sessions: the pre-switch intent is stranded on the old
+    // generation and session identity, and must not act on session-2 even
+    // though its member IDs overlap.
+    await viewer.follow(target('session-2'));
+    await panel.receive(intent());
+    await panel.receive(intent({
+        type: 'conversation-viewer-changes-open-scm',
+    }));
+    assert.equal(reviewCalls, 1,
+        'a pre-switch review intent must not act on the new session');
+    assert.equal(scmCalls, 0,
+        'a pre-switch open-SCM intent must not act on the new session');
 });

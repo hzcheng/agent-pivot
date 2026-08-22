@@ -18,6 +18,12 @@
         var restoreViewport = options.restoreViewport;
         var state = {
             latestTelemetryRequestId: 0,
+            sessionKind: validSessionKind(
+                telemetryProvider
+                    && telemetryProvider.getAttribute('data-session-state')
+            )
+                ? telemetryProvider.getAttribute('data-session-state')
+                : undefined,
         };
 
         function exactKeys(value, required, optional) {
@@ -127,6 +133,27 @@
             if (provider === 'kimi') return 'Kimi';
             if (provider === 'claude') return 'Claude';
             return 'Codex';
+        }
+
+        function validSessionKind(kind) {
+            return kind === 'running'
+                || kind === 'attention'
+                || kind === 'idle';
+        }
+
+        // Mirrors sessionStateLabel in the Host's telemetry renderer.
+        function sessionStateLabel(kind) {
+            if (kind === 'attention') {
+                return 'Needs attention — click to clear';
+            }
+            return kind === 'running' ? 'Running' : 'Idle';
+        }
+
+        function providerTooltip() {
+            var label = 'Provider · ' + providerLabel(commentTarget.provider);
+            return state.sessionKind
+                ? label + ' · ' + sessionStateLabel(state.sessionKind)
+                : label;
         }
 
         function setTooltip(element, label) {
@@ -263,15 +290,39 @@
             return true;
         }
 
+        function setSessionState(kind) {
+            if (!telemetryProvider) {
+                return false;
+            }
+            var next = validSessionKind(kind) ? kind : undefined;
+            if (next === state.sessionKind) {
+                return true;
+            }
+            state.sessionKind = next;
+            if (next) {
+                telemetryProvider.setAttribute('data-session-state', next);
+            } else {
+                telemetryProvider.removeAttribute('data-session-state');
+            }
+            // Only the attention state is actionable; expose it as a button.
+            if (next === 'attention') {
+                telemetryProvider.setAttribute('role', 'button');
+            } else {
+                telemetryProvider.removeAttribute('role');
+            }
+            setTooltip(telemetryProvider, providerTooltip());
+            return true;
+        }
+
         function resetSession(target, generation) {
             commentTarget = target;
             subscriptionGeneration = generation;
             state.latestTelemetryRequestId = 0;
+            state.sessionKind = undefined;
             telemetryProvider.setAttribute('data-provider', target.provider);
-            setTooltip(
-                telemetryProvider,
-                'Provider · ' + providerLabel(target.provider)
-            );
+            telemetryProvider.removeAttribute('data-session-state');
+            telemetryProvider.removeAttribute('role');
+            setTooltip(telemetryProvider, providerTooltip());
             telemetryModel.hidden = true;
             telemetryContext.hidden = true;
             telemetryLimits.replaceChildren();
@@ -281,6 +332,7 @@
         return Object.freeze({
             apply: applyTelemetry,
             resetSession: resetSession,
+            setSessionState: setSessionState,
         });
     }
 

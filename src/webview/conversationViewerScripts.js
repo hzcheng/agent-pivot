@@ -1723,6 +1723,29 @@
                 });
             });
         });
+    // The telemetry provider icon clears the viewed session's attention
+    // state; it is actionable only while the Host reports 'attention'.
+    function postAcknowledgeAttention() {
+        if (!telemetryProvider
+            || telemetryProvider.getAttribute('data-session-state')
+                !== 'attention') {
+            return;
+        }
+        post({
+            type: 'conversation-viewer-acknowledge-attention',
+            version: 1,
+        });
+    }
+    if (telemetryProvider) {
+        telemetryProvider.addEventListener('click', postAcknowledgeAttention);
+        telemetryProvider.addEventListener('keydown', function (event) {
+            if (event.key !== 'Enter' && event.key !== ' ') {
+                return;
+            }
+            event.preventDefault();
+            postAcknowledgeAttention();
+        });
+    }
     if (conversationDisplayName) {
         conversationDisplayName.addEventListener('click', function () {
             post({
@@ -1841,12 +1864,18 @@
             return false;
         }
         var keys = Object.keys(value);
-        return keys.length === 5
+        return (keys.length === 5
+                || (keys.length === 6
+                    && keys.indexOf('currentSessionKind') !== -1))
             && keys.indexOf('runningSessions') !== -1
             && keys.indexOf('attentionSessions') !== -1
             && keys.indexOf('runningSessionsLocal') !== -1
             && keys.indexOf('attentionSessionsLocal') !== -1
             && keys.indexOf('idleSessionsLocal') !== -1
+            && (keys.indexOf('currentSessionKind') === -1
+                || value.currentSessionKind === 'running'
+                || value.currentSessionKind === 'attention'
+                || value.currentSessionKind === 'idle')
             && Number.isSafeInteger(value.runningSessions)
             && value.runningSessions >= 0
             && value.runningSessions <= 100000
@@ -1906,6 +1935,10 @@
             'idle',
             message.status.idleSessionsLocal
         );
+        // The provider icon in the telemetry bar mirrors the viewed
+        // session's lifecycle group; the Host is authoritative, so the
+        // icon simply renders whatever kind the message carries.
+        telemetryController.setSessionState(message.status.currentSessionKind);
         return true;
     }
     function requestConversationResync(page, applyError) {

@@ -205,7 +205,8 @@ export function renderConversationViewerDocument(
     </header>
     ${renderConversationTelemetry(
         options.telemetrySnapshot,
-        options.target.provider
+        options.target.provider,
+        options.sessionStatusSnapshot?.currentSessionKind
     )}
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus

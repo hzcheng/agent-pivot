@@ -116,6 +116,19 @@ test('WORKTREE-CHANGES-PANEL-001 resolves group members through the manifest and
     assert.equal(posted[0].subscriptionGeneration, 7);
 });
 
+test('WORKTREE-CHANGES-PANEL-001 publishes legacy and current changes messages for adjacent documents', async () => {
+    const { posted, controller } = fixture();
+    await controller.activate(TARGET);
+    const messages = posted.filter(message =>
+        message.type === 'conversation-viewer-changes');
+    assert.deepEqual(messages.map(message => message.version), [1, 2]);
+    assert.ok(!('headSha' in messages[0].changes.members[0]));
+    assert.ok(!('upstream' in messages[0].changes.members[0]));
+    assert.ok('headSha' in messages[1].changes.members[0]
+        || 'upstream' in messages[1].changes.members[0]);
+    assert.ok('upstream' in messages[1].changes.members[0]);
+});
+
 test('WORKTREE-CHANGES-PANEL-001 member views carry headSha and the upstream tracking state', async () => {
     const headSha = 'c'.repeat(40);
     const upstreamSha = 'd'.repeat(40);
@@ -234,19 +247,24 @@ test('WORKTREE-CHANGES-PANEL-001 open-file rejects paths escaping the worktree',
         },
     });
     await controller.activate(TARGET);
+    const authoritativeItem = controller.snapshot.detail.items[0];
     await controller.handleOpenFile({
         memberId: 'member-1',
         item: { group: 'changes', xy: ' M', path: '../../etc/passwd' },
     });
     await controller.handleOpenFile({
         memberId: 'member-1',
-        item: { group: 'changes', xy: ' M', path: 'src/a.ts' },
+        item: authoritativeItem,
     });
     await controller.handleOpenFile({
         memberId: 'forged-member',
         item: { group: 'changes', xy: ' M', path: 'src/a.ts' },
     });
-    assert.deepEqual(opened, [[WT_PATH, 'src/a.ts']],
+    await controller.handleOpenFile({
+        memberId: 'member-1',
+        item: { group: 'untracked', xy: '??', path: 'src/a.ts' },
+    });
+    assert.deepEqual(opened, [[WT_PATH, authoritativeItem.path]],
         'only an in-worktree path of a known member opens');
 });
 
@@ -299,6 +317,133 @@ test('WORKTREE-CHANGES-PANEL-001 publishes with the current generation, not the 
     await controller.handleRefresh();
     assert.equal(posted.at(-1).subscriptionGeneration, 8);
     assert.equal(posted.at(-1).changes.kind, 'ready');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 rejects a stale activation resolution', async () => {
+    let releaseOldIdentity;
+    const oldIdentity = new Promise(resolve => {
+        releaseOldIdentity = resolve;
+    });
+    let identityCall = 0;
+    const { posted, controller } = fixture({
+        findGroupByWorktreeKey: navigationIdentity => ({
+            groupId: 'group-1',
+            members: [{
+                memberId: 'member-1',
+                repositoryKey: REPO_KEY,
+                worktreeKey: {
+                    repositoryKey: REPO_KEY,
+                    canonicalWorktreePath: WT_PATH,
+                },
+                branchName: navigationIdentity === 'nav-old'
+                    ? 'stale'
+                    : 'current',
+                path: WT_PATH,
+                state: 'ready',
+                baseline: BASELINE,
+            }],
+        }),
+        resolveSessionIdentity: async target => {
+            identityCall += 1;
+            if (target.sessionId === 'session-old') {
+                return oldIdentity.then(() => ({
+                    worktreeKey: {
+                        repositoryKey: REPO_KEY,
+                        canonicalWorktreePath: WT_PATH,
+                    },
+                    navigationIdentity: 'nav-old',
+                }));
+            }
+            return {
+                worktreeKey: {
+                    repositoryKey: REPO_KEY,
+                    canonicalWorktreePath: WT_PATH,
+                },
+                navigationIdentity: 'nav-new',
+            };
+        },
+    });
+    const oldActivation = controller.activate({
+        ...TARGET, sessionId: 'session-old',
+    });
+    const before = posted.length;
+    await controller.activate({ ...TARGET, sessionId: 'session-new' });
+    releaseOldIdentity(undefined);
+    await oldActivation;
+    assert.equal(identityCall, 2);
+    assert.ok(posted.length > before,
+        'the newer activation publishes normally');
+    assert.equal(posted.filter(message =>
+        message.type === 'conversation-viewer-changes'
+        && message.changes.kind === 'ready'
+        && message.changes.members.some(member =>
+            member.branchName === 'stale')).length, 0,
+        'the stale activation cannot publish its resolved member set');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 drains queued collection for the latest active target', async () => {
+    let releaseOldCollection;
+    const oldCollection = new Promise(resolve => {
+        releaseOldCollection = resolve;
+    });
+    let oldCollectionStarted = false;
+    const group = {
+        groupId: 'group-1',
+        members: [{
+            memberId: 'member-1',
+            repositoryKey: REPO_KEY,
+            worktreeKey: {
+                repositoryKey: REPO_KEY,
+                canonicalWorktreePath: WT_PATH,
+            },
+            branchName: 'old',
+            path: WT_PATH,
+            state: 'ready',
+            baseline: BASELINE,
+        }],
+    };
+    const { posted, controller } = fixture({
+        findGroupByWorktreeKey: () => group,
+        collector: new ChangesCollector({
+            execGit: async args => {
+                if (args.includes('status') && !oldCollectionStarted) {
+                    oldCollectionStarted = true;
+                    await oldCollection;
+                }
+                if (args.includes('status')) {
+                    return { stdout: ' M a.ts\0', stderr: '' };
+                }
+                if (args.includes('merge-base')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (args.includes('rev-list')) {
+                    return { stdout: '2\n', stderr: '' };
+                }
+                if (args.includes('diff')) {
+                    return { stdout: 'a.ts\0', stderr: '' };
+                }
+                return { stdout: '', stderr: '' };
+            },
+            now: () => 1724000000000,
+        }),
+    });
+    const oldActivation = controller.activate({
+        ...TARGET, sessionId: 'session-old',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    group.members[0].branchName = 'new';
+    const before = posted.length;
+    const newActivation = controller.activate({
+        ...TARGET, sessionId: 'session-new',
+    });
+    await newActivation;
+    assert.equal(posted.length, before,
+        'the queued new collection waits for the in-flight old collection');
+    releaseOldCollection();
+    await oldActivation;
+    assert.ok(posted.length > before,
+        'the old collection drains and publishes the new session state');
+    assert.equal(lastChanges(posted).members[0].branchName, 'new');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 refresh re-resolves membership changes', async () => {

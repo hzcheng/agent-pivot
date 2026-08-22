@@ -192,6 +192,7 @@
         var latestState = null;
         var lastSelectSignature = '';
         var lastLiveText = '';
+        var pendingMemberId = null;
 
         function exactKeys(value, required, optional) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -318,6 +319,48 @@
                     || typeof state.selectedMemberId === 'string')
                 && (state.detail === undefined || validDetail(state.detail))
                 && Number.isSafeInteger(state.collectedAt);
+        }
+
+        function clearAuthoritativeContent() {
+            if (prevButton) prevButton.hidden = true;
+            if (nextButton) nextButton.hidden = true;
+            if (positionIndicator) {
+                positionIndicator.hidden = true;
+                positionIndicator.textContent = '';
+            }
+            if (repoPicker) repoPicker.hidden = true;
+            if (repoTitle) {
+                repoTitle.hidden = true;
+                repoTitle.textContent = '';
+                repoTitle.removeAttribute('data-tooltip');
+            }
+            if (repoName) repoName.textContent = '';
+            if (repoLabel) repoLabel.removeAttribute('data-tooltip');
+            if (outsideBadge) outsideBadge.hidden = true;
+            if (branchRoot) branchRoot.removeAttribute('data-tooltip');
+            if (branchPrefix) branchPrefix.textContent = '';
+            if (branchTail) branchTail.textContent = '';
+            if (liveRegion) {
+                lastLiveText = '';
+                liveRegion.textContent = '';
+            }
+            if (crossMemberNote) crossMemberNote.hidden = true;
+            if (taskRoot) taskRoot.hidden = true;
+            if (taskSummary) {
+                taskSummary.textContent = '';
+                taskSummary.removeAttribute('data-tooltip');
+            }
+            if (taskTracking) {
+                taskTracking.hidden = true;
+                taskTracking.textContent = '';
+                taskTracking.removeAttribute('data-tooltip');
+            }
+            if (reviewButton) reviewButton.hidden = true;
+            if (groupsRoot) clearChildren(groupsRoot);
+            if (emptyRoot) emptyRoot.hidden = true;
+            currentMemberId = null;
+            lastFocusedTreeKey = null;
+            pendingFocusRestore = null;
         }
 
         function workingText(aggregate) {
@@ -590,7 +633,12 @@
             if (members.length <= 1) {
                 return;
             }
-            var current = selectedMemberOf(latestState);
+            var pending = pendingMemberId
+                ? members.find(function (member) {
+                    return member.memberId === pendingMemberId;
+                })
+                : null;
+            var current = pending || selectedMemberOf(latestState);
             var index = current ? members.indexOf(current) : 0;
             if (index < 0) {
                 index = 0;
@@ -598,6 +646,7 @@
             var target = members[
                 (index + delta + members.length) % members.length];
             if (target) {
+                pendingMemberId = target.memberId;
                 post({
                     type: 'conversation-viewer-changes-select',
                     version: 1,
@@ -670,7 +719,12 @@
             crossMemberNote.setAttribute('data-tooltip',
                 others.map(function (member) {
                     return member.repoLabel + ': ' + member.workingItemCount;
-                }).join('\n'));
+                }).slice(0, MAX_TOOLTIP_MEMBER_LINES)
+                    .concat(others.length > MAX_TOOLTIP_MEMBER_LINES
+                        ? ['+' + (others.length - MAX_TOOLTIP_MEMBER_LINES)
+                            + ' more']
+                        : [])
+                    .join('\n'));
         }
 
         // Summary area line 2 (PRD §14.1): the upstream reference frame as
@@ -697,18 +751,21 @@
             }
             taskTracking.hidden = false;
             if (upstream.status === 'tracked') {
-                taskTracking.textContent = 'Tracking '
+                var trackingText = 'Tracking '
                     + shortUpstreamRef(upstream.fullRef) + ' · '
                     + upstream.ahead + ' ahead · ' + upstream.behind
                     + ' behind';
+                taskTracking.textContent = trackingText;
                 taskTracking.setAttribute('data-tooltip',
-                    upstream.fullRef + '\nBased on local remote-tracking '
-                        + 'refs; no fetch was performed');
+                    trackingText + '\n' + upstream.fullRef
+                        + '\nBased on local remote-tracking refs; '
+                        + 'no fetch was performed');
             } else {
-                taskTracking.textContent = upstream.status === 'none'
+                var stateText = upstream.status === 'none'
                     ? 'No tracking branch'
                     : 'Tracking unknown';
-                taskTracking.removeAttribute('data-tooltip');
+                taskTracking.textContent = stateText;
+                taskTracking.setAttribute('data-tooltip', stateText);
             }
         }
 
@@ -772,7 +829,7 @@
         // headers) and the content scroll position are remembered per
         // member for the panel's lifetime — switching away and back
         // restores both. Nothing persists; resetSession drops everything.
-        var memberContexts = {};
+        var memberContexts = new Map();
         var currentMemberId = null;
         var lastFocusedTreeKey = null;
         var pendingFocusRestore = null;
@@ -898,14 +955,16 @@
         }
 
         function contextFor(memberId) {
-            if (!memberContexts[memberId]) {
-                memberContexts[memberId] = {
+            var context = memberContexts.get(memberId);
+            if (!context) {
+                context = {
                     collapsedFolders: {},
                     collapsedGroups: {},
                     scrollTop: 0,
                 };
+                memberContexts.set(memberId, context);
             }
-            return memberContexts[memberId];
+            return context;
         }
 
         function folderKey(group, folderPath) {
@@ -913,24 +972,24 @@
         }
 
         function buildTree(items) {
-            var root = { dirs: {}, dirOrder: [], files: [] };
+            var root = { dirs: new Map(), dirOrder: [], files: [] };
             items.forEach(function (item) {
                 var segments = item.path.split('/');
                 var node = root;
                 var prefix = '';
                 for (var index = 0; index < segments.length - 1; index += 1) {
                     prefix = prefix ? prefix + '/' + segments[index] : segments[index];
-                    if (!node.dirs[segments[index]]) {
-                        node.dirs[segments[index]] = {
+                    if (!node.dirs.has(segments[index])) {
+                        node.dirs.set(segments[index], {
                             name: segments[index],
                             fullPath: prefix,
-                            dirs: {},
+                            dirs: new Map(),
                             dirOrder: [],
                             files: [],
-                        };
+                        });
                         node.dirOrder.push(segments[index]);
                     }
-                    node = node.dirs[segments[index]];
+                    node = node.dirs.get(segments[index]);
                 }
                 node.files.push(item);
             });
@@ -944,7 +1003,7 @@
                     : left.path > right.path ? 1 : 0;
             });
             node.dirOrder.forEach(function (name) {
-                sortTree(node.dirs[name]);
+                sortTree(node.dirs.get(name));
             });
         }
 
@@ -956,7 +1015,7 @@
             var names = [dir.name];
             var node = dir;
             while (node.files.length === 0 && node.dirOrder.length === 1) {
-                node = node.dirs[node.dirOrder[0]];
+                node = node.dirs.get(node.dirOrder[0]);
                 names.push(node.name);
             }
             return { name: names.join('/'), node: node };
@@ -965,7 +1024,7 @@
         function renderTreeNode(group, node, container, memberId, depth,
             context, parentKey) {
             node.dirOrder.forEach(function (name) {
-                var compressed = compressDir(node.dirs[name]);
+                var compressed = compressDir(node.dirs.get(name));
                 var dir = compressed.node;
                 var key = folderKey(group, dir.fullPath);
                 var collapsed = !!context.collapsedFolders[key];
@@ -999,8 +1058,9 @@
                     + (treeNodeSequence += 1);
                 children.hidden = collapsed;
                 folderRow.setAttribute('aria-owns', children.id);
+                children.setAttribute('role', 'group');
                 folderRow.addEventListener('click', function () {
-                    context.collapsedFolders[key] = !collapsed;
+                    context.collapsedFolders[key] = !children.hidden;
                     children.hidden = !children.hidden;
                     chevron.textContent = children.hidden ? '▸' : '▾';
                     folderRow.setAttribute('aria-expanded',
@@ -1123,7 +1183,7 @@
         // plain list of group header rows.
         function collectFolderKeys(group, node, keys) {
             node.dirOrder.forEach(function (name) {
-                var compressed = compressDir(node.dirs[name]);
+                var compressed = compressDir(node.dirs.get(name));
                 var dir = compressed.node;
                 keys.push(folderKey(group, dir.fullPath));
                 collectFolderKeys(group, dir, keys);
@@ -1136,9 +1196,17 @@
             }
             var detail = latestState.detail;
             var context = contextFor(detail.memberId);
-            var remembered = rememberFocusedTreeRow();
-            if (remembered) {
-                pendingFocusRestore = remembered;
+            var activeElement = document.activeElement;
+            var activeRow = activeElement && activeElement.closest
+                ? activeElement.closest(TREE_ROW_SELECTOR)
+                : null;
+            if (activeRow && groupsRoot.contains(activeRow)) {
+                var remembered = rememberFocusedTreeRow();
+                if (remembered) {
+                    pendingFocusRestore = remembered;
+                }
+            } else {
+                pendingFocusRestore = null;
             }
             SECTION_GROUPS.forEach(function (sectionGroups) {
                 var group = sectionGroups[0];
@@ -1171,6 +1239,7 @@
 
         function renderPanel(state) {
             var unavailable = state.kind === 'retired'
+                || state.kind === 'unavailable'
                 || state.aggregate.allUnreadable
                 || (state.kind === 'ready' && !state.members.length);
             if (unavailableRoot) {
@@ -1182,41 +1251,54 @@
                 }
             }
             var content = !unavailable && state.kind === 'ready';
-            // The header rows stay visible in every state; only the
-            // task-result row and lists degrade.
-            if (taskRoot) {
-                taskRoot.hidden = !content;
+            if (!content || !state.detail) {
+                clearAuthoritativeContent();
+                return;
             }
-            if (!content) return;
             renderHeader(state);
 
             var detail = state.detail;
             var aggregate = state.aggregate;
             renderCrossMemberNote(state);
 
-            var showTask = !!detail && detail.baselineSha !== undefined
+            var knownTask = detail.baselineSha !== undefined
                 && detail.availability === 'available'
                 && detail.taskFileCount !== undefined;
+            var showTask = knownTask;
             if (taskRoot) {
-                taskRoot.hidden = !showTask
-                    && !(detail
-                        && detail.availability !== 'available'
-                        && detail.availability !== 'unreadable');
+                taskRoot.hidden = detail.availability === 'unreadable';
             }
             if (taskSummary && detail) {
-                if (showTask) {
+                var summaryText;
+                if (knownTask) {
                     // Line 1, baseline reference frame (PRD §14.1).
-                    taskSummary.textContent = 'Since start · '
+                    summaryText = 'Since start · '
                         + detail.taskFileCount + ' files · '
-                        + (detail.aheadCount || 0) + ' commits';
+                        + (detail.aheadCount === undefined
+                            ? '?'
+                            : detail.aheadCount)
+                        + ' commits';
                 } else if (detail.availability === 'baselineUnavailable') {
-                    taskSummary.textContent = 'No recorded task start'
+                    summaryText = 'No recorded task start'
                         + ' — only uncommitted changes are shown';
                 } else if (detail.availability === 'historyRewritten') {
-                    taskSummary.textContent = 'History rewritten'
+                    summaryText = 'History rewritten'
                         + ' — the recorded task start is no longer an ancestor';
                 } else {
-                    taskSummary.textContent = '';
+                    summaryText = detail.availability === 'available'
+                        ? 'Since start · ? files'
+                            + (detail.aheadCount === undefined
+                                ? ' · ? commits'
+                                : ' · ' + detail.aheadCount + ' commits')
+                        : '';
+                }
+                taskSummary.textContent = summaryText;
+                if (summaryText) {
+                    taskSummary.setAttribute('data-tooltip', summaryText
+                        + '\nNet result vs task start — includes committed '
+                        + 'and uncommitted changes');
+                } else {
+                    taskSummary.removeAttribute('data-tooltip');
                 }
             }
             renderTracking(state);
@@ -1239,12 +1321,16 @@
         function apply(message) {
             if (!message || typeof message !== 'object'
                 || message.type !== 'conversation-viewer-changes'
-                || message.version !== 1
+                || (message.version !== 1 && message.version !== 2)
                 || message.subscriptionGeneration !== subscriptionGeneration
                 || !validState(message.changes)) {
                 return false;
             }
             latestState = message.changes;
+            if (!pendingMemberId
+                || latestState.selectedMemberId === pendingMemberId) {
+                pendingMemberId = null;
+            }
             renderButton(latestState);
             updateFoldActions();
             renderPanel(latestState);
@@ -1254,6 +1340,7 @@
         function attach() {
             if (memberSelect) {
                 memberSelect.addEventListener('change', function () {
+                    pendingMemberId = memberSelect.value;
                     post({
                         type: 'conversation-viewer-changes-select',
                         version: 1,
@@ -1280,6 +1367,7 @@
                     }
                     var target = crossMemberTarget(latestState);
                     if (target) {
+                        pendingMemberId = target.memberId;
                         post({
                             type: 'conversation-viewer-changes-select',
                             version: 1,
@@ -1419,12 +1507,14 @@
                 latestState = null;
                 lastSelectSignature = '';
                 lastLiveText = '';
-                memberContexts = {};
+                memberContexts.clear();
+                pendingMemberId = null;
                 currentMemberId = null;
                 lastFocusedTreeKey = null;
                 pendingFocusRestore = null;
                 updateFoldActions();
                 tooltip.hide();
+                clearAuthoritativeContent();
                 if (button) {
                     button.hidden = true;
                     button.classList.remove(

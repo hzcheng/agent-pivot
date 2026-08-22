@@ -186,6 +186,10 @@ test('WORKTREE-CHANGES-COLLECT-001 collects headSha and a tracked upstream in fo
         revParse.slice(revParse.indexOf('rev-parse') + 1),
         ['HEAD', 'refs/remotes/origin/fix-x'],
         'one rev-parse process resolves both shas');
+    const counts = trackingCalls.find(args => args.includes('--left-right'));
+    assert.equal(counts[counts.length - 1],
+        `${UPSTREAM_SHA}...${HEAD_SHA}`,
+        'fork counts use the frozen shas they are published with');
 });
 
 test('WORKTREE-CHANGES-COLLECT-001 no tracking branch is an explicit none, headSha stays', async () => {

@@ -3058,6 +3058,11 @@ body.vscode-high-contrast-light {
     width: 100%;
 }
 
+.conversation-changes-tooltip-target:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}
+
 .conversation-changes-repo-name {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3081,6 +3086,12 @@ body.vscode-high-contrast-light {
     top: 0;
     width: 100%;
 }
+
+.conversation-changes-repo-picker:focus-within
+    .conversation-changes-repo-label {
+        border-color: var(--vscode-focusBorder);
+        box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+    }
 
 .conversation-changes-outside {
     color: var(--vscode-descriptionForeground);
@@ -3423,7 +3434,12 @@ body.vscode-high-contrast-light {
     font-size: 0.76rem;
     line-height: 1.35;
     white-space: pre-line;
+    // A long worktree path must wrap even in the oldest supported Webview;
+    // overflow-wrap: anywhere is the modern refinement, not the only path.
+    word-break: break-all;
     overflow-wrap: anywhere;
+    max-height: calc(100vh - 0.5rem);
+    overflow: hidden;
     // The hint never intercepts the mouse — hovering it must not read as
     // leaving the trigger.
     pointer-events: none;

@@ -1,7 +1,7 @@
 'use strict';
 
 import { execFile } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { WorkingChangeItem } from '../worktrees';
@@ -101,7 +101,22 @@ export async function openWorkingChangeDiff(
     item: WorkingChangeItem
 ): Promise<void> {
     const fileUri = vscode.Uri.file(path.join(worktreePath, item.path));
+    const pathIsMissingOrInsideWorktree = () => {
+        if (!existsSync(fileUri.fsPath)) {
+            return true;
+        }
+        const root = realpathSync(worktreePath);
+        const candidate = realpathSync(fileUri.fsPath);
+        const relative = path.relative(root, candidate);
+        return relative === '' || (!relative.startsWith('..')
+            && !path.isAbsolute(relative))
+            ? true
+            : false;
+    };
     if (item.group === 'untracked' || item.group === 'merge') {
+        if (!pathIsMissingOrInsideWorktree()) {
+            return;
+        }
         await vscode.commands.executeCommand('vscode.open', fileUri);
         return;
     }
@@ -114,6 +129,9 @@ export async function openWorkingChangeDiff(
     const right = item.group === 'staged'
         ? gitContentUri(worktreePath, '', item.path)
         : fileUri;
+    if (item.group !== 'staged' && !pathIsMissingOrInsideWorktree()) {
+        return;
+    }
     const rightSide = isDeleted
         ? gitContentUri(worktreePath, EMPTY_REF, item.path)
         : right;
@@ -137,24 +155,52 @@ export async function openTaskResultReview(
     title: string,
     onError?: (message: string, error: unknown) => void
 ): Promise<void> {
-    const listFiles = (args: string[]) => new Promise<string[]>(resolve => {
+    const workingSideInsideWorktree = (file: string) => {
+        const filePath = path.join(worktreePath, file);
+        if (!existsSync(filePath)) {
+            return gitContentUri(worktreePath, EMPTY_REF, file);
+        }
+        const root = realpathSync(worktreePath);
+        const candidate = realpathSync(filePath);
+        const relative = path.relative(root, candidate);
+        const inside = relative === '' || (relative !== '..'
+            && !relative.startsWith(`..${path.sep}`)
+            && !path.isAbsolute(relative));
+        return inside
+            ? vscode.Uri.file(filePath)
+            : gitContentUri(worktreePath, EMPTY_REF, file);
+    };
+    const listFiles = (args: string[]) => new Promise<string[]>(
+        (resolve, reject) => {
         execFile('git', ['-C', worktreePath, ...args], {
             cwd: worktreePath,
             timeout: GIT_SHOW_TIMEOUT_MS,
             maxBuffer: GIT_SHOW_MAX_OUTPUT_BYTES,
             encoding: 'utf8',
         }, (error, stdout) => {
-            resolve(error
-                ? []
-                : stdout.split('\0').filter(token => token));
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(stdout.split('\0').filter(token => token));
         });
     });
     // Task result ⊃ Working changes (PRD §4.3): untracked files join the
     // tracked diff, otherwise files visible in Working changes would be
     // missing from the review.
-    const tracked = await listFiles(['diff', '--name-only', '-z', baselineSha]);
-    const untracked = await listFiles(
-        ['ls-files', '--others', '--exclude-standard', '-z']);
+    let tracked: string[];
+    let untracked: string[];
+    try {
+        tracked = await listFiles(
+            ['diff', '--name-only', '-z', baselineSha]);
+        untracked = await listFiles(
+            ['ls-files', '--others', '--exclude-standard', '-z']);
+    } catch (error) {
+        onError?.(
+            'Task result review failed because Git could not list all files.',
+            error);
+        return;
+    }
     const untrackedSet = new Set(untracked);
     const files = [...new Set([...tracked, ...untracked])]
         .slice(0, MAX_DIFF_FILES);
@@ -172,9 +218,7 @@ export async function openTaskResultReview(
                 : gitContentUri(worktreePath, baselineSha, file),
             // A deleted file has no working-tree document: render the
             // modified side as empty content instead of a missing file.
-            existsSync(fileUri.fsPath)
-                ? fileUri
-                : gitContentUri(worktreePath, EMPTY_REF, file),
+            workingSideInsideWorktree(file),
         ];
     });
     try {

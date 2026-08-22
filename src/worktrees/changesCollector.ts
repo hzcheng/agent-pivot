@@ -383,7 +383,7 @@ export class ChangesCollector {
         } catch (_error) {
             return { upstream: { status: 'unknown' } };
         }
-        if (!upstreamSha) {
+        if (!headSha || !upstreamSha) {
             return { headSha, upstream: { status: 'unknown' } };
         }
         // ④ Fork counts: left = behind, right = ahead (PRD §14.1 — the
@@ -391,7 +391,8 @@ export class ChangesCollector {
         try {
             const counts = await this.execGit([
                 '-C', worktreePath,
-                'rev-list', '--left-right', '--count', `${fullRef}...HEAD`,
+                'rev-list', '--left-right', '--count',
+                `${upstreamSha}...${headSha}`,
             ], worktreePath);
             const match = /^(\d+)\t(\d+)$/u.exec(counts.stdout.trim());
             if (!match) {

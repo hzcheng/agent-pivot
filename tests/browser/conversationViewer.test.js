@@ -1663,7 +1663,8 @@ async function openHostViewerDocument(t, options = {}) {
         if (pathname === '/conversationChangesScripts.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
-                body: conversationChangesScript,
+                body: options.changesScriptSource
+                    || conversationChangesScript,
             });
             return;
         }
@@ -12913,7 +12914,8 @@ test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-s
         'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind');
     assert.equal(
         await tracking.getAttribute('data-tooltip'),
-        'refs/remotes/origin/agent-pivot/fix-login\n'
+        'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind\n'
+            + 'refs/remotes/origin/agent-pivot/fix-login\n'
             + 'Based on local remote-tracking refs; no fetch was performed');
 
     // exactKeys discipline: a member carrying a key the webview does not
@@ -12934,6 +12936,46 @@ test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-s
         await page.locator('[data-changes-task-tracking]').innerText(),
         'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind',
         'the rejected state leaves the tracking line untouched');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 keeps an adjacent version-1 script usable through dual-state publication', async t => {
+    const previousChangesScript = conversationChangesScript
+        .replace(`], ['aheadCount', 'taskFileCount', 'detached', 'headSha',
+                'upstream'])`, `], ['aheadCount', 'taskFileCount', 'detached'])`)
+        .replace(`|| (message.version !== 1 && message.version !== 2)`,
+            `|| message.version !== 1`);
+    assert.notEqual(previousChangesScript, conversationChangesScript);
+    const { page } = await openHostViewerDocument(t, {
+        changesScriptSource: previousChangesScript,
+    });
+    const full = changesFixture();
+    full.members[0] = {
+        ...full.members[0],
+        headSha: 'c'.repeat(40),
+        upstream: { status: 'none' },
+    };
+    const legacy = {
+        ...full,
+        members: full.members.map(({ headSha, upstream, ...member }) => member),
+    };
+    const generation = await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    await sendPage(page, {
+        type: 'conversation-viewer-changes',
+        version: 1,
+        subscriptionGeneration: generation,
+        changes: legacy,
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-changes',
+        version: 2,
+        subscriptionGeneration: generation,
+        changes: full,
+    });
+    await page.locator('[data-telemetry-changes]').click();
+    assert.equal(
+        await page.locator('.conversation-changes-file').count(), 3,
+        'the legacy version-1 payload remains applied after the version-2 payload is rejected');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 compresses single-child directory chains like Source Control', async t => {
@@ -13213,6 +13255,15 @@ test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends,
         version: 1,
         memberId: 'm-infra',
     });
+
+    // Two more rapid activations happen before either authoritative
+    // acknowledgement; the pending cursor advances instead of repeating.
+    await next.click();
+    await next.click();
+    assert.deepEqual(
+        (await postedIntents(page)).slice(-2).map(message => message.memberId),
+        ['m-api', 'm-web'],
+        'rapid cycling advances a pending cursor instead of repeating one member');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 degrades a single member to a static repo title without a select', async t => {
@@ -13443,7 +13494,8 @@ test('WORKTREE-CHANGES-PANEL-001 renders the tracking line from the selected mem
         'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind');
     assert.equal(
         await tracking.getAttribute('data-tooltip'),
-        'refs/remotes/origin/agent-pivot/fix-login\n'
+        'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind\n'
+            + 'refs/remotes/origin/agent-pivot/fix-login\n'
             + 'Based on local remote-tracking refs; no fetch was performed');
 
     // The line follows the selected member: web has no tracking branch —
@@ -13458,7 +13510,9 @@ test('WORKTREE-CHANGES-PANEL-001 renders the tracking line from the selected mem
         },
     });
     assert.equal(await tracking.innerText(), 'No tracking branch');
-    assert.equal(await tracking.getAttribute('data-tooltip'), null);
+    assert.equal(await tracking.getAttribute('data-tooltip'),
+        'No tracking branch',
+        'the focusable tracking line exposes its complete text through the tooltip');
     assert.equal(
         await tracking.evaluate(element => getComputedStyle(element).color),
         'rgb(160, 160, 160)',
@@ -13485,7 +13539,102 @@ test('WORKTREE-CHANGES-PANEL-001 renders the tracking line from the selected mem
     assert.equal(await tracking.isHidden(), true);
 });
 
-test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → refresh → SCM → hint → fold actions → content', async t => {
+test('WORKTREE-CHANGES-PANEL-001 renders unknown task facts without hiding tracking or zero-washing counts', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const state = changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2,
+            items: [{ group: 'changes', xy: ' M', path: 'src/a.ts' }],
+            truncated: false,
+        },
+    });
+    state.members[0] = { ...state.members[0], upstream: { status: 'none' } };
+    await sendChanges(page, state);
+    await page.locator('[data-telemetry-changes]').click();
+    const summary = page.locator('[data-changes-task-summary]');
+    const tracking = page.locator('[data-changes-task-tracking]');
+    assert.equal(await summary.innerText(), 'Since start · ? files · 2 commits');
+    assert.equal(await tracking.innerText(), 'No tracking branch');
+    assert.equal(await tracking.getAttribute('data-tooltip'),
+        'No tracking branch');
+
+    await sendChanges(page, changesFixture({
+        ...state,
+        detail: {
+            ...state.detail,
+            taskFileCount: 5,
+            aheadCount: undefined,
+        },
+    }));
+    assert.equal(await summary.innerText(),
+        'Since start · 5 files · ? commits',
+        'unknown commit count is never rendered as zero');
+    assert.equal(await tracking.innerText(), 'No tracking branch',
+        'tracking collection degrades independently of task-file collection');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 clears old member data on terminal and reset states', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+    assert.equal(await page.locator('.conversation-changes-file').count(), 3);
+
+    await sendChanges(page, changesFixture({
+        kind: 'retired',
+        aggregate: {
+            completeness: 'unavailable', workingItemCount: 0,
+            workingPartial: false, aheadPartial: false, allUnreadable: true,
+        },
+        members: [],
+        selectedMemberId: undefined,
+        detail: undefined,
+    }));
+    assert.equal(
+        await page.locator('[data-changes-branch-tail]').textContent(), '',
+        'retired state cannot retain the previous branch');
+    assert.equal(await page.locator('.conversation-changes-file').count(), 0);
+    assert.equal(
+        await page.locator('[data-changes-cross-member]').isHidden(), true);
+    assert.equal(await page.locator('[data-changes-task]').isHidden(), true);
+    assert.ok((await page.locator('[data-changes-unavailable]').innerText())
+        .includes('deleted'));
+
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+    const generation = await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 100,
+        subscriptionGeneration: generation + 1,
+        updateKind: 'initial',
+        html: messageHtml('next-session', 1),
+        outline: [{
+            interactionId: 'next-session-0',
+            userPreview: 'next session',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'next-session-0',
+        selectedInput: 1,
+        totalInputs: 1,
+        target: {
+            projectId: 'project-1', provider: 'codex',
+            sessionId: 'session-next',
+            interactionId: 'next-session-0',
+            displayName: 'Next session',
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    assert.equal(
+        await page.locator('[data-changes-branch-tail]').textContent(), '',
+        'session reset cannot retain repository metadata while replacement state loads');
+    assert.equal(await page.locator('.conversation-changes-file').count(), 0);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → branch → refresh → SCM → hint → fold actions → summary → content', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture());
     await page.locator('[data-telemetry-changes]').click();
@@ -13494,11 +13643,13 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
     const stops = [
         '[data-changes-member-select]',
         '[data-changes-next]',
+        '[data-changes-branch]',
         '[data-changes-refresh]',
         '[data-changes-open-scm]',
         '[data-changes-cross-member]',
         '[data-changes-collapse-all]',
         '[data-changes-expand-all]',
+        '[data-changes-task-summary]',
         '[data-changes-review]',
     ];
     for (const selector of stops) {
@@ -13539,14 +13690,22 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
         await page.evaluate(() =>
             document.activeElement
                 === document.querySelector('[data-changes-expand-all]')),
-        true);
+        true,
+        'the fold actions end at expand');
+    await page.keyboard.press('Tab');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement
+                === document.querySelector('[data-changes-task-summary]')),
+        true,
+        'expand leads into the focusable task summary');
     await page.keyboard.press('Tab');
     assert.equal(
         await page.evaluate(() =>
             document.activeElement
                 === document.querySelector('[data-changes-review]')),
         true,
-        'the fold actions lead straight into the content area');
+        'the summary tooltip leads into the content action area');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 renders group headers as collapsible buttons with item-row counts', async t => {
@@ -13681,6 +13840,46 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
     assert.equal(await collapseAll.isEnabled(), true,
         'the actions wake up with the next non-empty state');
     assert.equal(await expandAll.isEnabled(), true);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 keeps folder clicks and authoritative refreshes in sync', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const state = changesFixture();
+    await sendChanges(page, state);
+    await page.locator('[data-telemetry-changes]').click();
+    const folder = page.locator('.conversation-changes-folder').first();
+    await folder.click();
+    assert.equal(await folder.getAttribute('aria-expanded'), 'false');
+    await folder.click();
+    assert.equal(await folder.getAttribute('aria-expanded'), 'true');
+
+    await sendChanges(page, changesFixture({
+        ...state,
+        detail: { ...state.detail },
+    }));
+    assert.equal(await folder.getAttribute('aria-expanded'), 'true',
+        'the second click must update remembered state, not toggle the stale render-time closure');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 safely builds trees from reserved directory names', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 2,
+            items: [
+                { group: 'changes', xy: ' M', path: '__proto__/file.ts' },
+                { group: 'untracked', xy: '??', path: 'constructor/new.ts' },
+            ],
+            truncated: false,
+        },
+    }));
+    await page.locator('[data-telemetry-changes]').click();
+    assert.deepEqual(
+        await page.locator('.conversation-changes-folder').allInnerTexts(),
+        ['▾__proto__', '▾constructor']);
+    assert.equal(
+        await page.locator('.conversation-changes-file').count(), 2);
 });
 
 test('WORKTREE-CHANGES-PANEL-001 remembers fold state and scroll position per member', async t => {
@@ -13869,15 +14068,32 @@ test('WORKTREE-CHANGES-PANEL-001 implements the Files tree keyboard model', asyn
     const changesHeader = page.locator(
         '.conversation-changes-group-header', { hasText: 'Changes · 2' })
         .last();
+    const collapseAll = page.locator('[data-changes-collapse-all]');
+    const expandAll = page.locator('[data-changes-expand-all]');
+    await collapseAll.focus();
+    await page.keyboard.press('Space');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-collapse-all]')), true,
+        'keyboard activation leaves focus on the fold action');
+    await expandAll.focus();
+    await page.keyboard.press('Space');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-expand-all]')), true,
+        'expanding also preserves the action button focus');
+
     await page.locator('.conversation-changes-file', {
         hasText: 'login.test.ts',
     }).focus();
-    await page.locator('[data-changes-collapse-all]').click();
+    // Programmatic activation keeps the focused tree row active, unlike a
+    // Playwright click which focuses the toolbar button first.
+    await collapseAll.evaluate(element => element.click());
     assert.equal(await page.evaluate(() => document.activeElement),
         await changesHeader.evaluate(element => element),
         'folding a focused child away restores its group header');
 
-    await page.locator('[data-changes-expand-all]').click();
+    await expandAll.evaluate(element => element.click());
     const focusedFile = page.locator('.conversation-changes-file', {
         hasText: 'login.test.ts',
     });
@@ -14552,6 +14768,21 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay opens on hover and focus, and c
             .getAttribute('aria-describedby'),
         overlayId
     );
+    assert.match(
+        await page.locator('[data-changes-repo-picker]').evaluate(element =>
+            getComputedStyle(element.querySelector(
+                '.conversation-changes-repo-label')).boxShadow),
+        /rgba?\(/,
+        'the transparent select receives a visible focus treatment');
+
+    // The branch text itself is keyboard-focusable and its tooltip carries
+    // the complete branch name plus worktree path (PRD §15.1/§17).
+    const branch = page.locator('[data-changes-branch]');
+    await branch.focus();
+    assert.equal(await overlay.isVisible(), true);
+    assert.equal(await overlay.innerText(),
+        'agent-pivot/fix-login\n/wt/api');
+    assert.equal(await branch.getAttribute('aria-describedby'), overlayId);
 
     // Esc closes the focused trigger's hint. (Focus sits inside the
     // sidebar, so the sidebar's own Esc handling also closes the panel —
@@ -14559,7 +14790,7 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay opens on hover and focus, and c
     await page.keyboard.press('Escape');
     assert.equal(await overlay.isHidden(), true);
     assert.equal(
-        await page.locator('[data-changes-member-select]')
+        await branch
             .getAttribute('aria-describedby'),
         null
     );

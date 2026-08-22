@@ -107,6 +107,7 @@ export class ConversationChangesController {
     private collecting?: Promise<void>;
     private pendingCollect = false;
     private state?: ConversationChangesState;
+    private activationEpoch = 0;
     /** Last selected member per session identity (PRD §5.3 选中持久化). */
     private readonly lastSelectionBySession = new Map<string, string>();
     private readonly collector: ChangesCollector;
@@ -124,6 +125,7 @@ export class ConversationChangesController {
     }
 
     reset(): void {
+        this.activationEpoch += 1;
         this.active?.watcher?.dispose();
         this.active = undefined;
         this.state = undefined;
@@ -139,7 +141,11 @@ export class ConversationChangesController {
             return;
         }
         this.active?.watcher?.dispose();
+        const activationEpoch = ++this.activationEpoch;
         const changeSet = await this.resolveChangeSet(target);
+        if (activationEpoch !== this.activationEpoch) {
+            return;
+        }
         const active: ActiveChanges = {
             target,
             changeSet,
@@ -264,15 +270,29 @@ export class ConversationChangesController {
     }): Promise<void> {
         const member = this.active?.changeSet.members.find(candidate =>
             candidate.memberId === input.memberId);
-        if (!member) {
+        const active = this.active;
+        if (!active || !member) {
             return;
         }
-        // The webview-supplied path must stay inside the member worktree.
-        const resolved = path.resolve(member.worktreePath, input.item.path);
+        // Resolve against the authoritative collected item. The Webview
+        // descriptor only identifies that item; it cannot mint open-file
+        // semantics for an arbitrary path.
+        const authoritative = active.snapshots.get(member.memberId)
+            ?.workingItems.find(item =>
+                item.group === input.item.group
+                && item.xy === input.item.xy
+                && item.path === input.item.path
+                && item.originalPath === input.item.originalPath);
+        if (!authoritative) {
+            return;
+        }
+        // The collected path must also stay inside the member worktree.
+        const resolved = path.resolve(member.worktreePath, authoritative.path);
         if (!isContainedIn(member.worktreePath, resolved)) {
             return;
         }
-        await this.options.openWorkingChangeDiff(member.worktreePath, input.item);
+        await this.options.openWorkingChangeDiff(
+            member.worktreePath, { ...authoritative });
     }
 
     async handleReview(memberId: string): Promise<void> {
@@ -382,9 +402,9 @@ export class ConversationChangesController {
             this.collecting = undefined;
         });
         await this.collecting;
-        if (this.pendingCollect && this.matchesActive(target)) {
+        if (this.pendingCollect && this.active) {
             this.pendingCollect = false;
-            await this.collectAndPublish(target);
+            await this.collectAndPublish(this.active.target);
         }
     }
 
@@ -446,6 +466,10 @@ export class ConversationChangesController {
             collectedAt: this.now(),
         };
         this.state = state;
+        const legacyState: ConversationChangesState = {
+            ...state,
+            members: state.members.map(legacyMemberView),
+        };
         // Stamp the CURRENT generation at publish time (PRD §5.4): the
         // viewer advances its generation on every rebind/refresh, and a
         // value captured at activate() would silently freeze the panel —
@@ -453,6 +477,12 @@ export class ConversationChangesController {
         void Promise.resolve(panel.webview.postMessage({
             type: 'conversation-viewer-changes',
             version: 1,
+            subscriptionGeneration: this.options.getSubscriptionGeneration(),
+            changes: legacyState,
+        }));
+        void Promise.resolve(panel.webview.postMessage({
+            type: 'conversation-viewer-changes',
+            version: 2,
             subscriptionGeneration: this.options.getSubscriptionGeneration(),
             changes: state,
         }));
@@ -498,6 +528,13 @@ function memberView(
     };
 }
 
+function legacyMemberView(
+    member: ConversationChangesMemberView
+): ConversationChangesMemberView {
+    const { headSha: _headSha, upstream: _upstream, ...legacy } = member;
+    return legacy;
+}
+
 function detailView(
     member: ChangesMemberSource,
     snapshot: MemberChangesSnapshot
@@ -531,7 +568,9 @@ function repoLabelFromKey(repositoryKey: string): string {
 
 function isContainedIn(root: string, candidate: string): boolean {
     const relative = path.relative(root, candidate);
-    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    return relative === ''
+        || (relative !== '..' && !relative.startsWith(`..${path.sep}`)
+            && !path.isAbsolute(relative));
 }
 
 function sessionKey(target: ConversationViewerTarget): string {

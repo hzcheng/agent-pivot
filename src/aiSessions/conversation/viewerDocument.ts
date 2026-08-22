@@ -542,11 +542,13 @@ export function renderConversationViewerDocument(
                                 stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M10 3.5 5.5 8l4.5 4.5"/></svg>
                         </button>
-                        <span class="conversation-changes-repo-title"
-                            data-changes-repo-title hidden></span>
+                        <span class="conversation-changes-repo-title conversation-changes-tooltip-target"
+                            data-changes-repo-title tabindex="0"
+                            hidden></span>
                         <div class="conversation-changes-repo-picker"
                             data-changes-repo-picker hidden>
-                            <span class="conversation-changes-repo-label"
+                            <span class="conversation-changes-repo-label
+                                conversation-changes-tooltip-target"
                                 data-changes-repo-label><span
                                     class="conversation-changes-repo-name"
                                     data-changes-repo-name></span><span
@@ -573,8 +575,9 @@ export function renderConversationViewerDocument(
                         </button>
                     </div>
                     <div class="conversation-changes-branch-row">
-                        <span class="conversation-changes-branch"
-                            data-changes-branch><span
+                            <span class="conversation-changes-branch
+                                conversation-changes-tooltip-target"
+                                data-changes-branch tabindex="0"><span
                                 class="conversation-changes-branch-icon"
                                 aria-hidden="true">⎇</span><span
                                 class="conversation-changes-branch-name"><span
@@ -653,11 +656,14 @@ export function renderConversationViewerDocument(
                 <div class="conversation-changes-task" data-changes-task
                     hidden>
                     <div class="conversation-changes-task-lines">
-                        <span class="conversation-changes-task-summary"
-                            data-changes-task-summary
+                        <span class="conversation-changes-task-summary
+                            conversation-changes-tooltip-target"
+                            data-changes-task-summary tabindex="0"
                             data-tooltip="Net result vs task start — includes committed and uncommitted changes"></span>
-                        <span class="conversation-changes-task-tracking"
-                            data-changes-task-tracking hidden></span>
+                        <span class="conversation-changes-task-tracking
+                            conversation-changes-tooltip-target"
+                            data-changes-task-tracking tabindex="0"
+                            hidden></span>
                     </div>
                     <button type="button"
                         class="conversation-changes-action"

@@ -36,17 +36,6 @@ function createOptions(overrides = {}) {
         getCurrentWorkspaceAiSessions: () => null,
         beginAiSessionProjection: () => ({ revision: ++projectionRevision }),
         getGroups: () => [],
-        getTodoSearchItems: () => [{
-            key: 'todo:open-workspaces',
-            todoId: 'open-workspaces',
-            groupId: 'release',
-            title: 'Preserve OPEN catalog',
-            groupTitle: 'Release',
-            priority: 'high',
-            completed: false,
-            notesSearchText: '',
-            searchText: 'preserve open catalog release high',
-        }],
         getCollapsed: () => false,
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
@@ -102,7 +91,6 @@ test('OPEN-OPEN-PROJECT-DASHBOARD-CONTROLLER-001 posts each semantic revision on
     assert.equal(posted.length, 1);
     assert.equal(posted[0].type, 'open-workspaces-updated');
     assert.match(posted[0].semanticRevision, /^[a-f0-9]{64}$/);
-    assert.equal(posted[0].searchCatalog.todos[0].todoId, 'open-workspaces');
     assert.ok(diagnostics.some(([, event]) => event.event === 'open-workspace-cards-build'));
 
     controller.setAggregate({ ...first, semanticRevision: 'revision-2' });
@@ -633,7 +621,7 @@ test('PERSIST-DASHBOARD-MIGRATION-PUBLICATION-001 republishes only after migrate
         isExtensionInstalled: () => false,
         migrateDataIfNeeded: async () => {
             if (migrated) metadata = 'after-migration';
-            return { projects: { migrated }, todos: { migrated: false } };
+            return { projects: { migrated } };
         },
         refreshDashboard: () => events.push(['refresh', metadata]),
         publishOpenWorkspace: () => events.push(['publish', metadata]),

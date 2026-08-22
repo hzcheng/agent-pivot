@@ -73,7 +73,6 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewDashboardValidationScripts.js',
     'extension/media/webviewDashboardSearchScripts.js',
     'extension/media/webviewDashboardProjectsPanelScripts.js',
-    'extension/media/webviewDashboardTodoPanelScripts.js',
     'extension/media/webviewDashboardAiPanelScripts.js',
     'extension/media/webviewDashboardScripts.js',
     'extension/media/webviewSkillPanelScripts.js',
@@ -83,10 +82,8 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewGroupFormScripts.js',
     'extension/media/webviewAiSessionViewStateScripts.js',
     'extension/media/webviewWorkspaceUpdateScripts.js',
-    'extension/media/webviewTodoGroupScripts.js',
     'extension/media/webviewProjectCollapseScripts.js',
     'extension/media/webviewOpenWindowNavigationScripts.js',
-    'extension/media/webviewTodoControlScripts.js',
     'extension/media/webviewProjectContextMenuScripts.js',
     'extension/media/webviewProjectAiUpdateScripts.js',
     'extension/media/webviewProjectAiSessionControlsScripts.js',
@@ -94,8 +91,6 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewPromptProtocolScripts.js',
     'extension/media/webviewPromptScripts.js',
     'extension/media/webviewScrollStateScripts.js',
-    'extension/media/webviewTodoRenderScripts.js',
-    'extension/media/webviewTodoScripts.js',
     'extension/out/openWorkspaces/attentionFocusProtocol.js',
     'extension/out/openWorkspaces/bridgeClient.js',
     'extension/out/openWorkspaces/dashboardController.js',
@@ -629,10 +624,8 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/styles.css', 'media/styles.css'],
         ['extension/media/webviewAiSessionViewStateScripts.js', 'media/webviewAiSessionViewStateScripts.js'],
         ['extension/media/webviewWorkspaceUpdateScripts.js', 'media/webviewWorkspaceUpdateScripts.js'],
-        ['extension/media/webviewTodoGroupScripts.js', 'media/webviewTodoGroupScripts.js'],
         ['extension/media/webviewProjectCollapseScripts.js', 'media/webviewProjectCollapseScripts.js'],
         ['extension/media/webviewOpenWindowNavigationScripts.js', 'media/webviewOpenWindowNavigationScripts.js'],
-        ['extension/media/webviewTodoControlScripts.js', 'media/webviewTodoControlScripts.js'],
         ['extension/media/webviewProjectContextMenuScripts.js', 'media/webviewProjectContextMenuScripts.js'],
         ['extension/media/webviewProjectAiUpdateScripts.js', 'media/webviewProjectAiUpdateScripts.js'],
         ['extension/media/webviewProjectAiSessionControlsScripts.js', 'media/webviewProjectAiSessionControlsScripts.js'],
@@ -642,13 +635,10 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewDashboardValidationScripts.js', 'media/webviewDashboardValidationScripts.js'],
         ['extension/media/webviewDashboardSearchScripts.js', 'media/webviewDashboardSearchScripts.js'],
         ['extension/media/webviewDashboardProjectsPanelScripts.js', 'media/webviewDashboardProjectsPanelScripts.js'],
-        ['extension/media/webviewDashboardTodoPanelScripts.js', 'media/webviewDashboardTodoPanelScripts.js'],
         ['extension/media/webviewDashboardAiPanelScripts.js', 'media/webviewDashboardAiPanelScripts.js'],
         ['extension/media/webviewPromptProtocolScripts.js', 'media/webviewPromptProtocolScripts.js'],
         ['extension/media/webviewPromptScripts.js', 'media/webviewPromptScripts.js'],
         ['extension/media/webviewScrollStateScripts.js', 'media/webviewScrollStateScripts.js'],
-        ['extension/media/webviewTodoRenderScripts.js', 'media/webviewTodoRenderScripts.js'],
-        ['extension/media/webviewTodoScripts.js', 'media/webviewTodoScripts.js'],
     ]) {
         assert.deepStrictEqual(mainEntries.get(archiveEntry), fs.readFileSync(path.join(repositoryRoot, localPath)),
             `${archiveEntry} must match the production-generated local asset`);
@@ -973,10 +963,8 @@ function run() {
     assertIncludes(mainIgnore, 'out/**/*.map', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewAiSessionViewStateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewWorkspaceUpdateScripts.js', 'main VSIX ignore rules');
-    assertIncludes(mainIgnore, '!media/webviewTodoGroupScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectCollapseScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewOpenWindowNavigationScripts.js', 'main VSIX ignore rules');
-    assertIncludes(mainIgnore, '!media/webviewTodoControlScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectContextMenuScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectAiUpdateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectAiSessionControlsScripts.js', 'main VSIX ignore rules');
@@ -986,13 +974,10 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewDashboardValidationScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewDashboardSearchScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewDashboardProjectsPanelScripts.js', 'main VSIX ignore rules');
-    assertIncludes(mainIgnore, '!media/webviewDashboardTodoPanelScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewDashboardAiPanelScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptProtocolScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewPromptScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewScrollStateScripts.js', 'main VSIX ignore rules');
-    assertIncludes(mainIgnore, '!media/webviewTodoRenderScripts.js', 'main VSIX ignore rules');
-    assertIncludes(mainIgnore, '!media/webviewTodoScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/mermaid.min.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/styles.css', 'main VSIX ignore rules');
     assertIncludes(bridgeIgnore, 'src/**', 'UI Bridge VSIX ignore rules');
@@ -1017,10 +1002,8 @@ function run() {
         'dist/dashboard.js',
         'media/webviewAiSessionViewStateScripts.js',
         'media/webviewWorkspaceUpdateScripts.js',
-        'media/webviewTodoGroupScripts.js',
         'media/webviewProjectCollapseScripts.js',
         'media/webviewOpenWindowNavigationScripts.js',
-        'media/webviewTodoControlScripts.js',
         'media/webviewProjectContextMenuScripts.js',
         'media/webviewProjectAiUpdateScripts.js',
         'media/webviewProjectAiSessionControlsScripts.js',
@@ -1030,13 +1013,10 @@ function run() {
         'media/webviewDashboardValidationScripts.js',
         'media/webviewDashboardSearchScripts.js',
         'media/webviewDashboardProjectsPanelScripts.js',
-        'media/webviewDashboardTodoPanelScripts.js',
         'media/webviewDashboardAiPanelScripts.js',
         'media/webviewPromptProtocolScripts.js',
         'media/webviewPromptScripts.js',
         'media/webviewScrollStateScripts.js',
-        'media/webviewTodoRenderScripts.js',
-        'media/webviewTodoScripts.js',
         'media/mermaid.min.js',
         'media/styles.css',
         'extensions/attention-ui-bridge/dist/extension.js',

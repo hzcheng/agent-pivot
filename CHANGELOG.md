@@ -6,6 +6,9 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ### Changed
 
+- Removed the global TODO Dashboard tab, its search results, and its
+  synchronized data setting. Existing TODO data is left untouched in VS Code
+  storage/settings but is no longer read or displayed.
 - The AI Conversation bottom corner rails now switch between open WINDOWS
   instead of adjacent Sessions: Previous/Next Window walk one shared,
   identity-sorted ring of every open window — each window anchors on its own

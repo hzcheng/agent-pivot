@@ -22,7 +22,6 @@ function createController(overrides = {}) {
         getCurrentWorkspaceAiSessions: () => null,
         beginAiSessionProjection: () => ({ revision: 1 }),
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCollapsed: () => false,
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,

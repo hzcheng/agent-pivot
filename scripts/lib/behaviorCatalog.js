@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const ID_PATTERN = /^[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-[0-9]{3}$/;
 const ALLOWED_DOMAINS = new Set([
-    'project', 'todo', 'open-project', 'webview', 'session', 'runtime', 'attention',
+    'project', 'open-project', 'webview', 'session', 'runtime', 'attention',
     'persistence', 'error', 'release', 'architecture',
 ]);
 const ALLOWED_PRIORITIES = new Set(['P0', 'P1', 'P2']);

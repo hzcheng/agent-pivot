@@ -69,7 +69,6 @@ function manifests() {
                 'kimi', 'kimi cli',
                 'ai sessions', 'session manager',
                 'project manager', 'projects',
-                'todo', 'todo list',
                 'prompts', 'prompt library',
                 'workspace', 'tmux', 'dashboard',
             ],

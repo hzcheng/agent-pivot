@@ -19,12 +19,11 @@
 | Area | Size | Owns |
 | --- | --- | --- |
 | `aiSessions/` | 122 files, ~31.4k lines | AI session runtime: tmux backend/discovery/binding store (`tmuxRuntimeBackend.ts`, `tmuxRuntimeDiscovery.ts`, `tmuxRuntimeBindingStore.ts` + `tmuxBindingRecords.ts`), runtime capabilities (`*Capability.ts`, factory + injected options, the #92 pattern), conversation viewer (`conversation/`), attention pipeline (`attention*.ts`), notifications (`notify/`), lifecycle readers |
-| `webview/` | 39 files, ~15k lines | Sidebar webview content (`webviewContent.ts` + `webviewAiSessionContent.ts`) and behavior scripts (`webview*Scripts.js`, mirrored byte-for-byte into `media/`, guarded by WEBVIEW-ASSET-IDENTITY-001) |
+| `webview/` | 34 files, ~13k lines | Sidebar webview content (`webviewContent.ts` + `webviewAiSessionContent.ts`) and behavior scripts (`webview*Scripts.js`, mirrored byte-for-byte into `media/`, guarded by WEBVIEW-ASSET-IDENTITY-001) |
 | `services/` | 11 files, ~4.9k lines | Provider session services (codex/kimi/claude), legacy project services; `ntc.ts` is vendored and coverage-exempt |
 | `skills/` | 16 files, ~4.4k lines | Skills management: central store, scope actions, discovery (hash-cached), panel controller (hidden-scan gated) |
 | `projects/` | 21 files, ~2.7k lines | Project CRUD, favorites, path utilities, remote resolution |
 | `dashboard/` | 19 files, ~2.3k lines | View provider, message routing, startup/diagnostics |
-| `todos/` | 7 files, ~2.2k lines | TODO store, service, panel capability |
 | `openWorkspaces/` | 9 files, ~2k lines | Open-workspace bridge client/protocol |
 | `workspaces/` | 14 files, ~1.5k lines | Workspace hydration and session scoping |
 | `prompts/` | 5 files, ~1.4k lines | Prompt library service and webview content |
@@ -44,7 +43,7 @@
 ### Refactor line (#92–#106): split oversized modules, zero behavior change
 
 - #92 established the capability-extraction pattern in the tmux runtime (factory + explicit options, owner keeps composition root).
-- Webview scripts: dashboard 1234→494 lines across #101/#104 (validation, search, three panel factories), todo renderer extracted (#102), prompt protocol extracted (#103); every pair byte-identical to `media/`.
+- Webview scripts: dashboard 1234→494 lines across #101/#104 (validation, search, panel factories); every pair byte-identical to `media/`.
 - TypeScript: AI session rendering out of `webviewContent.ts` 1556→1013 (#105); tmux binding record schema out of the binding store 1731→889 (#106, validators covered by direct contract tests).
 
 ### Performance line (#110, #125)

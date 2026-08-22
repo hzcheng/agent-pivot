@@ -107,7 +107,6 @@ test('ARCH-CI-QUALITY-GATE-001 keeps the Windows gate on meaningful platform cov
         'tests/unit/projects/orderAndFavorites.test.js',
         'tests/unit/projects/workspaceAndOpenMatching.test.js',
         'tests/unit/aiSessions/commandBuilders.test.js',
-        'tests/unit/todos/types.test.js',
         'tests/unit/prompts/service.test.js',
     ]) {
         assert.ok(windows.includes(required), `test:ci:windows must run ${required}`);
@@ -150,7 +149,7 @@ test('ARCH-MAIN-CAPABILITY-COVERAGE-001 requires full Git history in the Linux q
     );
 });
 
-test('TODO-BROWSER-EXPANDED-LAYOUT-001 requires pinned Chromium in the Linux quality job', () => {
+test('ARCH-CI-QUALITY-GATE-002 requires pinned Chromium in the Linux quality job', () => {
     const missingChromiumWorkflow = verifyWorkflow.replace(
         '            if timeout --kill-after=10s 120s npx playwright install --only-shell chromium; then',
         '            if npx playwright --version; then'

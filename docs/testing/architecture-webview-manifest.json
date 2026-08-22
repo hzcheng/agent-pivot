@@ -18,10 +18,8 @@
         "src/webview/webviewScrollStateScripts.js",
         "src/webview/webviewAiSessionViewStateScripts.js",
         "src/webview/webviewWorkspaceUpdateScripts.js",
-        "src/webview/webviewTodoGroupScripts.js",
         "src/webview/webviewProjectCollapseScripts.js",
         "src/webview/webviewOpenWindowNavigationScripts.js",
-        "src/webview/webviewTodoControlScripts.js",
         "src/webview/webviewProjectContextMenuScripts.js",
         "src/webview/webviewProjectAiUpdateScripts.js",
         "src/webview/webviewGroupFormScripts.js",
@@ -32,13 +30,10 @@
         "src/webview/webviewDashboardValidationScripts.js",
         "src/webview/webviewDashboardSearchScripts.js",
         "src/webview/webviewDashboardProjectsPanelScripts.js",
-        "src/webview/webviewDashboardTodoPanelScripts.js",
         "src/webview/webviewDashboardAiPanelScripts.js",
         "src/webview/webviewDashboardScripts.js",
         "src/webview/webviewPromptProtocolScripts.js",
         "src/webview/webviewPromptScripts.js",
-        "src/webview/webviewTodoRenderScripts.js",
-        "src/webview/webviewTodoScripts.js",
         "src/webview/webviewDnDScripts.js",
         "src/webview/webviewFilterScripts.js"
       ]
@@ -158,7 +153,6 @@
         "src/webview/webviewAiSessionViewStateScripts.js",
         "src/webview/webviewProjectsPanelScripts.js",
         "src/webview/webviewSkillPanelScripts.js",
-        "src/webview/webviewTodoScripts.js",
         "src/webview/webviewWorkspaceUpdateScripts.js"
       ]
     },
@@ -170,14 +164,9 @@
       ]
     },
     {
-      "symbol": "window.__agentPivotTodo",
-      "producer": "src/webview/webviewTodoScripts.js",
-      "consumers": [
-        "src/webview/webviewDashboardTodoPanelScripts.js",
-        "src/webview/webviewDnDScripts.js",
-        "src/webview/webviewProjectCollapseScripts.js",
-        "src/webview/webviewTodoControlScripts.js"
-      ]
+      "symbol": "window.__agentPivotGetCollapseButtonState",
+      "producer": "src/webview/webviewProjectCollapseScripts.js",
+      "consumers": []
     },
     {
       "symbol": "window.__agentPivotWorktreeAdopt",

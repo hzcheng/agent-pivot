@@ -465,7 +465,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 ignores messages without a complete bounded
     const cases = [
         ['undefined', undefined],
         ['array', []],
-        ['unrelated object', { type: 'todo-command' }],
+        ['unrelated object', { type: 'unrelated-command' }],
         ['unsupported message version', command('create', { name: 'Review', text: 'Body' }, { version: 2 })],
         ['wrong target', command('create', { name: 'Review', text: 'Body' }, { target: 'project-a' })],
         ['missing target', (() => {

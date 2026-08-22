@@ -39,11 +39,6 @@ const { GroupCommandController } = require('../out/projects/groupCommandControll
 const { queryGroupName } = require('../out/projects/groupPrompts');
 const { ProjectOrderController } = require('../out/projects/projectOrderController');
 const { ProjectRemovalController } = require('../out/projects/projectRemovalController');
-const todoTypes = require('../out/todos/types');
-const { TodoService } = require('../out/todos/service');
-const { deleteTodoWithConfirmation, runTodoMutation } = require('../out/todos/hostMutation');
-const todoViewModel = require('../out/todos/viewModel');
-const todoWebviewContent = require('../out/todos/webviewContent');
 const { buildWorkspaceDashboardSearchCatalog } = require('../out/webview/dashboardViewModel');
 const { inputPaths: dashboardBundleInputPaths } = require('./build-dashboard-webview-bundle');
 const AsyncFunction = Object.getPrototypeOf(async function () { return undefined; }).constructor;
@@ -65,9 +60,6 @@ const dashboardSearchScriptPath = path.join(
 const dashboardProjectsPanelScriptPath = path.join(
     root, 'src', 'webview', 'webviewDashboardProjectsPanelScripts.js'
 );
-const dashboardTodoPanelScriptPath = path.join(
-    root, 'src', 'webview', 'webviewDashboardTodoPanelScripts.js'
-);
 const dashboardAiPanelScriptPath = path.join(
     root, 'src', 'webview', 'webviewDashboardAiPanelScripts.js'
 );
@@ -78,14 +70,8 @@ const aiSessionViewStateScriptPath = path.join(
 const workspaceUpdateScriptPath = path.join(
     root, 'src', 'webview', 'webviewWorkspaceUpdateScripts.js'
 );
-const todoGroupScriptPath = path.join(
-    root, 'src', 'webview', 'webviewTodoGroupScripts.js'
-);
 const projectCollapseScriptPath = path.join(
     root, 'src', 'webview', 'webviewProjectCollapseScripts.js'
-);
-const todoControlScriptPath = path.join(
-    root, 'src', 'webview', 'webviewTodoControlScripts.js'
 );
 const projectContextMenuScriptPath = path.join(
     root, 'src', 'webview', 'webviewProjectContextMenuScripts.js'
@@ -101,9 +87,7 @@ function readProjectWebviewSource() {
     return [
         aiSessionViewStateScriptPath,
         workspaceUpdateScriptPath,
-        todoGroupScriptPath,
         projectCollapseScriptPath,
-        todoControlScriptPath,
         projectContextMenuScriptPath,
         projectAiUpdateScriptPath,
         aiSessionControlsScriptPath,
@@ -118,7 +102,6 @@ function readDashboardWebviewSource() {
         dashboardValidationScriptPath,
         dashboardSearchScriptPath,
         dashboardProjectsPanelScriptPath,
-        dashboardTodoPanelScriptPath,
         dashboardAiPanelScriptPath,
         dashboardScriptPath,
     ].map(scriptPath => fs.readFileSync(scriptPath, 'utf8')).join('\n');
@@ -126,7 +109,6 @@ function readDashboardWebviewSource() {
 const promptScriptPath = path.join(root, 'src', 'webview', 'webviewPromptScripts.js');
 const scrollStateScriptPath = path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js');
 const extensionHostPath = path.join(root, 'src', 'dashboard.ts');
-const todoPanelCapabilityPath = path.join(root, 'src', 'todos', 'todoPanelCapability.ts');
 
 function compileDashboardStyles(source) {
     return sass.compileString(source, {
@@ -319,10 +301,6 @@ function makeDashboardCatalog() {
             projectId: 'saved', name: 'Dashboard', description: 'Saved',
             action: 'open-saved', groupLabels: ['FAVORITES', 'TOOLS'],
         }],
-        todos: [{
-            key: 'todo:t1', todoId: 't1', groupId: 'todo-group-a', searchText: 'ship todo planning',
-            title: 'Ship TODO', groupTitle: 'Planning', priority: 'high', completed: false, notesSearchText: 'planning',
-        }],
     };
 }
 
@@ -361,7 +339,6 @@ function makeWorkspaceDashboardCatalog() {
             action: 'switch-open-workspace', current: false,
         }],
         savedProjects: makeDashboardCatalog().savedProjects,
-        todos: makeDashboardCatalog().todos,
     };
 }
 
@@ -379,7 +356,6 @@ function runDashboardUpdateMessageChecks() {
     } finally {
         Module._load = previousModuleLoad;
     }
-    const todoSearchItems = makeDashboardCatalog().todos;
     const workspaceCard = makeWorkspaceCardFixture(3);
     const makePresentation = projectionRevision => ({
         type: 'ai-session-presentation-state', version: 1, projectionRevision,
@@ -394,7 +370,6 @@ function runDashboardUpdateMessageChecks() {
         cards: [workspaceCard],
         sequence: 7,
         generatedAt: '2026-07-17T00:00:00.000Z',
-        todoSearchItems,
         runningCardAnimation: 'custom',
         runningIconAnimation: 'halo',
         presentation: makePresentation(7),
@@ -417,15 +392,12 @@ function runDashboardUpdateMessageChecks() {
         semanticRevision: 'b'.repeat(64),
         projectionRevision: 1,
         otherWindowsStatus: 'ready',
-        todoSearchItems,
         runningCardAnimation: 'breath',
         runningIconAnimation: 'custom',
         presentation: makePresentation(1),
     });
-    const workspaceSearchCatalog = buildWorkspaceDashboardSearchCatalog([], [workspaceCard], todoSearchItems);
+    const workspaceSearchCatalog = buildWorkspaceDashboardSearchCatalog([], [workspaceCard]);
 
-    assert.deepStrictEqual(aiMessage.searchCatalog.todos, todoSearchItems,
-        'AI incremental catalog rebuilds must preserve real TODO search items');
     assert.strictEqual(aiMessage.version, 3);
     assert.strictEqual(aiMessage.projectionRevision, 7);
     assert.strictEqual(aiMessage.presentation.projectionRevision, 7);
@@ -439,7 +411,6 @@ function runDashboardUpdateMessageChecks() {
         cards: [{ ...workspaceCard, roots: [] }],
         sequence: 8,
         generatedAt: '2026-07-17T00:00:00.000Z',
-        todoSearchItems,
         presentation: makePresentation(8),
     });
     assert.strictEqual(emptyWindowMessage.currentWorkspaceCount, 0,
@@ -465,7 +436,6 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(workspaceSearchCatalog.version, 3);
     assert.deepStrictEqual(workspaceSearchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.deepStrictEqual(workspaceSearchCatalog.sessions.map(item => item.action), ['reveal-workspace-session']);
-    assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
     assert.strictEqual(openWorkspacesMessage.type, 'open-workspaces-updated');
     assert.strictEqual(openWorkspacesMessage.version, 4);
     assert.strictEqual(openWorkspacesMessage.presentation.projectionRevision, 1);
@@ -1347,1848 +1317,6 @@ async function runGroupCommandControllerChecks() {
     assert.strictEqual(actions.filter(action => action[0] === 'remove').length, 1);
 }
 
-async function runTodoStoreChecks() {
-    assert.deepStrictEqual(todoTypes.normalizeTodoData(null), { version: 1, groups: [], todos: [] });
-    assert.throws(
-        () => todoTypes.normalizeTodoData({ version: 99, groups: [], todos: [] }),
-        error => error && error.name === 'UnsupportedTodoDataVersionError' && error.version === 99
-    );
-    assert.deepStrictEqual(
-        todoTypes.normalizeTodoData({ groups: [], todos: [] }),
-        { version: 1, groups: [], todos: [] },
-        'unversioned v1-shaped TODO data should remain readable'
-    );
-    assert.deepStrictEqual(
-        todoTypes.normalizeTodoData({
-            groups: [{ id: 'legacy-group', title: 'Legacy Group', collapsed: false, order: 0 }],
-            todos: [{
-                id: 'legacy-todo',
-                groupId: 'legacy-group',
-                title: 'Keep legacy data',
-                notes: 'preserved',
-                priority: 'high',
-                completed: false,
-                createdAt: '2026-07-16T00:00:00.000Z',
-                updatedAt: '2026-07-16T00:00:00.000Z',
-                order: 0,
-            }],
-        }),
-        {
-            version: 1,
-            groups: [{ id: 'legacy-group', title: 'Legacy Group', collapsed: false, order: 0 }],
-            todos: [{
-                id: 'legacy-todo',
-                groupId: 'legacy-group',
-                title: 'Keep legacy data',
-                notes: 'preserved',
-                priority: 'high',
-                completed: false,
-                createdAt: '2026-07-16T00:00:00.000Z',
-                updatedAt: '2026-07-16T00:00:00.000Z',
-                completedAt: undefined,
-                order: 0,
-            }],
-        },
-        'non-empty unversioned v1 TODO data should be preserved'
-    );
-
-    const normalized = todoTypes.normalizeTodoData({
-        version: 1,
-        groups: [
-            { id: 'group-a', title: ' Group A ', collapsed: true, order: 2 },
-            { id: '', title: '', order: 'bad' },
-        ],
-        todos: [
-            {
-                id: 'todo-a',
-                groupId: 'group-a',
-                title: ' Todo A ',
-                notes: 'notes',
-                priority: 'high',
-                completed: true,
-                createdAt: '2026-07-15T00:00:00.000Z',
-                updatedAt: '2026-07-16T00:00:00.000Z',
-                completedAt: '2026-07-16T00:00:00.000Z',
-                order: 3,
-            },
-            { id: 'todo-b', groupId: 'missing', title: 'Invalid Group' },
-            { id: '', groupId: 'group-a', title: 'Invalid Id' },
-        ],
-    });
-
-    assert.deepStrictEqual(normalized.groups, [
-        { id: 'group-a', title: 'Group A', collapsed: true, order: 2 },
-    ]);
-    assert.strictEqual(normalized.todos.length, 1);
-    assert.strictEqual(normalized.todos[0].title, 'Todo A');
-    assert.strictEqual(normalized.todos[0].priority, 'high');
-    assert.strictEqual(normalized.todos[0].completed, true);
-
-    const searchItems = todoTypes.buildTodoSearchItems({
-        version: 1,
-        groups: [{ id: 'group-a', title: 'Planning', collapsed: false, order: 0 }],
-        todos: [{
-            id: 'todo-a',
-            groupId: 'group-a',
-            title: 'Ship TODO',
-            notes: 'x'.repeat(700),
-            priority: 'medium',
-            completed: false,
-            createdAt: '2026-07-16T00:00:00.000Z',
-            updatedAt: '2026-07-16T00:00:00.000Z',
-            order: 0,
-        }],
-    });
-    assert.strictEqual(searchItems.length, 1);
-    assert.strictEqual(searchItems[0].notesSearchText.length, 500);
-    assert.ok(searchItems[0].searchText.includes('planning'));
-    assert.ok(searchItems[0].searchText.includes('ship todo'));
-
-    const globalValues = new Map();
-    const configValues = {};
-    const globalUpdates = [];
-    const configUpdates = [];
-    const makeService = useSettingsStorage => new TodoService({
-        globalState: {
-            get: key => globalValues.get(key),
-            update: async (key, value) => {
-                globalUpdates.push([key, value]);
-                globalValues.set(key, value);
-            },
-        },
-        configuration: {
-            get: (key, fallback) => Object.prototype.hasOwnProperty.call(configValues, key) ? configValues[key] : fallback,
-            update: async (key, value, target) => {
-                configUpdates.push([key, value, target]);
-                configValues[key] = value;
-            },
-        },
-        useSettingsStorage: () => useSettingsStorage,
-        now: () => '2026-07-16T00:00:00.000Z',
-        generateId: prefix => `${prefix}-id-${globalUpdates.length + configUpdates.length}`,
-    });
-
-    const globalService = makeService(false);
-    const afterAddTodo = await globalService.addTodo({ title: ' First task ', notes: ' Notes ', priority: 'high' });
-    assert.strictEqual(afterAddTodo.groups.length, 1);
-    assert.strictEqual(afterAddTodo.groups[0].title, 'Inbox');
-    assert.strictEqual(afterAddTodo.todos[0].title, 'First task');
-    assert.strictEqual(afterAddTodo.todos[0].notes, 'Notes');
-    assert.strictEqual(afterAddTodo.todos[0].priority, 'high');
-    assert.deepStrictEqual(globalUpdates[0][0], 'todos');
-
-    const completed = await globalService.completeTodo(afterAddTodo.todos[0].id, true);
-    assert.strictEqual(completed.todos[0].completed, true);
-    assert.strictEqual(completed.todos[0].completedAt, '2026-07-16T00:00:00.000Z');
-
-    const renamed = await globalService.addGroup('');
-    assert.strictEqual(renamed.groups[1].title, 'Untitled Group');
-    await globalService.setGroupCollapsed(renamed.groups[1].id, true);
-    assert.strictEqual(globalService.getData().groups[1].collapsed, true);
-    await globalService.deleteGroup(renamed.groups[1].id);
-    assert.strictEqual(globalService.getData().groups.some(group => group.id === renamed.groups[1].id), false);
-
-    const settingsService = makeService(true);
-    await settingsService.saveData({ version: 1, groups: [], todos: [] });
-    assert.deepStrictEqual(configUpdates[0][1], globalService.getData(),
-        'the initial settings barrier must copy the non-empty global source before saving');
-    assert.deepStrictEqual(configUpdates[1], ['todoData', { version: 1, groups: [], todos: [] }, 1]);
-
-    const directSettingsUpdates = [];
-    const serviceWithReadOnlyMergedConfiguration = new TodoService({
-        globalState: {
-            get: () => undefined,
-            update: async () => undefined,
-        },
-        configuration: {
-            get: (_key, fallback) => fallback,
-            update: undefined,
-        },
-        writableConfiguration: {
-            update: async (key, value, target) => directSettingsUpdates.push([key, value, target]),
-        },
-        useSettingsStorage: () => true,
-        now: () => '2026-07-16T00:00:00.000Z',
-        generateId: prefix => `${prefix}-direct-settings`,
-    });
-    await serviceWithReadOnlyMergedConfiguration.addTodo({ title: 'Persist through primary settings' });
-    assert.strictEqual(directSettingsUpdates.length, 1,
-        'settings-backed TODO writes must bypass the merged read configuration adapter');
-    assert.strictEqual(directSettingsUpdates[0][0], 'todoData');
-    assert.strictEqual(directSettingsUpdates[0][2], 1);
-
-    for (const useSettingsStorage of [false, true]) {
-        globalUpdates.length = 0;
-        configUpdates.length = 0;
-        await assert.rejects(
-            () => makeService(useSettingsStorage).saveData({ version: 2, groups: [], todos: [] }),
-            error => error && error.name === 'UnsupportedTodoDataVersionError' && error.version === 2
-        );
-        assert.deepStrictEqual(globalUpdates, [], 'unknown TODO data must not be written to globalState');
-        assert.deepStrictEqual(configUpdates, [], 'unknown TODO data must not be written to settings');
-    }
-}
-
-async function runTodoOrderingMutationChecks() {
-    let storedData = {
-        version: 1,
-        groups: [
-            { id: 'group-a', title: 'Group A', collapsed: false, order: 0 },
-            { id: 'group-b', title: 'Group B', collapsed: true, order: 1 },
-            { id: 'group-c', title: 'Group C', collapsed: false, order: 2 },
-        ],
-        todos: [
-            { id: 'todo-a1', groupId: 'group-a', title: 'A1', notes: '', priority: 'medium', completed: false, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', order: 0 },
-            { id: 'todo-a2', groupId: 'group-a', title: 'A2', notes: '', priority: 'medium', completed: false, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', order: 1 },
-            { id: 'todo-a-done', groupId: 'group-a', title: 'A done', notes: '', priority: 'medium', completed: true, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', completedAt: '2026-07-16T01:00:00.000Z', order: 2 },
-            { id: 'todo-b1', groupId: 'group-b', title: 'B1', notes: '', priority: 'medium', completed: false, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', order: 0 },
-        ],
-    };
-    const writes = [];
-    let nextId = 0;
-    const service = new TodoService({
-        globalState: {
-            get: () => storedData,
-            update: async (_key, value) => {
-                writes.push(value);
-                storedData = value;
-            },
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-        now: () => '2026-07-17T00:00:00.000Z',
-        generateId: prefix => `${prefix}-new-${++nextId}`,
-    });
-
-    const afterAdd = await service.addTodo({ title: 'Newest', groupId: 'group-a' });
-    assert.deepStrictEqual(
-        afterAdd.todos.filter(todo => todo.groupId === 'group-a' && !todo.completed).sort((a, b) => a.order - b.order).map(todo => [todo.title, todo.order]),
-        [['Newest', 0], ['A1', 1], ['A2', 2]],
-        'new TODOs must be inserted at order 0 and shift existing items down'
-    );
-    assert.strictEqual(afterAdd.todos.find(todo => todo.id === 'todo-a-done').order, 3,
-        'new TODO insertion must also shift completed items without changing their status');
-
-    let previousWrites = writes.length;
-    const renamed = await service.renameGroup('group-a', ' Renamed A ');
-    assert.strictEqual(renamed.groups.find(group => group.id === 'group-a').title, 'Renamed A');
-    assert.strictEqual(writes.length, previousWrites + 1, 'group rename must use one persisted mutation');
-
-    previousWrites = writes.length;
-    const reorderedGroups = await service.reorderGroups(['group-c', 'group-a', 'group-b']);
-    assert.deepStrictEqual(
-        reorderedGroups.groups.map(group => [group.id, group.order]),
-        [['group-c', 0], ['group-a', 1], ['group-b', 2]]
-    );
-    assert.strictEqual(writes.length, previousWrites + 1, 'group reorder must use one persisted mutation');
-
-    previousWrites = writes.length;
-    const reorderedTodos = await service.reorderTodos('group-a', ['todo-a2', 'todo-a1', 'todo-new-1']);
-    assert.deepStrictEqual(
-        reorderedTodos.todos.filter(todo => todo.groupId === 'group-a').sort((a, b) => a.order - b.order).map(todo => [todo.id, todo.order]),
-        [['todo-a2', 0], ['todo-a1', 1], ['todo-new-1', 2], ['todo-a-done', 3]],
-        'an exact visible TODO reorder must retain hidden completed items at the end'
-    );
-    assert.strictEqual(writes.length, previousWrites + 1, 'TODO reorder must use one persisted mutation');
-
-    const invalidReorders = [
-        () => service.reorderGroups(['group-a', 'group-b']),
-        () => service.reorderGroups(['group-a', 'group-b', 'group-b']),
-        () => service.reorderTodos('group-a', ['todo-a1', 'todo-a2']),
-        () => service.reorderTodos('group-a', ['todo-a1', 'todo-a2', 'todo-b1']),
-        () => service.reorderTodos('missing-group', []),
-    ];
-    previousWrites = writes.length;
-    for (const invalidReorder of invalidReorders) {
-        await assert.rejects(invalidReorder, /exactly|same group|must exist/i);
-    }
-    assert.strictEqual(writes.length, previousWrites, 'invalid or cross-group reorder arrays must not persist');
-
-    previousWrites = writes.length;
-    const collapsed = await service.setGroupsCollapsed(true);
-    assert.deepStrictEqual(collapsed.groups.map(group => group.collapsed), [true, true, true]);
-    assert.strictEqual(writes.length, previousWrites + 1, 'bulk TODO collapse must use one persisted mutation');
-}
-
-async function runTodoInsertionOrderNormalizationChecks() {
-    const scenarios = [
-        { name: 'gapped target orders', orders: [0, 2] },
-        { name: 'negative target orders', orders: [-2, 0] },
-    ];
-
-    for (const scenario of scenarios) {
-        let storedData = {
-            version: 1,
-            groups: [
-                { id: 'target-group', title: 'Target', collapsed: false, order: 0 },
-                { id: 'other-group', title: 'Other', collapsed: true, order: 1 },
-            ],
-            todos: [
-                { id: 'target-second', groupId: 'target-group', title: 'Second', notes: 'second', priority: 'low', completed: false, createdAt: '2026-07-15T00:00:00.000Z', updatedAt: '2026-07-15T01:00:00.000Z', order: scenario.orders[1] },
-                { id: 'other-first', groupId: 'other-group', title: 'Other first', notes: 'unchanged', priority: 'high', completed: true, createdAt: '2026-07-14T00:00:00.000Z', updatedAt: '2026-07-14T01:00:00.000Z', completedAt: '2026-07-14T02:00:00.000Z', order: -7 },
-                { id: 'target-first', groupId: 'target-group', title: 'First', notes: 'first', priority: 'medium', completed: true, createdAt: '2026-07-13T00:00:00.000Z', updatedAt: '2026-07-13T01:00:00.000Z', completedAt: '2026-07-13T02:00:00.000Z', order: scenario.orders[0] },
-                { id: 'other-second', groupId: 'other-group', title: 'Other second', notes: 'also unchanged', priority: 'medium', completed: false, createdAt: '2026-07-12T00:00:00.000Z', updatedAt: '2026-07-12T01:00:00.000Z', order: 9 },
-            ],
-        };
-        const service = new TodoService({
-            globalState: {
-                get: () => storedData,
-                update: async (_key, value) => { storedData = value; },
-            },
-            configuration: makeWorkspaceConfiguration({}),
-            useSettingsStorage: () => false,
-            now: () => '2026-07-17T00:00:00.000Z',
-            generateId: prefix => `${prefix}-new`,
-        });
-        const otherGroupBefore = service.getData().todos
-            .filter(todo => todo.groupId === 'other-group')
-            .map(todo => ({ ...todo }));
-
-        const result = await service.addTodo({ title: 'Newest', groupId: 'target-group' });
-        assert.deepStrictEqual(
-            result.todos
-                .filter(todo => todo.groupId === 'target-group')
-                .sort((a, b) => a.order - b.order)
-                .map(todo => [todo.id, todo.order]),
-            [['todo-new', 0], ['target-first', 1], ['target-second', 2]],
-            `${scenario.name} must normalize to a stable contiguous sequence with the new TODO first`
-        );
-        assert.deepStrictEqual(
-            result.todos.filter(todo => todo.groupId === 'other-group'),
-            otherGroupBefore,
-            `${scenario.name} must not modify TODOs in other groups`
-        );
-    }
-
-    let tiedData = {
-        version: 1,
-        groups: [{ id: 'tied-group', title: 'Tied', collapsed: false, order: 0 }],
-        todos: [
-            { id: 'tie-first', groupId: 'tied-group', title: 'Tie first', notes: '', priority: 'medium', completed: false, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', order: 0 },
-            { id: 'tie-second', groupId: 'tied-group', title: 'Tie second', notes: '', priority: 'medium', completed: false, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', order: 0 },
-        ],
-    };
-    const tiedService = new TodoService({
-        globalState: {
-            get: () => tiedData,
-            update: async (_key, value) => { tiedData = value; },
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-        now: () => '2026-07-17T00:00:00.000Z',
-        generateId: prefix => `${prefix}-new`,
-    });
-    const tiedResult = await tiedService.addTodo({ title: 'Newest', groupId: 'tied-group' });
-    assert.deepStrictEqual(
-        tiedResult.todos.sort((a, b) => a.order - b.order).map(todo => [todo.id, todo.order]),
-        [['todo-new', 0], ['tie-first', 1], ['tie-second', 2]],
-        'equal old orders must retain the current data.todos index as their stable tie-breaker'
-    );
-}
-
-function makeStoredTodoData(groupId) {
-    return {
-        version: 1,
-        groups: [{ id: groupId, title: groupId, collapsed: false, order: 0 }],
-        todos: [],
-    };
-}
-
-function makeTodoServiceStorageHarness(useSettingsStorage, initialGlobalData, initialSettingsData) {
-    const values = {
-        global: initialGlobalData,
-        settings: initialSettingsData,
-    };
-    const updates = [];
-    let knownDataBackend;
-    const service = new TodoService({
-        globalState: {
-            get: key => key === 'todos' ? values.global : knownDataBackend,
-            update: async (key, value) => {
-                if (key !== 'todos') {
-                    knownDataBackend = value;
-                    return;
-                }
-                updates.push(['global', key, value]);
-                values.global = value;
-            },
-        },
-        configuration: {
-            get: (key, fallback) => key === 'todoData' ? values.settings : fallback,
-            update: async (key, value, target) => {
-                updates.push(['settings', key, value, target]);
-                values.settings = value;
-            },
-        },
-        useSettingsStorage: () => useSettingsStorage,
-        now: () => '2026-07-16T00:00:00.000Z',
-    });
-    return { service, updates, values };
-}
-
-async function runTodoStorageResolutionChecks() {
-    const primarySettingsData = makeStoredTodoData('settings-group');
-    const globalData = makeStoredTodoData('global-group');
-    const cases = [
-        {
-            name: 'explicit Agent Pivot setting selects global state',
-            configuration: makeWorkspaceConfiguration({
-                storeProjectsInSettings: false,
-                todoData: primarySettingsData,
-            }),
-            expectedGroupId: 'global-group',
-        },
-        {
-            name: 'Agent Pivot manifest default selects settings',
-            configuration: makeWorkspaceConfiguration(
-                { todoData: primarySettingsData },
-                ['todoData'],
-                { storeProjectsInSettings: true }
-            ),
-            expectedGroupId: 'settings-group',
-        },
-    ];
-
-    for (const testCase of cases) {
-        workspaceConfigurationResolver = () => testCase.configuration;
-        const service = new TodoService({
-            globalState: {
-                get: key => key === 'todos' ? globalData : undefined,
-                update: async () => undefined,
-            },
-        });
-        assert.strictEqual(service.getData().groups[0].id, testCase.expectedGroupId, testCase.name);
-    }
-
-    async function runExtensionContextSettingsWrite(rejectWrite) {
-        const primary = makeWorkspaceConfiguration(
-            { storeProjectsInSettings: true },
-            ['storeProjectsInSettings', 'update']
-        );
-        workspaceConfigurationResolver = () => primary;
-        const settingsWrites = [];
-        const provenanceWrites = [];
-        primary.update = async (key, value, target) => {
-            settingsWrites.push([key, value, target]);
-            if (rejectWrite) throw new Error('primary settings write rejected');
-        };
-        const originalLoad = Module._load;
-        Module._load = function (request, parent, isMain) {
-            if (request === 'vscode') {
-                return {
-                    workspace: {
-                        getConfiguration: () => primary,
-                    },
-                };
-            }
-            return originalLoad.call(this, request, parent, isMain);
-        };
-        try {
-            const service = new TodoService({
-                globalState: {
-                    get: key => key === 'todos' ? makeStoredTodoData('context-source') : undefined,
-                    update: async (key, value) => provenanceWrites.push([key, value]),
-                },
-            });
-            if (rejectWrite) {
-                await assert.rejects(
-                    () => service.migrateDataIfNeeded(),
-                    /primary settings write rejected/
-                );
-            } else {
-                assert.strictEqual(await service.migrateDataIfNeeded(), true);
-            }
-        } finally {
-            Module._load = originalLoad;
-        }
-        return { settingsWrites, provenanceWrites };
-    }
-
-    const contextWrite = await runExtensionContextSettingsWrite(false);
-    assert.strictEqual(contextWrite.settingsWrites.length, 1,
-        'ExtensionContext settings writes must call the raw agentPivot configuration writer');
-    assert.strictEqual(contextWrite.settingsWrites[0][0], 'todoData');
-    assert.strictEqual(contextWrite.settingsWrites[0][2], 1);
-    assert.strictEqual(contextWrite.provenanceWrites.length, 1,
-        'a successful primary settings write may advance storage provenance');
-
-    const rejectedContextWrite = await runExtensionContextSettingsWrite(true);
-    assert.strictEqual(rejectedContextWrite.settingsWrites.length, 1);
-    assert.deepStrictEqual(rejectedContextWrite.provenanceWrites, [],
-        'a rejected primary settings write must not advance storage provenance');
-}
-
-async function runTodoMigrationChecks() {
-    const globalSource = makeTodoServiceStorageHarness(true, makeStoredTodoData('global-source'), null);
-    assert.strictEqual(await globalSource.service.migrateDataIfNeeded(), true);
-    assert.deepStrictEqual(globalSource.updates.map(update => update[0]), ['settings']);
-    assert.strictEqual(globalSource.values.settings.groups[0].id, 'global-source');
-
-    const settingsSource = makeTodoServiceStorageHarness(false, { version: 1, groups: [], todos: [] }, makeStoredTodoData('settings-source'));
-    assert.strictEqual(await settingsSource.service.migrateDataIfNeeded(), true);
-    assert.deepStrictEqual(settingsSource.updates.map(update => update[0]), ['global']);
-    assert.strictEqual(settingsSource.values.global.groups[0].id, 'settings-source');
-
-    for (const useSettingsStorage of [false, true]) {
-        const conflict = makeTodoServiceStorageHarness(
-            useSettingsStorage,
-            makeStoredTodoData('global-conflict'),
-            makeStoredTodoData('settings-conflict')
-        );
-        await assert.rejects(
-            () => conflict.service.migrateDataIfNeeded(),
-            error => error && error.name === 'TodoStorageConflictError'
-        );
-        assert.deepStrictEqual(conflict.updates, [], 'migration must not overwrite two non-empty stores');
-    }
-
-    for (const useSettingsStorage of [false, true]) {
-        const futureSource = makeTodoServiceStorageHarness(
-            useSettingsStorage,
-            useSettingsStorage ? { version: 2, groups: [], todos: [] } : null,
-            useSettingsStorage ? null : { version: 2, groups: [], todos: [] }
-        );
-        await assert.rejects(
-            () => futureSource.service.migrateDataIfNeeded(),
-            error => error && error.name === 'UnsupportedTodoDataVersionError' && error.version === 2
-        );
-        assert.deepStrictEqual(futureSource.updates, [], 'unknown migration data must not update either backend');
-    }
-
-    for (const useSettingsStorage of [false, true]) {
-        const futureTarget = makeTodoServiceStorageHarness(
-            useSettingsStorage,
-            useSettingsStorage ? makeStoredTodoData('global-source') : { version: 2, groups: [], todos: [] },
-            useSettingsStorage ? { version: 2, groups: [], todos: [] } : makeStoredTodoData('settings-source')
-        );
-        await assert.rejects(
-            () => futureTarget.service.migrateDataIfNeeded(),
-            error => error && error.name === 'UnsupportedTodoDataVersionError' && error.version === 2
-        );
-        assert.deepStrictEqual(futureTarget.updates, [], 'an unknown selected migration target must never be overwritten');
-    }
-
-    const dataMutations = [
-        service => service.saveData({ version: 1, groups: [], todos: [] }),
-        service => service.setShowCompleted(true),
-        service => service.addGroup('Blocked'),
-        service => service.addTodo({ title: 'Blocked' }),
-        service => service.updateTodo('todo-a', { title: 'Blocked' }),
-        service => service.completeTodo('todo-a', true),
-        service => service.deleteTodo('todo-a'),
-        service => service.deleteGroup('group-a'),
-        service => service.renameGroup('group-a', 'Blocked'),
-        service => service.reorderGroups(['group-a']),
-        service => service.reorderTodos('group-a', ['todo-a']),
-        service => service.setGroupCollapsed('group-a', true),
-        service => service.setGroupsCollapsed(true),
-        service => service.sortGroupByPriority('group-a'),
-        service => service.revealTodo('todo-a', 'group-a'),
-    ];
-    for (const useSettingsStorage of [false, true]) {
-        for (const mutate of dataMutations) {
-            const futureTarget = makeTodoServiceStorageHarness(
-                useSettingsStorage,
-                useSettingsStorage ? null : { version: 2, groups: [], todos: [] },
-                useSettingsStorage ? { version: 2, groups: [], todos: [] } : null
-            );
-            await assert.rejects(
-                () => mutate(futureTarget.service),
-                error => error && error.name === 'UnsupportedTodoDataVersionError' && error.version === 2
-            );
-            assert.deepStrictEqual(futureTarget.updates, [], 'CRUD on an unknown selected backend must not write');
-            const selectedValue = useSettingsStorage ? futureTarget.values.settings : futureTarget.values.global;
-            assert.deepStrictEqual(selectedValue, { version: 2, groups: [], todos: [] },
-                'future-version raw data must remain byte-for-byte isolated from TODO writes');
-        }
-    }
-
-    for (const useSettingsStorage of [false, true]) {
-        const futureTarget = makeTodoServiceStorageHarness(
-            useSettingsStorage,
-            useSettingsStorage ? null : { version: 2, groups: [], todos: [] },
-            useSettingsStorage ? { version: 2, groups: [], todos: [] } : null
-        );
-        assert.deepStrictEqual(futureTarget.service.getSearchItems(), [],
-            'future-version TODO data must project an empty safe search catalog');
-        assert.deepStrictEqual(
-            useSettingsStorage ? futureTarget.values.settings : futureTarget.values.global,
-            { version: 2, groups: [], todos: [] },
-            'safe catalog projection must preserve future-version raw data'
-        );
-    }
-
-    const storageReadFailure = new Error('ordinary TODO storage read failed');
-    const failingReadService = new TodoService({
-        globalState: {
-            get: () => { throw storageReadFailure; },
-            update: async () => undefined,
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-    });
-    assert.throws(() => failingReadService.getSearchItems(), error => error === storageReadFailure,
-        'safe search catalogs must not swallow ordinary storage errors');
-
-    const mixedReadFailure = new Error('inactive TODO storage read failed');
-    const futureAndFailingReadService = new TodoService({
-        globalState: {
-            get: key => key === 'todos' ? { version: 2, groups: [], todos: [] } : undefined,
-            update: async () => undefined,
-        },
-        configuration: {
-            get: () => { throw mixedReadFailure; },
-            update: async () => undefined,
-        },
-        useSettingsStorage: () => false,
-    });
-    assert.throws(() => futureAndFailingReadService.getSearchItems(), error => error === mixedReadFailure,
-        'an unsupported version in one backend must not hide an ordinary read failure in the other');
-
-    const activated = makeTodoServiceStorageHarness(
-        false,
-        { version: 1, groups: [], todos: [] },
-        null
-    );
-    assert.strictEqual(await activated.service.migrateDataIfNeeded(), false);
-    activated.values.global = { version: 2, groups: [], todos: [] };
-    await assert.rejects(
-        () => activated.service.saveData({ version: 1, groups: [], todos: [] }),
-        error => error && error.name === 'UnsupportedTodoDataVersionError' && error.version === 2
-    );
-    assert.deepStrictEqual(activated.updates, [],
-        'an active backend changed to a future version must be revalidated before replacement writes');
-    assert.deepStrictEqual(activated.values.global, { version: 2, groups: [], todos: [] });
-
-    const selectedData = makeStoredTodoData('selected-group');
-    selectedData.todos.push({
-        id: 'selected-todo', groupId: 'selected-group', title: 'Selected TODO', notes: '',
-        priority: 'medium', completed: false, createdAt: '2026-07-17T00:00:00.000Z',
-        updatedAt: '2026-07-17T00:00:00.000Z', order: 0,
-    });
-    const futureSource = makeTodoServiceStorageHarness(
-        false,
-        selectedData,
-        { version: 2, groups: [], todos: [] }
-    );
-    assert.deepStrictEqual(futureSource.service.getSearchItems(), [],
-        'a future-version inactive source must isolate TODO search as well as writes');
-    assert.strictEqual(futureSource.service.getUnsupportedVersionError().version, 2);
-    futureSource.values.settings = null;
-    assert.strictEqual(futureSource.service.getUnsupportedVersionError(), undefined,
-        'live version probing must recover after future-version raw data is replaced with supported data');
-    assert.deepStrictEqual(futureSource.service.getSearchItems().map(item => item.todoId), ['selected-todo']);
-}
-
-async function runTodoBackendSwitchBarrierChecks() {
-    let useSettingsStorage = false;
-    let storageProvenance;
-    const values = {
-        global: { version: 1, groups: [], todos: [] },
-        settings: null,
-    };
-    const updates = [];
-    let releaseFirstWrite;
-    const firstWriteGate = new Promise(resolve => { releaseFirstWrite = resolve; });
-    const dependencies = {
-        globalState: {
-            get: key => key === 'todos' ? values.global : storageProvenance,
-            update: async (key, value) => {
-                if (key !== 'todos') {
-                    updates.push(['state', key, value]);
-                    storageProvenance = value;
-                    return;
-                }
-                updates.push(['global', key, value]);
-                if (updates.length === 1) await firstWriteGate;
-                values.global = value;
-            },
-        },
-        configuration: {
-            get: (key, fallback) => key === 'todoData' ? values.settings : fallback,
-            update: async (key, value, target) => {
-                updates.push(['settings', key, value, target]);
-                values.settings = value;
-            },
-        },
-        useSettingsStorage: () => useSettingsStorage,
-        generateId: prefix => `${prefix}-${updates.length}`,
-    };
-    const service = new TodoService(dependencies);
-
-    const firstMutation = service.addGroup('First global');
-    await new Promise(resolve => setImmediate(resolve));
-    const queuedMutation = service.addGroup('Queued global');
-    useSettingsStorage = true;
-    await new Promise(resolve => setImmediate(resolve));
-    try {
-        assert.deepStrictEqual(updates.map(update => update[0]), ['global']);
-    } finally {
-        releaseFirstWrite();
-    }
-    await Promise.all([firstMutation, queuedMutation]);
-    assert.deepStrictEqual(values.global.groups.map(group => group.title), ['First global', 'Queued global'],
-        'a queued mutation must keep the backend captured when it was enqueued');
-    assert.strictEqual(values.settings, null,
-        'a later configuration change must not split an already-queued mutation into the new backend');
-
-    const switchedMutation = await service.addGroup('First settings');
-    assert.deepStrictEqual(switchedMutation.groups.map(group => group.title),
-        ['First global', 'Queued global', 'First settings']);
-    assert.deepStrictEqual(values.settings.groups.map(group => group.title),
-        ['First global', 'Queued global', 'First settings'],
-        'switching to an empty backend must copy the non-empty source before mutating the captured target');
-    assert.deepStrictEqual(values.global.groups.map(group => group.title), ['First global', 'Queued global']);
-    assert.strictEqual(storageProvenance.version, 1);
-    assert.strictEqual(storageProvenance.activeBackend, 'settings');
-    assert.match(storageProvenance.inactiveFingerprint, /^[a-f0-9]{64}$/,
-        'a successful backend copy must persist the inactive normalized data fingerprint');
-
-    const secondSettingsMutation = await service.addGroup('Second settings');
-    assert.deepStrictEqual(secondSettingsMutation.groups.map(group => group.title),
-        ['First global', 'Queued global', 'First settings', 'Second settings'],
-        'consecutive active-backend mutations must remain allowed while the inactive snapshot is unchanged');
-
-    const restartedService = new TodoService(dependencies);
-    const afterRestart = await restartedService.addGroup('Settings after restart');
-    assert.deepStrictEqual(afterRestart.groups.map(group => group.title),
-        ['First global', 'Queued global', 'First settings', 'Second settings', 'Settings after restart'],
-        'restart must recognize the copied source as stale instead of manufacturing a conflict');
-
-    values.settings = makeStoredTodoData('settings-sync');
-    const afterSettingsSync = await service.addGroup('After settings sync');
-    assert.deepStrictEqual(afterSettingsSync.groups.map(group => group.title),
-        ['settings-sync', 'After settings sync'],
-        'Settings Sync may replace active data while the recorded inactive snapshot remains unchanged');
-
-    useSettingsStorage = false;
-    const switchedBack = await service.addGroup('Back on global');
-    assert.deepStrictEqual(switchedBack.groups.map(group => group.title),
-        ['settings-sync', 'After settings sync', 'Back on global'],
-        'switching back to the recorded stale target must safely copy current active data before mutation');
-    assert.deepStrictEqual(values.settings.groups.map(group => group.title),
-        ['settings-sync', 'After settings sync']);
-    assert.strictEqual(storageProvenance.activeBackend, 'global');
-
-    values.settings = makeStoredTodoData('externally-modified-inactive');
-    const updatesBeforeConflict = updates.length;
-    await assert.rejects(
-        () => service.addGroup('Blocked after inactive change'),
-        error => error && error.name === 'TodoStorageConflictError' && /conflict/i.test(error.message)
-    );
-    assert.strictEqual(updates.length, updatesBeforeConflict,
-        'an externally modified inactive backend must conflict before any data or provenance write');
-    assert.strictEqual(values.global.groups.some(group => group.title === 'Blocked after inactive change'), false);
-
-    for (const selectedSettings of [false, true]) {
-        const sharedData = makeStoredTodoData('shared-group');
-        const matching = makeTodoServiceStorageHarness(
-            selectedSettings,
-            JSON.parse(JSON.stringify(sharedData)),
-            JSON.parse(JSON.stringify(sharedData))
-        );
-        const result = await matching.service.addGroup('Allowed');
-        assert.deepStrictEqual(result.groups.map(group => group.title), ['shared-group', 'Allowed'],
-            'matching non-empty stores must allow a mutation on the selected backend');
-        assert.deepStrictEqual(matching.updates.map(update => update[0]),
-            [selectedSettings ? 'settings' : 'global']);
-    }
-
-    for (const selectedSettings of [false, true]) {
-        const conflict = makeTodoServiceStorageHarness(
-            selectedSettings,
-            makeStoredTodoData('global-conflict'),
-            makeStoredTodoData('settings-conflict')
-        );
-        await assert.rejects(
-            () => conflict.service.addGroup('Blocked'),
-            error => error && error.name === 'TodoStorageConflictError' && /conflict/i.test(error.message)
-        );
-        assert.deepStrictEqual(conflict.updates, [],
-            'an initial mutation must reject different non-empty stores without writing either backend');
-    }
-}
-
-async function runTodoViewStateChecks() {
-    const values = new Map([['todoViewState', { showCompleted: true }]]);
-    const updates = [];
-    const syncUpdates = [];
-    const service = new TodoService({
-        globalState: {
-            get: key => values.get(key),
-            update: async (key, value) => {
-                updates.push([key, value]);
-                values.set(key, value);
-            },
-            setKeysForSync: keys => syncUpdates.push(keys),
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => true,
-    });
-
-    assert.deepStrictEqual(service.getViewState(), { showCompleted: true });
-    assert.deepStrictEqual(await service.setShowCompleted(false), { showCompleted: false });
-    assert.deepStrictEqual(updates, [['todoViewState', { showCompleted: false }]]);
-    assert.deepStrictEqual(syncUpdates, [], 'TODO view state must remain local and must not be registered for sync');
-}
-
-async function runTodoMutationSerializationChecks() {
-    let storedData = { version: 1, groups: [], todos: [] };
-    const writes = [];
-    let releaseFirstWrite;
-    const firstWriteGate = new Promise(resolve => { releaseFirstWrite = resolve; });
-    const service = new TodoService({
-        globalState: {
-            get: () => storedData,
-            update: async (_key, value) => {
-                writes.push(value);
-                if (writes.length === 1) {
-                    await firstWriteGate;
-                }
-                storedData = value;
-            },
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-        generateId: prefix => `${prefix}-${writes.length}-${storedData.groups.length}`,
-    });
-
-    const firstMutation = service.addGroup('First');
-    await new Promise(resolve => setImmediate(resolve));
-    const secondMutation = service.addGroup('Second');
-    await new Promise(resolve => setImmediate(resolve));
-    try {
-        assert.strictEqual(writes.length, 1, 'a second mutation must wait for the first write to settle');
-    } finally {
-        releaseFirstWrite();
-    }
-    await Promise.all([firstMutation, secondMutation]);
-    assert.deepStrictEqual(service.getData().groups.map(group => group.title), ['First', 'Second']);
-
-    let recoveredData = { version: 1, groups: [], todos: [] };
-    let writeAttempt = 0;
-    const recoveringService = new TodoService({
-        globalState: {
-            get: () => recoveredData,
-            update: async (_key, value) => {
-                writeAttempt += 1;
-                if (writeAttempt === 1) {
-                    throw new Error('first write rejected');
-                }
-                recoveredData = value;
-            },
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-        generateId: prefix => `${prefix}-${writeAttempt}`,
-    });
-    const rejectedMutation = recoveringService.addGroup('Rejected');
-    const recoveredMutation = recoveringService.addGroup('Recovered');
-    await assert.rejects(() => rejectedMutation, /first write rejected/);
-    await recoveredMutation;
-    assert.strictEqual(writeAttempt, 2);
-    assert.deepStrictEqual(recoveringService.getData().groups.map(group => group.title), ['Recovered']);
-}
-
-async function runTodoRevealSingleWriteChecks() {
-    const makeRevealData = collapsed => ({
-        version: 1,
-        groups: [{ id: 'group-a', title: 'Release', collapsed, order: 0 }],
-        todos: [
-            {
-                id: 'todo-open', groupId: 'group-a', title: 'Open task', notes: '', priority: 'medium',
-                completed: false, createdAt: '2026-07-17T00:00:00.000Z',
-                updatedAt: '2026-07-17T00:00:00.000Z', order: 0,
-            },
-            {
-                id: 'todo-target', groupId: 'group-a', title: 'Target completed', notes: '', priority: 'high',
-                completed: true, createdAt: '2026-07-17T00:00:00.000Z',
-                updatedAt: '2026-07-17T00:00:00.000Z', completedAt: '2026-07-17T01:00:00.000Z', order: 1,
-            },
-            {
-                id: 'todo-other', groupId: 'group-a', title: 'Other completed', notes: '', priority: 'low',
-                completed: true, createdAt: '2026-07-17T00:00:00.000Z',
-                updatedAt: '2026-07-17T00:00:00.000Z', completedAt: '2026-07-17T02:00:00.000Z', order: 2,
-            },
-        ],
-    });
-
-    const values = new Map([
-        ['todos', makeRevealData(true)],
-        ['todoViewState', { showCompleted: false }],
-    ]);
-    const writes = [];
-    const service = new TodoService({
-        globalState: {
-            get: key => values.get(key),
-            update: async (key, value) => {
-                writes.push([key, value]);
-                values.set(key, value);
-            },
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-    });
-    const revealResult = await service.revealTodo('todo-target', 'group-a');
-    assert.strictEqual(revealResult.revealed, true);
-    assert.deepStrictEqual(writes.map(write => write[0]), ['todos'],
-        'revealing a completed TODO in a collapsed group must persist exactly one data write');
-    assert.deepStrictEqual(values.get('todoViewState'), { showCompleted: false },
-        'search reveal must never persist showCompleted view state');
-    assert.strictEqual(values.get('todos').groups[0].collapsed, false);
-
-    const projected = todoViewModel.buildTodoViewModel(
-        values.get('todos'),
-        values.get('todoViewState'),
-        'todo-target'
-    );
-    assert.deepStrictEqual(projected.groups[0].visibleTodos.map(todo => todo.id), ['todo-open', 'todo-target'],
-        'temporary reveal must show only the searched completed TODO');
-    assert.strictEqual(projected.groups[0].hiddenCompletedCount, 1);
-    const projectedHtml = todoWebviewContent.getTodoPanelContent(projected);
-    assert.ok(projectedHtml.includes('Target completed'));
-    assert.strictEqual(projectedHtml.includes('Other completed'), false);
-
-    const failedData = makeRevealData(true);
-    const failedDataBefore = JSON.parse(JSON.stringify(failedData));
-    const failedViewState = { showCompleted: false };
-    const failedWrites = [];
-    const failingService = new TodoService({
-        globalState: {
-            get: key => key === 'todos' ? failedData : failedViewState,
-            update: async (key, value) => {
-                failedWrites.push([key, value]);
-                throw new Error('reveal data write failed');
-            },
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-    });
-    let failedRevealedTodoId;
-    let failedRefreshes = 0;
-    const failureResult = await runTodoMutation({
-        mutate: async () => {
-            const result = await failingService.revealTodo('todo-target', 'group-a');
-            if (result.revealed) failedRevealedTodoId = 'todo-target';
-        },
-        onSuccess: async () => { failedRefreshes += 1; },
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
-    });
-    assert.strictEqual(failureResult, false);
-    assert.deepStrictEqual(failedWrites.map(write => write[0]), ['todos']);
-    assert.strictEqual(failedRevealedTodoId, undefined,
-        'a rejected group write must not set the temporary reveal target');
-    assert.deepStrictEqual(failedViewState, { showCompleted: false });
-    assert.deepStrictEqual(failedData, failedDataBefore);
-    assert.strictEqual(failedRefreshes, 0,
-        'a rejected group write must preserve the current panel');
-
-    const expandedData = makeRevealData(false);
-    const expandedWrites = [];
-    const expandedService = new TodoService({
-        globalState: {
-            get: key => key === 'todos' ? expandedData : { showCompleted: false },
-            update: async (key, value) => expandedWrites.push([key, value]),
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-    });
-    let expandedRevealedTodoId;
-    let expandedProjection;
-    const expandedResult = await runTodoMutation({
-        mutate: async () => {
-            const result = await expandedService.revealTodo('todo-target', 'group-a');
-            if (result.revealed) expandedRevealedTodoId = 'todo-target';
-        },
-        onSuccess: async () => {
-            expandedProjection = todoViewModel.buildTodoViewModel(
-                expandedData,
-                { showCompleted: false },
-                expandedRevealedTodoId
-            );
-        },
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
-    });
-    assert.strictEqual(expandedResult, true);
-    assert.deepStrictEqual(expandedWrites, [],
-        'an already-expanded target group must require zero persistent writes');
-    assert.strictEqual(expandedRevealedTodoId, 'todo-target');
-    assert.deepStrictEqual(expandedProjection.groups[0].visibleTodos.map(todo => todo.id),
-        ['todo-open', 'todo-target']);
-
-    let queuedData = makeRevealData(true);
-    const queueEvents = [];
-    let releaseRevealWrite;
-    const revealWriteGate = new Promise(resolve => { releaseRevealWrite = resolve; });
-    const queuedService = new TodoService({
-        globalState: {
-            get: () => queuedData,
-            update: async (_key, value) => {
-                queueEvents.push('write-start');
-                if (queueEvents.length === 1) await revealWriteGate;
-                queuedData = value;
-                queueEvents.push('write-end');
-            },
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-    });
-    const queuedReveal = queuedService.revealTodo('todo-target', 'group-a');
-    await new Promise(resolve => setImmediate(resolve));
-    const queuedCollapse = queuedService.setGroupCollapsed('group-a', true);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.deepStrictEqual(queueEvents, ['write-start'],
-        'the next mutation must remain queued behind the reveal data write');
-    releaseRevealWrite();
-    await Promise.all([queuedReveal, queuedCollapse]);
-    assert.deepStrictEqual(queueEvents, ['write-start', 'write-end', 'write-start', 'write-end']);
-    assert.strictEqual(queuedData.groups[0].collapsed, true);
-}
-
-async function runDashboardTodoMigrationSequencingChecks() {
-    const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');
-    const todoPanelCapabilitySource = fs.readFileSync(todoPanelCapabilityPath, 'utf8');
-    const migrationBody = extractAsyncArrowPropertyBody(extensionHostSource, 'migrateDataIfNeeded');
-    const runMigrationBody = new AsyncFunction(
-        'projectService',
-        'todoService',
-        'settleMigration',
-        'settleStorageMigration',
-        'storageMigrationSettled',
-        'todoPanel',
-        migrationBody
-    );
-    const runMigration = (projectService, todoService, storageMigration) => {
-        let settleReady;
-        storageMigration.ready = new Promise(resolve => { settleReady = resolve; });
-        return runMigrationBody(
-            projectService,
-            todoService,
-            settleMigration,
-            settleReady,
-            false,
-            { setStorageMigrationReady: () => undefined }
-        );
-    };
-    const events = [];
-    let resolveProjectMigration;
-    const projectMigration = new Promise(resolve => { resolveProjectMigration = resolve; });
-    let migratedTodoData = [];
-    const todoStorageMigration = { ready: Promise.resolve() };
-    const migration = runMigration(
-        {
-            migrateDataIfNeeded: () => {
-                events.push('project-started');
-                return projectMigration;
-            },
-        },
-        {
-            migrateDataIfNeeded: async () => {
-                events.push('todo-started');
-                migratedTodoData = ['migrated'];
-                return true;
-            },
-        },
-        todoStorageMigration
-    );
-    let migrationSettled = false;
-    migration.then(() => { migrationSettled = true; });
-
-    try {
-        await Promise.resolve();
-        assert.deepStrictEqual(events, ['project-started', 'todo-started'],
-            'TODO migration must start before the deferred project migration resolves');
-        assert.deepStrictEqual(migratedTodoData, ['migrated'],
-            'TODO migration must settle independently while project migration remains pending');
-        assert.strictEqual(migrationSettled, false, 'project migration should still be pending');
-        let storageGateSettled = false;
-        todoStorageMigration.ready.then(() => { storageGateSettled = true; });
-        await Promise.resolve();
-        assert.strictEqual(storageGateSettled, false,
-            'dashboard storage mutations must remain gated until every migration settles');
-    } finally {
-        resolveProjectMigration(false);
-        await migration;
-    }
-    assert.strictEqual(await todoStorageMigration.ready, true,
-        'the shared storage gate must open after every migration settles');
-
-    const todoPanelBody = extractFunctionBody(todoPanelCapabilitySource, 'postTodoPanelContent');
-    assert.ok(todoPanelBody.includes('await todoStorageMigration.ready;'),
-        'TODO panel rendering must wait for the active TODO storage migration');
-
-    let rejectTodoMigration;
-    const failedTodoMigration = new Promise((_resolve, reject) => { rejectTodoMigration = reject; });
-    const retryGate = { ready: Promise.resolve() };
-    const firstAttempt = runMigration(
-        { migrateDataIfNeeded: async () => false },
-        { migrateDataIfNeeded: () => failedTodoMigration },
-        retryGate
-    );
-    let failedGateSettled = false;
-    retryGate.ready.then(() => { failedGateSettled = true; });
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(failedGateSettled, false,
-        'the TODO render gate must remain pending while migration is in progress');
-
-    const migrationFailure = new Error('deferred TODO migration rejected');
-    rejectTodoMigration(migrationFailure);
-    assert.deepStrictEqual(await firstAttempt, {
-        projects: { migrated: false },
-        todos: { migrated: false, error: migrationFailure },
-    });
-    await retryGate.ready;
-    assert.strictEqual(failedGateSettled, true,
-        'a rejected TODO migration must leave a settled, non-poisoned render gate');
-
-    let retryCalls = 0;
-    const retryAttempt = runMigration(
-        { migrateDataIfNeeded: async () => false },
-        { migrateDataIfNeeded: async () => { retryCalls += 1; return true; } },
-        retryGate
-    );
-    assert.deepStrictEqual(await retryAttempt, {
-        projects: { migrated: false },
-        todos: { migrated: true },
-    });
-    await retryGate.ready;
-    assert.strictEqual(retryCalls, 1,
-        'a later configuration migration must retry after a rejected TODO migration');
-
-    const makeAggregationHarness = (migrateProjects, migrateTodos) => {
-        const gate = { ready: Promise.resolve() };
-        const refreshes = [];
-        const publications = [];
-        const errors = [];
-        const logs = [];
-        const controller = new DashboardStartupController({
-            stewardInfos: {
-                relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
-                config: { openOnStartup: 'never' },
-            },
-            isExtensionInstalled: () => false,
-            migrateDataIfNeeded: () => runMigration(
-                { migrateDataIfNeeded: migrateProjects },
-                { migrateDataIfNeeded: migrateTodos },
-                gate
-            ),
-            refreshDashboard: async () => { refreshes.push('refreshed'); },
-            publishOpenWorkspace: () => publications.push('published'),
-            showInformationMessage: () => undefined,
-            showErrorMessage: message => errors.push(message),
-            logError: (message, error) => logs.push([message, error]),
-            showAgentPivot: () => undefined,
-            applyProjectColorToCurrentWindow: () => undefined,
-            getReopenReason: () => 0,
-            updateReopenReason: () => undefined,
-            reopenNoneValue: 0,
-            getWorkspaceName: () => 'workspace',
-            getVisibleEditorLanguageIds: () => [],
-        });
-        return { controller, gate, refreshes, publications, errors, logs };
-    };
-
-    const projectPartialError = new Error('project migration rejected after TODO success');
-    let projectPartialCalls = 0;
-    let todoPartialCalls = 0;
-    const todoSuccessHarness = makeAggregationHarness(
-        () => ++projectPartialCalls === 1 ? Promise.reject(projectPartialError) : Promise.resolve(false),
-        () => Promise.resolve(++todoPartialCalls === 1)
-    );
-    await todoSuccessHarness.controller.checkDataMigration();
-    await todoSuccessHarness.gate.ready;
-    assert.deepStrictEqual(todoSuccessHarness.refreshes, ['refreshed'],
-        'TODO true plus project rejection must retain the success and refresh exactly once');
-    assert.deepStrictEqual(todoSuccessHarness.publications, ['published']);
-    assert.deepStrictEqual(todoSuccessHarness.logs,
-        [['Failed to migrate Agent Pivot project data.', projectPartialError]]);
-    assert.strictEqual(todoSuccessHarness.errors.length, 1);
-    assert.ok(todoSuccessHarness.errors[0].includes('project migration rejected after TODO success'));
-    await todoSuccessHarness.controller.checkDataMigration();
-    assert.deepStrictEqual(todoSuccessHarness.refreshes, ['refreshed'],
-        'a later false plus false result must not be needed to compensate for a lost partial success');
-
-    const todoPartialError = new Error('TODO migration rejected after project success');
-    const projectSuccessHarness = makeAggregationHarness(
-        () => Promise.resolve(true),
-        () => Promise.reject(todoPartialError)
-    );
-    await projectSuccessHarness.controller.checkDataMigration();
-    await projectSuccessHarness.gate.ready;
-    assert.deepStrictEqual(projectSuccessHarness.refreshes, ['refreshed'],
-        'project true plus TODO rejection must retain the success and refresh exactly once');
-    assert.deepStrictEqual(projectSuccessHarness.logs,
-        [['Failed to migrate Agent Pivot TODO data.', todoPartialError]]);
-    assert.strictEqual(projectSuccessHarness.errors.length, 1);
-    assert.ok(projectSuccessHarness.errors[0].includes('TODO migration rejected after project success'));
-
-    const bothProjectError = new Error('both-reject project failure');
-    const bothTodoError = new Error('both-reject TODO failure');
-    let bothAttempts = 0;
-    const bothRejectHarness = makeAggregationHarness(
-        () => bothAttempts === 0 ? Promise.reject(bothProjectError) : Promise.resolve(false),
-        () => {
-            const firstAttempt = bothAttempts === 0;
-            bothAttempts += 1;
-            return firstAttempt ? Promise.reject(bothTodoError) : Promise.resolve(true);
-        }
-    );
-    await bothRejectHarness.controller.checkDataMigration();
-    await bothRejectHarness.gate.ready;
-    assert.deepStrictEqual(bothRejectHarness.refreshes, [],
-        'both rejected migrations must not refresh without any successful migration');
-    assert.deepStrictEqual(bothRejectHarness.logs, [
-        ['Failed to migrate Agent Pivot project data.', bothProjectError],
-        ['Failed to migrate Agent Pivot TODO data.', bothTodoError],
-    ]);
-    assert.strictEqual(bothRejectHarness.errors.length, 2);
-    await bothRejectHarness.controller.checkDataMigration();
-    await bothRejectHarness.gate.ready;
-    assert.deepStrictEqual(bothRejectHarness.refreshes, ['refreshed'],
-        'both-reject migration state must remain retryable');
-
-    const syncTodoPartialError = new Error('TODO migration threw synchronously after project success');
-    const syncTodoPartialHarness = makeAggregationHarness(
-        () => Promise.resolve(true),
-        () => { throw syncTodoPartialError; }
-    );
-    await syncTodoPartialHarness.controller.checkDataMigration();
-    await syncTodoPartialHarness.gate.ready;
-    assert.deepStrictEqual(syncTodoPartialHarness.refreshes, ['refreshed'],
-        'a synchronous TODO throw must not discard a successful project migration');
-    assert.deepStrictEqual(syncTodoPartialHarness.logs,
-        [['Failed to migrate Agent Pivot TODO data.', syncTodoPartialError]]);
-    assert.strictEqual(syncTodoPartialHarness.errors.length, 1);
-
-    const syncTodoBothError = new Error('TODO migration threw synchronously with project rejection');
-    const rejectedProjectError = new Error('project migration rejected beside synchronous TODO throw');
-    let syncFailureAttempts = 0;
-    const syncFailureHarness = makeAggregationHarness(
-        () => syncFailureAttempts === 0 ? Promise.reject(rejectedProjectError) : Promise.resolve(false),
-        () => {
-            const firstAttempt = syncFailureAttempts === 0;
-            syncFailureAttempts += 1;
-            if (firstAttempt) {
-                throw syncTodoBothError;
-            }
-            return Promise.resolve(true);
-        }
-    );
-    const unhandledRejections = [];
-    const captureUnhandledRejection = reason => { unhandledRejections.push(reason); };
-    process.on('unhandledRejection', captureUnhandledRejection);
-    try {
-        await syncFailureHarness.controller.checkDataMigration();
-        await syncFailureHarness.gate.ready;
-        await new Promise(resolve => setImmediate(resolve));
-        assert.deepStrictEqual(syncFailureHarness.refreshes, [],
-            'a synchronous throw plus rejection must not refresh without a migration success');
-        assert.deepStrictEqual(syncFailureHarness.logs, [
-            ['Failed to migrate Agent Pivot project data.', rejectedProjectError],
-            ['Failed to migrate Agent Pivot TODO data.', syncTodoBothError],
-        ]);
-        assert.strictEqual(syncFailureHarness.errors.length, 2);
-        assert.deepStrictEqual(unhandledRejections, [],
-            'synchronous migration failure must not leave the other migration rejection unhandled');
-
-        await syncFailureHarness.controller.checkDataMigration();
-        await syncFailureHarness.gate.ready;
-        assert.deepStrictEqual(syncFailureHarness.refreshes, ['refreshed'],
-            'the TODO render gate must recover for retry after a synchronous migration throw');
-    } finally {
-        process.removeListener('unhandledRejection', captureUnhandledRejection);
-    }
-}
-
-async function runTodoHostMutationChecks() {
-    const hostModulePath = path.join(root, 'out', 'todos', 'hostMutation.js');
-    assert.ok(fs.existsSync(hostModulePath), 'TODO host mutation error boundary must exist');
-    const {
-        renameTodoGroupWithPrompt,
-        runTodoMutation,
-        runTodoPromptMutation,
-        runTodoRequestMutation,
-    } = require(hostModulePath);
-    const events = [];
-    const failed = await runTodoMutation({
-        mutate: async () => { throw new Error('storage full'); },
-        onSuccess: async () => events.push('posted-panel'),
-        showErrorMessage: message => events.push(['error', message]),
-        logError: (message, error) => events.push(['log', message, error.message]),
-    });
-    assert.strictEqual(failed, false);
-    assert.strictEqual(events.some(event => event === 'posted-panel'), false, 'a rejected write must preserve the current panel');
-    assert.ok(events.some(event => Array.isArray(event) && event[0] === 'error' && /save TODO changes/i.test(event[1])));
-    assert.ok(events.some(event => Array.isArray(event) && event[0] === 'log' && event[2] === 'storage full'));
-
-    events.length = 0;
-    await runTodoMutation({
-        mutate: async () => { throw new todoTypes.TodoStorageConflictError(); },
-        onSuccess: async () => events.push('posted-panel'),
-        showErrorMessage: message => events.push(['error', message]),
-        logError: (message, error) => events.push(['log', message, error.message]),
-    });
-    assert.ok(events.some(event => Array.isArray(event)
-        && event[0] === 'error' && /storage conflict/i.test(event[1])),
-    'a backend conflict must be visible rather than reduced to a generic write failure');
-    assert.strictEqual(events.includes('posted-panel'), false);
-
-    events.length = 0;
-    const succeeded = await runTodoMutation({
-        mutate: async () => events.push('mutated'),
-        onSuccess: async () => events.push('posted-panel'),
-        showErrorMessage: message => events.push(['error', message]),
-        logError: (message, error) => events.push(['log', message, error.message]),
-    });
-    assert.strictEqual(succeeded, true);
-    assert.deepStrictEqual(events, ['mutated', 'posted-panel']);
-
-    assert.strictEqual(typeof deleteTodoWithConfirmation, 'function',
-        'single TODO deletion must use a directly testable host helper');
-
-    const runDeletion = async (options = {}) => {
-        const todoId = options.todoId || 'todo-a';
-        const confirmation = Object.prototype.hasOwnProperty.call(options, 'confirmation')
-            ? options.confirmation
-            : 'Delete';
-        const rejectDelete = options.rejectDelete === true;
-        const calls = [];
-        const result = await deleteTodoWithConfirmation({
-            todoId,
-            getData: () => ({
-                todos: [{ id: 'todo-a', title: 'Ship deletion flow' }],
-            }),
-            confirm: async title => {
-                calls.push(['confirm', title]);
-                return confirmation;
-            },
-            deleteTodo: async id => {
-                calls.push(['delete', id]);
-                if (rejectDelete) {
-                    throw new Error('storage rejected');
-                }
-            },
-            refreshPanel: async () => { calls.push(['refresh']); },
-            showErrorMessage: message => calls.push(['error', message]),
-            logError: (message, error) => calls.push(['log', message, error.message]),
-        });
-        return { calls, result };
-    };
-
-    const confirmedDeletion = await runDeletion();
-    assert.strictEqual(confirmedDeletion.result, true);
-    assert.deepStrictEqual(confirmedDeletion.calls, [
-        ['confirm', 'Ship deletion flow'],
-        ['delete', 'todo-a'],
-        ['refresh'],
-    ], 'confirmed deletion must delete and refresh exactly once');
-
-    for (const confirmation of [undefined, 'Keep']) {
-        const canceledDeletion = await runDeletion({ confirmation });
-        assert.strictEqual(canceledDeletion.result, false);
-        assert.deepStrictEqual(canceledDeletion.calls, [
-            ['confirm', 'Ship deletion flow'],
-        ], 'canceled deletion must not delete or refresh');
-    }
-
-    const missingDeletion = await runDeletion({ todoId: 'missing' });
-    assert.strictEqual(missingDeletion.result, false);
-    assert.deepStrictEqual(missingDeletion.calls, [],
-        'a missing TODO must not prompt, delete, or refresh');
-
-    const rejectedDeletion = await runDeletion({ rejectDelete: true });
-    assert.strictEqual(rejectedDeletion.result, false);
-    assert.strictEqual(rejectedDeletion.calls.filter(call => call[0] === 'delete').length, 1);
-    assert.strictEqual(rejectedDeletion.calls.some(call => call[0] === 'refresh'), false,
-        'a rejected deletion must preserve the current panel');
-    assert.ok(rejectedDeletion.calls.some(call => call[0] === 'error' && /save TODO changes/i.test(call[1])));
-    assert.ok(rejectedDeletion.calls.some(call => call[0] === 'log' && call[2] === 'storage rejected'));
-
-    const retryCalls = [];
-    let retryPromptCount = 0;
-    let retryWriteCount = 0;
-    const retried = await runTodoPromptMutation({
-        initialValue: 'Existing group',
-        prompt: async value => {
-            retryCalls.push(['prompt', value]);
-            retryPromptCount += 1;
-            return 'Typed group';
-        },
-        mutate: async value => {
-            retryCalls.push(['write', value]);
-            retryWriteCount += 1;
-            if (retryWriteCount === 1) throw new Error('storage rejected prompt mutation');
-        },
-        refreshPanel: async () => { retryCalls.push(['refresh']); },
-        showErrorMessage: message => retryCalls.push(['error', message]),
-        logError: (message, error) => retryCalls.push(['log', message, error.message]),
-    });
-    assert.strictEqual(retried, true);
-    assert.deepStrictEqual(retryCalls.filter(call => call[0] === 'prompt'), [
-        ['prompt', 'Existing group'],
-        ['prompt', 'Typed group'],
-    ], 'a rejected prompt mutation must reprompt with the rejected input');
-    assert.strictEqual(retryCalls.filter(call => call[0] === 'error').length, 1,
-        'the storage rejection must be shown before retrying');
-    assert.ok(retryCalls.findIndex(call => call[0] === 'error')
-        < retryCalls.map(call => call[0]).lastIndexOf('prompt'),
-    'the storage error must be visible before the retry prompt opens');
-    assert.deepStrictEqual(retryCalls.filter(call => call[0] === 'write'), [
-        ['write', 'Typed group'],
-        ['write', 'Typed group'],
-    ]);
-    assert.strictEqual(retryCalls.filter(call => call[0] === 'refresh').length, 1,
-        'a successful retry must refresh exactly once');
-
-    const cancelCalls = [];
-    let cancelPromptCount = 0;
-    const canceled = await runTodoPromptMutation({
-        prompt: async value => {
-            cancelCalls.push(['prompt', value]);
-            cancelPromptCount += 1;
-            return cancelPromptCount === 1 ? 'Keep this draft' : undefined;
-        },
-        mutate: async value => {
-            cancelCalls.push(['write', value]);
-            throw new Error('storage rejected before cancel');
-        },
-        refreshPanel: async () => { cancelCalls.push(['refresh']); },
-        showErrorMessage: message => cancelCalls.push(['error', message]),
-        logError: (message, error) => cancelCalls.push(['log', message, error.message]),
-    });
-    assert.strictEqual(canceled, false);
-    assert.deepStrictEqual(cancelCalls.filter(call => call[0] === 'prompt'), [
-        ['prompt', undefined],
-        ['prompt', 'Keep this draft'],
-    ]);
-    assert.deepStrictEqual(cancelCalls.filter(call => call[0] === 'write'), [
-        ['write', 'Keep this draft'],
-    ], 'canceling the retry prompt must not perform an extra write');
-    assert.strictEqual(cancelCalls.some(call => call[0] === 'refresh'), false);
-
-    const missingRenameCalls = [];
-    const missingRename = await renameTodoGroupWithPrompt({
-        groupId: 'missing',
-        getData: () => ({ groups: [{ id: 'group-a', title: 'Existing group' }] }),
-        prompt: async value => {
-            missingRenameCalls.push(['prompt', value]);
-            return 'Renamed';
-        },
-        renameGroup: async (groupId, value) => { missingRenameCalls.push(['write', groupId, value]); },
-        refreshPanel: async () => { missingRenameCalls.push(['refresh']); },
-        showErrorMessage: message => missingRenameCalls.push(['error', message]),
-        logError: (message, error) => missingRenameCalls.push(['log', message, error.message]),
-    });
-    assert.strictEqual(missingRename, false);
-    assert.deepStrictEqual(missingRenameCalls, [], 'a missing TODO group must not prompt, write, or refresh');
-
-    const malformedRequestCalls = [];
-    const malformedRequest = await runTodoRequestMutation({
-        requestId: 7,
-        valid: false,
-        mutate: async () => { malformedRequestCalls.push(['write']); },
-        onSuccess: async () => { malformedRequestCalls.push(['refresh']); },
-        postResult: async message => { malformedRequestCalls.push(['result', message]); },
-        showErrorMessage: message => malformedRequestCalls.push(['error', message]),
-        logError: (message, error) => malformedRequestCalls.push(['log', message, error.message]),
-    });
-    assert.strictEqual(malformedRequest, false);
-    assert.deepStrictEqual(malformedRequestCalls, [[
-        'result',
-        { type: 'todo-mutation-result', version: 1, requestId: 7, success: false },
-    ]], 'a malformed compose payload with a request ID must receive a failure ack without writing');
-
-    const successfulRequestCalls = [];
-    const successfulRequest = await runTodoRequestMutation({
-        requestId: 8,
-        valid: true,
-        mutate: async () => { successfulRequestCalls.push(['write']); },
-        onSuccess: async () => { successfulRequestCalls.push(['refresh']); },
-        postResult: async message => { successfulRequestCalls.push(['result', message]); },
-        showErrorMessage: message => successfulRequestCalls.push(['error', message]),
-        logError: (message, error) => successfulRequestCalls.push(['log', message, error.message]),
-    });
-    assert.strictEqual(successfulRequest, true);
-    assert.deepStrictEqual(successfulRequestCalls, [
-        ['write'],
-        ['refresh'],
-        ['result', { type: 'todo-mutation-result', version: 1, requestId: 8, success: true }],
-    ], 'a successful compose mutation must refresh the panel before acknowledging success');
-
-    const failedRefreshCalls = [];
-    const savedWithoutRefresh = await runTodoRequestMutation({
-        requestId: 9,
-        valid: true,
-        mutate: async () => { failedRefreshCalls.push(['write']); },
-        onSuccess: async () => {
-            failedRefreshCalls.push(['refresh']);
-            throw new Error('panel refresh failed');
-        },
-        postResult: async message => { failedRefreshCalls.push(['result', message]); },
-        showErrorMessage: message => failedRefreshCalls.push(['error', message]),
-        logError: (message, error) => failedRefreshCalls.push(['log', message, error.message]),
-    });
-    assert.strictEqual(savedWithoutRefresh, true,
-        'a completed write must remain successful when only the panel refresh fails');
-    assert.deepStrictEqual(failedRefreshCalls, [
-        ['write'],
-        ['refresh'],
-        ['log', 'Failed to refresh the TODO panel after saving.', 'panel refresh failed'],
-        ['error', 'TODO saved, but the panel could not be refreshed.'],
-        ['result', {
-            type: 'todo-mutation-result',
-            version: 1,
-            requestId: 9,
-            success: true,
-            panelRefreshed: false,
-        }],
-    ], 'a refresh failure must acknowledge the committed write without inviting a duplicate retry');
-}
-
-function makeTodoData() {
-    return {
-        version: 1,
-        groups: [
-            { id: 'group-a', title: 'Launch <Group>', collapsed: false, order: 0 },
-            { id: 'group-b', title: 'Backlog', collapsed: true, order: 1 },
-        ],
-        todos: [
-            {
-                id: 'todo-a',
-                groupId: 'group-a',
-                title: 'Write <spec>',
-                notes: 'Plain notes',
-                priority: 'high',
-                completed: false,
-                createdAt: '2026-07-16T00:00:00.000Z',
-                updatedAt: '2026-07-16T00:00:00.000Z',
-                order: 0,
-            },
-            {
-                id: 'todo-b',
-                groupId: 'group-a',
-                title: 'Done task',
-                notes: '',
-                priority: 'low',
-                completed: true,
-                createdAt: '2026-07-16T00:00:00.000Z',
-                updatedAt: '2026-07-16T00:00:00.000Z',
-                completedAt: '2026-07-16T01:00:00.000Z',
-                order: 1,
-            },
-        ],
-    };
-}
-
-function makeTodoBoundaryData(todoCount) {
-    return {
-        version: 1,
-        groups: [{ id: 'boundary-group', title: 'Boundary', collapsed: false, order: 0 }],
-        todos: Array.from({ length: todoCount }, (_, index) => ({
-            id: `boundary-todo-${index}`,
-            groupId: 'boundary-group',
-            title: `Boundary todo ${index + 1}`,
-            notes: '',
-            priority: 'medium',
-            completed: false,
-            createdAt: '2026-07-16T00:00:00.000Z',
-            updatedAt: '2026-07-16T00:00:00.000Z',
-            order: index,
-        })),
-    };
-}
-
-function runTodoViewModelChecks() {
-    const hiddenCompleted = todoViewModel.buildTodoViewModel(makeTodoData(), { showCompleted: false });
-    assert.strictEqual(hiddenCompleted.groups.length, 2);
-    assert.strictEqual(hiddenCompleted.groups[0].visibleTodos.length, 1);
-    assert.strictEqual(hiddenCompleted.groups[0].hiddenCompletedCount, 1);
-    assert.strictEqual(hiddenCompleted.totalIncomplete, 1);
-    assert.strictEqual(hiddenCompleted.totalCompleted, 1);
-
-    const showCompleted = todoViewModel.buildTodoViewModel(makeTodoData(), { showCompleted: true });
-    assert.strictEqual(showCompleted.groups[0].visibleTodos.length, 2);
-
-    const stableCompletedLast = todoViewModel.buildTodoViewModel({
-        version: 1,
-        groups: [{ id: 'stable-group', title: 'Stable', collapsed: false, order: 0 }],
-        todos: [
-            { id: 'done-first', groupId: 'stable-group', title: 'Done first', notes: '', priority: 'medium', completed: true, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', completedAt: '2026-07-16T01:00:00.000Z', order: 0 },
-            { id: 'open-first', groupId: 'stable-group', title: 'Open first', notes: '', priority: 'medium', completed: false, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', order: 1 },
-            { id: 'done-second', groupId: 'stable-group', title: 'Done second', notes: '', priority: 'medium', completed: true, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', completedAt: '2026-07-16T02:00:00.000Z', order: 2 },
-            { id: 'open-second', groupId: 'stable-group', title: 'Open second', notes: '', priority: 'medium', completed: false, createdAt: '2026-07-16T00:00:00.000Z', updatedAt: '2026-07-16T00:00:00.000Z', order: 3 },
-        ],
-    }, { showCompleted: true });
-    assert.deepStrictEqual(
-        stableCompletedLast.groups[0].visibleTodos.map(todo => todo.id),
-        ['open-first', 'open-second', 'done-first', 'done-second'],
-        'completed TODOs must be stably projected after incomplete TODOs'
-    );
-
-    const html = todoWebviewContent.getTodoPanelContent(hiddenCompleted);
-    assert.ok(html.includes('todo-panel'));
-    assert.ok(html.includes('todo-list-surface'));
-    assert.strictEqual(html.includes('todo-detail-surface'), false);
-    assert.ok(html.includes('data-action="todo-open-detail" data-todo-id="todo-a" aria-expanded="false"'));
-    assert.ok(html.includes('--todo-list-max-height: 318px'));
-    assert.ok(html.includes('Launch &lt;Group&gt;'));
-    assert.ok(html.includes('Write &lt;spec&gt;'));
-    assert.ok(html.includes('<span class="todo-title-text">Write &lt;spec&gt;</span>'));
-    assert.strictEqual(html.includes('Done task'), false);
-    assert.ok(html.includes('1 completed hidden'));
-    assert.ok(html.includes('todo-page-header todo-page-command-bar'));
-    assert.strictEqual(html.includes('todo-page-header group-title steward-group-header'), false);
-    assert.ok(html.includes('todo-group-header group-title steward-group-header'));
-    assert.ok(html.includes('todo-item steward-item-card'));
-    assert.ok(html.includes('todo-item-accent steward-item-accent'));
-    assert.strictEqual(html.includes('todo-summary-card'), false);
-    assert.strictEqual(html.includes('steward-card-compact'), false);
-    assert.ok(html.includes('todo-summary-meta'));
-    assert.ok(html.includes('todo-summary-actions'));
-    assert.ok(html.includes('todo-group group steward-section'));
-    assert.ok(html.includes('todo-group-actions group-actions'));
-    assert.ok(html.includes('data-action="todo-collapse-group"'));
-    assert.ok(html.includes('<button class="todo-group-collapse-button"'));
-    assert.ok(html.includes('data-action="todo-collapse-group" data-todo-group-id="group-a" aria-expanded="true"'));
-    assert.ok(html.includes('data-action="todo-collapse-group" data-todo-group-id="group-b" aria-expanded="false"'));
-    assert.ok(html.includes('<h2 data-drag-todo-group title="Launch &lt;Group&gt;"'),
-        'the group collapse button must remain outside the Dragula handle');
-    assert.ok(html.includes('data-action="todo-rename-group"'));
-    assert.ok(html.includes('data-action="todo-delete-group"'));
-    assert.ok(html.includes('data-drag-todo-group'));
-    assert.ok(html.includes('data-drag-todo-item="todo-a"'));
-    assert.ok(html.includes('todo-priority-badge steward-badge'));
-    const todoTitleLineOpeningTag = '<div class="todo-title-line">';
-    const todoTitleLineBody = extractHtmlElementBody(html, todoTitleLineOpeningTag);
-    const todoTitleIndex = todoTitleLineBody.indexOf(
-        '<span class="todo-title-text">Write &lt;spec&gt;</span>'
-    );
-    const todoPriorityIndex = todoTitleLineBody.indexOf(
-        '<span class="todo-priority-badge steward-badge">HIGH</span>'
-    );
-    assert.ok(todoTitleIndex >= 0, 'todo title should exist in its title line');
-    assert.ok(todoPriorityIndex >= 0, 'todo priority should exist in its title line');
-    assert.ok(
-        todoTitleIndex < todoPriorityIndex,
-        'todo titles should appear before their priority badges'
-    );
-    assert.ok(html.includes('todo-icon-button steward-icon-button'));
-    assert.ok(html.includes('data-action="todo-open-detail" data-todo-id="todo-a"'),
-        'the TODO title must provide Enter and Space detail activation');
-    assert.strictEqual(html.includes('data-action="todo-toggle-expanded"'), false);
-    assert.strictEqual(html.includes('<li class="todo-item steward-item-card todo-priority-high" data-todo-id="todo-a" aria-expanded='), false,
-        'TODO list items must not impersonate buttons or own the expand control state');
-    assert.strictEqual(html.includes('role="button"'), false,
-        'TODO cards with nested controls must not use role=button');
-    assert.ok(html.includes('todo-item-content'));
-    const addFormCount = (html.match(/<form class="todo-add-form\b/g) || []).length;
-    assert.strictEqual(
-        addFormCount,
-        hiddenCompleted.groups.length + 1,
-        'TODO panels must render one global composer plus one composer per group'
-    );
-    assert.ok(html.includes('<form class="todo-add-form todo-compose-panel steward-card" data-todo-form="add" hidden>'));
-    assert.strictEqual(
-        (html.match(/data-todo-form="quick-add"/g) || []).length,
-        hiddenCompleted.groups.length,
-        'every TODO group must render its full fixed-group composer'
-    );
-    assert.ok(html.includes(
-        'data-todo-form="quick-add" data-group-id="group-a" hidden'
-    ));
-    assert.ok(html.includes('<input type="hidden" name="groupId" value="group-a">'));
-    assert.ok(html.includes(
-        '<span class="todo-compose-group-fixed steward-meta" title="Launch &lt;Group&gt;"'
-    ));
-    assert.ok(html.includes('name="title"'));
-    assert.ok(html.includes('name="priority"'));
-    assert.ok(html.includes('name="notes"'));
-    assert.ok(html.includes('name="groupId"'));
-    assert.ok(html.includes('data-action="todo-add"'));
-    assert.ok(html.includes('data-action="todo-cancel-add"'));
-    assert.strictEqual(html.includes('todo-edit-form'), false);
-    assert.ok(html.includes('data-action="todo-toggle-show-completed"'));
-
-    const defaultHtml = todoWebviewContent.getTodoPanelContent(hiddenCompleted);
-    const configuredCardCount = 5;
-    const countRenderedTodoCards = content => (content.match(/<li class="todo-item steward-item-card\b/g) || []).length;
-    const exactBoundaryHtml = todoWebviewContent.getTodoPanelContent(
-        todoViewModel.buildTodoViewModel(makeTodoBoundaryData(configuredCardCount))
-    );
-    const overflowBoundaryHtml = todoWebviewContent.getTodoPanelContent(
-        todoViewModel.buildTodoViewModel(makeTodoBoundaryData(configuredCardCount + 1))
-    );
-    assert.strictEqual(countRenderedTodoCards(exactBoundaryHtml), configuredCardCount);
-    assert.strictEqual(countRenderedTodoCards(overflowBoundaryHtml), configuredCardCount + 1);
-    assert.ok(exactBoundaryHtml.includes('--todo-visible-items: 5'));
-    assert.ok(exactBoundaryHtml.includes('--todo-list-max-height: 318px'));
-    assert.ok(overflowBoundaryHtml.includes('--todo-list-max-height: 318px'));
-
-    const emptyHtml = todoWebviewContent.getTodoPanelContent(todoViewModel.buildTodoViewModel({ version: 1, groups: [], todos: [] }));
-    assert.ok(emptyHtml.includes('todo-empty-state steward-empty-state'));
-    assert.ok(emptyHtml.includes('No todos yet'));
-
-    const unsupportedHtml = todoWebviewContent.getUnsupportedTodoVersionPanelContent(7);
-    assert.ok(unsupportedHtml.includes('data-todo-error="unsupported-version"'));
-    assert.ok(unsupportedHtml.includes('version 7'));
-    assert.ok(unsupportedHtml.toLowerCase().includes('read-only'));
-    assert.strictEqual(unsupportedHtml.includes('data-action='), false,
-        'the unsupported-version TODO panel must expose no mutation controls');
-    assert.strictEqual(unsupportedHtml.includes('<form'), false,
-        'the unsupported-version TODO panel must be read-only');
-    assert.strictEqual((emptyHtml.match(/<form class="todo-add-form\b/g) || []).length, 1,
-        'an empty TODO panel must expose the same compose form');
-    assert.ok(emptyHtml.includes('<option value="">Inbox</option>'));
-    assert.strictEqual(emptyHtml.includes('todo-empty-orb'), false);
-    assert.strictEqual(emptyHtml.includes('Create first group'), false);
-    assert.strictEqual(emptyHtml.includes('Add todo to Inbox'), false);
-    assert.strictEqual(html.includes('todo-edit-panel steward-card'), false);
-
-    const emptyGroupViewModel = todoViewModel.buildTodoViewModel({
-        version: 1,
-        groups: [{ id: 'empty-group', title: 'Empty Group', collapsed: false, order: 0 }],
-        todos: [],
-    });
-    const emptyGroupHtml = todoWebviewContent.getTodoPanelContent(emptyGroupViewModel);
-    assert.strictEqual(emptyGroupViewModel.isEmpty, false, 'a panel with an empty group is not globally empty');
-    assert.ok(emptyGroupHtml.includes('data-todo-group-id="empty-group"'));
-    assert.ok(emptyGroupHtml.includes('Empty Group'));
-    assert.ok(emptyGroupHtml.includes('data-action="todo-quick-add" data-group-id="empty-group"'));
-    assert.strictEqual((emptyGroupHtml.match(/<form class="todo-add-form\b/g) || []).length, 2,
-        'an empty group must keep the global composer and its fixed-group composer');
-    assert.strictEqual(emptyGroupHtml.includes('No todos yet'), false);
-
-    const dashboardViewModel = require('../out/webview/dashboardViewModel');
-    const catalog = dashboardViewModel.buildWorkspaceDashboardSearchCatalog(
-        [], [], todoTypes.buildTodoSearchItems(makeTodoData())
-    );
-    assert.strictEqual(catalog.todos.length, 2);
-    assert.ok(dashboardViewModel.serializeDashboardSearchCatalog(catalog).includes('Write TODO') === false);
-}
-
-function runTodoOrderingInteractionChecks() {
-    const projectSource = readProjectWebviewSource();
-    const projectContext = {};
-    vm.runInNewContext(projectSource, projectContext);
-    const groups = ['Release', 'Backlog'].map((title, index) => {
-        const group = createElement(`todo-group-${index}`);
-        const button = createElement(`todo-group-${index}-collapse`);
-        const heading = { textContent: title };
-        group.querySelector = selector => {
-            if (selector === '[data-action="todo-collapse-group"]') return button;
-            if (selector === 'h2') return heading;
-            return null;
-        };
-        group.collapseButton = button;
-        return group;
-    });
-    const bulkMessages = [];
-    projectContext.collapseTodoGroups(groups, true, message => bulkMessages.push(message));
-    assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(bulkMessages)),
-        [{ type: 'todo-collapse-groups', collapsed: true }],
-        'global TODO collapse must post one bulk message'
-    );
-    assert.deepStrictEqual(groups.map(group => group.classList.contains('collapsed')), [true, true]);
-    assert.deepStrictEqual(groups.map(group => ({
-        expanded: group.collapseButton.getAttribute('aria-expanded'),
-        title: group.collapseButton.getAttribute('title'),
-        label: group.collapseButton.getAttribute('aria-label'),
-    })), [
-        { expanded: 'false', title: 'Expand todo group', label: 'Expand Release' },
-        { expanded: 'false', title: 'Expand todo group', label: 'Expand Backlog' },
-    ], 'bulk collapse must keep every group button synchronized with its class');
-    projectContext.collapseTodoGroups(groups, false, message => bulkMessages.push(message));
-    assert.deepStrictEqual(groups.map(group => ({
-        collapsed: group.classList.contains('collapsed'),
-        expanded: group.collapseButton.getAttribute('aria-expanded'),
-        title: group.collapseButton.getAttribute('title'),
-        label: group.collapseButton.getAttribute('aria-label'),
-    })), [
-        { collapsed: false, expanded: 'true', title: 'Collapse todo group', label: 'Collapse Release' },
-        { collapsed: false, expanded: 'true', title: 'Collapse todo group', label: 'Collapse Backlog' },
-    ]);
-    assert.strictEqual(bulkMessages.length, 2, 'each bulk class transition must post exactly one message');
-
-    const expandButton = createElement('todo-expand');
-    const todoItem = {
-        classList: createClassList(),
-        querySelector: selector => {
-            if (selector === '[data-action="todo-toggle-expanded"]') return expandButton;
-            if (selector === '.todo-title-text') return { textContent: 'Ship release' };
-            return null;
-        },
-    };
-    projectContext.syncTodoExpandControl(todoItem, true);
-    assert.deepStrictEqual({
-        expanded: expandButton.getAttribute('aria-expanded'),
-        title: expandButton.getAttribute('title'),
-        label: expandButton.getAttribute('aria-label'),
-    }, { expanded: 'true', title: 'Collapse todo', label: 'Collapse Ship release' });
-    projectContext.syncTodoExpandControl(todoItem, false);
-    assert.deepStrictEqual({
-        expanded: expandButton.getAttribute('aria-expanded'),
-        title: expandButton.getAttribute('title'),
-        label: expandButton.getAttribute('aria-label'),
-    }, { expanded: 'false', title: 'Expand todo', label: 'Expand Ship release' });
-
-    const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
-    const dndContext = {};
-    vm.runInNewContext(dndSource, dndContext);
-    const todoGroupsContainer = { matches: selector => selector === '.todo-groups' };
-    const projectGroupsContainer = { matches: selector => selector === '.groups-wrapper' };
-    const todoListA = { matches: selector => selector === '.todo-list' };
-    const todoListB = { matches: selector => selector === '.todo-list' };
-    assert.strictEqual(dndContext.canAcceptTodoGroup(todoGroupsContainer, todoGroupsContainer), true);
-    assert.strictEqual(dndContext.canAcceptTodoGroup(projectGroupsContainer, todoGroupsContainer), false,
-        'TODO groups must not be accepted by project group containers');
-    assert.strictEqual(dndContext.canAcceptTodoItem(todoListA, todoListA), true);
-    assert.strictEqual(dndContext.canAcceptTodoItem(todoListB, todoListA), false,
-        'TODO items must be rejected when dragged across groups');
-
-    const groupElements = ['group-c', 'group-a', 'group-b'].map(groupId => ({
-        getAttribute: name => name === 'data-todo-group-id' ? groupId : null,
-    }));
-    const todoElements = ['todo-a2', 'todo-a1'].map(todoId => ({
-        getAttribute: name => name === 'data-todo-id' ? todoId : null,
-    }));
-    assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(dndContext.getTodoGroupIds({ querySelectorAll: () => groupElements }))),
-        ['group-c', 'group-a', 'group-b'],
-        'TODO group reorder messages must preserve the exact DOM ID array'
-    );
-    assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(dndContext.getTodoIds({ querySelectorAll: () => todoElements }))),
-        ['todo-a2', 'todo-a1'],
-        'TODO item reorder messages must preserve the exact same-group DOM ID array'
-    );
-
-    const disposed = [];
-    dndContext.window = {
-        removeEventListener: (type, listener) => disposed.push(['listener', type, listener]),
-    };
-    const onKeyDown = () => undefined;
-    const dndRoot = {
-        __agentPivotDnDInitialized: true,
-        __agentPivotDnD: {
-            projectDrake: { destroy: () => disposed.push('project') },
-            groupsDrake: { destroy: () => disposed.push('groups') },
-            todoGroupsDrake: { destroy: () => disposed.push('todo-groups') },
-            todoItemsDrake: { destroy: () => disposed.push('todo-items') },
-            scroll: { destroy: force => disposed.push(['scroll', force]) },
-            onKeyDown,
-        },
-    };
-    dndContext.disposeDnD(dndRoot);
-    assert.deepStrictEqual(disposed, [
-        'project', 'groups', 'todo-groups', 'todo-items', ['scroll', true], ['listener', 'keydown', onKeyDown],
-    ]);
-    assert.strictEqual(dndRoot.__agentPivotDnDInitialized, undefined);
-    assert.strictEqual(dndRoot.__agentPivotDnD, undefined);
-}
-
 async function runAddProjectsFromFolderControllerChecks() {
     const actions = [];
     const errors = [];
@@ -3472,9 +1600,8 @@ async function runDashboardStartupControllerChecks() {
         relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
         config: { openOnStartup: 'never' },
     };
-    const migrationResult = (projectsMigrated, todosMigrated = false) => ({
+    const migrationResult = projectsMigrated => ({
         projects: { migrated: projectsMigrated },
-        todos: { migrated: todosMigrated },
     });
     const controller = new DashboardStartupController({
         stewardInfos,
@@ -3541,7 +1668,7 @@ async function runDashboardStartupControllerChecks() {
         isExtensionInstalled: () => false,
         migrateDataIfNeeded: async () => {
             startupOrdering.push('project-migration');
-            return migrationResult(true, false);
+            return migrationResult(true);
         },
         afterProjectMigrationSucceeded: async () => {
             startupOrdering.push('pending-workspace-save');
@@ -3574,7 +1701,6 @@ async function runDashboardStartupControllerChecks() {
         isExtensionInstalled: () => false,
         migrateDataIfNeeded: async () => ({
             projects: { migrated: false, error: failedProjectMigration },
-            todos: { migrated: false },
         }),
         afterProjectMigrationSucceeded: async () => {
             failedProjectOrdering.push('pending-workspace-save');
@@ -3596,78 +1722,6 @@ async function runDashboardStartupControllerChecks() {
     assert.deepStrictEqual(failedProjectOrdering, ['color'],
         'project migration failure must retain pending intent while allowing the remaining startup behavior');
 
-    let deferredTodoData = { version: 1, groups: [], todos: [] };
-    const deferredTodoService = new TodoService({
-        globalState: {
-            get: key => key === 'todos' ? deferredTodoData : undefined,
-            update: async () => undefined,
-        },
-        configuration: makeWorkspaceConfiguration({}),
-        useSettingsStorage: () => false,
-    });
-    const rebuiltCatalogs = [];
-    let releaseRefresh;
-    const refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
-    const provider = {
-        refresh: async () => {
-            rebuiltCatalogs.push(buildWorkspaceDashboardSearchCatalog([], [], deferredTodoService.getSearchItems()));
-            await refreshGate;
-        },
-    };
-    rebuiltCatalogs.push(buildWorkspaceDashboardSearchCatalog([], [], deferredTodoService.getSearchItems()));
-    assert.deepStrictEqual(rebuiltCatalogs[0].todos, [],
-        'the provider may render its initial search catalog before TODO migration settles');
-
-    let resolveDeferredMigration;
-    const deferredMigration = new Promise(resolve => { resolveDeferredMigration = resolve; });
-    const deferredController = new DashboardStartupController({
-        stewardInfos,
-        relevantExtensions: {
-            remoteSSH: 'ms-vscode-remote.remote-ssh',
-            remoteContainers: 'ms-vscode-remote.remote-containers',
-        },
-        isExtensionInstalled: () => false,
-        migrateDataIfNeeded: () => deferredMigration,
-        refreshDashboard: () => provider.refresh(),
-        publishOpenWorkspace: () => undefined,
-        showInformationMessage: () => undefined,
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
-        showAgentPivot: () => undefined,
-        applyProjectColorToCurrentWindow: () => undefined,
-        getReopenReason: () => 0,
-        updateReopenReason: () => undefined,
-        reopenNoneValue: 0,
-        getWorkspaceName: () => 'workspace',
-        getVisibleEditorLanguageIds: () => [],
-    });
-    let deferredCheckSettled = false;
-    const deferredCheck = deferredController.checkDataMigration();
-    deferredCheck.then(() => { deferredCheckSettled = true; });
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(rebuiltCatalogs.length, 1,
-        'a full catalog refresh must not overtake the in-flight migration');
-
-    deferredTodoData = {
-        version: 1,
-        groups: [{ id: 'migrated-group', title: 'Migrated', collapsed: false, order: 0 }],
-        todos: [{
-            id: 'migrated-todo', groupId: 'migrated-group', title: 'Migrated TODO', notes: '',
-            priority: 'medium', completed: false, createdAt: '2026-07-17T00:00:00.000Z',
-            updatedAt: '2026-07-17T00:00:00.000Z', order: 0,
-        }],
-    };
-    resolveDeferredMigration(migrationResult(false, true));
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(rebuiltCatalogs.length, 2,
-        'migration settle must trigger a full provider refresh');
-    assert.deepStrictEqual(rebuiltCatalogs[1].todos.map(todo => todo.todoId), ['migrated-todo'],
-        'migration settle must rebuild the provider search catalog with migrated TODO data');
-    assert.strictEqual(deferredCheckSettled, false,
-        'migration checking must await the full dashboard refresh publication');
-    releaseRefresh();
-    await deferredCheck;
-
     const migrationErrors = [];
     const migrationLogs = [];
     const retryPublications = [];
@@ -3686,7 +1740,7 @@ async function runDashboardStartupControllerChecks() {
             migrationAttempts += 1;
             return migrationAttempts === 1
                 ? rejectedMigration
-                : Promise.resolve(migrationResult(false, true));
+                : Promise.resolve(migrationResult(true));
         },
         refreshDashboard: () => retryRefreshes.push('refreshed'),
         publishOpenWorkspace: () => retryPublications.push('published'),
@@ -3702,12 +1756,12 @@ async function runDashboardStartupControllerChecks() {
         getVisibleEditorLanguageIds: () => [],
     });
     const failedCheck = failureController.checkDataMigration();
-    const startupMigrationFailure = new Error('TODO migration write failed');
+    const startupMigrationFailure = new Error('project migration write failed');
     rejectMigration(startupMigrationFailure);
     await failedCheck;
     assert.strictEqual(migrationErrors.length, 1,
         'migration failure must be visible to the user');
-    assert.ok(migrationErrors[0].includes('TODO migration write failed'));
+    assert.ok(migrationErrors[0].includes('project migration write failed'));
     assert.deepStrictEqual(migrationLogs,
         [['Failed to migrate Agent Pivot data.', startupMigrationFailure]],
         'migration failure must be logged without escaping as an unhandled rejection');
@@ -4027,11 +2081,8 @@ function runControllerChecks(source) {
     openButton.setAttribute('data-dashboard-tab', 'open');
     const projectsButton = createElement('dashboard-tab-projects-button');
     projectsButton.setAttribute('data-dashboard-tab', 'projects');
-    const todoButton = createElement('dashboard-tab-todo-button');
-    todoButton.setAttribute('data-dashboard-tab', 'todo');
     const openPanel = createElement('dashboard-tab-open');
     const projectsPanel = createElement('dashboard-tab-projects');
-    const todoPanel = createElement('dashboard-tab-todo');
     const searchResults = createSearchResultElement('div');
     const searchResultListeners = {};
     searchResults.id = 'dashboard-search-results';
@@ -4041,7 +2092,6 @@ function runControllerChecks(source) {
     const elements = {
         'dashboard-tab-open': openPanel,
         'dashboard-tab-projects': projectsPanel,
-        'dashboard-tab-todo': todoPanel,
         'dashboard-search-results': searchResults,
     };
     const messages = [];
@@ -4053,7 +2103,7 @@ function runControllerChecks(source) {
             createElement: createSearchResultElement,
             getElementById: id => elements[id] || null,
             querySelectorAll: selector => selector === '[data-dashboard-tab]'
-                ? [openButton, projectsButton, todoButton]
+                ? [openButton, projectsButton]
                 : [],
         },
         sessionStorage: {
@@ -4070,23 +2120,16 @@ function runControllerChecks(source) {
     vm.runInNewContext(source, context);
 
     assert.strictEqual(context.normalizeDashboardTab('projects'), 'projects');
-    assert.strictEqual(context.normalizeDashboardTab('todo'), 'todo');
     assert.strictEqual(context.normalizeDashboardTab('invalid'), 'open');
     assert.strictEqual(context.getAdjacentDashboardTab('open', 'ArrowRight'), 'projects');
-    assert.strictEqual(context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'todo');
-    assert.strictEqual(context.getAdjacentDashboardTab('todo', 'ArrowLeft'), 'projects');
+    assert.strictEqual(context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
+    assert.strictEqual(context.getAdjacentDashboardTab('ai', 'ArrowLeft'), 'projects');
     assert.strictEqual(context.getAdjacentDashboardTab('projects', 'ArrowLeft'), 'open');
     assert.strictEqual(context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 2, html: '<div></div>',
     }), true);
     assert.strictEqual(context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 2, requestId: 2, html: '<div></div>',
-    }), false);
-    assert.strictEqual(context.validateTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 2, html: '<div></div>',
-    }), true);
-    assert.strictEqual(context.validateTodoPanelMessage({
-        type: 'todo-panel-content', version: 2, requestId: 2, html: '<div></div>',
     }), false);
     assert.strictEqual(context.globToDashboardRegex('dash*').test('dashboard'), true);
     assert.strictEqual(context.globToDashboardRegex('data?').test('data1'), true);
@@ -4099,20 +2142,10 @@ function runControllerChecks(source) {
         JSON.parse(JSON.stringify(workspaceSections.map(section => section.id))),
         ['ai-sessions', 'open-workspaces', 'saved-projects']
     );
-    const workspaceTodoSections = context.filterDashboardCatalog(makeWorkspaceDashboardCatalog(), 'ship');
-    assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(workspaceTodoSections.map(section => section.title))),
-        ['TODO RESULTS'],
-        'v3 search must preserve searchable TODO results beside workspace-first sections'
-    );
-    assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(workspaceTodoSections.map(section => section.id))),
-        ['todos']
-    );
     assert.strictEqual(context.filterDashboardCatalog(makeWorkspaceDashboardCatalog(), 'missing').length, 0);
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(context.normalizeDashboardSearchCatalog(null))),
-        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] }
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] }
     );
     assert.strictEqual(
         context.normalizeDashboardSearchCatalog(makeWorkspaceDashboardCatalog()).version,
@@ -4123,38 +2156,32 @@ function runControllerChecks(source) {
             ...makeDashboardCatalog(),
             openWorkspaces: null,
         }))),
-        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
         'a malformed v3 catalog must fail closed'
     );
     const state = {
         activeTab: 'projects',
         searchQuery: 'dash',
-        scrollPositions: { open: 12, projects: 34, todo: 56 },
+        scrollPositions: { open: 12, projects: 34, ai: 56 },
         catalog: makeDashboardCatalog(),
     };
     const nextState = context.replaceDashboardSearchCatalogState(state, makeUpdatedDashboardCatalog());
     assert.strictEqual(nextState.activeTab, 'projects');
     assert.strictEqual(nextState.searchQuery, 'dash');
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(nextState.scrollPositions)), { open: 12, projects: 34, todo: 56 });
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(nextState.scrollPositions)), { open: 12, projects: 34, ai: 56 });
     assert.notStrictEqual(nextState.catalog, state.catalog);
 
     let mounted = 0;
-    let todoMounted = 0;
     const controller = context.initDashboard({
         postMessage: message => messages.push(message),
         onProjectsMounted: panel => {
             assert.strictEqual(panel, projectsPanel);
             mounted += 1;
         },
-        onTodoMounted: panel => {
-            assert.strictEqual(panel, todoPanel);
-            todoMounted += 1;
-        },
     });
     assert.strictEqual(controller.getActiveTab(), 'open');
     assert.strictEqual(openPanel.hidden, false);
     assert.strictEqual(projectsPanel.hidden, true);
-    assert.strictEqual(todoPanel.hidden, true);
     assert.strictEqual(openButton.getAttribute('aria-selected'), 'true');
     assert.strictEqual(projectsButton.getAttribute('tabindex'), '-1');
 
@@ -4182,129 +2209,7 @@ function runControllerChecks(source) {
     assert.strictEqual(mounted, 1);
     controller.ensureProjectsPanel();
     assert.strictEqual(messages.length, 1, 'mounted PROJECTS must not be requested again');
-    context.window.scrollY = 41;
-    controller.activateTab('todo');
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.slice(1))), [
-        { type: 'request-todo-panel', version: 1, requestId: 1 },
-    ]);
-    assert.strictEqual(controller.getTodoState(), 'loading');
-    assert.strictEqual(controller.applyTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 1, html: '<div>todo</div>',
-    }), true);
-    assert.strictEqual(todoPanel.innerHTML, '<div>todo</div>');
-    assert.strictEqual(controller.getTodoState(), 'mounted');
-    assert.strictEqual(todoMounted, 1);
     assert.strictEqual(typeof windowListeners.message, 'function');
-
-    let showCompletedFocusCalls = 0;
-    const oldShowCompletedToggle = {
-        getAttribute: name => name === 'data-action' ? 'todo-toggle-show-completed' : null,
-    };
-    const newShowCompletedToggle = {
-        focus: () => {
-            showCompletedFocusCalls += 1;
-            context.document.activeElement = newShowCompletedToggle;
-        },
-    };
-    todoPanel.contains = element => element === oldShowCompletedToggle;
-    todoPanel.querySelector = selector => selector === '[data-action="todo-toggle-show-completed"]'
-        ? newShowCompletedToggle
-        : null;
-    context.document.activeElement = oldShowCompletedToggle;
-    assert.strictEqual(controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div>show completed updated</div>',
-        searchCatalog: makeDashboardCatalog(),
-    }), true);
-    assert.strictEqual(showCompletedFocusCalls, 1,
-        'replacing TODO HTML must restore focus to the Show Completed control');
-    assert.strictEqual(context.document.activeElement, newShowCompletedToggle);
-
-    let todoItemMounted = false;
-    let todoFocusCalls = 0;
-    let todoScrollCalls = 0;
-    const pendingTodoFrames = [];
-    context.requestAnimationFrame = callback => pendingTodoFrames.push(callback);
-    const todoGroup = {
-        classList: createClassList(),
-        querySelector: selector => selector === '[data-action="todo-collapse-group"]'
-            ? { setAttribute: () => undefined }
-            : null,
-    };
-    const todoItem = {
-        isConnected: true,
-        getAttribute: name => name === 'data-todo-id' ? 't1' : null,
-        setAttribute: () => undefined,
-        removeAttribute: () => undefined,
-        closest: selector => selector === '.todo-group' ? todoGroup : null,
-        focus: () => {
-            todoFocusCalls += 1;
-            context.document.activeElement = todoItem;
-        },
-        scrollIntoView: () => { todoScrollCalls += 1; },
-        addEventListener: () => undefined,
-    };
-    todoPanel.querySelectorAll = selector => selector === '.todo-item[data-todo-id]' && todoItemMounted
-        ? [todoItem]
-        : [];
-    const todoSearchResult = {
-        dataset: {
-            searchAction: 'show-todo',
-            todoId: 't1',
-            groupId: 'todo-group-a',
-        },
-    };
-    todoSearchResult.closest = selector => selector === '.dashboard-search-result[data-search-action]'
-        ? todoSearchResult
-        : null;
-    const messageCountBeforeReveal = messages.length;
-    searchResults.dispatch('click', { target: todoSearchResult });
-    assert.strictEqual(messages.length, messageCountBeforeReveal,
-        'pending TODO targets must wait for requestAnimationFrame before querying the DOM');
-    assert.strictEqual(pendingTodoFrames.length, 2,
-        'tab scroll restoration and pending TODO resolution should each use their own frame');
-    while (pendingTodoFrames.length) pendingTodoFrames.shift()();
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages.slice(messageCountBeforeReveal))), [{
-        type: 'todo-reveal',
-        todoId: 't1',
-        groupId: 'todo-group-a',
-    }], 'a hidden TODO search target must be revealed by the host');
-    assert.strictEqual(todoFocusCalls, 0, 'a pending target must wait for mounted TODO HTML');
-    todoItemMounted = true;
-    assert.strictEqual(controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div>revealed todo</div>',
-        searchCatalog: makeDashboardCatalog(),
-    }), true);
-    assert.strictEqual(todoMounted, 3, 'updated TODO HTML must invoke onTodoMounted');
-    assert.strictEqual(pendingTodoFrames.length, 1);
-    todoItemMounted = false;
-    pendingTodoFrames.shift()();
-    assert.strictEqual(todoFocusCalls, 0,
-        'a DOM replacement before the frame must not focus the detached search target');
-    todoItemMounted = true;
-    assert.strictEqual(controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div>revealed todo after mutation</div>',
-        searchCatalog: makeDashboardCatalog(),
-    }), true);
-    assert.strictEqual(pendingTodoFrames.length, 1,
-        'a later TODO mount must retry a pending target lost to DOM replacement');
-    pendingTodoFrames.shift()();
-    assert.strictEqual(todoFocusCalls, 1, 'the mounted pending TODO target must receive focus');
-    assert.strictEqual(todoScrollCalls, 1, 'the mounted pending TODO target must scroll into view');
-    assert.strictEqual(context.document.activeElement, todoItem);
-    assert.strictEqual(controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div>post-focus mutation</div>',
-        searchCatalog: makeDashboardCatalog(),
-    }), true);
-    assert.strictEqual(pendingTodoFrames.length, 0,
-        'a successfully focused TODO target must clear pending state exactly once');
 
     storage.set('agentPivot.activeDashboardTab', 'projects');
     const searchMessages = [];
@@ -4331,244 +2236,6 @@ function runControllerChecks(source) {
 
 }
 
-function runTodoEditResetInteractionChecks() {
-    const projectSource = readProjectWebviewSource();
-    const setTodoEditingBody = extractFunctionBody(projectSource, 'setTodoEditing');
-    const title = { value: 'Initial title', defaultValue: 'Initial title' };
-    const notes = { value: 'Initial notes', defaultValue: 'Initial notes' };
-    const priorities = ['high', 'medium', 'low'].map(value => ({
-        value,
-        checked: value === 'medium',
-        defaultChecked: value === 'medium',
-    }));
-    const choices = priorities.map(input => ({
-        classList: createClassList(input.checked ? ['active'] : []),
-        querySelector: selector => selector === 'input[name="priority"]' ? input : null,
-    }));
-    const segment = {
-        querySelectorAll: selector => selector === '.todo-priority-choice' ? choices : [],
-    };
-    const form = {
-        hidden: false,
-        reset() {
-            title.value = title.defaultValue;
-            notes.value = notes.defaultValue;
-            priorities.forEach(input => { input.checked = input.defaultChecked; });
-        },
-        querySelector(selector) {
-            if (selector === '[name="title"]') return title;
-            if (selector === '[name="notes"]') return notes;
-            if (selector === '.todo-priority-segment') return segment;
-            return null;
-        },
-    };
-    const view = { hidden: false };
-    const list = {
-        classList: createClassList(['has-editing-item']),
-        querySelector: () => null,
-    };
-    const item = {
-        classList: createClassList(['editing', 'expanded']),
-        attributes: new Map([['data-expanded-before-edit', 'false']]),
-        getAttribute(name) {
-            if (name === 'data-todo-id') return 'todo-a';
-            return this.attributes.get(name) || null;
-        },
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        removeAttribute(name) { this.attributes.delete(name); },
-        querySelector(selector) {
-            if (selector === '.todo-item-view') return view;
-            if (selector === '.todo-edit-form') return form;
-            return null;
-        },
-        closest: selector => selector === '.todo-list' ? list : null,
-        scrollIntoView: () => undefined,
-    };
-    const document = {
-        querySelectorAll: selector => selector === '.todo-item[data-todo-id]' ? [item] : [],
-    };
-    const syncTodoPrioritySegment = currentSegment => {
-        currentSegment.querySelectorAll('.todo-priority-choice').forEach(choice => {
-            const input = choice.querySelector('input[name="priority"]');
-            choice.classList.toggle('active', input.checked === true);
-        });
-    };
-    const toggleTodoItemExpanded = (_item, expanded) => {
-        item.classList.toggle('expanded', expanded);
-    };
-    const resetTodoEditForm = currentForm => {
-        currentForm.reset();
-        syncTodoPrioritySegment(currentForm.querySelector('.todo-priority-segment'));
-    };
-    const setTodoEditing = new Function(
-        'document',
-        'toggleTodoItemExpanded',
-        'syncTodoPrioritySegment',
-        'resetTodoEditForm',
-        'todoId',
-        'editing',
-        setTodoEditingBody
-    );
-
-    title.value = 'Draft title';
-    notes.value = 'Draft notes';
-    priorities[1].checked = false;
-    priorities[2].checked = true;
-    syncTodoPrioritySegment(segment);
-    setTodoEditing(document, toggleTodoItemExpanded, syncTodoPrioritySegment, resetTodoEditForm, 'todo-a', false);
-
-    assert.strictEqual(title.value, 'Initial title', 'canceling edit must restore the rendered title value');
-    assert.strictEqual(notes.value, 'Initial notes', 'canceling edit must restore the rendered notes value');
-    assert.deepStrictEqual(priorities.map(input => input.checked), [false, true, false],
-        'canceling edit must restore the rendered priority radio state');
-    assert.deepStrictEqual(choices.map(choice => choice.classList.contains('active')), [false, true, false],
-        'canceling edit must resynchronize the active priority segment');
-    assert.strictEqual(item.classList.contains('editing'), false);
-    assert.strictEqual(item.classList.contains('expanded'), false,
-        'canceling edit must restore the pre-edit collapsed state');
-    assert.strictEqual(item.getAttribute('data-expanded-before-edit'), null);
-}
-
-function createTodoComposeFormState() {
-    const attributes = new Map();
-    const controls = {
-        title: { value: 'Draft todo' },
-        notes: { value: 'Draft notes' },
-        priority: { value: 'high', checked: true },
-        groupId: { value: 'group-a' },
-    };
-    const submitAttributes = new Map();
-    const submitButton = {
-        disabled: false,
-        getAttribute: name => submitAttributes.has(name) ? submitAttributes.get(name) : null,
-        setAttribute: (name, value) => submitAttributes.set(name, String(value)),
-        removeAttribute: name => submitAttributes.delete(name),
-    };
-    const form = {
-        controls,
-        submitButton,
-        reset() {
-            controls.title.value = '';
-            controls.notes.value = '';
-        },
-        getAttribute: name => attributes.has(name) ? attributes.get(name) : null,
-        setAttribute: (name, value) => attributes.set(name, String(value)),
-        removeAttribute: name => attributes.delete(name),
-        querySelector(selector) {
-            if (selector === '[type="submit"]') return submitButton;
-            const checked = selector.match(/^\[name="([^"]+)"\]:checked$/);
-            if (checked) {
-                const control = controls[checked[1]];
-                return control && control.checked ? control : null;
-            }
-            const named = selector.match(/^\[name="([^"]+)"\]$/);
-            return named ? controls[named[1]] || null : null;
-        },
-    };
-    return form;
-}
-
-function runTodoComposePendingInteractionChecks() {
-    const projectSource = readProjectWebviewSource();
-    const context = {};
-    vm.runInNewContext(projectSource, context);
-    const onTodoFormSubmit = new Function(
-        'submitTodoComposeForm',
-        'getTodoFormValue',
-        'window',
-        'e',
-        extractFunctionBody(projectSource, 'onTodoFormSubmit')
-    );
-    const onWindowMessage = new Function(
-        'applyTodoMutationResult',
-        'document',
-        'e',
-        extractFunctionBody(projectSource, 'onWindowMessage')
-    );
-    const messages = [];
-    const form = createTodoComposeFormState();
-    const window = { vscode: { postMessage: message => messages.push(message) } };
-    const submitEvent = {
-        preventDefault: () => undefined,
-        target: {
-            closest: selector => selector === '.todo-add-form' ? form : null,
-        },
-    };
-
-    onTodoFormSubmit(context.submitTodoComposeForm, context.getTodoFormValue, window, submitEvent);
-    onTodoFormSubmit(context.submitTodoComposeForm, context.getTodoFormValue, window, submitEvent);
-    assert.strictEqual(messages.length, 1, 'rapid submits on one compose form must post exactly one mutation');
-    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages[0])), {
-        type: 'todo-add',
-        requestId: 1,
-        title: 'Draft todo',
-        notes: 'Draft notes',
-        priority: 'high',
-        groupId: 'group-a',
-    });
-    assert.strictEqual(form.submitButton.disabled, true);
-    assert.strictEqual(form.submitButton.getAttribute('aria-busy'), 'true');
-
-    const document = {
-        querySelector: selector => selector === '.todo-add-form[data-todo-request-id="1"]' ? form : null,
-    };
-    onWindowMessage(context.applyTodoMutationResult, document, { data: {
-        type: 'todo-mutation-result', version: 1, requestId: 1, success: false,
-    } });
-    assert.strictEqual(form.submitButton.disabled, false, 'a failed mutation ack must unlock compose');
-    assert.strictEqual(form.submitButton.getAttribute('aria-busy'), null);
-    assert.strictEqual(form.controls.title.value, 'Draft todo');
-    assert.strictEqual(form.controls.notes.value, 'Draft notes');
-
-    const refreshFailedForm = createTodoComposeFormState();
-    const refreshFailedEvent = {
-        preventDefault: () => undefined,
-        target: {
-            closest: selector => selector === '.todo-add-form' ? refreshFailedForm : null,
-        },
-    };
-    onTodoFormSubmit(context.submitTodoComposeForm, context.getTodoFormValue, window, refreshFailedEvent);
-    const refreshFailedRequestId = messages[1].requestId;
-    const refreshFailedDocument = {
-        querySelector: selector => selector === `.todo-add-form[data-todo-request-id="${refreshFailedRequestId}"]`
-            ? refreshFailedForm
-            : null,
-    };
-    onWindowMessage(context.applyTodoMutationResult, refreshFailedDocument, { data: {
-        type: 'todo-mutation-result',
-        version: 1,
-        requestId: refreshFailedRequestId,
-        success: true,
-        panelRefreshed: false,
-    } });
-    assert.strictEqual(refreshFailedForm.submitButton.disabled, false,
-        'a committed write with a failed refresh must settle the compose form');
-    assert.strictEqual(refreshFailedForm.submitButton.getAttribute('aria-busy'), null);
-    assert.strictEqual(refreshFailedForm.controls.title.value, '',
-        'a committed write must clear its title so retrying cannot create a duplicate');
-    assert.strictEqual(refreshFailedForm.controls.notes.value, '');
-
-    const successForm = createTodoComposeFormState();
-    const successSubmitEvent = {
-        preventDefault: () => undefined,
-        target: {
-            closest: selector => selector === '.todo-add-form' ? successForm : null,
-        },
-    };
-    onTodoFormSubmit(context.submitTodoComposeForm, context.getTodoFormValue, window, successSubmitEvent);
-    const successRequestId = messages[2].requestId;
-    const successDocument = {
-        querySelector: selector => selector === `.todo-add-form[data-todo-request-id="${successRequestId}"]`
-            ? successForm
-            : null,
-    };
-    onWindowMessage(context.applyTodoMutationResult, successDocument, { data: {
-        type: 'todo-mutation-result', version: 1, requestId: successRequestId, success: true,
-    } });
-    assert.strictEqual(successForm.submitButton.disabled, true,
-        'a success ack arriving before panel replacement must keep compose locked');
-    assert.strictEqual(successForm.submitButton.getAttribute('aria-busy'), 'true');
-}
 
 function runSourceContractChecks(source) {
     const projectSource = readProjectWebviewSource();
@@ -4600,18 +2267,6 @@ function runSourceContractChecks(source) {
     const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
     const filterSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewFilterScripts.js'), 'utf8');
     const extensionHostSource = fs.readFileSync(extensionHostPath, 'utf8');
-    const todoPanelCapabilitySource = fs.readFileSync(todoPanelCapabilityPath, 'utf8');
-    assert.strictEqual(extensionHostSource.includes('buildTodoSearchItems(todoService.getData())'), false,
-        'initial and incremental Dashboard catalogs must not parse unsupported TODO data directly');
-    assert.ok(extensionHostSource.includes('todoService.getSearchItems()'),
-        'Dashboard catalog call sites must use the future-version-safe TODO catalog');
-    const todoPanelBody = extractFunctionBody(todoPanelCapabilitySource, 'postTodoPanelContent');
-    assert.ok(todoPanelBody.includes('UnsupportedTodoDataVersionError'));
-    assert.ok(todoPanelBody.includes('getUnsupportedTodoVersionPanelContent'));
-    assert.ok(todoPanelBody.includes('todoService.getUnsupportedVersionError()'),
-        'TODO panel rendering must live-probe both backends instead of caching unsupported errors');
-    assert.strictEqual(todoPanelBody.includes('todoStorageMigration.error'), false,
-        'a corrected future-version value must not leave a stale cached TODO panel error');
     const webviewContentSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewContent.ts'), 'utf8');
     const stylesPath = path.join(root, 'media', 'styles.scss');
     const generatedStylesPath = path.join(root, 'media', 'styles.css');
@@ -4669,8 +2324,6 @@ function runSourceContractChecks(source) {
     assert.ok(webviewContentSource.includes('class="group-title steward-section-header steward-group-header"'));
     assert.ok(webviewContentSource.includes('class="project steward-item-card"'));
     assert.ok(webviewContentSource.includes('class="project-border steward-item-accent"'));
-    assert.ok(webviewContentSource.includes('onTodoMounted: (panel, message) =>'));
-    assert.ok(webviewContentSource.includes('todos.mount(panel, message.snapshot)'));
     const dashboardBundleInputs = dashboardBundleInputPaths.join('\n');
     assert.ok(webviewContentSource.includes("'webviewDashboardBundle.js'"));
     assert.ok(dashboardBundleInputs.includes('webviewScrollStateScripts.js'));
@@ -4691,9 +2344,6 @@ function runSourceContractChecks(source) {
             && dashboardBundleInputs.indexOf('webviewDashboardProjectsPanelScripts.js') > -1
             && dashboardBundleInputs.indexOf('webviewDashboardProjectsPanelScripts.js')
                 < dashboardBundleInputs.indexOf('webviewDashboardScripts.js')
-            && dashboardBundleInputs.indexOf('webviewDashboardTodoPanelScripts.js') > -1
-            && dashboardBundleInputs.indexOf('webviewDashboardTodoPanelScripts.js')
-                < dashboardBundleInputs.indexOf('webviewDashboardScripts.js')
             && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js') > -1
             && dashboardBundleInputs.indexOf('webviewDashboardAiPanelScripts.js')
                 < dashboardBundleInputs.indexOf('webviewDashboardScripts.js'),
@@ -4709,21 +2359,6 @@ function runSourceContractChecks(source) {
             < dashboardBundleInputs.indexOf('webviewProjectScripts.js'),
         'semantic scroll state must load before every domain Webview script'
     );
-    assert.ok(dashboardBundleInputs.includes('webviewTodoRenderScripts.js'));
-    assert.ok(
-        dashboardBundleInputs.indexOf('webviewTodoRenderScripts.js')
-            < dashboardBundleInputs.indexOf('webviewTodoScripts.js'),
-        'the TODO renderer must load before the TODO controller that calls it'
-    );
-    assert.ok(dashboardBundleInputs.includes('webviewTodoScripts.js'));
-    assert.match(
-        webviewContentSource,
-        /onTodoMounted: \(panel, message\) => \{[\s\S]*?todos\.mount\(panel, message\.snapshot\);[\s\S]*?window\.__agentPivotSyncCollapseButton\(\);[\s\S]*?\}/
-    );
-    assert.strictEqual(
-        webviewContentSource.includes("window.__agentPivotSyncCollapseButton('todo')"),
-        false
-    );
     assert.ok(source.includes("setAttribute('aria-selected'"));
     assert.ok(source.includes("setAttribute('tabindex'"));
     assert.ok(source.includes('scrollPositions'));
@@ -4735,30 +2370,14 @@ function runSourceContractChecks(source) {
     assert.ok(messageHandlersSource.includes("'request-projects-panel': async e =>"));
     assert.ok(extensionHostSource.includes('...dashboardMessageHandlers,'),
         'the dashboard spreads the extracted message handlers into the router');
-    assert.ok(todoPanelCapabilitySource.includes("'request-todo-panel': async e =>"));
-    assert.ok(packageJson.includes('"agentPivot.maxVisibleTodosPerGroup"'));
-    assert.ok(packageJson.includes('Maximum number of TODO cards visible in each group before the group list scrolls.'));
     assert.ok(packageJson.includes('"agentPivot.maxVisibleProjectsPerGroup"'));
     assert.strictEqual(extensionHostSource.includes('function handleStewardMessage('), false);
     assert.ok(extensionHostSource.includes('getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id)'));
     assert.ok(messageHandlersSource.includes("type: 'projects-panel-content'"));
-    assert.ok(todoPanelCapabilitySource.includes("type: 'todo-panel-content'"));
     assert.ok(messageHandlersSource.includes('getProjectsPanelContent(projectService.getGroups(), getStewardInfos())'));
     assert.ok(extensionHostSource.includes('getStewardInfos: () => stewardInfos'),
         'the dashboard wires steward infos into the extracted panel handler');
-    assert.ok(todoPanelCapabilitySource.includes('getTodoPanelContent('));
-    assert.ok(todoPanelCapabilitySource.includes('buildTodoViewModel(todoData, todoViewState, revealedTodoId)'));
-    assert.ok(todoPanelCapabilitySource.includes('todoRenderOptions'));
-    assert.ok(todoPanelCapabilitySource.includes('getMaxVisibleTodosPerGroup('));
-    assert.ok(extensionHostSource.includes("from './todos/todoPanelCapability'"),
-        'dashboard must import the extracted TODO panel capability');
     const panelStackSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'sections', 'panelStack.ts'), 'utf8');
-    assert.ok(panelStackSource.includes('createTodoPanelCapability({'),
-        'the panel section must construct the extracted TODO panel capability');
-    assert.ok(extensionHostSource.includes('...todoPanel.handlers,'),
-        'dashboard must spread the TODO panel handlers into the message router');
-    assert.ok(extensionHostSource.includes('todoPanel.setStorageMigrationReady('),
-        'dashboard must hand the TODO storage migration gate to the capability');
     assert.ok(webviewContentSource.includes("'maxVisibleProjectsPerGroup',"));
     assert.ok(webviewContentSource.includes('DEFAULT_MAX_VISIBLE_PROJECTS_PER_GROUP = 5'));
     assert.ok(webviewContentSource.includes('--steward-max-visible-projects-per-group: ${maxVisibleProjectsPerGroup};'));
@@ -4770,627 +2389,10 @@ function runSourceContractChecks(source) {
     assert.ok(projectGroupListRule.includes('overflow-y: auto'));
     assert.ok(projectSource.includes("e.target.closest('[data-action=\"add-project\"]')"));
     assert.ok(projectSource.includes("e.target.closest('[data-action=\"import-from-other-storage\"]')"));
-    assert.ok(projectSource.includes("e.target.closest('[data-action=\"todo-add\"]')"));
-    assert.ok(projectSource.includes("type: 'todo-add'"));
-    assert.ok(projectSource.includes("type: 'todo-toggle'"));
-    assert.ok(projectSource.includes("type: 'todo-delete'"));
-    assert.ok(projectSource.includes("type: 'todo-delete-group'"));
-    assert.ok(projectSource.includes("type: 'todo-collapse-group'"));
-    assert.ok(projectSource.includes("type: 'todo-rename-group'"));
-    assert.ok(projectSource.includes("type: 'todo-collapse-groups'"));
-    assert.ok(projectSource.includes("type: 'todo-sort-priority'"));
-    assert.ok(projectSource.includes("type: 'todo-toggle-show-completed'"));
-    assert.ok(projectSource.includes("type: 'todo-update'"));
-    assert.ok(projectSource.includes('function syncTodoPrioritySegment('));
-    assert.ok(extractFunctionBody(projectSource, 'onChangeEvent').includes('syncTodoPrioritySegment('));
-    assert.ok(projectSource.includes('function onTodoFormSubmit('));
-    const todoActionBody = extractFunctionBody(projectSource, 'onTodoAction');
-    const todoFormSubmitBody = extractFunctionBody(projectSource, 'onTodoFormSubmit');
-    const todoComposeSubmitBody = extractFunctionBody(projectSource, 'submitTodoComposeForm');
-    assert.ok(todoActionBody.includes('data-action="todo-cancel-add"'));
-    assert.ok(todoActionBody.includes('setTodoAddFormVisible('));
-    assert.ok(todoActionBody.includes('syncTodoGroupCollapseControl(todoGroup);'),
-        'single-group collapse must synchronize class and accessible button state together');
-    assert.ok(todoFormSubmitBody.includes('submitTodoComposeForm(addForm'));
-    assert.ok(todoComposeSubmitBody.includes("type: 'todo-add'"));
-    assert.ok(todoComposeSubmitBody.includes("groupId: getTodoFormValue(form, 'groupId')"));
-    assert.ok(todoComposeSubmitBody.includes('requestId'));
-    assert.strictEqual(todoComposeSubmitBody.includes('form.reset()'), false,
-        'TODO add submissions must retain form values until the host refresh succeeds');
-    assert.strictEqual(projectSource.includes(".querySelectorAll('[data-action=\"add-project\"]')"), false);
-    assert.strictEqual(projectSource.includes(".querySelectorAll('[data-action=\"import-from-other-storage\"]')"), false);
-    assert.ok(todoPanelCapabilitySource.includes("'todo-add': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-toggle': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-delete': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-delete-group': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-collapse-group': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-rename-group': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-reorder-groups': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-reorder-items': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-collapse-groups': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-sort-priority': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-toggle-show-completed': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes("'todo-reveal': async e =>"));
-    const todoShowCompletedHandler = todoPanelCapabilitySource.slice(
-        todoPanelCapabilitySource.indexOf("'todo-toggle-show-completed': async e =>"),
-        todoPanelCapabilitySource.indexOf("'todo-reveal': async e =>")
-    );
-    const todoRevealHandler = todoPanelCapabilitySource.slice(
-        todoPanelCapabilitySource.indexOf("'todo-reveal': async e =>"),
-        todoPanelCapabilitySource.indexOf("'todo-update': async e =>")
-    );
-    assert.ok(todoRevealHandler.includes('await todoService.revealTodo('),
-        'host reveal must delegate parsing and the optional group write to one TodoService queue operation');
-    assert.strictEqual(todoRevealHandler.includes('todoService.getData()'), false,
-        'host reveal must not parse stale TODO/group state outside the service queue');
-    assert.strictEqual(todoRevealHandler.includes('todoService.setShowCompleted('), false);
-    assert.strictEqual(todoRevealHandler.includes('todoService.setGroupCollapsed('), false);
-    assert.ok(todoRevealHandler.indexOf('await todoService.revealTodo(')
-        < todoRevealHandler.indexOf('revealedTodoId = e.todoId as string;'),
-    'host must set the temporary target only after the queued reveal operation succeeds');
-    assert.ok(todoShowCompletedHandler.indexOf('await todoService.setShowCompleted(')
-        < todoShowCompletedHandler.indexOf('revealedTodoId = undefined;'),
-    'an explicit completed toggle must clear the temporary target only after persistence succeeds');
-    assert.strictEqual((todoPanelCapabilitySource.match(/revealedTodoId = undefined;/g) || []).length, 2,
-        'only legacy and versioned completed-visibility controls may clear the temporary target');
-    assert.ok(todoPanelCapabilitySource.includes('buildTodoViewModel(todoData, todoViewState, revealedTodoId)'),
-        'all TODO panel refreshes must project the temporary reveal target');
-    assert.ok(todoPanelCapabilitySource.includes("'todo-update': async e =>"));
-    assert.ok(todoPanelCapabilitySource.includes('async function postTodoPanelContent('));
-    assert.ok(todoPanelCapabilitySource.includes("from './hostMutation'"));
-    assert.ok(todoPanelCapabilitySource.includes('const todoViewState = todoService.getViewState();'));
-    assert.ok(extensionHostSource.includes(
-        'const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded())'));
-    assert.ok(extensionHostSource.includes(
-        'const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded())'));
-    assert.strictEqual(
-        (todoPanelCapabilitySource.match(/await runTodoPanelMutation\(/g) || []).length,
-        10,
-        'every non-prompt direct TODO mutation handler must use the write-error boundary'
-    );
-    assert.ok(todoPanelCapabilitySource.includes('await runTodoRequestMutation({'),
-        'compose mutations must use the request-correlated write-error boundary');
-    assert.ok(todoPanelCapabilitySource.includes('await runTodoPromptMutation({'),
-        'add-group mutations must use the retrying prompt error boundary');
-    assert.ok(todoPanelCapabilitySource.includes('await renameTodoGroupWithPrompt({'),
-        'rename-group mutations must check group existence before entering the retrying prompt boundary');
-    assert.ok(dndSource.includes('function initDnD(root)'));
-    assert.ok(dndSource.includes('function disposeDnD(root)'));
-    assert.ok(dndSource.includes('root.__agentPivotDnDInitialized'));
-    assert.ok(dndSource.includes('const todoGroupsContainerSelector = ".todo-groups"'));
-    assert.ok(dndSource.includes('const todoItemsContainerSelector = ".todo-list"'));
-    assert.ok(dndSource.includes("type: 'todo-reorder-groups'"));
-    assert.ok(dndSource.includes("type: 'todo-reorder-items'"));
-    assert.strictEqual((dndSource.match(/type: 'todo-reorder-groups'/g) || []).length, 1,
-        'a TODO group drop must have one reorder message send point');
-    assert.strictEqual((dndSource.match(/type: 'todo-reorder-items'/g) || []).length, 1,
-        'a TODO item drop must have one reorder message send point');
-    assert.strictEqual(dndSource.includes('document.querySelectorAll(`${groupsContainerSelector}'), false);
-    assert.ok(projectSource.includes("'collapse-group'"));
-    const onWindowMessageBody = extractFunctionBody(projectSource, 'onWindowMessage');
-    assert.ok(onWindowMessageBody.includes('applyTodoMutationResult(message, document);'));
-    assert.ok(onWindowMessageBody.includes('disposeDnD(todoRoot);'));
-    assert.ok(onWindowMessageBody.includes('initDnD(todoRoot);'));
-    assert.ok(projectSource.includes('Collapse Open Windows'));
-    assert.ok(projectSource.includes('Expand Open Windows'));
-    assert.ok(projectSource.includes('aria-disabled'));
-
-    const projectContext = {};
-    vm.runInNewContext(projectSource, projectContext);
-    assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(projectContext.getCollapseButtonState('open', []))),
-        { disabled: true, collapsed: false, title: 'No open windows to collapse' }
-    );
-    assert.strictEqual(projectContext.getCollapseButtonState('open', [false]).title, 'Collapse Open Windows');
-    assert.strictEqual(projectContext.getCollapseButtonState('open', [true]).title, 'Expand Open Windows');
-    assert.strictEqual(projectContext.getCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
-    assert.strictEqual(projectContext.getCollapseButtonState('projects', [true, true]).title, 'Expand All Groups');
-    assert.strictEqual(projectContext.getCollapseButtonState('todo', [false, true]).title, 'Collapse TODO Groups');
-    assert.strictEqual(projectContext.getCollapseButtonState('todo', [true, true]).title, 'Expand TODO Groups');
-
-    const renderSearchBody = extractFunctionBody(source, 'renderDashboardSearchResults');
-    assert.ok(renderSearchBody.includes('textContent'));
-    assert.ok(renderSearchBody.includes("createElement('button')"));
-    assert.strictEqual(renderSearchBody.includes('innerHTML'), false);
-    assert.strictEqual(renderSearchBody.includes('project-ai-attention-badge'), false);
-    assert.strictEqual(renderSearchBody.includes('data-current-workspace'), false);
-    assert.strictEqual(renderSearchBody.includes('dashboard-search-result-notes'), false);
-    assert.ok(filterSource.includes('ctrlKey'));
-    assert.ok(filterSource.includes('metaKey'));
-    assert.ok(filterSource.includes('Escape'));
-    assert.ok(source.includes('initialSearchQuery'));
-    assert.ok(source.includes('replaceSearchCatalog'));
-    assert.ok(source.includes('isSearchActive'));
-    assert.ok(source.includes("title: 'TODO RESULTS'"));
-    assert.ok(renderSearchBody.includes("button.classList.toggle('completed'"));
-    assert.ok(renderSearchBody.includes('dashboard-search-result-priority'));
-    assert.ok(source.includes("title: 'OPEN WORKSPACES'"));
-    assert.ok(projectSource.includes('__agentPivotAcknowledgeSession'));
-    assert.strictEqual(projectSource.includes('__agentPivotShowCurrentProject'), false);
-    assert.ok(projectSource.includes('__agentPivotRevealWorkspaceSession'));
-    const refreshStewardViewsBody = extractFunctionBody(extensionHostSource, 'refreshStewardViews');
-    const aiSessionsMessageBody = extractFunctionBody(extensionHostSource, 'getAiSessionsUpdatedMessage');
-    const openWorkspacesMessageBody = extractFunctionBody(extensionHostSource, 'postOpenWorkspacesUpdated');
-    const openWorkspaceControllerSource = fs.readFileSync(path.join(root, 'src', 'openWorkspaces', 'dashboardController.ts'), 'utf8');
-    const aiSessionControllerSource = fs.readFileSync(path.join(root, 'src', 'aiSessions', 'dashboardController.ts'), 'utf8');
-    const dashboardDiagnosticsSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'diagnostics.ts'), 'utf8');
-    const dashboardErrorContentSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'errorContent.ts'), 'utf8');
-    const dashboardRuntimeControllerSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'runtimeController.ts'), 'utf8');
-    const baseServiceSource = fs.readFileSync(path.join(root, 'src', 'services', 'baseService.ts'), 'utf8');
-    assert.ok(refreshStewardViewsBody.includes('dashboardRuntimeController.refresh(reason);'));
-    assert.ok(dashboardRuntimeControllerSource.includes('this.options.refreshProvider();'));
-    assert.ok(dashboardRuntimeControllerSource.includes('this.options.logDashboardDiagnostic({'));
-    assert.ok(extensionHostSource.includes('new DashboardDiagnostics({'));
-    assert.ok(!extensionHostSource.includes('function logDashboardDiagnostic('));
-    assert.ok(dashboardDiagnosticsSource.includes('logDashboardDiagnostic('));
-    assert.ok(extensionHostSource.includes("from './dashboard/errorContent'"));
-    assert.ok(!extensionHostSource.includes('function getErrorContent('));
-    assert.ok(!extensionHostSource.includes('function escapeHtml('));
-    assert.ok(dashboardErrorContentSource.includes('export function getErrorContent('));
-    assert.ok(dashboardErrorContentSource.includes('Agent Pivot could not render this view.'));
-    const dashboardConfigurationSource = fs.readFileSync(path.join(root, 'src', 'configuration.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './configuration'"));
-    assert.ok(!extensionHostSource.includes('function getAgentPivotConfiguration('));
-    assert.ok(!extensionHostSource.includes('function hasConfiguredValue('));
-    assert.ok(dashboardConfigurationSource.includes('export function getAgentPivotConfiguration('));
-    assert.strictEqual(dashboardConfigurationSource.includes('createStewardConfiguration'), false);
-    assert.strictEqual(dashboardConfigurationSource.includes('hasConfiguredValue'), false);
-    assert.strictEqual(dashboardConfigurationSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
-    assert.strictEqual(baseServiceSource.includes("from '../../configuration'"), false);
-    assert.ok(baseServiceSource.includes('AGENT_PIVOT_CONFIG_SECTION'));
-    assert.ok(baseServiceSource.includes('this.workspaceRoot'));
-    assert.strictEqual(baseServiceSource.includes('private hasConfiguredValue('), false);
-    const dashboardStartupSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'startup.ts'), 'utf8');
-    const dashboardStartupControllerSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'startupController.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './dashboard/startupController'"));
-    assert.ok(!extensionHostSource.includes('function showAgentPivotOnOpenIfNeeded('));
-    assert.ok(dashboardStartupSource.includes('export function shouldOpenAgentPivotOnStartup('));
-    assert.ok(dashboardStartupSource.includes('code-runner-output'));
-    assert.ok(dashboardStartupControllerSource.includes('export class DashboardStartupController'));
-    assert.ok(dashboardStartupControllerSource.includes('shouldOpenAgentPivotOnStartup({'));
-    const dashboardWebviewOptionsSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'webviewOptions.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './dashboard/webviewOptions'"));
-    assert.ok(!extensionHostSource.includes('function getWebviewOptions('));
-    assert.ok(dashboardWebviewOptionsSource.includes('export function getDashboardWebviewOptions('));
-    const groupCollapseControllerSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'groupCollapseController.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './dashboard/groupCollapseController'"));
-    assert.ok(!extensionHostSource.includes('async function collapseGroup('));
-    assert.ok(!extensionHostSource.includes('context.globalState.update(FAVORITES_GROUP_COLLAPSED_KEY'));
-    assert.ok(!extensionHostSource.includes('context.globalState.update(OPEN_WORKSPACES_GROUP_COLLAPSED_KEY'));
-    assert.ok(groupCollapseControllerSource.includes('export class GroupCollapseController'));
-    assert.ok(groupCollapseControllerSource.includes('collapseGroup('));
-    const groupPromptsSource = fs.readFileSync(path.join(root, 'src', 'projects', 'groupPrompts.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './projects/groupPrompts'"));
-    assert.ok(!extensionHostSource.includes('async function queryGroupFields('));
-    assert.ok(groupPromptsSource.includes('export async function queryGroupName('));
-    const groupCommandControllerSource = fs.readFileSync(path.join(root, 'src', 'projects', 'groupCommandController.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './projects/groupCommandController'"));
-    assert.ok(!extensionHostSource.includes('async function addGroup('));
-    assert.ok(!extensionHostSource.includes('async function editGroup('));
-    assert.ok(!extensionHostSource.includes('async function removeGroup('));
-    assert.ok(groupCommandControllerSource.includes('export class GroupCommandController'));
-    const addProjectsFromFolderControllerSource = fs.readFileSync(path.join(root, 'src', 'projects', 'addProjectsFromFolderController.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './projects/addProjectsFromFolderController'"));
-    assert.ok(!extensionHostSource.includes('async function addProjectsFromFolder('));
-    assert.ok(addProjectsFromFolderControllerSource.includes('export class AddProjectsFromFolderController'));
-    const favoriteProjectControllerSource = fs.readFileSync(path.join(root, 'src', 'projects', 'favoriteProjectController.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './projects/favoriteProjectController'"));
-    assert.ok(!extensionHostSource.includes('async function toggleProjectFavorite('));
-    assert.ok(!extensionHostSource.includes('async function reorderFavoriteProjects('));
-    assert.ok(!extensionHostSource.includes('withFavoriteProjectOrder(groups, projectIds)'));
-    assert.ok(!extensionHostSource.includes('withToggledProjectFavorite(groups, projectId)'));
-    assert.ok(favoriteProjectControllerSource.includes('export class FavoriteProjectController'));
-    const projectOrderControllerSource = fs.readFileSync(path.join(root, 'src', 'projects', 'projectOrderController.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './projects/projectOrderController'"));
-    assert.ok(!extensionHostSource.includes('async function reorderGroups('));
-    assert.ok(projectOrderControllerSource.includes('export class ProjectOrderController'));
-    const projectRemovalControllerSource = fs.readFileSync(path.join(root, 'src', 'projects', 'projectRemovalController.ts'), 'utf8');
-    assert.ok(extensionHostSource.includes("from './projects/projectRemovalController'"));
-    assert.ok(!extensionHostSource.includes('async function removeProject('));
-    assert.ok(projectRemovalControllerSource.includes('export class ProjectRemovalController'));
-    assert.ok(openWorkspacesMessageBody.includes('openWorkspaceDashboardController.postUpdated()'));
-    assert.ok(openWorkspaceControllerSource.includes('buildOpenWorkspacesUpdatedMessage({'));
-    assert.ok(openWorkspaceControllerSource.includes('groups: this.options.getGroups()'));
-    assert.ok(openWorkspaceControllerSource.includes('const cards = this.getCards(projection)'));
-    assert.ok(openWorkspaceControllerSource.includes('cards,'));
-    assert.ok(openWorkspaceControllerSource.includes(
-        'getRenderedCurrentWorkspaceNavigationIdentity(cards)'
-    ));
-    assert.ok(openWorkspaceControllerSource.includes(
-        'projectionRevision: projection.revision'
-    ));
-    assert.ok(openWorkspaceControllerSource.includes('semanticRevision,'));
-    assert.ok(openWorkspaceControllerSource.includes('otherWindowsStatus: this.bridgeStatus'));
-    assert.ok(openWorkspaceControllerSource.includes('getViewSemanticRevision()'));
-    assert.ok(aiSessionsMessageBody.includes('aiSessionDashboardController.getUpdatedMessage()'));
-    assert.ok(aiSessionControllerSource.includes('buildAiSessionsUpdatedMessage({'));
-    assert.ok(aiSessionControllerSource.includes('groups: this.options.getGroups()'));
-    assert.ok(aiSessionControllerSource.includes('cards'));
-    assert.ok(aiSessionControllerSource.includes('sequence: projection.revision'));
-    assert.ok(aiSessionControllerSource.includes('this.options.getCards(projection)'));
-    assert.ok(aiSessionControllerSource.includes(
-        'getRenderedCurrentWorkspaceNavigationIdentity(cards)'
-    ));
-    assert.equal((extensionHostSource.match(
-        /getRenderedCurrentWorkspaceNavigationIdentity\(cards\)/g
-    ) || []).length, 1);
-    assert.ok(extensionHostSource.includes(
-        'openWorkspaceDashboardController.getCurrentRenderedWorkspaceNavigationIdentity()'
-    ));
-    assert.ok(projectSource.includes('replaceSearchCatalog(message.searchCatalog)'));
-    assert.ok(projectSource.includes("type: 'open-bridge-extension'"));
-    assert.ok(extensionHostSource.includes("'workbench.extensions.action.showExtensionsWithIds'"));
-    assert.ok(extensionHostSource.includes("'hzcheng.agent-pivot-attention-ui-bridge'"));
-    assert.strictEqual(projectSource.includes("sessionStorage.setItem('agentPivot.activeDashboardTab', 'open')"), false);
-    for (const selector of [
-        '.steward-section', '.steward-section-header', '.steward-card',
-        '.steward-icon-button', '.steward-badge', '.steward-meta',
-        '.steward-item-card', '.steward-item-accent',
-        '.dashboard-tab-list', '.dashboard-tab-button', '.dashboard-tab-panel',
-        '.dashboard-tab-button::before',
-        '.dashboard-search-results', '.dashboard-search-section', '.dashboard-search-result',
-        '.dashboard-search-section[data-section-type="todo"]',
-        '.open-current-workspace-group', '.open-window-switcher-group', '.open-window-row', '.dashboard-projects-loading',
-        '.dashboard-todo-loading', '.todo-panel', '.todo-item', '.todo-priority-high',
-        '.todo-empty-state', '.todo-edit-form', '.steward-group-header', '.todo-page-command-bar',
-        '.todo-edit-panel', '.todo-priority-segment',
-    ]) {
-        assert.ok(styles.includes(selector), `missing ${selector}`);
-    }
-    const sidebarStyles = extractCssRule(styles, 'body.steward-sidebar');
-    const projectContainerRule = extractCssRule(sidebarStyles, '.project-container');
-    for (const declaration of [
-        'box-sizing: border-box',
-        'min-width: 0',
-        'max-width: 100%',
-        'padding: 0 2px',
-    ]) {
-        assert.ok(cssRuleIncludesTopLevelDeclaration(projectContainerRule, declaration),
-            `project container is missing ${declaration}`);
-    }
-    const sharedItemCardRules = extractCssRules(sidebarStyles, '.steward-item-card');
-    const sharedItemCardRule = sharedItemCardRules.join('\n');
-    for (const declaration of [
-        'min-width: 0',
-        'width: 100%',
-        'max-width: 100%',
-        'height: 58px',
-        'margin: 0 0 7px',
-        'padding: 8px 10px 8px 15px',
-        'border: 1px solid var(--vscode-panel-border)',
-        'border-radius: 18px',
-        'background: var(',
-        'box-shadow:',
-    ]) {
-        assert.ok(sharedItemCardRules.some(rule => cssRuleIncludesTopLevelDeclaration(rule, declaration)),
-            `shared item card is missing ${declaration}`);
-    }
-
-    const todoItemRules = extractCssRules(styles, '.todo-item');
-    for (const forbidden of ['border:', 'border-radius:', 'background:', 'box-shadow:']) {
-        assert.strictEqual(todoItemRules.some(rule => cssRuleIncludesTopLevelDeclaration(rule, forbidden)), false,
-            `TODO item must not own ${forbidden}`);
-    }
-
-    const sidebarProjectRules = extractCssRules(sidebarStyles, '.project');
-    const workspaceProjectRule = sidebarProjectRules.find(rule =>
-        rule.includes('&[data-current-workspace][data-has-ai-session-badge]')
-    );
-    assert.ok(workspaceProjectRule, 'workspace project styles must define the badge-present state');
-    const badgePresentWorkspaceRule = extractCssRule(
-        workspaceProjectRule,
-        '&[data-current-workspace][data-has-ai-session-badge]'
-    );
-    const sessionSurfaceRules = extractCssRules(workspaceProjectRule, '.codex-sessions');
-    const collapsedSessionSurfaceRule = sessionSurfaceRules.find(rule =>
-        cssRuleIncludesTopLevelDeclaration(rule, 'max-height: 0')
-    );
-    assert.ok(collapsedSessionSurfaceRule, 'collapsed workspace sessions must use a measurable zero-height surface');
-    for (const declaration of [
-        'display: block',
-        'overflow: hidden',
-        'opacity: 0',
-        'visibility: hidden',
-        'pointer-events: none',
-        'margin-top: 0',
-        'padding-top: 0',
-        'transition:',
-    ]) {
-        assert.ok(cssRuleIncludesTopLevelDeclaration(collapsedSessionSurfaceRule, declaration),
-            `collapsed workspace sessions are missing ${declaration}`);
-    }
-    assert.ok(collapsedSessionSurfaceRule.includes('max-height')
-        && collapsedSessionSurfaceRule.includes('opacity')
-        && collapsedSessionSurfaceRule.includes('margin-top')
-        && collapsedSessionSurfaceRule.includes('padding-top'),
-    'workspace session motion must transition measurable height, opacity, and spacing');
-    const expandedSessionSurfaceRule = sessionSurfaceRules.find(rule =>
-        cssRuleIncludesTopLevelDeclaration(rule, 'max-height: 1000px')
-    );
-    assert.ok(expandedSessionSurfaceRule, 'expanded workspace sessions must open to the bounded surface height');
-    for (const declaration of [
-        'opacity: 1',
-        'visibility: visible',
-        'pointer-events: auto',
-        'margin-top: 8px',
-        'padding-top: 7px',
-    ]) {
-        assert.ok(cssRuleIncludesTopLevelDeclaration(expandedSessionSurfaceRule, declaration),
-            `expanded workspace sessions are missing ${declaration}`);
-    }
-    assert.ok(badgePresentWorkspaceRule.includes('width: calc(100% - 60px)'),
-        'badge-present workspace cards must reserve title and description width');
-
-    const compiledBadgeSelector =
-        'body.steward-sidebar .project[data-current-workspace][data-has-ai-session-badge]';
-    const compiledBadgeRules = extractCompiledCssRulesContainingSelector(compiledStyles, compiledBadgeSelector);
-    for (const suffix of ['.fitty-container', '.project-description']) {
-        const exactSelector = `${compiledBadgeSelector} ${suffix}`;
-        assert.ok(compiledBadgeRules.some(rule =>
-            rule.selectors.includes(exactSelector)
-            && rule.body.includes('width: calc(100% - 60px)')
-        ), `compiled badge-present workspace styles must reserve width for ${suffix}`);
-    }
-    const compiledPlainSelector = 'body.steward-sidebar .project[data-current-workspace]';
-    const compiledCurrentWorkspaceRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledPlainSelector
-    );
-    assert.strictEqual(compiledCurrentWorkspaceRules.some(rule =>
-        ['.fitty-container', '.project-description'].some(suffix =>
-            rule.selectors.includes(`${compiledPlainSelector} ${suffix}`)
-        ) && rule.body.includes('width: calc(100% - 60px)')
-    ), false, 'compiled plain current-workspace styles must not reserve badge width');
-    const compiledSessionSurfaceSelector = 'body.steward-sidebar .project .codex-sessions';
-    const compiledSessionSurfaceRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledSessionSurfaceSelector,
-    ).filter(rule => rule.selectors.includes(compiledSessionSurfaceSelector));
-    assert.ok(compiledSessionSurfaceRules.some(rule =>
-        rule.body.includes('max-height: 0')
-        && rule.body.includes('opacity: 0')
-        && rule.body.includes('overflow: hidden')
-    ), 'compiled collapsed session surface must preserve the motion contract');
-    const compiledExpandedSessionSelector =
-        'body.steward-sidebar .project[data-current-workspace][data-codex-expanded] .codex-sessions';
-    const compiledExpandedSessionRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledExpandedSessionSelector,
-    );
-    assert.ok(compiledExpandedSessionRules.some(rule =>
-        rule.selectors.includes(compiledExpandedSessionSelector)
-        && rule.body.includes('max-height: 1000px')
-        && rule.body.includes('opacity: 1')
-    ), 'compiled expanded session surface must preserve the motion contract');
-    const compiledFitListSelector =
-        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list';
-    const compiledFitListRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledFitListSelector,
-    );
-    assert.ok(compiledFitListRules.some(rule =>
-        rule.selectors.includes(compiledFitListSelector)
-        && rule.body.includes('flex: 1 1 0')
-        && rule.body.includes('height: auto')
-    ), 'the expanded CURRENT WINDOW session list must flex to fill the card');
-
-    for (const forbidden of ['height: 58px', 'border-radius: 18px', 'background: var(', 'box-shadow:']) {
-        assert.strictEqual(sidebarProjectRules.some(rule => cssRuleIncludesTopLevelDeclaration(rule, forbidden)), false,
-            `project domain rule must not duplicate ${forbidden}`);
-    }
-
-    const sharedAccentRule = extractCssRule(sidebarStyles, '.steward-item-accent');
-    assert.ok(sharedAccentRule.includes('left: 7px'));
-    assert.ok(sharedAccentRule.includes('width: 4px'));
-    assert.ok(sharedAccentRule.includes('border-radius: 999px'));
-    assert.ok(sharedAccentRule.includes('background: var(--project-color, transparent)'));
-    assert.ok(sharedAccentRule.includes('box-shadow: 0 0 12px var(--project-color, transparent)'));
-    assert.ok(sharedItemCardRule.includes('&.completed'));
-    assert.ok(sharedItemCardRule.includes('&.selected'));
-    assert.ok(sharedItemCardRule.includes('&[data-current-workspace]'));
-    assert.strictEqual(sharedItemCardRule.includes('&.selected,\n        &[data-current-workspace]'), false,
-        'CURRENT WINDOW location must replace the permanent selected shell treatment');
-    assert.strictEqual(sharedItemCardRule.includes('&.selected:focus-within,\n        &[data-current-workspace]:hover'), false,
-        'current workspace hover must use the same shared card shell as Projects');
-    assert.ok(sharedItemCardRule.includes('&[data-codex-expanded]:hover'));
-    const currentWorkspaceShellRule = extractCssRule(sharedItemCardRule, '&[data-current-workspace]');
-    assert.ok(cssRuleIncludesTopLevelDeclaration(currentWorkspaceShellRule, 'height: auto'),
-        'CURRENT WORKSPACE must remain intrinsically sized while its child collapses');
-    assert.ok(cssRuleIncludesTopLevelDeclaration(currentWorkspaceShellRule, 'min-height: 58px'));
-    assert.strictEqual(
-        cssRuleIncludesTopLevelDeclaration(currentWorkspaceShellRule, 'height: 58px'),
-        false,
-        'CURRENT WORKSPACE must not switch to the fixed collapsed shell height',
-    );
-    const compiledCurrentWorkspaceShellSelector =
-        'body.steward-sidebar .steward-item-card[data-current-workspace]';
-    const compiledCurrentWorkspaceShellRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledCurrentWorkspaceShellSelector,
-    ).filter(rule => rule.selectors.includes(compiledCurrentWorkspaceShellSelector));
-    assert.ok(compiledCurrentWorkspaceShellRules.some(rule =>
-        rule.body.includes('height: auto') && rule.body.includes('min-height: 58px')
-    ), 'compiled CURRENT WORKSPACE shell must remain intrinsic in collapsed and expanded states');
-    assert.strictEqual(styles.includes('.steward-card-compact'), false);
-
-    const reducedMotionRule = extractCssRule(styles, '@media (prefers-reduced-motion: reduce)');
-    assert.ok(reducedMotionRule.includes('.steward-item-card'));
-    assert.ok(reducedMotionRule.includes('.steward-item-accent'));
-    assert.ok(reducedMotionRule.includes('.codex-sessions'));
-    assert.ok(reducedMotionRule.includes('transition: none'));
-
-    const sharedGroupHeaderRule = extractCssRule(sidebarStyles, '.steward-group-header');
-    for (const declaration of [
-        'display: flex',
-        'width: 100%',
-        'padding: 4px 6px',
-        'border: 1px solid var(--vscode-panel-border)',
-        'border-radius: 7px',
-        'background: var(--vscode-list-inactiveSelectionBackground, transparent)',
-        'font-size: 15px',
-    ]) {
-        assert.ok(sharedGroupHeaderRule.includes(declaration), `shared group header is missing ${declaration}`);
-    }
-    const sharedDangerActionRule = extractCssRule(sharedGroupHeaderRule, '.group-actions > .danger');
-    assert.ok(sharedDangerActionRule.includes('&:hover')
-        && sharedDangerActionRule.includes('&:focus-visible')
-        && sharedDangerActionRule.includes('color: var(--vscode-errorForeground)'),
-        'shared group header danger actions must retain their danger color on hover and keyboard focus');
-
-    const todoPageCommandBarRule = extractCssRule(styles, '.todo-page-command-bar');
-    for (const declaration of [
-        'display: flex',
-        'width: 100%',
-        'min-width: 0',
-        'border: 0',
-        'background: transparent',
-        'box-shadow: none',
-    ]) {
-        assert.ok(todoPageCommandBarRule.includes(declaration),
-            `TODO page command bar is missing ${declaration}`);
-    }
-    assert.strictEqual(todoPageCommandBarRule.includes('border-radius:'), false,
-        'TODO page command bar must not look like another group shell');
-
-    for (const selector of ['.todo-group-action', '.todo-square-button', '.todo-square-toggle']) {
-        const todoActionRules = extractCssRulesContainingSelector(styles, selector).join('\n');
-        for (const forbidden of ['display:', 'width:', 'height:', 'min-width:', 'min-height:', 'place-items:', 'padding:']) {
-            assert.strictEqual(cssRuleIncludesDeclaration(todoActionRules, forbidden), false,
-                `${selector} must not own ${forbidden}`);
-        }
-    }
-    const todoCompletedToggleFocusRule = extractCssRule(styles, '.todo-square-toggle:focus-within');
-    assert.ok(todoCompletedToggleFocusRule.includes('outline: 1px solid var(--vscode-focusBorder)')
-        && todoCompletedToggleFocusRule.includes('outline-offset: 1px'),
-    'the hidden Show Completed checkbox must expose a visible focus ring on its label');
-    assert.ok(compiledStyles.includes('.todo-square-toggle:focus-within {')
-        && compiledStyles.includes('outline: 1px solid var(--vscode-focusBorder);'),
-    'compiled dashboard CSS must retain the Show Completed focus-within ring');
-
-    const todoGroupHeaderRule = extractCssRule(styles, '.todo-group-header');
-    for (const forbidden of ['border:', 'border-radius:', 'background:', 'box-shadow:']) {
-        assert.strictEqual(todoGroupHeaderRule.includes(forbidden), false, `TODO group header must not own ${forbidden}`);
-    }
-    assert.strictEqual(styles.includes('.todo-group-strip'), false);
-    const todoGroupCountRule = extractCssRule(styles, '.todo-group-count');
-    assert.ok(todoGroupCountRule.includes('color: currentColor')
-        && todoGroupCountRule.includes('background: transparent')
-        && todoGroupCountRule.includes('opacity: .55'),
-        'todo group counts should not introduce a separate badge color language');
-    const todoTitleRule = extractCssRule(styles, '.todo-title-text');
-    assert.ok(todoTitleRule.includes('display: -webkit-box')
-        && todoTitleRule.includes('-webkit-line-clamp: 2')
-        && todoTitleRule.includes('overflow-wrap: anywhere')
-        && !todoTitleRule.includes('white-space: nowrap'),
-        'todo item titles should use two readable lines');
-    const todoPriorityChoiceRule = extractCssRule(styles, '.todo-priority-choice');
-    assert.ok(todoPriorityChoiceRule.includes('transition:'),
-        'todo priority choices should animate visual selected-state changes');
-    assert.ok(styles.includes('.todo-priority-choice input:checked + span'),
-        'todo priority selected state should be driven by the radio checked state');
-    const todoListRules = extractCssRules(styles, '.todo-list');
-    const todoListRule = todoListRules.join('\n');
-    assert.ok(todoListRule.includes(
-        'max-height: calc(var(--todo-list-max-height) + var(--todo-list-expanded-extra-height, 0px))'
-    ) && todoListRule.includes('overflow-y: auto'),
-    'todo lists should honor the configured per-group viewport');
-    assert.ok(todoListRules.some(rule => cssRuleIncludesTopLevelDeclaration(rule, 'gap: 0')),
-        'shared item card margins should be the only spacing source inside TODO lists');
-    const todoLastItemRule = extractCssRule(styles, '.todo-list > .steward-item-card:last-child');
-    assert.ok(cssRuleIncludesTopLevelDeclaration(todoLastItemRule, 'margin-bottom: 0'),
-        'the final TODO card should not add trailing margin');
-    assert.ok(sharedItemCardRule.includes('height: 58px'),
-        'collapsed todo items should keep the same normal card height as current workspace cards');
-    assert.ok(styles.includes('.todo-item.expanded')
-        && styles.includes('-webkit-line-clamp: unset'),
-        'expanded TODO cards must show their complete title');
-    const detailNotesRule = extractCssRule(styles, '.todo-detail-notes');
-    assert.ok(detailNotesRule.includes('white-space: pre-wrap'),
-        'inline TODO detail notes must preserve every line');
-
-    assert.ok(compiledStyles.includes('.group.collapsed .collapse-icon svg'),
-        'collapsed groups must keep the existing SVG rotation path');
-    assert.ok(compiledStyles.includes('.todo-group.collapsed .todo-group-chevron svg'),
-        'collapsed TODO groups must rotate their centered chevron to the right');
-    assert.strictEqual(
-        compiledStyles.includes('.todo-group-collapse-button[aria-expanded=false] .collapse-icon'),
-        false,
-        'TODO group collapse must not add a parent transform on top of the existing SVG rotation'
-    );
-    assert.ok(compiledStyles.includes('.todo-inline-detail'),
-        'TODO cards must expose their details inline');
-
-    const completedRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        '.todo-item.completed'
-    );
-    for (const completedRule of completedRules) {
-        assert.strictEqual(
-            cssRuleIncludesDeclaration(completedRule.body, 'background:'),
-            false,
-            'completed TODO selectors must not own card backgrounds'
-        );
-        if (cssRuleIncludesDeclaration(completedRule.body, 'opacity:')) {
-            assert.deepStrictEqual(
-                completedRule.selectors,
-                ['.todo-item.completed .todo-priority-badge'],
-                'only the completed priority badge selector may own opacity'
-            );
-        }
-    }
-    assert.strictEqual(
-        completedRules.some(rule => rule.selectors.some(selector => selector.includes('::before'))),
-        false,
-        'completed TODO selectors must not own a ::before layer'
-    );
-
-    assert.ok(styles.includes('.todo-detail-edit-form'));
-    assert.strictEqual(styles.includes('.todo-empty-orb'), false);
-    assert.strictEqual(styles.includes('.todo-empty-primary'), false);
-    assert.strictEqual(styles.includes('.todo-empty-secondary'), false);
-    assert.ok(projectSource.includes('function toggleTodoItemExpanded('),
-        'todo cards should have a click-driven expanded/collapsed helper');
-    assert.ok(projectSource.includes('function syncTodoListExpandedHeight('),
-        'todo card expansion should keep the full expanded card visible inside its scrolling list');
-    assert.ok(projectSource.includes('function isTodoInteractiveTarget('),
-        'todo card expansion should ignore nested controls');
-    assert.ok(extractFunctionBody(projectSource, 'toggleTodoItemExpanded').includes('syncTodoExpandControl(item, nextExpanded);'),
-        'todo expansion must synchronize aria-expanded, title, and aria-label');
-    const setTodoEditingBody = extractFunctionBody(projectSource, 'setTodoEditing');
-    assert.ok(setTodoEditingBody.includes('data-expanded-before-edit'),
-        'editing must record whether the TODO was expanded before editing');
-    assert.ok(setTodoEditingBody.includes('removeAttribute(\'data-expanded-before-edit\')'),
-        'canceling edit must clear the saved pre-edit expansion state');
-    assert.ok(setTodoEditingBody.includes('expandedBeforeEdit'),
-        'canceling edit must restore the saved pre-edit expansion state');
-    assert.ok(setTodoEditingBody.includes("toggleTodoItemExpanded(item, editing ? true : expandedBeforeEdit === 'true')"),
-        'editing a todo should force the card into expanded state');
-    assert.ok(setTodoEditingBody.includes("item.classList.toggle('editing', editing)"),
-        'editing a todo should mark the whole card as editing');
-    assert.ok(setTodoEditingBody.includes("list.classList.toggle('has-editing-item'"),
-        'editing a todo should make its group list fully expand until editing ends');
-    assert.ok(setTodoEditingBody.includes('view.hidden = false'),
-        'editing should retain the normal todo card header above the expanded form');
-    const onMouseEventBody = extractFunctionBody(projectSource, 'onMouseEvent');
-    assert.ok(onMouseEventBody.includes(".todo-item[data-todo-id]"),
-        'clicking a todo card should toggle its expanded/collapsed state');
-    assert.ok(onMouseEventBody.includes("!todoItem.classList.contains('editing')"),
-        'clicking an editing card should not collapse its active edit form');
-    assert.ok(projectSource.includes("data-action=\"todo-toggle-expanded\""),
-        'TODO cards need an independent focusable expand control');
-    assert.ok(projectSource.includes("e.target.closest('[data-action=\"todo-toggle-expanded\"]')"),
-        'the expand control must preserve the existing interactive-target guard');
-    assert.ok(projectSource.includes("e.target.closest('.todo-edit-form')"),
-        'Escape handling must detect the active TODO edit form');
-    assert.ok(projectSource.includes("setTodoEditing(editForm.getAttribute('data-todo-id'), false)"),
-        'Escape must cancel the active TODO edit form');
     const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
         + fs.readFileSync(path.join(root, 'docs', 'development-history.md'), 'utf8');
-    assert.ok(changelog.includes('Add a global `TODO` Dashboard tab'));
     assert.strictEqual((source.match(/type: 'request-projects-panel'/g) || []).length, 1);
-    assert.strictEqual((source.match(/type: 'request-todo-panel'/g) || []).length, 1);
     assert.ok(extractFunctionBody(source, 'ensureProjectsPanel').includes("type: 'request-projects-panel'"));
-    assert.ok(extractFunctionBody(source, 'ensureTodoPanel').includes("type: 'request-todo-panel'"));
     assert.strictEqual(extractFunctionBody(source, 'renderSearchMode').includes('ensureProjectsPanel()'), false);
     assert.ok(source.includes("document.body.classList.toggle('dashboard-search-active'"));
 }
@@ -5403,9 +2405,6 @@ async function runDashboardMessageRouterChecks() {
         handlers: {
             'request-projects-panel': async message => {
                 calls.push(['request-projects-panel', message.requestId]);
-            },
-            'request-todo-panel': async message => {
-                calls.push(['request-todo-panel', message.requestId]);
             },
             'selected-project': message => {
                 calls.push(['selected-project', message.projectId]);
@@ -5434,7 +2433,6 @@ async function runDashboardMessageRouterChecks() {
     assert.deepStrictEqual(calls, []);
 
     await router({ type: 'request-projects-panel', requestId: 7 });
-    await router({ type: 'request-todo-panel', requestId: 8 });
     await router({ type: 'selected-project', projectId: 'project-a' });
     await router({ type: 'create-ai-session', projectId: 'workspace-a', rootId: 'root-api' });
     await router({ type: 'create-ai-session-quick', projectId: 'workspace-a', provider: 'kimi' });
@@ -5451,7 +2449,6 @@ async function runDashboardMessageRouterChecks() {
 
     assert.deepStrictEqual(calls, [
         ['request-projects-panel', 7],
-        ['request-todo-panel', 8],
         ['selected-project', 'project-a'],
         ['create-ai-session', 'workspace-a'],
         ['create-ai-session-quick', 'workspace-a', 'kimi'],
@@ -5495,24 +2492,9 @@ async function main() {
     await runDashboardLifecycleControllerChecks();
     await runDashboardCommandRegistrationChecks();
     await runActiveTerminalFileReferenceChecks();
-    await runTodoStoreChecks();
-    await runTodoInsertionOrderNormalizationChecks();
-    await runTodoOrderingMutationChecks();
-    await runTodoStorageResolutionChecks();
-    await runTodoMigrationChecks();
-    await runTodoBackendSwitchBarrierChecks();
-    await runTodoViewStateChecks();
-    await runTodoMutationSerializationChecks();
-    await runTodoRevealSingleWriteChecks();
-    await runDashboardTodoMigrationSequencingChecks();
-    await runTodoHostMutationChecks();
     runDashboardUpdateMessageChecks();
     runWorkspaceCardRenderingChecks();
-    runTodoViewModelChecks();
-    runTodoOrderingInteractionChecks();
     runControllerChecks(source);
-    runTodoEditResetInteractionChecks();
-    runTodoComposePendingInteractionChecks();
     runSourceContractChecks(source);
     await runDashboardMessageRouterChecks();
     console.log('Dashboard Webview checks passed.');

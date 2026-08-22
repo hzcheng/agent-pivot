@@ -102,7 +102,7 @@ test('ARCH-SINGLE-WRITER-001 a same-named method without a store reference is no
         invariants: [validInvariant()],
         sources: {
             ...baseSources,
-            'src/other.ts': 'export const fine = (todoService) => todoService.writeThing();\n',
+            'src/other.ts': 'export const fine = (widgetService) => widgetService.writeThing();\n',
         },
     });
     assert.deepEqual(runSingleWriterCheck(root).errors, []);

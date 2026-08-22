@@ -83,7 +83,6 @@ function renderDashboardShell() {
                 remoteContainers: false,
             },
             otherStorageHasData: false,
-            todoSearchItems: [],
         },
         true,
     );
@@ -884,7 +883,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 moves successful Prompt form focus to st
     }
 });
 
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard shell on one row', async t => {
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete three-tab Dashboard shell on one row', async t => {
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());
     const dashboardHtml = renderDashboardShell();
@@ -966,14 +965,14 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                     };
                 });
 
-                assert.deepEqual(layout.labels, ['OPEN', 'PROJECTS', 'TODO', 'AI']);
+                assert.deepEqual(layout.labels, ['OPEN', 'PROJECTS', 'AI']);
                 assert.deepEqual(
                     layout.tabDetails.map(tab => tab.ariaLabel),
-                    ['Open', 'Projects', 'Todo', 'AI']
+                    ['Open', 'Projects', 'AI']
                 );
                 assert.deepEqual(
                     layout.tabDetails.map(tab => tab.title),
-                    ['Open', 'Projects', 'Todo', 'AI']
+                    ['Open', 'Projects', 'AI']
                 );
                 assert.ok(
                     layout.tabDetails.every(tab =>
@@ -1030,7 +1029,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                         `${control.label} clips at ${width}px: ${JSON.stringify(control)}`
                     );
                 }
-                assert.deepEqual(layout.rowCounts, [4]);
+                assert.deepEqual(layout.rowCounts, [3]);
             } finally {
                 await page.close();
             }

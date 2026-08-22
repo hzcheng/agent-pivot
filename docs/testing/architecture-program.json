@@ -128,18 +128,10 @@
         },
         "MOD-SKILL-MANAGEMENT": {
             "state": "strict",
-            "since": "Stage 5 wave (2026-08-20): the shell 2-cycle broke by re-owning webviewSkillContent.ts with its feature module (the todos/prompts pattern) and sinking the shared escapeAttribute helper into the kernel; remaining shell edge is type-only; entrypoints narrowed to the consumed surface",
+            "since": "Stage 5 wave (2026-08-20): the shell 2-cycle broke by re-owning webviewSkillContent.ts with its feature module and sinking the shared escapeAttribute helper into the kernel; remaining shell edge is type-only; entrypoints narrowed to the consumed surface",
             "evidence": [
                 "tests/contract/skills/webviewSkillContent.test.js",
                 "tests/contract/skills/skillScanCache.test.js"
-            ],
-            "nextAction": "none — strict; hold via the architecture policy checks"
-        },
-        "MOD-TODO": {
-            "state": "strict",
-            "since": "Stage 5 wave (2026-08-20): the shell cycle broke by sinking the configuration reader into the kernel; remaining shell edges are type-only; entrypoints narrowed to the consumed surface",
-            "evidence": [
-                "tests/unit/todos/service.test.js"
             ],
             "nextAction": "none — strict; hold via the architecture policy checks"
         },

@@ -189,7 +189,7 @@ test('PROJECT-PROJECT-ORDER-CONTROLLER-001 rebuilds groups from exact drag paylo
     assert.deepEqual(refreshModes, ['preserve-order']);
 });
 
-test('TODO-GROUP-COLLAPSE-CONTROLLER-001 persists virtual and saved group collapse state', async () => {
+test('PROJECT-GROUP-COLLAPSE-CONTROLLER-001 persists virtual and saved group collapse state', async () => {
     const stateUpdates = [];
     const groupUpdates = [];
     const groups = new Map([
@@ -222,7 +222,7 @@ test('TODO-GROUP-COLLAPSE-CONTROLLER-001 persists virtual and saved group collap
     ]);
 });
 
-test('TODO-GROUP-PROMPT-001 validates names and reports cancellation with the public token', async () => {
+test('PROJECT-GROUP-PROMPT-001 validates names and reports cancellation with the public token', async () => {
     let promptOptions;
     const name = await queryGroupName({
         showInputBox: async options => {
@@ -239,7 +239,7 @@ test('TODO-GROUP-PROMPT-001 validates names and reports cancellation with the pu
     await assert.rejects(() => queryGroupName({ showInputBox: async () => undefined }), /CanceledByUser/);
 });
 
-test('TODO-GROUP-COMMAND-CONTROLLER-001 mutates groups and suppresses only user cancellation', async () => {
+test('PROJECT-GROUP-COMMAND-CONTROLLER-001 mutates groups and suppresses only user cancellation', async () => {
     const groups = new Map([['group-a', { id: 'group-a', groupName: 'Old' }]]);
     const events = [];
     const errors = [];

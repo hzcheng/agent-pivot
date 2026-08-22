@@ -35,16 +35,8 @@ const workspaceUpdateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewWorkspaceUpdateScripts.js'),
     'utf8'
 );
-const todoGroupScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
-    'utf8'
-);
 const projectCollapseScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
-    'utf8'
-);
-const todoControlScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoControlScripts.js'),
     'utf8'
 );
 const projectContextMenuScript = fs.readFileSync(
@@ -129,9 +121,7 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
     await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: workspaceUpdateScript });
-    await page.addScriptTag({ content: todoGroupScript });
     await page.addScriptTag({ content: projectCollapseScript });
-    await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: groupFormScript });
@@ -171,7 +161,6 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
                 worktrees: [],
                 openWorkspaces: [],
                 savedProjects: [],
-                todos: [],
             },
             presentation: {
                 type: 'ai-session-presentation-state',

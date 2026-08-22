@@ -22,8 +22,6 @@ function loadWebviewContent() {
 }
 
 const { getProjectsPanelContent } = loadWebviewContent();
-const { getTodoPanelContent } = require('../../out/todos/webviewContent');
-const { buildTodoViewModel } = require('../../out/todos/viewModel');
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 const dashboardScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardScripts.js'), 'utf8'
@@ -43,17 +41,8 @@ const dashboardSearchScript = fs.readFileSync(
 const dashboardProjectsPanelScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardProjectsPanelScripts.js'), 'utf8'
 );
-const dashboardTodoPanelScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewDashboardTodoPanelScripts.js'), 'utf8'
-);
 const dashboardAiPanelScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardAiPanelScripts.js'), 'utf8'
-);
-const todoRenderScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoRenderScripts.js'), 'utf8'
-);
-const todoScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoScripts.js'), 'utf8'
 );
 const scrollStateScriptPath = path.join(
     __dirname, '../../src/webview/webviewScrollStateScripts.js'
@@ -69,7 +58,7 @@ function waitForPageCondition(page, condition, argument) {
 
 let browser;
 
-test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 bound every browser condition wait', () => {
+test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 bound every browser condition wait', () => {
     const source = fs.readFileSync(__filename, 'utf8');
     assert.equal((source.match(/\.waitForFunction\(/g) || []).length, 1);
     assert.match(source, /const BROWSER_CONDITION_TIMEOUT_MS = 5_000;/);
@@ -83,7 +72,7 @@ test.after(async () => {
     await browser.close();
 });
 
-test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 provide shared semantic anchors and clamped fallback', async t => {
+test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 provide shared semantic anchors and clamped fallback', async t => {
     const page = await browser.newPage({ viewport: { width: 320, height: 320 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><div id="list" style="height:100px;overflow:auto">
@@ -152,7 +141,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001
 });
 
 function catalog() {
-    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
+    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] };
 }
 
 function project(id) {
@@ -169,38 +158,6 @@ function projectsMarkup(ids) {
     });
 }
 
-function todoSnapshot(todoIds, includeSecondGroup = true, extraGroups = [], groupIdForTodo) {
-    const groups = [{ id: 'group-a', title: 'Primary', collapsed: false, order: 0 }];
-    if (includeSecondGroup) groups.push({ id: 'group-b', title: 'Secondary', collapsed: false, order: 1 });
-    extraGroups.forEach(group => groups.push({
-        collapsed: false,
-        order: groups.length,
-        ...group,
-    }));
-    return {
-        version: 1,
-        showCompleted: false,
-        data: {
-            version: 1,
-            groups,
-            todos: todoIds.map((id, index) => ({
-                id,
-                groupId: typeof groupIdForTodo === 'function'
-                    ? groupIdForTodo(id, index)
-                    : 'group-a',
-                title: id, notes: '', priority: 'medium', completed: false,
-                createdAt: '2026-07-24T00:00:00.000Z', updatedAt: '2026-07-24T00:00:00.000Z', order: index,
-            })),
-        },
-    };
-}
-
-function todoMarkup(snapshot) {
-    return getTodoPanelContent(buildTodoViewModel(snapshot.data, {
-        showCompleted: snapshot.showCompleted,
-    }), { maxVisibleTodosPerGroup: 3 });
-}
-
 async function openDashboardPage(t) {
     const page = await browser.newPage({ viewport: { width: 320, height: 320 } });
     t.after(() => page.close());
@@ -209,10 +166,9 @@ async function openDashboardPage(t) {
         <body class="steward-sidebar" style="min-height:1400px">
         <div class="steward-sticky-header"></div><div role="tablist">
         <button data-dashboard-tab="open"></button><button data-dashboard-tab="projects"></button>
-        <button data-dashboard-tab="todo"></button><button data-dashboard-tab="ai"></button></div>
+        <button data-dashboard-tab="ai"></button></div>
         <main><section id="dashboard-tab-open"></section>
         <section id="dashboard-tab-projects"><div class="dashboard-projects-loading"></div></section>
-        <section id="dashboard-tab-todo"><div class="dashboard-todo-loading"></div></section>
         <section id="dashboard-panel-ai"><div class="dashboard-ai-loading"></div></section>
         <section id="dashboard-search-results"></section></main>
         <script id="dashboard-search-catalog" type="application/json">${JSON.stringify(catalog())}</script>
@@ -228,7 +184,6 @@ async function openDashboardPage(t) {
             },
         });
         window.__messages = [];
-        window.__todoRenders = 0;
         window.__projectsMountGeneration = 0;
         window.vscode = { postMessage: message => window.__messages.push(message) };
     });
@@ -238,20 +193,11 @@ async function openDashboardPage(t) {
     await page.addScriptTag({ content: dashboardValidationScript });
     await page.addScriptTag({ content: dashboardSearchScript });
     await page.addScriptTag({ content: dashboardProjectsPanelScript });
-    await page.addScriptTag({ content: dashboardTodoPanelScript });
     await page.addScriptTag({ content: dashboardAiPanelScript });
     await page.addScriptTag({ content: dashboardScript });
-    await page.addScriptTag({ content: todoRenderScript });
-    await page.addScriptTag({ content: todoScript });
     await page.evaluate(() => {
-        window.__todos = initTodos({
-            postMessage: message => window.__messages.push(message),
-            onRendered: () => { window.__todoRenders += 1; },
-        });
         window.__dashboard = initDashboard({
             postMessage: message => window.__messages.push(message),
-            onTodoMounted: (panel, message) => window.__todos.mount(panel, message.snapshot),
-            onTodoRefresh: (_panel, message) => window.__todos.applyRefresh(message.snapshot),
             onProjectsMounted: panel => {
                 const mountGeneration = ++window.__projectsMountGeneration;
                 panel.removeAttribute('data-header-fit-generation');
@@ -345,148 +291,4 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 clamps the saved raw position when the s
     });
     assert.ok(restored.maxScrollTop > 0);
     assert.equal(restored.scrollTop, restored.maxScrollTop);
-});
-
-test('TODO-AUTHORITATIVE-REFRESH-STATE-001 renders one mounted refresh and preserves surviving anchors, detail, draft, compose, focus, and window position', async t => {
-    const page = await openDashboardPage(t);
-    const initial = todoSnapshot(['todo-a', 'todo-b', 'todo-c', 'todo-d', 'todo-e', 'todo-f']);
-    await page.evaluate(() => window.__dashboard.activateTab('todo'));
-    await post(page, { type: 'todo-panel-content', version: 1, requestId: 1, html: todoMarkup(initial), snapshot: initial, searchCatalog: catalog() });
-    await page.locator('[data-action="todo-open-detail"][data-todo-id="todo-c"]').click();
-    await page.locator('[data-action="todo-edit-detail"]').click();
-    await page.locator('form[data-todo-form="detail-edit"] [name="title"]').fill('unsaved detail title');
-    await page.locator('[data-action="todo-quick-add"][data-group-id="group-a"]').click({ force: true });
-    await page.locator('form[data-todo-form="quick-add"][data-group-id="group-a"] [name="title"]').fill('unsaved compose title');
-    await page.locator('form[data-todo-form="detail-edit"] [name="notes"]').focus();
-    const before = await page.evaluate(() => {
-        const panel = document.querySelector('.todo-panel');
-        const list = document.querySelector('.todo-list');
-        const anchor = document.querySelector('[data-todo-id="todo-e"]');
-        list.scrollTop = anchor.offsetTop - list.offsetTop - 10;
-        window.__mountedTodoPanel = panel;
-        window.scrollTo(0, 90);
-        return { offset: anchor.getBoundingClientRect().top - list.getBoundingClientRect().top, scrollY: window.scrollY, renders: window.__todoRenders };
-    });
-    const refreshed = todoSnapshot(['todo-a', 'todo-new', 'todo-b', 'todo-c', 'todo-d', 'todo-e', 'todo-f']);
-    await post(page, { type: 'todo-panel-updated', version: 1, html: todoMarkup(refreshed), snapshot: refreshed, searchCatalog: catalog() });
-    assert.equal(await page.evaluate(() => document.querySelector('.todo-panel') === window.__mountedTodoPanel), true);
-    assert.equal(await page.evaluate(() => window.__todoRenders), before.renders + 1);
-    const restoredOffset = await page.locator('.todo-item[data-todo-id="todo-e"]').evaluate(node => {
-        const list = node.closest('.todo-list');
-        return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
-    });
-    assert.ok(
-        Math.abs(restoredOffset - before.offset) <= 1,
-        `expected TODO anchor offset ${before.offset}, received ${restoredOffset}`
-    );
-    assert.equal(await page.locator('form[data-todo-form="detail-edit"] [name="title"]').inputValue(), 'unsaved detail title');
-    assert.equal(await page.locator('form[data-todo-form="quick-add"][data-group-id="group-a"] [name="title"]').inputValue(), 'unsaved compose title');
-    assert.equal(await page.locator('form[data-todo-form="detail-edit"] [name="notes"]').evaluate(node => document.activeElement === node), true);
-    assert.equal(await page.evaluate(() => window.scrollY), before.scrollY);
-});
-
-test('TODO-AUTHORITATIVE-REFRESH-STATE-001 discards local state only when its authoritative identity disappears', async t => {
-    const page = await openDashboardPage(t);
-    const survivorGroup = [{ id: 'group-c', title: 'Survivors' }];
-    const groupForTodo = todoId => {
-        if (todoId.startsWith('survivor-')) return 'group-c';
-        return todoId === 'removed-group-item' ? 'group-b' : 'group-a';
-    };
-    const initial = todoSnapshot([
-        'todo-a', 'todo-b', 'todo-c', 'todo-d', 'removed-group-item',
-        'survivor-a', 'survivor-b', 'survivor-c', 'survivor-d',
-    ], true, survivorGroup, groupForTodo);
-    await page.evaluate(() => window.__dashboard.activateTab('todo'));
-    await post(page, { type: 'todo-panel-content', version: 1, requestId: 1, html: todoMarkup(initial), snapshot: initial, searchCatalog: catalog() });
-    await page.locator('[data-action="todo-open-detail"][data-todo-id="todo-c"]').click();
-    await page.locator('[data-action="todo-edit-detail"]').click();
-    await page.locator('form[data-todo-form="detail-edit"] [name="title"]').fill('discarded detail');
-    await page.locator('[data-action="todo-quick-add"][data-group-id="group-b"]').click({ force: true });
-    await page.locator('form[data-todo-form="quick-add"][data-group-id="group-b"] [name="title"]').fill('discarded compose');
-    await page.locator('form[data-todo-form="quick-add"][data-group-id="group-b"] [name="title"]').focus();
-    const before = await page.evaluate(() => {
-        const anchor = document.querySelector('[data-todo-id="survivor-d"]');
-        const list = anchor.closest('.todo-list');
-        list.scrollTop = anchor.offsetTop - list.offsetTop - 10;
-        window.__removedTodoFocus = document.activeElement;
-        return anchor.getBoundingClientRect().top - list.getBoundingClientRect().top;
-    });
-    const refreshed = todoSnapshot([
-        'todo-a', 'todo-b', 'todo-d',
-        'survivor-a', 'survivor-b', 'survivor-c', 'survivor-d',
-    ], false, survivorGroup, groupForTodo);
-    await post(page, { type: 'todo-panel-updated', version: 1, html: todoMarkup(refreshed), snapshot: refreshed, searchCatalog: catalog() });
-    const stateAfterRemoval = await page.evaluate(() => {
-        const state = window.__todos.getState();
-        return {
-            selectedTodoId: state.selectedTodoId,
-            draft: state.draft,
-            composeGroupId: state.composeGroupId,
-            hasComposeDraft: Object.hasOwn(state, 'composeDraft'),
-            composeDraft: state.composeDraft,
-            removedFocusStillActive: document.activeElement === window.__removedTodoFocus,
-        };
-    });
-    assert.equal(stateAfterRemoval.selectedTodoId, null);
-    assert.equal(stateAfterRemoval.draft, null);
-    assert.equal(stateAfterRemoval.composeGroupId, undefined);
-    assert.equal(stateAfterRemoval.hasComposeDraft, true);
-    assert.equal(stateAfterRemoval.composeDraft, null);
-    assert.equal(stateAfterRemoval.removedFocusStillActive, false);
-    assert.equal(await page.locator('.todo-item[data-todo-id="todo-c"]').count(), 0);
-    assert.equal(await page.locator('form[data-todo-form="detail-edit"]').count(), 0);
-    assert.equal(await page.locator('form[data-todo-form="quick-add"][data-group-id="group-b"]').count(), 0);
-    assert.equal(await page.locator('form[data-todo-form="detail-edit"] [name="title"]').count(), 0);
-    assert.ok(Math.abs((await page.locator('.todo-item[data-todo-id="survivor-d"]').evaluate(node => {
-        const list = node.closest('.todo-list');
-        return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
-    })) - before) <= 1);
-});
-
-test('TODO-AUTHORITATIVE-REFRESH-STATE-001 fallback replacement restores the exact show-completed focus without moving the window', async t => {
-    const page = await openDashboardPage(t);
-    const initial = todoSnapshot(['todo-a', 'todo-b']);
-    await page.evaluate(() => window.__dashboard.activateTab('todo'));
-    await post(page, {
-        type: 'todo-panel-content',
-        version: 1,
-        requestId: 1,
-        html: todoMarkup(initial),
-        snapshot: initial,
-        searchCatalog: catalog(),
-    });
-    await page.locator('[data-action="todo-toggle-show-completed"]').focus();
-    const before = await page.evaluate(() => {
-        const nativeFocus = HTMLElement.prototype.focus;
-        HTMLElement.prototype.focus = function (options) {
-            if (this.getAttribute('data-action') === 'todo-toggle-show-completed') {
-                window.__todoFallbackFocusOptions = options || null;
-            }
-            return nativeFocus.call(this, options);
-        };
-        window.scrollTo(0, 90);
-        return window.scrollY;
-    });
-    const replacement = {
-        ...initial,
-        showCompleted: true,
-    };
-
-    await post(page, {
-        type: 'todo-panel-updated',
-        version: 1,
-        html: todoMarkup(replacement),
-        snapshot: { version: 2 },
-        searchCatalog: catalog(),
-    });
-    assert.equal(
-        await page.locator('[data-action="todo-toggle-show-completed"]')
-            .evaluate(node => document.activeElement === node),
-        true
-    );
-    assert.deepEqual(
-        await page.evaluate(() => window.__todoFallbackFocusOptions),
-        { preventScroll: true }
-    );
-    assert.equal(await page.evaluate(() => window.scrollY), before);
 });

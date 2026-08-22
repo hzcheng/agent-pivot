@@ -62,7 +62,7 @@ function errorsFor(registry, files = fixtureFiles) {
 test('ARCH-POLICY-SCHEMA-001 the real repository registry validates clean', () => {
     const { errors, modules } = loadArchitecturePolicy(repoRoot);
     assert.deepEqual(errors, []);
-    assert.equal(modules.length, 16);
+    assert.equal(modules.length, 15);
 });
 
 test('ARCH-POLICY-SCHEMA-001 controlled mutation: duplicate module id is rejected', () => {

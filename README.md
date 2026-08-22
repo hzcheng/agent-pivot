@@ -22,7 +22,7 @@ outlines, and returning to projects without losing context.
   or a managed tmux runtime.
 - Shows bounded user-input conversation outlines and opens provider transcripts
   in a read-only editor viewer.
-- Searches sessions, open workspaces, saved projects, and todos from one place,
+- Searches sessions, open workspaces, and saved projects from one place,
   with a separate library for reusable prompts.
 - Organizes projects with groups, favorites, descriptions, colors, and
   drag-and-drop ordering.
@@ -108,7 +108,7 @@ Agent Pivot does not provide, proxy, or resell access to Codex, Claude, or
 Kimi. Install each provider tool you want to use and authenticate it separately
 with that provider.
 
-## Projects, prompts, and todos
+## Projects and prompts
 
 The `OPEN` view shows the current workspace and lightweight navigation cards
 for other VS Code windows. The `PROJECTS` view is the saved-project catalog.
@@ -119,10 +119,8 @@ The prompt library stores reusable text and can insert a selected prompt into
 the active terminal without appending Enter. Do not store passwords, tokens,
 private keys, or other secrets in prompts.
 
-The todo view supports groups, priorities, due dates, notes, completion, manual
-ordering, and undo. Projects and todos can be kept in VS Code extension state
-or in user settings for Settings Sync. Prompts use synchronized VS Code
-extension state.
+Projects can be kept in VS Code extension state or in user settings for
+Settings Sync. Prompts use synchronized VS Code extension state.
 
 ## Notifications
 
@@ -287,7 +285,7 @@ Useful commands include:
 
 Configure Agent Pivot in VS Code settings. Common settings include:
 
-- `agentPivot.storeProjectsInSettings`: store projects and todos in user
+- `agentPivot.storeProjectsInSettings`: store projects in user
   settings so VS Code Settings Sync can synchronize them.
 - `agentPivot.aiSessionTerminalMode`: use `vscode` (default) or `tmux` when
   creating a runtime.
@@ -316,8 +314,7 @@ Configure Agent Pivot in VS Code settings. Common settings include:
   last-writer-wins across concurrent VS Code windows.
 - `agentPivot.aiSessionAttention.enabled`: show attention indicators when a
   managed provider session finishes or may need input.
-- `agentPivot.maxVisibleProjectsPerGroup` and `agentPivot.maxVisibleTodosPerGroup`:
-  bound scrollable lists.
+- `agentPivot.maxVisibleProjectsPerGroup`: bound the scrollable project list.
 - `agentPivot.applyProjectColorToWindow`: opt in to writing workspace
   `workbench.colorCustomizations` values from a saved project color.
 - `agentPivot.customCss`: inject user-supplied CSS into the Agent Pivot
@@ -333,9 +330,9 @@ Agent Pivot has no product telemetry service and does not upload conversation co
 
 Agent Pivot uses these local data sources and stores:
 
-- VS Code settings and extension state for project, prompt, todo, view, and
+- VS Code settings and extension state for project, prompt, view, and
   workspace preferences. Enabling `agentPivot.storeProjectsInSettings` writes
-  project and todo data to user settings, where the user's VS Code Settings
+  project data to user settings, where the user's VS Code Settings
   Sync configuration may synchronize it.
 - Provider-local session metadata and transcript reads for session discovery,
   user-input outlines, and the read-only conversation viewer.

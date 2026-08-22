@@ -2824,20 +2824,6 @@
     ]
   },
   {
-    "id": "TODO-TODO-SEARCH-RESULT-RENDERING-001",
-    "domain": "todo",
-    "title": "Todo Search Result Rendering behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/webviewState.test.js",
-      "tests/unit/todos/types.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
     "id": "ERROR-ERROR-CONTENT-001",
     "domain": "error",
     "title": "Error Content behavior",
@@ -3066,468 +3052,6 @@
     ]
   },
   {
-    "id": "TODO-GROUP-COLLAPSE-CONTROLLER-001",
-    "domain": "todo",
-    "title": "Group Collapse Controller behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-GROUP-PROMPT-001",
-    "domain": "todo",
-    "title": "Group Prompt behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-GROUP-COMMAND-CONTROLLER-001",
-    "domain": "todo",
-    "title": "Group Command Controller behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-STORE-001",
-    "domain": "todo",
-    "title": "Todo Store behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/unit/todos/types.test.js",
-      "tests/contract/persistence/stores.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-ORDERING-MUTATION-001",
-    "domain": "todo",
-    "title": "Todo Ordering Mutation behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-COMMAND-SNAPSHOT-001",
-    "domain": "todo",
-    "title": "Todo Command Snapshot behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/unit/todos/types.test.js"
-    ],
-    "evidence": [
-      "src/todos/viewModel.ts"
-    ]
-  },
-  {
-    "id": "TODO-TODO-EXACT-RESTORE-001",
-    "domain": "todo",
-    "title": "Todo Exact Restore behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js"
-    ],
-    "evidence": [
-      "src/todos/service.ts"
-    ]
-  },
-  {
-    "id": "TODO-TODO-COMMAND-CONTROLLER-001",
-    "domain": "todo",
-    "title": "Todo Incremental Command Coordination behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/commandController.test.js",
-      "tests/contract/todos/todoPanelCapability.test.js"
-    ],
-    "evidence": [
-      "src/todos/commandController.ts",
-      "src/todos/todoPanelCapability.ts",
-      "src/dashboard.ts"
-    ]
-  },
-  {
-    "id": "TODO-COMPLETION-INCREMENTAL-001",
-    "domain": "todo",
-    "title": "Todo completion patches one card without reloading the dashboard or list surface",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js",
-      "tests/integration/dashboard/errorRecovery.test.js",
-      "tests/integration/dashboard/todoInteraction.test.js"
-    ],
-    "evidence": [
-      "src/todos/service.ts",
-      "src/dashboard/lifecycleController.ts",
-      "src/todos/todoPanelCapability.ts",
-      "src/dashboard.ts",
-      "src/webview/webviewTodoScripts.js",
-      "src/webview/webviewDnDScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-PAGE-HIERARCHY-001",
-    "domain": "todo",
-    "title": "Todo page command bar remains distinct from real group headers",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoContent.test.js"
-    ],
-    "evidence": [
-      "src/todos/webviewContent.ts",
-      "src/webview/webviewTodoScripts.js",
-      "media/styles.scss"
-    ]
-  },
-  {
-    "id": "TODO-TODO-CONTINUOUS-LAYOUT-001",
-    "domain": "todo",
-    "title": "Todo Continuous Page Layout behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoContent.test.js"
-    ],
-    "evidence": [
-      "src/todos/webviewContent.ts",
-      "media/styles.scss"
-    ]
-  },
-  {
-    "id": "TODO-MAX-VISIBLE-PER-GROUP-001",
-    "domain": "todo",
-    "title": "Configured maximum visible TODOs bounds each group without breaking inline details or incremental updates",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoContent.test.js",
-      "tests/integration/dashboard/todoInteraction.test.js",
-      "tests/contract/todos/todoPanelCapability.test.js"
-    ],
-    "evidence": [
-      "src/todos/webviewContent.ts",
-      "src/todos/todoPanelCapability.ts",
-      "src/dashboard.ts",
-      "src/webview/webviewTodoScripts.js",
-      "media/styles.scss",
-      "package.json"
-    ]
-  },
-  {
-    "id": "TODO-BROWSER-EXPANDED-LAYOUT-001",
-    "domain": "todo",
-    "title": "Expanded TODO cards own their complete Chromium layout height",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/browser/todoLayout.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewTodoScripts.js",
-      "src/todos/webviewContent.ts",
-      "media/styles.scss"
-    ]
-  },
-  {
-    "id": "TODO-TODO-FOCUSED-DETAIL-001",
-    "domain": "todo",
-    "title": "Todo Inline Detail Entry behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoContent.test.js"
-    ],
-    "evidence": [
-      "src/todos/webviewContent.ts",
-      "media/styles.scss"
-    ]
-  },
-  {
-    "id": "TODO-FOCUSED-DETAIL-001",
-    "domain": "todo",
-    "title": "Todo Inline Detail Toggle behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoContent.test.js",
-      "tests/integration/dashboard/todoInteraction.test.js"
-    ],
-    "evidence": [
-      "src/todos/webviewContent.ts",
-      "src/webview/webviewTodoScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-INCREMENTAL-ROOT-001",
-    "domain": "todo",
-    "title": "Todo Stable Incremental Root behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoInteraction.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewTodoScripts.js",
-      "src/webview/webviewDashboardScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-OPTIMISTIC-ROLLBACK-001",
-    "domain": "todo",
-    "title": "Todo Optimistic Rollback behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoInteraction.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewTodoScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-STALE-RESULT-001",
-    "domain": "todo",
-    "title": "Todo Stale Command Result behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoInteraction.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewTodoScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-QUICK-CREATE-001",
-    "domain": "todo",
-    "title": "Todo Group Full Create behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoInteraction.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewTodoScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-SINGLE-CREATE-DISPATCH-001",
-    "domain": "todo",
-    "title": "A single Todo composer submission dispatches exactly one create command",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/browser/todoCreation.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewTodoScripts.js",
-      "src/webview/webviewProjectScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-PRIORITY-SIGNAL-001",
-    "domain": "todo",
-    "title": "Todo Exceptional Priority Signal behavior",
-    "priority": "P2",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoContent.test.js"
-    ],
-    "evidence": [
-      "src/todos/webviewContent.ts"
-    ]
-  },
-  {
-    "id": "TODO-TODO-UNDO-001",
-    "domain": "todo",
-    "title": "Todo Timed Exact Undo behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/commandController.test.js"
-    ],
-    "evidence": [
-      "src/todos/commandController.ts"
-    ]
-  },
-  {
-    "id": "TODO-TODO-INSERTION-ORDER-NORMALIZATION-001",
-    "domain": "todo",
-    "title": "Todo Insertion Order Normalization behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/unit/todos/types.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-STORAGE-RESOLUTION-001",
-    "domain": "todo",
-    "title": "Todo Storage Resolution behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-MIGRATION-001",
-    "domain": "todo",
-    "title": "Todo Migration behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/persistence/migrations.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-BACKEND-SWITCH-BARRIER-001",
-    "domain": "todo",
-    "title": "Todo Backend Switch Barrier behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-VIEW-STATE-001",
-    "domain": "todo",
-    "title": "Todo View State behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-MUTATION-SERIALIZATION-001",
-    "domain": "todo",
-    "title": "Todo Mutation Serialization behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-REVEAL-SINGLE-WRITE-001",
-    "domain": "todo",
-    "title": "Todo Reveal Single Write behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-DASHBOARD-TODO-MIGRATION-SEQUENCING-001",
-    "domain": "todo",
-    "title": "Dashboard Todo Migration Sequencing behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/persistence/migrations.test.js",
-      "tests/contract/todos/todoPanelCapability.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js",
-      "src/todos/todoPanelCapability.ts",
-      "src/dashboard.ts"
-    ]
-  },
-  {
-    "id": "TODO-TODO-HOST-MUTATION-001",
-    "domain": "todo",
-    "title": "Todo Host Mutation behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/todos/service.test.js",
-      "tests/contract/todos/todoPanelCapability.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js",
-      "src/todos/todoPanelCapability.ts"
-    ]
-  },
-  {
-    "id": "TODO-TODO-VIEW-MODEL-001",
-    "domain": "todo",
-    "title": "Todo View Model behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/unit/todos/types.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-ORDERING-INTERACTION-001",
-    "domain": "todo",
-    "title": "Todo Ordering Interaction behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/webviewState.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
     "id": "PROJECT-ADD-PROJECTS-FROM-FOLDER-CONTROLLER-001",
     "domain": "project",
     "title": "Add Projects From Folder Controller behavior",
@@ -3618,7 +3142,7 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/todos/service.test.js"
+      "tests/integration/dashboard/errorRecovery.test.js"
     ],
     "evidence": [
       "scripts/run-dashboard-webview-checks.js"
@@ -3684,32 +3208,6 @@
     "id": "SESSION-CONTROLLER-001",
     "domain": "session",
     "title": "Controller behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/webviewState.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-EDIT-RESET-INTERACTION-001",
-    "domain": "todo",
-    "title": "Todo Edit Reset Interaction behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/webviewState.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
-    ]
-  },
-  {
-    "id": "TODO-TODO-COMPOSE-PENDING-INTERACTION-001",
-    "domain": "todo",
-    "title": "Todo Compose Pending Interaction behavior",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -3817,32 +3315,6 @@
     ]
   },
   {
-    "id": "TODO-KEYBOARD-FOCUS-001",
-    "domain": "todo",
-    "title": "TODO hidden controls retain a visible keyboard focus ring",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/styles.test.js"
-    ],
-    "evidence": [
-      "media/styles.scss"
-    ]
-  },
-  {
-    "id": "TODO-RESPONSIVE-LAYOUT-001",
-    "domain": "todo",
-    "title": "TODO cards ellipsize, scroll, and reveal editing content",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/styles.test.js"
-    ],
-    "evidence": [
-      "media/styles.scss"
-    ]
-  },
-  {
     "id": "WEBVIEW-SHARED-CARD-STATE-001",
     "domain": "webview",
     "title": "Shared dashboard headers and cards retain geometry and interaction states",
@@ -3871,23 +3343,9 @@
     ]
   },
   {
-    "id": "TODO-VISUAL-STATE-001",
-    "domain": "todo",
-    "title": "TODO count priority spacing expansion completion states remain distinct",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/styles.test.js"
-    ],
-    "evidence": [
-      "media/styles.scss",
-      "media/styles.css"
-    ]
-  },
-  {
     "id": "WEBVIEW-COLLAPSE-PRESENTATION-001",
     "domain": "webview",
-    "title": "Group and TODO collapse indicators preserve their rotation state",
+    "title": "Group collapse indicators preserve their rotation state",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -3896,21 +3354,6 @@
     "evidence": [
       "media/styles.scss",
       "media/styles.css"
-    ]
-  },
-  {
-    "id": "TODO-FUTURE-VERSION-DASHBOARD-001",
-    "domain": "todo",
-    "title": "Dashboard live-probes unsupported TODO versions and recovers without stale errors",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/integration/dashboard/todoPanelFutureVersion.test.js",
-      "tests/contract/todos/todoPanelCapability.test.js"
-    ],
-    "evidence": [
-      "src/todos/todoPanelCapability.ts",
-      "src/dashboard.ts"
     ]
   },
   {
@@ -4127,7 +3570,6 @@
       "scripts/run-extension-host-worker.js",
       "tests/unit/tooling/extensionHostLauncher.test.js",
       "tests/unit/tooling/extensionHostSuite.test.js",
-      "tests/integration/dashboard/todoPanelFutureVersion.test.js",
       "package.json",
       "extensions/attention-ui-bridge/package.json"
     ]
@@ -4906,22 +4348,6 @@
     ],
     "evidence": [
       "src/webview/webviewDashboardScripts.js"
-    ]
-  },
-  {
-    "id": "TODO-AUTHORITATIVE-REFRESH-STATE-001",
-    "domain": "todo",
-    "title": "Mounted authoritative TODO refresh renders once and preserves surviving local view state",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/browser/dashboardRefreshStability.test.js",
-      "tests/integration/dashboard/todoInteraction.test.js",
-      "tests/integration/dashboard/webviewState.test.js"
-    ],
-    "evidence": [
-      "src/webview/webviewDashboardScripts.js",
-      "src/webview/webviewTodoScripts.js"
     ]
   },
   {

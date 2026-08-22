@@ -90,7 +90,7 @@ export function getStewardContent(
 
     var customCss = infos.config.get('customCss') || '';
     var searchCatalog = serializeDashboardSearchCatalog(
-        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [], infos.skills || [])
+        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.skills || [])
     );
     var serializedAiSessionPresentation = initialAiSessionPresentation
         ? JSON.stringify(initialAiSessionPresentation)
@@ -170,10 +170,6 @@ export function getStewardContent(
                     <span class="dashboard-tab-icon" aria-hidden="true">${Icons.folder}</span>
                     <span class="dashboard-tab-label">PROJECTS</span>
                 </button>
-                <button type="button" id="dashboard-tab-todo-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-todo" tabindex="-1" data-dashboard-tab="todo" aria-label="Todo" title="Todo">
-                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.manage}</span>
-                    <span class="dashboard-tab-label">TODO</span>
-                </button>
                 <button type="button" id="dashboard-tab-ai-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-panel-ai" tabindex="-1" data-dashboard-tab="ai" aria-label="AI" title="AI">
                     <span class="dashboard-tab-icon" aria-hidden="true">${Icons.sparkles}</span>
                     <span class="dashboard-tab-label">AI</span>
@@ -188,9 +184,6 @@ export function getStewardContent(
             </section>
             <section id="dashboard-tab-projects" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-projects-button" hidden>
                 <div class="dashboard-projects-loading" role="status" hidden>Loading projects…</div>
-            </section>
-            <section id="dashboard-tab-todo" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-todo-button" hidden>
-                <div class="dashboard-todo-loading" role="status" hidden>Loading todos…</div>
             </section>
             <section id="dashboard-panel-ai" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-ai-button" hidden>
                 <div class="dashboard-ai-loading" role="status" hidden>Loading AI configuration…</div>
@@ -255,18 +248,6 @@ export function getStewardContent(
                 initProjects();
                 const storedFilter = sessionStorage.getItem('filterValue') || '';
                 let filtering;
-                const todos = initTodos({
-                    postMessage: message => window.vscode.postMessage(message),
-                    replaceSearchCatalog: catalog => {
-                        if (window.__agentPivotDashboard) {
-                            window.__agentPivotDashboard.replaceSearchCatalog(catalog);
-                        }
-                    },
-                    onRendered: panel => {
-                        disposeDnD(panel);
-                        initDnD(panel);
-                    },
-                });
                 const dashboard = initDashboard({
                     initialSearchQuery: storedFilter,
                     clearSearch: () => filtering && filtering.clear(),
@@ -277,11 +258,6 @@ export function getStewardContent(
                         initDnD(panel);
                         window.__agentPivotSyncCollapseButton();
                     },
-                    onTodoMounted: (panel, message) => {
-                        todos.mount(panel, message.snapshot);
-                        window.__agentPivotSyncCollapseButton();
-                    },
-                    onTodoRefresh: (_panel, message) => todos.applyRefresh(message.snapshot),
                     onActiveTabChanged: () => window.__agentPivotSyncCollapseButton(),
                 });
                 window.__agentPivotDashboard = dashboard;

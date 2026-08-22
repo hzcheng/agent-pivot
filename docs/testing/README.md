@@ -7,7 +7,7 @@ Use Node.js 22.12 or newer and install dependencies with `npm ci` before running
 ## Entry fields
 
 - `id` follows `PREFIX-BEHAVIOR-001`, uses uppercase letters, digits, and hyphens, ends in a three-digit sequence, and is unique. Keep an existing ID stable when its implementation moves.
-- `domain` is one of `project`, `todo`, `open-project`, `webview`, `session`, `runtime`, `attention`, `persistence`, `error`, `release`, or `architecture`.
+- `domain` is one of `project`, `open-project`, `webview`, `session`, `runtime`, `attention`, `persistence`, `error`, `release`, or `architecture`.
 - `title` describes the protected behavior.
 - `priority` is `P0`, `P1`, or `P2`.
 - `status` is `automated`, `scheduled`, or `manual`.

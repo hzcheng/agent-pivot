@@ -21,18 +21,50 @@ function initProjectGroupCollapse() {
         var activeTab = dashboard && typeof dashboard.getActiveTab === 'function'
             ? dashboard.getActiveTab()
             : selectedTab && selectedTab.getAttribute('data-dashboard-tab');
-        return activeTab === 'projects' || activeTab === 'todo' || activeTab === 'ai'
+        return activeTab === 'projects' || activeTab === 'ai'
             ? activeTab
             : 'open';
+    }
+
+    function getCollapseButtonState(tab, collapsedStates) {
+        if (tab === 'ai') {
+            return {
+                disabled: true,
+                collapsed: false,
+                title: 'No groups to collapse in AI',
+            };
+        }
+        var labels = tab === 'open'
+            ? {
+                empty: 'No open windows to collapse',
+                collapse: 'Collapse Open Windows',
+                expand: 'Expand Open Windows',
+            }
+            : {
+                empty: 'No project groups to collapse',
+                collapse: 'Collapse All Groups',
+                expand: 'Expand All Groups',
+            };
+        if (!collapsedStates.length) {
+            return {
+                disabled: true,
+                collapsed: false,
+                title: labels.empty,
+            };
+        }
+        var collapsed = collapsedStates.every(Boolean);
+        return {
+            disabled: false,
+            collapsed,
+            title: collapsed ? labels.expand : labels.collapse,
+        };
     }
 
     function getActiveCollapsibleGroups() {
         var activeTab = getActiveDashboardTab();
         var selector = activeTab === 'projects'
             ? '#dashboard-tab-projects .group[data-group-id]'
-            : activeTab === 'todo'
-                ? '#dashboard-tab-todo .todo-group[data-todo-group-id]'
-                : null;
+            : null;
         if (!selector) {
             return [];
         }
@@ -42,12 +74,9 @@ function initProjectGroupCollapse() {
     function setGroupCollapsed(group, collapsed, persist) {
         group.classList.toggle('collapsed', collapsed);
         if (persist) {
-            var isTodoGroup = group.classList.contains('todo-group');
             window.vscode.postMessage({
-                type: isTodoGroup ? 'todo-collapse-group' : 'collapse-group',
-                groupId: isTodoGroup
-                    ? group.getAttribute('data-todo-group-id')
-                    : group.getAttribute('data-group-id'),
+                type: 'collapse-group',
+                groupId: group.getAttribute('data-group-id'),
                 collapsed,
             });
         }
@@ -67,23 +96,13 @@ function initProjectGroupCollapse() {
         var groups = getActiveCollapsibleGroups();
         var shouldCollapse = groups.some(group => !group.classList.contains("collapsed"));
 
-        if (activeTab === 'todo') {
-            if (window.__agentPivotTodo
-                && typeof window.__agentPivotTodo.dispatch === 'function') {
-                window.__agentPivotTodo.dispatch('collapse-groups', { collapsed: shouldCollapse });
-            } else {
-                collapseTodoGroups(groups, shouldCollapse, message => window.vscode.postMessage(message));
-            }
-            syncCollapseButton();
-            return;
-        }
-
         groups.forEach(group => setGroupCollapsed(group, shouldCollapse, true));
         syncCollapseButton();
     }
 
 
     window.__agentPivotSyncCollapseButton = syncCollapseButton;
+    window.__agentPivotGetCollapseButtonState = getCollapseButtonState;
 
     return {
         setGroupCollapsed: setGroupCollapsed,

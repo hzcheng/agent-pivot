@@ -265,7 +265,7 @@ function runSkillRenderingChecks() {
         'source groups follow kimi > claude order');
     assert.ok(html.includes('<span class="skill-source-count">2</span>'), 'source group shows its skill count');
     assert.ok(html.indexOf('>broken</span>') < html.indexOf('>demo</span>'), 'rows sort by name within a source group');
-    // TODO(T7): finalized in the group-retirement task — virtual collection node, datalist,
+    // Issue T7: finalized in the group-retirement task — virtual collection node, datalist,
     // ungroup and group-editor rendering assertions removed with the folder-tree rendering (Task 5).
     assert.ok(html.includes('draggable="true"'), 'cards stay draggable for folder moves');
     assert.ok(html.includes('data-skill-scope="user"'));
@@ -504,9 +504,7 @@ function runSkillWebviewScriptChecks() {
     const projectScript = [
         'webviewAiSessionViewStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
-        'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
         'webviewProjectAiSessionControlsScripts.js',
@@ -1177,7 +1175,7 @@ function runSkillFixChecks() {
 function runSkillSearchCatalogChecks() {
     const viewModel = require('../out/webview/dashboardViewModel');
     const catalog = viewModel.buildWorkspaceDashboardSearchCatalog(
-        [], [], [],
+        [], [],
         [makeRecord(), makeRecord({
             name: 'beta', description: 'Gamma knife', scope: 'project', source: 'claude',
             dirPath: '/work/app/.claude/skills/beta',

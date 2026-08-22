@@ -24,7 +24,6 @@ const {
     TmuxAttachBindingStore,
 } = require('../../../out/aiSessions/tmuxAttachBindingStore');
 const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntimeBindingStore');
-const { normalizeTodoData } = require('../../../out/todos/types');
 const {
     ProductionAttentionStore,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/productionAttentionStore');
@@ -425,34 +424,6 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 rejects without false success w
     assert.deepEqual(values[legacyKey], { 'scope-a': 'codex' });
     assert.equal(combinedWrites, 2);
     assert.equal(legacyWrites, 2);
-});
-
-test('TODO-TODO-STORE-001 preserves unversioned V1 data while dropping duplicate, orphaned, and missing-field records', () => {
-    const normalized = normalizeTodoData({
-        groups: [
-            { id: 'group', title: ' Group ', collapsed: false, order: 0 },
-            { id: 'group', title: 'Duplicate', collapsed: false, order: 1 },
-            { title: 'Missing ID', order: 2 },
-        ],
-        todos: [
-            {
-                id: 'todo', groupId: 'group', title: ' Keep ', notes: ' note ', priority: 'high',
-                completed: false, createdAt: '2026-07-18T00:00:00.000Z',
-                updatedAt: '2026-07-18T00:00:00.000Z', order: 0,
-            },
-            { id: 'todo', groupId: 'group', title: 'Duplicate', order: 1 },
-            { id: 'orphan', groupId: 'missing', title: 'Orphan', order: 2 },
-            { groupId: 'group', title: 'Missing ID', order: 3 },
-        ],
-    });
-
-    assert.deepEqual(normalized.groups, [
-        { id: 'group', title: 'Group', collapsed: false, order: 0 },
-    ]);
-    assert.deepEqual(normalized.todos.map(todo => [todo.id, todo.title, todo.notes]), [
-        ['todo', 'Keep', 'note'],
-    ]);
-    assert.throws(() => normalizeTodoData({ version: 2 }), /Unsupported TODO data version/);
 });
 
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 listAll enumerates durable bindings for claim reconciliation', async () => {

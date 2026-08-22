@@ -1,10 +1,10 @@
 function normalizeDashboardTab(tab) {
-    return tab === 'projects' || tab === 'todo' || tab === 'ai' ? tab : 'open';
+    return tab === 'projects' || tab === 'ai' ? tab : 'open';
 }
 
 function getAdjacentDashboardTab(tab, key) {
     tab = normalizeDashboardTab(tab);
-    var tabs = ['open', 'projects', 'todo', 'ai'];
+    var tabs = ['open', 'projects', 'ai'];
     var currentIndex = tabs.indexOf(tab);
     if (key === 'Home') {
         return tabs[0];
@@ -73,23 +73,6 @@ function validateProjectsPanelUpdatedMessage(message) {
         favoriteIds.add(favoriteId);
     }
     return true;
-}
-
-function validateTodoPanelMessage(message) {
-    return !!message
-        && message.type === 'todo-panel-content'
-        && message.version === 1
-        && Number.isSafeInteger(message.requestId)
-        && message.requestId > 0
-        && typeof message.html === 'string';
-}
-
-function validateTodoPanelUpdatedMessage(message) {
-    return !!message
-        && message.type === 'todo-panel-updated'
-        && message.version === 1
-        && typeof message.html === 'string'
-        && normalizeDashboardSearchCatalog(message.searchCatalog) === message.searchCatalog;
 }
 
 function hasExactObjectKeys(value, requiredKeys, optionalKeys) {
@@ -187,11 +170,11 @@ function normalizeDashboardSearchCatalog(value) {
         && Array.isArray(value.worktrees)
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
-        && Array.isArray(value.todos)
+        && !Object.prototype.hasOwnProperty.call(value, 'todos')
         && (value.skills === undefined || Array.isArray(value.skills))) {
         return value;
     }
-    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
+    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] };
 }
 
 function replaceDashboardSearchCatalogState(state, catalog) {

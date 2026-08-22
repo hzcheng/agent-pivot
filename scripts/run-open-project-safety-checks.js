@@ -1185,7 +1185,6 @@ async function runOpenWorkspaceClientAndControllerChecks() {
             attentionCount: dashboardAttention ? 1 : 0,
         }),
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCollapsed: () => false,
         getRunningCardAnimation: () => 'orbit',
         getRunningIconAnimation: () => undefined,
@@ -1242,7 +1241,6 @@ async function runOpenWorkspaceClientAndControllerChecks() {
         getWorkspaceProjectColor: () => '',
         getCurrentWorkspaceAiSessions: () => null,
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCollapsed: () => false,
         getRunningCardAnimation: () => 'current',
         getRunningIconAnimation: () => undefined,
@@ -2131,7 +2129,6 @@ async function runOpenWorkspaceHardeningChecks() {
             activeAttentionCount: 0,
         }),
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCollapsed: () => false,
         getRunningCardAnimation: () => runningCardAnimation,
         getRunningIconAnimation: () => runningIconAnimation,
@@ -2319,7 +2316,6 @@ async function runWorkspaceContextResolverChecks() {
         getWorkspaceProjectColor: () => '',
         getCurrentWorkspaceAiSessions: () => { throw new Error('zero-root must not hydrate sessions'); },
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCollapsed: () => false,
         getRunningCardAnimation: () => 'current',
         getRunningIconAnimation: () => undefined,
@@ -2959,7 +2955,6 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
             isExtensionInstalled: () => false,
             migrateDataIfNeeded: async () => ({
                 projects: await settleMigration(() => service.migrateDataIfNeeded()),
-                todos: { migrated: false },
             }),
             afterProjectMigrationSucceeded: () => adapter.completePendingWorkspaceSave(),
             refreshDashboard: () => undefined,
@@ -3113,7 +3108,6 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
             isExtensionInstalled: () => false,
             migrateDataIfNeeded: async () => ({
                 projects: await settleMigration(() => service.migrateDataIfNeeded()),
-                todos: { migrated: false },
             }),
             afterProjectMigrationSucceeded: () => adapter.completePendingWorkspaceSave(),
             refreshDashboard: () => undefined,
@@ -3178,7 +3172,6 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         isExtensionInstalled: () => false,
         migrateDataIfNeeded: async () => ({
             projects: await settleMigration(() => failureService.migrateDataIfNeeded()),
-            todos: { migrated: false },
         }),
         afterProjectMigrationSucceeded: () => failureAdapter.completePendingWorkspaceSave(),
         refreshDashboard: () => undefined,
@@ -3697,7 +3690,6 @@ async function runDashboardMigrationPublicationChecks() {
             }
             return {
                 projects: { migrated },
-                todos: { migrated: false },
             };
         },
         refreshDashboard: () => refreshes.push(currentMetadata),

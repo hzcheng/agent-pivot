@@ -88,7 +88,6 @@ Member: memberId, repositoryKey, worktreeKey?, branchName, path, state
 
 - UI 文案（中英一致）：新建 Worktree 组 / 从此组派生 / 向组中添加仓库 / 从组中移除此 worktree / 移除组中的 worktree；tab 名保持 WORKTREES。
 - 删除类文案必须写明"**仅删除 worktree 目录，保留本地分支**"——现有删除语义保留分支，"Delete" 类裸文案会让用户误以为分支也被删除。
-- TODO tab 侧继续使用"待办"，与"组"无冲突。
 - 内部模型、代码、协议字段统一称 **group**（实现时全仓一致）。本文档使用"组"。
 
 ### 4.2 Group / Member 生命周期与不变式

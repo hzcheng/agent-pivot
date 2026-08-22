@@ -25,23 +25,17 @@ const dashboardSearchSource = fs.readFileSync(path.join(root, 'src', 'webview', 
 const generatedDashboardSearchSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardSearchScripts.js'), 'utf8');
 const dashboardProjectsPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardProjectsPanelScripts.js'), 'utf8');
 const generatedDashboardProjectsPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardProjectsPanelScripts.js'), 'utf8');
-const dashboardTodoPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardTodoPanelScripts.js'), 'utf8');
-const generatedDashboardTodoPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardTodoPanelScripts.js'), 'utf8');
 const dashboardAiPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardAiPanelScripts.js'), 'utf8');
 const generatedDashboardAiPanelSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardAiPanelScripts.js'), 'utf8');
-const dashboardVmSource = `${skillPanelSource}\n${projectsPanelSource}\n${dashboardValidationSource}\n${dashboardSearchSource}\n${dashboardProjectsPanelSource}\n${dashboardTodoPanelSource}\n${dashboardAiPanelSource}\n${dashboardSource}`;
+const dashboardVmSource = `${skillPanelSource}\n${projectsPanelSource}\n${dashboardValidationSource}\n${dashboardSearchSource}\n${dashboardProjectsPanelSource}\n${dashboardAiPanelSource}\n${dashboardSource}`;
 const projectSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectScripts.js'), 'utf8');
 const generatedProjectSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectScripts.js'), 'utf8');
 const viewStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewAiSessionViewStateScripts.js'), 'utf8');
 const generatedViewStateSource = fs.readFileSync(path.join(root, 'media', 'webviewAiSessionViewStateScripts.js'), 'utf8');
 const workspaceUpdateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewWorkspaceUpdateScripts.js'), 'utf8');
 const generatedWorkspaceUpdateSource = fs.readFileSync(path.join(root, 'media', 'webviewWorkspaceUpdateScripts.js'), 'utf8');
-const todoGroupSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewTodoGroupScripts.js'), 'utf8');
-const generatedTodoGroupSource = fs.readFileSync(path.join(root, 'media', 'webviewTodoGroupScripts.js'), 'utf8');
 const projectCollapseSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectCollapseScripts.js'), 'utf8');
 const generatedProjectCollapseSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectCollapseScripts.js'), 'utf8');
-const todoControlSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewTodoControlScripts.js'), 'utf8');
-const generatedTodoControlSource = fs.readFileSync(path.join(root, 'media', 'webviewTodoControlScripts.js'), 'utf8');
 const projectContextMenuSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectContextMenuScripts.js'), 'utf8');
 const generatedProjectContextMenuSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectContextMenuScripts.js'), 'utf8');
 const projectAiUpdateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectAiUpdateScripts.js'), 'utf8');
@@ -49,14 +43,12 @@ const generatedProjectAiUpdateSource = fs.readFileSync(path.join(root, 'media', 
 const aiSessionControlsSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewProjectAiSessionControlsScripts.js'), 'utf8');
 const generatedAiSessionControlsSource = fs.readFileSync(path.join(root, 'media', 'webviewProjectAiSessionControlsScripts.js'), 'utf8');
 const groupFormSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewGroupFormScripts.js'), 'utf8');
-const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${groupFormSource}\n${aiSessionControlsSource}\n${projectSource}`;
+const projectVmSource = `${viewStateSource}\n${workspaceUpdateSource}\n${projectCollapseSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${groupFormSource}\n${aiSessionControlsSource}\n${projectSource}`;
 const scrollStateSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewScrollStateScripts.js'), 'utf8');
 const promptProtocolSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptProtocolScripts.js'), 'utf8');
 const generatedPromptProtocolSource = fs.readFileSync(path.join(root, 'media', 'webviewPromptProtocolScripts.js'), 'utf8');
 const promptSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewPromptScripts.js'), 'utf8');
 const generatedPromptPath = path.join(root, 'media', 'webviewPromptScripts.js');
-const todoRenderSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewTodoRenderScripts.js'), 'utf8');
-const generatedTodoRenderSource = fs.readFileSync(path.join(root, 'media', 'webviewTodoRenderScripts.js'), 'utf8');
 const dndSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDnDScripts.js'), 'utf8');
 const NOW = '2026-07-23T00:00:00.000Z';
 
@@ -161,11 +153,6 @@ function makeCatalog(suffix = '') {
             name: 'Dashboard', description: '1 folder', action: 'show-current-workspace', current: true,
         }],
         savedProjects: [],
-        todos: [{
-            key: `todo:t${suffix}`, todoId: `t${suffix}`, groupId: 'group-a',
-            searchText: `ship todo ${suffix}`, title: 'Ship TODO', groupTitle: 'Planning',
-            priority: 'high', completed: false, notesSearchText: 'Release notes',
-        }],
     };
 }
 
@@ -244,24 +231,18 @@ function createDashboardHarness({
     initialSearchQuery = '',
     synchronousFrames = true,
     onProjectsMounted,
-    onTodoMounted,
-    onTodoRefresh,
     onActiveTabChanged,
 } = {}) {
     const openButton = createElement('dashboard-tab-open-button');
     openButton.setAttribute('data-dashboard-tab', 'open');
     const projectsButton = createElement('dashboard-tab-projects-button');
     projectsButton.setAttribute('data-dashboard-tab', 'projects');
-    const todoButton = createElement('dashboard-tab-todo-button');
-    todoButton.setAttribute('data-dashboard-tab', 'todo');
     const aiButton = createElement('dashboard-tab-ai-button');
     aiButton.setAttribute('data-dashboard-tab', 'ai');
     const openPanel = createElement('dashboard-tab-open');
     const projectsPanel = createElement('dashboard-tab-projects');
-    const todoPanel = createElement('dashboard-tab-todo');
     const aiPanel = createElement('dashboard-panel-ai');
     const projectsLoading = createElement();
-    const todoLoading = createElement();
     const aiLoading = createElement();
     let promptSubtabSelections = 0;
     const promptSubtab = {
@@ -271,9 +252,6 @@ function createDashboardHarness({
     };
     projectsPanel.querySelector = selector => selector === '.dashboard-projects-loading'
         ? projectsLoading
-        : null;
-    todoPanel.querySelector = selector => selector === '.dashboard-todo-loading'
-        ? todoLoading
         : null;
     aiPanel.querySelector = selector => selector === '.dashboard-ai-loading'
         ? aiLoading
@@ -300,7 +278,6 @@ function createDashboardHarness({
     const elements = {
         'dashboard-tab-open': openPanel,
         'dashboard-tab-projects': projectsPanel,
-        'dashboard-tab-todo': todoPanel,
         'dashboard-panel-ai': aiPanel,
         'dashboard-search-results': searchResults,
         'dashboard-search-catalog': catalogElement,
@@ -325,7 +302,7 @@ function createDashboardHarness({
                     ? collapseButton
                     : null,
             querySelectorAll: selector => selector === '[data-dashboard-tab]'
-                ? [openButton, projectsButton, todoButton, aiButton]
+                ? [openButton, projectsButton, aiButton]
                 : [],
         },
         sessionStorage: {
@@ -367,8 +344,6 @@ function createDashboardHarness({
         initialSearchQuery,
         postMessage: message => messages.push(message),
         onProjectsMounted,
-        onTodoMounted,
-        onTodoRefresh,
         onActiveTabChanged,
     });
     return {
@@ -388,14 +363,11 @@ function createDashboardHarness({
         windowListeners,
         openButton,
         projectsButton,
-        todoButton,
         aiButton,
         openPanel,
         projectsPanel,
-        todoPanel,
         aiPanel,
         projectsLoading,
-        todoLoading,
         aiLoading,
         collapseButton,
         promptMounts,
@@ -465,7 +437,7 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes
             }],
             activeSessions: [], unavailableProviders: [], activeProvider: 'codex', expanded: true,
         },
-    })], makeCatalog().todos);
+    })]);
 
     assert.deepEqual(catalog.sessions.map(item => item.key), ['codex:c1']);
     assert.equal(catalog.sessions[0].worktreeName, 'feature/topic');
@@ -478,106 +450,6 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes
     }]);
     assert.deepEqual(catalog.savedProjects.map(item => item.projectId), ['saved', 'other']);
     assert.deepEqual(catalog.savedProjects[0].groupLabels, ['FAVORITES', 'TOOLS']);
-    assert.deepEqual(catalog.todos, makeCatalog().todos);
-});
-
-test('TODO-TODO-SEARCH-RESULT-RENDERING-001 locks catalog v3 section order and actions', () => {
-    const harness = createDashboardHarness();
-    assert.deepEqual(toPlain(harness.context.normalizeDashboardSearchCatalog({
-        ...makeCatalog(), version: 2,
-    })), {
-        version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [],
-    });
-    const catalog = {
-        version: 3,
-        sessions: [{
-            searchText: 'match',
-            name: 'Session',
-            provider: 'codex',
-            sessionId: 'session',
-            workspaceId: 'current',
-            workspaceNavigationIdentity: 'navigation:current',
-            workspaceName: 'Current',
-        }],
-        worktrees: [{
-            searchText: 'match', name: 'feature/topic', workspaceId: 'current',
-            workspaceNavigationIdentity: 'navigation:current', repositoryKey: '/repo/.git',
-            canonicalWorktreePath: '/repo/topic', activity: 'idle', sessionCount: 1,
-        }],
-        openWorkspaces: [{
-            searchText: 'match',
-            name: 'Current',
-            workspaceId: 'current',
-            navigationIdentity: 'navigation:current',
-            current: true,
-        }, {
-            searchText: 'match',
-            name: 'Other',
-            workspaceId: 'other',
-            navigationIdentity: 'navigation:other',
-            current: false,
-        }],
-        savedProjects: [{
-            searchText: 'match',
-            name: 'Saved',
-            projectId: 'saved',
-            groupLabels: ['WORK'],
-        }],
-        todos: [{
-            searchText: 'match',
-            title: 'TODO',
-            todoId: 'todo',
-            groupId: 'group',
-            groupTitle: 'Planning',
-            priority: 'high',
-            completed: false,
-        }],
-    };
-    const sections = harness.context.filterDashboardCatalog(catalog, 'match');
-    assert.deepEqual(toPlain(sections.map(section => section.title)), [
-        'AI SESSIONS',
-        'WORKTREES',
-        'OPEN WORKSPACES',
-        'SAVED PROJECTS',
-        'TODO RESULTS',
-    ]);
-
-    harness.context.renderDashboardSearchResults(harness.searchResults, sections);
-    const actions = harness.searchResults.children.flatMap(section =>
-        section.children.slice(1).map(result => result.dataset.searchAction)
-    );
-    assert.deepEqual(actions, [
-        'reveal-workspace-session',
-        'reveal-workspace-worktree',
-        'show-current-workspace',
-        'switch-open-workspace',
-        'open-saved-project',
-        'show-todo',
-    ]);
-});
-
-test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 preserves TODO catalog entries in incremental messages', () => {
-    const todoSearchItems = makeCatalog().todos;
-    const cards = [makeWorkspaceCard()];
-    const presentation = {
-        type: 'ai-session-presentation-state', version: 1, projectionRevision: 1,
-        workspaceScopeIdentity: null, workspaceNavigationIdentity: null,
-        attentionCount: 0, activeAttentionCount: 0, runningSessionCount: 0,
-        runningCardAnimation: 'current', runningIconAnimation: 'current',
-        revealFocused: false, focusedTarget: null, attentionSessions: [], sessions: [],
-    };
-    const openMessage = webviewModules.updateMessages.buildOpenWorkspacesUpdatedMessage({
-        groups: [], cards: [],
-        semanticRevision: 'revision', projectionRevision: 1,
-        otherWindowsStatus: 'ready', todoSearchItems, presentation,
-    });
-    const sessionsMessage = webviewModules.updateMessages.buildAiSessionsUpdatedMessage({
-        groups: [], cards: [], sequence: 7, generatedAt: NOW,
-        cards, todoSearchItems,
-        presentation: { ...presentation, projectionRevision: 7 },
-    });
-    assert.deepEqual(openMessage.searchCatalog.todos, todoSearchItems);
-    assert.deepEqual(sessionsMessage.searchCatalog.todos, todoSearchItems);
 });
 
 test('WEBVIEW-WEBVIEW-OPTIONS-001 enables scripts and limits local resources to media', () => {
@@ -1076,16 +948,8 @@ test('WEBVIEW-WEBVIEW-CONTENT-001 keeps the generated Dashboard controller byte-
     assert.equal(generatedDashboardValidationSource, dashboardValidationSource);
     assert.equal(generatedDashboardSearchSource, dashboardSearchSource);
     assert.equal(generatedDashboardProjectsPanelSource, dashboardProjectsPanelSource);
-    assert.equal(generatedDashboardTodoPanelSource, dashboardTodoPanelSource);
     assert.equal(generatedDashboardAiPanelSource, dashboardAiPanelSource);
     assert.equal(generatedDashboardSource, dashboardSource);
-});
-
-test('WEBVIEW-TODO-RENDER-001 keeps the generated TODO renderer byte-identical to source', () => {
-    assert.equal(generatedTodoRenderSource, todoRenderSource);
-    assert.match(todoRenderSource, /function createTodoRenderer\(options\)/);
-    assert.match(todoRenderSource, /function renderTodoBody\(todo\)/);
-    assert.match(todoRenderSource, /function renderListSurface\(\)/);
 });
 
 test('ACTIVE-SESSION-ICON-ANIMATION-001 renders effects only for running Active Session rows', () => {
@@ -1157,7 +1021,6 @@ test('CUSTOM-RUNNING-IMAGE-001 full render injects user artwork as CSS variables
             },
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
             otherStorageHasData: false,
-            todoSearchItems: makeCatalog().todos,
         },
         true,
         [makeWorkspaceCard({
@@ -1237,7 +1100,6 @@ test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 embeds a safe complete presenta
             config: { get: (_key, fallback) => fallback },
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
             otherStorageHasData: false,
-            todoSearchItems: [],
         },
         true,
         [],
@@ -1304,95 +1166,6 @@ test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before 
     assert.deepEqual(ids, ['favorite-b', 'favorite-a', 'favorite-a', 'favorite-b', 'plain']);
 });
 
-test('WEBVIEW-WEBVIEW-CONTENT-001 renders OPEN PROJECTS TODO and lazy AI tab shells', () => {
-    const config = {
-        get: (key, fallback) => key === 'aiSessionRunningIconAnimation'
-            ? 'halo'
-            : fallback,
-    };
-    const runningCard = makeWorkspaceCard({
-        aiSessions: {
-            activeProvider: 'codex', expanded: true, sessionsByProvider: { codex: [] },
-            activeSessions: [{
-                key: 'codex:full-render', provider: 'codex', sessionId: 'full-render', name: 'Full render',
-                executionState: 'running', backend: 'vscode', attached: true,
-            }],
-        },
-    });
-    const html = webviewModules.content.getStewardContent(
-        { extensionPath: '/extension' },
-        { cspSource: 'test', asWebviewUri: uri => uri.toString() },
-        [{ id: 'saved', groupName: 'Saved', projects: [{ id: 'hidden', name: 'Hidden', path: '/hidden' }] }],
-        {
-            config,
-            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
-            otherStorageHasData: false,
-            todoSearchItems: makeCatalog().todos,
-        },
-        true,
-        [runningCard],
-        'ready',
-    );
-    for (const tab of ['open', 'projects', 'todo']) {
-        assert.match(html, new RegExp(`data-dashboard-tab="${tab}"`));
-        assert.match(html, new RegExp(`id="dashboard-tab-${tab}"`));
-    }
-    assert.match(html, /data-dashboard-tab="ai"/);
-    assert.match(html, /id="dashboard-panel-ai"/);
-    assert.match(html, /class="dashboard-tab-list" role="tablist" aria-label="Agent Pivot views"/);
-    for (const [tab, label] of [
-        ['open', 'Open'],
-        ['projects', 'Projects'],
-        ['todo', 'Todo'],
-        ['ai', 'AI'],
-    ]) {
-        assert.match(
-            html,
-            new RegExp(
-                `data-dashboard-tab="${tab}"[^>]*aria-label="${label}"[^>]*title="${label}"[^>]*>`
-                + `\\s*<span class="dashboard-tab-icon" aria-hidden="true">[\\s\\S]*?<\\/span>`
-                + `\\s*<span class="dashboard-tab-label">${label.toUpperCase()}<\\/span>`
-            )
-        );
-    }
-    assert.match(html, /data-session-icon-fx="halo"/);
-    const cspMatch = html.match(/Content-Security-Policy"\s+content="([^"]+)"/);
-    assert.ok(cspMatch, 'dashboard document must declare a Content Security Policy');
-    const csp = cspMatch[1];
-    assert.match(csp, /default-src 'none'/);
-    assert.doesNotMatch(csp, /img-src \*/, 'dashboard CSP must not allow arbitrary image sources');
-    assert.match(csp, /img-src test data: https:/);
-    const scriptSrc = csp.match(/script-src ([^;]+)/)[1];
-    assert.doesNotMatch(scriptSrc, /unsafe-inline/,
-        'dashboard CSP script-src must not allow inline scripts');
-    const nonceMatch = scriptSrc.match(/'nonce-([^']+)'/);
-    assert.ok(nonceMatch, 'dashboard CSP script-src must be nonce-scoped');
-    const scriptTags = html.match(/<script\b[^>]*>/g) || [];
-    for (const tag of scriptTags) {
-        if (tag.includes('type="application/json"') || tag.includes('src=')) {
-            continue;
-        }
-        assert.ok(tag.includes(`nonce="${nonceMatch[1]}"`),
-            `inline script tag must carry the CSP nonce: ${tag}`);
-    }
-    assert.doesNotMatch(html, /\son(?:load|click|error|input|change)=/,
-        'dashboard document must not use inline event handlers');
-    assert.match(html, /id="dashboard-search-catalog"/);
-    assert.match(html, /webviewDashboardBundle\.js/);
-    assert.ok(
-        html.indexOf('webviewDashboardBundle.js') < html.indexOf('window.onload'),
-        'the complete Dashboard runtime must load before the lazy panels can mount'
-    );
-    assert.match(html, /initTodos\(/);
-    assert.equal(html.includes('data-id="hidden"'), false);
-    assert.match(html, /data-id="current"/);
-    assert.match(
-        html,
-        /onProjectsMounted: panel => \{\s*fitProjectHeaders\(panel\);\s*disposeDnD\(panel\);\s*initDnD\(panel\);/,
-        'Projects-only replacement must rebuild DnD bindings for the new cards'
-    );
-});
-
 test('WEBVIEW-RESOURCE-RECOVERY-001 gives every rendered document fresh versioned asset URLs', () => {
     const render = () => webviewModules.content.getStewardContent(
         { extensionPath: '/extension' },
@@ -1456,33 +1229,6 @@ test('WEBVIEW-SINGLE-BOOT-ASSET-001 loads dashboard startup code through one ver
         'remote Webviews must not serialize startup behind many cache-busted resource requests');
     assert.match(externalScripts[0][1],
         /\/media\/webviewDashboardBundle\.js\?stewardAssetRevision=/);
-});
-
-test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 SESSION-CONTROLLER-001 preserves OPEN PROJECTS and TODO mounted tab state', () => {
-    const harness = createDashboardHarness();
-    harness.context.window.scrollY = 12;
-    harness.controller.activateTab('projects');
-    assert.deepEqual(toPlain(harness.messages), [
-        { type: 'request-projects-panel', version: 1, requestId: 1 },
-    ]);
-    assert.equal(harness.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>projects</p>',
-    }), true);
-    harness.controller.activateTab('todo');
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 1, html: '<p>todo</p>',
-    }), true);
-    harness.controller.activateTab('open');
-    harness.controller.replaceSearchCatalog(makeCatalog('next'));
-
-    assert.equal(harness.controller.getActiveTab(), 'open');
-    assert.equal(harness.projectsPanel.innerHTML, '<p>projects</p>');
-    assert.equal(harness.todoPanel.innerHTML, '<p>todo</p>');
-    harness.controller.activateTab('projects');
-    harness.controller.activateTab('todo');
-    assert.equal(harness.messages.filter(message => message.type === 'request-projects-panel').length, 1);
-    assert.equal(harness.messages.filter(message => message.type === 'request-todo-panel').length, 1);
-    assert.equal(harness.storage.get('agentPivot.activeDashboardTab'), 'todo');
 });
 
 test('WEBVIEW-AI-DASHBOARD-001 restores AI and lazily mounts one correlated authoritative panel', () => {
@@ -1559,7 +1305,7 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     assert.equal(harness.aiButton.classList.contains('focused'), true);
 
     harness.openButton.focus = () => harness.openButton.classList.add('focused');
-    harness.todoButton.dispatch('keydown', {
+    harness.projectsButton.dispatch('keydown', {
         key: 'Home',
         preventDefault: () => { prevented += 1; },
     });
@@ -1572,7 +1318,7 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     });
     assert.equal(harness.aiButton.classList.contains('focused'), true);
     assert.equal(prevented, 4);
-    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
     assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'open');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'Home'), 'open');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'ai');
@@ -1937,15 +1683,11 @@ test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unloc
 });
 
 test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks later tab retries', () => {
-    for (const tab of ['projects', 'todo']) {
+    for (const tab of ['projects']) {
         const harness = createDashboardHarness({ initialTab: tab });
         const requestType = `request-${tab}-panel`;
-        const getState = tab === 'projects'
-            ? harness.controller.getProjectsState
-            : harness.controller.getTodoState;
-        const applyMessage = tab === 'projects'
-            ? harness.controller.applyProjectsPanelMessage
-            : harness.controller.applyTodoPanelMessage;
+        const getState = harness.controller.getProjectsState;
+        const applyMessage = harness.controller.applyProjectsPanelMessage;
 
         assert.deepEqual(toPlain(harness.messages), [{
             type: requestType,
@@ -1964,7 +1706,7 @@ test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks l
 
         assert.equal(harness.runNextTimer(), true);
         assert.equal(getState(), 'unloaded');
-        const loading = tab === 'projects' ? harness.projectsLoading : harness.todoLoading;
+        const loading = harness.projectsLoading;
         assert.match(loading.textContent, /temporarily unavailable/i);
 
         harness.controller.activateTab(tab);
@@ -1989,11 +1731,9 @@ test('PROJECT-INCREMENTAL-REFRESH-001 replaces only Projects and rejects stale u
     assert.equal(harness.controller.applyProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>initial</p>',
     }), true);
-    harness.todoPanel.innerHTML = '<p>todo-state</p>';
     harness.openPanel.innerHTML = '<p>open-state</p>';
     harness.context.window.scrollY = 73;
     const openIdentity = harness.openPanel;
-    const todoIdentity = harness.todoPanel;
 
     assert.equal(harness.controller.applyProjectsPanelUpdatedMessage({
         type: 'projects-panel-updated',
@@ -2007,9 +1747,7 @@ test('PROJECT-INCREMENTAL-REFRESH-001 replaces only Projects and rejects stale u
     }), true);
     assert.equal(harness.projectsPanel.innerHTML, '<p>updated projects</p>');
     assert.equal(harness.openPanel, openIdentity);
-    assert.equal(harness.todoPanel, todoIdentity);
     assert.equal(harness.openPanel.innerHTML, '<p>open-state</p>');
-    assert.equal(harness.todoPanel.innerHTML, '<p>todo-state</p>');
     assert.equal(harness.controller.getActiveTab(), 'projects');
     assert.equal(harness.context.window.scrollY, 73);
 
@@ -2090,7 +1828,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 captures semantic Projects state and ign
     );
 });
 
-test('PROJECT-INCREMENTAL-REFRESH-001 ignores stale window messages without requesting a full refresh', () => {
+test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 PROJECT-INCREMENTAL-REFRESH-001 ignores stale window messages without requesting a full refresh', () => {
     const harness = createDashboardHarness({ initialTab: 'projects' });
     harness.controller.applyProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>initial</p>',
@@ -2118,29 +1856,19 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
     const harness = createDashboardHarness();
     assert.equal(harness.context.normalizeDashboardTab('unknown'), 'open');
     assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'ai');
-    assert.equal(harness.context.getAdjacentDashboardTab('todo', 'ArrowRight'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '',
     }), true);
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 2, requestId: 1, html: '',
     }), false);
-    assert.equal(harness.context.validateTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 1, html: '',
-    }), true);
-    assert.equal(harness.context.validateTodoPanelMessage({
-        type: 'todo-panel-content', version: 2, requestId: 1, html: '',
-    }), false);
-
     harness.context.window.scrollY = 41;
     harness.controller.activateTab('projects');
-    harness.context.window.scrollY = 17;
-    harness.controller.activateTab('todo');
     harness.context.window.scrollY = 9;
     harness.controller.activateTab('open');
     assert.equal(harness.controller.getScrollPosition('open'), 41);
-    assert.equal(harness.controller.getScrollPosition('projects'), 17);
-    assert.equal(harness.controller.getScrollPosition('todo'), 9);
+    assert.equal(harness.controller.getScrollPosition('projects'), 9);
     assert.equal(harness.context.window.scrollY, 41);
 
     assert.equal(harness.controller.applyProjectsPanelMessage({
@@ -2154,233 +1882,6 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
     }), false);
     assert.equal(harness.projectsPanel.innerHTML, '<p>current</p>');
 
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 2, html: '<p>future todo</p>',
-    }), false);
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 1, html: '<p>current todo</p>',
-    }), true);
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 1, html: '<p>stale todo</p>',
-    }), false);
-    assert.equal(harness.todoPanel.innerHTML, '<p>current todo</p>');
-});
-
-test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 accepts the migrated TODO catalog with the lazy panel', () => {
-    const harness = createDashboardHarness({ initialTab: 'todo' });
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content',
-        version: 1,
-        requestId: 1,
-        html: '<p>todo</p>',
-        searchCatalog: makeCatalog('lazy'),
-    }), true);
-    harness.controller.setSearchQuery('lazy');
-    const todoSection = harness.searchResults.children.find(section =>
-        section.dataset.sectionType === 'todo'
-    );
-
-    assert.equal(todoSection.children[1].dataset.todoId, 'tlazy');
-});
-
-test('TODO-AUTHORITATIVE-REFRESH-STATE-001 routes supported mounted snapshots without replacing TODO markup and falls back once otherwise', () => {
-    const mounted = [];
-    const refreshed = [];
-    const validSnapshot = {
-        version: 1,
-        showCompleted: false,
-        data: { version: 1, groups: [], todos: [] },
-    };
-    const harness = createDashboardHarness({
-        initialTab: 'todo',
-        onTodoMounted: (panel, message) => mounted.push({ panel, message }),
-        onTodoRefresh: (panel, message) => {
-            refreshed.push({ panel, message });
-            const snapshot = message.snapshot;
-            return Boolean(snapshot
-                && snapshot.version === 1
-                && typeof snapshot.showCompleted === 'boolean'
-                && snapshot.data
-                && snapshot.data.version === 1
-                && Array.isArray(snapshot.data.groups)
-                && Array.isArray(snapshot.data.todos));
-        },
-    });
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content',
-        version: 1,
-        requestId: 1,
-        html: '<div class="todo-panel">mounted</div>',
-        snapshot: validSnapshot,
-        searchCatalog: makeCatalog('mounted'),
-    }), true);
-    const mountedHtml = harness.todoPanel.innerHTML;
-
-    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div class="todo-panel">replacement must not install</div>',
-        snapshot: validSnapshot,
-        searchCatalog: makeCatalog('refresh'),
-    }), true);
-    assert.equal(refreshed.length, 1);
-    assert.equal(refreshed[0].panel, harness.todoPanel);
-    assert.equal(mounted.length, 1);
-    assert.equal(harness.todoPanel.innerHTML, mountedHtml);
-    harness.controller.setSearchQuery('refresh');
-    assert.equal(harness.searchResults.children.find(section =>
-        section.dataset.sectionType === 'todo'
-    ).children[1].dataset.todoId, 'trefresh');
-
-    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div class="todo-panel">fallback</div>',
-        snapshot: { version: 2 },
-        searchCatalog: makeCatalog('fallback'),
-    }), true);
-    assert.equal(refreshed.length, 2);
-    assert.equal(mounted.length, 2);
-    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">fallback</div>');
-
-    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div class="todo-panel">malformed fallback</div>',
-        snapshot: { version: 1 },
-        searchCatalog: makeCatalog('malformed'),
-    }), true);
-    assert.equal(refreshed.length, 3);
-    assert.equal(mounted.length, 3);
-    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">malformed fallback</div>');
-
-    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div class="todo-panel">missing fallback</div>',
-        searchCatalog: makeCatalog('missing'),
-    }), true);
-    assert.equal(refreshed.length, 3);
-    assert.equal(mounted.length, 4);
-    assert.equal(harness.todoPanel.innerHTML, '<div class="todo-panel">missing fallback</div>');
-});
-
-test('TODO-AUTHORITATIVE-REFRESH-STATE-001 fallback restores show-completed focus with preventScroll and preserves window scroll', () => {
-    const harness = createDashboardHarness({
-        initialTab: 'todo',
-        onTodoRefresh: () => false,
-    });
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content',
-        version: 1,
-        requestId: 1,
-        html: '<div class="todo-panel">mounted</div>',
-        searchCatalog: makeCatalog('mounted'),
-    }), true);
-    const oldToggle = createElement();
-    oldToggle.setAttribute('data-action', 'todo-toggle-show-completed');
-    const replacementToggle = createElement();
-    let focusOptions = null;
-    replacementToggle.setAttribute('data-action', 'todo-toggle-show-completed');
-    replacementToggle.focus = options => {
-        focusOptions = options;
-        harness.context.document.activeElement = replacementToggle;
-        if (!options || options.preventScroll !== true) {
-            harness.context.window.scrollY = 0;
-        }
-    };
-    harness.todoPanel.contains = candidate => candidate === oldToggle;
-    harness.todoPanel.querySelector = selector =>
-        selector === '[data-action="todo-toggle-show-completed"]'
-            ? replacementToggle
-            : null;
-    harness.context.document.activeElement = oldToggle;
-    harness.context.window.scrollY = 73;
-
-    assert.equal(harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div class="todo-panel">fallback</div>',
-        snapshot: { version: 2 },
-        searchCatalog: makeCatalog('fallback'),
-    }), true);
-    assert.deepEqual(toPlain(focusOptions), { preventScroll: true });
-    assert.equal(harness.context.document.activeElement, replacementToggle);
-    assert.equal(harness.context.window.scrollY, 73);
-});
-
-test('TODO-TODO-SEARCH-RESULT-RENDERING-001 search reveal requests host data then focuses the mounted TODO', () => {
-    const harness = createDashboardHarness({
-        initialTab: 'todo',
-        synchronousFrames: false,
-        onTodoRefresh: (_panel, message) => Boolean(message.snapshot),
-    });
-    assert.equal(harness.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content', version: 1, requestId: 1, html: '<p>todo</p>',
-    }), true);
-    harness.controller.replaceSearchCatalog(makeCatalog('search'));
-    harness.controller.setSearchQuery('ship');
-    const todoSection = harness.searchResults.children.find(section => section.dataset.sectionType === 'todo');
-    const todoResult = todoSection.children[1];
-    todoResult.closest = selector => selector === '.dashboard-search-result[data-search-action]'
-        ? todoResult
-        : null;
-    harness.searchResults.dispatch('click', { target: todoResult });
-    while (harness.frames.length) harness.frames.shift()();
-
-    assert.deepEqual(toPlain(harness.messages.filter(message => message.type === 'todo-reveal')), [{
-        type: 'todo-reveal', todoId: 'tsearch', groupId: 'group-a',
-    }]);
-
-    let focused = 0;
-    let openedTodoId = null;
-    let openedCount = 0;
-    harness.context.window.__agentPivotTodo = {
-        openDetail(todoId) {
-            openedTodoId = todoId;
-            openedCount += 1;
-            return true;
-        },
-    };
-    const todoGroup = { classList: createClassList() };
-    const todoItem = {
-        isConnected: true,
-        getAttribute: name => name === 'data-todo-id' ? 'tsearch' : null,
-        setAttribute: () => undefined,
-        removeAttribute: () => undefined,
-        closest: selector => selector === '.todo-group' ? todoGroup : null,
-        scrollIntoView: () => undefined,
-        focus: () => {
-            focused += 1;
-            harness.context.document.activeElement = todoItem;
-        },
-        addEventListener: () => undefined,
-    };
-    harness.todoPanel.querySelectorAll = selector => selector === '.todo-item[data-todo-id]' ? [todoItem] : [];
-    harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<p>revealed</p>',
-        snapshot: { version: 1 },
-        searchCatalog: makeCatalog('search'),
-    });
-    while (harness.frames.length) harness.frames.shift()();
-    assert.equal(openedTodoId, 'tsearch');
-    assert.equal(openedCount, 1);
-    assert.equal(focused, 0);
-
-    openedTodoId = null;
-    harness.searchResults.dispatch('click', { target: todoResult });
-    while (harness.frames.length) harness.frames.shift()();
-    harness.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<p>fallback revealed</p>',
-        searchCatalog: makeCatalog('search'),
-    });
-    while (harness.frames.length) harness.frames.shift()();
-    assert.equal(openedTodoId, 'tsearch');
-    assert.equal(openedCount, 2);
 });
 
 function createProjectVm({
@@ -2405,9 +1906,8 @@ function createProjectVm({
             && Array.isArray(value.worktrees)
             && Array.isArray(value.openWorkspaces)
             && Array.isArray(value.savedProjects)
-            && Array.isArray(value.todos)
             ? value
-            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
         document: {
             activeElement: activeElement || null,
             body: {
@@ -2931,14 +2431,13 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 announces renderer readiness a
 });
 
 function assertCollapseButtonBehavior(context) {
-    assert.deepEqual(toPlain(context.getCollapseButtonState('open', [])), {
+    assert.deepEqual(toPlain(context.window.__agentPivotGetCollapseButtonState('open', [])), {
         disabled: true, collapsed: false, title: 'No open windows to collapse',
     });
-    assert.equal(context.getCollapseButtonState('open', [false]).title, 'Collapse Open Windows');
-    assert.equal(context.getCollapseButtonState('open', [true]).title, 'Expand Open Windows');
-    assert.equal(context.getCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
-    assert.equal(context.getCollapseButtonState('todo', [true, true]).title, 'Expand TODO Groups');
-    assert.deepEqual(toPlain(context.getCollapseButtonState('ai', [false])), {
+    assert.equal(context.window.__agentPivotGetCollapseButtonState('open', [false]).title, 'Collapse Open Windows');
+    assert.equal(context.window.__agentPivotGetCollapseButtonState('open', [true]).title, 'Expand Open Windows');
+    assert.equal(context.window.__agentPivotGetCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
+    assert.deepEqual(toPlain(context.window.__agentPivotGetCollapseButtonState('ai', [false])), {
         disabled: true, collapsed: false, title: 'No groups to collapse in AI',
     });
 }
@@ -2947,119 +2446,6 @@ test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 exposes disabled and exact action labels
     assertCollapseButtonBehavior(createProjectVm().context);
     const mutated = projectSource.replace('No open windows to collapse', 'Nothing to collapse');
     assert.throws(() => assertCollapseButtonBehavior(createProjectVm({ source: mutated }).context));
-});
-
-test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and TODO mounts while AI stays active', () => {
-    const collapseButton = createElement();
-    const selectedAiButton = createElement();
-    selectedAiButton.setAttribute('data-dashboard-tab', 'ai');
-    selectedAiButton.setAttribute('aria-selected', 'true');
-    const todoGroup = { classList: createClassList() };
-    const harness = createProjectVm({
-        activeTab: 'ai',
-        querySelector: selector => selector === '[data-action="toggle-all-groups"]'
-            ? collapseButton
-            : selector === '[data-dashboard-tab][aria-selected="true"]'
-                ? selectedAiButton
-                : null,
-        querySelectorAll: selector => {
-            assert.ok(!selector.includes('#dashboard-tab-open'),
-                'the OPEN tab exposes no collapsible groups');
-            return selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
-                ? [todoGroup]
-                : [];
-        },
-    });
-
-    collapseButton.disabled = false;
-    harness.context.window.__agentPivotSyncCollapseButton();
-    assert.equal(collapseButton.disabled, true, 'late Projects mount must preserve AI state');
-    assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
-    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
-
-    collapseButton.disabled = false;
-    harness.context.window.__agentPivotSyncCollapseButton('todo');
-    assert.equal(collapseButton.disabled, true, 'late TODO update must use the active AI tab');
-    assert.equal(collapseButton.getAttribute('aria-disabled'), 'true');
-    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
-
-    harness.context.window.__agentPivotDashboard = null;
-    collapseButton.disabled = false;
-    harness.context.window.__agentPivotSyncCollapseButton();
-    assert.equal(collapseButton.disabled, true, 'initial mount must read the selected AI tab element');
-    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
-});
-
-test('WEBVIEW-AI-DASHBOARD-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 preserve AI Collapse state after actual late Projects and TODO responses and updates', () => {
-    const collapseButton = createElement();
-    const projectVm = createProjectVm({
-        querySelector: selector => selector === '[data-action="toggle-all-groups"]'
-            ? collapseButton
-            : null,
-        querySelectorAll: selector => {
-            assert.ok(!selector.includes('#dashboard-tab-open'),
-                'the OPEN tab exposes no collapsible groups');
-            return selector === '#dashboard-tab-projects .group[data-group-id]'
-                || selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
-                ? [{ classList: createClassList() }]
-                : [];
-        },
-    });
-    const syncCollapse = () => projectVm.context.window.__agentPivotSyncCollapseButton();
-    const dashboard = createDashboardHarness({
-        initialTab: 'projects',
-        onProjectsMounted: syncCollapse,
-        onTodoMounted: syncCollapse,
-    });
-    projectVm.context.window.__agentPivotDashboard = dashboard.controller;
-
-    dashboard.controller.activateTab('ai');
-    collapseButton.disabled = false;
-    assert.equal(dashboard.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content',
-        version: 1,
-        requestId: 1,
-        html: '<div>late projects</div>',
-    }), true);
-    assert.equal(collapseButton.disabled, true);
-    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
-
-    collapseButton.disabled = false;
-    assert.equal(dashboard.controller.applyProjectsPanelUpdatedMessage({
-        type: 'projects-panel-updated',
-        version: 1,
-        sequence: 1,
-        mode: 'replace',
-        html: '<div>late projects update</div>',
-        searchCatalog: makeCatalog('late-projects'),
-        groupOrders: [],
-        favoriteProjectIds: [],
-    }), true);
-    assert.equal(collapseButton.disabled, true);
-    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
-
-    dashboard.controller.activateTab('todo');
-    dashboard.controller.activateTab('ai');
-    collapseButton.disabled = false;
-    assert.equal(dashboard.controller.applyTodoPanelMessage({
-        type: 'todo-panel-content',
-        version: 1,
-        requestId: 1,
-        html: '<div>late todos</div>',
-        searchCatalog: makeCatalog('late-todos'),
-    }), true);
-    assert.equal(collapseButton.disabled, true);
-    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
-
-    collapseButton.disabled = false;
-    assert.equal(dashboard.controller.applyTodoPanelUpdatedMessage({
-        type: 'todo-panel-updated',
-        version: 1,
-        html: '<div>late todo update</div>',
-        searchCatalog: makeCatalog('late-todo-update'),
-    }), true);
-    assert.equal(collapseButton.disabled, true);
-    assert.equal(collapseButton.getAttribute('title'), 'No groups to collapse in AI');
 });
 
 test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 rejects stale AI session update sequences', () => {
@@ -3075,7 +2461,7 @@ test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 rejects stale AI session update seque
     }) });
 
     assert.equal(harness.replacedCatalogs.length, 1);
-    assert.equal(harness.replacedCatalogs[0].todos[0].todoId, 'tnew');
+    assert.deepEqual(harness.replacedCatalogs[0], makeCatalog('new'));
 });
 
 test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 requests full refresh when the workspace replacement is invalid', () => {
@@ -3112,170 +2498,7 @@ test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 maps ctrl meta and middle-click proje
     ]);
 });
 
-function createTodoEditHarness() {
-    const title = { value: 'Initial title', defaultValue: 'Initial title' };
-    const notes = { value: 'Initial notes', defaultValue: 'Initial notes' };
-    const priorities = ['high', 'medium', 'low'].map(value => ({
-        value,
-        checked: value === 'medium',
-        defaultChecked: value === 'medium',
-    }));
-    const choices = priorities.map(input => ({
-        classList: createClassList(input.checked ? ['active'] : []),
-        querySelector: selector => selector === 'input[name="priority"]' ? input : null,
-    }));
-    const segment = { querySelectorAll: selector => selector === '.todo-priority-choice' ? choices : [] };
-    const form = {
-        hidden: false,
-        reset() {
-            title.value = title.defaultValue;
-            notes.value = notes.defaultValue;
-            priorities.forEach(input => { input.checked = input.defaultChecked; });
-        },
-        querySelector(selector) {
-            if (selector === '[name="title"]') return title;
-            if (selector === '[name="notes"]') return notes;
-            if (selector === '.todo-priority-segment') return segment;
-            return null;
-        },
-    };
-    const list = {
-        classList: createClassList(['has-editing-item']),
-        style: { setProperty: () => undefined },
-        querySelector: () => null,
-        querySelectorAll: () => [],
-        closest: () => null,
-    };
-    const expandButton = createElement();
-    const item = {
-        classList: createClassList(['editing', 'expanded']),
-        attributes: new Map([['data-expanded-before-edit', 'false']]),
-        offsetHeight: 58,
-        getAttribute(name) {
-            if (name === 'data-todo-id') return 'todo-a';
-            return this.attributes.has(name) ? this.attributes.get(name) : null;
-        },
-        setAttribute(name, value) { this.attributes.set(name, String(value)); },
-        removeAttribute(name) { this.attributes.delete(name); },
-        querySelector(selector) {
-            if (selector === '.todo-item-view') return { hidden: false };
-            if (selector === '.todo-edit-form') return form;
-            if (selector === '[data-action="todo-toggle-expanded"]') return expandButton;
-            if (selector === '.todo-title-text') return { textContent: 'Initial title' };
-            return null;
-        },
-        closest: selector => selector === '.todo-list' ? list : null,
-        scrollIntoView: () => undefined,
-    };
-    return { title, notes, priorities, choices, form, list, item };
-}
-
-test('TODO-TODO-EDIT-RESET-INTERACTION-001 cancel restores rendered edit values and expansion state', () => {
-    const edit = createTodoEditHarness();
-    const harness = createProjectVm({
-        querySelectorAll: selector => selector === '.todo-item[data-todo-id]' ? [edit.item] : [],
-    });
-    edit.title.value = 'Draft';
-    edit.notes.value = 'Draft notes';
-    edit.priorities[1].checked = false;
-    edit.priorities[2].checked = true;
-    const cancelAction = {
-        getAttribute: name => name === 'data-todo-id' ? 'todo-a' : null,
-    };
-    const target = {
-        closest: selector => selector === '[data-action="todo-cancel-edit"]' ? cancelAction : null,
-    };
-
-    harness.documentListeners.click({ button: 0, target });
-    assert.equal(edit.title.value, 'Initial title');
-    assert.equal(edit.notes.value, 'Initial notes');
-    assert.deepEqual(edit.priorities.map(input => input.checked), [false, true, false]);
-    assert.deepEqual(edit.choices.map(choice => choice.classList.contains('active')), [false, true, false]);
-    assert.equal(edit.item.classList.contains('editing'), false);
-    assert.equal(edit.item.classList.contains('expanded'), false);
-    assert.equal(edit.item.getAttribute('data-expanded-before-edit'), null);
-});
-
-function createComposeForm() {
-    const attributes = new Map();
-    const controls = {
-        title: { value: 'Draft todo' },
-        notes: { value: 'Draft notes' },
-        priority: { value: 'high', checked: true },
-        groupId: { value: 'group-a' },
-    };
-    const submitAttributes = new Map();
-    const submitButton = {
-        disabled: false,
-        getAttribute: name => submitAttributes.has(name) ? submitAttributes.get(name) : null,
-        setAttribute: (name, value) => submitAttributes.set(name, String(value)),
-        removeAttribute: name => submitAttributes.delete(name),
-    };
-    return {
-        controls,
-        submitButton,
-        reset() {
-            controls.title.value = '';
-            controls.notes.value = '';
-        },
-        getAttribute: name => attributes.has(name) ? attributes.get(name) : null,
-        setAttribute: (name, value) => attributes.set(name, String(value)),
-        removeAttribute: name => attributes.delete(name),
-        querySelector(selector) {
-            if (selector === '[type="submit"]') return submitButton;
-            const checked = selector.match(/^\[name="([^"]+)"\]:checked$/);
-            if (checked) return controls[checked[1]] && controls[checked[1]].checked ? controls[checked[1]] : null;
-            const named = selector.match(/^\[name="([^"]+)"\]$/);
-            return named ? controls[named[1]] || null : null;
-        },
-    };
-}
-
-test('TODO-TODO-COMPOSE-PENDING-INTERACTION-001 locks rapid submits and settles failure acknowledgements', () => {
-    const form = createComposeForm();
-    const harness = createProjectVm({
-        querySelector: selector => selector === '.todo-add-form[data-todo-request-id="1"]' ? form : null,
-    });
-    const event = {
-        preventDefault: () => undefined,
-        target: { closest: selector => selector === '.todo-add-form' ? form : null },
-    };
-    harness.documentListeners.submit(event);
-    harness.documentListeners.submit(event);
-
-    assert.deepEqual(toPlain(harness.messages), [{
-        type: 'todo-add', requestId: 1, title: 'Draft todo', notes: 'Draft notes',
-        priority: 'high', groupId: 'group-a',
-    }]);
-    assert.equal(form.submitButton.disabled, true);
-    assert.equal(form.submitButton.getAttribute('aria-busy'), 'true');
-
-    harness.windowListeners.message({ data: {
-        type: 'todo-mutation-result', version: 1, requestId: 1, success: false,
-    } });
-    assert.equal(form.submitButton.disabled, false);
-    assert.equal(form.submitButton.getAttribute('aria-busy'), null);
-    assert.equal(form.controls.title.value, 'Draft todo');
-});
-
-test('TODO-TODO-COMPOSE-PENDING-INTERACTION-001 clears committed input when only panel refresh fails', () => {
-    const form = createComposeForm();
-    const harness = createProjectVm({
-        querySelector: selector => selector === '.todo-add-form[data-todo-request-id="1"]' ? form : null,
-    });
-    harness.documentListeners.submit({
-        preventDefault: () => undefined,
-        target: { closest: selector => selector === '.todo-add-form' ? form : null },
-    });
-    harness.windowListeners.message({ data: {
-        type: 'todo-mutation-result', version: 1, requestId: 1, success: true, panelRefreshed: false,
-    } });
-    assert.equal(form.submitButton.disabled, false);
-    assert.equal(form.controls.title.value, '');
-    assert.equal(form.controls.notes.value, '');
-});
-
-function createDndHarness({ projectContainers = [], todoGroups = [], todoLists = [], groupElements = [] } = {}) {
+function createDndHarness({ projectContainers = [], groupElements = [] } = {}) {
     const drakes = [];
     const messages = [];
     const windowListeners = {};
@@ -3289,11 +2512,6 @@ function createDndHarness({ projectContainers = [], todoGroups = [], todoLists =
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
             removeEventListener: () => undefined,
             vscode: { postMessage: message => messages.push(message) },
-            __agentPivotTodo: {
-                dispatch(action, payload) {
-                    messages.push({ action, payload });
-                },
-            },
         },
         dragula(containers, options) {
             const handlers = {};
@@ -3317,9 +2535,6 @@ function createDndHarness({ projectContainers = [], todoGroups = [], todoLists =
         querySelectorAll(selector) {
             if (selector === '.group-list') return projectContainers;
             if (selector === '.groups-wrapper') return [{}];
-            if (selector === '.todo-groups') return todoGroups;
-            if (selector === '.todo-list') return todoLists;
-            if (selector === '.todo-groups > .todo-group[data-todo-group-id]') return groupElements;
             if (selector === '.groups-wrapper > [data-group-id]:not([data-virtual-group])') return groupElements;
             return [];
         },
@@ -3359,59 +2574,6 @@ test('WEBVIEW-FAVORITE-DND-001 limits favorite drag to the same virtual containe
     assert.deepEqual(toPlain(harness.messages), [{
         type: 'reordered-favorites', projectIds: ['favorite-b', 'favorite-a'],
     }]);
-});
-
-test('TODO-TODO-ORDERING-INTERACTION-001 constrains TODO drag state and posts exact DOM order', () => {
-    const todoGroupsContainer = { matches: selector => selector === '.todo-groups' };
-    const todoList = {
-        matches: selector => selector === '.todo-list',
-        closest: selector => selector === '.todo-group[data-todo-group-id]'
-            ? { getAttribute: () => 'group-a' }
-            : null,
-        querySelectorAll: () => [
-            { getAttribute: () => 'todo-b' },
-            { getAttribute: () => 'todo-a' },
-        ],
-    };
-    const groupElements = ['group-b', 'group-a'].map(id => ({
-        getAttribute: () => id,
-    }));
-    const harness = createDndHarness({
-        todoGroups: [todoGroupsContainer],
-        todoLists: [todoList],
-        groupElements,
-    });
-
-    const todoGroupElement = { matches: selector => selector === '.todo-group' };
-    const todoItemElement = { matches: selector => selector === '.todo-item' };
-    const groupHandle = { closest: selector => selector === '[data-drag-todo-group]' ? {} : null };
-    const itemHandle = {
-        closest: selector => selector === '[data-drag-todo-item]' ? {} : null,
-    };
-    const ordinaryItemTarget = { closest: () => null };
-    assert.equal(harness.context.canMoveTodoGroup(todoGroupElement, todoGroupsContainer, groupHandle), true);
-    assert.equal(harness.context.canAcceptTodoGroup(todoGroupsContainer, todoGroupsContainer), true);
-    assert.equal(harness.context.canMoveTodoItem(todoItemElement, todoList, itemHandle), true);
-    assert.equal(harness.context.canMoveTodoItem(todoItemElement, todoList, ordinaryItemTarget), false);
-    assert.equal(harness.context.canAcceptTodoItem(todoList, todoList), true);
-    assert.equal(harness.context.canAcceptTodoItem({ matches: () => true }, todoList), false);
-    assert.deepEqual(
-        toPlain(harness.context.getTodoGroupIds({ querySelectorAll: () => groupElements })),
-        ['group-b', 'group-a']
-    );
-
-    harness.context.initDnD(harness.rootElement);
-    assert.equal(harness.drakes.length, 4);
-    harness.drakes[2].handlers.drop();
-    harness.drakes[3].handlers.drop({}, todoList, todoList);
-    assert.deepEqual(toPlain(harness.messages), [
-        { action: 'reorder-groups', payload: { groupIds: ['group-b', 'group-a'] } },
-        { action: 'reorder-items', payload: { groupId: 'group-a', todoIds: ['todo-b', 'todo-a'] } },
-    ]);
-
-    harness.context.disposeDnD(harness.rootElement);
-    assert.equal(harness.rootElement.__agentPivotDnDInitialized, undefined);
-    assert.equal(harness.rootElement.__agentPivotDnD, undefined);
 });
 
 test('WORKTREE-GROUPS-UI-001 the anchor menu carries the main-checkout key only when unambiguous', () => {

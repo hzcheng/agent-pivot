@@ -6,7 +6,6 @@ import type {
     AiSessionsUpdatedMessage,
 } from '../aiSessions/types';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
-import type { TodoSearchCatalogItem } from '../todos/types';
 import {
     buildWorkspaceDashboardSearchCatalog,
     DashboardWorkspaceSearchCatalog,
@@ -85,7 +84,6 @@ export interface BuildOpenWorkspacesUpdatedMessageInput {
     semanticRevision: string;
     projectionRevision: number;
     otherWindowsStatus: OpenWorkspaceBridgeStatus;
-    todoSearchItems: TodoSearchCatalogItem[];
     skills?: import('../skills/types').SkillRecord[];
     runningCardAnimation?: string;
     runningIconAnimation?: string;
@@ -99,7 +97,6 @@ export interface BuildAiSessionsUpdatedMessageInput {
     cards: WorkspaceCardViewModel[];
     sequence: number;
     generatedAt: string;
-    todoSearchItems: TodoSearchCatalogItem[];
     skills?: import('../skills/types').SkillRecord[];
     runningCardAnimation?: string;
     runningIconAnimation?: string;
@@ -126,7 +123,6 @@ export function buildOpenWorkspacesUpdatedMessage(
         searchCatalog: buildWorkspaceDashboardSearchCatalog(
             input.groups,
             input.cards,
-            input.todoSearchItems,
             input.skills,
         ),
         html: getOpenWorkspacesGroupContent(
@@ -162,7 +158,6 @@ export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessa
         searchCatalog: buildWorkspaceDashboardSearchCatalog(
             input.groups,
             input.cards,
-            input.todoSearchItems,
             input.skills,
         ),
         presentation: input.presentation,

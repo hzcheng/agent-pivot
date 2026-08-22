@@ -14,7 +14,6 @@ import type {
     BuildOpenWorkspacesUpdatedMessageInput,
     OpenWorkspacesUpdatedMessage,
 } from '../dashboard/webviewUpdateMessages';
-import type { TodoSearchCatalogItem } from '../todos/types';
 import type { OpenWorkspace } from '../workspaces/types';
 import type {
     AiSessionPresentationTransaction,
@@ -62,7 +61,6 @@ export interface OpenWorkspaceDashboardControllerOptions<TTerminal = unknown> {
     getAiSessionProjectionRevision?: () => number;
     beginAiSessionProjection: () => AiSessionPresentationTransaction<TTerminal>;
     getGroups: () => Group[];
-    getTodoSearchItems: () => TodoSearchCatalogItem[];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
@@ -286,7 +284,6 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             semanticRevision,
             projectionRevision: projection.revision,
             otherWindowsStatus: this.bridgeStatus,
-            todoSearchItems: this.options.getTodoSearchItems(),
             skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],
             runningCardAnimation,
             runningIconAnimation,
@@ -471,7 +468,6 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             this.options.getRunningCardAnimation(),
             this.options.getRunningIconAnimation(),
             this.options.getGroups(),
-            this.options.getTodoSearchItems(),
         ])).digest('hex');
     }
 

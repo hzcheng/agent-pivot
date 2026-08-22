@@ -40,14 +40,6 @@ const projectCollapseScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
     'utf8'
 );
-const todoGroupScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
-    'utf8'
-);
-const todoControlScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoControlScripts.js'),
-    'utf8'
-);
 const projectContextMenuScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectContextMenuScripts.js'),
     'utf8'
@@ -743,9 +735,7 @@ test('WORKTREE-GROUPS-UI-001 set-primary settlements drive the button pending st
     await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: workspaceUpdateScript });
-    await page.addScriptTag({ content: todoGroupScript });
     await page.addScriptTag({ content: projectCollapseScript });
-    await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: groupFormScript });
@@ -947,7 +937,7 @@ test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list a
             html: replacementHtml,
             searchCatalog: {
                 version: 3, sessions: [], worktrees: [],
-                openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
+                openWorkspaces: [{ identity: 'project-a' }], savedProjects: [],
             },
         }),
         switcherGroup + currentGroup
@@ -990,9 +980,7 @@ async function openGroupActionsPage(t, sessionHtml, replacementHtml) {
     await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: workspaceUpdateScript });
-    await page.addScriptTag({ content: todoGroupScript });
     await page.addScriptTag({ content: projectCollapseScript });
-    await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: groupFormScript });

@@ -407,10 +407,8 @@ const productionScriptNames = [
     'webviewScrollStateScripts.js',
     'webviewAiSessionViewStateScripts.js',
     'webviewWorkspaceUpdateScripts.js',
-    'webviewTodoGroupScripts.js',
     'webviewProjectCollapseScripts.js',
     'webviewOpenWindowNavigationScripts.js',
-    'webviewTodoControlScripts.js',
     'webviewProjectContextMenuScripts.js',
     'webviewProjectAiUpdateScripts.js',
     'webviewGroupFormScripts.js',
@@ -539,7 +537,6 @@ test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab routes row clicks and keep
             worktrees: [],
             openWorkspaces: [{ identity: 'alpha' }, { identity: 'beta' }],
             savedProjects: [],
-            todos: [],
         },
         presentation: {
             type: 'ai-session-presentation-state',
@@ -686,7 +683,6 @@ function makeSwitcherCatalog(cards) {
         worktrees: [],
         openWorkspaces: cards.map(card => ({ identity: card.navigationIdentity })),
         savedProjects: [],
-        todos: [],
     };
 }
 
@@ -739,7 +735,6 @@ test('OPEN-WINDOW-SWITCHER-UI-001 empty window accepts incremental ai-sessions u
         cards: [emptyCard, navigationCard],
         sequence: 42,
         generatedAt: '2026-08-22T00:00:00.000Z',
-        todoSearchItems: [],
         presentation: makeSwitcherPresentation(42),
     });
     assert.equal(message.currentWorkspaceCount, 0,

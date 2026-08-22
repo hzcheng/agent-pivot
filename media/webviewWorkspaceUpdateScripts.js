@@ -18,7 +18,7 @@ function isWorkspaceUpdateDomConsistent(message, root) {
 
 // The OPEN tab regions scroll independently, so an authoritative replacement
 // must carry each list's scroll position across the new nodes (same
-// anchor-based pattern as the todo/skills panes; the scroll-state helper is
+// anchor-based pattern as the skills pane; the scroll-state helper is
 // optional and falls back to a clamped scrollTop).
 function captureOpenTabListScroll(list, itemSelector, keyAttribute) {
     if (!list) {

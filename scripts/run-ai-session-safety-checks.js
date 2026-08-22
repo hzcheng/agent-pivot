@@ -122,18 +122,6 @@ const AgentPivotViewProvider = require('../out/dashboard/viewProvider').AgentPiv
 const dashboardErrorContent = require('../out/dashboard/errorContent');
 Module._load = originalModuleLoad;
 
-const TODO_SEARCH_ITEMS = [{
-    key: 'todo:ai-safety',
-    todoId: 'ai-safety',
-    groupId: 'release',
-    title: 'Preserve AI catalog',
-    groupTitle: 'Release',
-    priority: 'medium',
-    completed: true,
-    notesSearchText: 'non-empty AI safety fixture',
-    searchText: 'preserve ai catalog release medium non-empty ai safety fixture',
-}];
-
 function createTestAiSessionDirectoryScope(primaryCwd, additionalDirectories = []) {
     return Object.freeze({
         workspaceNavigationIdentity: `navigation:${primaryCwd}`,
@@ -4948,9 +4936,7 @@ function runWebviewContentChecks() {
     const webviewProjectScripts = [
         'webviewAiSessionViewStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
-        'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
         'webviewProjectAiSessionControlsScripts.js',
@@ -6315,14 +6301,6 @@ function runBatchAiSessionWebviewChecks() {
     );
     const workspaceUpdateSource = fs.readFileSync(workspaceUpdateSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedWorkspaceUpdatePath, 'utf8'), workspaceUpdateSource);
-    const todoGroupSourcePath = path.join(
-        __dirname, '..', 'src', 'webview', 'webviewTodoGroupScripts.js'
-    );
-    const generatedTodoGroupPath = path.join(
-        __dirname, '..', 'media', 'webviewTodoGroupScripts.js'
-    );
-    const todoGroupSource = fs.readFileSync(todoGroupSourcePath, 'utf8');
-    assert.strictEqual(fs.readFileSync(generatedTodoGroupPath, 'utf8'), todoGroupSource);
     const projectCollapseSourcePath = path.join(
         __dirname, '..', 'src', 'webview', 'webviewProjectCollapseScripts.js'
     );
@@ -6331,14 +6309,6 @@ function runBatchAiSessionWebviewChecks() {
     );
     const projectCollapseSource = fs.readFileSync(projectCollapseSourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedProjectCollapsePath, 'utf8'), projectCollapseSource);
-    const todoControlSourcePath = path.join(
-        __dirname, '..', 'src', 'webview', 'webviewTodoControlScripts.js'
-    );
-    const generatedTodoControlPath = path.join(
-        __dirname, '..', 'media', 'webviewTodoControlScripts.js'
-    );
-    const todoControlSource = fs.readFileSync(todoControlSourcePath, 'utf8');
-    assert.strictEqual(fs.readFileSync(generatedTodoControlPath, 'utf8'), todoControlSource);
     const projectContextMenuSourcePath = path.join(
         __dirname, '..', 'src', 'webview', 'webviewProjectContextMenuScripts.js'
     );
@@ -6365,7 +6335,7 @@ function runBatchAiSessionWebviewChecks() {
     assert.strictEqual(fs.readFileSync(generatedAiSessionControlsPath, 'utf8'), aiSessionControlsSource);
     const projectSource = fs.readFileSync(sourcePath, 'utf8');
     assert.strictEqual(fs.readFileSync(generatedPath, 'utf8'), projectSource);
-    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${todoGroupSource}\n${projectCollapseSource}\n${todoControlSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
+    const source = `${viewStateSource}\n${workspaceUpdateSource}\n${projectCollapseSource}\n${projectContextMenuSource}\n${projectAiUpdateSource}\n${aiSessionControlsSource}\n${projectSource}`;
     const messages = [];
     const eventListeners = {};
     const windowEventListeners = {};
@@ -6715,11 +6685,10 @@ function runBatchAiSessionWebviewChecks() {
             && Array.isArray(value.sessions)
             && Array.isArray(value.worktrees)
             && Array.isArray(value.savedProjects)
-            && Array.isArray(value.todos)
             && value.version === 3
             && Array.isArray(value.openWorkspaces)
             ? value
-            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
         document: {
             body: {
                 classList: { toggle: () => {} },
@@ -7167,7 +7136,7 @@ function runBatchAiSessionWebviewChecks() {
         generatedAt: '2026-08-11T00:00:00.000Z',
         currentWorkspaceCount: 1,
         html: '<div class="open-current-workspace-group"></div>',
-        searchCatalog: { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: TODO_SEARCH_ITEMS },
+        searchCatalog: { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
         presentation: {
             type: 'ai-session-presentation-state', version: 1, projectionRevision: 2,
             workspaceScopeIdentity: null, workspaceNavigationIdentity: null,
@@ -7182,11 +7151,6 @@ function runBatchAiSessionWebviewChecks() {
             }],
         },
     } });
-    assert.deepStrictEqual(
-        JSON.parse(JSON.stringify(replacedSearchCatalog.todos)),
-        TODO_SEARCH_ITEMS,
-        'AI incremental rendering must preserve the non-empty TODO catalog replacement'
-    );
     const manager = context.window.__agentPivotBatchAiSessions;
     manager.enter('project-a');
     manager.toggle('codex', 'plain');
@@ -7379,9 +7343,7 @@ function runAiSessionIncrementalRefreshSourceChecks() {
     const projectWebviewSource = [
         'webviewAiSessionViewStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
-        'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
         'webviewProjectAiSessionControlsScripts.js',
@@ -7989,7 +7951,6 @@ function runAiSessionDashboardControllerChecks() {
         invalidateCache: providerId => invalidated.push(providerId),
         watchSessionChanges: () => ({ dispose() {} }),
         getGroups: () => [],
-        getTodoSearchItems: () => TODO_SEARCH_ITEMS,
         getCards: () => [],
         getRunningCardAnimation: () => 'halo',
         getRunningIconAnimation: () => undefined,
@@ -8024,9 +7985,6 @@ function runAiSessionDashboardControllerChecks() {
     assert.deepStrictEqual(refreshReasons, ['new-session', 'new-session']);
     assert.strictEqual(messages.length, 2);
     assert.deepStrictEqual(messages.map(message => message.type), ['ai-sessions-updated', 'ai-sessions-updated']);
-    assert.ok(messages.every(message => message.searchCatalog.todos.length === 1
-        && message.searchCatalog.todos[0].todoId === 'ai-safety'),
-        'AI incremental updates must preserve the non-empty TODO catalog');
     assert.deepStrictEqual(diagnostics, [{
         event: 'ai-session-message-build',
         reason: 'new-session',
@@ -8055,7 +8013,6 @@ function runAiSessionDashboardWatcherCoalescingChecks() {
         invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }),
         getGroups: () => [],
-        getTodoSearchItems: () => TODO_SEARCH_ITEMS,
         getCards: () => [],
         getRunningCardAnimation: () => 'ripple',
         getRunningIconAnimation: () => undefined,
@@ -8158,7 +8115,6 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
         invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }),
         getGroups: () => [],
-        getTodoSearchItems: () => TODO_SEARCH_ITEMS,
         getCards: () => [workspace()],
         getRunningCardAnimation: () => runningCardAnimation,
         getRunningIconAnimation: () => runningIconAnimation,

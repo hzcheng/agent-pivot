@@ -151,9 +151,7 @@ async function openFormPage(t) {
         'webviewAiSessionViewStateScripts.js',
         'webviewScrollStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
-        'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
         'webviewGroupFormScripts.js',
@@ -590,9 +588,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 failed member rows offer Retry and Dismiss',
         'webviewAiSessionViewStateScripts.js',
         'webviewScrollStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
-        'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
         'webviewGroupFormScripts.js',
@@ -676,7 +672,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and caret through authori
         html: currentGroupHtml(),
         searchCatalog: {
             version: 3, sessions: [], worktrees: [], openWorkspaces: [],
-            savedProjects: [], todos: [],
+            savedProjects: [],
         },
         presentation: presentationMessage(1),
     });
@@ -707,7 +703,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and caret through authori
         html: openWindowSwitcherHtml() + currentGroupHtml(),
         searchCatalog: {
             version: 3, sessions: [], worktrees: [],
-            openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
+            openWorkspaces: [{ identity: 'project-a' }], savedProjects: [],
         },
         presentation: presentationMessage(2),
     });

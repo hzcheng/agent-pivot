@@ -14,7 +14,7 @@ test('RELEASE-MARKETPLACE-DISCOVERABILITY-001 description names every provider a
         assert.ok(description.includes(provider),
             `description must name the ${provider} provider`);
     }
-    for (const surface of ['project manager', 'prompt library', 'todo']) {
+    for (const surface of ['project manager', 'prompt library']) {
         assert.ok(description.toLowerCase().includes(surface),
             `description must cover the ${surface} surface`);
     }
@@ -30,7 +30,6 @@ test('RELEASE-MARKETPLACE-DISCOVERABILITY-001 keywords cover the provider and fe
         'kimi', 'kimi cli',
         'ai sessions', 'session manager',
         'project manager', 'projects',
-        'todo', 'todo list',
         'prompts', 'prompt library',
         'workspace', 'tmux', 'dashboard',
     ]) {

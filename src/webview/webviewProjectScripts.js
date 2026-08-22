@@ -284,9 +284,6 @@ function initProjects() {
 
 
     var groupCollapse = initProjectGroupCollapse();
-    var todoControls = initProjectTodoControls({
-        syncCollapseButton: () => groupCollapse.syncCollapseButton(),
-    });
     var aiSessionPresentationStateStore = null;
     var aiSessionControls = initProjectAiSessionControls({
         getAiSessionsUpdate: () => aiSessionsUpdate,
@@ -404,9 +401,6 @@ function initProjects() {
     function onMouseEvent(e) {
         if (!e.target || e.target.closest(".disabled"))
             return;
-        if (todoControls.isDedicatedTodoTarget(e.target))
-            return;
-
         var contextMenuElement = e.target.closest("#projectContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onProjectContextMenuActionClicked(contextMenuElement);
@@ -490,16 +484,6 @@ function initProjects() {
             return;
         }
 
-        if (todoControls.onTodoAction(e)) {
-            return;
-        }
-
-        var todoItem = e.target.closest('.todo-item[data-todo-id]');
-        if (todoItem && !todoItem.classList.contains('editing') && !todoControls.isTodoInteractiveTarget(e.target)) {
-            todoControls.toggleTodoItemExpanded(todoItem);
-            return;
-        }
-
         var projectDiv = e.target.closest('.project');
         if (projectDiv) {
             onInsideProjectClick(e, projectDiv);
@@ -516,7 +500,6 @@ function initProjects() {
 
         var groupDiv = e.target.closest('.group');
         if (groupDiv) {
-            todoControls.onInsideGroupClick(e, groupDiv);
             return;
         }
     }
@@ -524,15 +507,6 @@ function initProjects() {
     function onChangeEvent(e) {
         if (!e.target)
             return;
-        if (todoControls.isDedicatedTodoTarget(e.target))
-            return;
-
-        var todoPriorityInput = e.target.closest('.todo-priority-choice input[name="priority"]');
-        if (todoPriorityInput) {
-            todoControls.syncTodoPrioritySegment(todoPriorityInput.closest('.todo-priority-segment'));
-            return;
-        }
-
     }
 
     function updateStickyGroupHeaderOffset() {
@@ -555,10 +529,6 @@ function initProjects() {
             revealAiSessionInWorkspace(message);
             return;
         }
-        if (message && message.type === 'todo-mutation-result') {
-            applyTodoMutationResult(message, document);
-            return;
-        }
         if (message && message.type === 'ai-session-provider-selection-result') {
             aiSessionControls.applyAiSessionProviderSelectionResult(message);
             return;
@@ -566,16 +536,6 @@ function initProjects() {
         if (message && message.type === 'ai-session-attention-acknowledgement-result') {
             aiSessionControls.applyAiSessionAttentionAcknowledgementResult(message);
             return;
-        }
-        if (message && (message.type === 'todo-panel-content' || message.type === 'todo-panel-updated')) {
-            window.setTimeout(() => {
-                var todoRoot = document.querySelector('#dashboard-tab-todo');
-                if (todoRoot && typeof initDnD === 'function' && typeof disposeDnD === 'function') {
-                    disposeDnD(todoRoot);
-                    initDnD(todoRoot);
-                    groupCollapse.syncCollapseButton();
-                }
-            }, 0);
         }
         if (message && message.type === 'open-workspaces-updated') {
             if (message.version !== 4) {
@@ -756,8 +716,6 @@ function initProjects() {
     });
 
     document.addEventListener('change', onChangeEvent);
-    document.addEventListener('submit', e => todoControls.onTodoFormSubmit(e));
-
     document.addEventListener('mousedown', (e) => {
         if (e.target.closest('.codex-session-row')) {
             return;
@@ -1025,12 +983,6 @@ function initProjects() {
             return;
         }
         if (e.key === "Escape") {
-            var editForm = e.target && e.target.closest ? e.target.closest('.todo-edit-form') : null;
-            if (editForm) {
-                e.preventDefault();
-                todoControls.setTodoEditing(editForm.getAttribute('data-todo-id'), false);
-                return;
-            }
             contextMenus.closeContextMenus();
             if (aiSessionControls.batchAiSessionState.projectId && !aiSessionControls.batchAiSessionState.pending) {
                 aiSessionControls.exitAiSessionBatchManagement();

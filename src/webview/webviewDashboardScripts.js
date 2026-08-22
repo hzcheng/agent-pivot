@@ -1,7 +1,7 @@
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
-    var scrollPositions = { open: 0, projects: 0, todo: 0, ai: 0 };
+    var scrollPositions = { open: 0, projects: 0, ai: 0 };
     var activeTab = normalizeDashboardTab(sessionStorage.getItem(storageKey));
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
@@ -17,7 +17,6 @@ function initDashboard(options) {
     var panels = {
         open: document.getElementById('dashboard-tab-open'),
         projects: document.getElementById('dashboard-tab-projects'),
-        todo: document.getElementById('dashboard-tab-todo'),
         ai: document.getElementById('dashboard-panel-ai'),
     };
     var tablist = document.querySelector ? document.querySelector('[role="tablist"]') : null;
@@ -85,9 +84,7 @@ function initDashboard(options) {
         }
         return panel.querySelector(tab === 'projects'
             ? '.dashboard-projects-loading'
-            : tab === 'todo'
-                ? '.dashboard-todo-loading'
-                : '.dashboard-ai-loading');
+            : '.dashboard-ai-loading');
     }
 
     function showPanelLoading(tab) {
@@ -97,9 +94,7 @@ function initDashboard(options) {
         }
         loadingElement.textContent = tab === 'projects'
             ? 'Loading projects…'
-            : tab === 'todo'
-                ? 'Loading todos…'
-                : 'Loading AI configuration…';
+            : 'Loading AI configuration…';
         loadingElement.hidden = false;
     }
 
@@ -110,9 +105,7 @@ function initDashboard(options) {
         }
         loadingElement.textContent = (tab === 'projects'
             ? 'Projects'
-            : tab === 'todo'
-                ? 'TODO'
-                : 'AI configuration')
+            : 'AI configuration')
             + ' are temporarily unavailable. Select this tab to retry.';
         loadingElement.hidden = false;
     }
@@ -147,13 +140,6 @@ function initDashboard(options) {
                 pendingScrollRestoreTab = 'projects';
                 projectsPanel.ensureProjectsPanel();
             }
-        } else if (activeTab === 'todo') {
-            if (todoPanel.getTodoState() === 'mounted') {
-                restoreScroll('todo');
-            } else {
-                pendingScrollRestoreTab = 'todo';
-                todoPanel.ensureTodoPanel();
-            }
         } else if (activeTab === 'ai') {
             if (aiPanel.getAiState() === 'mounted') {
                 restoreScroll('ai');
@@ -180,9 +166,6 @@ function initDashboard(options) {
             if (activeTab === 'projects' && projectsPanel.getProjectsState() !== 'mounted') {
                 pendingScrollRestoreTab = 'projects';
                 projectsPanel.ensureProjectsPanel();
-            } else if (activeTab === 'todo' && todoPanel.getTodoState() !== 'mounted') {
-                pendingScrollRestoreTab = 'todo';
-                todoPanel.ensureTodoPanel();
             } else if (activeTab === 'ai' && aiPanel.getAiState() !== 'mounted') {
                 pendingScrollRestoreTab = 'ai';
                 aiPanel.ensureAiPanel();
@@ -309,23 +292,6 @@ function initDashboard(options) {
             });
             return;
         }
-        if (action === 'show-todo') {
-            todoPanel.setPendingTodoSearchTarget({
-                todoId: String(button.dataset.todoId || ''),
-                groupId: String(button.dataset.groupId || ''),
-                revealRequested: false,
-                focusScheduled: false,
-            });
-            if (typeof options.clearSearch === 'function') {
-                options.clearSearch();
-            } else {
-                setSearchQuery('');
-            }
-            activateTab('todo', false);
-            if (todoPanel.getTodoState() === 'mounted') {
-                todoPanel.revealPendingTodoSearchTarget();
-            }
-        }
     }
 
     var skillPanel = initSkillPanel({
@@ -333,21 +299,6 @@ function initDashboard(options) {
         aiPanel: panels.ai,
     });
     var projectsPanel = createDashboardProjectsPanel({
-        options: options,
-        panels: panels,
-        scheduleTimeout: scheduleTimeout,
-        cancelTimeout: cancelTimeout,
-        panelRequestTimeoutMs: panelRequestTimeoutMs,
-        showPanelLoading: showPanelLoading,
-        showPanelUnavailable: showPanelUnavailable,
-        restoreScroll: restoreScroll,
-        replaceSearchCatalog: replaceSearchCatalog,
-        getActiveTab: () => activeTab,
-        getSearchQuery: () => searchQuery,
-        getPendingScrollRestoreTab: () => pendingScrollRestoreTab,
-        setPendingScrollRestoreTab: value => { pendingScrollRestoreTab = value; },
-    });
-    var todoPanel = createDashboardTodoPanel({
         options: options,
         panels: panels,
         scheduleTimeout: scheduleTimeout,
@@ -436,12 +387,6 @@ function initDashboard(options) {
                 });
             }
         }
-        if (event && event.data && event.data.type === 'todo-panel-content') {
-            todoPanel.applyTodoPanelMessage(event.data);
-        }
-        if (event && event.data && event.data.type === 'todo-panel-updated') {
-            todoPanel.applyTodoPanelUpdatedMessage(event.data);
-        }
         if (event && event.data && event.data.type === 'ai-panel-content') {
             aiPanel.applyAiPanelMessage(event.data);
         }
@@ -504,9 +449,6 @@ function initDashboard(options) {
     } else if (activeTab === 'projects') {
         pendingScrollRestoreTab = 'projects';
         projectsPanel.ensureProjectsPanel();
-    } else if (activeTab === 'todo') {
-        pendingScrollRestoreTab = 'todo';
-        todoPanel.ensureTodoPanel();
     } else if (activeTab === 'ai') {
         pendingScrollRestoreTab = 'ai';
         aiPanel.ensureAiPanel();
@@ -518,16 +460,12 @@ function initDashboard(options) {
         activateTab,
         applyProjectsPanelMessage: projectsPanel.applyProjectsPanelMessage,
         applyProjectsPanelUpdatedMessage: projectsPanel.applyProjectsPanelUpdatedMessage,
-        applyTodoPanelMessage: todoPanel.applyTodoPanelMessage,
-        applyTodoPanelUpdatedMessage: todoPanel.applyTodoPanelUpdatedMessage,
         applyAiPanelMessage: aiPanel.applyAiPanelMessage,
         applyPromptPanelUpdatedMessage: aiPanel.applyPromptPanelUpdatedMessage,
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
-        ensureTodoPanel: todoPanel.ensureTodoPanel,
         ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,
         getProjectsState: projectsPanel.getProjectsState,
-        getTodoState: todoPanel.getTodoState,
         getAiState: aiPanel.getAiState,
         getScrollPosition: tab => scrollPositions[normalizeDashboardTab(tab)],
         isSearchActive: () => searchQuery.length > 0,

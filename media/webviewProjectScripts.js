@@ -401,6 +401,12 @@ function initProjects() {
     function onMouseEvent(e) {
         if (!e.target || e.target.closest(".disabled"))
             return;
+        var sessionMenuTrigger = e.target.closest('[data-action="open-ai-session-context-menu"]');
+        if (sessionMenuTrigger) {
+            contextMenus.openAiSessionContextMenu(sessionMenuTrigger);
+            return;
+        }
+
         var contextMenuElement = e.target.closest("#projectContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onProjectContextMenuActionClicked(contextMenuElement);

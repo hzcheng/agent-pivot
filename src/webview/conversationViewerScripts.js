@@ -195,14 +195,17 @@
     var sessionCommentsContent = document.querySelector(
         '[data-session-comments-content]'
     );
-    var commentsSectionSash = document.querySelector(
-        '[data-comments-section-sash]'
+    var sessionCommentsTab = document.querySelector(
+        '[data-comments-tab="session"]'
     );
-    var projectCommentsCount = document.querySelector(
-        '[data-project-comments-count]'
+    var workspaceCommentsTab = document.querySelector(
+        '[data-comments-tab="workspace"]'
     );
-    var sessionCommentsCount = document.querySelector(
-        '[data-session-comments-count]'
+    var sessionCommentsPane = document.querySelector(
+        '[data-comments-panel="session"]'
+    );
+    var workspaceCommentsPane = document.querySelector(
+        '[data-comments-panel="workspace"]'
     );
     var projectCommentComposer = document.querySelector(
         '[data-project-comment-composer]'
@@ -259,7 +262,7 @@
     var commentUiAvailable = sidebarUiAvailable
         && !!commentsRoot
         && !!sessionCommentsHeader && !!sessionCommentsContent
-        && !!commentsSectionSash && !!sessionCommentsCount
+        && !!sessionCommentsTab && !!sessionCommentsPane
         && !!commentsFilterBar
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
@@ -277,7 +280,7 @@
     var projectCommentUiAvailable = commentUiAvailable
         && !!projectCommentsRoot && !!projectCommentsHeader
         && !!projectCommentsContent && !!projectCommentComposer
-        && !!projectCommentsCount
+        && !!workspaceCommentsTab && !!workspaceCommentsPane
         && !!projectCommentSource
         && !!projectCommentSourceLabel && !!projectCommentSourceQuote
         && !!projectCommentInput && !!projectCommentDraftTags
@@ -532,11 +535,12 @@
         projectCommentsRoot: projectCommentsRoot,
         projectCommentsHeader: projectCommentsHeader,
         projectCommentsContent: projectCommentsContent,
-        projectCommentsCount: projectCommentsCount,
         sessionCommentsHeader: sessionCommentsHeader,
         sessionCommentsContent: sessionCommentsContent,
-        commentsSectionSash: commentsSectionSash,
-        sessionCommentsCount: sessionCommentsCount,
+        sessionCommentsTab: sessionCommentsTab,
+        workspaceCommentsTab: workspaceCommentsTab,
+        sessionCommentsPane: sessionCommentsPane,
+        workspaceCommentsPane: workspaceCommentsPane,
         projectCommentComposer: projectCommentComposer,
         projectCommentSource: projectCommentSource,
         projectCommentSourceLabel: projectCommentSourceLabel,
@@ -552,7 +556,6 @@
         messageSelector: conversationMessageSelector,
         messageId: conversationMessageId,
         setSidebarView: sidebarController.setView,
-        updateToggle: sidebarController.updateToggle,
     });
     var findController = window.__agentPivotConversation.find
         ? window.__agentPivotConversation.find.create({

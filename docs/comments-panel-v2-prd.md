@@ -2,7 +2,7 @@
 
 日期：2026-08-22
 
-状态：草案（讨论定稿 + 三路评审修订，待实现）
+状态：P1/P2 已实现（P3 窗口级作用域待实现）
 
 关联文档：`project-scoped-comments-prd.md`（本文 §7 的作用域决策取代其 §6.1/§7 的 projectId 键控方案）
 
@@ -11,6 +11,7 @@
 - 2026-08-22 初稿（四项决策讨论定稿）。
 - 2026-08-22 经三路评审（技术准确性 / 产品交互 / 测试与分期）修订：纠正「广播 re-scope」表述（当前无广播机制，窗口级后靠 restore-on-switch 天然同步）；迁 key 改为惰性检测；正向流改为对称 composer 流（现状 🔖 是开 composer 而非直存）；补 a11y 规约、合并超限策略、pill 口径漂移说明、契约清单勘误与 CI 守卫清单。
 - 2026-08-22 按设计实现文档（`comments-panel-v2-design.md`）评审回签：§6 pill 触发挂钩勘误（经核实 `projectStack.afterSettle` 已覆盖，无需补挂钩）；§7.3 迁 key 机制对齐设计（restore/enqueue 前惰性检测 + globalState alias 表领养 + empty-window 双向豁免）；§8 更名边界明确为「线协议字符串冻结」；§4.4 键盘改自动激活；§9.4/§10 P2 不拆脚本。
+- 2026-08-22 P1（pill 双计数 + 卡片截断）与 P2（Session/Workspace 子 tab）实现落地；P3 保持待实现。
 
 ## 1. 背景
 

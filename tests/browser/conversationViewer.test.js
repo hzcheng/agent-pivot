@@ -3885,6 +3885,51 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
 
     const previousViewerScript = viewerScript
         .replace(
+            '    var sessionCommentsTab = document.querySelector(\n'
+                + "        '[data-comments-tab=\"session\"]'\n"
+                + '    );\n'
+                + '    var workspaceCommentsTab = document.querySelector(\n'
+                + "        '[data-comments-tab=\"workspace\"]'\n"
+                + '    );\n'
+                + '    var sessionCommentsPane = document.querySelector(\n'
+                + "        '[data-comments-panel=\"session\"]'\n"
+                + '    );\n'
+                + '    var workspaceCommentsPane = document.querySelector(\n'
+                + "        '[data-comments-panel=\"workspace\"]'\n"
+                + '    );\n',
+            '    var commentsSectionSash = document.querySelector(\n'
+                + "        '[data-comments-section-sash]'\n"
+                + '    );\n'
+                + '    var projectCommentsCount = document.querySelector(\n'
+                + "        '[data-project-comments-count]'\n"
+                + '    );\n'
+                + '    var sessionCommentsCount = document.querySelector(\n'
+                + "        '[data-session-comments-count]'\n"
+                + '    );\n'
+        )
+        .replace(
+            '        && !!sessionCommentsTab && !!sessionCommentsPane\n',
+            '        && !!commentsSectionSash && !!sessionCommentsCount\n'
+        )
+        .replace(
+            '        && !!workspaceCommentsTab && !!workspaceCommentsPane\n',
+            '        && !!projectCommentsCount\n'
+        )
+        .replace(
+            '        sessionCommentsTab: sessionCommentsTab,\n'
+                + '        workspaceCommentsTab: workspaceCommentsTab,\n'
+                + '        sessionCommentsPane: sessionCommentsPane,\n'
+                + '        workspaceCommentsPane: workspaceCommentsPane,\n',
+            '        projectCommentsCount: projectCommentsCount,\n'
+                + '        commentsSectionSash: commentsSectionSash,\n'
+                + '        sessionCommentsCount: sessionCommentsCount,\n'
+        )
+        .replace(
+            '        setSidebarView: sidebarController.setView,\n',
+            '        setSidebarView: sidebarController.setView,\n'
+                + '        updateToggle: sidebarController.updateToggle,\n'
+        )
+        .replace(
                 '    var copyRequestSequence = 0;\n' +
                 '    var copyPending = new Map();\n' +
                 '    // One resync request per subscription generation: a rapid A→B→C\n' +
@@ -5098,7 +5143,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'ed11aa4ee20e9546b19599c6bdbfbe5f87e06e990e5c687711bc0cc39e6be413',
+        '86e2dfacd2ebf8138851bfeb34296fdd38e3d925bc8c224979b56611434b903c',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -5684,7 +5729,7 @@ function projectCommentSettlement(request, comments, overrides = {}) {
     };
 }
 
-test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project notes', async t => {
+test('CONVERSATION-COMMENTS-TABS-001 PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project notes', async t => {
     const interactionId = 'input-project-notes';
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
@@ -5693,6 +5738,7 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         interactionIds: [interactionId],
         interactionId,
         initialWebviewState: {
+            conversationCommentsActiveTab: 'workspace',
             conversationSidebar: {
                 open: true,
                 width: 280,
@@ -5711,13 +5757,22 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
     await page.locator('[data-telemetry-comments]').click();
     const projectSection = page.locator('[data-project-comments]');
     const projectHeader = page.locator('[data-project-comments-header]');
+    const sessionTab = page.locator('[data-comments-tab="session"]');
+    const workspaceTab = page.locator('[data-comments-tab="workspace"]');
+    const sessionPane = page.locator('[data-comments-panel="session"]');
+    const workspacePane = page.locator('[data-comments-panel="workspace"]');
     assert.equal(await projectSection.isVisible(), true);
+    assert.equal(await workspacePane.isVisible(), true);
+    assert.equal(await sessionPane.isVisible(), false);
     assert.equal(
-        await projectHeader.locator(
-            '.conversation-comments-section-title'
-        ).innerText(),
-        'WORKSPACE'
+        await workspaceTab.getAttribute('aria-selected'),
+        'true'
     );
+    assert.equal(await sessionTab.getAttribute('aria-selected'), 'false');
+    assert.equal(await workspaceTab.getAttribute('aria-controls'), 'conversation-comments-pane-workspace');
+    assert.equal(await workspacePane.getAttribute('aria-labelledby'), 'conversation-comments-tab-workspace');
+    assert.equal(await workspaceTab.getAttribute('tabindex'), '0');
+    assert.equal(await sessionTab.getAttribute('tabindex'), '-1');
     assert.equal(
         await page.locator('[data-session-comments-provider]').count(),
         0
@@ -5834,14 +5889,14 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         'note-2'
     );
 
-    // Group headers carry live open/total counts.
+    // Tab labels carry the same live open counts as the telemetry pill.
     assert.equal(
-        await page.locator('[data-project-comments-count]').innerText(),
-        '2/2'
+        await workspaceTab.locator('[data-comments-tab-count]').innerText(),
+        ' · 2'
     );
     assert.equal(
-        await page.locator('[data-session-comments-count]').innerText(),
-        '0/0'
+        await sessionTab.locator('[data-comments-tab-count]').innerText(),
+        ' · 0'
     );
 
     // Tag filtering narrows the list and toggles back off.
@@ -5994,107 +6049,32 @@ test('PROJECT-COMMENTS-UI-001 captures, tags, filters, and dispatches project no
         ],
         { revision: 6 }
     ));
-    const sash = page.locator('[data-comments-section-sash]');
-    const sessionRegion = page.locator('[data-session-comments-content]');
-    const sessionHeightBeforeCollapse = await sessionRegion.evaluate(
-        element => element.getBoundingClientRect().height
-    );
-    await projectHeader.locator('.conversation-comments-section-title')
-        .click();
+    // Tabs own the full panel height; switching is keyboard-accessible and
+    // persisted independently from either stack's filter.
+    await sessionTab.click();
+    assert.equal(await sessionPane.isVisible(), true);
+    assert.equal(await workspacePane.isVisible(), false);
     assert.equal(
-        await page.locator('[data-project-comments-content]')
-            .isVisible(),
-        false
-    );
-    assert.equal(await sash.isVisible(), false);
-    // With the Workspace group folded away, the Session region fills the
-    // whole panel instead of keeping its previous share.
-    const sessionHeightCollapsed = await sessionRegion.evaluate(
-        element => element.getBoundingClientRect().height
-    );
-    assert.ok(
-        sessionHeightCollapsed > sessionHeightBeforeCollapse + 100,
-        'the Session region must fill the panel when Workspace is collapsed'
+        await sessionTab.locator('[data-comments-tab-count]').innerText(),
+        ' · 0'
     );
     assert.equal(
-        await projectHeader.locator('[data-comments-section-toggle]')
-            .getAttribute('aria-expanded'),
-        'false'
+        await page.evaluate(() =>
+            window.__webviewState.conversationCommentsActiveTab
+        ),
+        'session'
     );
-    await projectHeader.locator('[data-comments-section-toggle]').click();
+    await sessionTab.press('ArrowRight');
+    assert.equal(await workspacePane.isVisible(), true);
     assert.equal(
-        await page.locator('[data-project-comments-content]')
-            .isVisible(),
-        true
+        await page.evaluate(() => document.activeElement),
+        await workspaceTab.evaluate(element => element)
     );
-    assert.equal(await sash.isVisible(), true);
-
-    const sessionHeader = page.locator('[data-session-comments-header]');
-    await sessionHeader.locator('.conversation-comments-section-title')
-        .click();
+    await workspaceTab.press('Home');
+    assert.equal(await sessionPane.isVisible(), true);
     assert.equal(
-        await page.locator('[data-session-comments-content]').isVisible(),
-        false
-    );
-    await sessionHeader.locator('[data-comments-section-toggle]').click();
-    assert.equal(
-        await page.locator('[data-session-comments-content]').isVisible(),
-        true
-    );
-
-    // The section + button must not toggle the group, and pressing it
-    // while the group is collapsed must unfold it first.
-    await projectHeader.locator('.conversation-comments-section-title')
-        .click();
-    assert.equal(
-        await page.locator('[data-project-comments-content]')
-            .isVisible(),
-        false
-    );
-    await projectHeader.locator(
-        '[data-project-comment-action="open-composer"]'
-    ).click();
-    assert.equal(
-        await page.locator('[data-project-comments-content]')
-            .isVisible(),
-        true
-    );
-    assert.equal(
-        await projectSection.locator('[data-project-comment-composer]')
-            .isVisible(),
-        true
-    );
-
-    // The sash between the groups resizes the Session region on drag.
-    const heightBefore = await sessionRegion.evaluate(element =>
-        element.getBoundingClientRect().height
-    );
-    const sashBox = await sash.boundingBox();
-    const sashCenterX = sashBox.x + sashBox.width / 2;
-    const sashCenterY = sashBox.y + sashBox.height / 2;
-    await page.mouse.move(sashCenterX, sashCenterY);
-    await page.mouse.down();
-    await page.mouse.move(sashCenterX, sashCenterY - 80, { steps: 5 });
-    await page.mouse.up();
-    const heightAfter = await sessionRegion.evaluate(element =>
-        element.getBoundingClientRect().height
-    );
-    assert.ok(
-        heightAfter > heightBefore,
-        'dragging the sash up must grow the Session region'
-    );
-
-    // An explicit sash-dragged height must not pin the Session region when
-    // the Workspace group collapses: the region still fills the panel.
-    await projectHeader.locator('.conversation-comments-section-title')
-        .click();
-    const heightCollapsedAfterDrag = await sessionRegion.evaluate(
-        element => element.getBoundingClientRect().height
-    );
-    assert.ok(
-        heightCollapsedAfterDrag > heightAfter,
-        'a collapsed Workspace group lets the Session region fill the panel'
-            + ' even after a manual sash drag'
+        await page.evaluate(() => document.activeElement),
+        await sessionTab.evaluate(element => element)
     );
 });
 
@@ -6107,6 +6087,7 @@ test('PROJECT-COMMENTS-UI-001 keeps the workspace composer fully visible when th
         interactionIds: [interactionId],
         interactionId,
         initialWebviewState: {
+            conversationCommentsActiveTab: 'workspace',
             conversationSidebar: {
                 open: true,
                 width: 280,
@@ -6207,6 +6188,7 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
         interactionIds: [interactionId],
         interactionId,
         initialWebviewState: {
+            conversationCommentsActiveTab: 'workspace',
             conversationSidebar: {
                 open: true,
                 width: 280,
@@ -6279,8 +6261,9 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
         { revision: 2 }
     ));
     assert.equal(
-        await page.locator('[data-project-comments-count]').innerText(),
-        '0/1'
+        await page.locator('[data-comments-tab="workspace"]')
+            .locator('[data-comments-tab-count]').innerText(),
+        ' · 0'
     );
     assert.equal(
         await card.getAttribute('data-comment-status'),
@@ -7646,7 +7629,10 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
         await page.evaluate(() =>
             window.__webviewState.conversationCommentsPanelFilter
         ),
-        { type: 'status', value: 'done' }
+        {
+            session: { type: 'status', value: 'done' },
+            workspace: null,
+        }
     );
     await page.locator('[data-comment-filter="open"]').click();
     assert.equal(await page.locator('[data-comment-id]').count(), 2);
@@ -12056,12 +12042,63 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
 
 
 
-test('TMP repro add flow from closed sidebar', async t => {
+test('CONVERSATION-COMMENTS-TABS-001 preserves per-tab filters and returns after cross-tab composer cancellation', async t => {
+    const interactionId = 'input-comments-tabs';
+    const sessionComment = {
+        id: 'comment-done',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Already reviewed.',
+        status: 'done',
+        createdAt: 1000,
+    };
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
-        interactionIds: ['input-repro'],
-        interactionId: 'input-repro',
+        viewport: { width: 850, height: 700 },
+        initialWebviewState: {
+            conversationCommentsActiveTab: 'workspace',
+            conversationCommentsPanelFilter: {
+                type: 'status',
+                value: 'done',
+            },
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        markdown: 'Alpha beta gamma.',
+        interactionIds: [interactionId],
+        interactionId,
+        commentStore: {
+            load: async () => ({
+                revision: 1,
+                comments: [sessionComment],
+            }),
+            save: async () => {},
+        },
+        projectCommentStore: {
+            load: async () => ({
+                revision: 1,
+                comments: [{
+                    id: 'note-done',
+                    text: 'Workspace follow-up.',
+                    tags: [],
+                    status: 'done',
+                    createdAt: 1000,
+                    doneAt: 2000,
+                    dispatches: [],
+                }],
+            }),
+            save: async () => {},
+        },
         pageOverrides: {
             previousCursor: undefined,
             nextCursor: undefined,
@@ -12069,29 +12106,122 @@ test('TMP repro add flow from closed sidebar', async t => {
             isEnd: true,
         },
     });
-    const pageErrors = [];
-    page.on('pageerror', error => pageErrors.push(error.message));
-    await page.locator('[data-action="toggle-sidebar"]').click();
-    await page.locator('[data-telemetry-comments]').click();
-    await page.locator('[data-project-comments-header]')
-        .locator('[data-project-comment-action="open-composer"]').click();
-    console.log('TMP composer visible:',
-        await page.locator('[data-project-comment-composer]').isVisible());
-    await page.locator('[data-project-comment-input]').fill('测试笔记');
-    console.log('TMP add disabled:',
-        await page.locator('[data-project-comment-action="add"]')
-            .isDisabled());
-    await page.locator('[data-project-comment-action="add"]').click();
-    const requests = await postedMessages(page);
-    console.log('TMP last request:', JSON.stringify(requests.at(-1)));
-    console.log('TMP pageErrors:', JSON.stringify(pageErrors));
+
+    const sessionPane = page.locator('[data-comments-panel="session"]');
+    const workspacePane = page.locator(
+        '[data-comments-panel="workspace"]'
+    );
+
+    // The legacy single-filter value migrates to Session only. Workspace
+    // starts unfiltered even while Session has a persisted filter.
+    assert.equal(await workspacePane.isVisible(), true);
+    await page.setViewportSize({ width: 192, height: 700 });
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const panel = document.querySelector(
+                '[data-conversation-comments]'
+            );
+            const tabs = Array.from(document.querySelectorAll(
+                '[data-comments-tab]'
+            ));
+            const panelBounds = panel.getBoundingClientRect();
+            return {
+                panelVisible: panelBounds.left >= 0
+                    && panelBounds.right <= window.innerWidth,
+                tabLabelsUnclipped: tabs.every(tab =>
+                    tab.scrollWidth <= tab.clientWidth + 1
+                ),
+                tabsInsidePanel: tabs.every(tab => {
+                    const bounds = tab.getBoundingClientRect();
+                    return bounds.left >= panelBounds.left
+                        && bounds.right <= panelBounds.right;
+                }),
+            };
+        }),
+        {
+            panelVisible: true,
+            tabLabelsUnclipped: true,
+            tabsInsidePanel: true,
+        }
+    );
+    await page.setViewportSize({ width: 850, height: 700 });
+    assert.equal(
+        await page.locator('[data-comment-filter="all"]')
+            .getAttribute('aria-pressed'),
+        'true'
+    );
+    await page.locator('[data-comments-tab="session"]').click();
+    assert.equal(await sessionPane.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-comment-filter="done"]')
+            .getAttribute('aria-pressed'),
+        'true'
+    );
+    assert.deepEqual(
+        await page.evaluate(() =>
+            window.__webviewState.conversationCommentsPanelFilter
+        ),
+        {
+            session: { type: 'status', value: 'done' },
+            workspace: null,
+        }
+    );
+
+    async function selectBeta() {
+        await page.locator('.conversation-markdown').evaluate(element => {
+            const node = element.querySelector('p').firstChild;
+            const start = node.nodeValue.indexOf('beta');
+            const range = document.createRange();
+            range.setStart(node, start);
+            range.setEnd(node, start + 'beta'.length);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            element.dispatchEvent(
+                new MouseEvent('mouseup', { bubbles: true })
+            );
+        });
+    }
+
+    // A Session composer opened from Workspace returns to Workspace when
+    // cancelled; confirmation would intentionally remain on Session.
+    await page.locator('[data-comments-tab="workspace"]').click();
+    await selectBeta();
+    await page.locator('[data-comment-selection-action="comment"]').click();
+    assert.equal(await sessionPane.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-comment-composer]').isVisible(),
+        true
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(await workspacePane.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-comment-composer]').isVisible(),
+        false
+    );
+
+    // The opposite direction has the same return-on-cancel contract.
+    await page.locator('[data-comments-tab="session"]').click();
+    await selectBeta();
+    await page.locator('[data-comment-selection-action="project"]').click();
+    assert.equal(await workspacePane.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-project-comment-composer]').isVisible(),
+        true
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(await sessionPane.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-project-comment-composer]').isVisible(),
+        false
+    );
 });
 
 
 
 
 
-test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 unifies status and tag chips across both card groups', async t => {
+test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 keeps status and tag chips scoped to the active tab', async t => {
     const sessionComment = {
         id: 'comment-1',
         scope: 'session',
@@ -12666,6 +12796,7 @@ test('CONVERSATION-COMMENTS-PILL-001 shows session · workspace open counts refr
 
     // Workspace mutations refresh the second count via the stack's
     // afterSettle hook — no extra wiring.
+    await page.locator('[data-comments-tab="workspace"]').click();
     await page.locator('[data-project-comment-action="open-composer"]')
         .click();
     await page.locator('[data-project-comment-input]')
@@ -12844,6 +12975,7 @@ test('CONVERSATION-COMMENTS-CLAMP-001 clamps long cards with an in-memory expand
     );
 
     // The Workspace stack clamps the same way.
+    await page.locator('[data-comments-tab="workspace"]').click();
     await page.locator('[data-project-comment-action="open-composer"]')
         .click();
     await page.locator('[data-project-comment-input]').fill('placeholder');

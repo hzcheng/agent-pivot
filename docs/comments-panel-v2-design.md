@@ -2,7 +2,7 @@
 
 日期：2026-08-22
 
-状态：草案（经三路评审修订 v2，待实现）
+状态：P1/P2 已实现（P3 窗口级作用域待实现）
 
 关联：`comments-panel-v2-prd.md`（需求与决策的唯一权威）；本文是其实现设计。
 
@@ -12,6 +12,7 @@
 
 - 2026-08-22 v1 初稿。
 - 2026-08-22 v2 按三路评审（技术准确性/符合性/可实施性）修订：①clamp 测量新增 ResizeObserver 重测机制（B1）；②迁 key 语义改 copy+delete（B2，快照内嵌 target 使 rename 不可读）；③迁移后强制刷新 controller 内存（B3）；④存量迁移惰性化并与迁 key 共用串行点（B4）；⑤D7 重写为内存 lastKey + globalState alias 表 + empty-window 双向豁免；⑥P2 删除清单/gate/pendingRoots/测试清单补全；⑦契约矩阵补全；⑧架构守卫（architecture-modules.json）与 scss 构建盲区入册；⑨行号/函数名勘误（E1-E3、S6、S7）。
+- 2026-08-22 P1/P2 实现完成；P3 仍按本文后续独立交付。
 
 ## 1. 范围
 
@@ -176,7 +177,7 @@ P3  ├─ host: workspaceComments.ts / workspaceCommentStore.ts / workspaceComm
 
 - `renderCommentsFilterBar(stack)` 参数化：统计/chips 只取对应栈（拆分 L2333-2370 的合并逻辑）；tag 词表消失重置 filter 的守卫按栈处理。
 - chip 点击（L2699-2717）：写对应栈 filter + 只重渲染该栈。
-- 持久化：`conversationCommentsPanelFilter` 形状改 `{ session: Filter|null, workspace: Filter|null }`；旧单值迁移为 `{ session: 旧值, workspace: null }`（读路径 L724-749 加迁移分支）。
+- 持久化：`conversationCommentsPanelFilter` 形状改 `{ session: Filter|null, workspace: Filter|null }`；旧单值在读路径迁移为 `{ session: 旧值, workspace: null }` 并立即写回，避免 legacy 形状在下一次加载复活。
 - **pendingRoots 重划（I3）**：现状 `sessionStack.pendingRoots` 含 `projectCommentsHeader`（L229-234，session pending 会禁用 workspace 区头）——tab 化后重划为本栈元素（sessionStack: [sessionPanel 内区头+内容]；projectStack: [workspacePanel 内区头+内容]），filterBar 单独判定：pending 栈 === activeTab 栈时才禁用。
 
 ### 6.5 装配、gate 与删除清单（I1/I2 补全）
@@ -186,6 +187,7 @@ P3  ├─ host: workspaceComments.ts / workspaceCommentStore.ts / workspaceComm
 - `updateSectionCount` 改造为 tab 标签更新后，注意 project 侧调用点 L2455-2462 一并改。
 - state 字段删 `projectSectionCollapsed`/`sessionSectionCollapsed`（L76-77）；旧 key `conversationCommentsSections`/`conversationCommentsSessionRegionHeight` 读取处删除，自然作废。
 - scss：tab 条样式、panel 全高布局、删 sash/分区高度样式（`npx gulp buildStyles` 重新生成 css）。
+- 相邻代际兜底：tab 化 Viewer 装配传入新元素；若旧一代 Viewer wrapper 尚未传这些 options，新 Comments 模块从当前 tab DOM 自取。Host 文档保留三个 hidden v1 selector 哨兵，仅用于避免旧 wrapper 的 v1 gate 静默关闭 Comments，不参与 v2 布局。
 
 ### 6.6 测试改写（I4 补全）
 

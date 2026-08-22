@@ -338,21 +338,45 @@ export function renderConversationViewerDocument(
                 class="conversation-comments" data-conversation-comments
                 role="region" aria-label="Comments"
                 hidden>
+                <!-- Hidden anchors keep an adjacent-generation Viewer script
+                     (which still gates on the v1 stacked-section DOM) from
+                     disabling the whole Comments module after this document
+                     switches to tabs. They carry no v2 layout or behavior. -->
+                <span hidden data-comments-section-sash></span>
+                <span hidden data-project-comments-count></span>
+                <span hidden data-session-comments-count></span>
+                <div class="conversation-comments-tabs" role="tablist"
+                    aria-label="Comments scope" data-comments-tabs>
+                    <button type="button" class="conversation-comments-tab"
+                        id="conversation-comments-tab-session"
+                        role="tab" data-comments-tab="session"
+                        aria-selected="true"
+                        aria-controls="conversation-comments-pane-session"
+                        title="Session comments"
+                        aria-label="Session comments">Session<span
+                            class="conversation-comments-tab-count"
+                            data-comments-tab-count="session"></span></button>
+                    <button type="button" class="conversation-comments-tab"
+                        id="conversation-comments-tab-workspace"
+                        role="tab" data-comments-tab="workspace"
+                        aria-selected="false" tabindex="-1"
+                        aria-controls="conversation-comments-pane-workspace"
+                        title="Workspace notes"
+                        aria-label="Workspace notes">Workspace<span
+                            class="conversation-comments-tab-count"
+                            data-comments-tab-count="workspace"></span></button>
+                </div>
                 <div class="conversation-comments-filter-bar"
                     data-comments-filter-bar role="group"
                     aria-label="Filter comments and notes" hidden></div>
                 <div class="conversation-comments-body" data-comments-body>
+                    <section class="conversation-comments-pane"
+                        id="conversation-comments-pane-workspace"
+                        role="tabpanel" data-comments-panel="workspace"
+                        aria-labelledby="conversation-comments-tab-workspace"
+                        hidden>
                     <div class="conversation-comments-section-header"
                         data-project-comments-header>
-                        <button class="conversation-comment-icon-button conversation-comments-section-toggle"
-                            type="button" data-comments-section-toggle
-                            title="Collapse section"
-                            aria-label="Collapse section"
-                            aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
-                        <span class="conversation-comments-section-title"
-                            role="heading" aria-level="2">Workspace</span>
-                        <span class="conversation-comments-section-count"
-                            data-project-comments-count></span>
                         <button class="conversation-comment-icon-button conversation-comments-section-add"
                             type="button"
                             data-project-comment-action="open-composer"
@@ -428,23 +452,13 @@ export function renderConversationViewerDocument(
                             No workspace notes yet.
                         </p>
                     </section>
-                    <div class="conversation-comments-section-sash"
-                        data-comments-section-sash role="separator"
-                        aria-orientation="horizontal"
-                        aria-label="Resize the Session section"
-                        aria-valuemin="15" aria-valuemax="70"
-                        aria-valuenow="45" tabindex="0"></div>
+                    </section>
+                    <section class="conversation-comments-pane"
+                        id="conversation-comments-pane-session"
+                        role="tabpanel" data-comments-panel="session"
+                        aria-labelledby="conversation-comments-tab-session">
                     <div class="conversation-comments-section-header conversation-comments-section-header-session"
                         data-session-comments-header>
-                        <button class="conversation-comment-icon-button conversation-comments-section-toggle"
-                            type="button" data-comments-section-toggle
-                            title="Collapse section"
-                            aria-label="Collapse section"
-                            aria-expanded="true">${CONVERSATION_COMMENT_ICON_CHEVRON}</button>
-                        <span class="conversation-comments-section-title"
-                            role="heading" aria-level="2">Session</span>
-                        <span class="conversation-comments-section-count"
-                            data-session-comments-count></span>
                         <button class="conversation-comment-icon-button conversation-comments-section-add"
                             type="button" data-comment-action="new"
                             title="Add a note about this Session"
@@ -491,6 +505,7 @@ export function renderConversationViewerDocument(
                         Select text to comment on it, or add a Session note.
                     </p>
                     </div>
+                    </section>
                 </div>
             </section>
             <section id="conversation-subagents-panel"

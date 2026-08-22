@@ -186,6 +186,7 @@
         var openScmButton = options.openScmButton;
         var updateToggle = options.updateToggle || function () {};
         var subscriptionGeneration = options.subscriptionGeneration;
+        var target = options.target;
         var tooltip = options.panelRoot
             ? createTooltipOverlay(options.panelRoot)
             : { hide: function () {} };
@@ -194,6 +195,20 @@
         var lastLiveText = '';
         var pendingMemberId = null;
         var highestChangesVersion = 0;
+
+        // Every action intent carries the authoritative target identity and
+        // the current generation: the host drops intents stranded by a
+        // session switch instead of acting on the newly active session.
+        function postAction(message) {
+            if (!target) {
+                return;
+            }
+            message.subscriptionGeneration = subscriptionGeneration;
+            message.projectId = target.projectId;
+            message.provider = target.provider;
+            message.sessionId = target.sessionId;
+            post(message);
+        }
 
         function exactKeys(value, required, optional) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -654,7 +669,7 @@
                 (index + delta + members.length) % members.length];
             if (target) {
                 pendingMemberId = target.memberId;
-                post({
+                postAction({
                     type: 'conversation-viewer-changes-select',
                     version: 1,
                     memberId: target.memberId,
@@ -819,7 +834,7 @@
                 : base;
             row.appendChild(name);
             row.addEventListener('click', function () {
-                post({
+                postAction({
                     type: 'conversation-viewer-changes-open-file',
                     version: 1,
                     memberId: memberId,
@@ -1353,7 +1368,7 @@
             if (memberSelect) {
                 memberSelect.addEventListener('change', function () {
                     pendingMemberId = memberSelect.value;
-                    post({
+                    postAction({
                         type: 'conversation-viewer-changes-select',
                         version: 1,
                         memberId: memberSelect.value,
@@ -1380,7 +1395,7 @@
                     var target = crossMemberTarget(latestState);
                     if (target) {
                         pendingMemberId = target.memberId;
-                        post({
+                        postAction({
                             type: 'conversation-viewer-changes-select',
                             version: 1,
                             memberId: target.memberId,
@@ -1390,7 +1405,7 @@
             }
             if (refreshButton) {
                 refreshButton.addEventListener('click', function () {
-                    post({
+                    postAction({
                         type: 'conversation-viewer-changes-refresh',
                         version: 1,
                     });
@@ -1399,7 +1414,7 @@
             if (reviewButton) {
                 reviewButton.addEventListener('click', function () {
                     if (latestState && latestState.selectedMemberId) {
-                        post({
+                        postAction({
                             type: 'conversation-viewer-changes-review',
                             version: 1,
                             memberId: latestState.selectedMemberId,
@@ -1497,7 +1512,7 @@
             if (openScmButton) {
                 openScmButton.addEventListener('click', function () {
                     if (latestState && latestState.selectedMemberId) {
-                        post({
+                        postAction({
                             type: 'conversation-viewer-changes-open-scm',
                             version: 1,
                             memberId: latestState.selectedMemberId,
@@ -1514,8 +1529,9 @@
             // Session switches advance the viewer's generation without a
             // document rebuild — adopt it and drop the old session's
             // state, or every later changes message is rejected as stale.
-            resetSession: function (generation) {
+            resetSession: function (generation, nextTarget) {
                 subscriptionGeneration = generation;
+                target = nextTarget || target;
                 latestState = null;
                 lastSelectSignature = '';
                 lastLiveText = '';
@@ -1541,7 +1557,7 @@
                 // session's state right after the switch page, but this
                 // controller only adopts the new generation when that page
                 // arrives — an early push would be dropped. Pull instead.
-                post({
+                postAction({
                     type: 'conversation-viewer-changes-refresh',
                     version: 1,
                 });

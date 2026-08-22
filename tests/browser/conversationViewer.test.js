@@ -3888,10 +3888,12 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
-        // Strips the changes-panel tooltip overlay wiring (PRD §17): the
-        // previous-generation script never passed a panelRoot.
+        // Strips the changes-panel tooltip overlay wiring (PRD §17) and the
+        // action-binding target: the previous-generation script passed
+        // neither a panelRoot nor a target to the changes controller.
         .replace(
                 '            post: post,\n' +
+                '            target: commentTarget,\n' +
                 '            panelRoot: changesRoot,\n' +
                 '            telemetryChanges: telemetryChanges,\n',
                 '            post: post,\n' +
@@ -3938,6 +3940,19 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             '        setSidebarView: sidebarController.setView,\n'
                 + '        updateToggle: sidebarController.updateToggle,\n'
         )
+        .replace(
+                '        && !!window.__agentPivotConversation.changes\n' +
+                '        && validCommentTarget(commentTarget);\n',
+                '        && !!window.__agentPivotConversation.changes;\n')
+        .replace(
+                '        if (changesController) {\n' +
+                '            changesController.resetSession(\n' +
+                '                message.subscriptionGeneration,\n' +
+                '                nextCommentTarget\n' +
+                '            );\n',
+                '        if (changesController) {\n' +
+                '            changesController.resetSession(' +
+                'message.subscriptionGeneration);\n')
         .replace(
                 '    var copyRequestSequence = 0;\n' +
                 '    var copyPending = new Map();\n' +
@@ -5152,7 +5167,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '749e6ca09e9bbdec01c2cefd2ca081a9b1107ca82c1f476dbba840351b5e76b0',
+        'd307adde02b9df614873571a3881c1ee96d605eb2b43c36b25ab2e4b684283de',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -12720,6 +12735,19 @@ function changesFixture(overrides = {}) {
     };
 }
 
+// Changes action intents are bound to the authoritative target identity and
+// subscription generation — the host drops intents stranded by a session
+// switch. The host document fixture always opens this identity.
+function changesActionBinding(overrides) {
+    return {
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        ...overrides,
+    };
+}
+
 async function sendChanges(page, changes, generationOverride) {
     const generation = generationOverride || await page.evaluate(() =>
         Number(document.body.getAttribute('data-subscription-generation')));
@@ -12843,24 +12871,29 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
         xy: ' M',
         path: 'src/auth/login.ts',
         originalPath: undefined,
+        ...changesActionBinding(),
     });
 
     // Review + refresh + SCM + member switch intents.
     await page.locator('[data-changes-review]').click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-review', version: 1, memberId: 'm-api',
+        ...changesActionBinding(),
     });
     await page.locator('[data-changes-refresh]').click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-refresh', version: 1,
+        ...changesActionBinding(),
     });
     await page.locator('[data-changes-open-scm]').click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-open-scm', version: 1, memberId: 'm-api',
+        ...changesActionBinding(),
     });
     await page.locator('[data-changes-member-select]').selectOption('m-web');
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select', version: 1, memberId: 'm-web',
+        ...changesActionBinding(),
     });
 });
 
@@ -13245,6 +13278,7 @@ test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends,
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select',
         version: 1,
+        ...changesActionBinding(),
         memberId: 'm-web',
     });
     await selectMember('m-web');
@@ -13265,6 +13299,7 @@ test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends,
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select',
         version: 1,
+        ...changesActionBinding(),
         memberId: 'm-infra',
     });
     await selectMember('m-infra');
@@ -13275,6 +13310,7 @@ test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends,
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select',
         version: 1,
+        ...changesActionBinding(),
         memberId: 'm-api',
     });
     await selectMember('m-api');
@@ -13286,6 +13322,7 @@ test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends,
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select',
         version: 1,
+        ...changesActionBinding(),
         memberId: 'm-infra',
     });
 
@@ -13432,6 +13469,7 @@ test('WORKTREE-CHANGES-PANEL-001 cross-member hint counts readable members and j
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select',
         version: 1,
+        ...changesActionBinding(),
         memberId: 'm-web',
     });
 
@@ -13453,6 +13491,7 @@ test('WORKTREE-CHANGES-PANEL-001 cross-member hint counts readable members and j
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-changes-select',
         version: 1,
+        ...changesActionBinding(),
         memberId: 'm-infra',
     });
 
@@ -14091,6 +14130,7 @@ test('WORKTREE-CHANGES-PANEL-001 implements the Files tree keyboard model', asyn
         xy: ' M',
         path: 'src/auth/login.ts',
         originalPath: undefined,
+        ...changesActionBinding(),
     });
     await page.keyboard.press('Space');
     assert.deepEqual((await postedIntents(page)).at(-1), {
@@ -14101,6 +14141,7 @@ test('WORKTREE-CHANGES-PANEL-001 implements the Files tree keyboard model', asyn
         xy: ' M',
         path: 'src/auth/login.ts',
         originalPath: undefined,
+        ...changesActionBinding(),
     });
 
     // Collapse All moves focus from a hidden child back to its group header;
@@ -14200,7 +14241,12 @@ test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset',
     assert.deepEqual((await postedIntents(page)).at(-1), {
         type: 'conversation-viewer-changes-refresh',
         version: 1,
-    }, 'resetSession pulls the new session\'s state');
+        ...changesActionBinding({
+            subscriptionGeneration: generation + 1,
+            projectId: 'project-1',
+            sessionId: 'session-next',
+        }),
+    }, 'resetSession pulls the new session\'s state with its own binding');
     assert.equal(
         await page.locator('[data-changes-collapse-all]').isDisabled(), true,
         'no state means nothing to fold');

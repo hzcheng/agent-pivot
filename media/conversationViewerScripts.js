@@ -309,7 +309,8 @@
         && !!changesUnavailable && !!changesOpenScm && !!changesCrossMember
         && !!changesCrossMemberSummary && !!changesCrossMemberGo
         && !!telemetryChanges
-        && !!window.__agentPivotConversation.changes;
+        && !!window.__agentPivotConversation.changes
+        && validCommentTarget(commentTarget);
     var bookmarkUiAvailable = sidebarUiAvailable
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
@@ -446,6 +447,7 @@
     var changesController = changesUiAvailable
         ? window.__agentPivotConversation.changes.create({
             post: post,
+            target: commentTarget,
             panelRoot: changesRoot,
             telemetryChanges: telemetryChanges,
             telemetryChangesValue: telemetryChangesValue,
@@ -1129,7 +1131,10 @@
             message.subscriptionGeneration
         );
         if (changesController) {
-            changesController.resetSession(message.subscriptionGeneration);
+            changesController.resetSession(
+                message.subscriptionGeneration,
+                nextCommentTarget
+            );
         }
         commentTarget = nextCommentTarget;
         restoreTarget = {

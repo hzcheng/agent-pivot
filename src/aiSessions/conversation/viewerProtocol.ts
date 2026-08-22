@@ -143,20 +143,33 @@ export interface ConversationViewerCopyMessage {
 const CHANGES_GROUPS = ['merge', 'staged', 'changes', 'untracked'] as const;
 export type ConversationChangesGroup = typeof CHANGES_GROUPS[number];
 
-export interface ConversationViewerChangesSelectMessage {
-    type: 'conversation-viewer-changes-select';
+/**
+ * Changes-panel action intents are bound to the authoritative target and
+ * subscription generation: an intent stranded by a session switch must not
+ * act on the newly active session when member IDs overlap.
+ */
+interface ConversationViewerChangesActionBase {
     version: 1;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
+export interface ConversationViewerChangesSelectMessage
+    extends ConversationViewerChangesActionBase {
+    type: 'conversation-viewer-changes-select';
     memberId: string;
 }
 
-export interface ConversationViewerChangesRefreshMessage {
+export interface ConversationViewerChangesRefreshMessage
+    extends ConversationViewerChangesActionBase {
     type: 'conversation-viewer-changes-refresh';
-    version: 1;
 }
 
-export interface ConversationViewerChangesOpenFileMessage {
+export interface ConversationViewerChangesOpenFileMessage
+    extends ConversationViewerChangesActionBase {
     type: 'conversation-viewer-changes-open-file';
-    version: 1;
     memberId: string;
     group: ConversationChangesGroup;
     /** Two-letter porcelain code (e.g. 'MM'); decides the diff sides. */
@@ -165,15 +178,15 @@ export interface ConversationViewerChangesOpenFileMessage {
     originalPath?: string;
 }
 
-export interface ConversationViewerChangesReviewMessage {
+export interface ConversationViewerChangesReviewMessage
+    extends ConversationViewerChangesActionBase {
     type: 'conversation-viewer-changes-review';
-    version: 1;
     memberId: string;
 }
 
-export interface ConversationViewerChangesOpenScmMessage {
+export interface ConversationViewerChangesOpenScmMessage
+    extends ConversationViewerChangesActionBase {
     type: 'conversation-viewer-changes-open-scm';
-    version: 1;
     memberId: string;
 }
 
@@ -352,8 +365,12 @@ export function parseConversationViewerMessage(
     if (value.type === 'conversation-viewer-changes-select'
         || value.type === 'conversation-viewer-changes-review'
         || value.type === 'conversation-viewer-changes-open-scm') {
-        if (!hasExactKeys(value, ['type', 'version', 'memberId'])
-            || !isChangesMemberId(value.memberId)) {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'memberId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId',
+        ])
+            || !isChangesMemberId(value.memberId)
+            || !isChangesActionBinding(value)) {
             return undefined;
         }
         return value as unknown as
@@ -362,21 +379,28 @@ export function parseConversationViewerMessage(
             | ConversationViewerChangesOpenScmMessage;
     }
     if (value.type === 'conversation-viewer-changes-refresh') {
-        if (keys.length !== 2) {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId',
+        ]) || !isChangesActionBinding(value)) {
             return undefined;
         }
         return value as unknown as ConversationViewerChangesRefreshMessage;
     }
     if (value.type === 'conversation-viewer-changes-open-file') {
         if (!hasExactKeys(value, [
-            'type', 'version', 'memberId', 'group', 'xy', 'path',
+            'type', 'version', 'memberId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'group', 'xy', 'path',
         ]) && !hasExactKeys(value, [
-            'type', 'version', 'memberId', 'group', 'xy', 'path', 'originalPath',
+            'type', 'version', 'memberId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'group', 'xy', 'path',
+            'originalPath',
         ])) {
             return undefined;
         }
         if (!isChangesMemberId(value.memberId)
             || !CHANGES_GROUPS.includes(value.group as ConversationChangesGroup)
+            || !isChangesActionBinding(value)
             || typeof value.xy !== 'string'
             || !/^[!A-Z? .]{2}$/u.test(value.xy)
             || !isChangesFilePath(value.path)
@@ -688,6 +712,18 @@ function isChangesMemberId(value: unknown): value is string {
         && value.length > 0
         && value.length <= 128
         && /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
+function isChangesActionBinding(value: {
+    subscriptionGeneration?: unknown;
+    projectId?: unknown;
+    provider?: unknown;
+    sessionId?: unknown;
+}): boolean {
+    return isPositiveSafeInteger(value.subscriptionGeneration)
+        && isConversationViewerTargetId(value.projectId)
+        && isAiSessionProvider(value.provider)
+        && isConversationViewerTargetId(value.sessionId);
 }
 
 function isChangesFilePath(value: unknown): value is string {

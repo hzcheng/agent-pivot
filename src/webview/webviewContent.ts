@@ -44,7 +44,6 @@ import { getOpenWindowMenu, getOpenWindowSwitcherGroupContent } from './webviewW
 import {
     getWorkspaceIcon,
     getWorkspaceIconTitle,
-    getWorkspaceRemoteType,
 } from './workspaceIconPresentation';
 
 const FAVORITES_GROUP_NAME = 'FAVORITES';
@@ -388,6 +387,17 @@ function getRunningSessionSurfaceFx(
     return sessionFx && sessionFx !== 'none'
         ? `<div class="project-session-fx open-session-surface-fx" data-session-fx="${sessionFx}"></div>`
         : '';
+}
+
+function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment']): ProjectRemoteType {
+    switch (environment) {
+        case 'ssh': return ProjectRemoteType.SSH;
+        case 'wsl': return ProjectRemoteType.WSL;
+        case 'devContainer': return ProjectRemoteType.DevContainer;
+        case 'remote': return ProjectRemoteType.Remote;
+        case 'local':
+        default: return ProjectRemoteType.None;
+    }
 }
 
 export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): string {

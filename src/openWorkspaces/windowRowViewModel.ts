@@ -8,7 +8,6 @@ import type { WorkspaceCardViewModel } from '../models';
 import { sanitizeProjectName } from '../models';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 import { resolveWindowDisplayNames } from './windowDisplayNames';
-import { getWorkspaceRemoteType } from '../webview/workspaceIconPresentation';
 import { ProjectRemoteType } from '../models';
 
 export interface OpenWindowRowViewModel {
@@ -27,6 +26,17 @@ export interface OpenWindowRowViewModel {
     /** False hides the pin affordances (e.g. the empty-window placeholder). */
     canPin: boolean;
     folderNames: string[];
+}
+
+function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment']): ProjectRemoteType {
+    switch (environment) {
+        case 'ssh': return ProjectRemoteType.SSH;
+        case 'wsl': return ProjectRemoteType.WSL;
+        case 'devContainer': return ProjectRemoteType.DevContainer;
+        case 'remote': return ProjectRemoteType.Remote;
+        case 'local':
+        default: return ProjectRemoteType.None;
+    }
 }
 
 /**

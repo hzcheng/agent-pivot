@@ -1,19 +1,7 @@
 'use strict';
 
 import { ProjectRemoteType } from '../models';
-import type { OpenWorkspaceEnvironment } from '../workspaces/types';
 import * as Icons from '../webviewIcons';
-
-export function getWorkspaceRemoteType(environment: OpenWorkspaceEnvironment): ProjectRemoteType {
-    switch (environment) {
-        case 'ssh': return ProjectRemoteType.SSH;
-        case 'wsl': return ProjectRemoteType.WSL;
-        case 'devContainer': return ProjectRemoteType.DevContainer;
-        case 'remote': return ProjectRemoteType.Remote;
-        case 'local':
-        default: return ProjectRemoteType.None;
-    }
-}
 
 export function getWorkspaceIcon(remoteType: ProjectRemoteType): string {
     switch (remoteType) {

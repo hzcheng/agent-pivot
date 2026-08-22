@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { syncWebviewDirectCopies } = require('./lib/webviewDirectCopies');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 const outputPath = path.join(repositoryRoot, 'media', 'webviewDashboardBundle.js');
@@ -47,6 +48,9 @@ function buildDashboardWebviewBundle() {
         ...sections,
     ].join('\n');
     fs.writeFileSync(outputPath, output);
+    // The manifest-declared direct copies are build outputs too: any test,
+    // packaging, or install path that needs media/*.js gets them here.
+    syncWebviewDirectCopies(repositoryRoot);
     return outputPath;
 }
 

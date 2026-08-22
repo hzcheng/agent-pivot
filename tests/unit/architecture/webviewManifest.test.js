@@ -16,15 +16,27 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..');
  * Synthetic webview fixture: two dashboard scripts and one conversation
  * script, with the builders mirroring the manifest order.
  */
-function makeFixture({ manifestBundles, scripts = {}, globals, builderOrder, viewerOrder, version = 2 }) {
+function makeFixture({ manifestBundles, scripts = {}, globals, builderOrder, viewerOrder, version = 3 }) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-webview-'));
     const write = (relative, content) => {
         fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
         fs.writeFileSync(path.join(root, relative), content);
     };
+    // Default every bundle script to a basename-faithful direct copy; a test
+    // that exercises the distribution rules passes explicit fields instead.
+    const bundles = manifestBundles.map(bundle => (
+        bundle.directCopies !== undefined || bundle.bundledOnly !== undefined
+            ? bundle
+            : {
+                ...bundle,
+                bundledOnly: [],
+                directCopies: Object.fromEntries((bundle.scripts || [])
+                    .map(script => [script, `media/${path.basename(script)}`])),
+            }
+    ));
     const manifest = {
         version,
-        bundles: manifestBundles,
+        bundles,
         globals: globals || [
             {
                 symbol: 'window.__agentPivotAlpha',
@@ -39,9 +51,12 @@ function makeFixture({ manifestBundles, scripts = {}, globals, builderOrder, vie
         manifest.permittedGlobals = ['window.__agentPivotAlpha'];
     }
     write('docs/testing/architecture-webview-manifest.json', JSON.stringify(manifest));
-    const builder = (builderOrder || ['src/webview/aScripts.js', 'src/webview/bScripts.js'])
+    const builderFiles = builderOrder || ['src/webview/aScripts.js', 'src/webview/bScripts.js'];
+    const builder = builderFiles
         .map(file => `    '${file}',`).join('\n');
     write('scripts/build-dashboard-webview-bundle.js', `const inputPaths = [\n${builder}\n];\n`);
+    // The dashboard output check greps the builder for the media path
+    // segments; the synthetic builder writes nothing, so no output declared.
     const viewer = (viewerOrder || ['src/webview/conversationCScripts.js'])
         .map(file => `options.mediaUri('${path.basename(file)}')`).join('\n');
     write('src/aiSessions/conversation/viewerDocument.ts', viewer + '\n');
@@ -331,5 +346,90 @@ test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: a v1 flat manifest is rejec
         version: 1,
     });
     assert.ok(runWebviewManifestCheck(root).errors
-        .some(error => error.includes('version must be 2')));
+        .some(error => error.includes('version must be 3')));
+});
+
+// ── P0-A: direct-copy distribution ────────────────────────────────────
+
+function distributedBundles(overrides = {}) {
+    return [
+        {
+            id: 'dashboard',
+            scripts: ['src/webview/aScripts.js', 'src/webview/bScripts.js'],
+            bundledOnly: [],
+            directCopies: {
+                'src/webview/aScripts.js': 'media/aScripts.js',
+                'src/webview/bScripts.js': 'media/bScripts.js',
+            },
+            ...overrides.dashboard,
+        },
+        {
+            id: 'conversation-viewer',
+            scripts: ['src/webview/conversationCScripts.js'],
+            bundledOnly: [],
+            directCopies: {
+                'src/webview/conversationCScripts.js': 'media/conversationCScripts.js',
+            },
+            ...overrides.conversation,
+        },
+    ];
+}
+
+test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: a bundle script without a directCopies entry fails closed', () => {
+    const bundles = distributedBundles();
+    delete bundles[0].directCopies['src/webview/bScripts.js'];
+    const root = makeFixture({ manifestBundles: bundles, scripts: baseScripts });
+    assert.ok(runWebviewManifestCheck(root).errors
+        .some(error => error.includes('bScripts.js')
+            && error.includes('declares no directCopies entry')));
+});
+
+test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: bundledOnly is a legal opt-out for bundle-only scripts', () => {
+    const bundles = distributedBundles();
+    bundles[0].bundledOnly = ['src/webview/bScripts.js'];
+    delete bundles[0].directCopies['src/webview/bScripts.js'];
+    const root = makeFixture({ manifestBundles: bundles, scripts: baseScripts });
+    assert.deepEqual(runWebviewManifestCheck(root).errors, []);
+});
+
+test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: an individually loaded bundle cannot opt out', () => {
+    const bundles = distributedBundles();
+    bundles[1].bundledOnly = ['src/webview/conversationCScripts.js'];
+    bundles[1].directCopies = {};
+    const root = makeFixture({ manifestBundles: bundles, scripts: baseScripts });
+    assert.ok(runWebviewManifestCheck(root).errors
+        .some(error => error.includes('individually loaded bundles')));
+});
+
+test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: directCopies outputs must be media mirrors', () => {
+    const wrongTarget = distributedBundles();
+    wrongTarget[0].directCopies['src/webview/bScripts.js'] = 'media/wrongName.js';
+    const wrongRoot = makeFixture({ manifestBundles: wrongTarget, scripts: baseScripts });
+    assert.ok(runWebviewManifestCheck(wrongRoot).errors
+        .some(error => error.includes('bScripts.js') && error.includes('must map to media/')));
+});
+
+test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: bundledOnly entries must be members without copies', () => {
+    const nonMember = distributedBundles();
+    nonMember[0].bundledOnly = ['src/webview/ghostScripts.js'];
+    const nonMemberRoot = makeFixture({ manifestBundles: nonMember, scripts: baseScripts });
+    assert.ok(runWebviewManifestCheck(nonMemberRoot).errors
+        .some(error => error.includes('ghostScripts.js')
+            && error.includes('not a bundle member')));
+
+    const both = distributedBundles();
+    both[0].bundledOnly = ['src/webview/bScripts.js'];
+    const bothRoot = makeFixture({ manifestBundles: both, scripts: baseScripts });
+    assert.ok(runWebviewManifestCheck(bothRoot).errors
+        .some(error => error.includes('bScripts.js')
+            && error.includes('both bundledOnly and direct-copied')));
+});
+
+test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: a dashboard output the builder never writes fails', () => {
+    const bundles = distributedBundles();
+    bundles[0].output = 'media/neverWrittenBundle.js';
+    const root = makeFixture({ manifestBundles: bundles, scripts: baseScripts });
+    assert.ok(runWebviewManifestCheck(root).errors
+        .some(error => error.includes('media/neverWrittenBundle.js')
+            && error.includes('is not written by')));
 });

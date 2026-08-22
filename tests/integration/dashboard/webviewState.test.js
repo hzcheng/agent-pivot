@@ -8,11 +8,17 @@ const test = require('node:test');
 const vm = require('node:vm');
 const { createFakeVscode } = require('../../helpers/fakeVscode');
 const {
+    syncWebviewDirectCopies,
+} = require('../../../scripts/lib/webviewDirectCopies');
+const {
     buildWorkspaceDashboardSearchCatalog,
 } = require('../../../out/webview/dashboardViewModel');
 const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOptions');
 
 const root = path.join(__dirname, '..', '..', '..');
+// The media/*.js copies are build outputs (P0-A); regenerate them so the
+// byte-identity assertions below never read a stale copy.
+syncWebviewDirectCopies(root);
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const skillPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewSkillPanelScripts.js'), 'utf8');

@@ -8,6 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
+const sharp = require('sharp');
 const {
     ConversationCommentFileStore,
 } = require('../../out/aiSessions/conversation/commentStore');
@@ -350,6 +351,75 @@ async function sendPage(page, payload) {
     await page.evaluate(message => window.dispatchEvent(
         new MessageEvent('message', { data: message })
     ), payload);
+}
+
+// Pixel assertions (Harness efficiency PRD, P0-B): `locator.screenshot()`
+// clips to the element's border box, but the state ring is a box-shadow drawn
+// OUTSIDE it — so the clip is expanded before sampling. Everything renders
+// under a fixed theme fixture, a fixed viewport, deviceScaleFactor 1, and
+// reduced motion (the attention ring is still painted, just not animating).
+const PIXEL_COLOR_TOLERANCE = 32;
+
+function hexToRgb(hex) {
+    const value = parseInt(hex.slice(1), 16);
+    return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+}
+
+function blendOver(hex, mix, backgroundHex) {
+    const foreground = hexToRgb(hex);
+    const background = hexToRgb(backgroundHex);
+    return foreground.map((channel, index) =>
+        Math.round(channel * mix + background[index] * (1 - mix)));
+}
+
+async function screenshotRegionPixels(page, locator, expandPx) {
+    const box = await locator.boundingBox();
+    assert.ok(box, 'the sampled region must be visible');
+    const clip = {
+        x: Math.max(0, box.x - expandPx),
+        y: Math.max(0, box.y - expandPx),
+        width: box.width + expandPx * 2,
+        height: box.height + expandPx * 2,
+    };
+    const png = await page.screenshot({ clip });
+    const { data, info } = await sharp(Buffer.from(png))
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+    return {
+        data,
+        width: info.width,
+        height: info.height,
+        channels: info.channels,
+        // The element's border box in clip coordinates: pixels outside it
+        // form the outer band where box-shadow rings live.
+        inner: {
+            left: box.x - clip.x,
+            top: box.y - clip.y,
+            right: box.x - clip.x + box.width,
+            bottom: box.y - clip.y + box.height,
+        },
+    };
+}
+
+function countColorHits(region, rgb, options = {}) {
+    const tolerance = options.tolerance || PIXEL_COLOR_TOLERANCE;
+    let hits = 0;
+    for (let index = 0, pixel = 0; index < region.data.length; index += region.channels, pixel += 1) {
+        if (options.outerBandOnly) {
+            const x = pixel % region.width;
+            const y = Math.floor(pixel / region.width);
+            if (x >= region.inner.left && x < region.inner.right
+                && y >= region.inner.top && y < region.inner.bottom) {
+                continue;
+            }
+        }
+        if (Math.abs(region.data[index] - rgb[0]) <= tolerance
+            && Math.abs(region.data[index + 1] - rgb[1]) <= tolerance
+            && Math.abs(region.data[index + 2] - rgb[2]) <= tolerance) {
+            hits += 1;
+        }
+    }
+    return hits;
 }
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-provider Session switch without replacing the Webview shell', async t => {
@@ -11630,6 +11700,160 @@ test('CONVERSATION-SESSION-STATUS-002 mirrors the viewed session kind on the tel
     );
     assert.equal(await provider.getAttribute('role'), null,
         'a missing kind removes the button role');
+});
+
+test('CONVERSATION-TELEMETRY-VISUAL-001 renders the provider-icon state ring and status-dot colors in actual pixels', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        readSessionStatus: () => ({
+            runningSessions: 1,
+            attentionSessions: 1,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 1,
+            idleSessionsLocal: 2,
+            currentSessionKind: 'attention',
+        }),
+    });
+    // Static sampling: the attention pulse is painted but never animates.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const provider = page.locator('[data-telemetry-provider]');
+
+    // Dark fixture palette: the attention ring is the solid error color; the
+    // running/idle rings are color-mix blends over the telemetry bar's
+    // editor-background (#1e1e1e here).
+    const theme = {
+        attention: hexToRgb('#f48771'),
+        running: blendOver('#73c991', 0.7, '#1e1e1e'),
+        idle: blendOver('#a0a0a0', 0.55, '#1e1e1e'),
+        statusRunning: hexToRgb('#73c991'),
+        statusAttention: hexToRgb('#f48771'),
+        statusIdle: hexToRgb('#a0a0a0'),
+    };
+    const correlation = await page.evaluate(() => ({
+        generation: Number(document.body.getAttribute(
+            'data-subscription-generation'
+        )),
+        requestId: Number(document.body.getAttribute(
+            'data-session-status-request-id'
+        )),
+    }));
+    const statusMessage = (requestId, currentSessionKind, counts) => ({
+        type: 'conversation-viewer-session-status',
+        version: 1,
+        requestId,
+        subscriptionGeneration: correlation.generation,
+        status: {
+            runningSessions: 1,
+            attentionSessions: 1,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 1,
+            idleSessionsLocal: 2,
+            ...(counts || {}),
+            ...(currentSessionKind ? { currentSessionKind } : {}),
+        },
+    });
+    const providerRingHits = async () => {
+        // The ring lives outside the border box: expand the clip and count
+        // only the outer band, so the logo's anti-aliased edges (mid-grey,
+        // close to the idle ring color) cannot pollute the sample.
+        const region = await screenshotRegionPixels(page, provider, 4);
+        return {
+            attention: countColorHits(
+                region, theme.attention, { outerBandOnly: true }),
+            running: countColorHits(
+                region, theme.running, { outerBandOnly: true }),
+            idle: countColorHits(
+                region, theme.idle, { outerBandOnly: true }),
+        };
+    };
+    const expectRing = (hits, kind) => {
+        for (const name of ['attention', 'running', 'idle']) {
+            if (name === kind) {
+                assert.ok(hits[name] > 30,
+                    `${kind} ring must paint its color, got ${hits[name]} hits`);
+            } else {
+                assert.ok(hits[name] <= 5,
+                    `${kind} ring must not show ${name} pixels, `
+                        + `got ${hits[name]}`);
+            }
+        }
+    };
+
+    expectRing(await providerRingHits(), 'attention');
+    // The ring transitions over 160ms; let it settle before sampling.
+    await sendPage(page, statusMessage(correlation.requestId, 'running'));
+    await page.waitForTimeout(250);
+    expectRing(await providerRingHits(), 'running');
+    await sendPage(page, statusMessage(correlation.requestId + 1, 'idle'));
+    await page.waitForTimeout(250);
+    expectRing(await providerRingHits(), 'idle');
+    await sendPage(page, statusMessage(correlation.requestId + 2));
+    await page.waitForTimeout(250);
+    expectRing(await providerRingHits(), undefined);
+
+    // The status dots render their counts in the pure per-kind theme color.
+    const statusDots = [
+        ['[data-session-status-running]', theme.statusRunning],
+        ['[data-session-status-attention]', theme.statusAttention],
+        ['[data-session-status-idle]', theme.statusIdle],
+    ];
+    for (const [selector, color] of statusDots) {
+        const region = await screenshotRegionPixels(
+            page, page.locator(selector), 2);
+        const hits = countColorHits(region, color);
+        assert.ok(hits > 10,
+            `${selector} must paint its theme color, got ${hits}`);
+    }
+
+    // Zeroed counts dim the dots (opacity .4 by design): the pure theme
+    // color disappears from the glyphs; only dark blends remain. Tighten the
+    // tolerance so residual anti-aliased pixels cannot pass.
+    await sendPage(page, statusMessage(correlation.requestId + 3, undefined, {
+        runningSessions: 0,
+        attentionSessions: 0,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
+    }));
+    // Let the 160ms opacity transition settle before sampling.
+    await page.waitForTimeout(250);
+    for (const [selector, color] of statusDots) {
+        const region = await screenshotRegionPixels(
+            page, page.locator(selector), 2);
+        const hits = countColorHits(region, color, { tolerance: 16 });
+        assert.ok(hits <= 5,
+            `${selector} must dim its theme color while disabled, got ${hits}`);
+    }
+});
+
+test('CONVERSATION-TELEMETRY-VISUAL-001 keeps non-truncatable header and telemetry segments whole at default and minimum widths', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    // Identity spans ellipsis by design (conversationViewer.scss) and are
+    // allowlisted; icon buttons and telemetry action chips must stay whole.
+    const mustFitSelectors = [
+        '.conversation-navigation .conversation-icon-button',
+        '[data-conversation-position]',
+        '[data-telemetry-comments]',
+        '[data-telemetry-subagents]',
+    ];
+    for (const width of [700, 240]) {
+        await page.setViewportSize({ width, height: 500 });
+        for (const selector of mustFitSelectors) {
+            const overflowing = await page.locator(selector).evaluateAll(
+                elements => elements
+                    .filter(element => element.offsetParent !== null)
+                    .filter(element =>
+                        element.scrollWidth > element.clientWidth + 1)
+                    .length
+            );
+            assert.equal(overflowing, 0,
+                `${selector} must not clip its content at ${width}px`);
+        }
+    }
 });
 
 test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message viewport bounded at wide and narrow widths', async t => {

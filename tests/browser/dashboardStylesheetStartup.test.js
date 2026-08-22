@@ -31,6 +31,10 @@ const dashboardStyles = fs.readFileSync(
     path.join(__dirname, '../../media/styles.css'),
     'utf8'
 );
+// The dashboard bundle is a build output (P0-A); rebuild it so standalone
+// runs never read a stale or missing artifact.
+require('../../scripts/build-dashboard-webview-bundle')
+    .buildDashboardWebviewBundle();
 const dashboardBundle = fs.readFileSync(
     path.join(__dirname, '../../media/webviewDashboardBundle.js'),
     'utf8'

@@ -4502,7 +4502,30 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + "                    kind: button.getAttribute('data-session-status-cycle'),\n"
                 + '                });\n'
                 + '            });\n'
-                + '        });\n',
+                + '        });\n'
+                + "    // The telemetry provider icon clears the viewed session's attention\n"
+                + "    // state; it is actionable only while the Host reports 'attention'.\n"
+                + '    function postAcknowledgeAttention() {\n'
+                + '        if (!telemetryProvider\n'
+                + "            || telemetryProvider.getAttribute('data-session-state')\n"
+                + "                !== 'attention') {\n"
+                + '            return;\n'
+                + '        }\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-acknowledge-attention',\n"
+                + '            version: 1,\n'
+                + '        });\n'
+                + '    }\n'
+                + '    if (telemetryProvider) {\n'
+                + "        telemetryProvider.addEventListener('click', postAcknowledgeAttention);\n"
+                + "        telemetryProvider.addEventListener('keydown', function (event) {\n"
+                + "            if (event.key !== 'Enter' && event.key !== ' ') {\n"
+                + '                return;\n'
+                + '            }\n'
+                + '            event.preventDefault();\n'
+                + '            postAcknowledgeAttention();\n'
+                + '        });\n'
+                + '    }\n',
             ''
         )
         .replace(
@@ -4540,12 +4563,18 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + "            return false;\n"
                 + "        }\n"
                 + "        var keys = Object.keys(value);\n"
-                + "        return keys.length === 5\n"
+                + "        return (keys.length === 5\n"
+                + "                || (keys.length === 6\n"
+                + "                    && keys.indexOf('currentSessionKind') !== -1))\n"
                 + "            && keys.indexOf('runningSessions') !== -1\n"
                 + "            && keys.indexOf('attentionSessions') !== -1\n"
                 + "            && keys.indexOf('runningSessionsLocal') !== -1\n"
                 + "            && keys.indexOf('attentionSessionsLocal') !== -1\n"
                 + "            && keys.indexOf('idleSessionsLocal') !== -1\n"
+                + "            && (keys.indexOf('currentSessionKind') === -1\n"
+                + "                || value.currentSessionKind === 'running'\n"
+                + "                || value.currentSessionKind === 'attention'\n"
+                + "                || value.currentSessionKind === 'idle')\n"
                 + "            && Number.isSafeInteger(value.runningSessions)\n"
                 + "            && value.runningSessions >= 0\n"
                 + "            && value.runningSessions <= 100000\n"
@@ -4605,6 +4634,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + "            'idle',\n"
                 + "            message.status.idleSessionsLocal\n"
                 + "        );\n"
+                + "        // The provider icon in the telemetry bar mirrors the viewed\n"
+                + "        // session's lifecycle group; the Host is authoritative, so the\n"
+                + "        // icon simply renders whatever kind the message carries.\n"
+                + "        telemetryController.setSessionState(message.status.currentSessionKind);\n"
                 + "        return true;\n"
                 + "    }",
 "    function sessionStatusDotLabel(kind, localCount, totalCount) {\n"
@@ -11439,6 +11472,164 @@ test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe loca
     assert.equal(await attention.evaluate(element =>
         getComputedStyle(element).animationName
     ), 'none');
+});
+
+test('CONVERSATION-SESSION-STATUS-002 mirrors the viewed session kind on the telemetry provider icon and clears attention on activation', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        readSessionStatus: () => ({
+            runningSessions: 1,
+            attentionSessions: 1,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 1,
+            idleSessionsLocal: 1,
+            currentSessionKind: 'attention',
+        }),
+    });
+    const provider = page.locator('[data-telemetry-provider]');
+    const acknowledgeIntents = async () => (await postedMessages(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-acknowledge-attention'
+        );
+
+    // The Host-rendered document carries the viewed session's kind.
+    assert.equal(
+        await provider.getAttribute('data-session-state'),
+        'attention'
+    );
+    assert.equal(
+        await provider.getAttribute('title'),
+        'Provider · Codex · Needs attention — click to clear'
+    );
+    assert.equal(await provider.getAttribute('aria-label'),
+        'Provider · Codex · Needs attention — click to clear');
+    assert.notEqual(
+        await provider.evaluate(element =>
+            getComputedStyle(element).animationName
+        ),
+        'none',
+        'the attention ring must pulse'
+    );
+    assert.notEqual(
+        await provider.evaluate(element =>
+            getComputedStyle(element).boxShadow
+        ),
+        'none',
+        'the attention ring must draw around the provider icon'
+    );
+    assert.equal(await provider.getAttribute('role'), 'button',
+        'the attention state is exposed as an actionable button');
+
+    // Clicking and keyboard activation both ask the Host to clear it.
+    await provider.click();
+    assert.deepEqual(await acknowledgeIntents(), [{
+        type: 'conversation-viewer-acknowledge-attention',
+        version: 1,
+    }]);
+    await provider.press('Enter');
+    await provider.press(' ');
+    assert.equal((await acknowledgeIntents()).length, 3,
+        'Enter and Space must post the same acknowledge intent');
+
+    const correlation = await page.evaluate(() => ({
+        generation: Number(document.body.getAttribute(
+            'data-subscription-generation'
+        )),
+        requestId: Number(document.body.getAttribute(
+            'data-session-status-request-id'
+        )),
+    }));
+    const statusMessage = (requestId, currentSessionKind) => ({
+        type: 'conversation-viewer-session-status',
+        version: 1,
+        requestId,
+        subscriptionGeneration: correlation.generation,
+        status: {
+            runningSessions: 1,
+            attentionSessions: 0,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 0,
+            idleSessionsLocal: 2,
+            ...(currentSessionKind ? { currentSessionKind } : {}),
+        },
+    });
+
+    // Authoritative updates drive the icon: running marks it but stays
+    // inert, and a cleared kind removes the ring entirely.
+    await sendPage(page, statusMessage(correlation.requestId, 'running'));
+    assert.equal(
+        await provider.getAttribute('data-session-state'),
+        'running'
+    );
+    assert.equal(
+        await provider.getAttribute('title'),
+        'Provider · Codex · Running'
+    );
+    await provider.click();
+    assert.equal((await acknowledgeIntents()).length, 3,
+        'running must stay inert');
+
+    await sendPage(page, statusMessage(correlation.requestId + 1, 'idle'));
+    assert.equal(
+        await provider.getAttribute('data-session-state'),
+        'idle'
+    );
+    await provider.click();
+    assert.equal((await acknowledgeIntents()).length, 3,
+        'idle must stay inert');
+    assert.equal(await provider.getAttribute('role'), null,
+        'inert states are not exposed as buttons');
+
+    // An invalid kind in an otherwise valid message must fail validation
+    // and leave the current state untouched.
+    await sendPage(page, {
+        ...statusMessage(correlation.requestId + 2, undefined),
+        status: {
+            runningSessions: 1,
+            attentionSessions: 0,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 0,
+            idleSessionsLocal: 2,
+            currentSessionKind: 'busy',
+        },
+    });
+    assert.equal(
+        await provider.getAttribute('data-session-state'),
+        'idle',
+        'an unknown kind must be rejected, not applied'
+    );
+
+    // A sixth key other than currentSessionKind must fail validation too.
+    await sendPage(page, {
+        ...statusMessage(correlation.requestId + 3, undefined),
+        status: {
+            runningSessions: 1,
+            attentionSessions: 0,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 0,
+            idleSessionsLocal: 2,
+            spoofed: 'attention',
+        },
+    });
+    assert.equal(
+        await provider.getAttribute('data-session-state'),
+        'idle',
+        'an unknown extra key must be rejected, not applied'
+    );
+
+    await sendPage(page, statusMessage(correlation.requestId + 4));
+    assert.equal(
+        await provider.getAttribute('data-session-state'),
+        null,
+        'a missing kind removes the ring'
+    );
+    assert.equal(
+        await provider.getAttribute('title'),
+        'Provider · Codex'
+    );
+    assert.equal(await provider.getAttribute('role'), null,
+        'a missing kind removes the button role');
 });
 
 test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message viewport bounded at wide and narrow widths', async t => {

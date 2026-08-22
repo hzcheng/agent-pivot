@@ -204,3 +204,29 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 leads the telemetry bar with a provi
     assert.match(claude, /data-provider="claude"/);
     assert.match(claude, /Provider · Claude/);
 });
+
+
+test('CONVERSATION-SESSION-STATUS-002 renders the viewed session state on the provider pill', () => {
+    const attention = renderConversationTelemetry(undefined, 'codex', 'attention');
+    assert.match(attention, /data-session-state="attention"/);
+    assert.match(attention, /role="button"/,
+        'attention state is exposed as an actionable button');
+    assert.match(
+        attention,
+        /Provider · Codex · Needs attention — click to clear/
+    );
+
+    const running = renderConversationTelemetry(undefined, 'kimi', 'running');
+    assert.match(running, /data-session-state="running"/);
+    assert.doesNotMatch(running, /role="button"/,
+        'inert states are not buttons');
+    assert.match(running, /Provider · Kimi · Running/);
+
+    const idle = renderConversationTelemetry(undefined, 'claude', 'idle');
+    assert.match(idle, /data-session-state="idle"/);
+    assert.match(idle, /Provider · Claude · Idle/);
+
+    const plain = renderConversationTelemetry(undefined, 'kimi');
+    assert.doesNotMatch(plain, /data-session-state/);
+    assert.match(plain, /Provider · Kimi/);
+});

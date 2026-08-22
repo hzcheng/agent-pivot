@@ -16,6 +16,9 @@ export interface ConversationSessionStatus {
     attentionSessionsLocal: number;
     /** Idle sessions in this window's workspace. */
     idleSessionsLocal: number;
+    /** Lifecycle group of the session the viewer currently shows, when that
+     * session is live in this window; undefined for history-only views. */
+    currentSessionKind?: ConversationSessionStatusKind;
 }
 
 export interface ConversationViewerSessionStatusMessage {
@@ -43,12 +46,26 @@ function sanitizeSessionCount(value: unknown): number {
         : 0;
 }
 
+const SESSION_STATUS_KINDS: readonly ConversationSessionStatusKind[] = [
+    'running',
+    'attention',
+    'idle',
+];
+
+function sanitizeSessionKind(
+    value: unknown
+): ConversationSessionStatusKind | undefined {
+    return SESSION_STATUS_KINDS.includes(value as ConversationSessionStatusKind)
+        ? value as ConversationSessionStatusKind
+        : undefined;
+}
+
 export function sanitizeConversationSessionStatus(
     status: ConversationSessionStatus | undefined
 ): ConversationSessionStatus {
     const runningSessions = sanitizeSessionCount(status?.runningSessions);
     const attentionSessions = sanitizeSessionCount(status?.attentionSessions);
-    return {
+    const sanitized: ConversationSessionStatus = {
         runningSessions,
         attentionSessions,
         // A window's own sessions are a subset of the cross-window total:
@@ -63,6 +80,13 @@ export function sanitizeConversationSessionStatus(
         ),
         idleSessionsLocal: sanitizeSessionCount(status?.idleSessionsLocal),
     };
+    // Keep the key absent (not undefined) when the viewed session is not a
+    // live local session: posted messages and snapshots stay byte-stable.
+    const currentSessionKind = sanitizeSessionKind(status?.currentSessionKind);
+    if (currentSessionKind) {
+        sanitized.currentSessionKind = currentSessionKind;
+    }
+    return sanitized;
 }
 
 export function formatConversationSessionStatusLabel(
@@ -119,7 +143,8 @@ export class ConversationSessionStatusController {
         }
         const deliveryKey = `${status.runningSessions}:${status.attentionSessions}`
             + `:${status.runningSessionsLocal}:${status.attentionSessionsLocal}`
-            + `:${status.idleSessionsLocal}`;
+            + `:${status.idleSessionsLocal}`
+            + `:${status.currentSessionKind || ''}`;
         if (deliveryKey === this.lastDeliveredKey) {
             return;
         }

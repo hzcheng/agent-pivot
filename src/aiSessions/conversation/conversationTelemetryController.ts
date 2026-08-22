@@ -8,6 +8,7 @@ import {
     openAiLogo,
 } from '../../webviewIcons';
 import type { ConversationViewerTarget } from './viewerTarget';
+import type { ConversationSessionStatusKind } from './sessionStatusController';
 import {
     CONVERSATION_LIMITS,
     ConversationAbortSignal,
@@ -277,6 +278,15 @@ function providerLabel(provider: AiSessionProviderId): string {
         : provider === 'claude' ? 'Claude' : 'Codex';
 }
 
+/** State suffix for the provider icon tooltip; mirrors the session-state
+ * labels applied by the Webview telemetry script's setSessionState. */
+function sessionStateLabel(kind: ConversationSessionStatusKind): string {
+    if (kind === 'attention') {
+        return 'Needs attention — click to clear';
+    }
+    return kind === 'running' ? 'Running' : 'Idle';
+}
+
 const MODEL_ICON_SVG = '<svg viewBox="0 0 16 16" aria-hidden="true"'
     + ' fill="none" stroke="currentColor" stroke-width="1.35"'
     + ' stroke-linecap="round" stroke-linejoin="round">'
@@ -346,9 +356,11 @@ function renderProgressRing(
 
 export function renderConversationTelemetry(
     telemetry: ConversationTelemetry | undefined,
-    provider: AiSessionProviderId
+    provider: AiSessionProviderId,
+    sessionKind?: ConversationSessionStatusKind
 ): string {
-    const providerTitle = `Provider · ${providerLabel(provider)}`;
+    const providerTitle = `Provider · ${providerLabel(provider)}`
+        + (sessionKind ? ` · ${sessionStateLabel(sessionKind)}` : '');
     const hasContext = Boolean(telemetry?.context);
     const hasModel = Boolean(telemetry?.model);
     const limits = telemetry?.rateLimits || [];
@@ -390,6 +402,10 @@ export function renderConversationTelemetry(
         data-conversation-telemetry aria-label="Session usage">
         <div class="conversation-telemetry-provider conversation-telemetry-tooltip"
             data-telemetry-provider data-provider="${escapeAttribute(provider)}"
+            ${sessionKind
+                ? `data-session-state="${escapeAttribute(sessionKind)}"`
+                : ''}
+            ${sessionKind === 'attention' ? 'role="button"' : ''}
             tabindex="0"
             aria-label="${escapeAttribute(providerTitle)}"
             title="${escapeAttribute(providerTitle)}"

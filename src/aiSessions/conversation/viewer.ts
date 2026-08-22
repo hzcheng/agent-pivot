@@ -109,12 +109,21 @@ export interface ConversationViewerOptions {
         sessionId: string,
         signal?: ConversationAbortSignal
     ) => Promise<ConversationTelemetry | undefined>;
-    readSessionStatus?: () => ConversationSessionStatus | undefined;
+    readSessionStatus?: (
+        currentTarget: ConversationViewerTarget | undefined
+    ) => ConversationSessionStatus | undefined;
     /** Cycle this window's sessions of one lifecycle group (header status
      * buttons); the Host owns focus, conversation open, and the cursor. */
     cycleLocalSessionStatus?: (
         kind: ConversationSessionStatusKind,
         currentTarget: ConversationViewerTarget | undefined
+    ) => PromiseLike<void> | Promise<void> | void;
+    /** Acknowledge (clear) the attention state of the session the viewer
+     * currently shows (telemetry-bar provider icon click). The Host
+     * recomputes the session's attention events authoritatively; clearing
+     * a session that no longer needs attention is a safe no-op. */
+    acknowledgeSessionAttention?: (
+        currentTarget: ConversationViewerTarget
     ) => PromiseLike<void> | Promise<void> | void;
     /** Focus the previous/next open window (the bottom window rails). */
     switchAdjacentWindow?: (
@@ -350,7 +359,15 @@ export class ConversationViewer implements ConversationViewerApi {
             });
         }
         this.sessionStatusController = new ConversationSessionStatusController({
-            readStatus: options.readSessionStatus,
+            // Evaluated lazily at publish time so the classification always
+            // matches the session the viewer shows right then, never a
+            // target captured before a switch. Keep the reader absent (not
+            // just returning undefined) when the option is missing: the
+            // controller treats a missing reader as "status unsupported"
+            // and must not publish zeroed statuses.
+            readStatus: options.readSessionStatus
+                ? () => options.readSessionStatus?.(this.target)
+                : undefined,
             getPanel: () => this.panel,
             getSubscriptionGeneration: () => this.subscriptionGeneration,
             getCurrentRequestId: () => this.currentRequestId,
@@ -1029,6 +1046,13 @@ export class ConversationViewer implements ConversationViewerApi {
                 parsed.kind,
                 currentTarget
             );
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-acknowledge-attention') {
+            const currentTarget = this.target;
+            if (currentTarget) {
+                await this.options.acknowledgeSessionAttention?.(currentTarget);
+            }
             return;
         }
         if (parsed.type === 'conversation-viewer-switch-window') {

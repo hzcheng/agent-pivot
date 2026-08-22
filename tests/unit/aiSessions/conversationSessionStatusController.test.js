@@ -262,3 +262,77 @@ test('CONVERSATION-SESSION-STATUS-001 sanitizes counts and formats labels', () =
         '5 idle in this window · click to switch to the next',
         'labels sanitize fractional counts');
 });
+
+
+test('CONVERSATION-SESSION-STATUS-002 publishes the viewed session kind and republishes on kind-only changes', async () => {
+    let status = {
+        runningSessions: 1,
+        attentionSessions: 0,
+        runningSessionsLocal: 1,
+        attentionSessionsLocal: 0,
+        idleSessionsLocal: 2,
+        currentSessionKind: 'running',
+    };
+    const { controller, posted } = createHarness({
+        readStatus: () => status,
+    });
+
+    await controller.publish();
+    assert.deepEqual(posted, [{
+        type: 'conversation-viewer-session-status',
+        version: 1,
+        requestId: 7,
+        subscriptionGeneration: 2,
+        status: {
+            runningSessions: 1,
+            attentionSessions: 0,
+            runningSessionsLocal: 1,
+            attentionSessionsLocal: 0,
+            idleSessionsLocal: 2,
+            currentSessionKind: 'running',
+        },
+    }]);
+
+    status = { ...status, currentSessionKind: 'attention' };
+    await controller.publish();
+    assert.equal(posted.length, 2,
+        'a kind-only change must still republish');
+    assert.equal(posted[1].status.currentSessionKind, 'attention');
+
+    status = { ...status, currentSessionKind: undefined };
+    await controller.publish();
+    assert.equal(posted.length, 3,
+        'clearing the kind must republish as well');
+    assert.equal('currentSessionKind' in posted[2].status, false,
+        'a cleared kind must leave the key absent, not undefined');
+});
+
+test('CONVERSATION-SESSION-STATUS-002 sanitize keeps known kinds and omits the key otherwise', () => {
+    const base = {
+        runningSessions: 0,
+        attentionSessions: 0,
+        runningSessionsLocal: 0,
+        attentionSessionsLocal: 0,
+        idleSessionsLocal: 0,
+    };
+    assert.deepEqual(
+        sanitizeConversationSessionStatus({
+            ...base,
+            currentSessionKind: 'attention',
+        }),
+        { ...base, currentSessionKind: 'attention' }
+    );
+    for (const kind of ['busy', '', 1, null]) {
+        const sanitized = sanitizeConversationSessionStatus({
+            ...base,
+            currentSessionKind: kind,
+        });
+        assert.equal('currentSessionKind' in sanitized, false,
+            `unknown kind ${String(kind)} must be dropped`);
+    }
+    assert.equal(
+        'currentSessionKind' in sanitizeConversationSessionStatus(base),
+        false,
+        'a missing kind stays absent'
+    );
+});

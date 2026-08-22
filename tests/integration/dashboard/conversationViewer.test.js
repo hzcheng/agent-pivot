@@ -303,6 +303,7 @@ function createViewer(options = {}) {
         readTelemetry: options.readTelemetry,
         readSessionStatus: options.readSessionStatus,
         cycleLocalSessionStatus: options.cycleLocalSessionStatus,
+        acknowledgeSessionAttention: options.acknowledgeSessionAttention,
         switchAdjacentWindow: options.switchAdjacentWindow,
         watch: options.watch || ((_provider, sessionId) => ({
             dispose() {
@@ -332,6 +333,46 @@ function createViewer(options = {}) {
     });
     return { viewer, panel, watchDisposals, restoredTargets, openedUris };
 }
+
+test('CONVERSATION-SESSION-STATUS-002 forwards the acknowledge-attention intent for the current target only', async () => {
+    const acknowledged = [];
+    const { viewer, panel } = createViewer({
+        acknowledgeSessionAttention: async currentTarget => {
+            acknowledged.push(currentTarget);
+        },
+    });
+    // Intents arriving before any session is open have no target.
+    await panel.receive({
+        type: 'conversation-viewer-acknowledge-attention',
+        version: 1,
+    });
+    assert.equal(acknowledged.length, 0,
+        'no current target must mean no acknowledgement');
+
+    await viewer.open(target('session-a', 'input-a'));
+
+    await panel.receive({
+        type: 'conversation-viewer-acknowledge-attention',
+        version: 1,
+    });
+    assert.equal(acknowledged.length, 1);
+    assert.equal(acknowledged[0].sessionId, 'session-a',
+        'the Host resolves the target, never the Webview');
+
+    // Malformed or over-posted envelopes never reach the handler.
+    await panel.receive({
+        type: 'conversation-viewer-acknowledge-attention',
+        version: 1,
+        sessionId: 'session-spoofed',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-acknowledge-attention',
+        version: 2,
+    });
+    assert.equal(acknowledged.length, 1);
+
+    viewer.dispose();
+});
 
 test('CONVERSATION-VIEWER-RENAME-001 forwards the rename intent for the current target and ignores malformed envelopes', async () => {
     const renamed = [];

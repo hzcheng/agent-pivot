@@ -77,6 +77,67 @@
     color: #d97757;
 }
 
+/* Session-state ring around the provider icon; colors mirror the bottom
+   session-status dots (conversationViewer.scss --session-status-color).
+   Drawn with box-shadow, not a pseudo-element: the tooltip bubble already
+   owns this element's ::before/::after, and sharing them hid the ring and
+   restyled the tooltip. */
+.conversation-telemetry-provider {
+    transition: box-shadow 160ms ease-in-out;
+}
+
+.conversation-telemetry-provider[data-session-state="running"] {
+    box-shadow: 0 0 0 1.5px color-mix(
+        in srgb,
+        var(--vscode-testing-iconPassed, var(--vscode-foreground)) 70%,
+        transparent
+    );
+}
+
+.conversation-telemetry-provider[data-session-state="idle"] {
+    box-shadow: 0 0 0 1.5px color-mix(
+        in srgb,
+        var(--vscode-descriptionForeground, var(--vscode-foreground)) 55%,
+        transparent
+    );
+}
+
+.conversation-telemetry-provider[data-session-state="attention"] {
+    box-shadow: 0 0 0 1.5px
+        var(--vscode-errorForeground, var(--vscode-foreground));
+    cursor: pointer;
+    animation: conversation-telemetry-provider-attention 1.6s ease-in-out
+        infinite;
+}
+
+.conversation-telemetry-provider[data-session-state="attention"]:hover {
+    background: color-mix(
+        in srgb,
+        var(--vscode-errorForeground, var(--vscode-foreground)) 12%,
+        transparent
+    );
+}
+
+@keyframes conversation-telemetry-provider-attention {
+    0%, 100% {
+        box-shadow: 0 0 0 1.5px
+            var(--vscode-errorForeground, var(--vscode-foreground));
+    }
+    50% {
+        box-shadow: 0 0 0 1.5px color-mix(
+            in srgb,
+            var(--vscode-errorForeground, var(--vscode-foreground)) 35%,
+            transparent
+        );
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conversation-telemetry-provider[data-session-state="attention"] {
+        animation: none;
+    }
+}
+
 .conversation-telemetry-model {
     display: inline-flex;
     min-width: 0;

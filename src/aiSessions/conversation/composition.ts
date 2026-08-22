@@ -164,6 +164,7 @@ export interface ConversationCapabilityOptions {
     getShowThinking?: () => boolean;
     readSessionStatus?: ConversationViewerOptions['readSessionStatus'];
     cycleLocalSessionStatus?: ConversationViewerOptions['cycleLocalSessionStatus'];
+    acknowledgeSessionAttention?: ConversationViewerOptions['acknowledgeSessionAttention'];
     switchAdjacentWindow?: ConversationViewerOptions['switchAdjacentWindow'];
     /**
      * The context window declared by the Codex profile overlay a session runs
@@ -399,6 +400,7 @@ function createAvailableConversationCapability(
         showThinking: options.getShowThinking,
         readSessionStatus: options.readSessionStatus,
         cycleLocalSessionStatus: options.cycleLocalSessionStatus,
+        acknowledgeSessionAttention: options.acknowledgeSessionAttention,
         switchAdjacentWindow: options.switchAdjacentWindow,
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,

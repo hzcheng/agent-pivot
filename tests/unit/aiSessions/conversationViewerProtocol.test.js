@@ -90,6 +90,9 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         type: 'conversation-viewer-rename-session',
         version: 1,
     }, {
+        type: 'conversation-viewer-acknowledge-attention',
+        version: 1,
+    }, {
         type: 'conversation-viewer-locate-comment',
         version: 1,
         ...target,
@@ -232,6 +235,17 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
         },
         {
             type: 'conversation-viewer-rename-session',
+            version: 2,
+        },
+        // The acknowledge-attention intent is likewise target-less: the
+        // Host resolves the viewer's current session authoritatively.
+        {
+            type: 'conversation-viewer-acknowledge-attention',
+            version: 1,
+            sessionId: 'session-spoofed',
+        },
+        {
+            type: 'conversation-viewer-acknowledge-attention',
             version: 2,
         },
         {

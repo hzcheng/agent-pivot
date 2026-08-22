@@ -1718,6 +1718,17 @@ async function initializeDashboard(
         services: aiSessionServices,
         cycleLocalSessionStatus: (kind, currentTarget) =>
             sessionStatusCycleHandler.cycleToNext(kind, currentTarget),
+        acknowledgeSessionAttention: target =>
+            // The no-target acknowledge path resolves the session's attention
+            // events by provider+sessionId alone (attentionEventCapability
+            // getAiSessionAttentionEventIds); workspaceScopeIdentity only
+            // fills the identity shape.
+            acknowledgeAiSessionAttention({
+                provider: target.provider,
+                sessionId: target.sessionId,
+                workspaceScopeIdentity:
+                    getCurrentOpenWorkspace()?.scopeIdentity || '',
+            }),
         switchAdjacentWindow: direction =>
             windowCycleSwitchHandler.switchWindow(direction),
         resolveTarget: (projectId, providerId, sessionId) => {
@@ -1886,7 +1897,7 @@ async function initializeDashboard(
                 ? readCodexProfileContextWindowForModel(model)
                 : undefined;
         },
-        readSessionStatus: () => {
+        readSessionStatus: viewerTarget => {
             const attentionAggregate = aiSessionAttentionController
                 .getEffectiveAggregate();
             // This window's workspace: running counts come from the bridge
@@ -1897,6 +1908,30 @@ async function initializeDashboard(
                     registration.instanceId === openWorkspaceBridgeClient?.instanceId);
             const ownProjectKeys = getAttentionProjectKeys(
                 (getCurrentOpenWorkspace()?.roots || []).map(root => root.uri));
+            // The telemetry-bar provider icon mirrors the viewed session's
+            // lifecycle group. Classification reuses the status-cycle
+            // sources: the local attention queue first (attention wins over
+            // running), then this window's active sessions.
+            let currentSessionKind: 'running' | 'attention' | 'idle' | undefined;
+            if (viewerTarget?.sessionId) {
+                const needsAttention = buildCurrentAttentionQueue().items
+                    .some(item => item.local
+                        && item.provider === viewerTarget.provider
+                        && item.sessionId === viewerTarget.sessionId);
+                const activeSession = (
+                    getCurrentWorkspaceActionTargetWithoutCardId()
+                        ?.sessions.activeSessions || []
+                ).find(session =>
+                    session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+                currentSessionKind = needsAttention
+                    ? 'attention'
+                    : activeSession
+                        ? activeSession.executionState === 'running'
+                            ? 'running'
+                            : 'idle'
+                        : undefined;
+            }
             return {
                 runningSessions: sumOpenWorkspaceRunningAiSessionCounts(
                     latestOpenWorkspaceAggregate
@@ -1909,6 +1944,7 @@ async function initializeDashboard(
                         ownProjectKeys, attentionAggregate).attentionCount
                     : 0,
                 idleSessionsLocal: listLocalIdleAiSessions().length,
+                currentSessionKind,
             };
         },
         submitPrompt: (viewerTarget, prompt) => submitConversationPrompt({

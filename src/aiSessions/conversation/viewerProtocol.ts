@@ -257,6 +257,15 @@ export interface ConversationViewerRenameSessionMessage {
     version: 1;
 }
 
+/** Click the provider icon while the current session needs attention:
+ * ask the Host to acknowledge (clear) that session's attention state. The
+ * message carries no identity — the Host resolves the current target and
+ * recomputes the session's attention events authoritatively. */
+export interface ConversationViewerAcknowledgeAttentionMessage {
+    type: 'conversation-viewer-acknowledge-attention';
+    version: 1;
+}
+
 export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
@@ -271,6 +280,7 @@ export type ConversationViewerMessage =
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
     | ConversationViewerRenameSessionMessage
+    | ConversationViewerAcknowledgeAttentionMessage
     | ConversationViewerCommentMutationMessage
     | ConversationViewerSendCommentsMessage
     | ConversationViewerLocateCommentMessage
@@ -459,14 +469,16 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerOpenSubagentMessage;
     }
     if (value.type === 'conversation-viewer-close-subagent'
-        || value.type === 'conversation-viewer-rename-session') {
+        || value.type === 'conversation-viewer-rename-session'
+        || value.type === 'conversation-viewer-acknowledge-attention') {
         if (keys.length !== 2
             || !hasOwn(value, 'type')
             || !hasOwn(value, 'version')) {
             return undefined;
         }
         return value as unknown as ConversationViewerCloseSubagentMessage
-            | ConversationViewerRenameSessionMessage;
+            | ConversationViewerRenameSessionMessage
+            | ConversationViewerAcknowledgeAttentionMessage;
     }
     if (value.type === 'conversation-viewer-locate-comment') {
         if (!hasExactKeys(value, [

@@ -5005,6 +5005,31 @@
     ]
   },
   {
+    "id": "CONVERSATION-SESSION-STATUS-002",
+    "domain": "webview",
+    "title": "AI Conversation renders the viewed session's lifecycle kind (running, attention, idle) as a colored ring around the telemetry-bar provider icon, keeps the kind Host-authoritative, clears the session's attention when the icon is activated while in attention, stays inert otherwise, and shows no ring for history-only or subagent (parent-owned) views",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationSessionStatusController.test.js",
+      "tests/unit/aiSessions/conversationTelemetryController.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/sessionStatusController.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/conversationTelemetryController.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/dashboard.ts",
+      "src/webview/conversationTelemetryScripts.js",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationTelemetry.css"
+    ]
+  },
+  {
     "id": "CONVERSATION-LOCAL-FILE-LINKS-001",
     "domain": "webview",
     "title": "AI Conversation renders absolute local file references as clickable links and opens their exact line in the workspace host",

@@ -13665,6 +13665,137 @@ test('WORKTREE-CHANGES-PANEL-001 remembers fold state and scroll position per me
         'm-web keeps its own collapsed group');
 });
 
+test('WORKTREE-CHANGES-PANEL-001 implements the Files tree keyboard model', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+
+    const rows = page.locator(
+        '.conversation-changes-group-header, '
+        + '.conversation-changes-folder, .conversation-changes-file');
+    const tabStops = await rows.evaluateAll(elements => elements
+        .filter(element => element.tabIndex >= 0)
+        .map(element => element.textContent.trim()));
+    assert.deepEqual(tabStops, ['▾ Staged Changes · 1'],
+        'the Files tree exposes one roving Tab stop, not one stop per row');
+
+    // ↓ walks the visible depth-first order.
+    const stagedHeader = page.locator(
+        '.conversation-changes-group-header', { hasText: 'Staged Changes' });
+    await stagedHeader.focus();
+    const visibleText = [];
+    for (let index = 0; index < 6; index += 1) {
+        await page.keyboard.press('ArrowDown');
+        visibleText.push(await page.evaluate(() =>
+            document.activeElement.textContent.trim()));
+    }
+    assert.deepEqual(visibleText, [
+        '▾src/auth',
+        'Msession.ts',
+        '▾ Changes · 2',
+        '▾src/auth',
+        'Ulogin.test.ts',
+        'Mlogin.ts',
+    ], 'ArrowDown follows the visible tree order without leaving the tree');
+
+    // Home/End jump to the first and last visible item.
+    await page.keyboard.press('Home');
+    assert.equal(await page.evaluate(() => document.activeElement),
+        await stagedHeader.evaluate(element => element));
+    await page.keyboard.press('End');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.textContent.trim()), 'Mlogin.ts');
+
+    // ← collapses an expanded parent, then moves a collapsed child or leaf
+    // to its parent; → expands a collapsed parent and enters an expanded one.
+    const changesFolder = page.locator(
+        '.conversation-changes-folder', { hasText: 'src/auth' }).nth(1);
+    await changesFolder.focus();
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await changesFolder.getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.evaluate(() => document.activeElement),
+        await changesFolder.evaluate(element => element),
+        'collapsing keeps focus on the folder');
+    assert.equal(
+        await page.locator('.conversation-changes-file', {
+            hasText: 'login.test.ts',
+        }).isVisible(),
+        false);
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await changesFolder.getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.textContent.trim()), '▾src/auth',
+        'ArrowRight expands without stealing focus');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.evaluate(() => document.activeElement),
+        await changesFolder.evaluate(element => element),
+        'a leaf moves to its parent');
+
+    // Enter and Space activate the same behavior as click; a file posts the
+    // open-file intent instead of navigating.
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.textContent.trim()), 'Mlogin.ts');
+    await page.keyboard.press('Enter');
+    assert.deepEqual((await postedIntents(page)).at(-1), {
+        type: 'conversation-viewer-changes-open-file',
+        version: 1,
+        memberId: 'm-api',
+        group: 'changes',
+        xy: ' M',
+        path: 'src/auth/login.ts',
+        originalPath: undefined,
+    });
+    await page.keyboard.press('Space');
+    assert.deepEqual((await postedIntents(page)).at(-1), {
+        type: 'conversation-viewer-changes-open-file',
+        version: 1,
+        memberId: 'm-api',
+        group: 'changes',
+        xy: ' M',
+        path: 'src/auth/login.ts',
+        originalPath: undefined,
+    });
+
+    // Collapse All moves focus from a hidden child back to its group header;
+    // a refresh that removes the focused file falls back to the nearest
+    // visible ancestor (PRD §17).
+    const changesHeader = page.locator(
+        '.conversation-changes-group-header', { hasText: 'Changes · 2' })
+        .last();
+    await page.locator('.conversation-changes-file', {
+        hasText: 'login.test.ts',
+    }).focus();
+    await page.locator('[data-changes-collapse-all]').click();
+    assert.equal(await page.evaluate(() => document.activeElement),
+        await changesHeader.evaluate(element => element),
+        'folding a focused child away restores its group header');
+
+    await page.locator('[data-changes-expand-all]').click();
+    const focusedFile = page.locator('.conversation-changes-file', {
+        hasText: 'login.test.ts',
+    });
+    await focusedFile.focus();
+    await sendChanges(page, changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 4,
+            items: [
+                { group: 'changes', xy: ' M', path: 'src/auth/login.ts' },
+                { group: 'staged', xy: 'M ', path: 'src/auth/session.ts' },
+            ],
+            truncated: false,
+        },
+    }));
+    assert.equal(await page.evaluate(() => document.activeElement),
+        await page.locator('.conversation-changes-file', {
+            hasText: 'login.ts',
+        }).evaluate(element => element),
+        'a removed focused file lands on its nearest visible sibling');
+});
+
 test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture());

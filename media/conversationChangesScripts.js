@@ -736,6 +736,11 @@
             var row = document.createElement('button');
             row.type = 'button';
             row.className = 'conversation-changes-file';
+            row.tabIndex = -1;
+            row.setAttribute('data-changes-node-type', 'file');
+            row.setAttribute('data-changes-node-key',
+                item.group + ':' + item.path);
+            row.setAttribute('role', 'treeitem');
             row.setAttribute('data-tooltip', item.originalPath
                 ? item.originalPath + ' → ' + item.path
                 : item.path);
@@ -769,6 +774,128 @@
         // restores both. Nothing persists; resetSession drops everything.
         var memberContexts = {};
         var currentMemberId = null;
+        var lastFocusedTreeKey = null;
+        var pendingFocusRestore = null;
+        var treeNodeSequence = 0;
+
+        var TREE_ROW_SELECTOR = '.conversation-changes-group-header, '
+            + '.conversation-changes-folder, .conversation-changes-file';
+
+        function isRowVisible(row) {
+            for (var element = row; element && element !== groupsRoot;
+                element = element.parentElement) {
+                if (element.hidden) return false;
+            }
+            return true;
+        }
+
+        function treeRows() {
+            if (!groupsRoot) return [];
+            return Array.prototype.slice.call(
+                groupsRoot.querySelectorAll(TREE_ROW_SELECTOR)
+            ).filter(isRowVisible);
+        }
+
+        function rowByKey(key) {
+            if (!groupsRoot || !key) return null;
+            return Array.prototype.slice.call(
+                groupsRoot.querySelectorAll('[data-changes-node-key]')
+            ).find(function (row) {
+                return row.getAttribute('data-changes-node-key') === key;
+            });
+        }
+
+        function focusTreeRow(row) {
+            if (!row) return;
+            updateRovingTabIndices(row);
+            row.focus();
+            lastFocusedTreeKey = row.getAttribute('data-changes-node-key');
+        }
+
+        function updateRovingTabIndices(preferredRow) {
+            var rows = treeRows();
+            var current = preferredRow && isRowVisible(preferredRow)
+                ? preferredRow
+                : rows.find(function (row) {
+                    return row.tabIndex === 0;
+                });
+            if (!current) {
+                current = rows[0];
+            }
+            rows.forEach(function (row) {
+                row.tabIndex = row === current ? 0 : -1;
+            });
+            if (current) {
+                lastFocusedTreeKey = current.getAttribute(
+                    'data-changes-node-key');
+            } else {
+                lastFocusedTreeKey = null;
+            }
+        }
+
+        function parentRowOf(row) {
+            return rowByKey(row.getAttribute('data-parent-key'));
+        }
+
+        function ancestryKeysOf(row) {
+            var keys = [];
+            var parent = parentRowOf(row);
+            while (parent) {
+                keys.push(parent.getAttribute('data-changes-node-key'));
+                parent = parentRowOf(parent);
+            }
+            return keys;
+        }
+
+        function rememberFocusedTreeRow() {
+            var active = document.activeElement;
+            var row = active && active.closest
+                ? active.closest(TREE_ROW_SELECTOR)
+                : null;
+            if (!row || !groupsRoot || !groupsRoot.contains(row)) {
+                row = rowByKey(lastFocusedTreeKey);
+            }
+            if (!row) return null;
+            var parentKey = row.getAttribute('data-parent-key');
+            var siblings = treeRows().filter(function (candidate) {
+                return candidate.getAttribute('data-parent-key') === parentKey;
+            });
+            var index = siblings.indexOf(row);
+            return {
+                key: row.getAttribute('data-changes-node-key'),
+                ancestry: ancestryKeysOf(row),
+                previousSibling: index > 0
+                    ? siblings[index - 1].getAttribute('data-changes-node-key')
+                    : null,
+                nextSibling: index >= 0 && index + 1 < siblings.length
+                    ? siblings[index + 1].getAttribute('data-changes-node-key')
+                    : null,
+            };
+        }
+
+        function restoreFocusedTreeRow() {
+            var restore = pendingFocusRestore;
+            pendingFocusRestore = null;
+            if (!restore) {
+                updateRovingTabIndices();
+                return;
+            }
+            var exact = rowByKey(restore.key);
+            if (exact && isRowVisible(exact)) {
+                focusTreeRow(exact);
+                return;
+            }
+            var candidates = [restore.nextSibling, restore.previousSibling]
+                .concat(restore.ancestry);
+            for (var index = 0; index < candidates.length; index += 1) {
+                var candidate = rowByKey(candidates[index]);
+                if (candidate && isRowVisible(candidate)) {
+                    focusTreeRow(candidate);
+                    return;
+                }
+            }
+            updateRovingTabIndices();
+        }
 
         function contextFor(memberId) {
             if (!memberContexts[memberId]) {
@@ -835,7 +962,8 @@
             return { name: names.join('/'), node: node };
         }
 
-        function renderTreeNode(group, node, container, memberId, depth, context) {
+        function renderTreeNode(group, node, container, memberId, depth,
+            context, parentKey) {
             node.dirOrder.forEach(function (name) {
                 var compressed = compressDir(node.dirs[name]);
                 var dir = compressed.node;
@@ -844,6 +972,16 @@
                 var folderRow = document.createElement('button');
                 folderRow.type = 'button';
                 folderRow.className = 'conversation-changes-folder';
+                folderRow.tabIndex = -1;
+                folderRow.setAttribute('data-changes-node-type', 'folder');
+                folderRow.setAttribute('data-changes-node-key', key);
+                folderRow.id = 'conversation-changes-node-'
+                    + (treeNodeSequence += 1);
+                folderRow.setAttribute('role', 'treeitem');
+                if (parentKey) {
+                    folderRow.setAttribute('data-parent-key', parentKey);
+                }
+                folderRow.setAttribute('aria-level', String(depth + 2));
                 folderRow.style.paddingLeft = (0.2 + depth * 0.7) + 'rem';
                 folderRow.setAttribute('aria-expanded',
                     collapsed ? 'false' : 'true');
@@ -857,7 +995,10 @@
                 label.textContent = compressed.name;
                 folderRow.appendChild(label);
                 var children = document.createElement('div');
+                children.id = 'conversation-changes-node-'
+                    + (treeNodeSequence += 1);
                 children.hidden = collapsed;
+                folderRow.setAttribute('aria-owns', children.id);
                 folderRow.addEventListener('click', function () {
                     context.collapsedFolders[key] = !collapsed;
                     children.hidden = !children.hidden;
@@ -868,10 +1009,13 @@
                 container.appendChild(folderRow);
                 container.appendChild(children);
                 renderTreeNode(group, dir, children, memberId, depth + 1,
-                    context);
+                    context, key);
             });
             node.files.forEach(function (item) {
                 var row = renderFileRow(memberId, item);
+                row.setAttribute('role', 'treeitem');
+                row.setAttribute('aria-level', String(depth + 2));
+                row.setAttribute('data-parent-key', parentKey);
                 row.style.paddingLeft = (0.2 + depth * 0.7) + 'rem';
                 container.appendChild(row);
             });
@@ -885,13 +1029,26 @@
             // member's context.
             if (currentMemberId && currentMemberId !== detail.memberId) {
                 contextFor(currentMemberId).scrollTop = groupsRoot.scrollTop;
+                pendingFocusRestore = null;
             }
+            var switchedMembers = !!currentMemberId
+                && currentMemberId !== detail.memberId;
             currentMemberId = detail.memberId;
             var context = contextFor(detail.memberId);
             // Rebuilt rows orphan any trigger the overlay points at —
             // close it instead of leaving a stale hint mid-viewport.
             tooltip.hide();
+            var activeElement = document.activeElement;
+            var activeRow = activeElement && activeElement.closest
+                ? activeElement.closest(TREE_ROW_SELECTOR)
+                : null;
+            if (activeRow && groupsRoot.contains(activeRow)
+                && !switchedMembers) {
+                pendingFocusRestore = rememberFocusedTreeRow();
+            }
             clearChildren(groupsRoot);
+            groupsRoot.setAttribute('role', 'tree');
+            groupsRoot.setAttribute('aria-label', 'Worktree changes');
             SECTION_GROUPS.forEach(function (sectionGroups) {
                 var group = sectionGroups[0];
                 var items = detail.items.filter(function (item) {
@@ -907,6 +1064,15 @@
                 var header = document.createElement('button');
                 header.type = 'button';
                 header.className = 'conversation-changes-group-header';
+                header.id = 'conversation-changes-node-'
+                    + (treeNodeSequence += 1);
+                header.tabIndex = -1;
+                header.setAttribute('role', 'treeitem');
+                header.setAttribute('data-changes-node-type', 'group');
+                header.setAttribute('data-changes-node-key',
+                    'group:' + group);
+                header.setAttribute('data-parent-key', '');
+                header.setAttribute('aria-level', '1');
                 header.setAttribute('aria-expanded',
                     collapsed ? 'false' : 'true');
                 var chevron = document.createElement('span');
@@ -925,8 +1091,12 @@
                 header.appendChild(count);
                 section.appendChild(header);
                 var list = document.createElement('div');
+                list.id = 'conversation-changes-node-'
+                    + (treeNodeSequence += 1);
                 list.className = 'conversation-changes-group-list';
                 list.hidden = collapsed;
+                header.setAttribute('aria-owns', list.id);
+                list.setAttribute('role', 'group');
                 header.addEventListener('click', function () {
                     var nowCollapsed = !context.collapsedGroups[group];
                     context.collapsedGroups[group] = nowCollapsed;
@@ -937,13 +1107,15 @@
                 });
                 var tree = buildTree(items);
                 sortTree(tree);
-                renderTreeNode(group, tree, list, detail.memberId, 0, context);
+                renderTreeNode(group, tree, list, detail.memberId, 0,
+                    context, 'group:' + group);
                 section.appendChild(list);
                 groupsRoot.appendChild(section);
             });
             // Restore the member's remembered scroll position after the
             // rebuild (PRD §15.2); the browser clamps stale values.
             groupsRoot.scrollTop = context.scrollTop;
+            restoreFocusedTreeRow();
         }
 
         // Collapse/Expand All (PRD §15.3): every group header and every
@@ -964,6 +1136,10 @@
             }
             var detail = latestState.detail;
             var context = contextFor(detail.memberId);
+            var remembered = rememberFocusedTreeRow();
+            if (remembered) {
+                pendingFocusRestore = remembered;
+            }
             SECTION_GROUPS.forEach(function (sectionGroups) {
                 var group = sectionGroups[0];
                 var items = detail.items.filter(function (item) {
@@ -1142,6 +1318,72 @@
                 });
             }
             if (groupsRoot) {
+                groupsRoot.addEventListener('focusin', function (event) {
+                    var row = event.target.closest
+                        ? event.target.closest(TREE_ROW_SELECTOR)
+                        : null;
+                    if (row && groupsRoot.contains(row)) {
+                        focusTreeRow(row);
+                    }
+                });
+                groupsRoot.addEventListener('keydown', function (event) {
+                    var row = event.target.closest
+                        ? event.target.closest(TREE_ROW_SELECTOR)
+                        : null;
+                    if (!row || !groupsRoot.contains(row)) return;
+                    var rows = treeRows();
+                    var index = rows.indexOf(row);
+                    if (event.key === 'ArrowDown') {
+                        if (index >= 0 && index + 1 < rows.length) {
+                            event.preventDefault();
+                            focusTreeRow(rows[index + 1]);
+                        }
+                    } else if (event.key === 'ArrowUp') {
+                        if (index > 0) {
+                            event.preventDefault();
+                            focusTreeRow(rows[index - 1]);
+                        }
+                    } else if (event.key === 'Home') {
+                        if (rows.length) {
+                            event.preventDefault();
+                            focusTreeRow(rows[0]);
+                        }
+                    } else if (event.key === 'End') {
+                        if (rows.length) {
+                            event.preventDefault();
+                            focusTreeRow(rows[rows.length - 1]);
+                        }
+                    } else if (event.key === 'ArrowLeft') {
+                        event.preventDefault();
+                        if (row.getAttribute('aria-expanded') === 'true') {
+                            row.click();
+                        } else {
+                            var parent = parentRowOf(row);
+                            if (parent && isRowVisible(parent)) {
+                                focusTreeRow(parent);
+                            }
+                        }
+                    } else if (event.key === 'ArrowRight') {
+                        event.preventDefault();
+                        if (row.getAttribute('aria-expanded') === 'false') {
+                            row.click();
+                        } else if (row.getAttribute('aria-expanded')
+                            === 'true') {
+                            var rowKey = row.getAttribute(
+                                'data-changes-node-key');
+                            var child = treeRows().find(function (candidate) {
+                                return candidate.getAttribute('data-parent-key')
+                                    === rowKey;
+                            });
+                            if (child) {
+                                focusTreeRow(child);
+                            }
+                        }
+                    } else if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        row.click();
+                    }
+                });
                 // Track the live scroll position into the bound member's
                 // context so same-member re-renders and later switches
                 // back restore it (PRD §15.2).
@@ -1179,6 +1421,8 @@
                 lastLiveText = '';
                 memberContexts = {};
                 currentMemberId = null;
+                lastFocusedTreeKey = null;
+                pendingFocusRestore = null;
                 updateFoldActions();
                 tooltip.hide();
                 if (button) {

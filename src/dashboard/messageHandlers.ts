@@ -144,6 +144,42 @@ export function createDashboardMessageHandlers(
             }
             await aiSessionCommandController.selectSurface(e.projectId, e.surface);
         },
+        // M2 window view-state protocol (additive until the PR-D cutover).
+        // Same fire-and-forget semantics as the surface route: strict envelope
+        // shape, controller resolves the workspace scope, store validates.
+        'select-ai-session-view-tab': async e => {
+            const keys = Object.keys(e).sort();
+            if (e.version !== 1
+                || keys.join('\n') !== ['projectId', 'tab', 'type', 'version'].sort().join('\n')) {
+                return;
+            }
+            await aiSessionCommandController.selectWindowViewTab(e.projectId, e.tab);
+        },
+        'select-ai-session-chats-view-mode': async e => {
+            const keys = Object.keys(e).sort();
+            if (e.version !== 1
+                || keys.join('\n') !== ['projectId', 'type', 'version', 'viewMode'].sort().join('\n')) {
+                return;
+            }
+            await aiSessionCommandController.selectChatsViewMode(e.projectId, e.viewMode);
+        },
+        'set-ai-session-collapsed-worktree-groups': async e => {
+            const keys = Object.keys(e).sort();
+            if (e.version !== 1
+                || keys.join('\n')
+                    !== ['collapsedKeys', 'projectId', 'type', 'version'].sort().join('\n')) {
+                return;
+            }
+            await aiSessionCommandController.setCollapsedWorktreeGroups(e.projectId, e.collapsedKeys);
+        },
+        'migrate-ai-session-view-state': async e => {
+            const keys = Object.keys(e).sort();
+            if (e.version !== 1
+                || keys.join('\n') !== ['projectId', 'tab', 'type', 'version'].sort().join('\n')) {
+                return;
+            }
+            await aiSessionCommandController.importLegacyWindowViewTab(e.projectId, e.tab);
+        },
         'select-ai-session-providers': async e => {
             await aiSessionCommandController.selectProviders(
                 e.projectId as string,

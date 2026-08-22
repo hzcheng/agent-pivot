@@ -268,3 +268,35 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats at the default sidebar
     assert.ok(chatsScreenshot.length > 1_000,
         'default-width Chats screenshot must contain rendered pixels');
 });
+
+test('WORKTREE-GROUPING-UI-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 collapse gestures mirror the group keys into the window view-state protocol', async t => {
+    const page = await openSurfacePage(320);
+    t.after(() => page.close());
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        let state = {};
+        window.vscode = {
+            getState: () => state,
+            setState(next) { state = next; },
+            postMessage: message => window.__postedMessages.push(message),
+        };
+        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
+    });
+
+    // Collapse-everything via the collapse-all affordance path.
+    await page.evaluate(() => toggleAllAiSessionWorktrees(document.querySelector('.project')));
+    let posts = await page.evaluate(() =>
+        window.__postedMessages.filter(message => message.type === 'set-ai-session-collapsed-worktree-groups'));
+    assert.equal(posts.length, 1, 'one mirror post per collapse gesture');
+    assert.equal(posts[0].version, 1);
+    assert.equal(posts[0].projectId, 'project-a');
+    assert.equal(posts[0].collapsedKeys.length, 2,
+        'both unmanaged worktree groups are reported collapsed');
+
+    // Expanding again mirrors the empty set.
+    await page.evaluate(() => toggleAllAiSessionWorktrees(document.querySelector('.project')));
+    posts = await page.evaluate(() =>
+        window.__postedMessages.filter(message => message.type === 'set-ai-session-collapsed-worktree-groups'));
+    assert.equal(posts.length, 2);
+    assert.deepEqual(posts[1].collapsedKeys, []);
+});

@@ -158,6 +158,18 @@ function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
         aiSessionCollapsedWorktrees: projects,
         aiSessionExpandedGroupMembers: memberDetails,
     }));
+    // M2 transition: mirror the collapsed set into the host-persisted window
+    // view state so the PR-D tree view restores it across reloads. Every
+    // caller is a user-intent path (toggle / collapse-all / reveal-expand),
+    // never a replacement replay, so this posts exactly once per gesture.
+    if (typeof vscodeApi.postMessage === 'function') {
+        vscodeApi.postMessage({
+            type: 'set-ai-session-collapsed-worktree-groups',
+            version: 1,
+            projectId: projectId,
+            collapsedKeys: projects[projectId],
+        });
+    }
     syncAiSessionWorktreeCollapseAllButton(projectDiv);
 }
 
@@ -487,6 +499,39 @@ function getSelectedAiSessionTab(projectDiv) {
     if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
     var selected = projectDiv.querySelector('[data-ai-session-tab][aria-selected="true"]');
     return selected ? normalizeAiSessionTab(selected.getAttribute('data-ai-session-tab')) : null;
+}
+
+// M2 transition: import the webview-held legacy sub-tab selection into the
+// host-persisted window view state exactly once per boot ('sessions' → ALL;
+// anything else is the CHATS default). The host first-writer-wins per scope,
+// so a live post-upgrade selection is never clobbered by a stale boot import.
+var legacyAiSessionTabImportDone = false;
+
+function maybeImportLegacyAiSessionViewState(vscodeApi, root) {
+    if (legacyAiSessionTabImportDone) {
+        return;
+    }
+    legacyAiSessionTabImportDone = true;
+    if (!vscodeApi || typeof vscodeApi.postMessage !== 'function') {
+        return;
+    }
+    var tabs = readAiSessionTabState(vscodeApi);
+    var currentCard = (root || document).querySelector(
+        '.workspace-card[data-current-workspace][data-id]'
+    );
+    var projectId = currentCard && currentCard.getAttribute('data-id');
+    var legacyTab = projectId && Object.prototype.hasOwnProperty.call(tabs, projectId)
+        ? tabs[projectId]
+        : null;
+    if (!legacyTab) {
+        return;
+    }
+    vscodeApi.postMessage({
+        type: 'migrate-ai-session-view-state',
+        version: 1,
+        projectId: projectId,
+        tab: legacyTab === 'sessions' ? 'all' : 'chats',
+    });
 }
 
 function getAiSessionScrollItemKey(row) {

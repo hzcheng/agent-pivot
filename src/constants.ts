@@ -45,6 +45,12 @@ export const WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY =
 export const WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY =
     'workspaceAiSessionProviderSelection.v1';
 export const WORKSPACE_AI_SESSION_SURFACE_KEY = 'workspaceAiSessionSurface.v1';
+// Per-window (scopeIdentity-keyed) OPEN tab view state for the M2 CHATS/ALL
+// restructure: selected top tab, CHATS view mode, and collapsed worktree
+// groups. The legacy surface key above stays the write target for the
+// pre-M2 surface tabs; this record is backfilled from it until PR-D retires
+// the surface model.
+export const WORKSPACE_AI_SESSION_VIEW_STATE_KEY = 'workspaceAiSessionViewState.v1';
 
 export enum StorageOption {
     GlobalState,

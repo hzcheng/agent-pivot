@@ -2998,7 +2998,7 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the wor
     assert.equal(await worktreeTab.getAttribute('aria-selected'), 'true',
         'closing the conversation keeps the worktree surface');
     assert.equal(await chatsTab.getAttribute('aria-selected'), 'false');
-    assert.deepEqual((await postedMessages(page)).at(-1), {
+    assert.deepEqual((await postedMessages(page)).find(message => message.type === 'select-ai-session-surface'), {
         type: 'select-ai-session-surface',
         version: 1,
         projectId: 'project-a',
@@ -3047,4 +3047,67 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-002 falls back to ACTIVE for a stale sam
         await sessionsTab.evaluate(tab => document.activeElement === tab),
         true
     );
+});
+
+test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 sub-tab and surface clicks mirror into the window view-state protocol', async t => {
+    const active = [session('codex', 'active-1', true)];
+    const page = await openCardPage(t, active);
+
+    await page.locator('[data-ai-session-tab="sessions"]').click();
+    await page.locator('[data-ai-session-tab="active"]').click();
+    let posts = await page.evaluate(() =>
+        window.__postedMessages.filter(message => message.type === 'select-ai-session-view-tab'));
+    assert.deepEqual(posts, [
+        { type: 'select-ai-session-view-tab', version: 1, projectId: 'project-a', tab: 'all' },
+        { type: 'select-ai-session-view-tab', version: 1, projectId: 'project-a', tab: 'chats' },
+    ], 'sub-tab clicks mirror ACTIVE→chats / ALL→all into the host-persisted view state');
+
+    // Switching to the CHATS surface mirrors the current sub-tab; the WORKTREE
+    // surface maps host-side instead (no webview view-tab post).
+    await page.locator('[data-action="select-ai-session-surface"][data-surface="worktree"]').click();
+    await page.locator('[data-action="select-ai-session-surface"][data-surface="chats"]').click();
+    posts = await page.evaluate(() =>
+        window.__postedMessages.filter(message => message.type === 'select-ai-session-view-tab'));
+    assert.equal(posts.length, 3);
+    assert.equal(posts[2].tab, 'chats', 'the current ACTIVE sub-tab maps to the CHATS view tab');
+    const surfaces = await page.evaluate(() =>
+        window.__postedMessages.filter(message => message.type === 'select-ai-session-surface'));
+    assert.equal(surfaces.length, 2, 'the legacy surface message still posts for both clicks');
+});
+
+test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 boot imports the legacy webview sub-tab selection once', async t => {
+    const active = [session('codex', 'active-1', true)];
+    const page = await browser.newPage({ viewport: { width: 360, height: 900 } });
+    t.after(() => page.close());
+    page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
+    await page.setContent(documentMarkup(active));
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+        let state = { aiSessionTabs: { 'project-a': 'sessions' } };
+        window.vscode = {
+            getState: () => state,
+            setState(next) { state = next; },
+            postMessage: message => window.__postedMessages.push(message),
+        };
+    });
+    for (const source of [
+        scrollStateScript, viewStateScript, workspaceUpdateScript, todoGroupScript,
+        projectCollapseScript, todoControlScript, projectContextMenuScript,
+        projectAiUpdateScript, groupFormScript, aiSessionControlsScript, projectScript,
+    ]) {
+        await page.addScriptTag({ content: source });
+    }
+    await page.evaluate(() => initProjects());
+    const migrations = await page.evaluate(() =>
+        window.__postedMessages.filter(message => message.type === 'migrate-ai-session-view-state'));
+    assert.deepEqual(migrations, [{
+        type: 'migrate-ai-session-view-state', version: 1, projectId: 'project-a', tab: 'all',
+    }], "the legacy 'sessions' sub-tab imports as the ALL view tab at boot");
+
+    // The once-per-boot guard blocks repeat imports (e.g. a second init pass).
+    await page.evaluate(() => maybeImportLegacyAiSessionViewState(window.vscode, document));
+    const after = await page.evaluate(() =>
+        window.__postedMessages.filter(message => message.type === 'migrate-ai-session-view-state'));
+    assert.equal(after.length, 1);
 });

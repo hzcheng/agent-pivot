@@ -153,6 +153,91 @@ test('PERSIST-PROJECT-STATE-STORE-001 AI-SESSION-QUICK-CREATE-001 quick-create p
     assert.equal(store.getActiveProviders()['scope-a'], 'codex');
 });
 
+test('PERSIST-PROJECT-STATE-STORE-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 window view state round-trips validated writes and resolves CHATS+tree defaults', async () => {
+    const state = makeState({});
+    const store = new AiSessionWorkspaceStateStore(
+        state.memento,
+        value => value === 'codex'
+    );
+
+    // Nothing stored: the resolved state is the PRD migration landing
+    // (CHATS tab + tree view), with no collapse memory.
+    assert.deepEqual(store.getWindowViewState('scope-a'), { tab: 'chats', chatsViewMode: 'tree' });
+    assert.deepEqual(store.getWindowViewState(''), {});
+
+    await store.setWindowViewTab('scope-a', 'all');
+    await store.setChatsViewMode('scope-a', 'list');
+    await store.setCollapsedWorktreeGroups('scope-a', [
+        '["__anchor__"]',
+        '["group","g1"]',
+        '["__anchor__"]',
+        '',
+        7,
+    ]);
+    assert.deepEqual(store.getWindowViewState('scope-a'), {
+        tab: 'all',
+        chatsViewMode: 'list',
+        collapsedWorktreeGroups: ['["__anchor__"]', '["group","g1"]'],
+    }, 'writes persist per scope with junk keys filtered and duplicates removed');
+
+    // Invalid writes are ignored without touching the stored record.
+    await store.setWindowViewTab('scope-a', 'grid');
+    await store.setChatsViewMode('scope-a', 'grid');
+    await store.setWindowViewTab('', 'chats');
+    await store.setCollapsedWorktreeGroups('scope-a', 'not-an-array');
+    assert.deepEqual(store.getWindowViewState('scope-a'), {
+        tab: 'all',
+        chatsViewMode: 'list',
+        collapsedWorktreeGroups: ['["__anchor__"]', '["group","g1"]'],
+    });
+
+    // Junk in the persisted record is dropped field by field on read.
+    const junkState = makeState({
+        'workspaceAiSessionViewState.v1': {
+            'scope-b': {
+                tab: 'all',
+                chatsViewMode: 'grid',
+                collapsedWorktreeGroups: ['k', '', 7, 'k'],
+            },
+            'scope-c': 'garbage',
+            '': { tab: 'all' },
+        },
+    });
+    const junkStore = new AiSessionWorkspaceStateStore(junkState.memento, () => true);
+    assert.deepEqual(junkStore.getWindowViewState('scope-b'), {
+        tab: 'all',
+        chatsViewMode: 'tree',
+        collapsedWorktreeGroups: ['k'],
+    });
+    assert.deepEqual(junkStore.getWindowViewState('scope-c'), { tab: 'chats', chatsViewMode: 'tree' });
+    assert.deepEqual(junkStore.getWindowViewState(''), {});
+});
+
+test('PERSIST-PROJECT-STATE-STORE-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 legacy sub-tab import is first-writer-wins and stays out of the worktree-surface migration', async () => {
+    const state = makeState({
+        'workspaceAiSessionSurface.v1': { 'scope-worktree': 'worktree' },
+    });
+    const store = new AiSessionWorkspaceStateStore(state.memento, () => true);
+
+    // 'sessions' → ALL when nothing has decided the window's tab yet.
+    assert.equal(await store.importLegacyWindowViewTab('scope-a', 'all'), true);
+    assert.equal(store.getWindowViewState('scope-a').tab, 'all');
+
+    // A second import must not clobber the recorded selection.
+    assert.equal(await store.importLegacyWindowViewTab('scope-a', 'chats'), false);
+    assert.equal(store.getWindowViewState('scope-a').tab, 'all');
+
+    // The legacy 'worktree' surface migrates to CHATS regardless of the hidden
+    // legacy sub-tab, so the import leaves it to the default resolution.
+    assert.equal(await store.importLegacyWindowViewTab('scope-worktree', 'all'), false);
+    assert.equal(store.getWindowViewState('scope-worktree').tab, 'chats');
+
+    // Invalid values and empty scopes are ignored.
+    assert.equal(await store.importLegacyWindowViewTab('scope-b', 'grid'), false);
+    assert.equal(await store.importLegacyWindowViewTab('', 'all'), false);
+    assert.deepEqual(store.getWindowViewState('scope-b'), { tab: 'chats', chatsViewMode: 'tree' });
+});
+
 test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores invalid writes', async () => {
     const state = makeState({
         'workspaceExpandedAiSessions.v2': ['scope-a', '', 7, 'scope-a', 'scope-b'],

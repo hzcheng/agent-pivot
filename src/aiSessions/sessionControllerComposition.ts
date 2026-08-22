@@ -427,6 +427,14 @@ export function createSessionControllerComposition(
         setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
         setSelectedSurface: (workspaceScopeIdentity, surface) =>
             aiSessionWorkspaceStateStore.setSelectedSurface(workspaceScopeIdentity, surface),
+        setWindowViewTab: (workspaceScopeIdentity, tab) =>
+            aiSessionWorkspaceStateStore.setWindowViewTab(workspaceScopeIdentity, tab),
+        setChatsViewMode: (workspaceScopeIdentity, viewMode) =>
+            aiSessionWorkspaceStateStore.setChatsViewMode(workspaceScopeIdentity, viewMode),
+        setCollapsedWorktreeGroups: (workspaceScopeIdentity, collapsedKeys) =>
+            aiSessionWorkspaceStateStore.setCollapsedWorktreeGroups(workspaceScopeIdentity, collapsedKeys),
+        importLegacyWindowViewTab: (workspaceScopeIdentity, tab) =>
+            aiSessionWorkspaceStateStore.importLegacyWindowViewTab(workspaceScopeIdentity, tab),
         setProviderSelection: (workspaceScopeIdentity, selection) =>
             aiSessionWorkspaceStateStore.setProviderSelection(workspaceScopeIdentity, selection),
         postProviderSelectionResult: result => postMessage(result),

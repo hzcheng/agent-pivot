@@ -5,6 +5,7 @@ import {
     WORKSPACE_ACTIVE_AI_SESSION_PROVIDER_KEY,
     WORKSPACE_AI_SESSION_PROVIDER_SELECTION_KEY,
     WORKSPACE_AI_SESSION_SURFACE_KEY,
+    WORKSPACE_AI_SESSION_VIEW_STATE_KEY,
     WORKSPACE_EXPANDED_AI_SESSIONS_KEY,
     WORKSPACE_QUICK_CREATE_AI_SESSION_PROVIDER_KEY,
 } from '../constants';
@@ -18,6 +19,18 @@ interface MementoLike {
 }
 
 export type AiSessionSurfaceId = 'worktree' | 'chats';
+
+/** M2 window-scoped OPEN tab view state (PRD 状态模型: CHATS/ALL tab, CHATS 视图模式, worktree 组折叠集合). */
+export type AiSessionWindowViewTab = 'chats' | 'all';
+export type AiSessionChatsViewMode = 'tree' | 'list';
+export interface AiSessionWindowViewState {
+    tab?: AiSessionWindowViewTab;
+    chatsViewMode?: AiSessionChatsViewMode;
+    collapsedWorktreeGroups?: string[];
+}
+
+const MAX_COLLAPSED_WORKTREE_GROUPS = 500;
+const MAX_WORKTREE_GROUP_KEY_LENGTH = 1024;
 
 export default class AiSessionWorkspaceStateStore {
     constructor(
@@ -123,6 +136,150 @@ export default class AiSessionWorkspaceStateStore {
         const surfaces = this.getSelectedSurfaces();
         surfaces[workspaceScopeIdentity] = surface;
         await this.state.update(WORKSPACE_AI_SESSION_SURFACE_KEY, surfaces);
+    }
+
+    // --- M2 window view state (additive; PR-D makes it the render source) ---
+
+    private readWindowViewStates(): Record<string, AiSessionWindowViewState> {
+        const stored = this.state.get<unknown>(WORKSPACE_AI_SESSION_VIEW_STATE_KEY);
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
+            return {};
+        }
+        const result: Record<string, AiSessionWindowViewState> = {};
+        for (const [scopeIdentity, value] of Object.entries(stored as Record<string, unknown>)) {
+            if (!scopeIdentity || !value || typeof value !== 'object' || Array.isArray(value)) {
+                continue;
+            }
+            const record = value as Record<string, unknown>;
+            const entry: AiSessionWindowViewState = {};
+            if (record.tab === 'chats' || record.tab === 'all') {
+                entry.tab = record.tab;
+            }
+            if (record.chatsViewMode === 'tree' || record.chatsViewMode === 'list') {
+                entry.chatsViewMode = record.chatsViewMode;
+            }
+            if (Array.isArray(record.collapsedWorktreeGroups)) {
+                const keys = record.collapsedWorktreeGroups
+                    .filter((key): key is string =>
+                        typeof key === 'string'
+                        && key.length > 0
+                        && key.length <= MAX_WORKTREE_GROUP_KEY_LENGTH)
+                    .slice(0, MAX_COLLAPSED_WORKTREE_GROUPS);
+                entry.collapsedWorktreeGroups = Array.from(new Set(keys));
+            }
+            result[scopeIdentity] = entry;
+        }
+        return result;
+    }
+
+    /**
+     * The window's resolved view state. Unstored fields fall to the CHATS +
+     * tree defaults, which double as the存量迁移 mapping: a legacy 'worktree'
+     * surface lands on CHATS + tree, and a legacy 'chats' surface refines the
+     * tab through the webview's one-time legacy sub-tab import
+     * (`importLegacyWindowViewTab`: sub-tab 'sessions' → ALL).
+     */
+    getWindowViewState(workspaceScopeIdentity: string): AiSessionWindowViewState {
+        if (!workspaceScopeIdentity) {
+            return {};
+        }
+        const stored = this.readWindowViewStates()[workspaceScopeIdentity];
+        if (stored?.tab && stored?.chatsViewMode) {
+            return stored;
+        }
+        return {
+            tab: stored?.tab ?? 'chats',
+            chatsViewMode: stored?.chatsViewMode ?? 'tree',
+            ...(stored?.collapsedWorktreeGroups
+                ? { collapsedWorktreeGroups: stored.collapsedWorktreeGroups }
+                : {}),
+        };
+    }
+
+    private async updateWindowViewState(
+        workspaceScopeIdentity: string,
+        patch: (current: AiSessionWindowViewState) => AiSessionWindowViewState,
+    ): Promise<void> {
+        if (!workspaceScopeIdentity) {
+            return;
+        }
+        const states = this.readWindowViewStates();
+        states[workspaceScopeIdentity] = patch(states[workspaceScopeIdentity] || {});
+        await this.state.update(WORKSPACE_AI_SESSION_VIEW_STATE_KEY, states);
+    }
+
+    async setWindowViewTab(
+        workspaceScopeIdentity: string,
+        tab: AiSessionWindowViewTab
+    ): Promise<void> {
+        if (tab !== 'chats' && tab !== 'all') {
+            return;
+        }
+        await this.updateWindowViewState(workspaceScopeIdentity, current => ({
+            ...current,
+            tab,
+        }));
+    }
+
+    async setChatsViewMode(
+        workspaceScopeIdentity: string,
+        viewMode: AiSessionChatsViewMode
+    ): Promise<void> {
+        if (viewMode !== 'tree' && viewMode !== 'list') {
+            return;
+        }
+        await this.updateWindowViewState(workspaceScopeIdentity, current => ({
+            ...current,
+            chatsViewMode: viewMode,
+        }));
+    }
+
+    async setCollapsedWorktreeGroups(
+        workspaceScopeIdentity: string,
+        collapsedKeys: readonly string[]
+    ): Promise<void> {
+        // A non-array payload is junk, not a clear-all: only an explicit
+        // (possibly empty) array replaces the collapsed set.
+        if (!Array.isArray(collapsedKeys)) {
+            return;
+        }
+        const keys = collapsedKeys
+            .filter((key): key is string =>
+                typeof key === 'string'
+                && key.length > 0
+                && key.length <= MAX_WORKTREE_GROUP_KEY_LENGTH)
+            .slice(0, MAX_COLLAPSED_WORKTREE_GROUPS);
+        await this.updateWindowViewState(workspaceScopeIdentity, current => ({
+            ...current,
+            collapsedWorktreeGroups: Array.from(new Set(keys)),
+        }));
+    }
+
+    /**
+     * One-time legacy import from the webview-held sub-tab state: fills the
+     * window's tab only when no new tab was persisted yet. A legacy 'worktree'
+     * surface migrates to CHATS regardless of the hidden sub-tab (PRD 存量迁移),
+     * so the import stays out of that case; 'chats' + sub-tab 'sessions' maps
+     * to ALL through the import.
+     */
+    async importLegacyWindowViewTab(
+        workspaceScopeIdentity: string,
+        tab: AiSessionWindowViewTab
+    ): Promise<boolean> {
+        if (!workspaceScopeIdentity || (tab !== 'chats' && tab !== 'all')) {
+            return false;
+        }
+        if (this.readWindowViewStates()[workspaceScopeIdentity]?.tab) {
+            return false;
+        }
+        if (this.getSelectedSurfaces()[workspaceScopeIdentity] === 'worktree') {
+            return false;
+        }
+        await this.updateWindowViewState(workspaceScopeIdentity, current => ({
+            ...current,
+            tab,
+        }));
+        return true;
     }
 
     private readProviderSelections(): Record<string, AiSessionProviderSelection> {

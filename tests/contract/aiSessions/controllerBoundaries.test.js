@@ -118,7 +118,7 @@ test('SESSION-ALIAS-THREAD-SWITCH-001 copies an old alias without removing it or
     assert.equal(saveErrors, 1);
 });
 
-test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effects without mutating invalid targets', async () => {
+test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 exposes validated command effects without mutating invalid targets', async () => {
     const effects = [];
     const workspaceTarget = {
         cardId: 'project',
@@ -137,6 +137,13 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
         isProviderId: value => value === 'codex',
         setExpanded: async (key, value) => effects.push(['expanded', key, value]),
         setSelectedSurface: async (key, value) => effects.push(['surface', key, value]),
+        setWindowViewTab: async (key, value) => effects.push(['view-tab', key, value]),
+        setChatsViewMode: async (key, value) => effects.push(['view-mode', key, value]),
+        setCollapsedWorktreeGroups: async (key, value) => effects.push(['collapsed-groups', key, value]),
+        importLegacyWindowViewTab: async (key, value) => {
+            effects.push(['import-tab', key, value]);
+            return true;
+        },
         setProviderSelection: async (scope, selection) =>
             effects.push(['providers', scope, selection]),
         postProviderSelectionResult: async result => effects.push(['provider-result', result]),
@@ -152,12 +159,29 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 exposes validated command effect
     await controller.selectSurface('project', 'worktree');
     await controller.selectSurface('project', 'grid');
     await controller.selectSurface('missing', 'chats');
+    await controller.selectSurface('project', 'chats');
+    await controller.selectWindowViewTab('project', 'all');
+    await controller.selectWindowViewTab('project', 'grid');
+    await controller.selectChatsViewMode('project', 'list');
+    await controller.setCollapsedWorktreeGroups('project', ['["__anchor__"]', 7, null]);
+    await controller.setCollapsedWorktreeGroups('missing', ['x']);
+    await controller.importLegacyWindowViewTab('project', 'all');
     await controller.selectProviders('project', ['claude', 'codex', 'claude', 'unknown'], 7, 1);
     await controller.renameSession('codex', 'session');
     await controller.copySessionId('session');
     assert.deepEqual(effects, [
         ['expanded', 'scope:/work', true],
         ['surface', 'scope:/work', 'worktree'],
+        // M2 transition dual-write: the worktree surface maps to CHATS + tree.
+        ['view-tab', 'scope:/work', 'chats'],
+        ['view-mode', 'scope:/work', 'tree'],
+        // The 'chats' surface carries no view-state dual-write.
+        ['surface', 'scope:/work', 'chats'],
+        ['view-tab', 'scope:/work', 'all'],
+        ['view-mode', 'scope:/work', 'list'],
+        // Non-string group keys are filtered before reaching the store.
+        ['collapsed-groups', 'scope:/work', ['["__anchor__"]']],
+        ['import-tab', 'scope:/work', 'all'],
         ['providers', 'scope:/work', {
             primaryProvider: 'codex',
             selectedProviders: ['codex', 'claude'],

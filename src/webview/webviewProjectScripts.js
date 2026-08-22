@@ -1045,6 +1045,10 @@ function initProjects() {
         documentGeneration: window.__agentPivotReadyDocumentGeneration,
     });
     restoreAiSessionTabsFromState(document, window.vscode);
+    // M2 transition: import the legacy webview-held sub-tab selection into the
+    // host-persisted window view state once per boot (first-writer-wins host
+    // side), right after the in-session restore above consumed the same map.
+    maybeImportLegacyAiSessionViewState(window.vscode, document);
     window.vscode.postMessage({ type: 'request-active-ai-session-terminal' });
 
     observeStickyGroupHeaderOffset();

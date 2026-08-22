@@ -133,17 +133,6 @@ export function createDashboardMessageHandlers(
         'toggle-codex-sessions': async e => {
             await aiSessionCommandController.toggleSessionsExpanded(e.projectId as string, Boolean(e.expanded));
         },
-        'select-ai-session-surface': async e => {
-            // The selection only steers future authoritative renders, so the
-            // webview never blocks on it; strict shape keeps junk out of the
-            // persisted store.
-            const keys = Object.keys(e).sort();
-            if (e.version !== 1
-                || keys.join('\n') !== ['projectId', 'surface', 'type', 'version'].sort().join('\n')) {
-                return;
-            }
-            await aiSessionCommandController.selectSurface(e.projectId, e.surface);
-        },
         // M2 window view-state protocol (additive until the PR-D cutover).
         // Same fire-and-forget semantics as the surface route: strict envelope
         // shape, controller resolves the workspace scope, store validates.

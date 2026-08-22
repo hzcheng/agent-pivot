@@ -187,10 +187,6 @@ export interface AiSessionCommandControllerOptions {
     showWarningMessage?: (message: string) => unknown;
     isProviderId: (value: string) => value is AiSessionProviderId;
     setExpanded: (workspaceScopeIdentity: string, expanded: boolean) => Thenable<unknown>;
-    setSelectedSurface: (
-        workspaceScopeIdentity: string,
-        surface: 'worktree' | 'chats'
-    ) => Thenable<unknown>;
     setWindowViewTab: (
         workspaceScopeIdentity: string,
         tab: 'chats' | 'all'
@@ -358,26 +354,6 @@ export class AiSessionCommandController {
             return;
         }
         await this.options.setExpanded(workspaceTarget.workspace.scopeIdentity, expanded);
-    }
-
-    async selectSurface(projectId: unknown, surface: unknown): Promise<void> {
-        if (typeof projectId !== 'string' || !projectId
-            || (surface !== 'worktree' && surface !== 'chats')) {
-            return;
-        }
-        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
-        if (!workspaceTarget) {
-            return;
-        }
-        await this.options.setSelectedSurface(workspaceTarget.workspace.scopeIdentity, surface);
-        // M2 transition dual-write: the legacy WORKTREE surface maps onto
-        // CHATS + tree in the window view-state store, so the PR-D cutover
-        // reads live values instead of a one-shot migration. The 'chats'
-        // surface carries no view state — the sub-tab writes it directly.
-        if (surface === 'worktree') {
-            await this.options.setWindowViewTab(workspaceTarget.workspace.scopeIdentity, 'chats');
-            await this.options.setChatsViewMode(workspaceTarget.workspace.scopeIdentity, 'tree');
-        }
     }
 
     async selectWindowViewTab(projectId: unknown, tab: unknown): Promise<void> {

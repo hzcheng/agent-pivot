@@ -336,7 +336,7 @@ function initAiSessionPresentationDom(options) {
         }
     }
     function setActiveSessionTabAttentionDom(projectDiv, attentionCount) {
-        var tab = projectDiv.querySelector('[data-ai-session-tab="active"]');
+        var tab = projectDiv.querySelector('[data-ai-session-tab="chats"]');
         if (!tab) return;
         var dot = tab.querySelector('.ai-session-tab-attention');
         if (attentionCount > 0 && !dot) {
@@ -672,9 +672,14 @@ function initProjectAiSessionsUpdate(options) {
         if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
             toggleCodexSessions(workspaceDiv, workspaceId);
         }
-        selectAiSessionTabDom(workspaceDiv, 'sessions');
-        writeAiSessionTabState(window.vscode, workspaceId, 'sessions');
-        var sessionRow = Array.from(workspaceDiv.querySelectorAll('.codex-session-row[data-session-id][data-session-provider]'))
+        selectAiSessionTabDom(workspaceDiv, 'all');
+        writeAiSessionTabState(window.vscode, workspaceId, 'all');
+        postSelectedAiSessionViewTab(workspaceId, 'all');
+        // ALL ⊇ CHATS：同一 active session 在两个面板各有一行；查询必须限定在
+        // 已选的 ALL 面板，否则会命中隐藏 CHATS 面板里的同名行并静默聚焦失败。
+        var sessionRow = Array.from(workspaceDiv.querySelectorAll(
+            '[data-ai-session-panel="all"] .codex-session-row[data-session-id][data-session-provider]'
+        ))
             .find(row => row.getAttribute('data-session-provider') === provider
                 && row.getAttribute('data-session-id') === sessionId);
         if (sessionRow) {
@@ -708,16 +713,9 @@ function initProjectAiSessionsUpdate(options) {
         if (!workspaceDiv.hasAttribute('data-codex-expanded')) {
             toggleCodexSessions(workspaceDiv, workspaceId);
         }
-        selectAiSessionSurfaceDom(workspaceDiv, 'worktree');
-        writeAiSessionSurfaceState(window.vscode, workspaceId, 'worktree');
-        if (window.vscode && typeof window.vscode.postMessage === 'function') {
-            window.vscode.postMessage({
-                type: 'select-ai-session-surface',
-                version: 1,
-                projectId: workspaceId,
-                surface: 'worktree',
-            });
-        }
+        selectAiSessionTabDom(workspaceDiv, 'chats');
+        writeAiSessionTabState(window.vscode, workspaceId, 'chats');
+        postSelectedAiSessionViewTab(workspaceId, 'chats');
         var group = Array.from(workspaceDiv.querySelectorAll(
             '.ai-session-worktree-group[data-worktree-repository-key][data-worktree-path]'
         )).find(candidate =>

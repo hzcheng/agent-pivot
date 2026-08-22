@@ -1186,13 +1186,6 @@ body .project {
                     overflow: hidden;
                 }
 
-                .ai-session-surface-panel:not([hidden]) {
-                    flex: 1 1 0;
-                    min-height: 0;
-                    display: flex;
-                    flex-direction: column;
-                }
-
                 .ai-session-worktree-list {
                     flex: 1 1 0;
                     min-height: 0;
@@ -2531,21 +2524,6 @@ body.steward-sidebar {
             opacity: 0.8;
         }
 
-        // The surface bar keeps the WORKTREE/CHATS switcher and the
-        // new-worktree icon button on one row.
-        .ai-session-surface-bar {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-top: 6px;
-            flex: 0 0 auto;
-
-            .ai-session-surface-tabs {
-                flex: 1 1 auto;
-                min-width: 0;
-            }
-        }
-
         .ai-session-worktree-panel-bar {
             display: flex;
             justify-content: flex-end;
@@ -2591,65 +2569,14 @@ body.steward-sidebar {
             }
         }
 
-        // Collapsing worktrees only means something on the Worktree surface.
-        .codex-sessions[data-selected-ai-session-surface="chats"] .ai-session-worktree-collapse-all {
+        // Collapsing worktrees only means something on the CHATS tree view.
+        .codex-sessions[data-selected-ai-session-tab="all"] .ai-session-worktree-collapse-all {
             display: none;
         }
 
-        .ai-session-surface-tabs {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 3px;
-            padding: 2px;
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 7px;
-            background: var(--vscode-sideBar-background);
-
-            [role="tab"] {
-                position: relative;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                gap: 5px;
-                min-width: 0;
-                min-height: 24px;
-                padding: 3px 6px;
-                border: 1px solid transparent;
-                border-radius: 5px;
-                color: var(--vscode-descriptionForeground);
-                background: transparent;
-                font-family: var(--vscode-font-family);
-                font-size: 9px;
-                font-weight: 700;
-                letter-spacing: .04em;
-                cursor: pointer;
-                transition:
-                    background $defaultTransition,
-                    border-color $defaultTransition,
-                    color $defaultTransition;
-
-                &:hover {
-                    color: var(--steward-foreground);
-                    background: var(--vscode-list-hoverBackground);
-                }
-
-                &:focus-visible {
-                    outline: 1px solid var(--vscode-focusBorder);
-                    outline-offset: 1px;
-                }
-
-                &[aria-selected="true"] {
-                    color: var(--vscode-list-activeSelectionForeground, var(--steward-foreground));
-                    border-color: var(--vscode-focusBorder);
-                    background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
-                }
-            }
-        }
-
-        // The Chats toolbar keeps the Active/All filter and the create
-        // actions on one row; the inner tabs are deliberately lighter than
-        // the boxed WORKTREE/CHATS surface switcher so the two levels read
-        // as different hierarchy at a glance.
+        // The Chats toolbar keeps the CHATS/ALL tabs and the create actions
+        // on one row; the tabs stay deliberately lighter than the retired
+        // boxed WORKTREE/CHATS surface switcher did.
         .ai-session-chats-toolbar {
             display: flex;
             align-items: center;
@@ -2660,6 +2587,88 @@ body.steward-sidebar {
             .ai-session-surface-actions {
                 margin-top: 0;
                 margin-left: auto;
+            }
+        }
+
+        // CHATS tab + ▾ view-menu trigger：分体按钮（PRD DOM 结构约束），
+        // 两控件相邻、各自独立可达，区间留死区。
+        .ai-session-tab-pair {
+            position: relative;
+            display: inline-flex;
+            align-items: stretch;
+            min-width: 0;
+
+            [role="tab"] {
+                border-top-right-radius: 0;
+                border-bottom-right-radius: 0;
+            }
+        }
+
+        .ai-session-view-menu-trigger {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            min-height: 24px;
+            margin-left: 4px;
+            padding: 0 3px;
+            border: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            background: transparent;
+            color: var(--vscode-descriptionForeground);
+            font-size: 9px;
+            cursor: pointer;
+
+            &:hover {
+                color: var(--steward-foreground);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: 1px;
+            }
+
+            &[aria-expanded="true"] {
+                color: var(--steward-foreground);
+            }
+        }
+
+        .ai-session-view-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            z-index: 10;
+            min-width: 150px;
+            padding: 3px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 5px;
+            background: var(--vscode-menu-background, var(--vscode-sideBar-background));
+            box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, .36));
+
+            &[hidden] {
+                display: none;
+            }
+        }
+
+        .ai-session-view-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 7px;
+            border-radius: 3px;
+            font-size: 12px;
+            color: var(--vscode-menu-foreground, var(--steward-foreground));
+            cursor: pointer;
+
+            &:focus-visible {
+                outline: 1px solid var(--vscode-focusBorder);
+                outline-offset: -1px;
+            }
+
+            .ai-session-view-menu-check {
+                width: 12px;
+                text-align: center;
             }
         }
 
@@ -2708,19 +2717,6 @@ body.steward-sidebar {
                     border-bottom-color: var(--vscode-focusBorder);
                 }
             }
-        }
-
-        .ai-session-surface-tabs {
-            border-radius: 6px;
-
-            [role="tab"] {
-                min-height: 28px;
-                font-size: 10px;
-            }
-        }
-
-        .ai-session-surface-panel[hidden] {
-            display: none;
         }
 
 
@@ -4645,7 +4641,7 @@ body.steward-sidebar {
             line-height: 1;
         }
 
-        .ai-session-active-empty {
+        .ai-session-chats-empty {
             display: grid;
             gap: 5px;
             padding: 9px 7px;

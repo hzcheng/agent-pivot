@@ -118,7 +118,7 @@ function surface(overrides) {
         id: 'project-a',
         activeAiSessionProvider: 'codex',
         selectedAiSessionProviders: ['codex'],
-        activeAiSessionTab: 'sessions',
+        activeAiSessionTab: 'chats',
         codexSessions: [],
         kimiSessions: [],
         claudeSessions: [],
@@ -352,7 +352,6 @@ test('WORKTREE-GROUPS-UI-001 keeps the task name readable beside repository chip
     // workspaces; the title keeps a readable floor and chips shrink first
     // (their full names stay available on hover tooltips).
     const page = await openSurfacePage(surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow({
             displayName: 'fix-the-authentication-login-flow-regression',
             chips: [
@@ -365,9 +364,6 @@ test('WORKTREE-GROUPS-UI-001 keeps the task name readable beside repository chip
         activeAiSessions: [liveSession()],
     }), 320);
     t.after(() => page.close());
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
-    });
 
     const layout = await page.evaluate(() => {
         const title = document.querySelector(
@@ -414,7 +410,6 @@ test('WORKTREE-GROUPS-UI-001 shows the merge affordance and stable discriminator
 
 test('WORKTREE-GROUPS-UI-001 merge request ids carry a per-document nonce (review R6)', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [
             groupRow({ mergeCandidateGroupIds: ['g-2'] }),
             groupRow({ groupId: 'g-2', mergeCandidateGroupIds: ['g-1'] }),
@@ -456,7 +451,7 @@ test('WORKTREE-GROUPS-UI-001 flags legacy-scope sessions until restart', async t
     t.after(() => page.close());
 
     const badge = page.locator(
-        '[data-ai-session-surface-panel="worktree"]'
+        '[data-ai-session-panel="chats"]'
         + ' .codex-session-row[data-session-id="s-1"] .ai-session-legacy-scope');
     assert.equal(await badge.count(), 1);
     assert.match(await badge.textContent(), /legacy scope/i);
@@ -485,10 +480,6 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
         activeAiSessions: [liveSession()],
     }), 170);
     t.after(() => page.close());
-
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
-    });
     assert.equal(await page.locator('.ai-session-worktree-anchor').count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-task-group').count(), 1);
     const layout = await page.evaluate(() => ({
@@ -503,7 +494,6 @@ test('WORKTREE-GROUPS-RENAME-001 expanded member details stay contained at 170px
     const longLabel = 'agent-pivot-with-a-very-long-repository-name';
     const longBranch = 'agent-pivot/fix-login-with-a-very-long-branch-name';
     const page = await openSurfacePage(surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow({
             members: [
                 member({
@@ -522,7 +512,6 @@ test('WORKTREE-GROUPS-RENAME-001 expanded member details stay contained at 170px
     t.after(() => page.close());
 
     await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
         setWorktreeGroupMemberDetailsExpanded(
             document.querySelector('.ai-session-worktree-group[data-group-id="g-1"]'), true);
     });
@@ -596,7 +585,7 @@ test('WORKTREE-GROUPS-UI-001 anchor and group sessions never duplicate into the 
     }), 320);
     t.after(() => page.close());
 
-    const panel = page.locator('[data-ai-session-surface-panel="worktree"]');
+    const panel = page.locator('[data-ai-session-panel="chats"]');
     assert.equal(await panel.locator('.codex-session-row[data-session-id="s-main"]').count(), 1);
     assert.equal(await panel.locator('.codex-session-row[data-session-id="s-1"]').count(), 1);
     assert.equal(await panel.locator('.codex-session-row[data-session-id="s-manual"]').count(), 1);
@@ -607,7 +596,6 @@ test('WORKTREE-GROUPS-UI-001 anchor and group sessions never duplicate into the 
 
 test('WORKTREE-GROUPS-UI-001 collapse state is keyed independently for anchor and groups', async t => {
     const page = await openSurfacePage(surface({
-        selectedSurface: 'worktree',
         worktreeAnchor: {
             entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
             worktreeKeys: [alphaMainKey],
@@ -709,7 +697,6 @@ test('WORKTREE-GROUPS-UI-001 set-primary settlements drive the button pending st
         chips: [{ label: 'a', title: 'alpha' }, { label: 'b', title: 'beta' }],
     });
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [primaryPickerGroup],
     });
     const groupHtml = () =>
@@ -810,7 +797,6 @@ test('WORKTREE-GROUPS-UI-001 set-primary settlements drive the button pending st
 
 test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list scroll position', async t => {
     const sessionHtml = surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow({
             members: [
                 member(),
@@ -878,7 +864,7 @@ test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list a
     const card = `<div class="project workspace-card" data-id="project-a" data-current-workspace
         data-codex-expanded data-workspace-scope-identity="scope:current"
         data-workspace-navigation-identity="navigation:current"
-        style="height: 1600px">${surface({ selectedSurface: 'worktree' })}</div>`;
+        style="height: 1600px">${surface()}</div>`;
     const currentGroup = `<div class="open-current-workspace-group current-card-expanded">`
         + `<div class="group-list">${card}</div></div>`;
     const switcherGroup = getOpenWindowSwitcherGroupContent(buildOpenWindowRowViewModels([{
@@ -1016,7 +1002,6 @@ test('WORKTREE-GROUPS-RENAME-001 member summary expands into per-member details 
         chips: [{ label: 'a', title: 'alpha' }, { label: 'b', title: 'beta' }],
     });
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page, applyUpdate, replacement } = await openGroupActionsPage(t, sessionHtml);
@@ -1063,7 +1048,6 @@ test('WORKTREE-GROUPS-RENAME-001 member summary expands into per-member details 
 test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement lifecycle', async t => {
     const renamedGroup = () => groupRow({ displayName: 'Fix login v2', revision: 2 });
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow()],
     });
     const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
@@ -1144,7 +1128,6 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
     const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
         + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${surface({
-            selectedSurface: 'worktree',
             worktreeGroups: [renamedGroup()],
         })}</div></div></div>`;
     const applied = await applyUpdate(renamedHtml);
@@ -1168,7 +1151,6 @@ test('WORKTREE-GROUPS-RENAME-001 a stale settlement cannot settle another docume
     // document must never correlate with a live request (review: cross-
     // document settlement mix-up).
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -1257,7 +1239,6 @@ test('WORKTREE-GROUPS-RENAME-001 a stale settlement cannot settle another docume
 
 test('WORKTREE-GROUPS-RENAME-001 escape and unchanged input cancel without a message', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -1296,7 +1277,6 @@ test('WORKTREE-GROUPS-RENAME-001 the editor freezes the base revision it opened 
     // group to revision 2 and the replacement restores the editor — the
     // submit must still carry revision 1 so the host fails closed.
     const rev1Html = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow()],
     });
     const { page, applyUpdate } = await openGroupActionsPage(t, rev1Html);
@@ -1311,7 +1291,6 @@ test('WORKTREE-GROUPS-RENAME-001 the editor freezes the base revision it opened 
     const rev2Html = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
         + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
         + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${surface({
-            selectedSurface: 'worktree',
             worktreeGroups: [groupRow({ revision: 2 })],
         })}</div></div></div>`;
     const applied = await applyUpdate(rev2Html);
@@ -1327,7 +1306,6 @@ test('WORKTREE-GROUPS-RENAME-001 the editor freezes the base revision it opened 
 
 test('WORKTREE-GROUPS-RENAME-001 a group without a ready primary still offers rename only', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [groupRow({
             canCreateSession: false,
             needsPrimarySelection: true,
@@ -1411,11 +1389,9 @@ async function expandMemberDetails(page, groupId) {
 
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 removes a member through the card settlement lifecycle', async t => {
     const withoutMember = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup({ members: [member()] })],
     });
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
@@ -1522,7 +1498,6 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 removes a member through the card settle
 
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 a blocked preview disables confirm and cancel restores focus', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -1569,7 +1544,6 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 a blocked preview disables confirm and c
 
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 deleting the primary requires a replacement choice', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -1620,11 +1594,9 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 a partial settlement surfaces the Retry 
         failedCount: 1,
     };
     const withBanner = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup({ deletion: failedJournal })],
     });
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
@@ -1697,7 +1669,6 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 a partial settlement surfaces the Retry 
 
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 the deletion card stays contained at 170px', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml, undefined);
@@ -1743,7 +1714,6 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 the deletion card stays contained at 170
 
 test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card and restores focus', async t => {
     const withoutGroup = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [],
         worktreeAnchor: {
             entries: [{ repositoryLabel: 'alpha', branch: 'main' }],
@@ -1753,7 +1723,6 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card 
         },
     });
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);
@@ -1853,7 +1822,6 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card 
 
 test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members block whole-group deletion with a visible-only alternative', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -1899,7 +1867,6 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 detached members block whole-group deleti
 
 test('WORKTREE-GROUPS-DERIVE-001 derives a group through the prefilled inline form', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -1985,7 +1952,6 @@ test('WORKTREE-GROUPS-DERIVE-001 derives a group through the prefilled inline fo
 
 test('WORKTREE-GROUPS-ADD-REPO-001 adds a repository through the locked-name inline form', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -2086,7 +2052,6 @@ test('WORKTREE-GROUPS-ADD-REPO-001 adds a repository through the locked-name inl
 
 test('WORKTREE-GROUPS-ADD-REPO-001 the scope-outdated note renders on the group row', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup({ scopeOutdatedSessions: 2 })],
     });
     const { page } = await openGroupActionsPage(t, sessionHtml);
@@ -2113,12 +2078,10 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 adopts a cluster through the card settleme
         ],
     }];
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
         worktreeAdoptSuggestions: suggestions,
     });
     const withoutSuggestion = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup(), groupRow({
             groupId: 'g-2', displayName: 'fix-login', revision: 1,
         })],
@@ -2185,7 +2148,6 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 adopts a cluster through the card settleme
 
 test('WORKTREE-GROUPS-ADOPT-MERGE-001 a failed adopt re-enables the card in place', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [],
         worktreeAdoptSuggestions: [{
             slug: 'solo',
@@ -2225,11 +2187,9 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 a failed adopt re-enables the card in plac
 
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 pending clears only after the rendered aggregate reaches the settlement revision', async t => {
     const sessionHtml = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup()],
     });
     const withoutMember = () => surface({
-        selectedSurface: 'worktree',
         worktreeGroups: [twoMemberGroup({ members: [member()] })],
     });
     const { page, applyUpdate } = await openGroupActionsPage(t, sessionHtml);

@@ -267,7 +267,7 @@ OPEN tab
 - bridge `unavailable` / `update-required`：WINDOWS 区显示对应状态条（沿用现有两条文案与 "Show UI Bridge Extension" action），状态条占固定槽位，当前窗口行仍可用。
 - **切换失败**：目标行显示短暂错误态 + 行内重试入口（不只有 toast）。
 - 空窗口（无 folder）：窗口行正常显示（数字槽位为空），其 CHATS/ALL 面板显示"未打开文件夹"空态（沿用 `getOpenCurrentWorkspaceEmptyState` 语义）。
-- CHATS 无 active session：显示空态（"No active sessions" + 新建入口）。
+- CHATS 无 active session：tree 视图仍恒定显示全部 ready worktree（含空占位与管理入口——M2 红线优先）；仅当树里完全没有内容（无 worktree、无 anchor、无 provisioning）时才显示空态（"No active sessions" + 新建入口 + View All 出口）。
 - ALL 无 session：显示空态文案。
 - 窗口名、session 标题过长：省略号，tooltip 看全量。
 

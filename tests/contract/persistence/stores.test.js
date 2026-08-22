@@ -275,9 +275,6 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     });
     await store.setExpanded('scope-c', true);
     await store.setExpanded('', true);
-    await store.setSelectedSurface('scope-c', 'chats');
-    await store.setSelectedSurface('', 'worktree');
-    await store.setSelectedSurface('scope-d', 'grid');
     await store.setActiveProvider('scope-d', 'claude');
     await store.setActiveProvider('scope-e', 'unknown');
     await store.setProviderSelection('scope-d', {
@@ -295,8 +292,12 @@ test('PERSIST-PROJECT-STATE-STORE-001 sanitizes workspace state and ignores inva
     assert.deepEqual(state.values['workspaceExpandedAiSessions.v2'], [
         'scope-a', 'scope-b', 'scope-c',
     ]);
+    // The legacy surface key is read-only after the M2 cutover: nothing may
+    // write it anymore, so even its junk entries stay byte-identical.
     assert.deepEqual(state.values['workspaceAiSessionSurface.v1'], {
-        'scope-a': 'worktree', 'scope-c': 'chats',
+        'scope-a': 'worktree',
+        'scope-b': 'grid',
+        '': 'chats',
     });
     assert.deepEqual(state.values['workspaceActiveAiSessionProvider.v2'], {
         'scope-a': 'codex', 'scope-c': 'kimi', 'scope-d': 'claude',

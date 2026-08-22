@@ -2078,7 +2078,7 @@
   {
     "id": "WORKTREE-GROUPING-UI-001",
     "domain": "webview",
-    "title": "The Dashboard exposes Worktree and Chats as the only top-level AI surfaces while Chats preserves the original Active and All session lists and Worktree renders the Orca-style worktree dashboard",
+    "title": "The Dashboard exposes CHATS (tree view of every ready worktree with the full management surface) and ALL as the session tabs; the tree carries the Orca-style worktree dashboard and the window-scoped CHATS/ALL tab persists Host-side",
     "priority": "P0",
     "status": "automated",
     "owners": [

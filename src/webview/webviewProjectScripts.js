@@ -440,6 +440,10 @@ function initProjects() {
         if (!e.target.closest('.ai-session-provider-menu-wrapper')) {
             aiSessionControls.closeAiSessionProviderMenus();
         }
+        if (!e.target.closest('[data-action="toggle-chats-view-menu"]')
+            && !e.target.closest('[data-chats-view-menu]')) {
+            aiSessionControls.closeChatsViewMenus();
+        }
 
         if (e.target.closest('[data-action="toggle-all-groups"]')) {
             groupCollapse.toggleAllGroups();
@@ -584,7 +588,7 @@ function initProjects() {
         }
         if (message && message.type === 'ai-session-tab-selection-requested') {
             var requestedProject = aiSessionsUpdate.findCurrentWorkspaceDiv(message.projectId);
-            if (requestedProject && (message.tab === 'active' || message.tab === 'sessions')) {
+            if (requestedProject && (message.tab === 'chats' || message.tab === 'all')) {
                 selectAiSessionTabDom(requestedProject, message.tab);
                 writeAiSessionTabState(window.vscode, message.projectId, message.tab);
             }
@@ -709,6 +713,7 @@ function initProjects() {
     window.addEventListener('blur', () => {
         contextMenus.closeContextMenus();
         aiSessionControls.closeAiSessionWorktreeMenu();
+        aiSessionControls.closeChatsViewMenus();
     });
 
     document.addEventListener('mousedown', (e) => {
@@ -911,32 +916,51 @@ function initProjects() {
             }
         }
 
-        var surfaceTab = e.target && e.target.closest
-            ? e.target.closest('[data-ai-session-surface-tab]')
+        // CHATS ▾ 视图菜单键盘：触发按钮 ↓ 开菜单并聚焦当前项；菜单内 ↑/↓ 循环、
+        // Enter/Space 选中、Esc 关闭并焦点回触发按钮（PRD 键盘章节）。
+        var viewMenuTrigger = e.target && e.target.closest
+            ? e.target.closest('[data-action="toggle-chats-view-menu"]')
             : null;
-        if (surfaceTab && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+        if (viewMenuTrigger
+            && (e.key === 'ArrowDown' || e.key === 'ArrowUp'
+                || e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault();
-            var nextSurfaceId = getAdjacentAiSessionSurface(
-                surfaceTab.getAttribute('data-ai-session-surface-tab'),
-                e.key
-            );
-            var surfaceProject = surfaceTab.closest('.project[data-id]');
-            var nextSurface = surfaceProject
-                && Array.from(surfaceProject.querySelectorAll('[data-ai-session-surface-tab]'))
-                    .find(candidate =>
-                        candidate.getAttribute('data-ai-session-surface-tab') === nextSurfaceId
-                    );
-            nextSurface?.focus();
+            var triggerProject = viewMenuTrigger.closest('.project[data-id]');
+            aiSessionControls.setChatsViewMenuOpen(triggerProject, true);
             return;
         }
-        if (surfaceTab && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            var surfaceTabProject = surfaceTab.closest('.project[data-id]');
-            var surfaceTabProjectId = surfaceTabProject
-                && surfaceTabProject.getAttribute('data-id');
-            if (surfaceTabProjectId) {
-                aiSessionControls.onTriggerAiSessionAction(surfaceTab, surfaceTabProjectId);
+        var viewMenuItem = e.target && e.target.closest
+            ? e.target.closest('[data-chats-view-menu] [role="menuitemradio"]')
+            : null;
+        if (viewMenuItem) {
+            var menuProject = viewMenuItem.closest('.project[data-id]');
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                aiSessionControls.closeChatsViewMenu(menuProject, true);
+            } else if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                aiSessionControls.closeChatsViewMenu(menuProject, true);
+            } else if (e.key === 'Tab') {
+                // 与其余菜单一致：Tab 关菜单、不夺焦点。
+                aiSessionControls.closeChatsViewMenu(menuProject, false);
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                var menuItems = Array.from(viewMenuItem.closest('[data-chats-view-menu]')
+                    .querySelectorAll('[role="menuitemradio"]'));
+                var itemIndex = menuItems.indexOf(viewMenuItem);
+                var nextItem = menuItems[(itemIndex + (e.key === 'ArrowDown' ? 1 : -1) + menuItems.length) % menuItems.length];
+                if (nextItem && typeof nextItem.focus === 'function') {
+                    nextItem.focus();
+                }
             }
+            return;
+        }
+        // 菜单打开时 trigger 上的 Esc 也关菜单（焦点本来就在 trigger 上）。
+        if (viewMenuTrigger && e.key === 'Escape'
+            && viewMenuTrigger.getAttribute('aria-expanded') === 'true') {
+            e.preventDefault();
+            aiSessionControls.closeChatsViewMenu(
+                viewMenuTrigger.closest('.project[data-id]'), false);
             return;
         }
 

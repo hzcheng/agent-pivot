@@ -425,8 +425,6 @@ export function createSessionControllerComposition(
         showWarningMessage: message => showWarningMessage(message),
         isProviderId: isAiSessionProviderId,
         setExpanded: (workspaceScopeIdentity, expanded) => aiSessionWorkspaceStateStore.setExpanded(workspaceScopeIdentity, expanded),
-        setSelectedSurface: (workspaceScopeIdentity, surface) =>
-            aiSessionWorkspaceStateStore.setSelectedSurface(workspaceScopeIdentity, surface),
         setWindowViewTab: (workspaceScopeIdentity, tab) =>
             aiSessionWorkspaceStateStore.setWindowViewTab(workspaceScopeIdentity, tab),
         setChatsViewMode: (workspaceScopeIdentity, viewMode) =>
@@ -493,7 +491,7 @@ export function createSessionControllerComposition(
         showActiveTab: projectId => postMessage({
             type: 'ai-session-tab-selection-requested',
             projectId,
-            tab: 'active',
+            tab: 'chats',
         }),
         showWarningMessage: (message, ...items) => showWarningWithItems(message, ...items),
         showErrorMessage: message => showErrorMessage(message),
@@ -663,7 +661,7 @@ export function createSessionControllerComposition(
         showActiveTab: projectId => postMessage({
             type: 'ai-session-tab-selection-requested',
             projectId,
-            tab: 'active',
+            tab: 'chats',
         }),
         announceStatus: (projectId, message) => postMessage({
             type: 'ai-session-status-announcement',

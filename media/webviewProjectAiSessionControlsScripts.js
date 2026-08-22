@@ -424,50 +424,40 @@ function initProjectAiSessionControls(options) {
             }
             return true;
         }
-        var surfaceAction = target.closest(
-            '[data-action="select-ai-session-surface"][data-surface]'
-        );
-        if (surfaceAction) {
-            var selectedSurface = normalizeAiSessionSurface(
-                surfaceAction.getAttribute('data-surface')
-            );
-            selectAiSessionSurfaceDom(projectDiv, selectedSurface);
-            writeAiSessionSurfaceState(window.vscode, projectId, selectedSurface);
-            // The host renders future authoritative HTML with this selection,
-            // so replacements never flip the visible surface.
-            window.vscode.postMessage({
-                type: 'select-ai-session-surface',
-                version: 1,
-                projectId: projectId,
-                surface: selectedSurface,
-            });
-            if (selectedSurface === 'chats') {
-                // M2 transition: entering the legacy CHATS surface maps the
-                // current sub-tab onto the host-persisted window view tab.
-                var currentSubTab = getSelectedAiSessionTab(projectDiv);
-                window.vscode.postMessage({
-                    type: 'select-ai-session-view-tab',
-                    version: 1,
-                    projectId: projectId,
-                    tab: currentSubTab === 'sessions' ? 'all' : 'chats',
-                });
-            }
-            return true;
-        }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');
         if (tabAction) {
             var selectedTab = normalizeAiSessionTab(tabAction.getAttribute('data-tab'));
             selectAiSessionTabDom(projectDiv, selectedTab);
             writeAiSessionTabState(window.vscode, projectId, selectedTab);
-            // M2 transition: mirror the sub-tab selection into the
-            // host-persisted window view state (ACTIVE → chats, ALL → all) so
-            // the PR-D cutover reads live values instead of a migration.
-            window.vscode.postMessage({
-                type: 'select-ai-session-view-tab',
-                version: 1,
-                projectId: projectId,
-                tab: selectedTab === 'active' ? 'chats' : 'all',
-            });
+            // The host renders future authoritative HTML with this selection,
+            // so replacements never flip the visible tab.
+            postSelectedAiSessionViewTab(projectId, selectedTab);
+            return true;
+        }
+
+        // CHATS ▾ 视图菜单（M2 壳：tree 为唯一视图；list 随 M3 到达）。
+        // PRD：非活动 tab 上的 ▾ 点击 = 先激活 CHATS 再开菜单。
+        var viewMenuTrigger = target.closest('[data-action="toggle-chats-view-menu"]');
+        if (viewMenuTrigger) {
+            var menuProjectDiv = viewMenuTrigger.closest('.project[data-id]');
+            if (menuProjectDiv) {
+                var chatsTabSelected = menuProjectDiv.querySelector(
+                    '[data-ai-session-tab="chats"]'
+                );
+                if (chatsTabSelected
+                    && chatsTabSelected.getAttribute('aria-selected') !== 'true') {
+                    selectAiSessionTabDom(menuProjectDiv, 'chats');
+                    writeAiSessionTabState(window.vscode, projectId, 'chats');
+                    postSelectedAiSessionViewTab(projectId, 'chats');
+                }
+            }
+            toggleChatsViewMenu(projectDiv, viewMenuTrigger);
+            return true;
+        }
+        var viewModeItem = target.closest('[data-action="select-chats-view-mode"][data-view-mode]');
+        if (viewModeItem) {
+            closeChatsViewMenu(projectDiv, true);
+            // tree 是 M2 唯一视图；选择当前视图只关闭菜单，不发持久化写。
             return true;
         }
 
@@ -933,17 +923,12 @@ function initProjectAiSessionControls(options) {
                 });
             }
         } else if (action === 'worktree-new' && context.anchor) {
-            // Replaces the removed surface-level New-worktree button:
-            // follow the form into the Worktree surface immediately.
+            // The anchor's New-worktree entry lives in the CHATS tree now:
+            // make sure the tree is visible, then open the form in place.
             var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(context.projectId);
-            selectAiSessionSurfaceDom(projectDiv, 'worktree');
-            writeAiSessionSurfaceState(window.vscode, context.projectId, 'worktree');
-            window.vscode.postMessage({
-                type: 'select-ai-session-surface',
-                version: 1,
-                projectId: context.projectId,
-                surface: 'worktree',
-            });
+            selectAiSessionTabDom(projectDiv, 'chats');
+            writeAiSessionTabState(window.vscode, context.projectId, 'chats');
+            postSelectedAiSessionViewTab(context.projectId, 'chats');
             if (worktreeGroupForm) {
                 worktreeGroupForm.openForm(context.projectId, null);
             }
@@ -2726,6 +2711,50 @@ function initProjectAiSessionControls(options) {
         }
     }
 
+    // CHATS ▾ 视图菜单（M2 壳）：单选项 tree；View as List 随 M3 到达。
+    // 语义与 provider 菜单一致：触发键 aria-expanded、菜单 hidden、
+    // Esc/失焦/外部点击关闭，键盘关闭才把焦点还给触发按钮。
+    function setChatsViewMenuOpen(projectDiv, open) {
+        var trigger = projectDiv
+            && projectDiv.querySelector('[data-action="toggle-chats-view-menu"]');
+        var menu = projectDiv && projectDiv.querySelector('[data-chats-view-menu]');
+        if (!trigger || !menu) {
+            return;
+        }
+        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        menu.hidden = !open;
+        if (open) {
+            var current = menu.querySelector('[role="menuitemradio"]');
+            if (current && typeof current.focus === 'function') {
+                current.focus();
+            }
+        }
+    }
+
+    function closeChatsViewMenu(projectDiv, restoreFocus) {
+        setChatsViewMenuOpen(projectDiv, false);
+        if (restoreFocus) {
+            projectDiv?.querySelector('[data-action="toggle-chats-view-menu"]')?.focus();
+        }
+    }
+
+    function toggleChatsViewMenu(projectDiv, trigger) {
+        if (!projectDiv || !trigger) {
+            return;
+        }
+        var open = trigger.getAttribute('aria-expanded') !== 'true';
+        closeChatsViewMenus(projectDiv);
+        setChatsViewMenuOpen(projectDiv, open);
+    }
+
+    function closeChatsViewMenus(exceptProjectDiv) {
+        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+            if (projectDiv !== exceptProjectDiv) {
+                setChatsViewMenuOpen(projectDiv, false);
+            }
+        });
+    }
+
     function toggleAiSessionProviderMenu(projectDiv) {
         if (!projectDiv || batchAiSessionState.pending
             || pendingAiSessionProviderSelectionProjectId)
@@ -2999,6 +3028,9 @@ function initProjectAiSessionControls(options) {
         applyAiSessionProviderSelectionResult: applyAiSessionProviderSelectionResult,
         closeAiSessionProviderMenu: closeAiSessionProviderMenu,
         closeAiSessionProviderMenus: closeAiSessionProviderMenus,
+        setChatsViewMenuOpen: setChatsViewMenuOpen,
+        closeChatsViewMenu: closeChatsViewMenu,
+        closeChatsViewMenus: closeChatsViewMenus,
         closeAiSessionWorktreeMenu: closeAiSessionWorktreeMenu,
         toggleAiSessionWorktreeMenu: toggleAiSessionWorktreeMenu,
         exitAiSessionBatchManagement: exitAiSessionBatchManagement,

@@ -701,19 +701,23 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
         truncatedWorktreeCount: 2,
     });
 
-    assert.match(html, /data-ai-session-surface-tab="worktree"/);
-    assert.match(html, /data-ai-session-surface-tab="chats"/);
-    assert.match(html, /data-selected-ai-session-surface="chats"/);
+    // M2 结构：无 surface tab；CHATS（tree）/ ALL 两个 tab，tree 面板承载
+    // 全部 worktree 管理面，ALL 面板承载历史。
+    assert.match(html, /data-ai-session-tab="chats"/);
+    assert.match(html, /data-ai-session-tab="all"/);
+    assert.match(html, /data-selected-ai-session-tab="all"/);
+    assert.match(html, /data-chats-view-mode="tree"/);
+    assert.doesNotMatch(html, /data-ai-session-surface-tab|data-selected-ai-session-surface/);
     assert.doesNotMatch(html, /data-ai-session-grouping-select/);
     assert.equal((html.match(/data-session-id="feature-session"/g) || []).length, 1,
-        'history sessions stay in Chats All only');
-    const worktreeMarkup = html.match(
-        /data-ai-session-surface-panel="worktree"[\s\S]*?data-ai-session-surface-panel="chats"/
+        'history sessions stay in ALL only');
+    const treePanel = html.match(
+        /data-ai-session-panel="chats"[\s\S]*?data-ai-session-panel="all"/
     )[0];
-    assert.match(worktreeMarkup, /data-session-id="live-session"/,
-        'the Worktree surface lists the live session under its group');
-    assert.doesNotMatch(worktreeMarkup, /data-session-id="feature-session"/,
-        'the Worktree surface never duplicates history sessions');
+    assert.match(treePanel, /data-session-id="live-session"/,
+        'the CHATS tree lists the live session under its group');
+    assert.doesNotMatch(treePanel, /data-session-id="feature-session"/,
+        'the CHATS tree never duplicates history sessions');
     assert.match(html, /data-worktree-activity="attention"/);
     assert.ok(html.indexOf('feature/auth') < html.indexOf('feature/idle'),
         'attention worktrees render first while stable snapshot order breaks ties');
@@ -721,47 +725,39 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     assert.match(html, /2 more worktrees not shown/);
     assert.match(html, /data-action="toggle-ai-session-worktree"/);
     assert.match(html, /aria-label="feature\/auth, 1 session, needs attention"/);
-    const worktreePanel = html.match(
-        /data-ai-session-surface-panel="worktree"[\s\S]*?data-ai-session-surface-panel="chats"/
-    )[0];
-    const chatsPanel = html.match(
-        /data-ai-session-surface-panel="chats"[\s\S]*?ai-session-live-region/
-    )[0];
-    const surfaceBar = html.match(/ai-session-surface-bar[\s\S]*?data-ai-session-surface-panel/)[0];
-    assert.doesNotMatch(surfaceBar, /data-action="create-isolated-session"/,
+    assert.doesNotMatch(html, /data-action="create-isolated-session"/,
         'no standalone New-worktree button: creation lives in the row menus');
-    assert.doesNotMatch(worktreePanel, /data-action="create-isolated-session"/);
-    assert.match(worktreePanel, /data-action="ai-session-worktree-menu"/,
+    assert.match(treePanel, /data-action="ai-session-worktree-menu"/,
         'each worktree row exposes one unified actions menu');
-    assert.doesNotMatch(chatsPanel, /data-action="create-isolated-session"/);
-    assert.match(chatsPanel, /data-action="create-ai-session-quick"/,
-        'session creation belongs to the Chats surface');
-    assert.doesNotMatch(worktreePanel, /ai-session-create-split-button/,
-        'the global session create cluster must stay out of the Worktree surface');
+    assert.doesNotMatch(treePanel, /ai-session-create-split-button/,
+        'the global session create cluster stays in the toolbar, not the tree');
     assert.doesNotMatch(html, /ai-session-module-header/,
         'the retired module header must not render');
-    const chatsToolbar = chatsPanel.match(/ai-session-chats-toolbar[\s\S]*?ai-session-tab-panel/)[0];
-    assert.ok(chatsToolbar.indexOf('data-ai-session-tab') >= 0
-        && chatsToolbar.indexOf('data-action="create-ai-session-quick"') >= 0,
-        'the Active/All tabs and the create actions share one chats toolbar row');
+    const toolbar = html.match(/ai-session-chats-toolbar[\s\S]*?ai-session-tab-panel/)[0];
+    assert.ok(toolbar.indexOf('data-ai-session-tab="chats"') >= 0
+        && toolbar.indexOf('data-ai-session-tab="all"') >= 0
+        && toolbar.indexOf('data-action="create-ai-session-quick"') >= 0,
+        'the CHATS/ALL tabs and the create actions share one toolbar row');
+    assert.match(toolbar, /data-action="toggle-chats-view-menu"/,
+        'the CHATS tab pair carries the view-menu trigger');
 });
-
-test('WORKTREE-GROUPING-UI-001 renders the host-remembered surface without a restore flip', () => {
+test('WORKTREE-GROUPING-UI-001 renders the host-persisted view tab without a restore flip', () => {
     const html = webviewModules.content.getAiSessionsDiv({
-        id: 'surface-memory',
+        id: 'view-state-memory',
         activeAiSessionProvider: 'codex',
         selectedAiSessionProviders: ['codex'],
         codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
         worktrees: [],
-        selectedSurface: 'worktree',
+        windowViewState: { tab: 'all', chatsViewMode: 'tree' },
     });
-    assert.match(html, /data-selected-ai-session-surface="worktree"/,
-        'authoritative HTML must carry the selected surface so replacements never flip it');
-    assert.match(html, /data-ai-session-surface-tab="worktree" aria-selected="true"/);
-    assert.match(html, /data-ai-session-surface-panel="chats"[^>]*hidden/);
+    assert.match(html, /data-selected-ai-session-tab="all"/,
+        'authoritative HTML must carry the selected tab so replacements never flip it');
+    assert.match(html, /data-ai-session-tab="all"[^>]*aria-selected="true"/);
+    assert.match(html, /data-ai-session-panel="chats"[^>]*hidden/);
+    assert.match(html, /data-ai-session-panel="all"(?![^>]*hidden)/);
 });
 
-test('WORKTREE-GROUPING-UI-001 keeps Chats available when no worktrees exist', () => {
+test('WORKTREE-GROUPING-UI-001 keeps CHATS available when no worktrees exist', () => {
     const html = webviewModules.content.getAiSessionsDiv({
         id: 'flat-default',
         activeAiSessionProvider: 'codex',
@@ -769,9 +765,13 @@ test('WORKTREE-GROUPING-UI-001 keeps Chats available when no worktrees exist', (
         codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
         worktrees: [],
     });
-    assert.match(html, /data-selected-ai-session-surface="chats"/);
-    assert.match(html, /data-ai-session-surface-panel="worktree"/);
-    assert.match(html, /data-ai-session-surface-panel="chats"/);
+    assert.match(html, /data-selected-ai-session-tab="chats"/);
+    assert.match(html, /data-ai-session-panel="chats"/);
+    assert.match(html, /data-ai-session-panel="all"/);
+    // CHATS 空态：无 worktree 且无 active session 时给新建入口与 ALL 出口。
+    assert.match(html, /No active sessions/);
+    assert.match(html, /data-action="create-ai-session"/);
+    assert.match(html, /data-action="select-ai-session-tab" data-tab="all"/);
     assert.doesNotMatch(html, /data-ai-session-grouping-select/);
 });
 
@@ -1614,11 +1614,11 @@ test('WORKTREE-QUICK-SWITCH-001 reveals, expands, and persists the selected work
         addEventListener: () => undefined,
     };
     const tab = {
-        getAttribute: name => name === 'data-ai-session-tab' ? 'sessions' : null,
+        getAttribute: name => name === 'data-ai-session-tab' ? 'chats' : null,
         setAttribute: () => undefined,
     };
     const panel = {
-        getAttribute: name => name === 'data-ai-session-panel' ? 'sessions' : null,
+        getAttribute: name => name === 'data-ai-session-panel' ? 'chats' : null,
         toggleAttribute: () => undefined,
     };
     const workspace = {
@@ -1641,17 +1641,17 @@ test('WORKTREE-QUICK-SWITCH-001 reveals, expands, and persists the selected work
     assert.equal(harness.context.window.__agentPivotRevealWorkspaceWorktree(
         'navigation-1', '/repo/.git', '/repo/topic'
     ), true);
-    assert.equal(sectionAttributes.get('data-selected-ai-session-surface'), 'worktree',
-        'revealing a worktree selects the Worktree surface');
+    assert.equal(sectionAttributes.get('data-selected-ai-session-tab'), 'chats',
+        'revealing a worktree selects the CHATS tree tab');
     assert.equal(headerAttributes.get('aria-expanded'), 'true');
     assert.equal(groupAttributes.has('data-worktree-collapsed'), false);
     assert.equal(listAttributes.has('hidden'), false);
     assert.equal(focused, true);
-    assert.equal(harness.getWebviewState().aiSessionSurfaces['workspace-1'], 'worktree');
+    assert.equal(harness.getWebviewState().aiSessionTabs['workspace-1'], 'chats');
     assert.ok(harness.messages.some(message =>
-        message.type === 'select-ai-session-surface'
-        && message.projectId === 'workspace-1' && message.surface === 'worktree'),
-        'the reveal reports the surface selection for authoritative re-renders');
+        message.type === 'select-ai-session-view-tab'
+        && message.projectId === 'workspace-1' && message.tab === 'chats'),
+        'the reveal persists the tab selection for authoritative re-renders');
 });
 
 test('WEBVIEW-AI-DASHBOARD-001 retries AI with fresh opaque identities and unlocks later retries', () => {
@@ -2295,17 +2295,21 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 reconciles batch selection afte
 test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and semantic list fallbacks', () => {
     const harness = createProjectVm();
     const context = harness.context;
-    assert.equal(context.normalizeAiSessionTab('active'), 'active');
-    assert.equal(context.normalizeAiSessionTab('invalid'), 'sessions');
-    assert.equal(context.getAdjacentAiSessionTab('active', 'ArrowRight'), 'sessions');
-    assert.equal(context.getAdjacentAiSessionTab('sessions', 'ArrowLeft'), 'active');
-    assert.equal(context.getAdjacentAiSessionTab('sessions', 'Home'), 'active');
-    assert.equal(context.getAdjacentAiSessionTab('active', 'End'), 'sessions');
+    // M2 tab domain: CHATS (active set, tree view) / ALL; legacy values map.
+    assert.equal(context.normalizeAiSessionTab('chats'), 'chats');
+    assert.equal(context.normalizeAiSessionTab('all'), 'all');
+    assert.equal(context.normalizeAiSessionTab('active'), 'chats');
+    assert.equal(context.normalizeAiSessionTab('sessions'), 'all');
+    assert.equal(context.normalizeAiSessionTab('invalid'), 'chats');
+    assert.equal(context.getAdjacentAiSessionTab('chats', 'ArrowRight'), 'all');
+    assert.equal(context.getAdjacentAiSessionTab('all', 'ArrowLeft'), 'chats');
+    assert.equal(context.getAdjacentAiSessionTab('all', 'Home'), 'chats');
+    assert.equal(context.getAdjacentAiSessionTab('chats', 'End'), 'all');
 
-    context.writeAiSessionTabState(context.window.vscode, 'project-a', 'active');
+    context.writeAiSessionTabState(context.window.vscode, 'project-a', 'chats');
     context.writeAiSessionTabState(context.window.vscode, 'project-b', 'invalid');
     assert.deepEqual(toPlain(context.readAiSessionTabState(context.window.vscode)), {
-        'project-a': 'active', 'project-b': 'sessions',
+        'project-a': 'chats', 'project-b': 'chats',
     });
     assert.equal(harness.getWebviewState().unrelated, 'preserved');
 
@@ -2328,14 +2332,7 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
     });
     assert.equal(harness.getWebviewState().unrelated, 'preserved');
 
-    context.writeAiSessionSurfaceState(context.window.vscode, 'project-a', 'worktree');
-    context.writeAiSessionSurfaceState(context.window.vscode, 'project-b', 'invalid');
-    assert.deepEqual(toPlain(context.readAiSessionSurfaceState(context.window.vscode)), {
-        'project-a': 'worktree', 'project-b': 'chats',
-    });
-    assert.equal(harness.getWebviewState().unrelated, 'preserved');
-
-    const activeList = { scrollTop: 0, scrollHeight: 100, clientHeight: 40 };
+    const chatsList = { scrollTop: 0, scrollHeight: 100, clientHeight: 40 };
     const historyList = { scrollTop: 0, scrollHeight: 0, clientHeight: 0 };
     const tab = id => {
         const attributes = new Map([['data-ai-session-tab', id]]);
@@ -2360,14 +2357,14 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
             querySelector: () => null,
         };
     };
-    const tabs = [tab('active'), tab('sessions')];
-    const panels = [panel('active', activeList), panel('sessions', historyList)];
+    const tabs = [tab('chats'), tab('all')];
+    const panels = [panel('chats', chatsList), panel('all', historyList)];
     const project = {
         querySelector(selector) {
             if (selector === '.codex-sessions') return { setAttribute() {} };
-            if (selector === '.ai-session-active-panel .codex-sessions-list') return activeList;
+            if (selector === '.ai-session-chats-panel .ai-session-worktree-list') return chatsList;
             if (selector === '.ai-session-history-panel .codex-sessions-list') return historyList;
-            if (selector === '[data-ai-session-panel="active"]') return panels[0];
+            if (selector === '[data-ai-session-panel="chats"]') return panels[0];
             return null;
         },
         querySelectorAll(selector) {
@@ -2378,11 +2375,11 @@ test('SESSION-CONTROLLER-001 preserves AI tab helpers, persisted state, and sema
         },
     };
     context.restoreAiSessionViewState(project, {
-        activeAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0 },
-        historyAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0 },
+        chatsAnchor: { scrollTop: 17, itemKey: null, itemOffset: 0 },
+        allAnchor: { scrollTop: 29, itemKey: null, itemOffset: 0 },
         restoreFocus: false,
-    }, 'active');
-    assert.equal(activeList.scrollTop, 17);
+    }, 'chats');
+    assert.equal(chatsList.scrollTop, 17);
     assert.equal(historyList.scrollTop, 29);
     assert.equal(tabs[0].getAttribute('aria-selected'), 'true');
     assert.equal(tabs[1].getAttribute('aria-selected'), 'false');

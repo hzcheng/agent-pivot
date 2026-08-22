@@ -126,18 +126,6 @@ export default class AiSessionWorkspaceStateStore {
         }, {} as Record<string, AiSessionSurfaceId>);
     }
 
-    async setSelectedSurface(
-        workspaceScopeIdentity: string,
-        surface: AiSessionSurfaceId
-    ): Promise<void> {
-        if (!workspaceScopeIdentity || (surface !== 'worktree' && surface !== 'chats')) {
-            return;
-        }
-        const surfaces = this.getSelectedSurfaces();
-        surfaces[workspaceScopeIdentity] = surface;
-        await this.state.update(WORKSPACE_AI_SESSION_SURFACE_KEY, surfaces);
-    }
-
     // --- M2 window view state (additive; PR-D makes it the render source) ---
 
     private readWindowViewStates(): Record<string, AiSessionWindowViewState> {

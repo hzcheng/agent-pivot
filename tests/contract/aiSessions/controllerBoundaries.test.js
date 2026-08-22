@@ -136,7 +136,6 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 OPEN-WINDOW-VIEW-STATE-PERSISTEN
         getWorkspaceTarget: cardId => cardId === 'project' ? workspaceTarget : null,
         isProviderId: value => value === 'codex',
         setExpanded: async (key, value) => effects.push(['expanded', key, value]),
-        setSelectedSurface: async (key, value) => effects.push(['surface', key, value]),
         setWindowViewTab: async (key, value) => effects.push(['view-tab', key, value]),
         setChatsViewMode: async (key, value) => effects.push(['view-mode', key, value]),
         setCollapsedWorktreeGroups: async (key, value) => effects.push(['collapsed-groups', key, value]),
@@ -156,10 +155,6 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 OPEN-WINDOW-VIEW-STATE-PERSISTEN
         showInformationMessage: message => effects.push(['message', message]), refresh: () => effects.push(['refresh']),
     });
     await controller.toggleSessionsExpanded('project', true);
-    await controller.selectSurface('project', 'worktree');
-    await controller.selectSurface('project', 'grid');
-    await controller.selectSurface('missing', 'chats');
-    await controller.selectSurface('project', 'chats');
     await controller.selectWindowViewTab('project', 'all');
     await controller.selectWindowViewTab('project', 'grid');
     await controller.selectChatsViewMode('project', 'list');
@@ -171,12 +166,6 @@ test('SESSION-AI-SESSION-COMMAND-CONTROLLER-001 OPEN-WINDOW-VIEW-STATE-PERSISTEN
     await controller.copySessionId('session');
     assert.deepEqual(effects, [
         ['expanded', 'scope:/work', true],
-        ['surface', 'scope:/work', 'worktree'],
-        // M2 transition dual-write: the worktree surface maps to CHATS + tree.
-        ['view-tab', 'scope:/work', 'chats'],
-        ['view-mode', 'scope:/work', 'tree'],
-        // The 'chats' surface carries no view-state dual-write.
-        ['surface', 'scope:/work', 'chats'],
         ['view-tab', 'scope:/work', 'all'],
         ['view-mode', 'scope:/work', 'list'],
         // Non-string group keys are filtered before reaching the store.

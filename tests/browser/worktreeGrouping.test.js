@@ -46,7 +46,7 @@ function surface() {
         id: 'project-a',
         activeAiSessionProvider: 'codex',
         selectedAiSessionProviders: ['codex'],
-        activeAiSessionTab: 'sessions',
+        activeAiSessionTab: 'chats',
         codexSessions: [{
             id: 'legacy-session',
             name: 'Existing project chat must remain visible',
@@ -80,47 +80,51 @@ function surface() {
     });
 }
 
-test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats as the only top-level tabs', async t => {
+test('WORKTREE-GROUPING-UI-001 renders CHATS and ALL tabs with the tree in CHATS', async t => {
     const page = await openSurfacePage(320);
     t.after(() => page.close());
 
-    const topLevelTabs = page.locator('[data-ai-session-surface-tab]');
-    assert.deepEqual(await topLevelTabs.allTextContents(), ['WORKTREE', 'CHATS']);
-    assert.equal(await page.locator('[data-ai-session-surface-panel="worktree"]').count(), 1);
-    assert.equal(await page.locator('[data-ai-session-surface-panel="chats"]').count(), 1);
+    const tabs = page.locator('[data-ai-session-tab]');
+    assert.deepEqual(
+        (await tabs.allTextContents()).map(text => text.replace(/[\d]/g, '').trim()),
+        ['CHATS', 'ALL'],
+    );
+    assert.equal(await page.locator('[data-ai-session-panel="chats"]').count(), 1);
+    assert.equal(await page.locator('[data-ai-session-panel="all"]').count(), 1);
+    assert.equal(await page.locator('[data-ai-session-surface-tab]').count(), 0,
+        'the surface switcher is retired');
     assert.equal(await page.locator('[data-ai-session-grouping-select]').count(), 0,
-        'Worktree is a first-class surface, not a Flat/Worktree grouping preference');
+        'the tree is the CHATS view, not a grouping preference');
+    assert.ok(
+        await page.locator('[data-ai-session-panel="chats"] .ai-session-worktree-group').count() > 0,
+        'the CHATS tree shows the ready worktrees by default',
+    );
+    assert.equal(await page.locator('[data-action="toggle-chats-view-menu"]').count(), 1,
+        'the CHATS tab pair carries the view-menu trigger');
 });
 
-test('WORKTREE-GROUPING-UI-001 keeps the original Active and All chat lists intact', async t => {
+test('WORKTREE-GROUPING-UI-001 keeps the live session in the CHATS tree and the ALL list intact', async t => {
     const page = await openSurfacePage(320);
     t.after(() => page.close());
 
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'chats');
-    });
-    const chats = page.locator('[data-ai-session-surface-panel="chats"]');
-    assert.deepEqual(
-        await chats.locator('[data-ai-session-tab]').allTextContents(),
-        ['ACTIVE1', 'ALL1'],
-    );
     assert.equal(
-        await chats.locator('[data-ai-session-panel="active"] .active-ai-session-row').count(),
+        await page.locator('[data-ai-session-panel="chats"] .active-ai-session-row').count(),
         1,
-        'the live session remains in Chats Active as well',
+        'the live session lives in the CHATS tree',
     );
     await page.evaluate(() => {
-        selectAiSessionTabDom(document.querySelector('.project'), 'sessions');
+        selectAiSessionTabDom(document.querySelector('.project'), 'all');
     });
+    const all = page.locator('[data-ai-session-panel="all"]');
     assert.equal(
-        await chats.locator('[data-ai-session-panel="sessions"] .codex-session-row').count(),
+        await all.locator('.codex-session-row').count(),
         1,
-        'legacy current-project chats remain in All',
+        'legacy current-project chats remain in ALL',
     );
     assert.equal(
-        await chats.locator('[data-ai-session-panel="sessions"] .ai-session-worktree-group').count(),
+        await all.locator('.ai-session-worktree-group').count(),
         0,
-        'Chats must retain the original flat history layout',
+        'ALL retains the original flat history layout',
     );
 });
 
@@ -128,18 +132,15 @@ test('WORKTREE-GROUPING-UI-001 collapse hides the session rows with the real sty
     const page = await openSurfacePage(320);
     t.after(() => page.close());
 
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
-    });
     const rows = page.locator(
-        '[data-ai-session-surface-panel="worktree"] .codex-session-row[data-session-id="frontend-session"]'
+        '[data-ai-session-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
     );
     assert.equal(await rows.count(), 1);
     assert.equal(await rows.first().isVisible(), true);
 
     await page.evaluate(() => {
         const header = document.querySelector(
-            '[data-ai-session-surface-panel="worktree"] .ai-session-worktree-header'
+            '[data-ai-session-panel="chats"] .ai-session-worktree-header'
         );
         setAiSessionWorktreeExpanded(header, false);
     });
@@ -148,7 +149,7 @@ test('WORKTREE-GROUPING-UI-001 collapse hides the session rows with the real sty
 
     await page.evaluate(() => {
         const header = document.querySelector(
-            '[data-ai-session-surface-panel="worktree"] .ai-session-worktree-header'
+            '[data-ai-session-panel="chats"] .ai-session-worktree-header'
         );
         setAiSessionWorktreeExpanded(header, true);
     });
@@ -192,11 +193,8 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     const page = await openSurfacePage(170);
     t.after(() => page.close());
 
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
-    });
     assert.equal(await page.locator(
-        '[data-ai-session-surface-panel="worktree"] .codex-session-row[data-session-id="frontend-session"]'
+        '[data-ai-session-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
     ).count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
     assert.equal(await page.locator('.ai-session-worktree-more').count(), 2);
@@ -234,39 +232,39 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     assert.ok(screenshot.length > 1_000, '170px acceptance screenshot must contain rendered pixels');
 
     await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'chats');
-        selectAiSessionTabDom(document.querySelector('.project'), 'sessions');
+        selectAiSessionTabDom(document.querySelector('.project'), 'all');
     });
     assert.equal(await page.locator(
-        '[data-ai-session-surface-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
+        '[data-ai-session-panel="all"] .codex-session-row[data-session-id="legacy-session"]'
     ).count(), 1,
-        'Chats All must retain the assigned session');
-    assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), false);
+        'ALL must retain the legacy history session');
+    assert.equal(await page.locator(
+        '[data-ai-session-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
+    ).count(), 1,
+        'the active session stays in the CHATS tree');
+    assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), false,
+        'the CHATS tree hides while ALL is selected');
 });
 
 test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats at the default sidebar width', async t => {
     const page = await openSurfacePage(320);
     t.after(() => page.close());
 
-    await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
-    });
     assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), true);
-    const worktreeScreenshot = await page.screenshot({ fullPage: true });
-    assert.ok(worktreeScreenshot.length > 1_000,
-        'default-width Worktree screenshot must contain rendered pixels');
+    const treeScreenshot = await page.screenshot({ fullPage: true });
+    assert.ok(treeScreenshot.length > 1_000,
+        'default-width CHATS tree screenshot must contain rendered pixels');
 
     await page.evaluate(() => {
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'chats');
-        selectAiSessionTabDom(document.querySelector('.project'), 'sessions');
+        selectAiSessionTabDom(document.querySelector('.project'), 'all');
     });
     assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), false);
     assert.equal(await page.locator(
-        '[data-ai-session-surface-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
+        '[data-ai-session-panel="all"] .codex-session-row[data-session-id="legacy-session"]'
     ).count(), 1);
-    const chatsScreenshot = await page.screenshot({ fullPage: true });
-    assert.ok(chatsScreenshot.length > 1_000,
-        'default-width Chats screenshot must contain rendered pixels');
+    const allScreenshot = await page.screenshot({ fullPage: true });
+    assert.ok(allScreenshot.length > 1_000,
+        'default-width ALL screenshot must contain rendered pixels');
 });
 
 test('WORKTREE-GROUPING-UI-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 collapse gestures mirror the group keys into the window view-state protocol', async t => {
@@ -280,7 +278,6 @@ test('WORKTREE-GROUPING-UI-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 collapse g
             setState(next) { state = next; },
             postMessage: message => window.__postedMessages.push(message),
         };
-        selectAiSessionSurfaceDom(document.querySelector('.project'), 'worktree');
     });
 
     // Collapse-everything via the collapse-all affordance path.
@@ -299,4 +296,70 @@ test('WORKTREE-GROUPING-UI-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 collapse g
         window.__postedMessages.filter(message => message.type === 'set-ai-session-collapsed-worktree-groups'));
     assert.equal(posts.length, 2);
     assert.deepEqual(posts[1].collapsedKeys, []);
+});
+
+test('WORKTREE-GROUPING-UI-001 the host-persisted collapsed set renders collapsed at first paint', async t => {
+    const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
+    t.after(() => page.close());
+    const collapsedKey = JSON.stringify([
+        '/repo/.git',
+        '/repo/frontend-feature-authentication-with-a-long-name',
+        false,
+    ]);
+    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
+        <div class="project workspace-card" data-id="project-a" data-current-workspace>
+            ${getAiSessionsDiv({
+                id: 'project-a',
+                activeAiSessionProvider: 'codex',
+                selectedAiSessionProviders: ['codex'],
+                activeAiSessionTab: 'chats',
+                codexSessions: [],
+                kimiSessions: [],
+                claudeSessions: [],
+                activeAiSessions: [],
+                windowViewState: {
+                    tab: 'chats',
+                    chatsViewMode: 'tree',
+                    collapsedWorktreeGroups: [collapsedKey],
+                },
+                worktrees: [
+                    {
+                        kind: 'ready',
+                        git: {
+                            key: frontendKey,
+                            branchRef: 'refs/heads/frontend/feature-authentication-with-a-long-name',
+                            head: 'a'.repeat(40),
+                            isMain: false,
+                            isBare: false,
+                            health: 'normal',
+                            headKind: 'branch',
+                        },
+                        activity: 'attention',
+                        sessions: [],
+                        authority: { canResume: true, canRemove: true },
+                    },
+                    worktree(backendKey, 'refs/heads/backend', 'idle'),
+                ],
+                worktreeSnapshotRevision: 1,
+                worktreeRepositoryCount: 1,
+                bareWorktreeCount: 0,
+            })}
+        </div>
+    </body></html>`);
+
+    const collapsed = page.locator('.ai-session-worktree-group[data-worktree-collapsed]');
+    assert.equal(await collapsed.count(), 1);
+    assert.equal(
+        await collapsed.first().getAttribute('data-worktree-path'),
+        '/repo/frontend-feature-authentication-with-a-long-name',
+    );
+    assert.equal(
+        await collapsed.first().locator('.ai-session-worktree-header').getAttribute('aria-expanded'),
+        'false',
+    );
+    assert.equal(
+        await page.locator('.ai-session-worktree-group:not([data-worktree-collapsed])').count(),
+        1,
+        'the other group stays expanded',
+    );
 });

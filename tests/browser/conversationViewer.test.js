@@ -2595,6 +2595,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
             view: 'outline',
             query: 'deploy',
             subagentsRunningOnly: false,
+            widthUserResized: false,
+            changesWidthRecommendationApplied: false,
         }
     );
     await page.locator('[data-outline-search]').fill('');
@@ -5439,6 +5441,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             view: 'outline',
             query: '',
             subagentsRunningOnly: false,
+            widthUserResized: true,
+            changesWidthRecommendationApplied: false,
         }
     );
 
@@ -5454,6 +5458,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             view: 'outline',
             query: '',
             subagentsRunningOnly: false,
+            widthUserResized: true,
+            changesWidthRecommendationApplied: false,
         }
     );
 
@@ -5634,6 +5640,104 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
         nodeCount: baseline.nodeCount,
         mutations: 0,
     });
+});
+
+test('WORKTREE-CHANGES-PANEL-001 recommends 320px once on the first Changes open', async t => {
+    const options = {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 900, height: 600 },
+    };
+
+    // New state: the first explicit Changes open recommends 320px exactly
+    // once and records that the recommendation was consumed (PRD §15.6).
+    const first = await openHostViewerDocument(t, options);
+    await sendChanges(first.page, changesFixture());
+    await first.page.locator('[data-telemetry-changes]').click();
+    assert.equal(
+        await first.page.locator('[data-comments-resizer]')
+            .getAttribute('aria-valuenow'),
+        '320');
+    assert.deepEqual(
+        await first.page.evaluate(() =>
+            window.__webviewState.conversationSidebar),
+        {
+            open: true,
+            width: 320,
+            view: 'changes',
+            query: '',
+            subagentsRunningOnly: false,
+            widthUserResized: false,
+            changesWidthRecommendationApplied: true,
+        }
+    );
+
+    // An explicit drag permanently wins over the recommendation.
+    const resizer = first.page.locator('[data-comments-resizer]');
+    const box = await resizer.boundingBox();
+    await first.page.mouse.move(
+        box.x + box.width / 2, box.y + box.height / 2);
+    await first.page.mouse.down();
+    await first.page.mouse.move(box.x + box.width / 2 - 40,
+        box.y + box.height / 2);
+    await first.page.mouse.up();
+    const dragged = await first.page.evaluate(() =>
+        window.__webviewState.conversationSidebar);
+    assert.ok(dragged.width > 320 && dragged.width <= 370,
+        `explicit drag widened the panel from 320 to ${dragged.width}`);
+    assert.equal(dragged.widthUserResized, true);
+    assert.equal(dragged.changesWidthRecommendationApplied, true);
+
+    // Legacy state has neither explicit flag. It represents an existing
+    // layout preference, so it must never receive the one-time nudge.
+    const legacy = await openHostViewerDocument(t, {
+        ...options,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: false,
+                width: 240,
+                view: 'changes',
+                query: '',
+                subagentsRunningOnly: false,
+            },
+        },
+    });
+    await sendChanges(legacy.page, changesFixture());
+    await legacy.page.locator('[data-telemetry-changes]').click();
+    assert.equal(
+        await legacy.page.locator('[data-comments-resizer]')
+            .getAttribute('aria-valuenow'),
+        '240');
+    const legacyState = await legacy.page.evaluate(() =>
+        window.__webviewState.conversationSidebar);
+    assert.equal('widthUserResized' in legacyState, false);
+    assert.equal('changesWidthRecommendationApplied' in legacyState, false);
+
+    // New-code state that was persisted before ever opening Changes still
+    // consumes the recommendation when Changes first becomes visible.
+    const deferred = await openHostViewerDocument(t, {
+        ...options,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: false,
+                width: 240,
+                view: 'outline',
+                query: '',
+                subagentsRunningOnly: false,
+                widthUserResized: false,
+                changesWidthRecommendationApplied: false,
+            },
+        },
+    });
+    await sendChanges(deferred.page, changesFixture());
+    await deferred.page.locator('[data-telemetry-changes]').click();
+    assert.equal(
+        await deferred.page.locator('[data-comments-resizer]')
+            .getAttribute('aria-valuenow'),
+        '320');
+    assert.equal(await deferred.page.evaluate(() =>
+        window.__webviewState.conversationSidebar
+            .changesWidthRecommendationApplied), true);
 });
 
 test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive the comments flow', async t => {

@@ -6178,7 +6178,7 @@
   {
     "id": "WORKTREE-CHANGES-PANEL-001",
     "domain": "webview",
-    "title": "Conversation Changes button and sidebar tab render a two-row member header (repo picker overlay with ‹ › cycling, position indicator, detached marker, branch row with tracking line) plus the task result and SCM-grouped working changes with collapsible group headers, row-3 collapse/expand-all actions, and per-member fold/scroll memory, with explicit partial/retired degradation, and post exact select/refresh/open/review/SCM intents",
+    "title": "Conversation Changes button and sidebar tab render a two-row member header (repo picker overlay with ‹ › cycling, position indicator, detached marker, branch row with tracking line) plus the task result and SCM-grouped working changes with collapsible group headers, a complete Files keyboard tree, row-3 collapse/expand-all actions, per-member fold/scroll memory, and a one-time 320px recommendation, with explicit partial/retired degradation, and post exact select/refresh/open/review/SCM intents",
     "priority": "P0",
     "status": "automated",
     "owners": [

@@ -841,7 +841,7 @@ for (const mutation of [
         expectedDetail: 'every Host Presentation producer must align with its rendered current card identity',
         mutate: source => replaceFixtureSource(
             source,
-            "cards.find(card => card.kind === 'current')?.navigationIdentity || null",
+            "cards.find(card => card.kind === 'current' && card.roots.length > 0)?.navigationIdentity || null",
             'null'
         ),
     },

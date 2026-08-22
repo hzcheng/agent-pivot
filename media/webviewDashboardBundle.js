@@ -1111,6 +1111,60 @@ function clearOpenWorkspacePinPending(cardId, button) {
     setOpenWorkspacePinPending(button, false);
 }
 
+// Window-row focus capture/restore across authoritative replacements: the
+// keyboard user may be on any of the row's controls (primary, pin, more,
+// retry), so record {cardId, controlKind} and re-focus the same control in
+// the rebuilt row (retry is re-unhidden by the navigation reconcile first).
+var OPEN_WINDOW_ROW_FOCUS_CONTROLS = [
+    { kind: 'focus', selector: '[data-action="focus-open-window"]' },
+    { kind: 'pin', selector: '[data-action="toggle-open-workspace-pin"]' },
+    { kind: 'more', selector: '[data-action="open-window-menu"]' },
+    { kind: 'retry', selector: '[data-action="retry-open-window-navigation"]' },
+];
+
+function captureOpenWindowRowFocus() {
+    var active = document.activeElement;
+    if (!active || typeof active.closest !== 'function') {
+        return null;
+    }
+    var row = active.closest('[data-open-window-row][data-id]');
+    if (!row) {
+        return null;
+    }
+    if (typeof active.matches !== 'function') {
+        return null;
+    }
+    for (var i = 0; i < OPEN_WINDOW_ROW_FOCUS_CONTROLS.length; i++) {
+        if (active.matches(OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].selector)) {
+            return {
+                cardId: row.getAttribute('data-id'),
+                controlKind: OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].kind,
+            };
+        }
+    }
+    return null;
+}
+
+function findOpenWindowRowControl(cardId, controlKind, root) {
+    var selector = null;
+    for (var i = 0; i < OPEN_WINDOW_ROW_FOCUS_CONTROLS.length; i++) {
+        if (OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].kind === controlKind) {
+            selector = OPEN_WINDOW_ROW_FOCUS_CONTROLS[i].selector;
+            break;
+        }
+    }
+    if (!selector) {
+        return null;
+    }
+    var rows = (root || document).querySelectorAll('[data-open-window-row][data-id]');
+    for (var j = 0; j < rows.length; j++) {
+        if (rows[j].getAttribute('data-id') === cardId) {
+            return rows[j].querySelector(selector);
+        }
+    }
+    return null;
+}
+
 function reconcilePendingOpenWorkspacePins(root) {
     pendingOpenWorkspacePins.forEach((pending, cardId) => {
         var button = findOpenWorkspacePinButton(cardId, root || document);
@@ -1130,7 +1184,7 @@ function reconcilePendingOpenWorkspacePins(root) {
     });
 }
 
-// PRD：pin 置顶导致行跳动时，该行保持可见并给一次短闪烁确认。
+// PRD：pin 置顶导致行跳动时，该行保持可见并给一次 ≤150ms 短闪烁确认。
 function flashOpenWindowRow(cardId) {
     var button = findOpenWorkspacePinButton(cardId);
     var row = button && button.closest('[data-open-window-row]');
@@ -1143,7 +1197,7 @@ function flashOpenWindowRow(cardId) {
     if (row.classList && typeof row.classList.add === 'function') {
         row.classList.add('open-window-row-pin-flash');
         if (typeof window.setTimeout === 'function' && row.classList.remove) {
-            window.setTimeout(() => row.classList.remove('open-window-row-pin-flash'), 450);
+            window.setTimeout(() => row.classList.remove('open-window-row-pin-flash'), 150);
         }
     }
 }
@@ -1260,12 +1314,7 @@ function applyOpenWorkspacesUpdate(message, options) {
         return false;
     }
     var previousHtml = wrapper.innerHTML;
-    var focusedPinButton = document.activeElement
-        && document.activeElement.matches?.(
-            '.open-window-pin[data-action="toggle-open-workspace-pin"]'
-        )
-        ? document.activeElement.closest('[data-open-window-row]')?.getAttribute('data-id')
-        : null;
+    var focusedRowControl = captureOpenWindowRowFocus();
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     // This path replaces the whole wrapper, so beyond the other-windows list
     // it must also carry the current-workspace list scroll (path A keeps it
@@ -1336,11 +1385,18 @@ function applyOpenWorkspacesUpdate(message, options) {
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
     revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     reconcilePendingOpenWorkspacePins(wrapper);
-    var restoredPinButton = focusedPinButton
-        ? findOpenWorkspacePinButton(focusedPinButton, wrapper)
+    // Replay the navigation pending/error row state before restoring focus so
+    // an error row's Retry control is visible (focusable) again. The caller
+    // reconciles once more afterwards; both passes are idempotent.
+    if (window.__agentPivotOpenWindowNavigation
+        && typeof window.__agentPivotOpenWindowNavigation.reconcile === 'function') {
+        window.__agentPivotOpenWindowNavigation.reconcile(wrapper);
+    }
+    var restoredRowControl = focusedRowControl
+        ? findOpenWindowRowControl(focusedRowControl.cardId, focusedRowControl.controlKind, wrapper)
         : null;
-    if (restoredPinButton && typeof restoredPinButton.focus === 'function') {
-        restoredPinButton.focus({ preventScroll: true });
+    if (restoredRowControl && typeof restoredRowControl.focus === 'function') {
+        restoredRowControl.focus({ preventScroll: true });
     }
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();
@@ -1674,7 +1730,9 @@ var agentPivotOpenWindowNavigation = (function () {
     var nextRequestId = 0;
     // cardId -> { requestId, timeoutHandle }
     var pendingByCardId = new Map();
-    // cardId -> outcome (drives the row error state until the next request)
+    // cardId -> { outcome, requestId } (drives the row error state until the
+    // next request; the requestId lets a late 'focused' receipt clear the
+    // error its own timeout created, as long as no newer request superseded it)
     var errorByCardId = new Map();
 
     // PRD live region：导航 pending/error 通过切换器内的播报区触达屏幕阅读器。
@@ -1731,7 +1789,7 @@ var agentPivotOpenWindowNavigation = (function () {
 
     function failPending(cardId, pending, outcome) {
         clearPending(cardId, pending);
-        errorByCardId.set(cardId, outcome);
+        errorByCardId.set(cardId, { outcome: outcome, requestId: pending.requestId });
         applyRowState(cardId, 'error', outcome);
     }
 
@@ -1796,7 +1854,19 @@ var agentPivotOpenWindowNavigation = (function () {
         }
         var pending = pendingByCardId.get(message.cardId);
         if (!pending || pending.requestId !== message.requestId) {
-            // Stale (superseded) or duplicate settlement: ignore.
+            // Stale (superseded) or duplicate settlement: ignore — with one
+            // exception. The host never cancels a timed-out request, so a
+            // late 'focused' receipt still describes a real switch: let it
+            // clear the error its own timeout created. A newer request would
+            // have deleted the error entry, so a requestId match proves the
+            // row has not been superseded.
+            var errored = errorByCardId.get(message.cardId);
+            if (errored
+                && errored.requestId === message.requestId
+                && message.outcome === 'focused') {
+                errorByCardId.delete(message.cardId);
+                applyRowState(message.cardId, 'idle');
+            }
             return true;
         }
         clearPending(message.cardId, pending);
@@ -1804,7 +1874,10 @@ var agentPivotOpenWindowNavigation = (function () {
             errorByCardId.delete(message.cardId);
             applyRowState(message.cardId, 'idle');
         } else {
-            errorByCardId.set(message.cardId, message.outcome);
+            errorByCardId.set(message.cardId, {
+                outcome: message.outcome,
+                requestId: message.requestId,
+            });
             applyRowState(message.cardId, 'error', message.outcome);
             announce(message.cardId, 'Could not switch to window');
         }
@@ -1819,8 +1892,8 @@ var agentPivotOpenWindowNavigation = (function () {
         pendingByCardId.forEach(function (_pending, cardId) {
             applyRowState(cardId, 'pending', undefined, root);
         });
-        errorByCardId.forEach(function (outcome, cardId) {
-            applyRowState(cardId, 'error', outcome, root);
+        errorByCardId.forEach(function (entry, cardId) {
+            applyRowState(cardId, 'error', entry.outcome, root);
         });
     }
 
@@ -1830,7 +1903,7 @@ var agentPivotOpenWindowNavigation = (function () {
     // Workspace (current row). Keyboard: ↑/↓ 导航，Enter 执行，Esc 关闭并焦点返回。
     var menuOriginButton = null;
 
-    function closeMenu() {
+    function closeMenu(restoreFocus) {
         var menu = document.getElementById('openWindowMenu');
         if (!menu) {
             return;
@@ -1838,7 +1911,9 @@ var agentPivotOpenWindowNavigation = (function () {
         menu.classList.remove('visible');
         if (menuOriginButton) {
             menuOriginButton.setAttribute('aria-expanded', 'false');
-            if (typeof menuOriginButton.focus === 'function') {
+            // Only keyboard dismissal (Escape) returns focus to the trigger;
+            // blur, outside clicks, and item activation each own their focus.
+            if (restoreFocus === true && typeof menuOriginButton.focus === 'function') {
                 menuOriginButton.focus({ preventScroll: true });
             }
             menuOriginButton = null;
@@ -1863,9 +1938,13 @@ var agentPivotOpenWindowNavigation = (function () {
         menu.querySelectorAll('[data-open-window-menu-current]').forEach(function (item) {
             item.hidden = !isCurrent;
         });
+        var canPin = row.getAttribute('data-can-pin') !== 'false';
         var pinItem = menu.querySelector('[data-open-window-menu-pin]');
         if (pinItem) {
-            pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+            pinItem.hidden = !canPin;
+            if (canPin) {
+                pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+            }
         }
         menu.__row = row;
         if (menuOriginButton && menuOriginButton !== button) {
@@ -1951,7 +2030,7 @@ var agentPivotOpenWindowNavigation = (function () {
         var index = items.indexOf(document.activeElement);
         if (e.key === 'Escape') {
             e.preventDefault();
-            closeMenu();
+            closeMenu(true);
         } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
             var next = e.key === 'ArrowDown'
@@ -1998,7 +2077,7 @@ var agentPivotOpenWindowNavigation = (function () {
     });
 
     if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('blur', closeMenu);
+        window.addEventListener('blur', function () { closeMenu(); });
     }
 
     if (typeof document !== 'undefined' && document.addEventListener) {

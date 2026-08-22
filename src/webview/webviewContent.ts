@@ -341,18 +341,20 @@ export function getOpenWorkspacesGroupContent(
             ? 0
             : left.kind === 'current' ? -1 : 1);
     }
+    // 状态条占固定槽位（24px，见 styles.scss .open-window-switcher-status）：
+    // 文案单行省略，title 承载全量。
     const statusContent = otherWindowsStatus === 'update-required'
         ? `<div class="open-other-windows-state" role="status">
-            <p>Update the Agent Pivot UI Bridge extension to restore all open windows.</p>
+            <p title="Update the Agent Pivot UI Bridge extension to restore all open windows.">Update the Agent Pivot UI Bridge extension to restore all open windows.</p>
             <button type="button" class="project-action" data-action="open-bridge-extension">Show UI Bridge Extension</button>
         </div>`
         : otherWindowsStatus === 'unavailable'
             ? `<div class="open-other-windows-state" role="status">
-                <p>Open-window discovery is temporarily unavailable. Agent Pivot will retry automatically.</p>
+                <p title="Open-window discovery is temporarily unavailable. Agent Pivot will retry automatically.">Open-window discovery is temporarily unavailable. Agent Pivot will retry automatically.</p>
             </div>`
             : otherWindowsStatus === 'connecting'
                 ? `<div class="open-other-windows-state" role="status" data-other-windows-connecting>
-                    <p>Looking for your other open windows…</p>
+                    <p title="Looking for your other open windows…">Looking for your other open windows…</p>
                 </div>`
                 : '';
     const switcherSection = getOpenWindowSwitcherGroupContent(

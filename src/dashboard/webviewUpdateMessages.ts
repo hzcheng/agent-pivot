@@ -142,13 +142,17 @@ export function buildOpenWorkspacesUpdatedMessage(
 
 export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessageInput): AiSessionsUpdatedMessage {
     const current = input.cards.find(card => card.kind === 'current') || null;
+    // Count only the renderable current card: the webview filters zero-root
+    // (empty-window) cards out of the DOM, so declaring them here would split
+    // declared=1/rendered=0 and trip the consistency guard into a full refresh.
+    const currentWorkspaceCount = current && current.roots.length > 0 ? 1 : 0;
     return {
         type: 'ai-sessions-updated',
         version: 3,
         sequence: input.sequence,
         projectionRevision: input.sequence,
         generatedAt: input.generatedAt,
-        currentWorkspaceCount: current ? 1 : 0,
+        currentWorkspaceCount: currentWorkspaceCount as 0 | 1,
         html: getCurrentWorkspaceGroupContent(
             current,
             input.cards.some(card => card.kind === 'navigation'),

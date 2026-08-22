@@ -97,6 +97,12 @@ export interface WorkspaceCardViewModel {
     aiSessions?: WorkspaceAiSessionViewModel;
     attentionCount: number;
     pinned?: boolean;
+    /**
+     * Whether the window-row pin entry points render for this card. False for
+     * the empty-window placeholder, whose synthetic identity the pin protocol
+     * deliberately rejects.
+     */
+    canPin?: boolean;
 }
 
 export function sanitizeProjectName(name: string) {

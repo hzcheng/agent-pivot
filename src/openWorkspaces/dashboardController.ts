@@ -355,7 +355,8 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
     }
 
     // PRD 空窗口条款：无 folder 的窗口仍占一个当前行（数字槽位为空），
-    // 避免单空窗口时切换器显示 WINDOWS 0。
+    // 避免单空窗口时切换器显示 WINDOWS 0。空窗口没有稳定的导航身份，
+    // pin 协议按卡片 ID 形状拒绝它，所以行内不渲染 pin 入口。
     private createEmptyWindowCard(): WorkspaceCardViewModel {
         return {
             id: '__currentWorkspace-empty',
@@ -363,6 +364,7 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             workspaceKind: 'singleFolder',
             showSaveAction: false,
             pinned: false,
+            canPin: false,
             runningSessionCount: 0,
             navigationIdentity: 'empty-window',
             scopeIdentity: 'empty-window',

@@ -19,7 +19,9 @@ var agentPivotOpenWindowNavigation = (function () {
     var nextRequestId = 0;
     // cardId -> { requestId, timeoutHandle }
     var pendingByCardId = new Map();
-    // cardId -> outcome (drives the row error state until the next request)
+    // cardId -> { outcome, requestId } (drives the row error state until the
+    // next request; the requestId lets a late 'focused' receipt clear the
+    // error its own timeout created, as long as no newer request superseded it)
     var errorByCardId = new Map();
 
     // PRD live region：导航 pending/error 通过切换器内的播报区触达屏幕阅读器。
@@ -76,7 +78,7 @@ var agentPivotOpenWindowNavigation = (function () {
 
     function failPending(cardId, pending, outcome) {
         clearPending(cardId, pending);
-        errorByCardId.set(cardId, outcome);
+        errorByCardId.set(cardId, { outcome: outcome, requestId: pending.requestId });
         applyRowState(cardId, 'error', outcome);
     }
 
@@ -141,7 +143,19 @@ var agentPivotOpenWindowNavigation = (function () {
         }
         var pending = pendingByCardId.get(message.cardId);
         if (!pending || pending.requestId !== message.requestId) {
-            // Stale (superseded) or duplicate settlement: ignore.
+            // Stale (superseded) or duplicate settlement: ignore — with one
+            // exception. The host never cancels a timed-out request, so a
+            // late 'focused' receipt still describes a real switch: let it
+            // clear the error its own timeout created. A newer request would
+            // have deleted the error entry, so a requestId match proves the
+            // row has not been superseded.
+            var errored = errorByCardId.get(message.cardId);
+            if (errored
+                && errored.requestId === message.requestId
+                && message.outcome === 'focused') {
+                errorByCardId.delete(message.cardId);
+                applyRowState(message.cardId, 'idle');
+            }
             return true;
         }
         clearPending(message.cardId, pending);
@@ -149,7 +163,10 @@ var agentPivotOpenWindowNavigation = (function () {
             errorByCardId.delete(message.cardId);
             applyRowState(message.cardId, 'idle');
         } else {
-            errorByCardId.set(message.cardId, message.outcome);
+            errorByCardId.set(message.cardId, {
+                outcome: message.outcome,
+                requestId: message.requestId,
+            });
             applyRowState(message.cardId, 'error', message.outcome);
             announce(message.cardId, 'Could not switch to window');
         }
@@ -164,8 +181,8 @@ var agentPivotOpenWindowNavigation = (function () {
         pendingByCardId.forEach(function (_pending, cardId) {
             applyRowState(cardId, 'pending', undefined, root);
         });
-        errorByCardId.forEach(function (outcome, cardId) {
-            applyRowState(cardId, 'error', outcome, root);
+        errorByCardId.forEach(function (entry, cardId) {
+            applyRowState(cardId, 'error', entry.outcome, root);
         });
     }
 
@@ -175,7 +192,7 @@ var agentPivotOpenWindowNavigation = (function () {
     // Workspace (current row). Keyboard: ↑/↓ 导航，Enter 执行，Esc 关闭并焦点返回。
     var menuOriginButton = null;
 
-    function closeMenu() {
+    function closeMenu(restoreFocus) {
         var menu = document.getElementById('openWindowMenu');
         if (!menu) {
             return;
@@ -183,7 +200,9 @@ var agentPivotOpenWindowNavigation = (function () {
         menu.classList.remove('visible');
         if (menuOriginButton) {
             menuOriginButton.setAttribute('aria-expanded', 'false');
-            if (typeof menuOriginButton.focus === 'function') {
+            // Only keyboard dismissal (Escape) returns focus to the trigger;
+            // blur, outside clicks, and item activation each own their focus.
+            if (restoreFocus === true && typeof menuOriginButton.focus === 'function') {
                 menuOriginButton.focus({ preventScroll: true });
             }
             menuOriginButton = null;
@@ -208,9 +227,13 @@ var agentPivotOpenWindowNavigation = (function () {
         menu.querySelectorAll('[data-open-window-menu-current]').forEach(function (item) {
             item.hidden = !isCurrent;
         });
+        var canPin = row.getAttribute('data-can-pin') !== 'false';
         var pinItem = menu.querySelector('[data-open-window-menu-pin]');
         if (pinItem) {
-            pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+            pinItem.hidden = !canPin;
+            if (canPin) {
+                pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+            }
         }
         menu.__row = row;
         if (menuOriginButton && menuOriginButton !== button) {
@@ -296,7 +319,7 @@ var agentPivotOpenWindowNavigation = (function () {
         var index = items.indexOf(document.activeElement);
         if (e.key === 'Escape') {
             e.preventDefault();
-            closeMenu();
+            closeMenu(true);
         } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
             var next = e.key === 'ArrowDown'
@@ -343,7 +366,7 @@ var agentPivotOpenWindowNavigation = (function () {
     });
 
     if (typeof window !== 'undefined' && window.addEventListener) {
-        window.addEventListener('blur', closeMenu);
+        window.addEventListener('blur', function () { closeMenu(); });
     }
 
     if (typeof document !== 'undefined' && document.addEventListener) {

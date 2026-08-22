@@ -3065,8 +3065,8 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 boot imports the legacy webview sub
         };
     });
     for (const source of [
-        scrollStateScript, viewStateScript, workspaceUpdateScript, todoGroupScript,
-        projectCollapseScript, todoControlScript, projectContextMenuScript,
+        scrollStateScript, viewStateScript, workspaceUpdateScript,
+        projectCollapseScript, projectContextMenuScript,
         projectAiUpdateScript, groupFormScript, aiSessionControlsScript, projectScript,
     ]) {
         await page.addScriptTag({ content: source });

@@ -4623,6 +4623,13 @@ function initProjectAiSessionControls(options) {
                 }
             }
             toggleChatsViewMenu(projectDiv, viewMenuTrigger);
+            if (viewMenuTrigger.getAttribute('aria-expanded') === 'true') {
+                window.vscode.postMessage({
+                    type: 'open-tab-telemetry',
+                    version: 1,
+                    event: 'chats-view-menu-opened',
+                });
+            }
             return true;
         }
         var viewModeItem = target.closest('[data-action="select-chats-view-mode"][data-view-mode]');

@@ -153,6 +153,15 @@ export function createDashboardMessageHandlers(
             await aiSessionCommandController.selectChatsViewMode(e.projectId, e.viewMode);
             refreshStewardViews('select-ai-session-chats-view-mode');
         },
+        'open-tab-telemetry': e => {
+            if (Object.keys(e).sort().join('\n') !== ['event', 'type', 'version'].join('\n')
+                || e.type !== 'open-tab-telemetry'
+                || e.version !== 1
+                || e.event !== 'chats-view-menu-opened') {
+                return;
+            }
+            logOpenWorkspaceDiagnostic('Telemetry', { event: 'open-tab-chats-view-menu-opened' });
+        },
         'set-ai-session-collapsed-worktree-groups': async e => {
             const keys = Object.keys(e).sort();
             if (e.version !== 1

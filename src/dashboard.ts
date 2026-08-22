@@ -2451,6 +2451,8 @@ async function initializeDashboard(
         navigate: cardId => workspaceNavigationController.openForSettlement(cardId),
         postMessage: message => provider.postMessage(message),
         logError,
+        recordTelemetry: event => logOpenWorkspaceDiagnostic('Telemetry', event),
+        nowMs: monotonicNowMs,
     });
     ownResource(() => worktreeSnapshotCoordinator.onDidChange(state => {
         if ((state.kind === 'ready' && !state.refreshing) || state.kind === 'error') {

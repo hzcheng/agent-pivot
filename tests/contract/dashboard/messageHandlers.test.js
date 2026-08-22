@@ -91,6 +91,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         // M2 window view-state protocol (the surface route retired with PR-D1).
         'select-ai-session-view-tab',
         'select-ai-session-chats-view-mode',
+        'open-tab-telemetry',
         'set-ai-session-collapsed-worktree-groups',
         'migrate-ai-session-view-state',
         'select-ai-session-providers',
@@ -452,6 +453,14 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protoc
     ]);
 
     calls.length = 0;
+    await handlers['open-tab-telemetry']({
+        type: 'open-tab-telemetry', version: 1, event: 'chats-view-menu-opened',
+    });
+    assert.deepEqual(calls, [[
+        'rendererDiagnostic', 'Telemetry', { event: 'open-tab-chats-view-menu-opened' },
+    ]]);
+
+    calls.length = 0;
     await handlers['select-ai-session-view-tab']({
         type: 'select-ai-session-view-tab', version: 2, projectId: 'p1', tab: 'all',
     });
@@ -460,6 +469,9 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protoc
     });
     await handlers['select-ai-session-chats-view-mode']({
         type: 'select-ai-session-chats-view-mode', version: 1, projectId: 'p1',
+    });
+    await handlers['open-tab-telemetry']({
+        type: 'open-tab-telemetry', version: 1, event: 'window-name-must-not-log', extra: true,
     });
     await handlers['set-ai-session-collapsed-worktree-groups']({
         type: 'set-ai-session-collapsed-worktree-groups', version: 1, projectId: 'p1',

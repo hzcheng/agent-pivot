@@ -26,6 +26,9 @@ export interface OpenWindowNavigationRequestControllerOptions {
     navigate(cardId: string): Promise<OpenWorkspaceNavigationSettlement>;
     postMessage(message: unknown): PromiseLike<unknown>;
     logError(message: string, error: unknown): void;
+    /** Local aggregate-only diagnostic hook; never receives card identity. */
+    recordTelemetry?: (event: Record<string, unknown>) => void;
+    nowMs?: () => number;
 }
 
 interface ParsedNavigationRequest {
@@ -66,15 +69,20 @@ function parseRequest(raw: unknown): ParsedNavigationRequest | null {
 }
 
 export class OpenWindowNavigationRequestController {
+    private readonly nowMs: () => number;
+
     constructor(private readonly options: OpenWindowNavigationRequestControllerOptions) {
+        this.nowMs = options.nowMs || (() => Date.now());
     }
 
     async handle(raw: unknown): Promise<void> {
         const request = parseRequest(raw);
         if (!request) {
+            this.recordTelemetry('malformed-request', 0);
             await this.settleMalformed(raw);
             return;
         }
+        const startedAtMs = this.nowMs();
         let outcome: OpenWorkspaceNavigationSettlement;
         try {
             outcome = await this.options.navigate(request.cardId);
@@ -82,6 +90,7 @@ export class OpenWindowNavigationRequestController {
             this.options.logError('Failed to navigate to the requested window.', error);
             outcome = 'failed';
         }
+        this.recordTelemetry(outcome, this.nowMs() - startedAtMs);
         await this.settle(request, outcome);
     }
 
@@ -115,6 +124,18 @@ export class OpenWindowNavigationRequestController {
             });
         } catch (error) {
             this.options.logError('Failed to settle open-window navigation request.', error);
+        }
+    }
+
+    private recordTelemetry(outcome: OpenWindowNavigationResultOutcome, elapsedMs: number): void {
+        try {
+            this.options.recordTelemetry?.({
+                event: 'open-tab-window-navigation',
+                outcome,
+                durationMs: Math.max(0, Math.min(60_000, Math.round(elapsedMs))),
+            });
+        } catch (_error) {
+            // Diagnostics must never change navigation settlement behavior.
         }
     }
 }

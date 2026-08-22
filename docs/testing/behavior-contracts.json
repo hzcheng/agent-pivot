@@ -5215,7 +5215,7 @@
   {
     "id": "CONVERSATION-COMMENTS-CLAMP-001",
     "domain": "webview",
-    "title": "Long open comment cards clamp their body behind a Show more toggle with the full text kept in the DOM, in-memory expansion, done cards exempt, both stacks consistent, and marker reveal auto-expanding clamped cards",
+    "title": "Long open comment cards clamp their body or quote behind one Show more toggle with the full text kept in the DOM, in-memory expansion, done cards exempt, both stacks consistent, and marker reveal auto-expanding clamped cards",
     "priority": "P1",
     "status": "automated",
     "owners": [

@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const Module = require('node:module');
 const os = require('node:os');
@@ -1648,7 +1649,8 @@ async function openHostViewerDocument(t, options = {}) {
         if (pathname === '/conversationCommentsScripts.js') {
             await route.fulfill({
                 contentType: 'text/javascript',
-                body: conversationCommentsScript,
+                body: options.commentsScriptSource
+                    || conversationCommentsScript,
             });
             return;
         }
@@ -3897,31 +3899,28 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    var workspaceCommentsPane = document.querySelector(\n'
                 + "        '[data-comments-panel=\"workspace\"]'\n"
                 + '    );\n',
-            '    var commentsSectionSash = document.querySelector(\n'
-                + "        '[data-comments-section-sash]'\n"
-                + '    );\n'
-                + '    var projectCommentsCount = document.querySelector(\n'
-                + "        '[data-project-comments-count]'\n"
-                + '    );\n'
-                + '    var sessionCommentsCount = document.querySelector(\n'
-                + "        '[data-session-comments-count]'\n"
-                + '    );\n'
+            ''
         )
         .replace(
-            '        && !!sessionCommentsTab && !!sessionCommentsPane\n',
+            '        && (!!sessionCommentsTab && !!sessionCommentsPane\n'
+                + '            || !!commentsSectionSash && !!sessionCommentsCount)\n',
             '        && !!commentsSectionSash && !!sessionCommentsCount\n'
         )
         .replace(
-            '        && !!workspaceCommentsTab && !!workspaceCommentsPane\n',
+            '        && (!!workspaceCommentsTab && !!workspaceCommentsPane\n'
+                + '            || !!projectCommentsCount)\n',
             '        && !!projectCommentsCount\n'
         )
         .replace(
-            '        sessionCommentsTab: sessionCommentsTab,\n'
+            '        commentsSectionSash: commentsSectionSash,\n'
+                + '        projectCommentsCount: projectCommentsCount,\n'
+                + '        sessionCommentsCount: sessionCommentsCount,\n'
+                + '        sessionCommentsTab: sessionCommentsTab,\n'
                 + '        workspaceCommentsTab: workspaceCommentsTab,\n'
                 + '        sessionCommentsPane: sessionCommentsPane,\n'
                 + '        workspaceCommentsPane: workspaceCommentsPane,\n',
-            '        projectCommentsCount: projectCommentsCount,\n'
-                + '        commentsSectionSash: commentsSectionSash,\n'
+            '        commentsSectionSash: commentsSectionSash,\n'
+                + '        projectCommentsCount: projectCommentsCount,\n'
                 + '        sessionCommentsCount: sessionCommentsCount,\n'
         )
         .replace(
@@ -5143,13 +5142,27 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '86e2dfacd2ebf8138851bfeb34296fdd38e3d925bc8c224979b56611434b903c',
+        'f95e0a9697f6f5dcf9bb3be1fc684798489d67e9ce74067e8b72c2111bca541e',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
         sha256(previousOutlineScript),
         'bf9c914c932eb222ebbc2134d80c2625740fdd04ac3ee89ea0438b9941484c0c',
         'the previous Outline fixture must stay byte-exact'
+    );
+    const previousCommentsScript = execFileSync(
+        'git',
+        [
+            'show',
+            '41241758007eb86ba54b7abfd8697ab1663b0295:'
+                + 'src/webview/conversationCommentsScripts.js',
+        ],
+        { cwd: path.join(__dirname, '../..') }
+    ).toString('utf8');
+    assert.equal(
+        sha256(previousCommentsScript),
+        'eae6747466b532101f8a9d2c6975ab43b10a681cb4891f4e76bcbf7830667faa',
+        'the previous Comments fixture must stay byte-exact'
     );
 
     const previousScriptErrors = [];
@@ -5162,6 +5175,45 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     });
     await assertPanelViews(previousScript.page, 'previous scripts');
     assert.deepEqual(previousScriptErrors, []);
+
+    const legacyCommentsDomErrors = [];
+    const legacyCommentsDom = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageErrors: legacyCommentsDomErrors,
+        viewerScriptSource: previousViewerScript,
+        outlineScriptSource: previousOutlineScript,
+        transformHostDocument(html) {
+            return html.replace(
+                /<div class="conversation-comments-tabs"[\s\S]*?<\/div>\s*<div class="conversation-comments-filter-bar"/,
+                '<div class="conversation-comments-filter-bar"'
+            ).replace(/ data-comments-panel="(session|workspace)"/g, '');
+        },
+    });
+    await assertPanelViews(legacyCommentsDom.page, 'legacy Comments DOM');
+    assert.deepEqual(legacyCommentsDomErrors, []);
+
+    const previousCommentsErrors = [];
+    const previousComments = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageErrors: previousCommentsErrors,
+        commentsScriptSource: previousCommentsScript,
+    });
+    await assertPanelViews(previousComments.page, 'previous Comments script');
+    await previousComments.page.locator('[data-telemetry-comments]').click();
+    await previousComments.page.locator(
+        '[data-project-comments-header]'
+            + ' [data-project-comment-action="open-composer"]'
+    ).click();
+    assert.equal(
+        await previousComments.page
+            .locator('[data-project-comment-composer]')
+            .isVisible(),
+        true,
+        'the previous Comments script must keep Workspace capture usable'
+    );
+    assert.deepEqual(previousCommentsErrors, []);
 
     const previousDocumentErrors = [];
     const previousDocument = await openHostViewerDocument(t, {
@@ -12357,6 +12409,131 @@ test('CONVERSATION-COMMENTS-UI-001 PROJECT-COMMENTS-UI-001 keeps status and tag 
     });
 });
 
+test('CONVERSATION-COMMENTS-TABS-001 clears stale hidden-tab filters and spent composer returns', async t => {
+    const interactionId = 'input-tab-review-fixes';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 700 },
+        markdown: 'Alpha beta gamma.',
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationCommentsActiveTab: 'workspace',
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    async function selectBeta() {
+        await page.locator('.conversation-markdown').evaluate(element => {
+            const node = element.querySelector('p').firstChild;
+            const start = node.nodeValue.indexOf('beta');
+            const range = document.createRange();
+            range.setStart(node, start);
+            range.setEnd(node, start + 'beta'.length);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            element.dispatchEvent(
+                new MouseEvent('mouseup', { bubbles: true })
+            );
+        });
+    }
+
+    // A confirmed cross-tab composer must not poison a later, ordinary
+    // Session-note cancellation with its expired return target.
+    await selectBeta();
+    await page.locator('[data-comment-selection-action="comment"]').click();
+    await page.locator('[data-comment-input]').fill('Confirmed cross-tab.');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    await sendPage(page, commentSettlement(addRequest, [{
+        id: 'confirmed-comment',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Confirmed cross-tab.',
+        status: 'open',
+        createdAt: 1000,
+    }]));
+    await page.locator('[data-comment-action="new"]').click();
+    assert.equal(
+        await page.locator('[data-comments-panel="session"]').isVisible(),
+        true
+    );
+    await page.keyboard.press('Escape');
+    assert.equal(
+        await page.locator('[data-comments-panel="session"]').isVisible(),
+        true,
+        'a later ordinary composer cancel must stay on Session'
+    );
+
+    // If a Workspace tag disappears while that tab is hidden, switching back
+    // must render the authoritative all-notes list, not the stale empty list.
+    await page.locator('[data-comments-tab="workspace"]').click();
+    await page.locator(
+        '[data-project-comments-header]'
+            + ' [data-project-comment-action="open-composer"]'
+    ).click();
+    await page.locator('[data-project-comment-input]').fill('Tagged note.');
+    await page.locator('[data-project-comment-action="add-draft-tag"]')
+        .click();
+    await page.locator('[data-project-comment-draft-tag-input]')
+        .fill('stale');
+    await page.locator('[data-project-comment-draft-tag-input]')
+        .press('Enter');
+    await page.locator('[data-project-comment-input]')
+        .press('Control+Enter');
+    const noteAdd = (await postedMessages(page)).at(-1);
+    const note = {
+        id: 'tagged-note',
+        text: 'Tagged note.',
+        tags: ['stale'],
+        status: 'open',
+        createdAt: 1000,
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(noteAdd, [note]));
+    await page.locator(
+        '[data-comments-filter-bar] [data-tag="stale"]'
+    ).click();
+    await page.locator(
+        '[data-project-comment-id="tagged-note"]'
+            + ' [data-project-comment-action="remove-tag"]'
+    ).click();
+    const removeTag = (await postedMessages(page)).at(-1);
+    await page.locator('[data-comments-tab="session"]').click();
+    await sendPage(page, projectCommentSettlement(removeTag, [{
+        ...note,
+        tags: [],
+    }]));
+    await page.locator('[data-comments-tab="workspace"]').click();
+    assert.equal(
+        await page.locator('[data-project-comment-id]').count(),
+        1,
+        'clearing a vanished hidden-tab tag filter must restore its card'
+    );
+    assert.equal(
+        await page.locator('[data-project-comment-empty]').isHidden(),
+        true
+    );
+});
+
 function changesFixture(overrides = {}) {
     return {
         kind: 'ready',
@@ -12929,6 +13106,17 @@ test('CONVERSATION-COMMENTS-CLAMP-001 clamps long cards with an in-memory expand
         comment: 'Short note.',
         status: 'open',
         createdAt: 1001,
+    }, {
+        id: 'long-quote-1',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: longText,
+        prefix: 'Alpha ',
+        suffix: ' beta gamma.',
+        comment: 'Review the selected quote.',
+        status: 'open',
+        createdAt: 1002,
     }];
     await sendPage(page, commentSettlement(addRequest, comments));
 
@@ -12956,6 +13144,35 @@ test('CONVERSATION-COMMENTS-CLAMP-001 clamps long cards with an in-memory expand
         0
     );
     assert.equal(await isClamped(shortCard), false);
+
+    // A short body with a long quote still shares one card-level clamp
+    // toggle; both content regions stay complete in the DOM.
+    const quotedCard = page.locator('[data-comment-id="long-quote-1"]');
+    const quotedBody = quotedCard.locator('.conversation-comment-body');
+    const quotedText = quotedCard.locator(
+        '.conversation-comment-quote blockquote'
+    );
+    assert.equal(await isClamped(quotedCard), false);
+    assert.equal(
+        await quotedText.evaluate(element =>
+            element.classList.contains('is-clamped')
+        ),
+        true
+    );
+    assert.equal(await quotedText.textContent(), longText);
+    const quoteToggle = quotedCard.locator('[data-comment-clamp-toggle]');
+    assert.equal(await quoteToggle.innerText(), 'Show more');
+    await quoteToggle.click();
+    assert.equal(
+        await quotedText.evaluate(element =>
+            element.classList.contains('is-clamped')
+        ),
+        false
+    );
+    assert.equal(
+        await quotedCard.locator('[data-comment-clamp-toggle]').innerText(),
+        'Show less'
+    );
 
     // Expand → full height; collapse → clamped again (in-memory only).
     await toggle.click();
@@ -13018,6 +13235,11 @@ test('CONVERSATION-COMMENTS-CLAMP-001 clamps long cards with an in-memory expand
         tags: [],
         status: 'open',
         createdAt: 1000,
+        source: {
+            provider: 'codex',
+            sessionId: 'session-host-document',
+            quote: longText,
+        },
         dispatches: [],
     };
     await sendPage(page, projectCommentSettlement(projectAdd, [note]));
@@ -13025,6 +13247,15 @@ test('CONVERSATION-COMMENTS-CLAMP-001 clamps long cards with an in-memory expand
     const noteBody = noteCard.locator('.conversation-comment-body');
     assert.equal(await isClamped(noteCard), true);
     assert.equal(await noteBody.textContent(), longText);
+    const noteQuote = noteCard.locator(
+        '.conversation-comment-quote blockquote'
+    );
+    assert.equal(
+        await noteQuote.evaluate(element =>
+            element.classList.contains('is-clamped')
+        ),
+        true
+    );
     const noteToggle = noteCard.locator(
         '[data-project-comment-clamp-toggle]'
     );
@@ -13093,7 +13324,7 @@ test('CONVERSATION-COMMENTS-CLAMP-001 reveal measures after opening the panel an
         '.conversation-comment-body'
     ).evaluate(element => element.classList.contains('is-clamped')), true);
     const toggle = card.locator('[data-comment-clamp-toggle]');
-    assert.equal(await toggle.innerText(), 'Show more');
+    assert.equal(await toggle.textContent(), 'Show more');
 
     // Clicking the message marker reveals the card fully expanded.
     await page.locator('[data-conversation-position]').click();
@@ -13105,7 +13336,7 @@ test('CONVERSATION-COMMENTS-CLAMP-001 reveal measures after opening the panel an
         '.conversation-comment-body'
     ).evaluate(element => element.classList.contains('is-clamped')), false);
     assert.equal(
-        await card.locator('[data-comment-clamp-toggle]').innerText(),
+        await card.locator('[data-comment-clamp-toggle]').textContent(),
         'Show less'
     );
 });

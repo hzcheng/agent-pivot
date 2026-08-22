@@ -195,6 +195,15 @@
     var sessionCommentsContent = document.querySelector(
         '[data-session-comments-content]'
     );
+    var commentsSectionSash = document.querySelector(
+        '[data-comments-section-sash]'
+    );
+    var projectCommentsCount = document.querySelector(
+        '[data-project-comments-count]'
+    );
+    var sessionCommentsCount = document.querySelector(
+        '[data-session-comments-count]'
+    );
     var sessionCommentsTab = document.querySelector(
         '[data-comments-tab="session"]'
     );
@@ -262,7 +271,8 @@
     var commentUiAvailable = sidebarUiAvailable
         && !!commentsRoot
         && !!sessionCommentsHeader && !!sessionCommentsContent
-        && !!sessionCommentsTab && !!sessionCommentsPane
+        && (!!sessionCommentsTab && !!sessionCommentsPane
+            || !!commentsSectionSash && !!sessionCommentsCount)
         && !!commentsFilterBar
         && !!commentComposer && !!commentSelection && !!commentInput
         && !!commentList && !!commentEmpty && !!commentFilterEmpty
@@ -280,7 +290,8 @@
     var projectCommentUiAvailable = commentUiAvailable
         && !!projectCommentsRoot && !!projectCommentsHeader
         && !!projectCommentsContent && !!projectCommentComposer
-        && !!workspaceCommentsTab && !!workspaceCommentsPane
+        && (!!workspaceCommentsTab && !!workspaceCommentsPane
+            || !!projectCommentsCount)
         && !!projectCommentSource
         && !!projectCommentSourceLabel && !!projectCommentSourceQuote
         && !!projectCommentInput && !!projectCommentDraftTags
@@ -537,6 +548,9 @@
         projectCommentsContent: projectCommentsContent,
         sessionCommentsHeader: sessionCommentsHeader,
         sessionCommentsContent: sessionCommentsContent,
+        commentsSectionSash: commentsSectionSash,
+        projectCommentsCount: projectCommentsCount,
+        sessionCommentsCount: sessionCommentsCount,
         sessionCommentsTab: sessionCommentsTab,
         workspaceCommentsTab: workspaceCommentsTab,
         sessionCommentsPane: sessionCommentsPane,

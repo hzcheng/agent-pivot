@@ -1780,6 +1780,12 @@ body[data-conversation-loading='true'] .conversation-messages {
     );
 }
 
+blockquote.conversation-comment-clampable.is-clamped {
+    // Quotes are context, not the main content: keep them to roughly three
+    // lines while preserving the complete source text in the DOM.
+    max-height: 3.9rem;
+}
+
 .conversation-comment-clamp-toggle {
     display: block;
     margin-top: 0.25rem;

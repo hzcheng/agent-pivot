@@ -373,8 +373,7 @@ export function renderConversationViewerDocument(
                     <section class="conversation-comments-pane"
                         id="conversation-comments-pane-workspace"
                         role="tabpanel" data-comments-panel="workspace"
-                        aria-labelledby="conversation-comments-tab-workspace"
-                        hidden>
+                        aria-labelledby="conversation-comments-tab-workspace">
                     <div class="conversation-comments-section-header"
                         data-project-comments-header>
                         <button class="conversation-comment-icon-button conversation-comments-section-add"

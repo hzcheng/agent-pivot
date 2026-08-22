@@ -894,6 +894,9 @@
             if (!list) return;
             var cards = list.querySelectorAll('[' + idAttribute + ']');
             Array.prototype.forEach.call(cards, function (card) {
+                // A zero-height card is inside a hidden panel; keep the last
+                // measurement instead of mistaking layout absence for fit.
+                if (!card.offsetHeight) return;
                 var toggle = card.querySelector('[' + toggleAttribute + ']');
                 if (card.getAttribute('data-comment-status') !== 'open') {
                     // Done cards never clamp; drop a stale toggle if the
@@ -910,18 +913,27 @@
                     }
                     return;
                 }
-                var body = card.querySelector(
+                var clampable = card.querySelectorAll(
                     '.conversation-comment-clampable'
                 );
-                if (!body) return;
-                if (!body.classList.contains('is-clamped')) {
-                    body.classList.add('is-clamped');
-                }
-                // Hidden subtrees (closed panel) report zero heights; the
-                // ResizeObserver re-measures once they become visible.
-                var overflow = body.scrollHeight > body.clientHeight + 1;
+                if (!clampable.length) return;
+                var overflow = false;
+                Array.prototype.forEach.call(clampable, function (element) {
+                    // Hidden subtrees (closed panel) report zero heights;
+                    // the ResizeObserver re-measures once they become visible.
+                    var elementOverflows
+                        = element.scrollHeight > element.clientHeight + 1;
+                    if (elementOverflows) {
+                        element.classList.add('is-clamped');
+                        overflow = true;
+                    } else {
+                        element.classList.remove('is-clamped');
+                    }
+                });
                 if (!overflow) {
-                    body.classList.remove('is-clamped');
+                    Array.prototype.forEach.call(clampable, function (element) {
+                        element.classList.remove('is-clamped');
+                    });
                     if (toggle) toggle.remove();
                     return;
                 }
@@ -1148,6 +1160,9 @@
                     quoteLabel.textContent = 'Selected text';
                     var quote = document.createElement('blockquote');
                     quote.textContent = comment.quote;
+                    if (comment.status === 'open' && !clampExpanded) {
+                        markCommentClampable(quote);
+                    }
                     quoteGroup.append(quoteLabel, quote);
                     item.appendChild(quoteGroup);
                 }
@@ -1306,6 +1321,12 @@
                 return candidate.id === commentId;
             });
             if (!comment) return false;
+            var initialCard = commentList.querySelector(
+                '[data-comment-id="' + CSS.escape(commentId) + '"]'
+            );
+            var shouldExpandClamp = !!initialCard
+                && comment.status === 'open'
+                && !!initialCard.querySelector('[data-comment-clamp-toggle]');
             var needsRender = false;
             if (comment.status === 'done'
                 && !state.expandedDoneComments.has(commentId)) {
@@ -1333,10 +1354,8 @@
                 '[data-comment-id="' + CSS.escape(commentId) + '"]'
             );
             if (!card) return false;
-            var clampToggle = card.querySelector(
-                '[data-comment-clamp-toggle]'
-            );
-            if (clampToggle && !state.expandedClampedComments.has(commentId)) {
+            if (shouldExpandClamp
+                && !state.expandedClampedComments.has(commentId)) {
                 // Reveal the full card when its content is clamped (a
                 // rendered toggle means the measurement found overflow).
                 state.expandedClampedComments.add(commentId);
@@ -2110,34 +2129,47 @@
             );
         }
 
-        function applyActiveTab() {
+        function applyActiveTab(rerenderStack) {
             if (!commentUiAvailable) return;
             if (state.activeTab === 'workspace' && !projectCommentsAvailable) {
                 state.activeTab = 'session';
             }
             var workspaceActive = state.activeTab === 'workspace';
-            workspaceCommentsTab.disabled = !projectCommentsAvailable;
-            sessionCommentsTab.setAttribute(
-                'aria-selected',
-                workspaceActive ? 'false' : 'true'
-            );
-            workspaceCommentsTab.setAttribute(
-                'aria-selected',
-                workspaceActive ? 'true' : 'false'
-            );
-            sessionCommentsTab.tabIndex = workspaceActive ? -1 : 0;
-            workspaceCommentsTab.tabIndex = workspaceActive ? 0 : -1;
-            sessionCommentsPane.hidden = workspaceActive;
-            workspaceCommentsPane.hidden = !workspaceActive;
+            if (sessionCommentsTab && workspaceCommentsTab
+                && sessionCommentsPane && workspaceCommentsPane) {
+                workspaceCommentsTab.disabled = !projectCommentsAvailable;
+                sessionCommentsTab.setAttribute(
+                    'aria-selected',
+                    workspaceActive ? 'false' : 'true'
+                );
+                workspaceCommentsTab.setAttribute(
+                    'aria-selected',
+                    workspaceActive ? 'true' : 'false'
+                );
+                sessionCommentsTab.tabIndex = workspaceActive ? -1 : 0;
+                workspaceCommentsTab.tabIndex = workspaceActive ? 0 : -1;
+                sessionCommentsPane.hidden = workspaceActive;
+                workspaceCommentsPane.hidden = !workspaceActive;
+            }
             renderCommentsFilterBar();
+            // Re-render the now-visible stack as well as its filter bar. A
+            // tag vocabulary can disappear while its tab is hidden; clearing
+            // only the chip would leave the old empty list behind.
+            if (rerenderStack !== false
+                && workspaceActive && projectCommentsAvailable) {
+                renderProjectComments();
+            } else if (rerenderStack !== false && !workspaceActive) {
+                renderComments();
+            }
             updateFilterBarPending();
         }
 
         function setActiveTab(tab, persist) {
             if (tab !== 'session' && tab !== 'workspace') return;
             if (tab === 'workspace' && !projectCommentsAvailable) return;
+            var tabChanged = state.activeTab !== tab;
             state.activeTab = tab;
-            applyActiveTab();
+            applyActiveTab(tabChanged);
             resetStackClearAllConfirmation(sessionStack);
             if (projectCommentsAvailable) {
                 resetStackClearAllConfirmation(projectStack);
@@ -2214,6 +2246,7 @@
                     state.projectPendingSource
                 );
             }
+            state.previousTab = null;
             closeProjectCommentComposer();
             postStackOperation(projectStack, 'add', payload);
         }
@@ -2372,6 +2405,10 @@
                 if (comment.source.quote) {
                     var quote = document.createElement('blockquote');
                     quote.textContent = comment.source.quote;
+                    if (comment.status === 'open'
+                        && !projectClampExpanded) {
+                        markCommentClampable(quote);
+                    }
                     quoteGroup.appendChild(quote);
                 }
                 item.appendChild(quoteGroup);
@@ -2849,6 +2886,7 @@
                         state.selectedCommentText,
                         { comment: text }
                     );
+                    state.previousTab = null;
                     closeCommentComposer();
                     postStackOperation(sessionStack, 'add', payload);
                     return;

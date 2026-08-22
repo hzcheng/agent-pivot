@@ -85,7 +85,6 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewWorkspaceUpdateScripts.js',
     'extension/media/webviewTodoGroupScripts.js',
     'extension/media/webviewProjectCollapseScripts.js',
-    'extension/media/webviewOpenTabSplitScripts.js',
     'extension/media/webviewOpenWindowNavigationScripts.js',
     'extension/media/webviewTodoControlScripts.js',
     'extension/media/webviewProjectContextMenuScripts.js',
@@ -632,7 +631,6 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewWorkspaceUpdateScripts.js', 'media/webviewWorkspaceUpdateScripts.js'],
         ['extension/media/webviewTodoGroupScripts.js', 'media/webviewTodoGroupScripts.js'],
         ['extension/media/webviewProjectCollapseScripts.js', 'media/webviewProjectCollapseScripts.js'],
-        ['extension/media/webviewOpenTabSplitScripts.js', 'media/webviewOpenTabSplitScripts.js'],
         ['extension/media/webviewOpenWindowNavigationScripts.js', 'media/webviewOpenWindowNavigationScripts.js'],
         ['extension/media/webviewTodoControlScripts.js', 'media/webviewTodoControlScripts.js'],
         ['extension/media/webviewProjectContextMenuScripts.js', 'media/webviewProjectContextMenuScripts.js'],
@@ -977,7 +975,6 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewWorkspaceUpdateScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoGroupScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectCollapseScripts.js', 'main VSIX ignore rules');
-    assertIncludes(mainIgnore, '!media/webviewOpenTabSplitScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewOpenWindowNavigationScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewTodoControlScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectContextMenuScripts.js', 'main VSIX ignore rules');
@@ -1022,7 +1019,6 @@ function run() {
         'media/webviewWorkspaceUpdateScripts.js',
         'media/webviewTodoGroupScripts.js',
         'media/webviewProjectCollapseScripts.js',
-        'media/webviewOpenTabSplitScripts.js',
         'media/webviewOpenWindowNavigationScripts.js',
         'media/webviewTodoControlScripts.js',
         'media/webviewProjectContextMenuScripts.js',

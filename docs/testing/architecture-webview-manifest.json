@@ -20,7 +20,6 @@
         "src/webview/webviewWorkspaceUpdateScripts.js",
         "src/webview/webviewTodoGroupScripts.js",
         "src/webview/webviewProjectCollapseScripts.js",
-        "src/webview/webviewOpenTabSplitScripts.js",
         "src/webview/webviewOpenWindowNavigationScripts.js",
         "src/webview/webviewTodoControlScripts.js",
         "src/webview/webviewProjectContextMenuScripts.js",
@@ -104,13 +103,6 @@
     {
       "symbol": "window.__agentPivotDashboard",
       "producer": "host"
-    },
-    {
-      "symbol": "window.__agentPivotOpenTabSplit",
-      "producer": "src/webview/webviewOpenTabSplitScripts.js",
-      "consumers": [
-        "src/webview/webviewProjectAiSessionControlsScripts.js"
-      ]
     },
     {
       "symbol": "window.__agentPivotOpenWindowNavigation",

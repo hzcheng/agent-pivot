@@ -32,9 +32,7 @@ function initProjectGroupCollapse() {
             ? '#dashboard-tab-projects .group[data-group-id]'
             : activeTab === 'todo'
                 ? '#dashboard-tab-todo .todo-group[data-todo-group-id]'
-                : activeTab === 'open'
-                    ? '#dashboard-tab-open .open-other-windows-group[data-group-id]'
-                    : null;
+                : null;
         if (!selector) {
             return [];
         }

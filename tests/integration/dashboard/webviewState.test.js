@@ -567,7 +567,7 @@ test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 preserves TODO catalog entries in inc
         revealFocused: false, focusedTarget: null, attentionSessions: [], sessions: [],
     };
     const openMessage = webviewModules.updateMessages.buildOpenWorkspacesUpdatedMessage({
-        groups: [], cards: [], collapsed: false,
+        groups: [], cards: [],
         semanticRevision: 'revision', projectionRevision: 1,
         otherWindowsStatus: 'ready', todoSearchItems, presentation,
     });
@@ -588,8 +588,7 @@ test('WEBVIEW-WEBVIEW-OPTIONS-001 enables scripts and limits local resources to 
     });
 });
 
-test('OPEN-ALL-WINDOWS-LIST-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 keeps CURRENT WINDOW and duplicates its compact projection in OPEN WINDOWS', () => {
-    const config = { get: (_key, fallback) => fallback };
+test('OPEN-WINDOW-SWITCHER-UI-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 renders WINDOWS switcher rows above the headless current-detail card', () => {
     const html = webviewModules.content.getOpenWorkspacesGroupContent([
         makeWorkspaceCard({
             id: 'current',
@@ -599,33 +598,69 @@ test('OPEN-ALL-WINDOWS-LIST-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-
             },
         }),
         makeWorkspaceCard({ id: 'navigation', kind: 'navigation', name: 'Other' }),
-    ], false, 'ready');
+    ], 'ready');
 
-    const currentTags = Array.from(html.matchAll(
-        /<div class="[^"]*project[^"]*"[^>]*data-id="current"[^>]*>/g
+    // ① The switcher group leads; the headless current-detail group follows.
+    const switcherStart = html.indexOf('open-window-switcher-group');
+    const currentStart = html.indexOf('open-current-workspace-group');
+    assert.ok(switcherStart >= 0, 'the window switcher group must render');
+    assert.ok(currentStart > switcherStart,
+        'the current-detail group follows the window switcher');
+    const switcherSection = html.slice(0, currentStart);
+    assert.match(switcherSection, /class="group open-window-switcher-group" role="list"/);
+    assert.match(switcherSection, /data-other-windows-status="ready"/);
+    assert.match(switcherSection, /data-open-window-switcher-status/);
+    assert.match(switcherSection, /data-open-window-switcher-list/);
+    assert.match(switcherSection, /data-open-workspace-pin-live-region/);
+    assert.equal((switcherSection.match(/class="group-title-text">WINDOWS</g) || []).length, 1,
+        'the switcher owns the single WINDOWS group title');
+
+    // ② One single-line row per window with the fixed slot structure.
+    const rowTags = Array.from(html.matchAll(
+        /<div class="open-window-row[^"]*"[^>]*>/g
     )).map(match => match[0]);
-    const navigationTag = html.match(/<div class="[^"]*project[^"]*"[^>]*data-id="navigation"[^>]*>/)[0];
-    assert.equal(currentTags.length, 2);
-    const currentDetailTag = currentTags.find(tag => /data-current-workspace/.test(tag));
-    const currentOpenListTag = currentTags.find(tag => /data-open-workspace-current/.test(tag));
-    assert.match(currentDetailTag, /data-workspace-scope-identity/);
-    assert.match(currentOpenListTag, /data-open-workspace-list-card/);
-    assert.doesNotMatch(currentOpenListTag, /data-current-workspace/);
-    assert.doesNotMatch(navigationTag, /data-current-workspace/);
-    assert.match(navigationTag, /data-open-workspace-list-card/);
-    assert.match(navigationTag, /data-workspace-navigation/);
-    assert.match(navigationTag, /data-readonly-project/);
-    assert.equal((html.match(/CURRENT WINDOW/g) || []).length, 1);
-    assert.equal((html.match(/OPEN WINDOWS/g) || []).length, 1);
+    assert.equal(rowTags.length, 2);
+    const currentRowTag = rowTags.find(tag => /data-id="current"/.test(tag));
+    const navigationRowTag = rowTags.find(tag => /data-id="navigation"/.test(tag));
+    assert.ok(currentRowTag && navigationRowTag, 'both windows render one row each');
+    assert.match(currentRowTag, /data-window-kind="current"/);
+    assert.match(currentRowTag, /data-workspace-navigation-identity="navigation:current"/);
+    assert.match(navigationRowTag, /data-window-kind="navigation"/);
+    assert.match(navigationRowTag, /data-workspace-navigation-identity="navigation:navigation"/);
+    assert.equal((html.match(/class="open-window-indicator"/g) || []).length, 2);
+    assert.equal((html.match(/class="open-window-running"/g) || []).length, 2);
+    assert.equal((html.match(/class="open-window-attention"/g) || []).length, 2);
+    assert.equal((html.match(/data-action="focus-open-window"/g) || []).length, 2);
+    assert.equal((html.match(/data-action="toggle-open-workspace-pin"/g) || []).length, 2);
+    assert.equal((html.match(/data-action="open-window-menu"/g) || []).length, 2);
+    assert.equal((html.match(/data-action="retry-open-window-navigation" hidden/g) || []).length, 2);
+    assert.match(html, /aria-label="Current window: Current" aria-disabled="true" aria-current="true"/);
+    assert.match(html, /aria-label="Focus window: Other"/);
+
+    // ③ The headless current group keeps the detailed card only.
+    const currentSection = html.slice(currentStart);
+    assert.match(currentSection, /open-current-workspace-group-headless/);
+    assert.doesNotMatch(currentSection, /group-title/,
+        'the current-detail group stays headless');
+    assert.match(currentSection, /data-current-workspace/);
+    assert.match(currentSection, /data-workspace-scope-identity/);
+    assert.equal((currentSection.match(/class="codex-sessions"/g) || []).length, 1);
+
+    // ④ The retired dual-group chrome is gone for good.
+    assert.equal(html.includes('CURRENT WINDOW'), false);
+    assert.equal(html.includes('OPEN WINDOWS'), false);
     assert.equal(html.includes('CURRENT WORKSPACE'), false);
     assert.equal(html.includes('OTHER WINDOWS'), false);
-    assert.match(html, /class="current-window-indicator"/);
-    assert.equal((html.match(/data-action="toggle-open-workspace-pin"/g) || []).length, 2);
-    assert.equal((html.match(/class="codex-sessions"/g) || []).length, 1);
+    assert.doesNotMatch(html, /current-window-indicator/);
+    assert.doesNotMatch(html, /open-tab-split-resizer/);
+    assert.doesNotMatch(html, /open-other-windows-group/);
+    assert.doesNotMatch(html, /data-open-workspace-list-card/);
+    assert.doesNotMatch(html, /data-open-workspace-current/);
+    assert.doesNotMatch(html, /data-workspace-navigation(?!-identity)/);
     assert.equal(html.includes('Leaked'), false);
 });
 
-test('OPEN-ALL-WINDOWS-LIST-001 renders saved project names for single-root window cards', () => {
+test('OPEN-WINDOW-SWITCHER-UI-001 renders saved project names for single-root window cards', () => {
     const html = webviewModules.content.getOpenWorkspacesGroupContent([
         makeWorkspaceCard({
             id: 'current',
@@ -638,12 +673,18 @@ test('OPEN-ALL-WINDOWS-LIST-001 renders saved project names for single-root wind
             name: 'reddb project',
             rootName: 'reddb',
         }),
-    ], false, 'ready');
+    ], 'ready');
 
-    const renderedNames = Array.from(html.matchAll(
+    const rowNames = Array.from(html.matchAll(
+        /<span class="open-window-name">([^<]+)<\/span>/g
+    )).map(match => match[1]);
+    assert.deepEqual(rowNames, ['agent-pivot', 'reddb project'],
+        'every window renders its disambiguated name in the switcher row');
+    const detailNames = Array.from(html.matchAll(
         /<h2 class="project-header">([^<]+)<\/h2>/g
     )).map(match => match[1]);
-    assert.deepEqual(renderedNames, ['agent-pivot', 'agent-pivot', 'reddb project']);
+    assert.deepEqual(detailNames, ['agent-pivot'],
+        'the current-detail card keeps its full header');
 });
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected-provider history list', () => {
@@ -674,7 +715,7 @@ test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 WEBVIEW-MULTI-PROVIDER-SESSION-
                 activeSessions: [],
             },
         }),
-    ], false, 'ready');
+    ], 'ready');
 
     assert.match(html, /data-selected-ai-session-providers="kimi,codex,claude"/);
     assert.match(html, /data-active-ai-session-provider="kimi"/);
@@ -2913,7 +2954,6 @@ test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and 
     const selectedAiButton = createElement();
     selectedAiButton.setAttribute('data-dashboard-tab', 'ai');
     selectedAiButton.setAttribute('aria-selected', 'true');
-    const openGroup = { classList: createClassList() };
     const todoGroup = { classList: createClassList() };
     const harness = createProjectVm({
         activeTab: 'ai',
@@ -2922,11 +2962,13 @@ test('WEBVIEW-AI-DASHBOARD-001 keeps Collapse disabled across late Projects and 
             : selector === '[data-dashboard-tab][aria-selected="true"]'
                 ? selectedAiButton
                 : null,
-        querySelectorAll: selector => selector === '#dashboard-tab-open .open-other-windows-group[data-group-id]'
-            ? [openGroup]
-            : selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
+        querySelectorAll: selector => {
+            assert.ok(!selector.includes('#dashboard-tab-open'),
+                'the OPEN tab exposes no collapsible groups');
+            return selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
                 ? [todoGroup]
-                : [],
+                : [];
+        },
     });
 
     collapseButton.disabled = false;
@@ -2954,11 +2996,14 @@ test('WEBVIEW-AI-DASHBOARD-001 and TODO-AUTHORITATIVE-REFRESH-STATE-001 preserve
         querySelector: selector => selector === '[data-action="toggle-all-groups"]'
             ? collapseButton
             : null,
-        querySelectorAll: selector => selector === '#dashboard-tab-open .open-other-windows-group[data-group-id]'
-            || selector === '#dashboard-tab-projects .group[data-group-id]'
-            || selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
-            ? [{ classList: createClassList() }]
-            : [],
+        querySelectorAll: selector => {
+            assert.ok(!selector.includes('#dashboard-tab-open'),
+                'the OPEN tab exposes no collapsible groups');
+            return selector === '#dashboard-tab-projects .group[data-group-id]'
+                || selector === '#dashboard-tab-todo .todo-group[data-todo-group-id]'
+                ? [{ classList: createClassList() }]
+                : [];
+        },
     });
     const syncCollapse = () => projectVm.context.window.__agentPivotSyncCollapseButton();
     const dashboard = createDashboardHarness({

@@ -1416,7 +1416,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'message.presentation.projectionRevision !== message.projectionRevision',
@@ -1426,7 +1426,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'message.presentation.revealFocused !== false',
@@ -1436,7 +1436,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'presentationTransactions.applyAtomicEnvelope({',
@@ -1446,7 +1446,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'commitAtomicProjectionRevision(message.projectionRevision)',
@@ -1456,7 +1456,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             '|| !canApplyAtomicPresentationProjectionRevision(message.projectionRevision)',
@@ -1486,10 +1486,10 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewWorkspaceUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
-            "message.type !== 'open-workspaces-updated'\n        || message.version !== 3",
+            "message.type !== 'open-workspaces-updated'\n        || message.version !== 4",
             "message.type !== 'open-workspaces-updated'\n        || message.version !== 2"
         ),
     },
@@ -1605,7 +1605,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'if (!hasMatchingPresentationWorkspace(message.presentation)) return false;\n'
@@ -1617,7 +1617,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             'message.revealFocused !== true',
@@ -1627,7 +1627,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             "var replacementWorkspaceMatches = null;\n"
@@ -1665,7 +1665,7 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
-        expectedDetail: 'Webview must validate v3 envelopes atomically and reserve direct Presentation for focus',
+        expectedDetail: 'Webview must validate v4 envelopes atomically and reserve direct Presentation for focus',
         mutate: source => replaceFixtureSource(
             source,
             "if (typeof input.afterReplacement === 'function') {\n"

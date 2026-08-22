@@ -7,14 +7,17 @@
 // replacement).
 //
 // PR-A scope: the renderer output and the navigation pending manager are
-// exercised here against a synthetic document; the production DOM switch
-// lands in PR-B.
+// exercised against a synthetic document. PR-B adds the production-DOM
+// end-to-end: the real getStewardContent OPEN tab, the assembled production
+// script set, v4 open-workspaces-updated application, and row click routing.
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
+const { createFakeVscode } = require('../helpers/fakeVscode');
 
 const {
     buildOpenWindowRowViewModels,
@@ -148,8 +151,8 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
     assert.match(structure.navigation.title, /^Focus window: beta/);
     // 运行/待处理为 0 时留空但保留槽位（含 aria-label）。
     assert.deepEqual(structure.counts, [
-        { running: '●2', attention: '⚠1', runningAria: '2 sessions running in this window', attentionAria: '1 sessions need attention in this window' },
-        { running: '●1', attention: '', runningAria: '1 sessions running in this window', attentionAria: 'Nothing needs attention' },
+        { running: '●2', attention: '⚠1', runningAria: '2 sessions running in this window', attentionAria: '1 session needs attention in this window' },
+        { running: '●1', attention: '', runningAria: '1 session running in this window', attentionAria: 'Nothing needs attention' },
         { running: '', attention: '', runningAria: 'No running sessions', attentionAria: 'Nothing needs attention' },
     ]);
     assert.deepEqual(structure.pinPressed, ['true', 'false', 'false']);
@@ -375,4 +378,279 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
     // ≥360px：未 pin 的 ★ 在 DOM 中（hover 显示）；<280px：未 pin 的 ★ 不渲染。
     assert.equal(widePinVisible, true);
     assert.equal(narrowPinVisible, false);
+});
+
+// --- production OPEN tab end-to-end (PR-B) ---------------------------------
+
+function loadWebviewContent() {
+    const vscode = createFakeVscode({});
+    vscode.Uri = {
+        file: value => ({ fsPath: value, path: value, toString: () => `file://${value}` }),
+    };
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return vscode;
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return require('../../out/webview/webviewContent');
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
+const productionContent = loadWebviewContent();
+
+// Same script set (and order) as scripts/build-dashboard-webview-bundle.js.
+const productionScriptNames = [
+    'webviewScrollStateScripts.js',
+    'webviewAiSessionViewStateScripts.js',
+    'webviewWorkspaceUpdateScripts.js',
+    'webviewTodoGroupScripts.js',
+    'webviewProjectCollapseScripts.js',
+    'webviewOpenWindowNavigationScripts.js',
+    'webviewTodoControlScripts.js',
+    'webviewProjectContextMenuScripts.js',
+    'webviewProjectAiUpdateScripts.js',
+    'webviewGroupFormScripts.js',
+    'webviewProjectAiSessionControlsScripts.js',
+    'webviewProjectScripts.js',
+];
+
+function productionOpenTabDocument(cards, otherWindowsStatus = 'ready') {
+    return productionContent.getStewardContent(
+        { extensionPath: '/extension' },
+        {
+            cspSource: 'https://assets.test',
+            asWebviewUri: resource => ({
+                toString: () => `https://assets.test/${path.basename(resource.fsPath)}`,
+            }),
+        },
+        [],
+        {
+            config: { get: (_key, fallback) => fallback },
+            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
+            otherStorageHasData: false,
+        },
+        true,
+        cards,
+        otherWindowsStatus,
+        2,
+    )
+        .replace(/<meta[^>]*Content-Security-Policy[^>]*>/, '')
+        .replace(/<link[^>]*rel="stylesheet"[^>]*>/, '')
+        .replace(/<script(?![^>]*type="application\/json")[\s\S]*?<\/script>/g, '')
+        .replace('</head>', `<style>${dashboardStyles}</style></head>`)
+        .replace('class="dashboard-styles-pending"', '');
+}
+
+async function openProductionOpenTabPage(t, cards, otherWindowsStatus = 'ready') {
+    const page = await browser.newPage({ viewport: { width: 360, height: 600 } });
+    t.after(() => page.close());
+    page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
+    await page.setContent(productionOpenTabDocument(cards, otherWindowsStatus), { waitUntil: 'load' });
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.normalizeDashboardSearchCatalog = catalog => catalog;
+        window.vscode = {
+            _state: {},
+            getState() { return this._state; },
+            setState(next) { this._state = next; },
+            postMessage(message) { window.__postedMessages.push(message); return true; },
+        };
+    });
+    for (const name of productionScriptNames) {
+        await page.addScriptTag({
+            content: fs.readFileSync(path.join(__dirname, '../../src/webview', name), 'utf8'),
+        });
+    }
+    await page.evaluate(() => {
+        initProjects();
+        window.__postedMessages.length = 0;
+    });
+    return page;
+}
+
+test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab routes row clicks and keeps row geometry across a v4 window-switch refresh', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', {
+        name: 'alpha',
+    });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', {
+        name: 'beta',
+    });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+
+    const rowTops = () => page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-open-window-row]'))
+            .map(row => Math.round(row.getBoundingClientRect().top))
+    );
+    const before = await rowTops();
+    assert.equal(before.length, 2, 'the production document renders one row per window');
+    assert.equal(await page.locator('[data-group-id="open-window-switcher"]').count(), 1);
+    assert.equal(await page.locator('.open-other-windows-group').count(), 0,
+        'the retired other-windows group must not render');
+
+    // Clicking a non-current row posts the versioned navigation request.
+    const navigationRow = page.locator('[data-open-window-row][data-window-kind="navigation"]');
+    await navigationRow.locator('[data-action="focus-open-window"]').click();
+    let posted = await page.evaluate(() => window.__postedMessages);
+    let requests = posted.filter(message => message.type === 'open-window-navigation-request');
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0], {
+        type: 'open-window-navigation-request',
+        version: 1,
+        requestId: 1,
+        cardId: navigationCard.id,
+    });
+    assert.equal(await navigationRow.getAttribute('data-navigation-state'), 'pending');
+
+    // Clicking the current row is inert: no navigation request is posted.
+    // (force: the button is aria-disabled, which is exactly the inertness
+    // being asserted, so bypass Playwright's enabled check.)
+    await page.locator('[data-open-window-row][data-window-kind="current"] [data-action="focus-open-window"]')
+        .click({ force: true });
+    posted = await page.evaluate(() => window.__postedMessages);
+    requests = posted.filter(message => message.type === 'open-window-navigation-request');
+    assert.equal(requests.length, 1, 'the current row must not post navigation requests');
+
+    // An authoritative v4 refresh (e.g. the owning window switched and
+    // attention changed) replaces the wrapper without displacing the rows.
+    const html = productionContent.getOpenWorkspacesGroupContent(
+        [currentCard, { ...navigationCard, attentionCount: 2 }],
+        'ready',
+    );
+    await page.evaluate(message => {
+        window.dispatchEvent(new MessageEvent('message', { data: message }));
+    }, {
+        type: 'open-workspaces-updated',
+        version: 4,
+        semanticRevision: 'production-window-switch-1',
+        projectionRevision: 1,
+        windowRowCount: 2,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 1,
+        currentDetailCount: 1,
+        otherWindowsStatus: 'ready',
+        html,
+        searchCatalog: {
+            version: 3,
+            sessions: [],
+            worktrees: [],
+            openWorkspaces: [{ identity: 'alpha' }, { identity: 'beta' }],
+            savedProjects: [],
+            todos: [],
+        },
+        presentation: {
+            type: 'ai-session-presentation-state',
+            version: 1,
+            projectionRevision: 1,
+            workspaceScopeIdentity: currentCard.scopeIdentity,
+            workspaceNavigationIdentity: currentCard.navigationIdentity,
+            attentionCount: 0,
+            activeAttentionCount: 0,
+            runningSessionCount: 0,
+            runningCardAnimation: 'current',
+            runningIconAnimation: 'current',
+            revealFocused: false,
+            focusedTarget: null,
+            attentionSessions: [],
+            sessions: [],
+        },
+    });
+
+    assert.deepEqual(await rowTops(), before,
+        'the window-switch refresh must not displace the switcher rows');
+    assert.equal(await navigationRow.getAttribute('data-navigation-state'), 'pending',
+        'reconcile replays the pending navigation state after the replacement');
+    assert.equal(
+        await navigationRow.locator('.open-window-attention').textContent(),
+        '⚠2',
+        'the refreshed row adopts the authoritative attention count',
+    );
+
+    posted = await page.evaluate(() => window.__postedMessages);
+    const receipt = posted.find(message => message.type === 'open-workspaces-rendered');
+    assert.ok(receipt, 'the v3 rendered receipt is posted after the v4 update');
+    assert.deepEqual(receipt, {
+        type: 'open-workspaces-rendered',
+        version: 3,
+        semanticRevision: 'production-window-switch-1',
+        windowRowCount: 2,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 1,
+        currentDetailCount: 1,
+        hasWindowSwitcher: true,
+        otherWindowsStatus: 'ready',
+    });
+
+    // Settle the pending navigation so no timer outlives the page.
+    await page.evaluate(cardId => {
+        window.__agentPivotOpenWindowNavigation.complete({
+            type: 'open-window-navigation-result',
+            version: 1,
+            requestId: 1,
+            cardId,
+            outcome: 'focused',
+        });
+    }, navigationCard.id);
+    assert.equal(await navigationRow.getAttribute('data-navigation-state'), null);
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 arrow keys move focus between rows and the more menu opens with keyboard dismissal', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+
+    // Arrow keys move focus between the row focus buttons.
+    await page.locator('[data-open-window-row][data-window-kind="current"] [data-action="focus-open-window"]').focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-action')), 'focus-open-window');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement?.closest('[data-open-window-row]')?.getAttribute('data-window-kind')), 'navigation');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement?.closest('[data-open-window-row]')?.getAttribute('data-window-kind')), 'current');
+
+    // The more menu opens from the ⋯ button, Escape closes it and focus returns.
+    const moreButton = page.locator('[data-open-window-row][data-window-kind="navigation"] [data-action="open-window-menu"]');
+    await moreButton.click();
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 1);
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('#openWindowMenu [data-open-window-menu-non-current]')?.hidden), false);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 0);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-action')), 'open-window-menu');
+
+    // Menu Focus Window on a navigation row issues a navigation request.
+    await moreButton.click();
+    await page.keyboard.press('Enter');
+    const posted = await page.evaluate(() => window.__postedMessages);
+    assert.ok(posted.some(message => message.type === 'open-window-navigation-request'),
+        'the menu Focus Window item drives the navigation protocol');
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 bridge-not-ready disables non-current rows and hides their menu Focus item', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard], 'connecting');
+    const navigationRow = page.locator('[data-open-window-row][data-window-kind="navigation"]');
+    assert.equal(await navigationRow.getAttribute('data-navigation-disabled'), 'true');
+    assert.match(await navigationRow.getAttribute('class') || '', /open-window-row-disabled/);
+
+    // Clicking a disabled row must not post a navigation request.
+    await navigationRow.locator('[data-action="focus-open-window"]').click({ force: true });
+    const posted = await page.evaluate(() => window.__postedMessages);
+    assert.equal(posted.filter(message => message.type === 'open-window-navigation-request').length, 0);
+
+    // The menu opens but the Focus Window item is hidden for disabled rows.
+    await navigationRow.locator('[data-action="open-window-menu"]').click();
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('#openWindowMenu [data-open-window-menu-non-current]')?.hidden), true);
+    await page.keyboard.press('Escape');
+
+    // The connecting status renders in the fixed switcher slot.
+    assert.match(await page.locator('[data-open-window-switcher-status]').textContent() || '',
+        /Looking for your other open windows/);
+    // The current row stays on top while the bridge is not ready.
+    assert.equal(await page.locator('[data-open-window-row]').first().getAttribute('data-window-kind'), 'current');
 });

@@ -37,7 +37,6 @@ media/brand/**
 !media/webviewWorkspaceUpdateScripts.js
 !media/webviewTodoGroupScripts.js
 !media/webviewProjectCollapseScripts.js
-!media/webviewOpenTabSplitScripts.js
 !media/webviewOpenWindowNavigationScripts.js
 !media/webviewTodoControlScripts.js
 !media/webviewProjectContextMenuScripts.js

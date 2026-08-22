@@ -990,8 +990,8 @@ function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
 
 var OPEN_TAB_CURRENT_LIST_SELECTOR = '.open-current-workspace-group .group-list';
 var OPEN_TAB_CURRENT_ITEM_SELECTOR = '.workspace-card[data-workspace-scope-identity]';
-var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-other-windows-group .group-list';
-var OPEN_TAB_OTHER_ITEM_SELECTOR = '.workspace-card[data-workspace-navigation-identity]';
+var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-window-switcher-group [data-open-window-switcher-list]';
+var OPEN_TAB_OTHER_ITEM_SELECTOR = '[data-open-window-row][data-workspace-navigation-identity]';
 
 // Minimal test doubles may not implement querySelector — treat them as
 // "no scrollable list" instead of throwing mid-replacement.
@@ -1079,8 +1079,8 @@ var nextOpenWorkspacePinRequestId = 0;
 
 function findOpenWorkspacePinButton(cardId, root) {
     return Array.from((root || document).querySelectorAll(
-        '.open-other-windows-group .workspace-card[data-open-workspace-list-card][data-id] .project-pin-badge[data-action="toggle-open-workspace-pin"]'
-    )).find(button => button.closest('.workspace-card')?.getAttribute('data-id') === cardId) || null;
+        '[data-open-window-row][data-id] [data-action="toggle-open-workspace-pin"]'
+    )).find(button => button.closest('[data-open-window-row]')?.getAttribute('data-id') === cardId) || null;
 }
 
 function announceOpenWorkspacePin(message) {
@@ -1117,15 +1117,35 @@ function reconcilePendingOpenWorkspacePins(root) {
         if (button && (button.getAttribute('aria-pressed') === 'true') === pending.pinned) {
             clearOpenWorkspacePinPending(cardId, button);
             announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            flashOpenWindowRow(cardId);
             return;
         }
         if (!button && pending.acknowledged) {
             clearOpenWorkspacePinPending(cardId, null);
             announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            flashOpenWindowRow(cardId);
             return;
         }
         setOpenWorkspacePinPending(button, true);
     });
+}
+
+// PRD：pin 置顶导致行跳动时，该行保持可见并给一次短闪烁确认。
+function flashOpenWindowRow(cardId) {
+    var button = findOpenWorkspacePinButton(cardId);
+    var row = button && button.closest('[data-open-window-row]');
+    if (!row) {
+        return;
+    }
+    if (typeof row.scrollIntoView === 'function') {
+        row.scrollIntoView({ block: 'nearest' });
+    }
+    if (row.classList && typeof row.classList.add === 'function') {
+        row.classList.add('open-window-row-pin-flash');
+        if (typeof window.setTimeout === 'function' && row.classList.remove) {
+            window.setTimeout(() => row.classList.remove('open-window-row-pin-flash'), 450);
+        }
+    }
 }
 
 function requestOpenWorkspacePin(button, cardId) {
@@ -1136,8 +1156,8 @@ function requestOpenWorkspacePin(button, cardId) {
         ? 1
         : nextOpenWorkspacePinRequestId + 1;
     var pinned = button.getAttribute('aria-pressed') !== 'true';
-    var card = button.closest('.workspace-card');
-    var name = card?.querySelector('.project-header')?.textContent?.trim() || 'window';
+    var card = button.closest('[data-open-window-row]') || button.closest('.workspace-card');
+    var name = card?.querySelector('.open-window-name, .project-header')?.textContent?.trim() || 'window';
     var pending = {
         requestId: nextOpenWorkspacePinRequestId,
         pinned: pinned,
@@ -1202,12 +1222,15 @@ function completeOpenWorkspacePin(message) {
 function applyOpenWorkspacesUpdate(message, options) {
     if (!message
         || message.type !== 'open-workspaces-updated'
-        || message.version !== 3
+        || message.version !== 4
         || typeof message.semanticRevision !== 'string'
         || !message.semanticRevision
-        || (message.currentWorkspaceCount !== 0 && message.currentWorkspaceCount !== 1)
-        || !Number.isSafeInteger(message.navigationWorkspaceCount)
-        || message.navigationWorkspaceCount < 0
+        || !Number.isSafeInteger(message.windowRowCount)
+        || message.windowRowCount < 0
+        || (message.currentWindowRowCount !== 0 && message.currentWindowRowCount !== 1)
+        || !Number.isSafeInteger(message.navigationWindowRowCount)
+        || message.navigationWindowRowCount < 0
+        || (message.currentDetailCount !== 0 && message.currentDetailCount !== 1)
         || (message.otherWindowsStatus !== 'ready'
             && message.otherWindowsStatus !== 'connecting'
             && message.otherWindowsStatus !== 'unavailable'
@@ -1239,9 +1262,9 @@ function applyOpenWorkspacesUpdate(message, options) {
     var previousHtml = wrapper.innerHTML;
     var focusedPinButton = document.activeElement
         && document.activeElement.matches?.(
-            '.project-pin-badge[data-action="toggle-open-workspace-pin"]'
+            '.open-window-pin[data-action="toggle-open-workspace-pin"]'
         )
-        ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
+        ? document.activeElement.closest('[data-open-window-row]')?.getAttribute('data-id')
         : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     // This path replaces the whole wrapper, so beyond the other-windows list
@@ -1329,48 +1352,50 @@ function applyOpenWorkspacesUpdate(message, options) {
 function getOpenWorkspacesUpdateDomState(root) {
     var projectionRoot = root || document;
     var wrapperPrefix = root ? '' : '.sticky-groups-wrapper ';
-    var otherWindowsGroup = projectionRoot.querySelector(
-        wrapperPrefix + '.open-other-windows-group[data-other-windows-status]'
+    var switcherGroup = projectionRoot.querySelector(
+        wrapperPrefix + '.open-window-switcher-group[data-other-windows-status]'
     );
-    var openWorkspaceCards = Array.from(projectionRoot.querySelectorAll(
-        wrapperPrefix + '.open-other-windows-group '
-        + '.workspace-card[data-open-workspace-list-card][data-workspace-navigation-identity]'
+    var windowRows = Array.from(projectionRoot.querySelectorAll(
+        wrapperPrefix + '[data-open-window-row][data-workspace-navigation-identity]'
     ));
-    var navigationCards = openWorkspaceCards.filter(card =>
-        card.hasAttribute('data-workspace-navigation')
+    var navigationRows = windowRows.filter(row =>
+        row.getAttribute('data-window-kind') === 'navigation'
     );
-    var navigationIdentities = openWorkspaceCards.map(card =>
-        card.getAttribute('data-workspace-navigation-identity')
+    var navigationIdentities = navigationRows.map(row =>
+        row.getAttribute('data-workspace-navigation-identity')
     );
     return {
-        currentWorkspaceCount: projectionRoot.querySelectorAll(
+        windowRowCount: windowRows.length,
+        currentWindowRowCount: windowRows.filter(row =>
+            row.getAttribute('data-window-kind') === 'current'
+        ).length,
+        navigationWindowRowCount: navigationRows.length,
+        currentDetailCount: projectionRoot.querySelectorAll(
             wrapperPrefix
                 + '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
         ).length,
-        navigationWorkspaceCount: navigationCards.length,
-        openWorkspaceListCount: openWorkspaceCards.length,
         hasUniqueNavigationIdentities: navigationIdentities.every(identity => !!identity)
             && new Set(navigationIdentities).size === navigationIdentities.length,
-        hasOtherWindowsGroup: projectionRoot.querySelectorAll(
-            wrapperPrefix + '.open-other-windows-group'
-        ).length > 0,
-        otherWindowsStatus: otherWindowsGroup
-            ? otherWindowsGroup.getAttribute('data-other-windows-status')
+        hasWindowSwitcher: !!switcherGroup,
+        otherWindowsStatus: switcherGroup
+            ? switcherGroup.getAttribute('data-other-windows-status')
             : 'ready',
     };
 }
 
 function isOpenWorkspacesUpdateDomConsistent(message, root) {
     var rendered = getOpenWorkspacesUpdateDomState(root);
-    return rendered.currentWorkspaceCount === message.currentWorkspaceCount
-        && rendered.navigationWorkspaceCount === message.navigationWorkspaceCount
+    return rendered.currentWindowRowCount === message.currentWindowRowCount
+        && rendered.navigationWindowRowCount === message.navigationWindowRowCount
+        && rendered.windowRowCount === message.windowRowCount
+        && rendered.currentDetailCount === message.currentDetailCount
         && rendered.hasUniqueNavigationIdentities
         && rendered.otherWindowsStatus === message.otherWindowsStatus
-        && rendered.hasOtherWindowsGroup
-        && rendered.openWorkspaceListCount
-            === message.currentWorkspaceCount + message.navigationWorkspaceCount
+        && rendered.hasWindowSwitcher
+        && message.windowRowCount
+            === message.currentWindowRowCount + message.navigationWindowRowCount
         && message.searchCatalog.openWorkspaces.length
-            === message.currentWorkspaceCount + message.navigationWorkspaceCount;
+            === message.currentWindowRowCount + message.navigationWindowRowCount;
 }
 
 /* src/webview/webviewTodoGroupScripts.js */
@@ -1567,9 +1592,7 @@ function initProjectGroupCollapse() {
             ? '#dashboard-tab-projects .group[data-group-id]'
             : activeTab === 'todo'
                 ? '#dashboard-tab-todo .todo-group[data-todo-group-id]'
-                : activeTab === 'open'
-                    ? '#dashboard-tab-open .open-other-windows-group[data-group-id]'
-                    : null;
+                : null;
         if (!selector) {
             return [];
         }
@@ -1629,325 +1652,6 @@ function initProjectGroupCollapse() {
     };
 }
 
-/* src/webview/webviewOpenTabSplitScripts.js */
-function initOpenTabSplit() {
-    'use strict';
-
-    // --- OPEN tab window-region split --------------------------------------
-    // CURRENT WINDOW and OPEN WINDOWS scroll as two independent regions; the
-    // separator between them resizes the CURRENT WINDOW share (mouse drag or
-    // arrow keys). A null share means "auto": CURRENT WINDOW is content-sized
-    // up to a CSS cap. The dragged share is a fraction of the wrapper height
-    // and persists in webview view state (same pattern as the skills pane
-    // ratio) so it survives window reloads; it is applied as a custom
-    // property on .sticky-groups-wrapper, whose node survives authoritative
-    // innerHTML replacements, so replacements never have to replay it.
-    var OPEN_TAB_PANE_MIN_PX = 72;
-    // Expanded CURRENT WINDOW cards carry fixed AI-session chrome (module
-    // header, surface tabs, chat tabs, provider controls); the pane minimum
-    // rises so the chrome and one session row stay reachable. Measured
-    // against the sidebar fit layout (360px/240px widths) and mirrored as
-    // the min-height of the expanded rules in media/styles.scss.
-    var OPEN_TAB_PANE_MIN_EXPANDED_PX = 283;
-    var OPEN_TAB_KEY_STEP_PX = 24;
-    var OPEN_TAB_STATE_KEY = 'openTab';
-
-    function readOpenTabState() {
-        var api = window.vscode;
-        if (!api || typeof api.getState !== 'function') {
-            return {};
-        }
-        var state = api.getState() || {};
-        var tab = state[OPEN_TAB_STATE_KEY];
-        return tab && typeof tab === 'object' && !Array.isArray(tab) ? tab : {};
-    }
-
-    function readPersistedCurrentShare() {
-        var share = Number(readOpenTabState().currentWindowShare);
-        return Number.isFinite(share) && share > 0 && share < 1 ? share : null;
-    }
-
-    var currentShare = readPersistedCurrentShare();
-    var dragState = null;
-
-    function persistCurrentShare() {
-        var api = window.vscode;
-        if (!api || typeof api.setState !== 'function') {
-            return;
-        }
-        var state = typeof api.getState === 'function' ? api.getState() || {} : {};
-        var tab = Object.assign({}, readOpenTabState());
-        if (currentShare === null) {
-            delete tab.currentWindowShare;
-        } else {
-            tab.currentWindowShare = currentShare;
-        }
-        var patch = {};
-        patch[OPEN_TAB_STATE_KEY] = tab;
-        api.setState(Object.assign({}, state, patch));
-    }
-
-    function findOpenTabElement(selector) {
-        return document.querySelector
-            ? document.querySelector('#dashboard-tab-open ' + selector)
-            : null;
-    }
-
-    function findWrapper() {
-        return findOpenTabElement('.sticky-groups-wrapper');
-    }
-
-    function findResizer() {
-        return findOpenTabElement('[data-open-tab-split-resizer]');
-    }
-
-    function findCurrentGroup() {
-        return findOpenTabElement('.open-current-workspace-group');
-    }
-
-    function findOtherGroup() {
-        return findOpenTabElement('.open-other-windows-group');
-    }
-
-    // Apply the in-memory share: manual mode pins CURRENT WINDOW to a
-    // wrapper-height percentage; auto mode clears the override.
-    function applyShare() {
-        var wrapper = findWrapper();
-        if (!wrapper || !wrapper.style) {
-            return;
-        }
-        if (currentShare === null) {
-            wrapper.classList.remove('open-tab-split-manual');
-            wrapper.style.removeProperty('--open-tab-current-share');
-            return;
-        }
-        wrapper.classList.add('open-tab-split-manual');
-        wrapper.style.setProperty('--open-tab-current-share', (currentShare * 100) + '%');
-    }
-
-    // Split geometry: the wrapper's full height (the share basis) and the
-    // pane space inside it (resizer excluded; the aria percentage basis).
-    function measureSplit() {
-        var wrapper = findWrapper();
-        if (!wrapper || typeof wrapper.getBoundingClientRect !== 'function'
-            || !wrapper.getClientRects().length) {
-            return null; // hidden (another tab) — keep the last applied state
-        }
-        var resizer = findResizer();
-        var resizerHeight = resizer && !resizer.hidden
-            ? resizer.getBoundingClientRect().height
-            : 0;
-        var wrapperHeight = wrapper.getBoundingClientRect().height;
-        return {
-            wrapperHeight: wrapperHeight,
-            inner: Math.max(wrapperHeight - resizerHeight, OPEN_TAB_PANE_MIN_PX),
-        };
-    }
-
-    // Reconcile the (possibly freshly replaced) resizer with the live layout:
-    // hidden while OPEN WINDOWS is collapsed, aria-valuenow tracking the
-    // CURRENT WINDOW percentage of the pane space.
-    function syncResizer() {
-        var resizer = findResizer();
-        if (!resizer) {
-            return;
-        }
-        var otherGroup = findOtherGroup();
-        var otherCollapsed = Boolean(
-            otherGroup && otherGroup.classList.contains('collapsed')
-        );
-        // Reclaim the collapsed region's space: the wrapper state class lets
-        // CSS uncap CURRENT WINDOW and dock the collapsed bar (webview
-        // Chromium too old for :has() cannot select by sibling state). Synced
-        // here because this hook runs after every optimistic toggle and every
-        // authoritative replacement.
-        var wrapper = findWrapper();
-        if (wrapper && wrapper.classList) {
-            wrapper.classList.toggle('open-windows-collapsed', otherCollapsed);
-        }
-        var currentGroup = findCurrentGroup();
-        var currentCardExpanded = Boolean(
-            currentGroup && currentGroup.classList.contains('current-card-expanded')
-        );
-        // The separator only participates while both regions show content: a
-        // collapsed CURRENT WINDOW card is content-sized and never holds a
-        // dragged share; a collapsed OPEN WINDOWS leaves nothing to split.
-        resizer.hidden = otherCollapsed || !currentCardExpanded;
-        var split = measureSplit();
-        if (!resizer.hidden && currentGroup && split
-            && typeof currentGroup.getBoundingClientRect === 'function' && split.inner > 0) {
-            var percent = Math.round(currentGroup.getBoundingClientRect().height / split.inner * 100);
-            resizer.setAttribute('aria-valuenow', String(Math.min(100, Math.max(0, percent))));
-        }
-    }
-
-    function scheduleSyncResizer() {
-        if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(function () { syncResizer(); });
-            return;
-        }
-        syncResizer();
-    }
-
-    // The live CURRENT WINDOW pane floor: it rises while the card is
-    // expanded so the AI session controls can never be dragged out of reach.
-    function currentPaneMinPx() {
-        var group = findCurrentGroup();
-        return group && group.classList && group.classList.contains('current-card-expanded')
-            ? OPEN_TAB_PANE_MIN_EXPANDED_PX
-            : OPEN_TAB_PANE_MIN_PX;
-    }
-
-    function clampPanePx(nextPx, split) {
-        var minPx = currentPaneMinPx();
-        return Math.min(
-            Math.max(nextPx, minPx),
-            Math.max(split.inner - OPEN_TAB_PANE_MIN_PX, minPx)
-        );
-    }
-
-    function applySharePx(nextPx) {
-        var split = measureSplit();
-        if (!split || split.wrapperHeight <= 0) {
-            return;
-        }
-        currentShare = clampPanePx(nextPx, split) / split.wrapperHeight;
-        applyShare();
-        syncResizer();
-    }
-
-    function onPointerDown(event) {
-        var resizer = event.target && event.target.closest
-            ? event.target.closest('[data-open-tab-split-resizer]')
-            : null;
-        if (!resizer || resizer.hidden
-            || (event.button !== 0 && event.button !== undefined)) {
-            return;
-        }
-        var currentGroup = findCurrentGroup();
-        if (!currentGroup) {
-            return;
-        }
-        event.preventDefault();
-        dragState = {
-            pointerId: event.pointerId,
-            startY: event.clientY,
-            startHeight: currentGroup.getBoundingClientRect().height,
-            resizer: resizer,
-        };
-        resizer.classList.add('open-tab-split-resizer-active');
-        if (document.body) {
-            document.body.classList.add('open-tab-split-resizing');
-        }
-        if (event.pointerId !== undefined && typeof resizer.setPointerCapture === 'function') {
-            try {
-                resizer.setPointerCapture(event.pointerId);
-            } catch (_error) { /* capture is best-effort */ }
-        }
-    }
-
-    function onPointerMove(event) {
-        if (!dragState
-            || (dragState.pointerId !== undefined && event.pointerId !== dragState.pointerId)) {
-            return;
-        }
-        // CURRENT WINDOW sits above the resizer: dragging down grows it.
-        applySharePx(dragState.startHeight + (event.clientY - dragState.startY));
-    }
-
-    function onPointerUp(event) {
-        if (!dragState
-            || (dragState.pointerId !== undefined && event.pointerId !== dragState.pointerId)) {
-            return;
-        }
-        dragState.resizer.classList.remove('open-tab-split-resizer-active');
-        if (document.body) {
-            document.body.classList.remove('open-tab-split-resizing');
-        }
-        if (event.pointerId !== undefined
-            && typeof dragState.resizer.releasePointerCapture === 'function') {
-            try {
-                dragState.resizer.releasePointerCapture(event.pointerId);
-            } catch (_error) { /* capture is best-effort */ }
-        }
-        dragState = null;
-        persistCurrentShare();
-    }
-
-    function onKeydown(event) {
-        var resizer = event.target && event.target.closest
-            ? event.target.closest('[data-open-tab-split-resizer]')
-            : null;
-        if (!resizer || resizer.hidden
-            || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) {
-            return;
-        }
-        var currentGroup = findCurrentGroup();
-        if (!currentGroup) {
-            return;
-        }
-        event.preventDefault();
-        // ArrowDown grows the pane above the separator, ArrowUp shrinks it.
-        var direction = event.key === 'ArrowDown' ? 1 : -1;
-        applySharePx(currentGroup.getBoundingClientRect().height
-            + direction * OPEN_TAB_KEY_STEP_PX);
-        persistCurrentShare();
-    }
-
-    // Collapse toggles (group header, collapse-all button) change whether the
-    // resizer participates; window resizes change the auto-layout geometry.
-    // Both are measured after the frame so the class/geometry settles first.
-    function onClick(event) {
-        var togglesLayout = event.target && event.target.closest
-            ? event.target.closest('[data-action="collapse"], [data-action="toggle-all-groups"]')
-            : null;
-        if (togglesLayout) {
-            scheduleSyncResizer();
-        }
-    }
-
-    // Re-clamp the live share against the current pane minimum without
-    // rewriting the persisted share: the minimum rises when the CURRENT
-    // WINDOW card expands (and the persisted value may predate that state),
-    // so init and expand/collapse toggles reconcile the applied pane here.
-    function syncCurrentPaneMinimum() {
-        if (currentShare !== null) {
-            var split = measureSplit();
-            if (split && split.wrapperHeight > 0) {
-                var px = currentShare * split.wrapperHeight;
-                var clamped = clampPanePx(px, split);
-                if (Math.abs(clamped - px) > 0.5) {
-                    currentShare = clamped / split.wrapperHeight;
-                    applyShare();
-                }
-            }
-        }
-        syncResizer();
-    }
-
-    document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('pointermove', onPointerMove);
-    document.addEventListener('pointerup', onPointerUp);
-    document.addEventListener('keydown', onKeydown);
-    document.addEventListener('click', onClick);
-    window.addEventListener('resize', scheduleSyncResizer);
-
-    applyShare();
-    syncCurrentPaneMinimum();
-
-    window.__agentPivotOpenTabSplit = {
-        sync: syncResizer,
-        syncCurrentPaneMinimum: syncCurrentPaneMinimum,
-    };
-
-    return {
-        applyShare: applyShare,
-        syncResizer: syncResizer,
-        syncCurrentPaneMinimum: syncCurrentPaneMinimum,
-        getCurrentShare: () => currentShare,
-    };
-}
-
 /* src/webview/webviewOpenWindowNavigationScripts.js */
 'use strict';
 
@@ -1972,6 +1676,18 @@ var agentPivotOpenWindowNavigation = (function () {
     var pendingByCardId = new Map();
     // cardId -> outcome (drives the row error state until the next request)
     var errorByCardId = new Map();
+
+    // PRD live region：导航 pending/error 通过切换器内的播报区触达屏幕阅读器。
+    function announce(cardId, message) {
+        var region = document.querySelector('[data-open-window-nav-live-region]');
+        if (!region) {
+            return;
+        }
+        var row = findRow(cardId);
+        var name = row && row.querySelector('.open-window-name');
+        var label = name && name.textContent ? name.textContent.trim() : '';
+        region.textContent = label ? message + ' ' + label : message;
+    }
 
     function findRow(cardId, root) {
         return Array.from((root || document).querySelectorAll(
@@ -2040,11 +1756,13 @@ var agentPivotOpenWindowNavigation = (function () {
                     return;
                 }
                 failPending(cardId, pending, 'failed');
+                announce(cardId, 'Window switch timed out. Retry available on');
             }, PENDING_TIMEOUT_MS);
         }
         pendingByCardId.set(cardId, pending);
         errorByCardId.delete(cardId);
         applyRowState(cardId, 'pending');
+        announce(cardId, 'Switching to window');
         if (window.vscode && typeof window.vscode.postMessage === 'function') {
             window.vscode.postMessage({
                 type: MESSAGE_TYPE_REQUEST,
@@ -2088,6 +1806,7 @@ var agentPivotOpenWindowNavigation = (function () {
         } else {
             errorByCardId.set(message.cardId, message.outcome);
             applyRowState(message.cardId, 'error', message.outcome);
+            announce(message.cardId, 'Could not switch to window');
         }
         return true;
     }
@@ -2095,6 +1814,8 @@ var agentPivotOpenWindowNavigation = (function () {
     // Re-applies pending/error row state after an authoritative DOM
     // replacement rebuilt the rows.
     function reconcile(root) {
+        // 替换后菜单的 __row/origin 指向已分离节点，先关掉。
+        closeMenu();
         pendingByCardId.forEach(function (_pending, cardId) {
             applyRowState(cardId, 'pending', undefined, root);
         });
@@ -2103,11 +1824,209 @@ var agentPivotOpenWindowNavigation = (function () {
         });
     }
 
+    // --- window-row ⋯ menu ---------------------------------------------------
+    // One shared menu element (#openWindowMenu), positioned next to the row's
+    // ⋯ button. Items: Focus Window (non-current rows), Pin/Unpin, Save
+    // Workspace (current row). Keyboard: ↑/↓ 导航，Enter 执行，Esc 关闭并焦点返回。
+    var menuOriginButton = null;
+
+    function closeMenu() {
+        var menu = document.getElementById('openWindowMenu');
+        if (!menu) {
+            return;
+        }
+        menu.classList.remove('visible');
+        if (menuOriginButton) {
+            menuOriginButton.setAttribute('aria-expanded', 'false');
+            if (typeof menuOriginButton.focus === 'function') {
+                menuOriginButton.focus({ preventScroll: true });
+            }
+            menuOriginButton = null;
+        }
+    }
+
+    function openMenu(button) {
+        var menu = document.getElementById('openWindowMenu');
+        if (!menu) {
+            return;
+        }
+        var row = button.closest('[data-open-window-row]');
+        if (!row) {
+            return;
+        }
+        var isCurrent = row.getAttribute('data-window-kind') === 'current';
+        var rowDisabled = row.getAttribute('data-navigation-disabled') === 'true';
+        var pinned = row.classList.contains('open-window-row-pinned');
+        menu.querySelectorAll('[data-open-window-menu-non-current]').forEach(function (item) {
+            item.hidden = isCurrent || rowDisabled;
+        });
+        menu.querySelectorAll('[data-open-window-menu-current]').forEach(function (item) {
+            item.hidden = !isCurrent;
+        });
+        var pinItem = menu.querySelector('[data-open-window-menu-pin]');
+        if (pinItem) {
+            pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+        }
+        menu.__row = row;
+        if (menuOriginButton && menuOriginButton !== button) {
+            menuOriginButton.setAttribute('aria-expanded', 'false');
+        }
+        menuOriginButton = button;
+        button.setAttribute('aria-expanded', 'true');
+        menu.style.visibility = 'hidden';
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+        menu.classList.add('visible');
+        var buttonRect = button.getBoundingClientRect();
+        var menuRect = menu.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = Math.max(viewportPadding, Math.min(
+            buttonRect.right - menuRect.width,
+            window.innerWidth - menuRect.width - viewportPadding
+        ));
+        var top = buttonRect.bottom + 2;
+        if (top + menuRect.height > window.innerHeight - viewportPadding) {
+            top = Math.max(viewportPadding, buttonRect.top - menuRect.height - 2);
+        }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.style.visibility = 'visible';
+        var firstItem = menu.querySelector('[role="menuitem"]:not([hidden])');
+        if (firstItem && typeof firstItem.focus === 'function') {
+            firstItem.focus();
+        }
+    }
+
+    function toggleMenu(button) {
+        var menu = document.getElementById('openWindowMenu');
+        var isOpen = menu && menu.classList.contains('visible')
+            && menuOriginButton === button;
+        if (isOpen) {
+            closeMenu();
+        } else {
+            openMenu(button);
+        }
+    }
+
+    function activateMenuItem(item) {
+        var menu = document.getElementById('openWindowMenu');
+        var row = menu && menu.__row;
+        if (!row) {
+            closeMenu();
+            return;
+        }
+        var cardId = row.getAttribute('data-id');
+        var action = item.getAttribute('data-action');
+        closeMenu();
+        if (action === 'focus-open-window') {
+            request(cardId);
+        } else if (action === 'toggle-open-workspace-pin'
+            && typeof requestOpenWorkspacePin === 'function') {
+            var pinButton = row.querySelector('[data-action="toggle-open-workspace-pin"]');
+            if (pinButton) {
+                requestOpenWorkspacePin(pinButton, cardId);
+            }
+        } else if (action === 'save-current-workspace'
+            && window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({ type: 'save-current-workspace', projectId: cardId });
+        }
+    }
+
+    function onMenuClick(e) {
+        var item = e.target.closest('[role="menuitem"][data-action]');
+        if (!item) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        activateMenuItem(item);
+    }
+
+    function onMenuKeydown(e) {
+        var menu = document.getElementById('openWindowMenu');
+        if (!menu || !menu.classList.contains('visible')) {
+            return;
+        }
+        var items = Array.from(menu.querySelectorAll('[role="menuitem"]:not([hidden])'));
+        var index = items.indexOf(document.activeElement);
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            closeMenu();
+        } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            var next = e.key === 'ArrowDown'
+                ? (index + 1) % items.length
+                : (index - 1 + items.length) % items.length;
+            if (items[next]) {
+                items[next].focus();
+            }
+        } else if ((e.key === 'Enter' || e.key === ' ') && index >= 0) {
+            e.preventDefault();
+            activateMenuItem(items[index]);
+        }
+    }
+
+    // 行间 ↑/↓ 增强导航（PRD 键盘章节）：在切换器列表内移动焦点。
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') {
+            return;
+        }
+        var row = e.target && e.target.closest
+            ? e.target.closest('[data-open-window-row]')
+            : null;
+        if (!row) {
+            return;
+        }
+        var list = row.closest('[data-open-window-switcher-list]');
+        if (!list) {
+            return;
+        }
+        var rows = Array.from(list.querySelectorAll('[data-open-window-row]'));
+        var index = rows.indexOf(row);
+        if (index === -1) {
+            return;
+        }
+        e.preventDefault();
+        var next = e.key === 'ArrowDown'
+            ? Math.min(index + 1, rows.length - 1)
+            : Math.max(index - 1, 0);
+        var focusTarget = rows[next]
+            && rows[next].querySelector('[data-action="focus-open-window"]');
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+            focusTarget.focus();
+        }
+    });
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('blur', closeMenu);
+    }
+
+    if (typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('click', function (e) {
+            var menu = document.getElementById('openWindowMenu');
+            if (!menu || !menu.classList.contains('visible')) {
+                return;
+            }
+            if (menu.contains(e.target)) {
+                onMenuClick(e);
+                return;
+            }
+            var trigger = e.target.closest
+                && e.target.closest('[data-action="open-window-menu"]');
+            if (!trigger) {
+                closeMenu();
+            }
+        });
+        document.addEventListener('keydown', onMenuKeydown);
+    }
+
     return {
         request: request,
         retry: retry,
         complete: complete,
         reconcile: reconcile,
+        toggleMenu: toggleMenu,
+        closeMenu: closeMenu,
         isPending: function (cardId) { return pendingByCardId.has(cardId); },
         _pendingByCardId: pendingByCardId,
         _errorByCardId: errorByCardId,
@@ -3257,18 +3176,14 @@ function initAiSessionPresentationDom(options) {
         return Array.from((root || document).querySelectorAll(
             '.workspace-card[data-workspace-navigation-identity="'
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-current-workspace],'
-                + '.workspace-card[data-workspace-navigation-identity="'
-                + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-open-workspace-current]'
+                + '[data-current-workspace]'
         ));
     }
     function canApplyAiSessionPresentationDom(message, root) {
         var projectionRoot = root || document;
         if (message.workspaceNavigationIdentity === null) {
             return !projectionRoot.querySelector(
-                '.workspace-card[data-current-workspace],'
-                    + '.workspace-card[data-open-workspace-current]'
+                '.workspace-card[data-current-workspace]'
             );
         }
         return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;
@@ -7428,13 +7343,6 @@ function initProjectAiSessionControls(options) {
         var currentWorkspaceGroup = projectDiv.closest(".open-current-workspace-group");
         if (currentWorkspaceGroup) {
             currentWorkspaceGroup.classList.toggle("current-card-expanded", expanded);
-            // The expanded pane floor is higher than the collapsed one: grow
-            // out of a too-small dragged share so the AI session controls
-            // stay reachable. Collapsing keeps the user's share untouched.
-            if (window.__agentPivotOpenTabSplit
-                && typeof window.__agentPivotOpenTabSplit.syncCurrentPaneMinimum === "function") {
-                window.__agentPivotOpenTabSplit.syncCurrentPaneMinimum();
-            }
         }
         updateStickyGroupHeaderOffset();
 
@@ -7868,6 +7776,52 @@ function initProjects() {
         });
     }
 
+    function onInsideOpenWindowRowClick(e, row) {
+        // PRD 单击语义：非当前行 = 聚焦该 OS 窗口（走导航请求协议）；当前行 =
+        // 空操作；双击/中键 = 无行为。★/⋯/重试按钮在各行内单独处理，不触发行点击。
+        if (e.button !== 0 || e.detail > 1) {
+            return;
+        }
+        var pinButton = e.target.closest('[data-action="toggle-open-workspace-pin"]');
+        if (pinButton) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof requestOpenWorkspacePin === 'function') {
+                requestOpenWorkspacePin(pinButton, row.getAttribute('data-id'));
+            }
+            return;
+        }
+        var menuButton = e.target.closest('[data-action="open-window-menu"]');
+        if (menuButton) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.__agentPivotOpenWindowNavigation) {
+                window.__agentPivotOpenWindowNavigation.toggleMenu(menuButton);
+            }
+            return;
+        }
+        if (e.target.closest('[data-action="retry-open-window-navigation"]')) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.__agentPivotOpenWindowNavigation) {
+                window.__agentPivotOpenWindowNavigation.retry(row.getAttribute('data-id'));
+            }
+            return;
+        }
+        var focusButton = e.target.closest('[data-action="focus-open-window"]');
+        if (!focusButton || !row.contains(focusButton)) {
+            return;
+        }
+        if (focusButton.getAttribute('aria-disabled') === 'true') {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        if (window.__agentPivotOpenWindowNavigation) {
+            window.__agentPivotOpenWindowNavigation.request(row.getAttribute('data-id'));
+        }
+    }
+
     function onInsideProjectClick(e, projectDiv) {
         projectDiv = projectDiv || e.target.closest(".project");
         var dataId = projectDiv && projectDiv.getAttribute("data-id");
@@ -7891,15 +7845,6 @@ function initProjects() {
             return;
         }
 
-        if (projectDiv.hasAttribute("data-open-workspace-current")) {
-            return;
-        }
-
-        if (projectDiv.hasAttribute("data-workspace-navigation")) {
-            openProject(dataId, ProjectOpenType.Default);
-            return;
-        }
-
         var currentWindow = e.ctrlKey || e.metaKey;
         var newWindow = e.button === 1;
         openProject(dataId, currentWindow ? ProjectOpenType.CurrentWindow : newWindow ? ProjectOpenType.NewWindow : ProjectOpenType.Default);
@@ -7908,7 +7853,6 @@ function initProjects() {
 
 
     var groupCollapse = initProjectGroupCollapse();
-    var openTabSplit = typeof initOpenTabSplit === 'function' ? initOpenTabSplit() : null;
     var todoControls = initProjectTodoControls({
         syncCollapseButton: () => groupCollapse.syncCollapseButton(),
     });
@@ -8131,6 +8075,14 @@ function initProjects() {
             return;
         }
 
+        var openWindowRow = e.target.closest
+            ? e.target.closest('[data-open-window-row]')
+            : null;
+        if (openWindowRow) {
+            onInsideOpenWindowRowClick(e, openWindowRow);
+            return;
+        }
+
         var groupDiv = e.target.closest('.group');
         if (groupDiv) {
             todoControls.onInsideGroupClick(e, groupDiv);
@@ -8195,7 +8147,7 @@ function initProjects() {
             }, 0);
         }
         if (message && message.type === 'open-workspaces-updated') {
-            if (message.version !== 3) {
+            if (message.version !== 4) {
                 aiSessionsUpdate.requestFullRefresh(
                     'unsupported-open-workspaces-message'
                 );
@@ -8219,17 +8171,16 @@ function initProjects() {
             if (window.__agentPivotOpenWindowNavigation) {
                 window.__agentPivotOpenWindowNavigation.reconcile(document);
             }
-            if (openTabSplit && typeof openTabSplit.syncResizer === 'function') {
-                openTabSplit.syncResizer();
-            }
             var renderedOpenWorkspaceState = getOpenWorkspacesUpdateDomState();
             window.vscode.postMessage({
                 type: 'open-workspaces-rendered',
-                version: 2,
+                version: 3,
                 semanticRevision: message.semanticRevision,
-                currentWorkspaceCount: renderedOpenWorkspaceState.currentWorkspaceCount,
-                navigationWorkspaceCount: renderedOpenWorkspaceState.navigationWorkspaceCount,
-                hasOtherWindowsGroup: renderedOpenWorkspaceState.hasOtherWindowsGroup,
+                windowRowCount: renderedOpenWorkspaceState.windowRowCount,
+                currentWindowRowCount: renderedOpenWorkspaceState.currentWindowRowCount,
+                navigationWindowRowCount: renderedOpenWorkspaceState.navigationWindowRowCount,
+                currentDetailCount: renderedOpenWorkspaceState.currentDetailCount,
+                hasWindowSwitcher: renderedOpenWorkspaceState.hasWindowSwitcher,
                 otherWindowsStatus: renderedOpenWorkspaceState.otherWindowsStatus,
             });
             return;

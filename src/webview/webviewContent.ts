@@ -16,7 +16,6 @@ import {
     FITTY_OPTIONS,
     INBUILT_COLOR_DEFAULTS,
     OPEN_CURRENT_WORKSPACE_GROUP_ID,
-    OPEN_WORKSPACES_GROUP_ID,
 } from '../constants';
 import { getFavoriteProjectsInOrder } from '../projects/favoriteProjectOrder';
 import {
@@ -42,10 +41,10 @@ import * as Icons from '../webviewIcons';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import type { AiSessionPresentationStateMessage } from '../aiSessions/types';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
+import { buildOpenWindowRowViewModels } from '../openWorkspaces/windowRowViewModel';
+import { getOpenWindowMenu, getOpenWindowSwitcherGroupContent } from './webviewWindowSwitcherContent';
 
 const FAVORITES_GROUP_NAME = 'FAVORITES';
-const OPEN_CURRENT_WORKSPACE_GROUP_NAME = 'CURRENT WINDOW';
-const OPEN_WINDOWS_GROUP_NAME = 'OPEN WINDOWS';
 const DEFAULT_MAX_VISIBLE_PROJECTS_PER_GROUP = 5;
 
 interface GroupSectionOptions {
@@ -73,6 +72,7 @@ export function getStewardContent(
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
     readyDocumentGeneration: number = 1,
     initialAiSessionPresentation?: AiSessionPresentationStateMessage,
+    windowPathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
 ): string {
     var safeReadyDocumentGeneration = Number.isSafeInteger(readyDocumentGeneration)
         && readyDocumentGeneration > 0
@@ -89,7 +89,6 @@ export function getStewardContent(
     );
 
     var customCss = infos.config.get('customCss') || '';
-    var allGroupsCollapsed = !!infos.openWorkspacesGroupCollapsed;
     var searchCatalog = serializeDashboardSearchCatalog(
         buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.todoSearchItems || [], infos.skills || [])
     );
@@ -102,10 +101,10 @@ export function getStewardContent(
     var runningAnimationImages = readRunningAnimationImages(infos.config);
     var openWorkspacesContent = getOpenWorkspacesGroupContent(
         workspaceCards,
-        infos.openWorkspacesGroupCollapsed,
         otherWindowsStatus,
         getEffectiveRunningCardAnimation(infos.config),
         getEffectiveRunningIconAnimation(infos.config),
+        windowPathSegmentsByCardId,
     );
 
     return `
@@ -129,7 +128,7 @@ export function getStewardContent(
         <title>Agent Pivot</title>
         ${getCustomStyle(infos.config, runningAnimationImages)}
     </head>
-    <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''} ${allGroupsCollapsed ? 'steward-all-collapsed' : ''}">
+    <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''}">
         <main class="dashboard-style-loading" data-dashboard-style-loading aria-busy="true" aria-label="Loading Agent Pivot">
             <div class="dashboard-style-loading-tabs" aria-hidden="true">
                 <span class="dashboard-style-loading-tab active"></span>
@@ -154,7 +153,7 @@ export function getStewardContent(
                 <button type="button" class="sponsor-button" data-action="sponsor" title="Support Agent Pivot" aria-label="Support Agent Pivot">
                     ${Icons.heart}
                 </button>
-                <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups" title="${allGroupsCollapsed ? 'Expand All Groups' : 'Collapse All Groups'}" aria-label="${allGroupsCollapsed ? 'Expand All Groups' : 'Collapse All Groups'}">
+                <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups" title="Collapse All Groups" aria-label="Collapse All Groups">
                     <span class="toggle-all-groups-collapse-icon">${Icons.collapseAll}</span>
                     <span class="toggle-all-groups-expand-icon">${Icons.expandAll}</span>
                 </button>
@@ -208,6 +207,7 @@ export function getStewardContent(
         ${getAiSessionContextMenu()}
         ${getAiSessionCreateDropdown()}
         ${getAiSessionWorktreeMenu()}
+        ${getOpenWindowMenu()}
         </div>
     </body>
 
@@ -308,43 +308,39 @@ export function getCurrentWorkspaceGroupContent(
     // authoritative re-renders replay it from the view model and the webview
     // toggle handler keeps it in sync between replacements.
     const cardExpanded = currentCard?.aiSessions?.expanded === true;
+    // PR-B transition: the group shell stays headless (no group header) — the
+    // `ai-sessions-updated` channel targets `.open-current-workspace-group` as
+    // its replacement unit, and the window switcher above owns the chrome.
     return `
-<div class="group steward-section open-current-workspace-group ${currentCard ? '' : 'no-projects'}${cardExpanded ? ' current-card-expanded' : ''}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
-    <div class="group-title steward-section-header steward-group-header">
-        <span class="group-title-text">${OPEN_CURRENT_WORKSPACE_GROUP_NAME}</span>
-        <span class="group-title-badge">Live</span>
-    </div>
+<div class="group steward-section open-current-workspace-group open-current-workspace-group-headless ${currentCard ? '' : 'no-projects'}${cardExpanded ? ' current-card-expanded' : ''}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
     <div class="group-list">
         <div class="drop-signal"></div>
-        ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation, runningIconAnimation, 'current-detail') : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
+        ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation, runningIconAnimation) : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
     </div>
 </div>`;
 }
 
 export function getOpenWorkspacesGroupContent(
     cards: WorkspaceCardViewModel[],
-    collapsed: boolean,
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
     runningCardAnimation?: string,
     runningIconAnimation?: string,
+    pathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
 ): string {
+    // PR-B: the CURRENT WINDOW / OPEN WINDOWS groups and the split resizer are
+    // replaced by the persistent WINDOWS switcher (single-line rows, stable
+    // order, zero-displacement switching) plus the transitional headless
+    // current-detail card below it. The switcher is not collapsible by design.
     const orderedCards = cards || [];
     const current = orderedCards.find(card => card.kind === 'current') || null;
     const navigationCards = orderedCards.filter(card => card.kind === 'navigation');
-    const currentSection = getCurrentWorkspaceGroupContent(
-        current,
-        navigationCards.length > 0,
-        runningCardAnimation,
-        runningIconAnimation,
-    );
-    const cardsContent = orderedCards.map(card =>
-        getWorkspaceCardDiv(
-            card,
-            runningCardAnimation,
-            runningIconAnimation,
-            'open-list',
-        )
-    ).join('\n');
+    let rows = buildOpenWindowRowViewModels(orderedCards, pathSegmentsByCardId);
+    if (otherWindowsStatus !== 'ready') {
+        // PRD: bridge 未就绪时当前行固定置顶，就绪后按稳定顺序归位。
+        rows = [...rows].sort((left, right) => (left.kind === right.kind)
+            ? 0
+            : left.kind === 'current' ? -1 : 1);
+    }
     const statusContent = otherWindowsStatus === 'update-required'
         ? `<div class="open-other-windows-state" role="status">
             <p>Update the Agent Pivot UI Bridge extension to restore all open windows.</p>
@@ -359,41 +355,25 @@ export function getOpenWorkspacesGroupContent(
                     <p>Looking for your other open windows…</p>
                 </div>`
                 : '';
-    // A bridge that never connected must stay visible so its state can be read,
-    // but connecting is a normal startup step and must not fight the user's
-    // collapse preference only to snap shut a few seconds later.
-    const otherWindowsCollapsed = (otherWindowsStatus === 'ready'
-        || otherWindowsStatus === 'connecting') && collapsed;
-    // The split resizer sits between the two window regions; the open-tab
-    // split script sizes the CURRENT WINDOW pane from it (mouse + keyboard)
-    // and the share survives authoritative innerHTML replacements because the
-    // wrapper node (which carries the share custom property) is preserved.
-    return `${currentSection}
-<div class="open-tab-split-resizer" data-open-tab-split-resizer role="separator" tabindex="0" aria-orientation="horizontal" aria-valuemin="0" aria-valuemax="100" aria-label="Resize window sections" title="Drag to resize window sections"></div>
-<div class="group steward-section open-other-windows-group ${otherWindowsCollapsed ? 'collapsed' : ''}" data-group-id="${OPEN_WORKSPACES_GROUP_ID}" data-virtual-group data-system-group="${OPEN_WORKSPACES_GROUP_ID}" data-other-windows-status="${otherWindowsStatus}">
-    <div class="group-title steward-section-header steward-group-header">
-        <span class="group-title-text" data-action="collapse">
-            <span class="collapse-icon" title="Open/Collapse Group">${Icons.collapse}</span>
-            ${OPEN_WINDOWS_GROUP_NAME}
-        </span>
-        <span class="group-title-badge">${otherWindowsStatus === 'update-required' ? 'Update required' : otherWindowsStatus === 'unavailable' ? 'Unavailable' : otherWindowsStatus === 'connecting' ? 'Connecting…' : 'Live'}</span>
-    </div>
-    <div class="group-list">
-        <div class="open-workspace-pin-live-region" data-open-workspace-pin-live-region role="status" aria-live="polite" aria-atomic="true"></div>
-        <div class="drop-signal"></div>
-        ${cardsContent}
-        ${statusContent}
-    </div>
-</div>`;
+    const switcherSection = getOpenWindowSwitcherGroupContent(
+        rows,
+        otherWindowsStatus,
+        statusContent,
+    );
+    const currentSection = getCurrentWorkspaceGroupContent(
+        current,
+        navigationCards.length > 0,
+        runningCardAnimation,
+        runningIconAnimation,
+    );
+    return `${switcherSection}
+${currentSection}`;
 }
 
 function getWorkspaceCardDiv(
     card: WorkspaceCardViewModel,
     runningCardAnimation?: string,
     runningIconAnimation?: string,
-    presentation: 'current-detail' | 'open-list' = card.kind === 'current'
-        ? 'current-detail'
-        : 'open-list',
 ): string {
     const roots = card.roots.slice().sort((left, right) => left.ordinal - right.ordinal);
     const rootCount = roots.length;
@@ -405,22 +385,13 @@ function getWorkspaceCardDiv(
     const projectIcon = getProjectIcon(remoteType);
     const projectIconTitle = getProjectIconTitle(remoteType);
     const folderLabel = `${rootCount} folder${rootCount === 1 ? '' : 's'}`;
-    const isCurrentWindow = card.kind === 'current';
-    const isCurrentDetail = isCurrentWindow && presentation === 'current-detail';
-    const isOpenList = presentation === 'open-list';
-    const isCurrentOpenList = isCurrentWindow && isOpenList;
-    const showSaveAction = isCurrentDetail && card.showSaveAction;
+    // PR-B：open-list 投影已随双分组移除，只余 current-detail 形态。
+    const showSaveAction = card.showSaveAction;
     const saveBadge = showSaveAction
         ? `<span data-action="save-current-workspace" class="project-save-badge" title="Save Workspace" aria-label="Save Workspace">${Icons.save}</span>`
         : '';
-    const pinTitle = card.pinned ? 'Unpin Window' : 'Pin Window';
-    const pinBadge = isOpenList
-        ? `<button type="button" data-action="toggle-open-workspace-pin" class="project-pin-badge${card.pinned ? ' active' : ''}" title="${pinTitle}" aria-label="${pinTitle}" aria-pressed="${card.pinned ? 'true' : 'false'}">${Icons.pin}</button>`
-        : '';
-    const aiSessions = isCurrentDetail ? card.aiSessions : undefined;
-    const runningSessionCount = isCurrentDetail
-        ? (aiSessions?.activeSessions || []).filter(session => session.executionState === 'running').length
-        : card.runningSessionCount;
+    const aiSessions = card.aiSessions;
+    const runningSessionCount = (aiSessions?.activeSessions || []).filter(session => session.executionState === 'running').length;
     const sessionFx = runningSessionCount > 0
         ? normalizeRunningCardAnimation(runningCardAnimation)
         : '';
@@ -430,50 +401,34 @@ function getWorkspaceCardDiv(
     const aiSessionCount = aiSessions?.aiSessionCount || 0;
     const activeSessionCount = aiSessions?.activeSessionCount || 0;
     const attentionCount = card.attentionCount || 0;
-    const summaryParts = isCurrentDetail ? [
+    const summaryParts = [
         aiSessionCount ? `${aiSessionCount} AI session${aiSessionCount === 1 ? '' : 's'}` : '',
         activeSessionCount ? `${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}` : '',
         attentionCount ? `${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention` : '',
-    ].filter(Boolean) : [];
+    ].filter(Boolean);
     const summaryLabel = escapeAttribute(summaryParts.join(', '));
-    const currentSummaryBadge = summaryParts.length
+    const badge = summaryParts.length
         ? `<span class="project-codex-badge" data-ai-session-total-count="${aiSessionCount}" data-ai-session-active-count="${activeSessionCount}" data-ai-session-attention-count="${attentionCount}" title="${summaryLabel}" aria-label="${summaryLabel}">${
             aiSessionCount ? `<span class="ai-session-total-count">AI ${aiSessionCount}</span>` : ''
         }${activeSessionCount ? `<span class="ai-session-active-count" aria-label="${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}">●${activeSessionCount}</span>` : ''
         }${attentionCount ? `<b class="ai-session-attention-count" aria-label="${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention">${attentionCount}</b>` : ''
         }</span>`
         : '';
-    const navigationAttentionLabel = `${attentionCount} item${attentionCount === 1 ? '' : 's'} need${attentionCount === 1 ? 's' : ''} attention`;
-    const navigationAttentionBadge = isOpenList && attentionCount
-        ? `<span class="project-ai-attention-badge" title="${navigationAttentionLabel}" aria-label="${navigationAttentionLabel}">${attentionCount}</span>`
-        : '';
-    const navigationRunningLabel = `${runningSessionCount} active AI session${runningSessionCount === 1 ? '' : 's'}`;
-    const navigationRunningBadge = isOpenList && runningSessionCount
-        ? `<span class="project-codex-badge" data-ai-session-active-count="${runningSessionCount}" title="${navigationRunningLabel}" aria-label="${navigationRunningLabel}"><span class="ai-session-active-count" aria-label="${navigationRunningLabel}">●${runningSessionCount}</span></span>`
-        : '';
-    const badge = isCurrentDetail
-        ? currentSummaryBadge
-        : `${navigationRunningBadge}${navigationAttentionBadge}`;
-    const sessionSection = isCurrentDetail
-        ? getAiSessionsDiv(getWorkspaceAiSessionSurface(card), {
-            showRootChips: rootCount > 1,
-            runningIconAnimation,
-        })
-        : '';
+    const sessionSection = getAiSessionsDiv(getWorkspaceAiSessionSurface(card), {
+        showRootChips: rootCount > 1,
+        runningIconAnimation,
+    });
     const colorStyles = getCardColorStyles(card.color);
 
     return `<div class="project-container" data-nodrag>
-    <div class="workspace-card project steward-item-card${runningSessionCount > 0 ? ' session-running' : ''}" style="${colorStyles.cardStyle}" data-id="${escapeAttribute(card.id)}" data-name="${escapeAttribute(`${card.name || ''} ${card.environmentLabel || ''} ${roots.map(root => root.name).join(' ')}`.toLowerCase())}" data-workspace-card-kind="${card.kind}" data-workspace-navigation-identity="${escapeAttribute(card.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(card.scopeIdentity)}" ${sessionFx ? `data-session-fx="${sessionFx}"` : ''}${runningTitle ? ` title="${runningTitle}"` : ''} ${isCurrentDetail ? 'data-current-workspace' : isCurrentOpenList ? 'data-open-workspace-list-card data-open-workspace-current' : 'data-open-workspace-list-card data-workspace-navigation data-other-workspace'}${currentSummaryBadge || navigationRunningBadge ? ' data-has-ai-session-badge' : ''}${showSaveAction ? ' data-has-save-action' : ''}${isOpenList ? ' data-has-pin-action' : ''} data-readonly-project${aiSessions?.expanded ? ' data-codex-expanded' : ''}>
+    <div class="workspace-card project steward-item-card${runningSessionCount > 0 ? ' session-running' : ''}" style="${colorStyles.cardStyle}" data-id="${escapeAttribute(card.id)}" data-name="${escapeAttribute(`${card.name || ''} ${card.environmentLabel || ''} ${roots.map(root => root.name).join(' ')}`.toLowerCase())}" data-workspace-card-kind="${card.kind}" data-workspace-navigation-identity="${escapeAttribute(card.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(card.scopeIdentity)}" ${sessionFx ? `data-session-fx="${sessionFx}"` : ''}${runningTitle ? ` title="${runningTitle}"` : ''} data-current-workspace${badge ? ' data-has-ai-session-badge' : ''}${showSaveAction ? ' data-has-save-action' : ''} data-readonly-project${aiSessions?.expanded ? ' data-codex-expanded' : ''}>
         <div class="project-aura"></div>
         <div class="project-border steward-item-accent" style="${colorStyles.accentStyle}"></div>
         ${sessionFx && sessionFx !== 'none' ? '<div class="project-session-fx"></div>' : ''}
         ${saveBadge}
-        ${isCurrentOpenList ? '' : pinBadge}
         <div class="fitty-container project-title-row">
             <span class="project-kind-icon" title="${projectIconTitle}">${projectIcon}</span>
             <h2 class="project-header">${workspaceName}</h2>
-            ${isCurrentOpenList ? '<span class="current-window-indicator" aria-label="Current Window">Current</span>' : ''}
-            ${isCurrentOpenList ? pinBadge : ''}
         </div>
         <p class="project-description workspace-metadata">${folderLabel}</p>
         ${badge}

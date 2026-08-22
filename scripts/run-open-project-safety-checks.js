@@ -1294,13 +1294,15 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(posted.length, 1);
     assert.strictEqual(posted[0].type, 'open-workspaces-updated');
-    assert.strictEqual(posted[0].version, 3);
+    assert.strictEqual(posted[0].version, 4);
     assert.strictEqual(
         posted[0].presentation.projectionRevision,
         posted[0].projectionRevision
     );
-    assert.strictEqual(posted[0].currentWorkspaceCount, 1);
-    assert.strictEqual(posted[0].navigationWorkspaceCount, 2);
+    assert.strictEqual(posted[0].currentWindowRowCount, 1);
+    assert.strictEqual(posted[0].navigationWindowRowCount, 2);
+    assert.strictEqual(posted[0].windowRowCount, 3);
+    assert.strictEqual(posted[0].currentDetailCount, 1);
     assert.strictEqual(posted[0].searchCatalog.version, 3);
     dashboardAttention = {
         protocolVersion: 1,
@@ -2330,15 +2332,21 @@ async function runWorkspaceContextResolverChecks() {
         logDiagnostic: () => undefined,
         logError: () => undefined,
     });
-    assert.deepStrictEqual(zeroRootDashboard.getCards(), []);
+    const zeroRootCards = zeroRootDashboard.getCards();
+    assert.strictEqual(zeroRootCards.length, 1,
+        'an empty window still owns its current row in the WINDOWS switcher');
+    assert.strictEqual(zeroRootCards[0].kind, 'current');
     zeroRootDashboard.postUpdated();
     await new Promise(resolve => setImmediate(resolve));
     assert.strictEqual(zeroRootMessages.length, 1);
-    assert.strictEqual(zeroRootMessages[0].currentWorkspaceCount, 0);
-    assert.strictEqual(zeroRootMessages[0].navigationWorkspaceCount, 0);
-    assert.strictEqual(zeroRootMessages[0].searchCatalog.openWorkspaces.length, 0);
+    assert.strictEqual(zeroRootMessages[0].currentWindowRowCount, 1);
+    assert.strictEqual(zeroRootMessages[0].navigationWindowRowCount, 0);
+    assert.strictEqual(zeroRootMessages[0].windowRowCount, 1);
+    assert.strictEqual(zeroRootMessages[0].currentDetailCount, 0);
+    // 空窗口的当前行进搜索目录（与窗口行计数一致：1 = current + 0）。
+    assert.strictEqual(zeroRootMessages[0].searchCatalog.openWorkspaces.length, 1);
     assert.strictEqual((zeroRootMessages[0].html.match(/class="workspace-card/g) || []).length, 0,
-        'declared and rendered current workspace counts must both be zero');
+        'an empty window renders no current-detail card');
 
     const first = resolver.resolve({
         workspaceFile: uri('untitled:Untitled-1'),

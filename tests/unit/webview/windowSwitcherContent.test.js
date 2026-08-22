@@ -22,6 +22,7 @@ function row(overrides = {}) {
         runningCount: 1,
         attentionCount: 0,
         pinned: false,
+        folderNames: ['beta'],
         ...overrides,
     };
 }
@@ -50,6 +51,7 @@ test('window switcher renderer: navigation row points at the focus affordance', 
     const html = getOpenWindowRowHtml(row());
     assert.match(html, /title="Focus window: beta/);
     assert.match(html, /aria-label="Focus window: beta"/);
+    assert.match(html, /1 folder: beta/);
     assert.ok(!html.includes('aria-current'));
     assert.ok(!html.includes('aria-disabled'));
 });
@@ -60,23 +62,44 @@ test('window switcher renderer: zero counts keep empty slots with aria labels', 
     assert.match(html, /class="open-window-attention"[^>]*aria-label="Nothing needs attention"/);
 });
 
-test('window switcher renderer: environment chip and escaping', () => {
-    const html = getOpenWindowRowHtml(row({
-        displayName: 'beta<b>',
-        fullName: 'beta<b>',
-        environmentLabel: 'SSH',
-    }));
-    assert.match(html, /beta&lt;b&gt;/);
-    assert.ok(!html.includes('beta<b>'));
-    assert.match(html, /open-window-env-chip">SSH</);
+test('window switcher renderer: singular count labels and slot roles', () => {
+    const html = getOpenWindowRowHtml(row({ runningCount: 1, attentionCount: 1 }));
+    assert.match(html, /aria-label="1 session running in this window"/);
+    assert.match(html, /aria-label="1 session needs attention in this window"/);
 });
 
-test('window switcher group: list role, count badge, status slot, and live region', () => {
+test('window switcher renderer: environment chip only for remote windows, and escaping', () => {
+    const remote = getOpenWindowRowHtml(row({ displayName: 'beta<b>', fullName: 'beta<b>', environmentLabel: 'SSH' }));
+    assert.match(remote, /beta&lt;b&gt;/);
+    assert.ok(!remote.includes('beta<b>'));
+    assert.match(remote, /open-window-env-chip">SSH</);
+    assert.match(remote, /\nSSH\n/);
+    const local = getOpenWindowRowHtml(row({ environmentLabel: 'Local' }));
+    assert.ok(!local.includes('open-window-env-chip'));
+    assert.ok(!local.includes('\nLocal\n'));
+});
+
+test('window switcher group: list role, count badge, status slot, and live regions', () => {
     const html = getOpenWindowSwitcherGroupContent([row()], 'ready');
     assert.match(html, /role="list"/);
     assert.match(html, /aria-label="Windows"/);
     assert.match(html, /open-window-count">1</);
     assert.match(html, /data-open-window-switcher-status/);
     assert.match(html, /data-open-workspace-pin-live-region/);
+    assert.match(html, /data-open-window-nav-live-region/);
     assert.match(html, /data-other-windows-status="ready"/);
+});
+
+test('window switcher group: non-ready status disables navigation rows', () => {
+    const html = getOpenWindowSwitcherGroupContent(
+        [row({ kind: 'current', cardId: '__currentWorkspace-' + 'a'.repeat(24) }), row()],
+        'connecting',
+        '<p>Looking for your other open windows…</p>',
+    );
+    assert.match(html, /Looking for your other open windows/);
+    const navRowStart = html.indexOf('data-window-kind="navigation"');
+    const currentRowStart = html.indexOf('data-window-kind="current"');
+    assert.ok(currentRowStart !== -1 && currentRowStart < navRowStart,
+        'the current row stays on top while the bridge is not ready');
+    assert.match(html.slice(navRowStart, navRowStart + 400), /data-navigation-disabled="true"/);
 });

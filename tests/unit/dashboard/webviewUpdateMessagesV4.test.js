@@ -1,17 +1,16 @@
 'use strict';
 
-// Unit coverage for the open-workspaces-updated v4 message builder (PR-A:
-// schema defined, not yet posted by production).
+// Unit coverage for the production open-workspaces-updated v4 message builder.
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { loadWithFakeVscode } = require('../../contract/openProjects/helpers');
 const {
-    buildOpenWorkspacesUpdatedMessageV4,
+    buildOpenWorkspacesUpdatedMessage,
 } = loadWithFakeVscode('../../../out/dashboard/webviewUpdateMessages');
 
-function card(id, kind) {
+function card(id, kind, overrides = {}) {
     return {
         id,
         kind,
@@ -25,6 +24,7 @@ function card(id, kind) {
         environmentLabel: 'Local',
         roots: [{ id: 'r-' + id, name: id, ordinal: 0 }],
         attentionCount: 0,
+        ...overrides,
     };
 }
 
@@ -36,31 +36,41 @@ function input(overrides = {}) {
         projectionRevision: 3,
         otherWindowsStatus: 'ready',
         todoSearchItems: [],
-        windowSwitcherHtml: '<div data-open-window-switcher></div>',
         presentation: { version: 1, projects: {} },
         ...overrides,
     };
 }
 
-test('open-workspaces-updated v4 carries explicit window-row counts', () => {
-    const message = buildOpenWorkspacesUpdatedMessageV4(input());
+test('open-workspaces-updated v4 carries explicit window-row counts and switcher html', () => {
+    const message = buildOpenWorkspacesUpdatedMessage(input());
     assert.equal(message.type, 'open-workspaces-updated');
     assert.equal(message.version, 4);
     assert.equal(message.windowRowCount, 3);
     assert.equal(message.currentWindowRowCount, 1);
     assert.equal(message.navigationWindowRowCount, 2);
     assert.equal(message.currentDetailCount, 1);
-    assert.equal(message.html, '<div data-open-window-switcher></div>');
+    assert.match(message.html, /data-group-id="open-window-switcher"/);
+    assert.match(message.html, /data-open-window-row/);
+    // 过渡形态：无头 current-detail 壳仍在，且无分组头。
+    assert.match(message.html, /open-current-workspace-group/);
+    assert.ok(!message.html.includes('CURRENT WINDOW'));
+    assert.ok(!message.html.includes('open-tab-split-resizer'));
     assert.equal(message.semanticRevision, 'rev-1');
-    assert.ok(message.searchCatalog);
 });
 
-test('open-workspaces-updated v4 handles missing current window', () => {
-    const message = buildOpenWorkspacesUpdatedMessageV4(input({
+test('open-workspaces-updated v4 handles a missing current window', () => {
+    const message = buildOpenWorkspacesUpdatedMessage(input({
         cards: [card('n1', 'navigation')],
     }));
     assert.equal(message.windowRowCount, 1);
     assert.equal(message.currentWindowRowCount, 0);
     assert.equal(message.navigationWindowRowCount, 1);
     assert.equal(message.currentDetailCount, 0);
+});
+
+test('open-workspaces-updated v4 renders bridge status into the fixed switcher slot', () => {
+    const message = buildOpenWorkspacesUpdatedMessage(input({ otherWindowsStatus: 'connecting' }));
+    assert.match(message.html, /data-open-window-switcher-status/);
+    assert.match(message.html, /Looking for your other open windows/);
+    assert.equal(message.otherWindowsStatus, 'connecting');
 });

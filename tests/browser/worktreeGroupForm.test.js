@@ -8,6 +8,12 @@ const { chromium } = require('playwright-chromium');
 
 const { getAiSessionsDiv } = require('../../out/webview/webviewAiSessionContent');
 const { getAiSessionWorktreeMenu } = require('../../out/webview/webviewAiSessionContent');
+const {
+    buildOpenWindowRowViewModels,
+} = require('../../out/openWorkspaces/windowRowViewModel');
+const {
+    getOpenWindowSwitcherGroupContent,
+} = require('../../out/webview/webviewWindowSwitcherContent');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 const readScript = name => fs.readFileSync(
@@ -82,6 +88,26 @@ function currentGroupHtml() {
         + ` data-codex-expanded data-workspace-scope-identity="scope:current"`
         + ` data-workspace-navigation-identity="navigation:current">${surface()}</div>`
         + `</div></div>`;
+}
+
+// The OPEN tab shell: the persistent WINDOWS switcher above the headless
+// current-detail group.
+function openWindowSwitcherHtml() {
+    return getOpenWindowSwitcherGroupContent(buildOpenWindowRowViewModels([{
+        id: 'project-a',
+        kind: 'current',
+        workspaceKind: 'singleFolder',
+        showSaveAction: false,
+        runningSessionCount: 0,
+        navigationIdentity: 'navigation:current',
+        scopeIdentity: 'scope:current',
+        name: 'Project A',
+        environment: 'local',
+        environmentLabel: 'Local',
+        color: '',
+        roots: [{ id: 'root-project-a', name: 'Project A', ordinal: 0 }],
+        attentionCount: 0,
+    }]), 'ready');
 }
 
 function presentationMessage(projectionRevision) {
@@ -670,18 +696,15 @@ test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and caret through authori
     // Path B: open-workspaces-updated replaces the whole wrapper.
     await postHostMessage(page, {
         type: 'open-workspaces-updated',
-        version: 3,
+        version: 4,
         semanticRevision: 'form-focus-2',
         projectionRevision: 2,
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 0,
+        windowRowCount: 1,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 0,
+        currentDetailCount: 1,
         otherWindowsStatus: 'ready',
-        html: currentGroupHtml()
-            + '<div class="open-other-windows-group" data-other-windows-status="ready">'
-            + '<div class="project workspace-card" data-id="project-a"'
-            + ' data-open-workspace-list-card data-open-workspace-current'
-            + ' data-workspace-navigation-identity="navigation:current"></div>'
-            + '</div>',
+        html: openWindowSwitcherHtml() + currentGroupHtml(),
         searchCatalog: {
             version: 3, sessions: [], worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],

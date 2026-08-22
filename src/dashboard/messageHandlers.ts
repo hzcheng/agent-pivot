@@ -318,9 +318,10 @@ export function createDashboardMessageHandlers(
             refreshStewardViews(typeof e.reason === 'string' ? e.reason.slice(0, 256) : 'webview-requested');
         },
         'open-workspaces-renderer-ready': e => {
-            if (Object.keys(e).length !== 2
+            if (Object.keys(e).length !== 3
                 || e.type !== 'open-workspaces-renderer-ready'
-                || e.version !== 1) {
+                || e.version !== 1
+                || !Number.isSafeInteger(e.documentGeneration)) {
                 return;
             }
             logOpenWorkspaceDiagnostic('Renderer', {
@@ -334,14 +335,21 @@ export function createDashboardMessageHandlers(
                 semanticRevision: typeof e.semanticRevision === 'string'
                     ? e.semanticRevision.slice(0, 128)
                     : 'invalid',
-                currentWorkspaceCount: (e.currentWorkspaceCount === 0 || e.currentWorkspaceCount === 1)
-                    ? e.currentWorkspaceCount as number
+                windowRowCount: Number.isSafeInteger(e.windowRowCount)
+                    && (e.windowRowCount as number) >= 0
+                    ? e.windowRowCount as number
                     : -1,
-                navigationWorkspaceCount: Number.isSafeInteger(e.navigationWorkspaceCount)
-                    && e.navigationWorkspaceCount >= 0
-                    ? e.navigationWorkspaceCount as number
+                currentWindowRowCount: (e.currentWindowRowCount === 0 || e.currentWindowRowCount === 1)
+                    ? e.currentWindowRowCount as number
                     : -1,
-                hasOtherWindowsGroup: e.hasOtherWindowsGroup === true,
+                navigationWindowRowCount: Number.isSafeInteger(e.navigationWindowRowCount)
+                    && (e.navigationWindowRowCount as number) >= 0
+                    ? e.navigationWindowRowCount as number
+                    : -1,
+                currentDetailCount: (e.currentDetailCount === 0 || e.currentDetailCount === 1)
+                    ? e.currentDetailCount as number
+                    : -1,
+                hasWindowSwitcher: e.hasWindowSwitcher === true,
                 otherWindowsStatus: e.otherWindowsStatus === 'ready'
                     || e.otherWindowsStatus === 'connecting'
                     || e.otherWindowsStatus === 'unavailable'

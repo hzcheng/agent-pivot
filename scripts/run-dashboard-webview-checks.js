@@ -84,9 +84,6 @@ const todoGroupScriptPath = path.join(
 const projectCollapseScriptPath = path.join(
     root, 'src', 'webview', 'webviewProjectCollapseScripts.js'
 );
-const openTabSplitScriptPath = path.join(
-    root, 'src', 'webview', 'webviewOpenTabSplitScripts.js'
-);
 const todoControlScriptPath = path.join(
     root, 'src', 'webview', 'webviewTodoControlScripts.js'
 );
@@ -106,7 +103,6 @@ function readProjectWebviewSource() {
         workspaceUpdateScriptPath,
         todoGroupScriptPath,
         projectCollapseScriptPath,
-        openTabSplitScriptPath,
         todoControlScriptPath,
         projectContextMenuScriptPath,
         projectAiUpdateScriptPath,
@@ -446,17 +442,20 @@ function runDashboardUpdateMessageChecks() {
     assert.deepStrictEqual(workspaceSearchCatalog.sessions.map(item => item.action), ['reveal-workspace-session']);
     assert.deepStrictEqual(workspaceSearchCatalog.todos, todoSearchItems);
     assert.strictEqual(openWorkspacesMessage.type, 'open-workspaces-updated');
-    assert.strictEqual(openWorkspacesMessage.version, 3);
+    assert.strictEqual(openWorkspacesMessage.version, 4);
     assert.strictEqual(openWorkspacesMessage.presentation.projectionRevision, 1);
-    assert.strictEqual(openWorkspacesMessage.currentWorkspaceCount, 1);
-    assert.strictEqual(openWorkspacesMessage.navigationWorkspaceCount, 1);
+    assert.strictEqual(openWorkspacesMessage.windowRowCount, 2);
+    assert.strictEqual(openWorkspacesMessage.currentWindowRowCount, 1);
+    assert.strictEqual(openWorkspacesMessage.navigationWindowRowCount, 1);
+    assert.strictEqual(openWorkspacesMessage.currentDetailCount, 1);
     assert.strictEqual(openWorkspacesMessage.searchCatalog.version, 3);
     assert.strictEqual(openWorkspacesMessage.otherWindowsStatus, 'ready');
     assert.deepStrictEqual(
         openWorkspacesMessage.searchCatalog.openWorkspaces.map(item => item.action),
         ['show-current-workspace', 'switch-open-workspace'],
     );
-    assert.ok(openWorkspacesMessage.html.includes('OPEN WINDOWS'));
+    assert.ok(openWorkspacesMessage.html.includes('WINDOWS'));
+    assert.strictEqual(openWorkspacesMessage.html.includes('OPEN WINDOWS'), false);
     assert.strictEqual(openWorkspacesMessage.html.includes('OTHER WINDOWS'), false);
     assert.ok(openWorkspacesMessage.html.includes('data-session-icon-fx="custom"'),
         'open-workspace incremental updates must use the configured running icon animation');
@@ -814,108 +813,103 @@ function runWorkspaceCardRenderingChecks() {
     };
     const workspaceHtml = webviewContent.getOpenWorkspacesGroupContent(
         [makeWorkspaceCardFixture(3), navigationCard],
-        false,
         'ready',
         'custom',
     );
-    const navigationOpeningTag = workspaceHtml.match(
-        /<div class="workspace-card[^>]*data-workspace-card-kind="navigation"[^>]*>/
-    )[0];
-    const currentOpenListOpeningTag = workspaceHtml.match(
-        /<div class="workspace-card[^>]*data-open-workspace-current[^>]*>/
-    )[0];
-    assert.ok(workspaceHtml.includes('CURRENT WINDOW'));
-    assert.ok(workspaceHtml.includes('OPEN WINDOWS'));
-    assert.ok(currentOpenListOpeningTag.includes('data-open-workspace-list-card'));
-    assert.ok(currentOpenListOpeningTag.includes('data-has-pin-action'));
-    assert.ok(workspaceHtml.includes('class="current-window-indicator"'));
-    assert.strictEqual(
-        (workspaceHtml.match(/data-action="toggle-open-workspace-pin"/g) || []).length,
-        2,
-        'OPEN WINDOWS must expose Pin on the current and navigation list cards only',
+    // The switcher replaces the dual CURRENT WINDOW / OPEN WINDOWS groups.
+    assert.ok(workspaceHtml.includes('data-group-id="open-window-switcher"'));
+    assert.strictEqual(workspaceHtml.includes('CURRENT WINDOW'), false);
+    assert.strictEqual(workspaceHtml.includes('OPEN WINDOWS'), false);
+    assert.strictEqual(workspaceHtml.includes('current-window-indicator'), false);
+    assert.strictEqual(workspaceHtml.includes('open-tab-split-resizer'), false);
+    const navigationRowStart = workspaceHtml.indexOf('data-id="workspace-other"');
+    assert.ok(navigationRowStart !== -1, 'the navigation window row is rendered in the switcher');
+    const navigationRow = workspaceHtml.slice(
+        workspaceHtml.lastIndexOf('<div class="open-window-row', navigationRowStart),
+        workspaceHtml.indexOf('data-action="retry-open-window-navigation"', navigationRowStart) + 80,
     );
-    assert.strictEqual(
-        (workspaceHtml.match(/data-current-workspace/g) || []).length,
-        1,
-        'only the dedicated CURRENT WINDOW detail card may own current-session behavior',
-    );
-    const otherWindowsHtml = navigationOpeningTag
-        + extractHtmlElementBody(workspaceHtml, navigationOpeningTag);
-    assert.strictEqual((otherWindowsHtml.match(/class="workspace-card/g) || []).length, 1);
-    assert.ok(otherWindowsHtml.includes('data-other-workspace'));
-    assert.ok(otherWindowsHtml.includes('style="--project-color: #abcdef;"'));
-    assert.ok(otherWindowsHtml.includes('class="project-border steward-item-accent" style="background: #abcdef;"'));
-    assert.ok(otherWindowsHtml.includes('class="workspace-card project steward-item-card session-running"'));
-    assert.ok(otherWindowsHtml.includes('data-session-fx="custom"'));
-    assert.ok(otherWindowsHtml.includes('title="Workspace — 2 active sessions running"'));
-    assert.ok(otherWindowsHtml.includes('<span class="ai-session-active-count" aria-label="2 active AI sessions">●2</span>'));
-    assert.ok(otherWindowsHtml.includes('<h2 class="project-header">App</h2>'));
-    assert.ok(otherWindowsHtml.includes('<p class="project-description workspace-metadata">1 folder</p>'));
-    assert.ok(otherWindowsHtml.includes('data-action="toggle-open-workspace-pin"'));
-    assert.ok(otherWindowsHtml.includes('aria-label="Pin Window" aria-pressed="false"'));
-    assert.ok(workspaceHtml.includes('data-open-workspace-pin-live-region'));
-    const pinnedWindowHtml = webviewContent.getOpenWorkspacesGroupContent([{
-        ...navigationCard,
-        pinned: true,
-    }], false);
-    assert.ok(pinnedWindowHtml.includes(
-        'class="project-pin-badge active" title="Unpin Window" aria-label="Unpin Window" aria-pressed="true"'
-    ));
-    assert.strictEqual(otherWindowsHtml.includes('[Dev Container:'), false,
-        'navigation cards must not repeat VS Code remote window decorations in their title');
-    assert.strictEqual(otherWindowsHtml.includes('Dev Container ·'), false,
-        'navigation cards must not repeat their icon environment in metadata');
-    assert.ok(otherWindowsHtml.includes(
-        '<span class="project-ai-attention-badge" title="1 item needs attention" aria-label="1 item needs attention">1</span>'
-    ));
-    assert.strictEqual((otherWindowsHtml.match(/class="project-codex-badge"/g) || []).length, 1,
-        'a running navigation workspace must expose one compact active-session badge');
-    const untitledNavigationHtml = webviewContent.getOpenWorkspacesGroupContent([{
-        ...navigationCard,
-        workspaceKind: 'untitledMultiRoot',
-    }], false);
-    assert.strictEqual(untitledNavigationHtml.includes('data-action="save-current-workspace"'), false,
-        'OTHER WINDOWS cards must never expose a save action');
+    assert.ok(navigationRow.includes('data-workspace-navigation-identity="navigation-other"'));
+    assert.ok(navigationRow.includes('data-window-kind="navigation"'));
+    assert.ok(navigationRow.includes('<span class="open-window-name">App</span>'),
+        'window rows must not repeat VS Code remote window decorations in their name');
+    assert.ok(navigationRow.includes('open-window-env-chip">Dev Container<'),
+        'remote windows carry the environment chip');
+    assert.ok(navigationRow.includes('aria-label="Focus window: App'),
+        'non-current rows announce the focus jump');
+    assert.ok(navigationRow.includes('>●2</span>'),
+        'running sessions show in the fixed running slot');
+    assert.ok(navigationRow.includes('aria-label="Pin Window" aria-pressed="false"'));
+    // 隐私：导航行不携带 session 级细节。
     for (const privateDetail of [
         'data-ai-session-total-count',
         'data-ai-session-attention-count',
         'Codex',
         'Kimi',
         'Claude',
+        'codex-sessions',
+        'data-session-id',
+        'data-workspace-root-id',
     ]) {
-        assert.strictEqual(otherWindowsHtml.includes(privateDetail), false,
-            `OTHER WINDOWS attention badges must omit ${privateDetail}`);
+        assert.strictEqual(navigationRow.includes(privateDetail), false,
+            `window switcher rows must omit ${privateDetail}`);
     }
-    assert.strictEqual(otherWindowsHtml.includes('class="codex-sessions"'), false,
-        'OTHER WINDOWS must never render session/provider controls');
-    assert.strictEqual(otherWindowsHtml.includes('data-workspace-root-id'), false,
-        'OTHER WINDOWS roots are aggregate metadata, not expandable rows');
-    assert.strictEqual((otherWindowsHtml.match(/active session/g) || []).length, 1,
-        'OTHER WINDOWS must render only its protocol count, not injected aiSessions details');
+    // 当前行：恒标记本窗口、主按钮不跳转、pin 仍在。
+    const currentRowStart = workspaceHtml.indexOf('open-window-row-current');
+    assert.ok(currentRowStart !== -1, 'the current window row is rendered in the switcher');
+    const currentRow = workspaceHtml.slice(
+        currentRowStart - 200,
+        workspaceHtml.indexOf('data-action="open-window-menu"', currentRowStart) + 500,
+    );
+    assert.ok(currentRow.includes('aria-current="true"'));
+    assert.ok(currentRow.includes('aria-disabled="true"'));
+    assert.ok(currentRow.includes('aria-label="Current window:'));
+    assert.ok(currentRow.includes('data-action="toggle-open-workspace-pin"'));
+    assert.strictEqual(currentRow.includes('open-window-env-chip'), false,
+        'local windows do not carry an environment chip');
+    assert.strictEqual(currentRow.includes('Local'), false);
+    // 当前窗口同时以无头壳里的 current-detail 卡片存在（过渡形态）。
+    assert.ok(workspaceHtml.includes('open-current-workspace-group'));
+    assert.strictEqual(
+        workspaceHtml.includes('class="group-title steward-section-header steward-group-header">\n        <span class="group-title-text">CURRENT WINDOW'),
+        false,
+        'the transitional current group is headless',
+    );
+    assert.strictEqual((workspaceHtml.match(/data-current-workspace/g) || []).length, 1,
+        'only the headless current-detail card owns current-session behavior');
+    assert.ok(workspaceHtml.includes('data-open-workspace-pin-live-region'));
+
+    const pinnedWindowHtml = webviewContent.getOpenWorkspacesGroupContent([{
+        ...navigationCard,
+        pinned: true,
+    }]);
+    assert.ok(pinnedWindowHtml.includes(
+        'class="open-window-pin active" data-action="toggle-open-workspace-pin" title="Unpin Window" aria-label="Unpin Window" aria-pressed="true"'
+    ));
+
+    const untitledNavigationHtml = webviewContent.getOpenWorkspacesGroupContent([{
+        ...navigationCard,
+        workspaceKind: 'untitledMultiRoot',
+    }]);
+    assert.strictEqual(untitledNavigationHtml.includes('data-action="save-current-workspace"'), false,
+        'navigation window rows must never expose a save action');
 
     const updateRequiredHtml = webviewContent.getOpenWorkspacesGroupContent(
         [makeWorkspaceCardFixture(3)],
-        true,
         'update-required',
     );
-    const updateRequiredGroupIndex = updateRequiredHtml.indexOf('<div class="group steward-section open-other-windows-group');
-    const updateRequiredOtherHtml = updateRequiredHtml.slice(updateRequiredGroupIndex);
-    assert.ok(updateRequiredOtherHtml.includes('data-other-windows-status="update-required"'));
-    assert.strictEqual(updateRequiredOtherHtml.includes('open-other-windows-group collapsed'), false,
-        'an actionable bridge upgrade state must not be hidden by the saved collapse state');
-    assert.ok(updateRequiredOtherHtml.includes('Update the Agent Pivot UI Bridge'));
-    assert.ok(updateRequiredOtherHtml.includes('data-action="open-bridge-extension"'),
+    assert.ok(updateRequiredHtml.includes('data-other-windows-status="update-required"'));
+    assert.ok(updateRequiredHtml.includes('Update the Agent Pivot UI Bridge'));
+    assert.ok(updateRequiredHtml.includes('data-action="open-bridge-extension"'),
         'the bridge mismatch state must include an actionable upgrade control');
-    assert.strictEqual(
-        (updateRequiredOtherHtml.match(/class="codex-sessions"/g) || []).length,
-        0,
-        'OPEN WINDOWS must keep its current projection compact during bridge degradation'
-    );
-    assert.ok(updateRequiredOtherHtml.includes('data-open-workspace-current'));
-    assert.strictEqual(updateRequiredOtherHtml.includes('data-current-workspace'), false);
+    // bridge 未就绪：当前行置顶，其余行禁用。
+    const firstRowIndex = updateRequiredHtml.indexOf('open-window-row-current');
+    const navRowIndex = updateRequiredHtml.indexOf('data-window-kind="navigation"');
+    assert.ok(firstRowIndex !== -1 && (navRowIndex === -1 || firstRowIndex < navRowIndex),
+        'the current row stays on top while the bridge is not ready');
+    assert.ok(updateRequiredHtml.includes('data-open-window-switcher-status'),
+        'the bridge state renders inside the fixed switcher status slot');
     assert.ok(updateRequiredHtml.includes('data-action="create-ai-session-quick"'),
         'the local current workspace quick-create action must remain enabled during bridge degradation');
-    assert.strictEqual(updateRequiredOtherHtml.includes('data-action="new-session-in"'), false);
 
     const projectSource = readProjectWebviewSource();
     const consistencyBody = extractFunctionBody(projectSource, 'isWorkspaceUpdateDomConsistent');
@@ -1227,17 +1221,17 @@ async function runGroupCollapseControllerChecks() {
     });
 
     assert.strictEqual(controller.getFavoritesCollapsed(), true);
-    assert.strictEqual(controller.getOpenWorkspacesCollapsed(), undefined);
 
     await controller.collapseGroup('__favorites', true);
-    await controller.collapseGroup('__openWorkspaces', false);
     await controller.collapseGroup('group-a');
     await controller.collapseGroup('group-b', false);
     await controller.collapseGroup('missing-group', true);
 
+    // The OPEN tab window switcher is not collapsible by design; the legacy
+    // __openWorkspaces key is gone and such ids fall through to the project
+    // service like any unknown group.
     assert.deepStrictEqual(updates, [
         ['favoritesGroupCollapsed', true],
-        ['openWorkspacesGroupCollapsed.v2', false],
     ]);
     assert.deepStrictEqual(projectServiceUpdates, [
         ['group-a', { id: 'group-a', groupName: 'A', collapsed: true }],
@@ -5011,7 +5005,7 @@ function runSourceContractChecks(source) {
         '.dashboard-tab-button::before',
         '.dashboard-search-results', '.dashboard-search-section', '.dashboard-search-result',
         '.dashboard-search-section[data-section-type="todo"]',
-        '.open-current-workspace-group', '.open-other-windows-group', '.dashboard-projects-loading',
+        '.open-current-workspace-group', '.open-window-switcher-group', '.open-window-row', '.dashboard-projects-loading',
         '.dashboard-todo-loading', '.todo-panel', '.todo-item', '.todo-priority-high',
         '.todo-empty-state', '.todo-edit-form', '.steward-group-header', '.todo-page-command-bar',
         '.todo-edit-panel', '.todo-priority-segment',
@@ -5143,28 +5137,6 @@ function runSourceContractChecks(source) {
         && rule.body.includes('max-height: 1000px')
         && rule.body.includes('opacity: 1')
     ), 'compiled expanded session surface must preserve the motion contract');
-    const compiledFitGroupSelector =
-        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper:not(.open-tab-split-manual) .open-current-workspace-group.current-card-expanded';
-    const compiledFitGroupRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledFitGroupSelector,
-    );
-    assert.ok(compiledFitGroupRules.some(rule =>
-        rule.selectors.includes(compiledFitGroupSelector)
-        && rule.body.includes('height: 50%')
-        && rule.body.includes('max-height: none')
-        && rule.body.includes('min-height: 283px')
-    ), 'auto layout must pin the expanded CURRENT WINDOW group to half the pane');
-    const compiledFitManualSelector =
-        'body.steward-sidebar #dashboard-tab-open:not([hidden]) .sticky-groups-wrapper.open-tab-split-manual .open-current-workspace-group.current-card-expanded';
-    const compiledFitManualRules = extractCompiledCssRulesContainingSelector(
-        compiledStyles,
-        compiledFitManualSelector,
-    );
-    assert.ok(compiledFitManualRules.some(rule =>
-        rule.selectors.includes(compiledFitManualSelector)
-        && rule.body.includes('min-height: 283px')
-    ), 'a dragged share must respect the raised expanded pane floor');
     const compiledFitListSelector =
         'body.steward-sidebar #dashboard-tab-open:not([hidden]) .open-current-workspace-group.current-card-expanded .workspace-card[data-codex-expanded] .codex-sessions-list';
     const compiledFitListRules = extractCompiledCssRulesContainingSelector(

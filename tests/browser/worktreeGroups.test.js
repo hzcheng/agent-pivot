@@ -8,6 +8,12 @@ const { chromium } = require('playwright-chromium');
 
 const { getAiSessionsDiv } = require('../../out/webview/webviewAiSessionContent');
 const { getAiSessionWorktreeMenu } = require('../../out/webview/webviewAiSessionContent');
+const {
+    buildOpenWindowRowViewModels,
+} = require('../../out/openWorkspaces/windowRowViewModel');
+const {
+    getOpenWindowSwitcherGroupContent,
+} = require('../../out/webview/webviewWindowSwitcherContent');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 const viewStateScript = fs.readFileSync(
@@ -877,22 +883,33 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
 
 test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list and window scroll', async t => {
     // Regression: applyOpenWorkspacesUpdate replaces the whole wrapper but
-    // only restored the other-windows list scroll, so every refresh snapped
-    // the current workspace list (and the window) back to the top.
+    // only restored the switcher list scroll, so every refresh snapped the
+    // current workspace list (and the window) back to the top.
     const card = `<div class="project workspace-card" data-id="project-a" data-current-workspace
         data-codex-expanded data-workspace-scope-identity="scope:current"
         data-workspace-navigation-identity="navigation:current"
         style="height: 1600px">${surface({ selectedSurface: 'worktree' })}</div>`;
     const currentGroup = `<div class="open-current-workspace-group current-card-expanded">`
         + `<div class="group-list">${card}</div></div>`;
-    const otherGroup = `<div class="open-other-windows-group" data-other-windows-status="ready">`
-        + `<div class="project workspace-card" data-id="project-a"`
-        + ` data-open-workspace-list-card data-open-workspace-current`
-        + ` data-workspace-navigation-identity="navigation:current"></div></div>`;
+    const switcherGroup = getOpenWindowSwitcherGroupContent(buildOpenWindowRowViewModels([{
+        id: 'project-a',
+        kind: 'current',
+        workspaceKind: 'singleFolder',
+        showSaveAction: false,
+        runningSessionCount: 0,
+        navigationIdentity: 'navigation:current',
+        scopeIdentity: 'scope:current',
+        name: 'Project A',
+        environment: 'local',
+        environmentLabel: 'Local',
+        color: '',
+        roots: [{ id: 'root-project-a', name: 'Project A', ordinal: 0 }],
+        attentionCount: 0,
+    }]), 'ready');
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
-        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${currentGroup}${otherGroup}</div></div>
+        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${switcherGroup}${currentGroup}</div></div>
         <div style="height: 1600px"></div>
     </body></html>`);
     await page.addStyleTag({ content: styles });
@@ -919,10 +936,13 @@ test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list a
     const applied = await page.evaluate(
         replacementHtml => applyOpenWorkspacesUpdate({
             type: 'open-workspaces-updated',
-            version: 3,
+            version: 4,
             semanticRevision: 'scroll-regression-1',
-            currentWorkspaceCount: 1,
-            navigationWorkspaceCount: 0,
+            projectionRevision: 1,
+            windowRowCount: 1,
+            currentWindowRowCount: 1,
+            navigationWindowRowCount: 0,
+            currentDetailCount: 1,
             otherWindowsStatus: 'ready',
             html: replacementHtml,
             searchCatalog: {
@@ -930,7 +950,7 @@ test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list a
                 openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
             },
         }),
-        currentGroup + otherGroup
+        switcherGroup + currentGroup
     );
     assert.equal(applied, true, 'the authoritative replacement applies');
 

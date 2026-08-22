@@ -166,29 +166,35 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 sanitizes renderer diagnostics and re
 
     calls.length = 0;
     await handlers['open-workspaces-rendered']({
-        semanticRevision: 'rev', currentWorkspaceCount: 1, navigationWorkspaceCount: 2,
-        hasOtherWindowsGroup: true, otherWindowsStatus: 'ready',
+        semanticRevision: 'rev', windowRowCount: 3, currentWindowRowCount: 1,
+        navigationWindowRowCount: 2, currentDetailCount: 1,
+        hasWindowSwitcher: true, otherWindowsStatus: 'ready',
     });
     assert.deepEqual(calls[0][2], {
         event: 'open-workspaces-rendered',
         semanticRevision: 'rev',
-        currentWorkspaceCount: 1,
-        navigationWorkspaceCount: 2,
-        hasOtherWindowsGroup: true,
+        windowRowCount: 3,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 2,
+        currentDetailCount: 1,
+        hasWindowSwitcher: true,
         otherWindowsStatus: 'ready',
     });
 
     calls.length = 0;
     await handlers['open-workspaces-rendered']({
-        semanticRevision: 7, currentWorkspaceCount: 3, navigationWorkspaceCount: -1,
+        semanticRevision: 7, windowRowCount: -1, currentWindowRowCount: 3,
+        navigationWindowRowCount: -1, currentDetailCount: 2,
         otherWindowsStatus: 'bogus',
     });
     assert.deepEqual(calls[0][2], {
         event: 'open-workspaces-rendered',
         semanticRevision: 'invalid',
-        currentWorkspaceCount: -1,
-        navigationWorkspaceCount: -1,
-        hasOtherWindowsGroup: false,
+        windowRowCount: -1,
+        currentWindowRowCount: -1,
+        navigationWindowRowCount: -1,
+        currentDetailCount: -1,
+        hasWindowSwitcher: false,
         otherWindowsStatus: 'invalid',
     }, 'malformed renderer reports sanitize to invalid markers');
 });
@@ -198,7 +204,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates the simple openers and focu
 
     await handlers['request-active-ai-session-terminal']({});
     await handlers['open-workspaces-renderer-ready']({
-        type: 'open-workspaces-renderer-ready', version: 1,
+        type: 'open-workspaces-renderer-ready', version: 1, documentGeneration: 1,
     });
     await handlers['open-settings']({});
     await handlers['open-bridge-extension']({});

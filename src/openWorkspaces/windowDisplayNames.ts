@@ -4,6 +4,16 @@
 // Computed once over the final display names (after saved-project overrides),
 // deterministically: same input set always yields the same names.
 
+/** Parses a workspace navigationUri (file:// or vscode-remote://) into path segments. */
+export function navigationUriToPathSegments(uri: string): string[] {
+    if (!uri || uri.startsWith('untitled:')) {
+        return [];
+    }
+    const match = uri.match(/^[a-z][a-z0-9+-]*:\/\/[^/]*(\/.*)$/i);
+    const pathPart = match ? match[1] : uri;
+    return decodeURIComponent(pathPart).split('/').filter(Boolean);
+}
+
 export interface WindowDisplayNameInput {
     id: string;
     /** Final display name, e.g. after saved-project name overrides. */

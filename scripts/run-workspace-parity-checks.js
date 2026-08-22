@@ -364,16 +364,11 @@ function runProductionWiringChecks() {
     ));
     assert.ok(attentionEventSource.includes('scheduleAttentionViewsRefresh()'));
 
-    const navigationBranch = projectScriptsSource.slice(
-        projectScriptsSource.indexOf(
-            'if (projectDiv.hasAttribute("data-workspace-navigation"))'
-        ),
-        projectScriptsSource.indexOf('var currentWindow')
-    );
-    assert.ok(navigationBranch.includes(
-        'openProject(dataId, ProjectOpenType.Default)'
-    ));
-    assert.strictEqual(navigationBranch.includes('acknowledge'), false);
+    // PR-B: navigation-card clicks are replaced by the window-switcher row
+    // routing, which drives the versioned navigation request protocol.
+    assert.ok(projectScriptsSource.includes("e.target.closest('[data-open-window-row]')"));
+    assert.ok(projectScriptsSource.includes('__agentPivotOpenWindowNavigation.request('));
+    assert.strictEqual(projectScriptsSource.includes('data-workspace-navigation")),'), false);
 
     for (const removed of [
         'src/aiSessions/projectHydrationController.ts',

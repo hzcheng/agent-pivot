@@ -474,18 +474,14 @@ function initAiSessionPresentationDom(options) {
         return Array.from((root || document).querySelectorAll(
             '.workspace-card[data-workspace-navigation-identity="'
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-current-workspace],'
-                + '.workspace-card[data-workspace-navigation-identity="'
-                + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-open-workspace-current]'
+                + '[data-current-workspace]'
         ));
     }
     function canApplyAiSessionPresentationDom(message, root) {
         var projectionRoot = root || document;
         if (message.workspaceNavigationIdentity === null) {
             return !projectionRoot.querySelector(
-                '.workspace-card[data-current-workspace],'
-                    + '.workspace-card[data-open-workspace-current]'
+                '.workspace-card[data-current-workspace]'
             );
         }
         return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;

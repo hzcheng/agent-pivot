@@ -316,7 +316,7 @@ function revealAiSessionInWorkspace(message) {
         return false;
     }
     var projectDiv = Array.from(document.querySelectorAll(
-        '[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     )).find(candidate =>
         candidate.getAttribute('data-id') === request.projectId
     );
@@ -364,7 +364,7 @@ function focusAiSessionConversationOrigin(message) {
         return false;
     }
     var projectDiv = Array.from(document.querySelectorAll(
-        '[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     )).find(candidate =>
         candidate.getAttribute('data-id') === origin.projectId
     );
@@ -472,7 +472,7 @@ function selectAiSessionTabDom(projectDiv, tab) {
 function restoreAiSessionTabsFromState(root, vscodeApi) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
     var tabs = readAiSessionTabState(vscodeApi);
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]').forEach(projectDiv => {
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]').forEach(projectDiv => {
         var projectId = projectDiv.getAttribute('data-id');
         if (Object.prototype.hasOwnProperty.call(tabs, projectId)) {
             selectAiSessionTabDom(projectDiv, tabs[projectId]);
@@ -503,7 +503,7 @@ function maybeImportLegacyAiSessionViewState(vscodeApi, root) {
     }
     var tabs = readAiSessionTabState(vscodeApi);
     var currentCard = (root || document).querySelector(
-        '[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     );
     var projectId = currentCard && currentCard.getAttribute('data-id');
     var legacyTab = projectId && Object.prototype.hasOwnProperty.call(tabs, projectId)
@@ -709,7 +709,7 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
 function revealChangedFocusedAiSessionCard(root, states) {
     if (!root || typeof root.querySelectorAll !== 'function'
         || !states || typeof states.get !== 'function') return;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]').forEach(projectDiv => {
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]').forEach(projectDiv => {
         var state = states.get(projectDiv.getAttribute('data-id'));
         var previous = state && state.view ? state.view.focusedSession : null;
         var row = projectDiv.querySelector(
@@ -790,7 +790,7 @@ function restoreAiSessionProviderMenuState(projectDiv, menuState, allowed) {
 function captureCurrentWorkspaceAiSessionStates(root) {
     var states = new Map();
     if (!root || typeof root.querySelectorAll !== 'function') return states;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var projectId = projectDiv.getAttribute('data-id');
             if (!projectId) return;
@@ -842,7 +842,7 @@ function restoreAiSessionListScrolls(projectDiv, scrolls) {
 
 function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProviderMenu) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var projectId = projectDiv.getAttribute('data-id');
             var state = states.get(projectId);
@@ -863,7 +863,7 @@ function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProv
 
 function restoreCurrentWorkspaceAiSessionAnchorsAndFocus(root, states) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var state = states.get(projectDiv.getAttribute('data-id'));
             if (!state) return;
@@ -935,8 +935,6 @@ function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
     list.scrollTop = Math.min(Math.max(0, Number(fallbackTop) || 0), maxScrollTop);
 }
 
-var OPEN_TAB_CURRENT_LIST_SELECTOR = '[data-open-session-surface]';
-var OPEN_TAB_CURRENT_ITEM_SELECTOR = '[data-open-session-surface][data-workspace-scope-identity]';
 var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-window-switcher-group [data-open-window-switcher-list]';
 var OPEN_TAB_OTHER_ITEM_SELECTOR = '[data-open-window-row][data-workspace-navigation-identity]';
 
@@ -980,11 +978,6 @@ function applyWorkspaceUpdate(message, options) {
     // surface itself is included (querySelectorAll on the surface excludes
     // its own node).
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
-    var currentListScroll = captureOpenTabListScroll(
-        currentSurface,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
     // The creation form re-renders after the replacement (reconcileDom), so
     // its focus must be captured while the old DOM is still mounted.
     if (window.__agentPivotWorktreeGroupForm
@@ -992,12 +985,6 @@ function applyWorkspaceUpdate(message, options) {
         window.__agentPivotWorktreeGroupForm.captureFocus();
     }
     currentSurface.replaceWith(replacement);
-    restoreOpenTabListScroll(
-        replacement,
-        currentListScroll,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(wrapper, window.vscode);
     }
@@ -1156,7 +1143,7 @@ function requestOpenWorkspacePin(button, cardId) {
         ? 1
         : nextOpenWorkspacePinRequestId + 1;
     var pinned = button.getAttribute('aria-pressed') !== 'true';
-    var card = button.closest('[data-open-window-row]') || button.closest('.workspace-card');
+    var card = button.closest('[data-open-window-row]');
     var name = card?.querySelector('.open-window-name, .project-header')?.textContent?.trim() || 'window';
     var pending = {
         requestId: nextOpenWorkspacePinRequestId,
@@ -1262,14 +1249,9 @@ function applyOpenWorkspacesUpdate(message, options) {
     var previousHtml = wrapper.innerHTML;
     var focusedRowControl = captureOpenWindowRowFocus();
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
-    // This path replaces the whole wrapper, so beyond the other-windows list
-    // it must also carry the current-workspace list scroll (path A keeps it
-    // across workspace-updated) and the window position.
-    var currentListScroll = captureOpenTabListScroll(
-        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
+    // This path replaces the whole wrapper, so preserve the WINDOWS list and
+    // the dashboard window position. Session-list scroll is captured with the
+    // session view state below, where its semantic item identity is known.
     var otherListScroll = captureOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         OPEN_TAB_OTHER_ITEM_SELECTOR,
@@ -1284,12 +1266,6 @@ function applyOpenWorkspacesUpdate(message, options) {
     wrapper.innerHTML = holder ? holder.innerHTML : message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
-        restoreOpenTabListScroll(
-            queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-            currentListScroll,
-            OPEN_TAB_CURRENT_ITEM_SELECTOR,
-            'data-workspace-scope-identity'
-        );
         restoreOpenTabListScroll(
             queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
             otherListScroll,
@@ -1306,12 +1282,6 @@ function applyOpenWorkspacesUpdate(message, options) {
         restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
         return false;
     }
-    restoreOpenTabListScroll(
-        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-        currentListScroll,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
     restoreOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         otherListScroll,
@@ -5437,7 +5407,8 @@ function initProjectAiSessionControls(options) {
             } else if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupRename(section.closest('.project'));
+                cancelWorktreeGroupRename(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         if (!options || !options.skipFocus) {
@@ -5466,7 +5437,8 @@ function initProjectAiSessionControls(options) {
 
     function submitWorktreeGroupRenameEditor(section, editor, input) {
         if (editor.getAttribute('data-rename-pending') === 'true') return;
-        var projectDiv = section.closest('.project');
+        var projectDiv = section.closest('.project')
+            || section.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section.getAttribute('data-group-id') || '';
         var baseRevision = parseInt(
@@ -5704,7 +5676,8 @@ function initProjectAiSessionControls(options) {
             if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupDeletionCard(section.closest('.project'));
+                cancelWorktreeGroupDeletionCard(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         return card;
@@ -6036,7 +6009,8 @@ function initProjectAiSessionControls(options) {
     function confirmWorktreeGroupMemberDeletion(card) {
         if (!card || card.getAttribute('data-deletion-pending') === 'true') return;
         var section = card.closest('.ai-session-worktree-group');
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id');
         var memberId = card.getAttribute('data-member-id') || '';
@@ -6091,7 +6065,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupDeletionOperation(button, kind) {
         var banner = button && button.closest('.ai-session-worktree-deletion');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = button.getAttribute('data-group-id') || '';
         var operationId = button.getAttribute('data-operation-id') || '';
@@ -6123,7 +6098,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupClaimDiscard(button) {
         var card = button && button.closest('.ai-session-worktree-deletion-card');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id') || '';
         var claimId = button.getAttribute('data-claim-id') || '';
@@ -6373,7 +6349,8 @@ function initProjectAiSessionControls(options) {
 
     function startWorktreeAdopt(button) {
         var suggestion = button.closest('.ai-session-worktree-adopt-suggestion');
-        var projectDiv = button.closest('.project');
+        var projectDiv = button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]');
         if (!suggestion || !projectDiv) return;
         var existing = findWorktreeAdoptCard(projectDiv);
         if (existing) {
@@ -6468,7 +6445,8 @@ function initProjectAiSessionControls(options) {
 
     function confirmWorktreeAdopt(card) {
         if (!card || card.getAttribute('data-adopt-pending') === 'true') return;
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         if (!projectId) return;
         var members = [];
@@ -6766,8 +6744,7 @@ function initProjectAiSessionControls(options) {
             '.codex-session-row[data-session-provider="' + pending.provider
                 + '"][data-session-id="' + CSS.escape(pending.sessionId) + '"]'
         );
-        var project = row && (row.closest('.workspace-card[data-current-workspace]')
-            || row.closest('[data-open-session-surface][data-current-workspace]'));
+        var project = row && row.closest('[data-open-session-surface][data-current-workspace]');
         var liveRegion = project && project.querySelector('[data-ai-session-live-region]');
         if (liveRegion) liveRegion.textContent = message;
     }
@@ -7021,13 +6998,6 @@ function initProjectAiSessionControls(options) {
             exitAiSessionBatchManagement();
         }
         projectDiv.toggleAttribute("data-codex-expanded", expanded);
-        // Keep the CURRENT WINDOW group class in sync so the open-tab fit
-        // layout (no :has(), for older webview Chromium) reacts immediately;
-        // authoritative group re-renders replay the same class afterwards.
-        var currentWorkspaceGroup = projectDiv.closest(".open-current-workspace-group");
-        if (currentWorkspaceGroup) {
-            currentWorkspaceGroup.classList.toggle("current-card-expanded", expanded);
-        }
         updateStickyGroupHeaderOffset();
 
         window.vscode.postMessage({

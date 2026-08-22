@@ -752,7 +752,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 empty window accepts incremental ai-sessions u
         0,
         'an empty-window incremental update must not trip the workspace consistency guard',
     );
-    assert.equal(await page.locator('.open-current-workspace-group .open-current-workspace-empty').count(), 1,
+    assert.equal(await page.locator('[data-open-session-surface] .open-current-workspace-empty').count(), 1,
         'the empty state stays rendered after the incremental update');
 });
 

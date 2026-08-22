@@ -218,8 +218,7 @@ function listSessionSurfaceMarkup(activeAiSessions, historySessions, selectedTab
 }
 
 function projectMarkup(activeAiSessions) {
-    return `<div class="project workspace-card" data-id="project-a" data-current-workspace
-        data-codex-expanded
+    return `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace
         data-workspace-scope-identity="scope-project-a"
         data-workspace-navigation-identity="navigation-project-a">
         ${sessionSurfaceMarkup(activeAiSessions)}
@@ -273,17 +272,16 @@ function currentWorkspaceGroupMarkup(
 }
 
 function listProjectMarkup(activeAiSessions, historySessions, selectedTab = 'active') {
-    return `<div class="project workspace-card" data-id="project-a" data-current-workspace
-        data-codex-expanded
+    return `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace
         data-workspace-scope-identity="scope-project-a"
         data-workspace-navigation-identity="navigation-project-a">
         ${listSessionSurfaceMarkup(activeAiSessions, historySessions, selectedTab)}
     </div>`;
 }
 
-// The OPEN tab shell is the persistent WINDOWS switcher (single-line rows)
-// above the headless current-detail group; the retired dual-group chrome
-// (CURRENT WINDOW header + compact OPEN WINDOWS projections) is gone.
+// The OPEN tab shell keeps the persistent WINDOWS switcher (single-line rows)
+// above the direct current session surface; the retired dual-group chrome is
+// gone.
 function openWindowSwitcherMarkup(cardOverrides = {}) {
     const rows = buildOpenWindowRowViewModels([{
         id: 'project-a',
@@ -2875,7 +2873,7 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
             updatedAt: now.toISOString(),
         }],
         { width: 360, height: 700 },
-        `<div class="project workspace-card" data-id="project-a" data-current-workspace data-codex-expanded>
+        `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace>
             ${listSessionSurfaceMarkup(
                 [{
                     ...session('codex', 'session-running', false),
@@ -3047,9 +3045,8 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the CHA
         repositoryKey: '/alpha/.git',
         canonicalWorktreePath: '/alpha/.worktrees/fix-login',
     };
-    const markup = `<div class="open-current-workspace-group">
-        <div class="project workspace-card" data-id="project-a" data-current-workspace
-            data-codex-expanded data-workspace-scope-identity="scope-project-a"
+    const markup = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace
+            data-workspace-scope-identity="scope-project-a"
             data-workspace-navigation-identity="navigation-project-a">
             ${getAiSessionsDiv({
                 id: 'project-a',
@@ -3083,7 +3080,6 @@ test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 closing a conversation keeps the CHA
                 worktreeRepositoryCount: 1,
                 bareWorktreeCount: 0,
             })}
-        </div>
     </div>`;
     const page = await openCardPage(t, [], { width: 360, height: 900 }, markup);
     const chatsTab = page.locator('[data-ai-session-tab="chats"]');

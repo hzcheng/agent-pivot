@@ -1236,7 +1236,8 @@ function initProjectAiSessionControls(options) {
             } else if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupRename(section.closest('.project'));
+                cancelWorktreeGroupRename(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         if (!options || !options.skipFocus) {
@@ -1265,7 +1266,8 @@ function initProjectAiSessionControls(options) {
 
     function submitWorktreeGroupRenameEditor(section, editor, input) {
         if (editor.getAttribute('data-rename-pending') === 'true') return;
-        var projectDiv = section.closest('.project');
+        var projectDiv = section.closest('.project')
+            || section.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section.getAttribute('data-group-id') || '';
         var baseRevision = parseInt(
@@ -1503,7 +1505,8 @@ function initProjectAiSessionControls(options) {
             if (event.key === 'Escape') {
                 event.preventDefault();
                 event.stopPropagation();
-                cancelWorktreeGroupDeletionCard(section.closest('.project'));
+                cancelWorktreeGroupDeletionCard(section.closest('.project')
+                    || section.closest('[data-open-session-surface][data-id]'));
             }
         });
         return card;
@@ -1835,7 +1838,8 @@ function initProjectAiSessionControls(options) {
     function confirmWorktreeGroupMemberDeletion(card) {
         if (!card || card.getAttribute('data-deletion-pending') === 'true') return;
         var section = card.closest('.ai-session-worktree-group');
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id');
         var memberId = card.getAttribute('data-member-id') || '';
@@ -1890,7 +1894,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupDeletionOperation(button, kind) {
         var banner = button && button.closest('.ai-session-worktree-deletion');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = button.getAttribute('data-group-id') || '';
         var operationId = button.getAttribute('data-operation-id') || '';
@@ -1922,7 +1927,8 @@ function initProjectAiSessionControls(options) {
     function submitWorktreeGroupClaimDiscard(button) {
         var card = button && button.closest('.ai-session-worktree-deletion-card');
         var section = button && button.closest('.ai-session-worktree-group');
-        var projectDiv = button && button.closest('.project');
+        var projectDiv = button && (button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]'));
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         var groupId = section && section.getAttribute('data-group-id') || '';
         var claimId = button.getAttribute('data-claim-id') || '';
@@ -2172,7 +2178,8 @@ function initProjectAiSessionControls(options) {
 
     function startWorktreeAdopt(button) {
         var suggestion = button.closest('.ai-session-worktree-adopt-suggestion');
-        var projectDiv = button.closest('.project');
+        var projectDiv = button.closest('.project')
+            || button.closest('[data-open-session-surface][data-id]');
         if (!suggestion || !projectDiv) return;
         var existing = findWorktreeAdoptCard(projectDiv);
         if (existing) {
@@ -2267,7 +2274,8 @@ function initProjectAiSessionControls(options) {
 
     function confirmWorktreeAdopt(card) {
         if (!card || card.getAttribute('data-adopt-pending') === 'true') return;
-        var projectDiv = card.closest('.project');
+        var projectDiv = card.closest('.project')
+            || card.closest('[data-open-session-surface][data-id]');
         var projectId = projectDiv && projectDiv.getAttribute('data-id');
         if (!projectId) return;
         var members = [];
@@ -2565,8 +2573,7 @@ function initProjectAiSessionControls(options) {
             '.codex-session-row[data-session-provider="' + pending.provider
                 + '"][data-session-id="' + CSS.escape(pending.sessionId) + '"]'
         );
-        var project = row && (row.closest('.workspace-card[data-current-workspace]')
-            || row.closest('[data-open-session-surface][data-current-workspace]'));
+        var project = row && row.closest('[data-open-session-surface][data-current-workspace]');
         var liveRegion = project && project.querySelector('[data-ai-session-live-region]');
         if (liveRegion) liveRegion.textContent = message;
     }
@@ -2820,13 +2827,6 @@ function initProjectAiSessionControls(options) {
             exitAiSessionBatchManagement();
         }
         projectDiv.toggleAttribute("data-codex-expanded", expanded);
-        // Keep the CURRENT WINDOW group class in sync so the open-tab fit
-        // layout (no :has(), for older webview Chromium) reacts immediately;
-        // authoritative group re-renders replay the same class afterwards.
-        var currentWorkspaceGroup = projectDiv.closest(".open-current-workspace-group");
-        if (currentWorkspaceGroup) {
-            currentWorkspaceGroup.classList.toggle("current-card-expanded", expanded);
-        }
         updateStickyGroupHeaderOffset();
 
         window.vscode.postMessage({

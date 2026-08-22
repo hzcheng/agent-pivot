@@ -83,15 +83,13 @@ test.after(async () => {
 });
 
 function currentGroupHtml() {
-    return `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current"`
-        + ` data-workspace-navigation-identity="navigation:current">${surface()}</div>`
-        + `</div></div>`;
+    return `<div class="open-session-surface" data-open-session-surface data-id="project-a"`
+        + ` data-current-workspace data-workspace-scope-identity="scope:current"`
+        + ` data-workspace-navigation-identity="navigation:current">${surface()}</div>`;
 }
 
-// The OPEN tab shell: the persistent WINDOWS switcher above the headless
-// current-detail group.
+// The OPEN tab shell: the persistent WINDOWS switcher above the lifted
+// current-session surface.
 function openWindowSwitcherHtml() {
     return getOpenWindowSwitcherGroupContent(buildOpenWindowRowViewModels([{
         id: 'project-a',
@@ -564,11 +562,10 @@ test('WORKTREE-GROUPS-CREATE-UI-001 failed member rows offer Retry and Dismiss',
         canCreateSession: true,
         mergeCandidateGroupIds: [],
     };
-    const groupHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current">`
+    const groupHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace`
+        + ` data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">`
         + surface({ worktreeGroups: [failedGroup] })
-        + `</div></div>`;
+        + `</div>`;
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">

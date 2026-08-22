@@ -55,8 +55,6 @@ function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
     list.scrollTop = Math.min(Math.max(0, Number(fallbackTop) || 0), maxScrollTop);
 }
 
-var OPEN_TAB_CURRENT_LIST_SELECTOR = '[data-open-session-surface]';
-var OPEN_TAB_CURRENT_ITEM_SELECTOR = '[data-open-session-surface][data-workspace-scope-identity]';
 var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-window-switcher-group [data-open-window-switcher-list]';
 var OPEN_TAB_OTHER_ITEM_SELECTOR = '[data-open-window-row][data-workspace-navigation-identity]';
 
@@ -100,11 +98,6 @@ function applyWorkspaceUpdate(message, options) {
     // surface itself is included (querySelectorAll on the surface excludes
     // its own node).
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
-    var currentListScroll = captureOpenTabListScroll(
-        currentSurface,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
     // The creation form re-renders after the replacement (reconcileDom), so
     // its focus must be captured while the old DOM is still mounted.
     if (window.__agentPivotWorktreeGroupForm
@@ -112,12 +105,6 @@ function applyWorkspaceUpdate(message, options) {
         window.__agentPivotWorktreeGroupForm.captureFocus();
     }
     currentSurface.replaceWith(replacement);
-    restoreOpenTabListScroll(
-        replacement,
-        currentListScroll,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
     if (typeof restoreAiSessionTabsFromState === 'function') {
         restoreAiSessionTabsFromState(wrapper, window.vscode);
     }
@@ -276,7 +263,7 @@ function requestOpenWorkspacePin(button, cardId) {
         ? 1
         : nextOpenWorkspacePinRequestId + 1;
     var pinned = button.getAttribute('aria-pressed') !== 'true';
-    var card = button.closest('[data-open-window-row]') || button.closest('.workspace-card');
+    var card = button.closest('[data-open-window-row]');
     var name = card?.querySelector('.open-window-name, .project-header')?.textContent?.trim() || 'window';
     var pending = {
         requestId: nextOpenWorkspacePinRequestId,
@@ -382,14 +369,9 @@ function applyOpenWorkspacesUpdate(message, options) {
     var previousHtml = wrapper.innerHTML;
     var focusedRowControl = captureOpenWindowRowFocus();
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
-    // This path replaces the whole wrapper, so beyond the other-windows list
-    // it must also carry the current-workspace list scroll (path A keeps it
-    // across workspace-updated) and the window position.
-    var currentListScroll = captureOpenTabListScroll(
-        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
+    // This path replaces the whole wrapper, so preserve the WINDOWS list and
+    // the dashboard window position. Session-list scroll is captured with the
+    // session view state below, where its semantic item identity is known.
     var otherListScroll = captureOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         OPEN_TAB_OTHER_ITEM_SELECTOR,
@@ -404,12 +386,6 @@ function applyOpenWorkspacesUpdate(message, options) {
     wrapper.innerHTML = holder ? holder.innerHTML : message.html;
     if (!isOpenWorkspacesUpdateDomConsistent(message)) {
         wrapper.innerHTML = previousHtml;
-        restoreOpenTabListScroll(
-            queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-            currentListScroll,
-            OPEN_TAB_CURRENT_ITEM_SELECTOR,
-            'data-workspace-scope-identity'
-        );
         restoreOpenTabListScroll(
             queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
             otherListScroll,
@@ -426,12 +402,6 @@ function applyOpenWorkspacesUpdate(message, options) {
         restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
         return false;
     }
-    restoreOpenTabListScroll(
-        queryOpenTabList(wrapper, OPEN_TAB_CURRENT_LIST_SELECTOR),
-        currentListScroll,
-        OPEN_TAB_CURRENT_ITEM_SELECTOR,
-        'data-workspace-scope-identity'
-    );
     restoreOpenTabListScroll(
         queryOpenTabList(wrapper, OPEN_TAB_OTHER_LIST_SELECTOR),
         otherListScroll,

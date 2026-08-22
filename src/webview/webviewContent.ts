@@ -15,7 +15,6 @@ import {
     FAVORITES_GROUP_ID,
     FITTY_OPTIONS,
     INBUILT_COLOR_DEFAULTS,
-    OPEN_CURRENT_WORKSPACE_GROUP_ID,
 } from '../constants';
 import { getFavoriteProjectsInOrder } from '../projects/favoriteProjectOrder';
 import {
@@ -40,7 +39,6 @@ import {
 import * as Icons from '../webviewIcons';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import type { AiSessionPresentationStateMessage } from '../aiSessions/types';
-import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 import { buildOpenWindowRowViewModels } from '../openWorkspaces/windowRowViewModel';
 import { getOpenWindowMenu, getOpenWindowSwitcherGroupContent } from './webviewWindowSwitcherContent';
 
@@ -271,30 +269,6 @@ export function getStewardContent(
 </html>`;
 }
 
-export function getCurrentWorkspaceGroupContent(
-    card: WorkspaceCardViewModel | null,
-    hasOtherWindows: boolean = false,
-    runningCardAnimation?: string,
-    runningIconAnimation?: string,
-): string {
-    const currentCard = card && card.kind === 'current' && card.roots.length > 0 ? card : null;
-    // The expanded class lets the OPEN tab fit the card to the CURRENT WINDOW
-    // pane without :has(), which webviews older than Chrome 105 cannot match;
-    // authoritative re-renders replay it from the view model and the webview
-    // toggle handler keeps it in sync between replacements.
-    const cardExpanded = currentCard?.aiSessions?.expanded === true;
-    // PR-B transition: the group shell stays headless (no group header) — the
-    // `ai-sessions-updated` channel targets `.open-current-workspace-group` as
-    // its replacement unit, and the window switcher above owns the chrome.
-    return `
-<div class="group steward-section open-current-workspace-group open-current-workspace-group-headless ${currentCard ? '' : 'no-projects'}${cardExpanded ? ' current-card-expanded' : ''}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
-    <div class="group-list">
-        <div class="drop-signal"></div>
-        ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation, runningIconAnimation) : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
-    </div>
-</div>`;
-}
-
 export function getOpenSessionSurfaceContent(
     card: WorkspaceCardViewModel | null,
     hasOtherWindows: boolean = false,
@@ -342,10 +316,8 @@ export function getOpenWorkspacesGroupContent(
     runningIconAnimation?: string,
     pathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
 ): string {
-    // PR-B: the CURRENT WINDOW / OPEN WINDOWS groups and the split resizer are
-    // replaced by the persistent WINDOWS switcher (single-line rows, stable
-    // order, zero-displacement switching) plus the transitional headless
-    // current-detail card below it. The switcher is not collapsible by design.
+    // The persistent WINDOWS switcher owns window navigation; the current
+    // window's CHATS/ALL surface is its direct, permanently available sibling.
     const orderedCards = cards || [];
     const current = orderedCards.find(card => card.kind === 'current') || null;
     const navigationCards = orderedCards.filter(card => card.kind === 'navigation');
@@ -385,73 +357,6 @@ export function getOpenWorkspacesGroupContent(
     );
     return `${switcherSection}
 ${currentSection}`;
-}
-
-function getWorkspaceCardDiv(
-    card: WorkspaceCardViewModel,
-    runningCardAnimation?: string,
-    runningIconAnimation?: string,
-): string {
-    const roots = card.roots.slice().sort((left, right) => left.ordinal - right.ordinal);
-    const rootCount = roots.length;
-    const compactWorkspaceName = removeWorkspaceWindowDecorations(card.name)
-        || (rootCount === 1 ? roots[0].name : '');
-    const workspaceName = escapeAttribute(sanitizeProjectName(compactWorkspaceName) || 'Workspace');
-    const environmentLabel = escapeAttribute(sanitizeProjectName(card.environmentLabel) || 'Local');
-    const remoteType = getWorkspaceRemoteType(card.environment);
-    const projectIcon = getProjectIcon(remoteType);
-    const projectIconTitle = getProjectIconTitle(remoteType);
-    const folderLabel = `${rootCount} folder${rootCount === 1 ? '' : 's'}`;
-    // PR-B：open-list 投影已随双分组移除，只余 current-detail 形态。
-    const showSaveAction = card.showSaveAction;
-    const saveBadge = showSaveAction
-        ? `<span data-action="save-current-workspace" class="project-save-badge" title="Save Workspace" aria-label="Save Workspace">${Icons.save}</span>`
-        : '';
-    const aiSessions = card.aiSessions;
-    const runningSessionCount = (aiSessions?.activeSessions || []).filter(session => session.executionState === 'running').length;
-    const sessionFx = runningSessionCount > 0
-        ? normalizeRunningCardAnimation(runningCardAnimation)
-        : '';
-    const runningTitle = runningSessionCount > 0
-        ? `Workspace — ${runningSessionCount} active session${runningSessionCount === 1 ? '' : 's'} running`
-        : '';
-    const aiSessionCount = aiSessions?.aiSessionCount || 0;
-    const activeSessionCount = aiSessions?.activeSessionCount || 0;
-    const attentionCount = card.attentionCount || 0;
-    const summaryParts = [
-        aiSessionCount ? `${aiSessionCount} AI session${aiSessionCount === 1 ? '' : 's'}` : '',
-        activeSessionCount ? `${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}` : '',
-        attentionCount ? `${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention` : '',
-    ].filter(Boolean);
-    const summaryLabel = escapeAttribute(summaryParts.join(', '));
-    const badge = summaryParts.length
-        ? `<span class="project-codex-badge" data-ai-session-total-count="${aiSessionCount}" data-ai-session-active-count="${activeSessionCount}" data-ai-session-attention-count="${attentionCount}" title="${summaryLabel}" aria-label="${summaryLabel}">${
-            aiSessionCount ? `<span class="ai-session-total-count">AI ${aiSessionCount}</span>` : ''
-        }${activeSessionCount ? `<span class="ai-session-active-count" aria-label="${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}">●${activeSessionCount}</span>` : ''
-        }${attentionCount ? `<b class="ai-session-attention-count" aria-label="${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention">${attentionCount}</b>` : ''
-        }</span>`
-        : '';
-    const sessionSection = getAiSessionsDiv(getWorkspaceAiSessionSurface(card), {
-        showRootChips: rootCount > 1,
-        runningIconAnimation,
-    });
-    const colorStyles = getCardColorStyles(card.color);
-
-    return `<div class="project-container" data-nodrag>
-    <div class="workspace-card project steward-item-card${runningSessionCount > 0 ? ' session-running' : ''}" style="${colorStyles.cardStyle}" data-id="${escapeAttribute(card.id)}" data-name="${escapeAttribute(`${card.name || ''} ${card.environmentLabel || ''} ${roots.map(root => root.name).join(' ')}`.toLowerCase())}" data-workspace-card-kind="${card.kind}" data-workspace-navigation-identity="${escapeAttribute(card.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(card.scopeIdentity)}" ${sessionFx ? `data-session-fx="${sessionFx}"` : ''}${runningTitle ? ` title="${runningTitle}"` : ''} data-current-workspace${badge ? ' data-has-ai-session-badge' : ''}${showSaveAction ? ' data-has-save-action' : ''} data-readonly-project${aiSessions?.expanded ? ' data-codex-expanded' : ''}>
-        <div class="project-aura"></div>
-        <div class="project-border steward-item-accent" style="${colorStyles.accentStyle}"></div>
-        ${sessionFx && sessionFx !== 'none' ? '<div class="project-session-fx"></div>' : ''}
-        ${saveBadge}
-        <div class="fitty-container project-title-row">
-            <span class="project-kind-icon" title="${projectIconTitle}">${projectIcon}</span>
-            <h2 class="project-header">${workspaceName}</h2>
-        </div>
-        <p class="project-description workspace-metadata">${folderLabel}</p>
-        ${badge}
-        ${sessionSection}
-    </div>
-</div>`;
 }
 
 function getRunningSessionSurfaceFx(

@@ -143,7 +143,8 @@ test.after(async () => {
 async function openSurfacePage(html, width) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
-        <div class="project workspace-card" data-id="project-a" data-current-workspace>
+        <div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace
+            data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">
             ${html}
         </div>
     </body></html>`);
@@ -700,10 +701,9 @@ test('WORKTREE-GROUPS-UI-001 set-primary settlements drive the button pending st
         worktreeGroups: [primaryPickerGroup],
     });
     const groupHtml = () =>
-        `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${sessionHtml()}</div>`
-        + `</div></div>`;
+        `<div class="open-session-surface" data-open-session-surface data-id="project-a"`
+        + ` data-current-workspace data-workspace-scope-identity="scope:current"`
+        + ` data-workspace-navigation-identity="navigation:current">${sessionHtml()}</div>`;
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
@@ -810,10 +810,9 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
         })],
         activeAiSessions: [liveSession()],
     });
-    const groupHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${sessionHtml}</div>`
-        + `</div></div>`;
+    const groupHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a"`
+        + ` data-current-workspace data-workspace-scope-identity="scope:current"`
+        + ` data-workspace-navigation-identity="navigation:current">${sessionHtml}</div>`;
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
@@ -857,95 +856,11 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
         'a refresh must not snap the worktree panel back to the top');
 });
 
-test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list and window scroll', async t => {
-    // Regression: applyOpenWorkspacesUpdate replaces the whole wrapper but
-    // only restored the switcher list scroll, so every refresh snapped the
-    // current workspace list (and the window) back to the top.
-    const card = `<div class="project workspace-card" data-id="project-a" data-current-workspace
-        data-codex-expanded data-workspace-scope-identity="scope:current"
-        data-workspace-navigation-identity="navigation:current"
-        style="height: 1600px">${surface()}</div>`;
-    const currentGroup = `<div class="open-current-workspace-group current-card-expanded">`
-        + `<div class="group-list">${card}</div></div>`;
-    const switcherGroup = getOpenWindowSwitcherGroupContent(buildOpenWindowRowViewModels([{
-        id: 'project-a',
-        kind: 'current',
-        workspaceKind: 'singleFolder',
-        showSaveAction: false,
-        runningSessionCount: 0,
-        navigationIdentity: 'navigation:current',
-        scopeIdentity: 'scope:current',
-        name: 'Project A',
-        environment: 'local',
-        environmentLabel: 'Local',
-        color: '',
-        roots: [{ id: 'root-project-a', name: 'Project A', ordinal: 0 }],
-        attentionCount: 0,
-    }]), 'ready');
-    const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
-    t.after(() => page.close());
-    await page.setContent(`<!doctype html><html><body class="steward-sidebar">
-        <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${switcherGroup}${currentGroup}</div></div>
-        <div style="height: 1600px"></div>
-    </body></html>`);
-    await page.addStyleTag({ content: styles });
-    await page.addStyleTag({ content: `
-        html, body { margin: 0; }
-        .open-current-workspace-group .group-list { max-height: 100px; overflow-y: auto; }
-    ` });
-    await page.evaluate(() => {
-        window.normalizeDashboardSearchCatalog = catalog => catalog;
-    });
-    await page.addScriptTag({ content: viewStateScript });
-    await page.addScriptTag({ content: scrollStateScript });
-    await page.addScriptTag({ content: workspaceUpdateScript });
-
-    const before = await page.evaluate(() => {
-        const list = document.querySelector('.open-current-workspace-group .group-list');
-        list.scrollTop = 80;
-        window.scrollTo(0, 120);
-        return { list: list.scrollTop, window: window.scrollY };
-    });
-    assert.ok(before.list > 0, 'the current workspace list is scrollable in this fixture');
-    assert.ok(before.window > 0, 'the window is scrollable in this fixture');
-
-    const applied = await page.evaluate(
-        replacementHtml => applyOpenWorkspacesUpdate({
-            type: 'open-workspaces-updated',
-            version: 4,
-            semanticRevision: 'scroll-regression-1',
-            projectionRevision: 1,
-            windowRowCount: 1,
-            currentWindowRowCount: 1,
-            navigationWindowRowCount: 0,
-            currentDetailCount: 1,
-            otherWindowsStatus: 'ready',
-            html: replacementHtml,
-            searchCatalog: {
-                version: 3, sessions: [], worktrees: [],
-                openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
-            },
-        }),
-        switcherGroup + currentGroup
-    );
-    assert.equal(applied, true, 'the authoritative replacement applies');
-
-    const after = await page.evaluate(() => ({
-        list: document.querySelector('.open-current-workspace-group .group-list').scrollTop,
-        window: window.scrollY,
-    }));
-    assert.equal(after.list, before.list,
-        'an open-workspaces refresh must not snap the current workspace list back to the top');
-    assert.equal(after.window, before.window,
-        'an open-workspaces refresh must not reset the window scroll position');
-});
-
 async function openGroupActionsPage(t, sessionHtml, replacementHtml) {
     const groupHtml = () =>
-        `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${sessionHtml()}</div>`
-        + `</div></div>`;
+        `<div class="open-session-surface" data-open-session-surface data-id="project-a"`
+        + ` data-current-workspace data-workspace-scope-identity="scope:current"`
+        + ` data-workspace-navigation-identity="navigation:current">${sessionHtml()}</div>`;
     const page = await browser.newPage({ viewport: { width: 320, height: 900 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
@@ -1125,11 +1040,11 @@ test('WORKTREE-GROUPS-RENAME-001 renames a group inline through the settlement l
     await postSettlement('settled');
     assert.equal(await input.evaluate(el => el.readOnly), true,
         'settled keeps the editor pending until the replacement lands');
-    const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${surface({
+    const renamedHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a"`
+        + ` data-current-workspace data-workspace-scope-identity="scope:current"`
+        + ` data-workspace-navigation-identity="navigation:current">${surface({
             worktreeGroups: [renamedGroup()],
-        })}</div></div></div>`;
+        })}</div>`;
     const applied = await applyUpdate(renamedHtml);
     assert.equal(applied, true);
     assert.equal(await page.locator('.ai-session-worktree-rename-input').count(), 0,
@@ -1288,11 +1203,10 @@ test('WORKTREE-GROUPS-RENAME-001 the editor freezes the base revision it opened 
     const input = page.locator('.ai-session-worktree-rename-input');
     await input.fill('Fix login v2');
 
-    const rev2Html = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${surface({
+    const rev2Html = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace`
+        + ` data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${surface({
             worktreeGroups: [groupRow({ revision: 2 })],
-        })}</div></div></div>`;
+        })}</div>`;
     const applied = await applyUpdate(rev2Html);
     assert.equal(applied, true);
     assert.equal(await page.locator('.ai-session-worktree-rename-input').count(), 1,
@@ -1484,9 +1398,8 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 removes a member through the card settle
     // The rendered aggregate must reach the settlement's bound revision
     // before any replacement may retire the pending card (decision J).
     await postAggregateRevisionPresentation(page, 3, 900);
-    const renamedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutMember()}</div></div></div>`;
+    const renamedHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace`
+        + ` data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutMember()}</div>`;
     assert.equal(await applyUpdate(renamedHtml), true);
     assert.equal(await card.count(), 0,
         'the replacement with the member gone retires the card');
@@ -1643,9 +1556,8 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 a partial settlement surfaces the Retry 
         }));
     }, deleteRequest.requestId);
     await postAggregateRevisionPresentation(page, 2, 901);
-    const bannerHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withBanner()}</div></div></div>`;
+    const bannerHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace`
+        + ` data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withBanner()}</div>`;
     assert.equal(await applyUpdate(bannerHtml), true);
     assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 0,
         'the card retires when the banner takes over');
@@ -1703,7 +1615,7 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 the deletion card stays contained at 170
     assert.equal(await card.count(), 1);
     const overflow = await page.evaluate(() => {
         const cardEl = document.querySelector('.ai-session-worktree-deletion-card');
-        const project = cardEl.closest('.project');
+        const project = cardEl.closest('[data-open-session-surface]');
         return cardEl.getBoundingClientRect().right
             > project.getBoundingClientRect().right + 1;
     });
@@ -1806,9 +1718,8 @@ test('WORKTREE-GROUPS-GROUP-DELETE-001 removes the whole group through the card 
         }));
     }, deleteRequest.requestId);
     await postAggregateRevisionPresentation(page, 2, 902);
-    const clearedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutGroup()}</div></div></div>`;
+    const clearedHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace`
+        + ` data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutGroup()}</div>`;
     assert.equal(await applyUpdate(clearedHtml), true);
     assert.equal(await page.locator('.ai-session-worktree-task-group').count(), 0,
         'the group row is gone');
@@ -2137,9 +2048,8 @@ test('WORKTREE-GROUPS-ADOPT-MERGE-001 adopts a cluster through the card settleme
         }));
     }, adoptRequest.requestId);
     assert.equal(await card.count(), 1, 'settled keeps the card until the replacement');
-    const adoptedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutSuggestion()}</div></div></div>`;
+    const adoptedHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace`
+        + ` data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutSuggestion()}</div>`;
     assert.equal(await applyUpdate(adoptedHtml), true);
     assert.equal(await page.locator('.ai-session-worktree-adopt-card').count(), 0,
         'the replacement with the suggestion gone retires the card');
@@ -2235,9 +2145,8 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 pending clears only after the rendered a
     }, deleteRequest.requestId);
     // The authoritative replacement shows the member gone, but no
     // presentation at revision ≥ 99 has been rendered: the card must stay.
-    const clearedHtml = `<div class="open-current-workspace-group current-card-expanded"><div class="group-list">`
-        + `<div class="project workspace-card" data-id="project-a" data-current-workspace`
-        + ` data-codex-expanded data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutMember()}</div></div></div>`;
+    const clearedHtml = `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace`
+        + ` data-workspace-scope-identity="scope:current" data-workspace-navigation-identity="navigation:current">${withoutMember()}</div>`;
     assert.equal(await applyUpdate(clearedHtml), true);
     assert.equal(await page.locator('.ai-session-worktree-deletion-card').count(), 1,
         'the pending card survives a replacement below the bound revision');

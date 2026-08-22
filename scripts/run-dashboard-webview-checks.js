@@ -527,24 +527,20 @@ function runWorkspaceCardRenderingChecks() {
     const webviewAiSessionContent = require('../out/webview/webviewAiSessionContent');
     const icons = require('../out/webviewIcons');
 
-    const emptyHtml = webviewContent.getCurrentWorkspaceGroupContent(null, false);
+    const emptyHtml = webviewContent.getOpenSessionSurfaceContent(null, false);
     assert.strictEqual((emptyHtml.match(/class="workspace-card/g) || []).length, 0);
 
-    const emptyRootsHtml = webviewContent.getCurrentWorkspaceGroupContent(makeWorkspaceCardFixture(0), false);
+    const emptyRootsHtml = webviewContent.getOpenSessionSurfaceContent(makeWorkspaceCardFixture(0), false);
     assert.strictEqual((emptyRootsHtml.match(/class="workspace-card/g) || []).length, 0,
         'a non-null invalid zero-root snapshot must render the empty current-workspace state');
 
     const collapsedSingleCard = makeWorkspaceCardFixture(1);
     collapsedSingleCard.aiSessions.expanded = false;
-    const singleHtml = webviewContent.getCurrentWorkspaceGroupContent(collapsedSingleCard, false);
-    assert.strictEqual((singleHtml.match(/class="workspace-card/g) || []).length, 1);
+    const singleHtml = webviewContent.getOpenSessionSurfaceContent(collapsedSingleCard, false);
+    assert.strictEqual((singleHtml.match(/class="workspace-card/g) || []).length, 0);
     assert.strictEqual((singleHtml.match(/class="codex-sessions"/g) || []).length, 1);
-    assert.ok(singleHtml.includes(icons.folder));
-    assert.ok(singleHtml.includes('title="Local Project"'));
-    assert.ok(singleHtml.includes('<h2 class="project-header">Dashboard</h2>'));
-    assert.ok(singleHtml.includes('<p class="project-description workspace-metadata">1 folder</p>'));
-    assert.strictEqual(singleHtml.includes('Local ·'), false,
-        'the environment icon already identifies local workspaces');
+    assert.ok(singleHtml.includes('class="open-session-surface"'));
+    assert.ok(singleHtml.includes('data-current-workspace'));
     assert.strictEqual(singleHtml.includes('class="ai-session-root-chip"'), false,
         'single-root workspaces must not repeat the only root on every session row');
     assert.ok(singleHtml.includes('class="codex-sessions" data-ai-session-region'),
@@ -552,40 +548,20 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual(singleHtml.includes('class="current-window-indicator"'), false,
         'the dedicated CURRENT WINDOW card must not duplicate the OPEN WINDOWS marker');
     assert.strictEqual(singleHtml.includes('data-action="toggle-open-workspace-pin"'), false,
-        'Pin belongs to the OPEN WINDOWS list projection, not the detailed current card');
+        'Pin belongs to the WINDOWS list projection, not the lifted session surface');
     assert.strictEqual(singleHtml.includes('workspace-card-summary'), false,
         'the click boundary must not add a summary wrapper that could alter card layout');
     const coloredCurrentCard = makeWorkspaceCardFixture(1);
     coloredCurrentCard.color = '#123456';
-    const coloredCurrentHtml = webviewContent.getCurrentWorkspaceGroupContent(coloredCurrentCard, false);
-    assert.ok(coloredCurrentHtml.includes('style="--project-color: #123456;"'));
-    assert.ok(coloredCurrentHtml.includes('class="project-border steward-item-accent" style="background: #123456;"'));
-    assert.strictEqual(singleHtml.includes('--project-color:'), false,
-        'an unmatched current workspace must not synthesize a foreground-colored accent');
-    assert.ok(singleHtml.includes('data-has-ai-session-badge'),
-        'current workspace cards must declare when their AI session summary badge is present');
+    const coloredCurrentHtml = webviewContent.getOpenSessionSurfaceContent(coloredCurrentCard, false);
+    assert.strictEqual(coloredCurrentHtml.includes('--project-color:'), false,
+        'the lifted session surface does not inherit workspace-card color chrome');
+    assert.ok(singleHtml.includes('class="project-codex-badge"'),
+        'the lifted session surface renders its AI session summary badge directly');
     assert.strictEqual(singleHtml.includes('data-codex-expanded'), false,
-        'the collapsed-card fixture must keep its AI session module hidden');
+        'the lifted session surface is permanently available, not collapsible');
     assert.strictEqual(singleHtml.includes('current-card-expanded'), false,
-        'the collapsed-card fixture must not mark the CURRENT WINDOW group for the fit layout');
-    const expandedSingleHtml = webviewContent.getCurrentWorkspaceGroupContent(makeWorkspaceCardFixture(1), false);
-    assert.ok(expandedSingleHtml.includes('data-codex-expanded'));
-    assert.ok(expandedSingleHtml.includes('current-card-expanded'),
-        'an expanded CURRENT WINDOW card must mark its group for the open-tab fit layout');
-    const collapsedCardStart = singleHtml.indexOf('<div class="workspace-card');
-    const collapsedCardOpeningEnd = singleHtml.indexOf('>', collapsedCardStart);
-    const collapsedCardOpeningTag = singleHtml.slice(collapsedCardStart, collapsedCardOpeningEnd + 1);
-    const collapsedCardBody = extractHtmlElementBody(singleHtml, collapsedCardOpeningTag);
-    const collapsedSessionIndex = collapsedCardBody.indexOf('<div class="codex-sessions"');
-    assert.ok(collapsedSessionIndex >= 0, 'collapsed current workspace cards must retain the hidden session module');
-    const collapsedCardSummary = collapsedCardBody.slice(0, collapsedSessionIndex);
-    const collapsedContentChildren = extractDirectHtmlChildOpeningTags(collapsedCardSummary).filter(tag =>
-        !/class="[^"]*\b(?:project-aura|steward-item-accent|project-session-fx|project-codex-badge|project-pin-badge)\b/.test(tag)
-    );
-    assert.deepStrictEqual(collapsedContentChildren, [
-        '<div class="fitty-container project-title-row">',
-        '<p class="project-description workspace-metadata">',
-    ], 'collapsed current workspace cards must have only title and description rows before the session module');
+        'the retired current-card fit class must not be rendered');
 
     const runningCard = makeWorkspaceCardFixture(1);
     runningCard.aiSessions.activeSessions.push(
@@ -600,12 +576,9 @@ function runWorkspaceCardRenderingChecks() {
             backend: 'vscode', attached: true,
         },
     );
-    const orbitHtml = webviewContent.getCurrentWorkspaceGroupContent(runningCard, false, 'orbit');
-    assert.ok(orbitHtml.includes('class="workspace-card project steward-item-card session-running"'));
+    const orbitHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, 'orbit');
+    assert.ok(orbitHtml.includes('class="project-session-fx open-session-surface-fx" data-session-fx="orbit"'));
     assert.ok(orbitHtml.includes('data-session-fx="orbit"'));
-    assert.ok(orbitHtml.includes('<div class="project-session-fx"></div>'));
-    assert.ok(orbitHtml.indexOf('project-session-fx') > orbitHtml.indexOf('steward-item-accent'));
-    assert.ok(orbitHtml.includes('title="Workspace — 1 active session running"'));
 
     for (const animation of [
         'current',
@@ -616,17 +589,15 @@ function runWorkspaceCardRenderingChecks() {
         'breath',
         'custom',
     ]) {
-        const animationHtml = webviewContent.getCurrentWorkspaceGroupContent(runningCard, false, animation);
+        const animationHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, animation);
         assert.ok(animationHtml.includes(`data-session-fx="${animation}"`),
             `the current workspace card must accept the ${animation} running animation`);
-        assert.ok(animationHtml.includes('<div class="project-session-fx"></div>'));
+        assert.ok(animationHtml.includes('open-session-surface-fx'));
     }
-    const noneHtml = webviewContent.getCurrentWorkspaceGroupContent(runningCard, false, 'none');
-    assert.ok(noneHtml.includes('class="workspace-card project steward-item-card session-running"'));
-    assert.ok(noneHtml.includes('data-session-fx="none"'));
+    const noneHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, 'none');
     assert.strictEqual(noneHtml.includes('project-session-fx'), false,
-        'none must retain static running state without an animation layer');
-    const invalidHtml = webviewContent.getCurrentWorkspaceGroupContent(runningCard, false, 'invalid');
+        'none suppresses the optional surface animation layer');
+    const invalidHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, 'invalid');
     assert.ok(invalidHtml.includes('data-session-fx="current"'),
         'an invalid animation value must fail safely to current');
 
@@ -634,24 +605,21 @@ function runWorkspaceCardRenderingChecks() {
     idleCard.aiSessions.activeSessions = runningCard.aiSessions.activeSessions.filter(
         session => session.executionState !== 'running'
     );
-    const idleHtml = webviewContent.getCurrentWorkspaceGroupContent(idleCard, false, 'halo');
-    assert.strictEqual(idleHtml.includes('session-running'), false,
-        'starting and stopped sessions must not activate the card running state');
+    const idleHtml = webviewContent.getOpenSessionSurfaceContent(idleCard, false, 'halo');
+    assert.strictEqual(idleHtml.includes('project-session-fx'), false,
+        'starting and stopped sessions must not activate the surface animation');
     assert.strictEqual(idleHtml.includes('data-session-fx'), false);
-    assert.strictEqual(idleHtml.includes('active session running'), false);
     const unhydratedCard = makeWorkspaceCardFixture(1);
     delete unhydratedCard.aiSessions;
     unhydratedCard.attentionCount = 0;
-    const unhydratedHtml = webviewContent.getCurrentWorkspaceGroupContent(unhydratedCard, false);
+    const unhydratedHtml = webviewContent.getOpenSessionSurfaceContent(unhydratedCard, false);
     assert.strictEqual((unhydratedHtml.match(/class="codex-sessions"/g) || []).length, 1,
         'a current card must keep one AI module while hydration is temporarily unavailable');
-    assert.strictEqual(unhydratedHtml.includes('data-has-ai-session-badge'), false,
-        'badge-free current workspace cards must keep their full title and description width');
+    assert.strictEqual(unhydratedHtml.includes('data-has-ai-session-badge'), false);
 
-    const multiHtml = webviewContent.getCurrentWorkspaceGroupContent(makeWorkspaceCardFixture(3), false);
-    assert.strictEqual((multiHtml.match(/class="workspace-card/g) || []).length, 1);
+    const multiHtml = webviewContent.getOpenSessionSurfaceContent(makeWorkspaceCardFixture(3), false);
+    assert.strictEqual((multiHtml.match(/class="workspace-card/g) || []).length, 0);
     assert.strictEqual((multiHtml.match(/class="codex-sessions"/g) || []).length, 1);
-    assert.ok(multiHtml.includes('<p class="project-description workspace-metadata">3 folders</p>'));
     assert.strictEqual(multiHtml.includes('class="workspace-root-tags"'), false);
     assert.strictEqual(multiHtml.includes('class="workspace-root-tag"'), false);
     assert.ok(multiHtml.includes('data-primary-root-id="root-api"'));
@@ -739,17 +707,13 @@ function runWorkspaceCardRenderingChecks() {
     const untitledWorkspaceCard = makeWorkspaceCardFixture(3);
     untitledWorkspaceCard.workspaceKind = 'untitledMultiRoot';
     untitledWorkspaceCard.showSaveAction = true;
-    const untitledWorkspaceHtml = webviewContent.getCurrentWorkspaceGroupContent(
+    const untitledWorkspaceHtml = webviewContent.getOpenSessionSurfaceContent(
         untitledWorkspaceCard,
         false,
     );
-    assert.ok(untitledWorkspaceHtml.includes('data-has-save-action'));
-    assert.strictEqual(
-        (untitledWorkspaceHtml.match(/data-action="save-current-workspace"/g) || []).length,
-        1,
-        'an untitled current multi-root workspace must expose exactly one save action',
-    );
-    assert.ok(untitledWorkspaceHtml.includes('title="Save Workspace"'));
+    assert.strictEqual(untitledWorkspaceHtml.includes('data-has-save-action'), false,
+        'workspace save chrome belongs to the WINDOWS row, not the session surface');
+    assert.strictEqual(untitledWorkspaceHtml.includes('data-action="save-current-workspace"'), false);
     const projectActionMessages = [];
     const triggerProjectAction = new Function(
         'target',
@@ -770,19 +734,18 @@ function runWorkspaceCardRenderingChecks() {
     }], 'the save badge must use its dedicated workspace-only host route');
     const unregisteredSavedWorkspace = makeWorkspaceCardFixture(3);
     unregisteredSavedWorkspace.showSaveAction = true;
-    const unregisteredSavedWorkspaceHtml = webviewContent.getCurrentWorkspaceGroupContent(
+    const unregisteredSavedWorkspaceHtml = webviewContent.getOpenSessionSurfaceContent(
         unregisteredSavedWorkspace,
         false,
     );
-    assert.ok(unregisteredSavedWorkspaceHtml.includes('data-action="save-current-workspace"'),
-        'a saved workspace missing from Saved Projects must retain the save action');
+    assert.strictEqual(unregisteredSavedWorkspaceHtml.includes('data-action="save-current-workspace"'), false);
 
     const devContainerCard = makeWorkspaceCardFixture(1);
     devContainerCard.environment = 'devContainer';
     devContainerCard.environmentLabel = 'Dev Container';
-    const devContainerHtml = webviewContent.getCurrentWorkspaceGroupContent(devContainerCard, false);
-    assert.ok(devContainerHtml.includes(icons.container));
-    assert.ok(devContainerHtml.includes('title="Dev Container Project"'));
+    const devContainerHtml = webviewContent.getOpenSessionSurfaceContent(devContainerCard, false);
+    assert.strictEqual(devContainerHtml.includes(icons.container), false,
+        'workspace metadata is represented by the WINDOWS row, not the session surface');
     assert.strictEqual(devContainerHtml.includes('class="workspace-root-tags"'), false);
     assert.strictEqual(devContainerHtml.includes('class="workspace-root-tag"'), false);
 
@@ -791,7 +754,7 @@ function runWorkspaceCardRenderingChecks() {
     outsideWorkspaceCard.aiSessions.sessionsByProvider.codex[0].primaryRootLabel = 'Outside workspace';
     outsideWorkspaceCard.aiSessions.activeSessions[0].primaryRootId = undefined;
     outsideWorkspaceCard.aiSessions.activeSessions[0].primaryRootLabel = 'Outside workspace';
-    const outsideWorkspaceHtml = webviewContent.getCurrentWorkspaceGroupContent(outsideWorkspaceCard, false);
+    const outsideWorkspaceHtml = webviewContent.getOpenSessionSurfaceContent(outsideWorkspaceCard, false);
     assert.strictEqual((outsideWorkspaceHtml.match(/>Outside workspace<\/span>/g) || []).length, 2,
         'history and active rows must render the removed-root continuity chip');
 

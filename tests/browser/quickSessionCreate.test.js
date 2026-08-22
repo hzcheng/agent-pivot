@@ -123,11 +123,9 @@ async function openQuickCreatePage(t, options = {}) {
             <body class="steward-sidebar">
                 <div class="steward-sticky-header"></div>
                 <div class="sticky-groups-wrapper">
-                    <div class="open-current-workspace-group">
-                        <div class="project workspace-card" data-id="project-a" data-current-workspace
-                            data-workspace-scope-identity="scope-project-a"
-                            data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
-                    </div>
+                    <div class="open-session-surface" data-open-session-surface data-id="project-a"
+                        data-current-workspace data-workspace-scope-identity="scope-project-a"
+                        data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
                     <div class="project workspace-card" data-id="project-b"
                         data-workspace-navigation-identity="navigation-project-b">${secondPanel}</div>
                 </div>
@@ -166,12 +164,10 @@ function postedMessages(page) {
 }
 
 async function postAuthoritativeWorktreeRemoval(page, sequence) {
-    const html = `<div class="open-current-workspace-group">
-        <div class="project workspace-card" data-id="project-a" data-current-workspace
-            data-workspace-scope-identity="scope-project-a"
-            data-workspace-navigation-identity="navigation-project-a">
-            ${getAiSessionsDiv(getSessionSurface('project-a', 'codex'))}
-        </div>
+    const html = `<div class="open-session-surface" data-open-session-surface data-id="project-a"
+        data-current-workspace data-workspace-scope-identity="scope-project-a"
+        data-workspace-navigation-identity="navigation-project-a">
+        ${getAiSessionsDiv(getSessionSurface('project-a', 'codex'))}
     </div>`;
     await page.evaluate(({ html, sequence }) => {
         window.dispatchEvent(new MessageEvent('message', { data: {

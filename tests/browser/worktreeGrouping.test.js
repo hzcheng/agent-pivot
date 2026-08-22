@@ -113,7 +113,7 @@ test('WORKTREE-GROUPING-UI-001 keeps the live session in the CHATS tree and the 
         'the live session lives in the CHATS tree',
     );
     await page.evaluate(() => {
-        selectAiSessionTabDom(document.querySelector('.project'), 'all');
+        selectAiSessionTabDom(document.querySelector('[data-open-session-surface]'), 'all');
     });
     const all = page.locator('[data-ai-session-panel="all"]');
     assert.equal(
@@ -168,7 +168,7 @@ test.after(async () => {
 async function openSurfacePage(width) {
     const page = await browser.newPage({ viewport: { width, height: 900 } });
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
-        <div class="project workspace-card" data-id="project-a" data-current-workspace>
+        <div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace>
             ${surface()}
         </div>
     </body></html>`);
@@ -207,7 +207,7 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     const layout = await page.evaluate(() => ({
         viewportWidth: document.documentElement.clientWidth,
         documentWidth: document.documentElement.scrollWidth,
-        projectWidth: document.querySelector('.project').getBoundingClientRect().width,
+        projectWidth: document.querySelector('[data-open-session-surface]').getBoundingClientRect().width,
         headerWidths: Array.from(document.querySelectorAll('.ai-session-worktree-header'))
             .map(header => header.getBoundingClientRect().width),
         overflowers: Array.from(document.querySelectorAll('body *')).map(element => {
@@ -232,7 +232,7 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     assert.ok(screenshot.length > 1_000, '170px acceptance screenshot must contain rendered pixels');
 
     await page.evaluate(() => {
-        selectAiSessionTabDom(document.querySelector('.project'), 'all');
+        selectAiSessionTabDom(document.querySelector('[data-open-session-surface]'), 'all');
     });
     assert.equal(await page.locator(
         '[data-ai-session-panel="all"] .codex-session-row[data-session-id="legacy-session"]'
@@ -256,7 +256,7 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats at the default sidebar
         'default-width CHATS tree screenshot must contain rendered pixels');
 
     await page.evaluate(() => {
-        selectAiSessionTabDom(document.querySelector('.project'), 'all');
+        selectAiSessionTabDom(document.querySelector('[data-open-session-surface]'), 'all');
     });
     assert.equal(await page.locator('.ai-session-worktree-header').first().isVisible(), false);
     assert.equal(await page.locator(
@@ -281,7 +281,7 @@ test('WORKTREE-GROUPING-UI-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 collapse g
     });
 
     // Collapse-everything via the collapse-all affordance path.
-    await page.evaluate(() => toggleAllAiSessionWorktrees(document.querySelector('.project')));
+    await page.evaluate(() => toggleAllAiSessionWorktrees(document.querySelector('[data-open-session-surface]')));
     let posts = await page.evaluate(() =>
         window.__postedMessages.filter(message => message.type === 'set-ai-session-collapsed-worktree-groups'));
     assert.equal(posts.length, 1, 'one mirror post per collapse gesture');
@@ -291,7 +291,7 @@ test('WORKTREE-GROUPING-UI-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 collapse g
         'both unmanaged worktree groups are reported collapsed');
 
     // Expanding again mirrors the empty set.
-    await page.evaluate(() => toggleAllAiSessionWorktrees(document.querySelector('.project')));
+    await page.evaluate(() => toggleAllAiSessionWorktrees(document.querySelector('[data-open-session-surface]')));
     posts = await page.evaluate(() =>
         window.__postedMessages.filter(message => message.type === 'set-ai-session-collapsed-worktree-groups'));
     assert.equal(posts.length, 2);
@@ -307,7 +307,7 @@ test('WORKTREE-GROUPING-UI-001 the host-persisted collapsed set renders collapse
         false,
     ]);
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
-        <div class="project workspace-card" data-id="project-a" data-current-workspace>
+        <div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace>
             ${getAiSessionsDiv({
                 id: 'project-a',
                 activeAiSessionProvider: 'codex',

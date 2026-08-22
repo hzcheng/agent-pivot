@@ -98,11 +98,9 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
             <body class="steward-sidebar">
                 <div class="steward-sticky-header"></div>
                 <div class="sticky-groups-wrapper">
-                    <div class="open-current-workspace-group">
-                        <div class="project workspace-card" data-id="project-a" data-current-workspace
-                            data-workspace-scope-identity="scope-project-a"
-                            data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
-                    </div>
+                    <div class="open-session-surface" data-open-session-surface data-id="project-a"
+                        data-current-workspace data-workspace-scope-identity="scope-project-a"
+                        data-workspace-navigation-identity="navigation-project-a">${firstPanel}</div>
                     <div class="project workspace-card" data-id="project-b"
                         data-workspace-navigation-identity="navigation-project-b">${secondPanel}</div>
                 </div>
@@ -135,12 +133,10 @@ async function openMenuPage(t, selectedProviders = ['codex']) {
 }
 
 function getAiSessionsUpdateHtml(selectedProviders) {
-    return `<div class="open-current-workspace-group">
-        <div class="project workspace-card" data-id="project-a" data-current-workspace
-            data-workspace-scope-identity="scope-project-a"
-            data-workspace-navigation-identity="navigation-project-a">
-            ${getAiSessionsDiv(getSessionSurface('project-a', selectedProviders))}
-        </div>
+    return `<div class="open-session-surface" data-open-session-surface data-id="project-a"
+        data-current-workspace data-workspace-scope-identity="scope-project-a"
+        data-workspace-navigation-identity="navigation-project-a">
+        ${getAiSessionsDiv(getSessionSurface('project-a', selectedProviders))}
     </div>`;
 }
 
@@ -583,8 +579,7 @@ test('AI-SESSION-PROVIDER-MENU-007 reveal targets the selected ALL panel when a 
     });
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
         <div class="sticky-groups-wrapper">
-            <div class="project workspace-card" data-id="project-a" data-current-workspace
-                data-codex-expanded
+            <div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace
                 data-workspace-scope-identity="scope-project-a"
                 data-workspace-navigation-identity="navigation-project-a">${surface}</div>
         </div>

@@ -234,7 +234,7 @@ function revealAiSessionInWorkspace(message) {
         return false;
     }
     var projectDiv = Array.from(document.querySelectorAll(
-        '[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     )).find(candidate =>
         candidate.getAttribute('data-id') === request.projectId
     );
@@ -282,7 +282,7 @@ function focusAiSessionConversationOrigin(message) {
         return false;
     }
     var projectDiv = Array.from(document.querySelectorAll(
-        '[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     )).find(candidate =>
         candidate.getAttribute('data-id') === origin.projectId
     );
@@ -390,7 +390,7 @@ function selectAiSessionTabDom(projectDiv, tab) {
 function restoreAiSessionTabsFromState(root, vscodeApi) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
     var tabs = readAiSessionTabState(vscodeApi);
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]').forEach(projectDiv => {
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]').forEach(projectDiv => {
         var projectId = projectDiv.getAttribute('data-id');
         if (Object.prototype.hasOwnProperty.call(tabs, projectId)) {
             selectAiSessionTabDom(projectDiv, tabs[projectId]);
@@ -421,7 +421,7 @@ function maybeImportLegacyAiSessionViewState(vscodeApi, root) {
     }
     var tabs = readAiSessionTabState(vscodeApi);
     var currentCard = (root || document).querySelector(
-        '[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]'
+        '[data-open-session-surface][data-current-workspace][data-id]'
     );
     var projectId = currentCard && currentCard.getAttribute('data-id');
     var legacyTab = projectId && Object.prototype.hasOwnProperty.call(tabs, projectId)
@@ -627,7 +627,7 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
 function revealChangedFocusedAiSessionCard(root, states) {
     if (!root || typeof root.querySelectorAll !== 'function'
         || !states || typeof states.get !== 'function') return;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]').forEach(projectDiv => {
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]').forEach(projectDiv => {
         var state = states.get(projectDiv.getAttribute('data-id'));
         var previous = state && state.view ? state.view.focusedSession : null;
         var row = projectDiv.querySelector(
@@ -708,7 +708,7 @@ function restoreAiSessionProviderMenuState(projectDiv, menuState, allowed) {
 function captureCurrentWorkspaceAiSessionStates(root) {
     var states = new Map();
     if (!root || typeof root.querySelectorAll !== 'function') return states;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var projectId = projectDiv.getAttribute('data-id');
             if (!projectId) return;
@@ -760,7 +760,7 @@ function restoreAiSessionListScrolls(projectDiv, scrolls) {
 
 function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProviderMenu) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var projectId = projectDiv.getAttribute('data-id');
             var state = states.get(projectId);
@@ -781,7 +781,7 @@ function restoreCurrentWorkspaceAiSessionViewStates(root, states, canRestoreProv
 
 function restoreCurrentWorkspaceAiSessionAnchorsAndFocus(root, states) {
     if (!root || typeof root.querySelectorAll !== 'function') return;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id], .workspace-card[data-current-workspace][data-id]')
+    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]')
         .forEach(projectDiv => {
             var state = states.get(projectDiv.getAttribute('data-id'));
             if (!state) return;

@@ -108,7 +108,7 @@ test('AI-SESSION-PROVIDER-ICON-001 renders native brand icons on active and hist
 
 test('AI-SESSION-PROVIDER-ICON-001 keeps native brand colors on the session icon badge', () => {
     assert.match(generatedStyles,
-        /\.codex-session-icon\{color:var\(--vscode-foreground\);width:26px/,
+        /\.codex-session-icon\{color:var\(--vscode-foreground\);width:24px/,
         'monochrome brand marks must follow the theme foreground');
     assert.match(generatedStyles,
         /\[data-session-provider=kimi\] \.codex-session-icon\{color:var\(--vscode-foreground\)/,

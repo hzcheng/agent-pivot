@@ -4102,6 +4102,20 @@
     ]
   },
   {
+    "id": "OPEN-TAB-SESSION-SINGLE-LINE-001",
+    "domain": "webview",
+    "title": "OPEN tab CHATS and ALL session rows render one 30px line with the title and status marker, move dates and IDs into accessible tooltips, keep destructive actions behind an ellipsis menu that offers Copy Session ID, and collapse secondary chips before sacrificing the title at narrow widths",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/activeSessionCardInteraction.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewAiSessionContent.ts",
+      "media/styles.scss"
+    ]
+  },
+  {
     "id": "PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001",
     "domain": "persistence",
     "title": "Batch archive validates and executes composite sessions across providers",

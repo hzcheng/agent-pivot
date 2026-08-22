@@ -62,6 +62,9 @@ const {
     getCurrentWorkspaceGroupContent,
     getStewardContent,
 } = loadWebviewContent();
+const {
+    getAiSessionContextMenu,
+} = require('../../out/webview/webviewAiSessionContent');
 const { createDashboardMessageHandlers } = loadDashboardMessageHandlers();
 const { OpenWorkspaceDashboardController } = loadOpenWorkspaceDashboardController();
 const {
@@ -2776,6 +2779,7 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a history row View Conversation butto
     assert.equal(iconMetrics.fill, iconMetrics.color,
         'the view icon inherits the button color instead of rendering as a solid box');
 
+    await historyRow.hover();
     await viewButton.click();
 
     assert.deepEqual((await postedMessages(page)).at(-1), {
@@ -2883,6 +2887,148 @@ test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 a history row keeps a readable title at
         'the hover action pill overlays the truncated tail but stays inside the row');
     assert.equal(hovered.documentScrollWidth, 170,
         'the revealed actions must not introduce horizontal overflow');
+});
+
+test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with one text line and tooltip-only metadata', async t => {
+    const now = new Date();
+    const twoDigits = value => String(value).padStart(2, '0');
+    const expectedTime = `${twoDigits(now.getHours())}:${twoDigits(now.getMinutes())}`;
+    const page = await openCardPage(
+        t,
+        [{
+            ...session('codex', 'session-running', false),
+            updatedAt: now.toISOString(),
+        }],
+        { width: 360, height: 700 },
+        `<div class="project workspace-card" data-id="project-a" data-current-workspace data-codex-expanded>
+            ${listSessionSurfaceMarkup(
+                [{
+                    ...session('codex', 'session-running', false),
+                    updatedAt: now.toISOString(),
+                }],
+                [{
+                    ...historySession('codex', 'history-stopped'),
+                    updatedAt: now.toISOString(),
+                }],
+                'chats'
+            )}
+        </div>`
+        + getAiSessionContextMenu()
+    );
+
+    const activeRow = page.locator(
+        '.active-ai-session-row[data-session-id="session-running"]'
+    );
+    const activeMetrics = await activeRow.evaluate(el => {
+        const rowBox = el.getBoundingClientRect();
+        const name = el.querySelector('.codex-session-name').getBoundingClientRect();
+        const status = el.querySelector('.ai-session-status-marker').getBoundingClientRect();
+        return {
+            rowHeight: rowBox.height,
+            nameCenterY: name.top + name.height / 2,
+            statusCenterY: status.top + status.height / 2,
+            metaCount: el.querySelectorAll('.codex-session-meta').length,
+            ariaLabel: el.querySelector('.ai-session-primary-action').getAttribute('aria-label'),
+            title: el.querySelector('.ai-session-primary-action').getAttribute('title'),
+        };
+    });
+
+    assert.ok(activeMetrics.rowHeight <= 31,
+        `CHATS rows must be single-line and at most 30px high, got ${activeMetrics.rowHeight}px`);
+    assert.equal(activeMetrics.metaCount, 0,
+        'dates and session IDs must not occupy a second inline metadata line');
+    assert.ok(Math.abs(activeMetrics.nameCenterY - activeMetrics.statusCenterY) <= 1,
+        'the title and status marker must share the row center');
+    assert.match(activeMetrics.ariaLabel, /Running/);
+    assert.match(activeMetrics.ariaLabel, new RegExp(`last activity ${expectedTime}`));
+    assert.match(activeMetrics.ariaLabel, /session #session-/);
+    assert.match(activeMetrics.title, /^Focus Codex Session\nTitle codex session-running\nStatus Running/);
+    assert.match(activeMetrics.title, new RegExp(`Last activity ${expectedTime}`));
+    assert.match(activeMetrics.title, /Session #session-/);
+    assert.equal(await activeRow.locator('.codex-session-archive, .ai-session-close-terminal').count(), 0,
+        'destructive actions must be available from the row menu, not the hover pill');
+
+    await activeRow.hover();
+    const moreButton = activeRow.locator('[data-action="open-ai-session-context-menu"]');
+    await moreButton.click();
+    assert.equal(await page.locator('#aiSessionContextMenu').evaluate(el => el.classList.contains('visible')), true);
+    assert.equal(await page.locator('#aiSessionContextMenu [data-action="copy-id"]').count(), 1,
+        'the row menu must expose Copy Session ID');
+    assert.equal(await moreButton.getAttribute('aria-expanded'), 'true');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#aiSessionContextMenu').evaluate(el => el.classList.contains('visible')), false);
+    assert.equal(await moreButton.getAttribute('aria-expanded'), 'false');
+    assert.equal(
+        await moreButton.evaluate(button => document.activeElement === button),
+        true,
+        'Escape returns focus to the ellipsis trigger'
+    );
+
+    await page.locator('[data-ai-session-tab="all"]').click();
+    const historyRow = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-stopped"]'
+    );
+    const historyMetrics = await historyRow.evaluate(el => {
+        const row = el.getBoundingClientRect();
+        const name = el.querySelector('.codex-session-name').getBoundingClientRect();
+        const status = el.querySelector('.ai-session-status-marker').getBoundingClientRect();
+        return {
+            rowHeight: row.height,
+            nameCenterY: name.top + name.height / 2,
+            statusCenterY: status.top + status.height / 2,
+            statusClass: el.querySelector('.ai-session-status-marker').className,
+            metaCount: el.querySelectorAll('.codex-session-meta').length,
+            ariaLabel: el.querySelector('.ai-session-primary-action').getAttribute('aria-label'),
+        };
+    });
+
+    assert.ok(historyMetrics.rowHeight <= 31,
+        `ALL rows must be single-line and at most 30px high, got ${historyMetrics.rowHeight}px`);
+    assert.equal(historyMetrics.metaCount, 0);
+    assert.ok(Math.abs(historyMetrics.nameCenterY - historyMetrics.statusCenterY) <= 1);
+    assert.match(historyMetrics.statusClass, /stopped/);
+    assert.match(historyMetrics.ariaLabel, /Stopped/);
+    assert.match(historyMetrics.ariaLabel, /session #history-/);
+    assert.equal(await historyRow.locator('.codex-session-archive').count(), 0,
+        'archive stays behind the ALL row menu');
+});
+
+test('OPEN-TAB-SESSION-SINGLE-LINE-001 hides secondary chips before sacrificing the title at narrow widths', async t => {
+    const page = await openCardPage(
+        t,
+        [],
+        { width: 320, height: 650 },
+        currentWorkspaceGroupMarkup([], 0, {
+            historySessions: [{
+                ...historySession('codex', 'history-narrow'),
+                profile: 'review',
+                primaryRootLabel: 'repository-root',
+                worktreeLabel: 'feature-branch',
+            }],
+        })
+    );
+    await page.locator('[data-ai-session-tab="all"]').click();
+    const metrics = await page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="history-narrow"]'
+    ).evaluate(el => {
+        const name = el.querySelector('.codex-session-name');
+        return {
+            nameWidth: Math.round(name.getBoundingClientRect().width),
+            visibleChips: Array.from(el.querySelectorAll(
+                '.ai-session-profile-badge, .ai-session-provider-badge, '
+                + '.ai-session-root-chip, .ai-session-worktree-chip'
+            )).filter(chip => getComputedStyle(chip).display !== 'none').length,
+            statusVisible: getComputedStyle(el.querySelector('.ai-session-status-marker')).display !== 'none',
+            documentScrollWidth: document.documentElement.scrollWidth,
+        };
+    });
+
+    assert.equal(metrics.visibleChips, 0,
+        'secondary identity chips collapse before the title at 280–359px');
+    assert.equal(metrics.statusVisible, true, 'the status slot remains visible');
+    assert.ok(metrics.nameWidth >= 96,
+        `the title retains its minimum readable width, got ${metrics.nameWidth}px`);
+    assert.equal(metrics.documentScrollWidth, 320, 'the single-line row must not create horizontal overflow');
 });
 
 test('ACTIVE-SESSION-CONVERSATION-FOCUS-001 restores CHATS and the origin card header without focusing another session', async t => {

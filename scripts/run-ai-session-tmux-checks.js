@@ -9732,20 +9732,19 @@ function runTmuxWebviewExperienceChecks() {
     assert.ok(tmuxRow.includes('role="group"'));
     assert.ok(tmuxRow.includes('class="ai-session-primary-action"'));
     assert.ok(tmuxRow.includes('type="button"'));
-    assert.ok(tmuxRow.includes('aria-label="Attach or focus Codex session One using tmux project layout, detached, runtime status is stale"'));
+    assert.ok(tmuxRow.includes('aria-label="Attach or focus Codex session One using tmux project layout, detached,'));
     assert.strictEqual(/class="codex-session-row[^>]*tabindex=/.test(tmuxRow), false,
         'the group row itself must not be a focusable clickable div');
     assert.match(tmuxRow,
         /class="ai-session-primary-action"[\s\S]*?<\/button>[\s\S]*?<span class="codex-session-actions">/,
         'the primary button and row actions must be siblings');
-    assert.ok(tmuxRow.includes('ai-session-runtime-badge'));
     assert.ok(tmuxRow.includes('data-session-stale'));
-    assert.ok(tmuxRow.includes('ai-session-stale-status'));
+    assert.ok(tmuxRow.includes('data-action="open-ai-session-context-menu"'));
     assert.ok(tmuxRow.includes('Runtime status is stale'));
-    assert.ok(tmuxRow.includes('tmux'));
-    assert.ok(tmuxRow.includes('Stop Session…'));
-    assert.ok(tmuxRow.includes('data-action="stop-ai-session-runtime"'));
-    assert.ok(tmuxRow.includes('aria-label="Stop Session"'));
+    assert.ok(tmuxRow.includes('Managed tmux runtime'));
+    assert.ok(!tmuxRow.includes('Stop Session…'));
+    assert.ok(!tmuxRow.includes('data-action="stop-ai-session-runtime"'));
+    assert.ok(!tmuxRow.includes('aria-label="Stop Session"'));
     assert.ok(!tmuxRow.includes('data-action="detach-ai-session-terminal"'),
         'the tmux card action must be the honest stop route, not detach');
     assert.strictEqual((tmuxRow.match(/data-session-backend="tmux"/g) || []).length, 2,
@@ -9754,9 +9753,11 @@ function runTmuxWebviewExperienceChecks() {
     const directRow = webviewContentModule.getAiSessionsDiv(projectWithDirectRuntimeFixture);
     assert.ok(directRow.includes('data-session-backend="vscode"'));
     assert.ok(directRow.includes('data-session-attached="true"'));
-    assert.ok(directRow.includes('aria-label="Focus Codex session One using Direct VS Code terminal, attached"'));
-    assert.ok(directRow.includes('Close Terminal…'));
-    assert.ok(directRow.includes('data-action="close-ai-session-terminal"'));
+    assert.ok(directRow.includes('aria-label="Focus Codex session One using Direct VS Code terminal, attached,'));
+    assert.ok(directRow.includes('Direct VS Code terminal'));
+    assert.ok(directRow.includes('data-action="open-ai-session-context-menu"'));
+    assert.ok(!directRow.includes('Close Terminal…'));
+    assert.ok(!directRow.includes('data-action="close-ai-session-terminal"'));
     assert.ok(!directRow.includes('data-action="detach-ai-session-terminal"'));
     assert.strictEqual((directRow.match(/data-session-backend="vscode"/g) || []).length, 2);
 

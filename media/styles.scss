@@ -4098,7 +4098,7 @@ body.steward-sidebar {
             margin-left: 0;
             // Fixed three-row default outside the OPEN tab CURRENT WINDOW fit
             // layout (agentPivot.maxVisibleAiSessions is deprecated).
-            height: calc(3 * 42px + 2 * 2px);
+            height: calc(3 * 30px + 2 * 2px);
             overflow-y: auto;
             overflow-x: hidden;
             padding-right: 2px;
@@ -4111,7 +4111,7 @@ body.steward-sidebar {
             display: block;
             box-sizing: border-box;
             position: relative;
-            min-height: 42px;
+            min-height: 30px;
             padding: 0;
             border: 1px solid transparent;
             border-radius: 8px;
@@ -4131,8 +4131,8 @@ body.steward-sidebar {
                 content: "";
                 position: absolute;
                 left: 0;
-                top: 9px;
-                bottom: 9px;
+                top: 6px;
+                bottom: 6px;
                 width: 2px;
                 border-radius: 999px;
                 background: var(--steward-ai-accent);
@@ -4174,13 +4174,13 @@ body.steward-sidebar {
 
         .ai-session-primary-action {
             display: grid;
-            grid-template-columns: 28px minmax(0, 1fr);
+            grid-template-columns: 24px minmax(0, 1fr);
             align-items: center;
-            gap: 7px;
+            gap: 6px;
             box-sizing: border-box;
             width: 100%;
-            min-height: 40px;
-            padding: 4px 42px 4px 8px;
+            min-height: 28px;
+            padding: 0 40px 0 7px;
             border: 0;
             border-radius: 7px;
             outline: none;
@@ -4197,7 +4197,7 @@ body.steward-sidebar {
         }
 
         .active-ai-session-row[data-session-focused] .ai-session-primary-action {
-            grid-template-columns: 28px minmax(0, 1fr) 14px;
+            grid-template-columns: 24px minmax(0, 1fr) 14px;
         }
 
         .ai-session-open-conversation-hint {
@@ -4325,6 +4325,7 @@ body.steward-sidebar {
         .codex-session-pin,
         .codex-session-view,
         .codex-session-archive,
+        .codex-session-more,
         .ai-session-close-terminal {
             display: inline-flex;
             align-items: center;
@@ -4337,8 +4338,8 @@ body.steward-sidebar {
 
         .codex-session-icon {
             color: var(--vscode-foreground);
-            width: 26px;
-            height: 26px;
+            width: 24px;
+            height: 24px;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 50%;
             background: var(--vscode-sideBar-background);
@@ -4437,6 +4438,7 @@ body.steward-sidebar {
         .codex-session-pin,
         .codex-session-view,
         .codex-session-archive,
+        .codex-session-more,
         .ai-session-close-terminal {
             svg {
                 width: 12px;
@@ -4447,6 +4449,7 @@ body.steward-sidebar {
         .codex-session-pin,
         .codex-session-view,
         .codex-session-archive,
+        .codex-session-more,
         .ai-session-close-terminal {
             color: var(--vscode-descriptionForeground);
             padding: 0;
@@ -4488,6 +4491,19 @@ body.steward-sidebar {
             &:hover {
                 color: var(--vscode-focusBorder);
                 transform: scale(1.08);
+            }
+        }
+
+        .codex-session-more {
+            width: 24px;
+            height: 24px;
+            border-radius: 999px;
+            font-size: 15px;
+            line-height: 1;
+
+            &:hover {
+                color: var(--vscode-focusBorder);
+                background: var(--vscode-list-hoverBackground);
             }
         }
 
@@ -4551,8 +4567,7 @@ body.steward-sidebar {
         .codex-session-text {
             min-width: 0;
             display: flex;
-            flex-direction: column;
-            gap: 2px;
+            align-items: center;
         }
 
         .codex-session-title-line {
@@ -4566,8 +4581,10 @@ body.steward-sidebar {
             }
 
             .codex-session-name {
-                flex: 1 1 auto;
+                flex: 0 1 auto;
                 min-width: 0;
+                width: max-content;
+                max-width: 100%;
             }
         }
 
@@ -4582,7 +4599,34 @@ body.steward-sidebar {
             color: var(--steward-foreground);
             font-size: 11px;
             font-weight: 650;
-            line-height: 1.15;
+            line-height: 1;
+            min-width: 96px;
+        }
+
+        .ai-session-status-marker {
+            flex: 0 0 auto;
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: var(--vscode-descriptionForeground);
+        }
+
+        .ai-session-status-marker.running {
+            background: var(--vscode-terminal-ansiGreen, #89d185);
+        }
+
+        .ai-session-status-marker.starting {
+            background: var(--vscode-terminal-ansiGreen, #89d185);
+        }
+
+        .ai-session-status-marker.waiting {
+            border: 1px solid var(--vscode-editorWarning-foreground, currentColor);
+            background: linear-gradient(
+                90deg,
+                var(--vscode-editorWarning-foreground, currentColor) 0 50%,
+                transparent 50% 100%
+            );
+            box-sizing: border-box;
         }
 
         .codex-session-meta,
@@ -5899,6 +5943,19 @@ body.steward-sidebar .project .ai-session-attention-indicator {
     box-sizing: border-box;
 }
 
+@media (max-width: 359px) {
+    body.steward-sidebar .project {
+        .codex-session-row {
+            .ai-session-profile-badge,
+            .ai-session-provider-badge,
+            .ai-session-root-chip,
+            .ai-session-worktree-chip {
+                display: none;
+            }
+        }
+    }
+}
+
 @media (max-width: 280px) {
     body.steward-sidebar {
         overflow-x: hidden;
@@ -6012,11 +6069,8 @@ body.steward-sidebar .project .ai-session-attention-indicator {
                     padding-left: 6px;
                 }
 
-                // The leading provider icon already encodes the provider;
-                // the text badge costs the truncated title ~30px it cannot
-                // spare in a narrow sidebar.
-                .ai-session-provider-badge {
-                    display: none;
+                .codex-session-name {
+                    min-width: 96px;
                 }
             }
 
@@ -6067,6 +6121,19 @@ body.steward-sidebar .project .ai-session-attention-indicator {
 
 @media (forced-colors: active) {
     body.steward-sidebar .project {
+        .ai-session-status-marker {
+            border-color: CanvasText;
+            background: CanvasText;
+        }
+
+        .ai-session-status-marker.waiting {
+            background: linear-gradient(
+                90deg,
+                CanvasText 0 50%,
+                transparent 50% 100%
+            );
+        }
+
         .ai-session-provider-menu,
         .ai-session-provider-option,
         .ai-session-provider-badge,

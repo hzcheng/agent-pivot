@@ -2016,7 +2016,9 @@ function initProjectContextMenus(options) {
 
         var sessionRow = e.target.closest('.codex-session-row[data-session-id][data-session-provider]');
         if (sessionRow) {
-            contextMenuAiSessionOrigin = sessionRow.querySelector('.ai-session-primary-action') || sessionRow;
+            contextMenuAiSessionOrigin = e.target.closest('[data-action="open-ai-session-context-menu"]')
+                || sessionRow.querySelector('.ai-session-primary-action')
+                || sessionRow;
             contextMenuAiSessionId = sessionRow.getAttribute("data-session-id");
             contextMenuAiSessionProvider = sessionRow.getAttribute("data-session-provider");
             var sessionProjectDiv = sessionRow.closest('.project[data-id]');
@@ -2105,6 +2107,22 @@ function initProjectContextMenus(options) {
         // place and show contextmenu
 
         showContextMenu(contextMenuElement, e);
+    }
+
+    function openAiSessionContextMenu(trigger) {
+        var row = trigger.closest('.codex-session-row[data-session-id][data-session-provider]');
+        if (!row)
+            return;
+        var rowRect = row.getBoundingClientRect();
+        var event = {
+            target: trigger,
+            preventDefault: () => {},
+            clientX: rowRect.right - 8,
+            clientY: rowRect.top + Math.min(rowRect.height, 24),
+            keyboardTrigger: true,
+        };
+        onContextMenu(event);
+        trigger.setAttribute('aria-expanded', 'true');
     }
 
     function onProjectContextMenuActionClicked(el) {
@@ -2254,6 +2272,8 @@ function initProjectContextMenus(options) {
             .forEach(button => button.setAttribute("aria-expanded", "false"));
         document.querySelectorAll('[data-action="ai-session-worktree-menu"][aria-expanded="true"]')
             .forEach(button => button.setAttribute("aria-expanded", "false"));
+        document.querySelectorAll('[data-action="open-ai-session-context-menu"][aria-expanded="true"]')
+            .forEach(button => button.setAttribute("aria-expanded", "false"));
     }
 
     function getAiSessionContextMenuOrigin() {
@@ -2268,6 +2288,7 @@ function initProjectContextMenus(options) {
         onGroupContextMenuActionClicked: onGroupContextMenuActionClicked,
         onProjectContextMenuActionClicked: onProjectContextMenuActionClicked,
         onTriggerProjectAction: onTriggerProjectAction,
+        openAiSessionContextMenu: openAiSessionContextMenu,
         showContextMenu: showContextMenu,
     };
 }
@@ -7593,6 +7614,12 @@ function initProjects() {
     function onMouseEvent(e) {
         if (!e.target || e.target.closest(".disabled"))
             return;
+        var sessionMenuTrigger = e.target.closest('[data-action="open-ai-session-context-menu"]');
+        if (sessionMenuTrigger) {
+            contextMenus.openAiSessionContextMenu(sessionMenuTrigger);
+            return;
+        }
+
         var contextMenuElement = e.target.closest("#projectContextMenu [data-action]");
         if (contextMenuElement) {
             contextMenus.onProjectContextMenuActionClicked(contextMenuElement);

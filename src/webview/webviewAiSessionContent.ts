@@ -1129,12 +1129,9 @@ function getCodexSessionRow(
     var sessionName = escapeAttribute(sanitizeProjectName(session.name || session.id));
     var sessionId = escapeAttribute(session.id || '');
     var shortSessionId = escapeAttribute((session.id || '').substring(0, 8));
-    var updatedAt = escapeAttribute(formatCodexSessionUpdatedAt(session.updatedAt));
+    var updatedAt = escapeAttribute(formatSessionTimestamp(session.updatedAt));
     var shortId = shortSessionId ? `#${shortSessionId}` : '';
-    var staleStatus = runtime?.stale
-        ? '<span class="ai-session-stale-status" title="Runtime status is stale">stale</span>'
-        : '';
-    var metadata = [staleStatus, updatedAt, shortId].filter(value => !!value).join(' · ');
+    var staleStatus = runtime?.stale ? 'Runtime status is stale' : '';
     var providerLabel = getAiProviderLabel(provider);
     var pinned = !!session.pinned;
     var needsAttention = runtime ? runtime.needsAttention : !!session.attention?.unread;
@@ -1150,10 +1147,7 @@ function getCodexSessionRow(
     var runtimeAttributes = ` data-session-backend="${backend}" data-session-attached="${attached ? 'true' : 'false'}"${runtime?.tmuxLayout ? ` data-tmux-layout="${runtime.tmuxLayout}"` : ''}${runtime?.conflict ? ' data-session-conflict' : ''}${runtime?.stale ? ' data-session-stale' : ''}`;
     var batchCheckbox = `<input type="checkbox" class="ai-session-batch-checkbox" aria-label="Select ${sessionName}"${active ? ' disabled' : ''}>`;
     var pinAction = `<button type="button" class="codex-session-pin ${pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" title="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
-    var archiveAction = active
-        ? `<button type="button" class="codex-session-archive" disabled title="Stop the active runtime before archiving." aria-label="Stop the active runtime before archiving.">${Icons.archive}</button>`
-        : `<button type="button" class="codex-session-archive" data-action="archive-${provider}-session" title="Archive Session" aria-label="Archive Session">${Icons.archive}</button>`;
-    var activeStatus = active ? '<span class="ai-session-history-active-status">Active</span>' : '';
+    const contextMenuAction = `<button type="button" class="codex-session-more" data-action="open-ai-session-context-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionContextMenu" aria-label="More actions" title="More actions">&#8943;</button>`;
     var worktreeGone = !active && session.worktreeUnavailable === true;
     var primaryAction = conflict ? 'Choose runtime'
         : active && backend === 'tmux' && !attached ? 'Attach or focus'
@@ -1171,6 +1165,28 @@ function getCodexSessionRow(
     if (runtime?.stale) {
         primaryAriaLabel += ', runtime status is stale';
     }
+    const statusState = needsAttention
+        ? 'waiting'
+        : active
+            ? (runtime?.executionState === 'starting'
+                ? 'starting'
+                : runtime?.executionState === 'stopped'
+                    ? 'stopped'
+                    : 'running')
+            : 'stopped';
+    const statusLabel = getSessionStatusLabel(statusState);
+    const statusMarker = getSessionStatusMarker(statusState);
+    const rowDetails = [
+        `Title ${sessionName}`,
+        `Status ${statusLabel}`,
+        updatedAt ? `Last activity ${updatedAt}` : '',
+        shortId ? `Session ${shortId}` : '',
+        staleStatus,
+    ].filter(Boolean).join('\n');
+    primaryAriaLabel += `, ${statusLabel}`
+        + `${updatedAt ? `, last activity ${updatedAt}` : ''}`
+        + `${shortId ? `, session ${shortId}` : ''}`;
+    const primaryTooltip = `${worktreeGone ? 'Worktree deleted — view the conversation instead' : `${primaryAction} ${providerLabel} Session`}\n${rowDetails}`;
     var primaryRootId = session.primaryRootId || runtime?.primaryRootId || '';
     var primaryRootLabel = session.primaryRootLabel || runtime?.primaryRootLabel || '';
     var rootAttributes = showRootChip && primaryRootId
@@ -1191,18 +1207,17 @@ function getCodexSessionRow(
     return `
 <div class="codex-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}"${runtimeAttributes}${rootAttributes}${pinned ? ' data-session-pinned' : ''}${active ? ' data-session-active' : ''}${needsAttention ? ' data-ai-session-attention data-session-event-id="' + escapeAttribute(attentionEventId) + '"' : ''} data-session-id="${sessionId}" data-session-provider="${provider}"${getFlatOrderAttributes(flatOrder)}>
     ${batchCheckbox}
-    <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${worktreeGone ? 'Worktree deleted — view the conversation instead' : `${primaryAction} ${providerLabel} Session`}"${worktreeGone ? ' disabled data-session-worktree-unavailable' : ''}>
+    <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryTooltip}"${worktreeGone ? ' disabled data-session-worktree-unavailable' : ''}>
         ${attentionIndicator}
         <span class="codex-session-icon">${getAiProviderIcon(provider)}</span>
         <span class="codex-session-text">
-            <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${providerBadge}${profileBadge}${rootChip}${worktreeChip}</span>
-            <span class="codex-session-meta">${activeStatus}${active && metadata ? ' · ' : ''}${metadata}</span>
+            <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${statusMarker}${worktreeChip}${providerBadge}${profileBadge}${rootChip}</span>
         </span>
     </button>
     <span class="codex-session-actions">
         ${!active ? `<button type="button" class="codex-session-view" data-action="view-ai-session-conversation" title="View Conversation" aria-label="View conversation for ${providerLabel} session ${sessionName}">${Icons.viewConversation}</button>` : ''}
         ${pinAction}
-        ${archiveAction}
+        ${contextMenuAction}
     </span>
 </div>`;
 }
@@ -1219,29 +1234,21 @@ function getActiveAiSessionRow(
     var sessionName = escapeAttribute(sanitizeProjectName(model.name || model.sessionId || `New ${providerLabel} session`));
     var sessionId = escapeAttribute(model.sessionId || '');
     var shortSessionId = sessionId ? `#${escapeAttribute(sessionId.substring(0, 8))}` : '';
-    var createdAt = escapeAttribute(formatCodexSessionUpdatedAt(model.updatedAt || model.createdAt));
-    var executionLabel = model.executionState === 'running' ? 'Running'
-        : model.executionState === 'starting' ? 'Starting'
-            : 'Stopped';
-    var executionAriaLabel = model.executionState === 'running' ? 'AI is currently executing'
-        : model.executionState === 'starting' ? 'Waiting for AI activity'
-            : 'AI is not currently executing';
+    var createdAt = escapeAttribute(formatSessionTimestamp(model.updatedAt || model.createdAt));
     var iconFx = model.executionState === 'running'
         ? normalizeRunningIconAnimation(runningIconAnimation)
         : '';
-    var executionStatus = `<span class="ai-session-execution-status" aria-label="${executionAriaLabel}"><span class="ai-session-execution-dot" aria-hidden="true"></span>${executionLabel}</span>`;
     var runtimeStatusLabel = model.conflict ? 'Runtime conflict' : '';
     var runtimeBadgeDescription = model.backend === 'tmux'
         ? 'Managed tmux runtime'
         : 'Direct VS Code terminal';
-    var runtimeBadge = `<span class="ai-session-runtime-badge" title="${runtimeBadgeDescription}" aria-label="${runtimeBadgeDescription}">${model.backend}</span>`;
-    var staleStatus = model.stale
-        ? '<span class="ai-session-stale-status" title="Runtime status is stale">stale</span>'
+    var staleStatus = model.stale ? 'Runtime status is stale' : '';
+    var legacyScopeDescription = model.legacyScope
+        ? 'Legacy workspace scope; restart the session to confine it to its worktree'
         : '';
     var legacyScopeBadge = model.legacyScope
         ? '<span class="ai-session-legacy-scope" title="Runs with the pre-isolation workspace scope; restart the session to confine it to its worktree." aria-label="Legacy workspace scope">legacy scope</span>'
         : '';
-    var metadata = [executionStatus, staleStatus, legacyScopeBadge, runtimeStatusLabel, createdAt, shortSessionId].filter(Boolean).join(' · ');
     var attentionIndicator = model.needsAttention
         ? '<span class="ai-session-attention-indicator" title="AI session needs attention" aria-label="AI session needs attention"></span>'
         : '';
@@ -1250,9 +1257,9 @@ function getActiveAiSessionRow(
         ? ''
         : `<button type="button" class="codex-session-pin ${model.pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" title="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
     var conflict = model.conflict === true;
-    var terminalAction = conflict ? '' : model.backend === 'tmux'
-        ? `<button type="button" class="ai-session-close-terminal ai-session-stop-session" data-action="stop-ai-session-runtime" title="Stop Session… Terminates the AI task running in tmux." aria-label="Stop Session">${Icons.trash}</button>`
-        : `<button type="button" class="ai-session-close-terminal" data-action="close-ai-session-terminal" title="Close Terminal…" aria-label="Close Terminal">${Icons.trash}</button>`;
+    const contextMenuAction = model.pending
+        ? ''
+        : `<button type="button" class="codex-session-more" data-action="open-ai-session-context-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionContextMenu" aria-label="More actions" title="More actions">&#8943;</button>`;
     var pendingAttributes = model.pending
         ? ` data-session-pending data-pending-id="${escapeAttribute(model.pendingId || '')}" data-pending-created-at="${escapeAttribute(model.createdAt || '')}"`
         : ` data-session-active data-session-id="${sessionId}"`;
@@ -1298,21 +1305,59 @@ function getActiveAiSessionRow(
     var openConversationHint = hasOpenConversationHint
         ? '<span class="ai-session-open-conversation-hint" aria-hidden="true">›</span>'
         : '';
+    const statusState = model.needsAttention
+        ? 'waiting'
+        : model.pending || model.executionState === 'starting'
+            ? 'starting'
+            : model.executionState;
+    const statusLabel = getSessionStatusLabel(statusState);
+    const statusMarker = getSessionStatusMarker(statusState);
+    const rowDetails = [
+        `Title ${sessionName}`,
+        `Status ${statusLabel}`,
+        createdAt ? `Last activity ${createdAt}` : '',
+        shortSessionId ? `Session ${shortSessionId}` : '',
+        runtimeStatusLabel,
+        runtimeBadgeDescription,
+        staleStatus,
+        legacyScopeDescription,
+    ].filter(Boolean).join('\n');
+    primaryAriaLabel += `, ${statusLabel}`
+        + `${createdAt ? `, last activity ${createdAt}` : ''}`
+        + `${shortSessionId ? `, session ${shortSessionId}` : ''}`
+        + `${runtimeStatusLabel ? `, runtime conflict` : ''}`
+        + `${staleStatus ? ', runtime status is stale' : ''}`
+        + `${legacyScopeBadge ? ', legacy workspace scope' : ''}`;
+    const primaryTooltip = `${primaryTitle}\n${rowDetails}`;
     return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}${getFlatOrderAttributes(flatOrder)}>
-        <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryTitle}" data-focus-aria-label="${focusAriaLabel}" data-focus-title="${focusTitle}" data-conversation-aria-label="${conversationAriaLabel}" data-conversation-title="${conversationTitle}">
+        <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" title="${primaryTooltip}" data-focus-aria-label="${focusAriaLabel}" data-focus-title="${focusTitle}" data-conversation-aria-label="${conversationAriaLabel}" data-conversation-title="${conversationTitle}">
             ${attentionIndicator}
             <span class="codex-session-icon">${getAiProviderIcon(model.provider)}</span>
             <span class="codex-session-text">
-                <span class="codex-session-title-line">${runtimeBadge}<span class="codex-session-name">${sessionName}</span>${profileBadge}${rootChip}${worktreeChip}</span>
-                <span class="codex-session-meta">${metadata}</span>
+                <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${statusMarker}${worktreeChip}${legacyScopeBadge}${profileBadge}${rootChip}</span>
             </span>
             ${openConversationHint}
         </button>
-        <span class="codex-session-actions">${pinAction}${terminalAction}</span>
+        <span class="codex-session-actions">${pinAction}${contextMenuAction}</span>
     </div>`;
 }
 
-function formatCodexSessionUpdatedAt(updatedAt: string): string {
+type SessionStatusState = 'running' | 'starting' | 'waiting' | 'stopped';
+
+function getSessionStatusLabel(status: SessionStatusState): string {
+    switch (status) {
+        case 'running': return 'Running';
+        case 'starting': return 'Starting';
+        case 'waiting': return 'Waiting';
+        default: return 'Stopped';
+    }
+}
+
+function getSessionStatusMarker(status: SessionStatusState): string {
+    return `<span class="ai-session-status-marker ${status}" aria-hidden="true"></span>`;
+}
+
+function formatSessionTimestamp(updatedAt: string): string {
     if (!updatedAt) {
         return '';
     }
@@ -1322,7 +1367,18 @@ function formatCodexSessionUpdatedAt(updatedAt: string): string {
         return '';
     }
 
-    return date.toISOString().substring(0, 10);
+    const now = new Date();
+    const sameDay = date.getFullYear() === now.getFullYear()
+        && date.getMonth() === now.getMonth()
+        && date.getDate() === now.getDate();
+    const twoDigits = (value: number) => String(value).padStart(2, '0');
+    if (sameDay) {
+        return `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
+    }
+    if (date.getFullYear() === now.getFullYear()) {
+        return `${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())}`;
+    }
+    return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())}`;
 }
 
 export function getAiSessionWorktreeMenu() {

@@ -1117,15 +1117,35 @@ function reconcilePendingOpenWorkspacePins(root) {
         if (button && (button.getAttribute('aria-pressed') === 'true') === pending.pinned) {
             clearOpenWorkspacePinPending(cardId, button);
             announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            flashOpenWindowRow(cardId);
             return;
         }
         if (!button && pending.acknowledged) {
             clearOpenWorkspacePinPending(cardId, null);
             announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            flashOpenWindowRow(cardId);
             return;
         }
         setOpenWorkspacePinPending(button, true);
     });
+}
+
+// PRD：pin 置顶导致行跳动时，该行保持可见并给一次短闪烁确认。
+function flashOpenWindowRow(cardId) {
+    var button = findOpenWorkspacePinButton(cardId);
+    var row = button && button.closest('[data-open-window-row]');
+    if (!row) {
+        return;
+    }
+    if (typeof row.scrollIntoView === 'function') {
+        row.scrollIntoView({ block: 'nearest' });
+    }
+    if (row.classList && typeof row.classList.add === 'function') {
+        row.classList.add('open-window-row-pin-flash');
+        if (typeof window.setTimeout === 'function' && row.classList.remove) {
+            window.setTimeout(() => row.classList.remove('open-window-row-pin-flash'), 450);
+        }
+    }
 }
 
 function requestOpenWorkspacePin(button, cardId) {
@@ -1136,8 +1156,8 @@ function requestOpenWorkspacePin(button, cardId) {
         ? 1
         : nextOpenWorkspacePinRequestId + 1;
     var pinned = button.getAttribute('aria-pressed') !== 'true';
-    var card = button.closest('.workspace-card');
-    var name = card?.querySelector('.project-header')?.textContent?.trim() || 'window';
+    var card = button.closest('[data-open-window-row]') || button.closest('.workspace-card');
+    var name = card?.querySelector('.open-window-name, .project-header')?.textContent?.trim() || 'window';
     var pending = {
         requestId: nextOpenWorkspacePinRequestId,
         pinned: pinned,
@@ -1242,9 +1262,9 @@ function applyOpenWorkspacesUpdate(message, options) {
     var previousHtml = wrapper.innerHTML;
     var focusedPinButton = document.activeElement
         && document.activeElement.matches?.(
-            '.project-pin-badge[data-action="toggle-open-workspace-pin"]'
+            '.open-window-pin[data-action="toggle-open-workspace-pin"]'
         )
-        ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
+        ? document.activeElement.closest('[data-open-window-row]')?.getAttribute('data-id')
         : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     // This path replaces the whole wrapper, so beyond the other-windows list
@@ -1657,6 +1677,18 @@ var agentPivotOpenWindowNavigation = (function () {
     // cardId -> outcome (drives the row error state until the next request)
     var errorByCardId = new Map();
 
+    // PRD live region：导航 pending/error 通过切换器内的播报区触达屏幕阅读器。
+    function announce(cardId, message) {
+        var region = document.querySelector('[data-open-window-nav-live-region]');
+        if (!region) {
+            return;
+        }
+        var row = findRow(cardId);
+        var name = row && row.querySelector('.open-window-name');
+        var label = name && name.textContent ? name.textContent.trim() : '';
+        region.textContent = label ? message + ' ' + label : message;
+    }
+
     function findRow(cardId, root) {
         return Array.from((root || document).querySelectorAll(
             '[data-open-window-row][data-id]'
@@ -1724,11 +1756,13 @@ var agentPivotOpenWindowNavigation = (function () {
                     return;
                 }
                 failPending(cardId, pending, 'failed');
+                announce(cardId, 'Window switch timed out. Retry available on');
             }, PENDING_TIMEOUT_MS);
         }
         pendingByCardId.set(cardId, pending);
         errorByCardId.delete(cardId);
         applyRowState(cardId, 'pending');
+        announce(cardId, 'Switching to window');
         if (window.vscode && typeof window.vscode.postMessage === 'function') {
             window.vscode.postMessage({
                 type: MESSAGE_TYPE_REQUEST,
@@ -1772,6 +1806,7 @@ var agentPivotOpenWindowNavigation = (function () {
         } else {
             errorByCardId.set(message.cardId, message.outcome);
             applyRowState(message.cardId, 'error', message.outcome);
+            announce(message.cardId, 'Could not switch to window');
         }
         return true;
     }
@@ -1779,6 +1814,8 @@ var agentPivotOpenWindowNavigation = (function () {
     // Re-applies pending/error row state after an authoritative DOM
     // replacement rebuilt the rows.
     function reconcile(root) {
+        // 替换后菜单的 __row/origin 指向已分离节点，先关掉。
+        closeMenu();
         pendingByCardId.forEach(function (_pending, cardId) {
             applyRowState(cardId, 'pending', undefined, root);
         });
@@ -1818,9 +1855,10 @@ var agentPivotOpenWindowNavigation = (function () {
             return;
         }
         var isCurrent = row.getAttribute('data-window-kind') === 'current';
+        var rowDisabled = row.getAttribute('data-navigation-disabled') === 'true';
         var pinned = row.classList.contains('open-window-row-pinned');
         menu.querySelectorAll('[data-open-window-menu-non-current]').forEach(function (item) {
-            item.hidden = isCurrent;
+            item.hidden = isCurrent || rowDisabled;
         });
         menu.querySelectorAll('[data-open-window-menu-current]').forEach(function (item) {
             item.hidden = !isCurrent;
@@ -1926,6 +1964,41 @@ var agentPivotOpenWindowNavigation = (function () {
             e.preventDefault();
             activateMenuItem(items[index]);
         }
+    }
+
+    // 行间 ↑/↓ 增强导航（PRD 键盘章节）：在切换器列表内移动焦点。
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') {
+            return;
+        }
+        var row = e.target && e.target.closest
+            ? e.target.closest('[data-open-window-row]')
+            : null;
+        if (!row) {
+            return;
+        }
+        var list = row.closest('[data-open-window-switcher-list]');
+        if (!list) {
+            return;
+        }
+        var rows = Array.from(list.querySelectorAll('[data-open-window-row]'));
+        var index = rows.indexOf(row);
+        if (index === -1) {
+            return;
+        }
+        e.preventDefault();
+        var next = e.key === 'ArrowDown'
+            ? Math.min(index + 1, rows.length - 1)
+            : Math.max(index - 1, 0);
+        var focusTarget = rows[next]
+            && rows[next].querySelector('[data-action="focus-open-window"]');
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+            focusTarget.focus();
+        }
+    });
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('blur', closeMenu);
     }
 
     if (typeof document !== 'undefined' && document.addEventListener) {
@@ -3103,18 +3176,14 @@ function initAiSessionPresentationDom(options) {
         return Array.from((root || document).querySelectorAll(
             '.workspace-card[data-workspace-navigation-identity="'
                 + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-current-workspace],'
-                + '.workspace-card[data-workspace-navigation-identity="'
-                + CSS.escape(message.workspaceNavigationIdentity || '') + '"]'
-                + '[data-open-workspace-current]'
+                + '[data-current-workspace]'
         ));
     }
     function canApplyAiSessionPresentationDom(message, root) {
         var projectionRoot = root || document;
         if (message.workspaceNavigationIdentity === null) {
             return !projectionRoot.querySelector(
-                '.workspace-card[data-current-workspace],'
-                    + '.workspace-card[data-open-workspace-current]'
+                '.workspace-card[data-current-workspace]'
             );
         }
         return getAiSessionPresentationCurrentCards(message, projectionRoot).length > 0;
@@ -7773,15 +7842,6 @@ function initProjects() {
                 return;
 
             aiSessionControls.toggleCodexSessions(projectDiv, dataId);
-            return;
-        }
-
-        if (projectDiv.hasAttribute("data-open-workspace-current")) {
-            return;
-        }
-
-        if (projectDiv.hasAttribute("data-workspace-navigation")) {
-            openProject(dataId, ProjectOpenType.Default);
             return;
         }
 

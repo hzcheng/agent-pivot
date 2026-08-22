@@ -322,7 +322,7 @@ OPEN tab
 **新增**：
 
 - CHATS ▾ 视图菜单 webview 脚本；窗口独立状态持久化（`commandController` 扩展）。
-- 行为契约改写/退役（按 ID）：退役 `WEBVIEW-OPEN-TAB-SPLIT-001`、`WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001`、`OPEN-ALL-WINDOWS-LIST-001`；改写 `WORKTREE-GROUPING-UI-001`、`OPEN-OTHER-WINDOWS-PRIVACY-001` / `-SUMMARY-001`、`OPEN-WORKSPACE-PIN-WEBVIEW-001`、`ACTIVE-SESSION-FOCUS-REVEAL-001`、`ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001`、`ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001`。
+- 行为契约改写/退役（按 ID）：退役 `WEBVIEW-OPEN-TAB-SPLIT-001`、`WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001`、`OPEN-ALL-WINDOWS-LIST-001`；改写 `WORKTREE-GROUPING-UI-001`、`OPEN-OTHER-WINDOWS-PRIVACY-001` / `-SUMMARY-001`、`OPEN-WORKSPACE-PIN-WEBVIEW-001`、`ACTIVE-SESSION-FOCUS-REVEAL-001`、`ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001`、`ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001`。（实施注记：`WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001` 实际为改写保留——过渡形态的 current-detail 卡片仍需 fit 约束，未退役。）
 - 构建/CI 同步：`scripts/build-dashboard-webview-bundle.js` inputPaths、`run-release-packaging-checks.js`、`run-performance-architecture-baseline-checks.js`、`run-dashboard-webview-checks.js`、`run-ai-session-safety-checks.js`、`.vscodeignore`；测试面 `dashboardOpenTabSplit.test.js`（删除）、`activeSessionCardInteraction.test.js`、`worktreeGrouping.test.js`、`webviewState.test.js`、`contract/dashboardController.test.js`（随对应里程碑更新）。
 
 ## 验收标准

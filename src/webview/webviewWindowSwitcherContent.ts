@@ -18,6 +18,11 @@ function getWindowRowTooltip(row: OpenWindowRowViewModel): string {
     if (row.environmentLabel && row.environmentLabel !== 'Local') {
         lines.push(row.environmentLabel);
     }
+    if (row.folderNames.length > 0) {
+        lines.push(
+            `${row.folderNames.length} folder${row.folderNames.length === 1 ? '' : 's'}: ${row.folderNames.join(', ')}`,
+        );
+    }
     return lines.join('\n');
 }
 
@@ -25,12 +30,12 @@ function getCountSlot(
     value: number,
     className: string,
     marker: string,
-    label: string,
+    label: (count: number) => string,
     emptyLabel: string,
 ): string {
     const text = value > 0 ? `${marker}${value}` : '';
-    const aria = value > 0 ? `${value} ${label}` : emptyLabel;
-    return `<span class="${className}" role="status" aria-label="${escapeAttribute(aria)}" title="${escapeAttribute(aria)}">${text}</span>`;
+    const aria = value > 0 ? label(value) : emptyLabel;
+    return `<span class="${className}" aria-label="${escapeAttribute(aria)}" title="${escapeAttribute(aria)}">${text}</span>`;
 }
 
 export function getOpenWindowRowHtml(
@@ -52,9 +57,9 @@ export function getOpenWindowRowHtml(
     const pinTitle = row.pinned ? 'Unpin Window' : 'Pin Window';
     const focusAria = [
         isCurrent ? 'aria-disabled="true" aria-current="true"' : '',
-        disabled ? 'aria-disabled="true" data-navigation-disabled="true"' : '',
+        disabled ? 'aria-disabled="true"' : '',
     ].filter(Boolean).join(' ');
-    return `<div class="open-window-row${isCurrent ? ' open-window-row-current' : ''}${row.pinned ? ' open-window-row-pinned' : ''}${disabled ? ' open-window-row-disabled' : ''}" role="listitem" data-open-window-row data-id="${escapedCardId}" data-workspace-navigation-identity="${escapedIdentity}" data-window-kind="${row.kind}">
+    return `<div class="open-window-row${isCurrent ? ' open-window-row-current' : ''}${row.pinned ? ' open-window-row-pinned' : ''}${disabled ? ' open-window-row-disabled' : ''}" role="listitem" data-open-window-row data-id="${escapedCardId}" data-workspace-navigation-identity="${escapedIdentity}" data-window-kind="${row.kind}"${disabled ? ' data-navigation-disabled="true"' : ''}>
     <span class="open-window-indicator" aria-hidden="true"></span>
     <button type="button" class="open-window-focus" data-action="focus-open-window" title="${escapeAttribute(tooltip)}" aria-label="${escapeAttribute(focusLabel)}"${focusAria ? ' ' + focusAria : ''}>
         <span class="open-window-icon" aria-hidden="true">${Icons.remote}</span>
@@ -62,8 +67,8 @@ export function getOpenWindowRowHtml(
         ${envChip}
         <span class="open-window-jump-hint" aria-hidden="true">&#8599;</span>
     </button>
-    ${getCountSlot(row.runningCount, 'open-window-running', '\u25CF', 'sessions running in this window', 'No running sessions')}
-    ${getCountSlot(row.attentionCount, 'open-window-attention', '\u26A0', 'sessions need attention in this window', 'Nothing needs attention')}
+    ${getCountSlot(row.runningCount, 'open-window-running', '\u25CF', count => `${count} session${count === 1 ? '' : 's'} running in this window`, 'No running sessions')}
+    ${getCountSlot(row.attentionCount, 'open-window-attention', '\u26A0', count => `${count} session${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} attention in this window`, 'Nothing needs attention')}
     <button type="button" class="open-window-pin${row.pinned ? ' active' : ''}" data-action="toggle-open-workspace-pin" title="${pinTitle}" aria-label="${pinTitle}" aria-pressed="${row.pinned ? 'true' : 'false'}">${Icons.pin}</button>
     <button type="button" class="open-window-more" data-action="open-window-menu" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
     <button type="button" class="open-window-retry" data-action="retry-open-window-navigation" hidden>Retry</button>
@@ -105,6 +110,7 @@ export function getOpenWindowSwitcherGroupContent(
     <div class="open-window-switcher-status" data-open-window-switcher-status>${statusContent}</div>
     <div class="open-window-switcher-list" data-open-window-switcher-list>
         <div class="open-workspace-pin-live-region" data-open-workspace-pin-live-region role="status" aria-live="polite" aria-atomic="true"></div>
+        <div class="open-window-nav-live-region" data-open-window-nav-live-region role="status" aria-live="polite" aria-atomic="true"></div>
         ${rowsHtml}
     </div>
 </div>`;

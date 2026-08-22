@@ -16,7 +16,6 @@ import {
     FITTY_OPTIONS,
     INBUILT_COLOR_DEFAULTS,
     OPEN_CURRENT_WORKSPACE_GROUP_ID,
-    OPEN_WORKSPACES_GROUP_ID,
 } from '../constants';
 import { getFavoriteProjectsInOrder } from '../projects/favoriteProjectOrder';
 import {
@@ -46,8 +45,6 @@ import { buildOpenWindowRowViewModels } from '../openWorkspaces/windowRowViewMod
 import { getOpenWindowMenu, getOpenWindowSwitcherGroupContent } from './webviewWindowSwitcherContent';
 
 const FAVORITES_GROUP_NAME = 'FAVORITES';
-const OPEN_CURRENT_WORKSPACE_GROUP_NAME = 'CURRENT WINDOW';
-const OPEN_WINDOWS_GROUP_NAME = 'OPEN WINDOWS';
 const DEFAULT_MAX_VISIBLE_PROJECTS_PER_GROUP = 5;
 
 interface GroupSectionOptions {
@@ -75,6 +72,7 @@ export function getStewardContent(
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
     readyDocumentGeneration: number = 1,
     initialAiSessionPresentation?: AiSessionPresentationStateMessage,
+    windowPathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
 ): string {
     var safeReadyDocumentGeneration = Number.isSafeInteger(readyDocumentGeneration)
         && readyDocumentGeneration > 0
@@ -106,6 +104,7 @@ export function getStewardContent(
         otherWindowsStatus,
         getEffectiveRunningCardAnimation(infos.config),
         getEffectiveRunningIconAnimation(infos.config),
+        windowPathSegmentsByCardId,
     );
 
     return `
@@ -316,7 +315,7 @@ export function getCurrentWorkspaceGroupContent(
 <div class="group steward-section open-current-workspace-group open-current-workspace-group-headless ${currentCard ? '' : 'no-projects'}${cardExpanded ? ' current-card-expanded' : ''}" data-group-id="${OPEN_CURRENT_WORKSPACE_GROUP_ID}" data-virtual-group data-system-group="${OPEN_CURRENT_WORKSPACE_GROUP_ID}">
     <div class="group-list">
         <div class="drop-signal"></div>
-        ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation, runningIconAnimation, 'current-detail') : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
+        ${currentCard ? getWorkspaceCardDiv(currentCard, runningCardAnimation, runningIconAnimation) : getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
     </div>
 </div>`;
 }
@@ -375,9 +374,6 @@ function getWorkspaceCardDiv(
     card: WorkspaceCardViewModel,
     runningCardAnimation?: string,
     runningIconAnimation?: string,
-    presentation: 'current-detail' | 'open-list' = card.kind === 'current'
-        ? 'current-detail'
-        : 'open-list',
 ): string {
     const roots = card.roots.slice().sort((left, right) => left.ordinal - right.ordinal);
     const rootCount = roots.length;
@@ -389,22 +385,13 @@ function getWorkspaceCardDiv(
     const projectIcon = getProjectIcon(remoteType);
     const projectIconTitle = getProjectIconTitle(remoteType);
     const folderLabel = `${rootCount} folder${rootCount === 1 ? '' : 's'}`;
-    const isCurrentWindow = card.kind === 'current';
-    const isCurrentDetail = isCurrentWindow && presentation === 'current-detail';
-    const isOpenList = presentation === 'open-list';
-    const isCurrentOpenList = isCurrentWindow && isOpenList;
-    const showSaveAction = isCurrentDetail && card.showSaveAction;
+    // PR-B：open-list 投影已随双分组移除，只余 current-detail 形态。
+    const showSaveAction = card.showSaveAction;
     const saveBadge = showSaveAction
         ? `<span data-action="save-current-workspace" class="project-save-badge" title="Save Workspace" aria-label="Save Workspace">${Icons.save}</span>`
         : '';
-    const pinTitle = card.pinned ? 'Unpin Window' : 'Pin Window';
-    const pinBadge = isOpenList
-        ? `<button type="button" data-action="toggle-open-workspace-pin" class="project-pin-badge${card.pinned ? ' active' : ''}" title="${pinTitle}" aria-label="${pinTitle}" aria-pressed="${card.pinned ? 'true' : 'false'}">${Icons.pin}</button>`
-        : '';
-    const aiSessions = isCurrentDetail ? card.aiSessions : undefined;
-    const runningSessionCount = isCurrentDetail
-        ? (aiSessions?.activeSessions || []).filter(session => session.executionState === 'running').length
-        : card.runningSessionCount;
+    const aiSessions = card.aiSessions;
+    const runningSessionCount = (aiSessions?.activeSessions || []).filter(session => session.executionState === 'running').length;
     const sessionFx = runningSessionCount > 0
         ? normalizeRunningCardAnimation(runningCardAnimation)
         : '';
@@ -414,50 +401,34 @@ function getWorkspaceCardDiv(
     const aiSessionCount = aiSessions?.aiSessionCount || 0;
     const activeSessionCount = aiSessions?.activeSessionCount || 0;
     const attentionCount = card.attentionCount || 0;
-    const summaryParts = isCurrentDetail ? [
+    const summaryParts = [
         aiSessionCount ? `${aiSessionCount} AI session${aiSessionCount === 1 ? '' : 's'}` : '',
         activeSessionCount ? `${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}` : '',
         attentionCount ? `${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention` : '',
-    ].filter(Boolean) : [];
+    ].filter(Boolean);
     const summaryLabel = escapeAttribute(summaryParts.join(', '));
-    const currentSummaryBadge = summaryParts.length
+    const badge = summaryParts.length
         ? `<span class="project-codex-badge" data-ai-session-total-count="${aiSessionCount}" data-ai-session-active-count="${activeSessionCount}" data-ai-session-attention-count="${attentionCount}" title="${summaryLabel}" aria-label="${summaryLabel}">${
             aiSessionCount ? `<span class="ai-session-total-count">AI ${aiSessionCount}</span>` : ''
         }${activeSessionCount ? `<span class="ai-session-active-count" aria-label="${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}">●${activeSessionCount}</span>` : ''
         }${attentionCount ? `<b class="ai-session-attention-count" aria-label="${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention">${attentionCount}</b>` : ''
         }</span>`
         : '';
-    const navigationAttentionLabel = `${attentionCount} item${attentionCount === 1 ? '' : 's'} need${attentionCount === 1 ? 's' : ''} attention`;
-    const navigationAttentionBadge = isOpenList && attentionCount
-        ? `<span class="project-ai-attention-badge" title="${navigationAttentionLabel}" aria-label="${navigationAttentionLabel}">${attentionCount}</span>`
-        : '';
-    const navigationRunningLabel = `${runningSessionCount} active AI session${runningSessionCount === 1 ? '' : 's'}`;
-    const navigationRunningBadge = isOpenList && runningSessionCount
-        ? `<span class="project-codex-badge" data-ai-session-active-count="${runningSessionCount}" title="${navigationRunningLabel}" aria-label="${navigationRunningLabel}"><span class="ai-session-active-count" aria-label="${navigationRunningLabel}">●${runningSessionCount}</span></span>`
-        : '';
-    const badge = isCurrentDetail
-        ? currentSummaryBadge
-        : `${navigationRunningBadge}${navigationAttentionBadge}`;
-    const sessionSection = isCurrentDetail
-        ? getAiSessionsDiv(getWorkspaceAiSessionSurface(card), {
-            showRootChips: rootCount > 1,
-            runningIconAnimation,
-        })
-        : '';
+    const sessionSection = getAiSessionsDiv(getWorkspaceAiSessionSurface(card), {
+        showRootChips: rootCount > 1,
+        runningIconAnimation,
+    });
     const colorStyles = getCardColorStyles(card.color);
 
     return `<div class="project-container" data-nodrag>
-    <div class="workspace-card project steward-item-card${runningSessionCount > 0 ? ' session-running' : ''}" style="${colorStyles.cardStyle}" data-id="${escapeAttribute(card.id)}" data-name="${escapeAttribute(`${card.name || ''} ${card.environmentLabel || ''} ${roots.map(root => root.name).join(' ')}`.toLowerCase())}" data-workspace-card-kind="${card.kind}" data-workspace-navigation-identity="${escapeAttribute(card.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(card.scopeIdentity)}" ${sessionFx ? `data-session-fx="${sessionFx}"` : ''}${runningTitle ? ` title="${runningTitle}"` : ''} ${isCurrentDetail ? 'data-current-workspace' : isCurrentOpenList ? 'data-open-workspace-list-card data-open-workspace-current' : 'data-open-workspace-list-card data-workspace-navigation data-other-workspace'}${currentSummaryBadge || navigationRunningBadge ? ' data-has-ai-session-badge' : ''}${showSaveAction ? ' data-has-save-action' : ''}${isOpenList ? ' data-has-pin-action' : ''} data-readonly-project${aiSessions?.expanded ? ' data-codex-expanded' : ''}>
+    <div class="workspace-card project steward-item-card${runningSessionCount > 0 ? ' session-running' : ''}" style="${colorStyles.cardStyle}" data-id="${escapeAttribute(card.id)}" data-name="${escapeAttribute(`${card.name || ''} ${card.environmentLabel || ''} ${roots.map(root => root.name).join(' ')}`.toLowerCase())}" data-workspace-card-kind="${card.kind}" data-workspace-navigation-identity="${escapeAttribute(card.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(card.scopeIdentity)}" ${sessionFx ? `data-session-fx="${sessionFx}"` : ''}${runningTitle ? ` title="${runningTitle}"` : ''} data-current-workspace${badge ? ' data-has-ai-session-badge' : ''}${showSaveAction ? ' data-has-save-action' : ''} data-readonly-project${aiSessions?.expanded ? ' data-codex-expanded' : ''}>
         <div class="project-aura"></div>
         <div class="project-border steward-item-accent" style="${colorStyles.accentStyle}"></div>
         ${sessionFx && sessionFx !== 'none' ? '<div class="project-session-fx"></div>' : ''}
         ${saveBadge}
-        ${isCurrentOpenList ? '' : pinBadge}
         <div class="fitty-container project-title-row">
             <span class="project-kind-icon" title="${projectIconTitle}">${projectIcon}</span>
             <h2 class="project-header">${workspaceName}</h2>
-            ${isCurrentOpenList ? '<span class="current-window-indicator" aria-label="Current Window">Current</span>' : ''}
-            ${isCurrentOpenList ? pinBadge : ''}
         </div>
         <p class="project-description workspace-metadata">${folderLabel}</p>
         ${badge}

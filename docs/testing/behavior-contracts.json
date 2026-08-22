@@ -4146,7 +4146,7 @@
   {
     "id": "OPEN-OTHER-WINDOWS-PRIVACY-001",
     "domain": "open-project",
-    "title": "OTHER WINDOWS cards expose only privacy-bounded workspace summaries",
+    "title": "Window switcher navigation rows expose only privacy-bounded workspace summaries",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -4160,7 +4160,7 @@
   {
     "id": "OPEN-OTHER-WINDOWS-SUMMARY-001",
     "domain": "open-project",
-    "title": "OTHER WINDOWS incremental summaries preserve identity, counts, attention, and rollback",
+    "title": "Window switcher incremental summaries preserve identity, counts, attention, and rollback",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -6212,7 +6212,7 @@
   {
     "id": "OPEN-WORKSPACE-PIN-WEBVIEW-001",
     "domain": "webview",
-    "title": "Pin UI waits for authoritative HTML and preserves pending state across acknowledgements",
+    "title": "Window-row pin UI waits for authoritative HTML and preserves pending state across acknowledgements",
     "priority": "P0",
     "status": "automated",
     "owners": [

@@ -1461,7 +1461,6 @@ const guards = {
                 'message.workspaceNavigationIdentity === null'
             )
             || !presentationCanApplySource.includes('[data-current-workspace]')
-            || !presentationCanApplySource.includes('[data-open-workspace-current]')
             || callArguments(
                 presentationCanApplyOwner,
                 'getAiSessionPresentationCurrentCards'
@@ -1495,7 +1494,6 @@ const guards = {
                 .filter(name => name !== 'canApplyAiSessionPresentationDom').some(name =>
                 callArguments(presentationApplyOwner, name).length < 1)
             || !presentationCurrentCardsSource.includes('[data-current-workspace]')
-            || !presentationCurrentCardsSource.includes('[data-open-workspace-current]')
             || presentationMutationNodes.length !== 28
             || presentationMutationNodes.some(({ node, sourceFile }) =>
                 sourceFile.fileName !== webview.fileName

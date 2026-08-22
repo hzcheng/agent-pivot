@@ -2351,7 +2351,7 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
     assert.equal(await currentRow.locator('.open-window-attention').textContent(), '\u26A01');
     assert.equal(
         await currentRow.locator('.open-window-attention').getAttribute('aria-label'),
-        '1 sessions need attention in this window'
+        '1 session needs attention in this window'
     );
     const acknowledgementResults = [];
     const hostHandler = createAttentionAcknowledgementHandler(

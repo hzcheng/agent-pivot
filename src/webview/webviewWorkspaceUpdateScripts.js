@@ -182,15 +182,35 @@ function reconcilePendingOpenWorkspacePins(root) {
         if (button && (button.getAttribute('aria-pressed') === 'true') === pending.pinned) {
             clearOpenWorkspacePinPending(cardId, button);
             announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            flashOpenWindowRow(cardId);
             return;
         }
         if (!button && pending.acknowledged) {
             clearOpenWorkspacePinPending(cardId, null);
             announceOpenWorkspacePin(pending.pinned ? 'Window pinned.' : 'Window unpinned.');
+            flashOpenWindowRow(cardId);
             return;
         }
         setOpenWorkspacePinPending(button, true);
     });
+}
+
+// PRD：pin 置顶导致行跳动时，该行保持可见并给一次短闪烁确认。
+function flashOpenWindowRow(cardId) {
+    var button = findOpenWorkspacePinButton(cardId);
+    var row = button && button.closest('[data-open-window-row]');
+    if (!row) {
+        return;
+    }
+    if (typeof row.scrollIntoView === 'function') {
+        row.scrollIntoView({ block: 'nearest' });
+    }
+    if (row.classList && typeof row.classList.add === 'function') {
+        row.classList.add('open-window-row-pin-flash');
+        if (typeof window.setTimeout === 'function' && row.classList.remove) {
+            window.setTimeout(() => row.classList.remove('open-window-row-pin-flash'), 450);
+        }
+    }
 }
 
 function requestOpenWorkspacePin(button, cardId) {
@@ -201,8 +221,8 @@ function requestOpenWorkspacePin(button, cardId) {
         ? 1
         : nextOpenWorkspacePinRequestId + 1;
     var pinned = button.getAttribute('aria-pressed') !== 'true';
-    var card = button.closest('.workspace-card');
-    var name = card?.querySelector('.project-header')?.textContent?.trim() || 'window';
+    var card = button.closest('[data-open-window-row]') || button.closest('.workspace-card');
+    var name = card?.querySelector('.open-window-name, .project-header')?.textContent?.trim() || 'window';
     var pending = {
         requestId: nextOpenWorkspacePinRequestId,
         pinned: pinned,
@@ -307,9 +327,9 @@ function applyOpenWorkspacesUpdate(message, options) {
     var previousHtml = wrapper.innerHTML;
     var focusedPinButton = document.activeElement
         && document.activeElement.matches?.(
-            '.project-pin-badge[data-action="toggle-open-workspace-pin"]'
+            '.open-window-pin[data-action="toggle-open-workspace-pin"]'
         )
-        ? document.activeElement.closest('.workspace-card')?.getAttribute('data-id')
+        ? document.activeElement.closest('[data-open-window-row]')?.getAttribute('data-id')
         : null;
     var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     // This path replaces the whole wrapper, so beyond the other-windows list

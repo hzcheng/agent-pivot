@@ -22,6 +22,18 @@ var agentPivotOpenWindowNavigation = (function () {
     // cardId -> outcome (drives the row error state until the next request)
     var errorByCardId = new Map();
 
+    // PRD live region：导航 pending/error 通过切换器内的播报区触达屏幕阅读器。
+    function announce(cardId, message) {
+        var region = document.querySelector('[data-open-window-nav-live-region]');
+        if (!region) {
+            return;
+        }
+        var row = findRow(cardId);
+        var name = row && row.querySelector('.open-window-name');
+        var label = name && name.textContent ? name.textContent.trim() : '';
+        region.textContent = label ? message + ' ' + label : message;
+    }
+
     function findRow(cardId, root) {
         return Array.from((root || document).querySelectorAll(
             '[data-open-window-row][data-id]'
@@ -89,11 +101,13 @@ var agentPivotOpenWindowNavigation = (function () {
                     return;
                 }
                 failPending(cardId, pending, 'failed');
+                announce(cardId, 'Window switch timed out. Retry available on');
             }, PENDING_TIMEOUT_MS);
         }
         pendingByCardId.set(cardId, pending);
         errorByCardId.delete(cardId);
         applyRowState(cardId, 'pending');
+        announce(cardId, 'Switching to window');
         if (window.vscode && typeof window.vscode.postMessage === 'function') {
             window.vscode.postMessage({
                 type: MESSAGE_TYPE_REQUEST,
@@ -137,6 +151,7 @@ var agentPivotOpenWindowNavigation = (function () {
         } else {
             errorByCardId.set(message.cardId, message.outcome);
             applyRowState(message.cardId, 'error', message.outcome);
+            announce(message.cardId, 'Could not switch to window');
         }
         return true;
     }
@@ -144,6 +159,8 @@ var agentPivotOpenWindowNavigation = (function () {
     // Re-applies pending/error row state after an authoritative DOM
     // replacement rebuilt the rows.
     function reconcile(root) {
+        // 替换后菜单的 __row/origin 指向已分离节点，先关掉。
+        closeMenu();
         pendingByCardId.forEach(function (_pending, cardId) {
             applyRowState(cardId, 'pending', undefined, root);
         });
@@ -183,9 +200,10 @@ var agentPivotOpenWindowNavigation = (function () {
             return;
         }
         var isCurrent = row.getAttribute('data-window-kind') === 'current';
+        var rowDisabled = row.getAttribute('data-navigation-disabled') === 'true';
         var pinned = row.classList.contains('open-window-row-pinned');
         menu.querySelectorAll('[data-open-window-menu-non-current]').forEach(function (item) {
-            item.hidden = isCurrent;
+            item.hidden = isCurrent || rowDisabled;
         });
         menu.querySelectorAll('[data-open-window-menu-current]').forEach(function (item) {
             item.hidden = !isCurrent;
@@ -291,6 +309,41 @@ var agentPivotOpenWindowNavigation = (function () {
             e.preventDefault();
             activateMenuItem(items[index]);
         }
+    }
+
+    // 行间 ↑/↓ 增强导航（PRD 键盘章节）：在切换器列表内移动焦点。
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') {
+            return;
+        }
+        var row = e.target && e.target.closest
+            ? e.target.closest('[data-open-window-row]')
+            : null;
+        if (!row) {
+            return;
+        }
+        var list = row.closest('[data-open-window-switcher-list]');
+        if (!list) {
+            return;
+        }
+        var rows = Array.from(list.querySelectorAll('[data-open-window-row]'));
+        var index = rows.indexOf(row);
+        if (index === -1) {
+            return;
+        }
+        e.preventDefault();
+        var next = e.key === 'ArrowDown'
+            ? Math.min(index + 1, rows.length - 1)
+            : Math.max(index - 1, 0);
+        var focusTarget = rows[next]
+            && rows[next].querySelector('[data-action="focus-open-window"]');
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+            focusTarget.focus();
+        }
+    });
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('blur', closeMenu);
     }
 
     if (typeof document !== 'undefined' && document.addEventListener) {

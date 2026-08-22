@@ -178,7 +178,7 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
                 pinTimes.has(currentNavigationIdentity || currentWorkspace.navigationIdentity),
                 projection,
             )
-            : null;
+            : this.createEmptyWindowCard();
         const navigationProjections = projectOpenWorkspaceNavigationCards(
             currentNavigationIdentity ? { navigationIdentity: currentNavigationIdentity } : null,
             this.aggregate,
@@ -325,6 +325,10 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         });
     }
 
+    getWindowPathSegmentsByCardId(): Map<string, readonly string[]> {
+        return this.buildWindowPathSegments(this.getCards());
+    }
+
     private buildWindowPathSegments(
         cards: readonly WorkspaceCardViewModel[],
     ): Map<string, readonly string[]> {
@@ -348,6 +352,26 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         this.deliveryGeneration += 1;
         this.lastPostedSemanticRevision = null;
         this.invalidateCardProjection();
+    }
+
+    // PRD 空窗口条款：无 folder 的窗口仍占一个当前行（数字槽位为空），
+    // 避免单空窗口时切换器显示 WINDOWS 0。
+    private createEmptyWindowCard(): WorkspaceCardViewModel {
+        return {
+            id: '__currentWorkspace-empty',
+            kind: 'current',
+            workspaceKind: 'singleFolder',
+            showSaveAction: false,
+            pinned: false,
+            runningSessionCount: 0,
+            navigationIdentity: 'empty-window',
+            scopeIdentity: 'empty-window',
+            name: 'This Window',
+            environment: 'local',
+            environmentLabel: 'Local',
+            roots: [],
+            attentionCount: 0,
+        };
     }
 
     private createCurrentCard(

@@ -2350,6 +2350,7 @@ async function initializeDashboard(
                     getEffectiveRunningIconAnimation(configuration),
                     currentWorktreeGroupsAggregateRevision(),
                 ),
+                openWorkspaceDashboardController.getWindowPathSegmentsByCardId(),
             );
         },
         renderError: getErrorContent,

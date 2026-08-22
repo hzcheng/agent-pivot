@@ -1974,7 +1974,8 @@ body .project {
     border: 0;
 }
 
-.open-workspace-pin-live-region {
+.open-workspace-pin-live-region,
+.open-window-nav-live-region {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -2141,6 +2142,11 @@ body .project {
     }
 }
 
+@keyframes open-window-pin-flash {
+    0% { background: var(--vscode-list-inactiveSelectionBackground); }
+    100% { background: transparent; }
+}
+
 // --- OPEN tab window switcher (PR-A: styles only, production DOM in PR-B) ---
 // Single-row window rows with fixed slots; zero-displacement switching. See
 // docs/open-tab-window-switcher-prd.md (visual spec + state matrix).
@@ -2275,6 +2281,24 @@ body .project {
         outline-offset: -1px;
     }
 
+    // pin 置顶跳动的确认闪烁（≤150ms 颜色渐变预算外的一次性提示）。
+    &.open-window-row-pin-flash {
+        animation: open-window-pin-flash 450ms ease-out;
+    }
+
+    // bridge 未就绪：非当前行置灰、光标不暗示跳转（PRD 三态之禁用态）。
+    &.open-window-row-disabled {
+        opacity: 0.55;
+
+        .open-window-focus {
+            cursor: default;
+        }
+
+        .open-window-jump-hint {
+            display: none;
+        }
+    }
+
     // pending / error 三态（PRD 状态矩阵）。
     &[data-navigation-state="pending"] {
         box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
@@ -2309,7 +2333,7 @@ body .project {
     .open-window-more {
         flex: 0 0 auto;
         min-width: 24px;
-        min-height: 24px;
+        min-height: 28px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -3193,35 +3217,6 @@ body.steward-sidebar {
             &[data-codex-expanded]:hover {
                 .steward-item-accent {
                     opacity: .9;
-                }
-            }
-        }
-
-        &[data-workspace-navigation][data-has-ai-session-badge] {
-            .fitty-container,
-            .project-description {
-                width: calc(100% - 60px);
-            }
-
-            .project-codex-badge {
-                position: absolute;
-                right: 10px;
-                top: 8px;
-                z-index: 40;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                padding: 1px 6px;
-                border: 1px solid var(--vscode-panel-border);
-                border-radius: 999px;
-                color: var(--vscode-descriptionForeground);
-                background: var(--vscode-sideBar-background);
-                font-size: 9px;
-                font-weight: 650;
-                line-height: 1.35;
-
-                .ai-session-active-count {
-                    color: var(--vscode-focusBorder);
                 }
             }
         }
@@ -7389,6 +7384,7 @@ body.steward-sidebar .prompt-item {
 @media (prefers-reduced-motion: reduce) {
     .open-window-row {
         transition: none;
+        animation: none;
     }
 }
 

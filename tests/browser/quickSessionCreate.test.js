@@ -181,7 +181,7 @@ async function postAuthoritativeWorktreeRemoval(page, sequence) {
             currentWorkspaceCount: 1, html,
             searchCatalog: {
                 version: 3, sessions: [], worktrees: [], openWorkspaces: [],
-                savedProjects: [],
+                savedProjects: [], todos: [],
             },
             presentation: {
                 type: 'ai-session-presentation-state', version: 1,

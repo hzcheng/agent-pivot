@@ -141,7 +141,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 provide shared semantic anchors and clam
 });
 
 function catalog() {
-    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] };
+    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
 }
 
 function project(id) {

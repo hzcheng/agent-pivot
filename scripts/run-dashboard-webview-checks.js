@@ -301,6 +301,7 @@ function makeDashboardCatalog() {
             projectId: 'saved', name: 'Dashboard', description: 'Saved',
             action: 'open-saved', groupLabels: ['FAVORITES', 'TOOLS'],
         }],
+        todos: [],
     };
 }
 
@@ -339,6 +340,7 @@ function makeWorkspaceDashboardCatalog() {
             action: 'switch-open-workspace', current: false,
         }],
         savedProjects: makeDashboardCatalog().savedProjects,
+        todos: [],
     };
 }
 
@@ -2143,9 +2145,19 @@ function runControllerChecks(source) {
         ['ai-sessions', 'open-workspaces', 'saved-projects']
     );
     assert.strictEqual(context.filterDashboardCatalog(makeWorkspaceDashboardCatalog(), 'missing').length, 0);
+    const legacyTodoCatalog = makeWorkspaceDashboardCatalog();
+    legacyTodoCatalog.todos = [{ key: 'legacy', searchText: 'legacy todo' }];
+    assert.strictEqual(context.normalizeDashboardSearchCatalog(legacyTodoCatalog), legacyTodoCatalog);
+    assert.deepStrictEqual(
+        JSON.parse(JSON.stringify(
+            context.filterDashboardCatalog(legacyTodoCatalog, 'legacy').map(section => section.id)
+        )),
+        [],
+        'legacy v3 TODO entries stay schema-valid but are no longer rendered as search results'
+    );
     assert.deepStrictEqual(
         JSON.parse(JSON.stringify(context.normalizeDashboardSearchCatalog(null))),
-        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] }
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] }
     );
     assert.strictEqual(
         context.normalizeDashboardSearchCatalog(makeWorkspaceDashboardCatalog()).version,
@@ -2156,7 +2168,7 @@ function runControllerChecks(source) {
             ...makeDashboardCatalog(),
             openWorkspaces: null,
         }))),
-        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
+        { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
         'a malformed v3 catalog must fail closed'
     );
     const state = {

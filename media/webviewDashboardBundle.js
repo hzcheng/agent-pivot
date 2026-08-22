@@ -1584,6 +1584,40 @@ function initProjectGroupCollapse() {
         }
     }
 
+    function onInsideGroupClick(e, groupDiv) {
+        var groupId = groupDiv.getAttribute('data-group-id');
+        if (groupId == null) {
+            return;
+        }
+
+        var actionDiv = e.target.closest('[data-action]');
+        var action = actionDiv != null ? actionDiv.getAttribute('data-action') : null;
+        if (!action) {
+            return;
+        }
+
+        if (action === 'add') {
+            window.vscode.postMessage({
+                type: 'add-project',
+                groupId,
+            });
+            return;
+        }
+
+        var collapsed = groupDiv.classList.contains('collapsed');
+        if (action === 'collapse') {
+            groupDiv.classList.toggle('collapsed');
+            collapsed = groupDiv.classList.contains('collapsed');
+        }
+
+        window.vscode.postMessage({
+            type: action + '-group',
+            groupId,
+            collapsed,
+        });
+        syncCollapseButton();
+    }
+
     function syncCollapseButton() {
         var activeTab = getActiveDashboardTab();
         var groups = getActiveCollapsibleGroups();
@@ -1608,6 +1642,7 @@ function initProjectGroupCollapse() {
 
     return {
         setGroupCollapsed: setGroupCollapsed,
+        onInsideGroupClick: onInsideGroupClick,
         syncCollapseButton: syncCollapseButton,
         toggleAllGroups: toggleAllGroups,
     };
@@ -7747,13 +7782,9 @@ function initProjects() {
 
         var groupDiv = e.target.closest('.group');
         if (groupDiv) {
+            groupCollapse.onInsideGroupClick(e, groupDiv);
             return;
         }
-    }
-
-    function onChangeEvent(e) {
-        if (!e.target)
-            return;
     }
 
     function updateStickyGroupHeaderOffset() {
@@ -7962,7 +7993,6 @@ function initProjects() {
         aiSessionControls.closeAiSessionWorktreeMenu();
     });
 
-    document.addEventListener('change', onChangeEvent);
     document.addEventListener('mousedown', (e) => {
         if (e.target.closest('.codex-session-row')) {
             return;
@@ -9961,11 +9991,19 @@ function normalizeDashboardSearchCatalog(value) {
         && Array.isArray(value.worktrees)
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
-        && !Object.prototype.hasOwnProperty.call(value, 'todos')
+        && Array.isArray(value.todos)
         && (value.skills === undefined || Array.isArray(value.skills))) {
         return value;
     }
-    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] };
+    return {
+        version: 3,
+        sessions: [],
+        worktrees: [],
+        openWorkspaces: [],
+        savedProjects: [],
+        // Preserve the v3 wire shape; TODO search results are intentionally ignored.
+        todos: [],
+    };
 }
 
 function replaceDashboardSearchCatalogState(state, catalog) {

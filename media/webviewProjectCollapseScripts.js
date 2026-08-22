@@ -82,6 +82,40 @@ function initProjectGroupCollapse() {
         }
     }
 
+    function onInsideGroupClick(e, groupDiv) {
+        var groupId = groupDiv.getAttribute('data-group-id');
+        if (groupId == null) {
+            return;
+        }
+
+        var actionDiv = e.target.closest('[data-action]');
+        var action = actionDiv != null ? actionDiv.getAttribute('data-action') : null;
+        if (!action) {
+            return;
+        }
+
+        if (action === 'add') {
+            window.vscode.postMessage({
+                type: 'add-project',
+                groupId,
+            });
+            return;
+        }
+
+        var collapsed = groupDiv.classList.contains('collapsed');
+        if (action === 'collapse') {
+            groupDiv.classList.toggle('collapsed');
+            collapsed = groupDiv.classList.contains('collapsed');
+        }
+
+        window.vscode.postMessage({
+            type: action + '-group',
+            groupId,
+            collapsed,
+        });
+        syncCollapseButton();
+    }
+
     function syncCollapseButton() {
         var activeTab = getActiveDashboardTab();
         var groups = getActiveCollapsibleGroups();
@@ -106,6 +140,7 @@ function initProjectGroupCollapse() {
 
     return {
         setGroupCollapsed: setGroupCollapsed,
+        onInsideGroupClick: onInsideGroupClick,
         syncCollapseButton: syncCollapseButton,
         toggleAllGroups: toggleAllGroups,
     };

@@ -66,6 +66,8 @@ export interface DashboardWorkspaceSearchCatalog {
     worktrees: DashboardWorkspaceSearchWorktreeItem[];
     openWorkspaces: DashboardSearchWorkspaceItem[];
     savedProjects: DashboardSearchProjectItem[];
+    /** Kept empty for catalog v3 compatibility; TODO results are no longer rendered. */
+    todos: unknown[];
     skills?: DashboardSearchSkillItem[];
 }
 
@@ -299,6 +301,7 @@ export function buildWorkspaceDashboardSearchCatalog(
         worktrees,
         openWorkspaces,
         savedProjects,
+        todos: [],
         ...(skillItems.length ? { skills: skillItems } : {}),
     };
 }

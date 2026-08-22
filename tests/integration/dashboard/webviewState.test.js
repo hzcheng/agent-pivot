@@ -153,6 +153,7 @@ function makeCatalog(suffix = '') {
             name: 'Dashboard', description: '1 folder', action: 'show-current-workspace', current: true,
         }],
         savedProjects: [],
+        todos: [],
     };
 }
 
@@ -1906,8 +1907,9 @@ function createProjectVm({
             && Array.isArray(value.worktrees)
             && Array.isArray(value.openWorkspaces)
             && Array.isArray(value.savedProjects)
+            && Array.isArray(value.todos)
             ? value
-            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
         document: {
             activeElement: activeElement || null,
             body: {
@@ -2441,6 +2443,44 @@ function assertCollapseButtonBehavior(context) {
         disabled: true, collapsed: false, title: 'No groups to collapse in AI',
     });
 }
+
+test('WEBVIEW-GROUP-ACTIONS-001 keeps non-TODO group actions routed and persisted', () => {
+    const harness = createProjectVm();
+    const messages = harness.messages;
+    messages.length = 0;
+    const collapsed = createClassList();
+    const group = {
+        classList: collapsed,
+        getAttribute(name) {
+            return name === 'data-group-id' ? 'group-a' : null;
+        },
+    };
+    const clickAction = action => harness.documentListeners.click({
+        button: 0,
+        target: {
+            closest(selector) {
+                if (selector === '.group') return group;
+                if (selector === '[data-action]') {
+                    return { getAttribute: () => action };
+                }
+                return null;
+            },
+        },
+    });
+
+    clickAction('add');
+    clickAction('edit');
+    clickAction('remove');
+    clickAction('collapse');
+
+    assert.deepEqual(toPlain(messages), [
+        { type: 'add-project', groupId: 'group-a' },
+        { type: 'edit-group', groupId: 'group-a', collapsed: false },
+        { type: 'remove-group', groupId: 'group-a', collapsed: false },
+        { type: 'collapse-group', groupId: 'group-a', collapsed: true },
+    ]);
+    assert.equal(collapsed.contains('collapsed'), true);
+});
 
 test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 exposes disabled and exact action labels for each dashboard tab', () => {
     assertCollapseButtonBehavior(createProjectVm().context);

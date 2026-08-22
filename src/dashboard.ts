@@ -641,9 +641,7 @@ async function initializeDashboard(
         timeBootstrapPhase,
         logError,
         logDashboardDiagnostic,
-        projectService,
         promptStore,
-        getOpenWorkspaceCards,
     });
     const {
         projectSurface,

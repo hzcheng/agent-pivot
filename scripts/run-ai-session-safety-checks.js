@@ -6685,10 +6685,11 @@ function runBatchAiSessionWebviewChecks() {
             && Array.isArray(value.sessions)
             && Array.isArray(value.worktrees)
             && Array.isArray(value.savedProjects)
+            && Array.isArray(value.todos)
             && value.version === 3
             && Array.isArray(value.openWorkspaces)
             ? value
-            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
         document: {
             body: {
                 classList: { toggle: () => {} },

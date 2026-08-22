@@ -160,7 +160,7 @@ async function postAiSessionsUpdate(page, selectedProviders, sequence) {
                 sessions: [],
                 worktrees: [],
                 openWorkspaces: [],
-                savedProjects: [],
+                savedProjects: [], todos: [],
             },
             presentation: {
                 type: 'ai-session-presentation-state',

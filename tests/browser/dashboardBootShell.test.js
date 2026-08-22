@@ -53,6 +53,7 @@ test('WEBVIEW-TWO-STAGE-STARTUP-001 boot shell has bounded geometry and no booti
     const placeholder = page.locator('.agent-pivot-boot-placeholder').first();
     const tabRow = page.locator('[data-agent-pivot-boot-tab-row]');
     const cardArea = page.locator('[data-agent-pivot-boot-card-area]');
+    assert.equal(await tabRow.locator('.agent-pivot-boot-tab').count(), 3);
 
     const [rootBox, placeholderBox, tabRowBox, cardAreaBox] = await Promise.all([
         root.boundingBox(), placeholder.boundingBox(), tabRow.boundingBox(), cardArea.boundingBox(),

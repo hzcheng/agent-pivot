@@ -122,8 +122,9 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
             && Array.isArray(value.worktrees)
             && Array.isArray(value.openWorkspaces)
             && Array.isArray(value.savedProjects)
+            && Array.isArray(value.todos)
             ? value
-            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] },
+            : { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] },
         window: {
             __agentPivotDashboard: {
                 replaceSearchCatalog: catalog => catalogs.push(catalog),
@@ -287,7 +288,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
             { workspaceId: 'other-a', action: 'switch-open-workspace' },
             { workspaceId: 'other-b', action: 'switch-open-workspace' },
         ],
-        savedProjects: [],
+        savedProjects: [], todos: [],
     };
     const switcherRow = (id, kind, identity) =>
         `<div class="open-window-row${kind === 'current' ? ' open-window-row-current' : ''}" role="listitem"`

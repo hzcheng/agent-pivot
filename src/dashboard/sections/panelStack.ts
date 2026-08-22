@@ -10,11 +10,8 @@ import { getPromptSurfaceContent, getAiPanelContent } from '../../prompts/webvie
 import { createSkillPanelCapability } from '../../skills/skillPanelCapability';
 import { SkillGroupStore } from '../../skills/skillGroupStore';
 import { getSkillsPanelContent } from '../../skills/webviewSkillContent';
-import { buildWorkspaceDashboardSearchCatalog } from '../../webview/dashboardViewModel';
 import { getAgentPivotConfiguration } from '../../configuration';
-import type { WorkspaceCardViewModel } from '../../models';
 import type { AgentPivotViewProvider } from '../viewProvider';
-import type ProjectService from '../../services/projectService';
 import type { DashboardBootstrapResources } from '../bootstrapResources';
 
 /**
@@ -30,9 +27,7 @@ export interface PanelStackDeps {
     timeBootstrapPhase: <T>(phase: string, run: () => T | Promise<T>) => Promise<T>;
     logError: (message: string, error: unknown) => void;
     logDashboardDiagnostic: (event: Record<string, unknown>) => void;
-    projectService: ProjectService;
     promptStore: { readSetting: () => unknown; writeGlobalSetting: (value: unknown) => Promise<void> };
-    getOpenWorkspaceCards: () => WorkspaceCardViewModel[];
 }
 
 export interface PanelStack {
@@ -44,7 +39,7 @@ export interface PanelStack {
 export function createPanelStack(deps: PanelStackDeps): PanelStack {
     const {
         context, provider, ownResource, timeBootstrapPhase,
-        logError, logDashboardDiagnostic, projectService, promptStore, getOpenWorkspaceCards,
+        logError, logDashboardDiagnostic, promptStore,
     } = deps;
 
     const promptService = new PromptService({

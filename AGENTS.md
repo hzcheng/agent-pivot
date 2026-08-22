@@ -60,5 +60,5 @@ both).
 
 - Dashboard webview HTML/icons: `src/webview/webviewContent.ts`,
   `src/webview/webviewIcons.ts`; webview scripts/styles: `media/`
-- AI sessions: `src/aiSessions/`; TODOs: `src/todos/`; prompts: `src/prompts/`
+- AI sessions: `src/aiSessions/`; prompts: `src/prompts/`
 - Behavior catalog: `docs/testing/behavior-contracts.json`

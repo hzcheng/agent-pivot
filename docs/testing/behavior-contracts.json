@@ -6241,6 +6241,59 @@
     ]
   },
   {
+    "id": "PROJECT-GROUP-COLLAPSE-CONTROLLER-001",
+    "domain": "project",
+    "title": "Group collapse persists saved and virtual group state through the project service",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/controllers.test.js"
+    ],
+    "evidence": [
+      "src/dashboard/groupCollapseController.ts"
+    ]
+  },
+  {
+    "id": "PROJECT-GROUP-PROMPT-001",
+    "domain": "project",
+    "title": "Group prompts validate names and expose user cancellation through the public token",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/controllers.test.js"
+    ],
+    "evidence": [
+      "src/projects/groupPrompts.ts"
+    ]
+  },
+  {
+    "id": "PROJECT-GROUP-COMMAND-CONTROLLER-001",
+    "domain": "project",
+    "title": "Group commands mutate through the project service and suppress only user cancellation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/controllers.test.js"
+    ],
+    "evidence": [
+      "src/projects/groupCommandController.ts"
+    ]
+  },
+  {
+    "id": "WEBVIEW-GROUP-ACTIONS-001",
+    "domain": "webview",
+    "title": "Non-TODO group actions route add, edit, remove, and collapse intents to the host without TODO panel controllers",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewProjectCollapseScripts.js",
+      "src/webview/webviewProjectScripts.js"
+    ]
+  },
+  {
     "id": "WORKTREE-GROUPS-CREATE-HANDLER-001",
     "domain": "session",
     "title": "The worktree group form message family (open/preview/confirm/retry/dismiss) follows the accepted-to-settled chain: parse fail-closed, every accepted request owes exactly one terminal settlement, and the confirm family has no replay cache (the single-use preview token rejects replays)",

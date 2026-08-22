@@ -672,7 +672,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and caret through authori
         html: currentGroupHtml(),
         searchCatalog: {
             version: 3, sessions: [], worktrees: [], openWorkspaces: [],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage(1),
     });
@@ -703,7 +703,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and caret through authori
         html: openWindowSwitcherHtml() + currentGroupHtml(),
         searchCatalog: {
             version: 3, sessions: [], worktrees: [],
-            openWorkspaces: [{ identity: 'project-a' }], savedProjects: [],
+            openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
         },
         presentation: presentationMessage(2),
     });

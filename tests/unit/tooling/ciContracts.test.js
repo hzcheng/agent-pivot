@@ -149,7 +149,7 @@ test('ARCH-MAIN-CAPABILITY-COVERAGE-001 requires full Git history in the Linux q
     );
 });
 
-test('ARCH-CI-QUALITY-GATE-002 requires pinned Chromium in the Linux quality job', () => {
+test('ARCH-CI-QUALITY-GATE-001 requires pinned Chromium in the Linux quality job', () => {
     const missingChromiumWorkflow = verifyWorkflow.replace(
         '            if timeout --kill-after=10s 120s npx playwright install --only-shell chromium; then',
         '            if npx playwright --version; then'

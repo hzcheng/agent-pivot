@@ -937,7 +937,7 @@ test('WORKTREE-GROUPS-UI-001 open-workspaces updates preserve the current list a
             html: replacementHtml,
             searchCatalog: {
                 version: 3, sessions: [], worktrees: [],
-                openWorkspaces: [{ identity: 'project-a' }], savedProjects: [],
+                openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
             },
         }),
         switcherGroup + currentGroup

@@ -500,13 +500,9 @@ function initProjects() {
 
         var groupDiv = e.target.closest('.group');
         if (groupDiv) {
+            groupCollapse.onInsideGroupClick(e, groupDiv);
             return;
         }
-    }
-
-    function onChangeEvent(e) {
-        if (!e.target)
-            return;
     }
 
     function updateStickyGroupHeaderOffset() {
@@ -715,7 +711,6 @@ function initProjects() {
         aiSessionControls.closeAiSessionWorktreeMenu();
     });
 
-    document.addEventListener('change', onChangeEvent);
     document.addEventListener('mousedown', (e) => {
         if (e.target.closest('.codex-session-row')) {
             return;

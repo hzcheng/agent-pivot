@@ -134,7 +134,6 @@ export function getStewardContent(
                 <span class="dashboard-style-loading-tab active"></span>
                 <span class="dashboard-style-loading-tab"></span>
                 <span class="dashboard-style-loading-tab"></span>
-                <span class="dashboard-style-loading-tab"></span>
             </div>
             <div class="dashboard-style-loading-cards" aria-hidden="true">
                 <span class="dashboard-style-loading-card"></span>

@@ -894,6 +894,11 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete three-tab Dashboard s
             const page = await browser.newPage({ viewport: { width, height: 700 } });
             try {
                 await page.setContent(dashboardHtml);
+                assert.equal(
+                    await page.locator('.dashboard-style-loading-tab').count(),
+                    3,
+                    'the startup skeleton must match the three-tab dashboard'
+                );
                 const layout = await page.evaluate(() => {
                     const viewportWidth = document.documentElement.clientWidth;
                     const boundsOf = element => {

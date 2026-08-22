@@ -14,7 +14,6 @@ function bootShellContent(): string {
             <span class="agent-pivot-boot-tab agent-pivot-boot-tab-active"></span>
             <span class="agent-pivot-boot-tab"></span>
             <span class="agent-pivot-boot-tab"></span>
-            <span class="agent-pivot-boot-tab"></span>
         </div>
         <div class="agent-pivot-boot-card-area" data-agent-pivot-boot-card-area aria-hidden="true">
             <div class="agent-pivot-boot-placeholder"></div>

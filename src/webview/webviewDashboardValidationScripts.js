@@ -170,11 +170,19 @@ function normalizeDashboardSearchCatalog(value) {
         && Array.isArray(value.worktrees)
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
-        && !Object.prototype.hasOwnProperty.call(value, 'todos')
+        && Array.isArray(value.todos)
         && (value.skills === undefined || Array.isArray(value.skills))) {
         return value;
     }
-    return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [] };
+    return {
+        version: 3,
+        sessions: [],
+        worktrees: [],
+        openWorkspaces: [],
+        savedProjects: [],
+        // Preserve the v3 wire shape; TODO search results are intentionally ignored.
+        todos: [],
+    };
 }
 
 function replaceDashboardSearchCatalogState(state, catalog) {

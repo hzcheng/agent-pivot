@@ -317,7 +317,7 @@ async function postListAiSessionsUpdate(
             generatedAt: '2026-08-11T00:00:00.000Z',
             currentWorkspaceCount: 1, html: htmlValue,
             searchCatalog: {
-                version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [],
+                version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [],
             },
             presentation: presentationValue,
         } }));
@@ -345,7 +345,7 @@ async function postListOpenWorkspacesUpdate(
             html: htmlValue,
             searchCatalog: {
                 version: 3, sessions: [], worktrees: [], openWorkspaces: [{ identity: 'project-a' }],
-                savedProjects: [],
+                savedProjects: [], todos: [],
             },
             presentation: presentationValue,
         } }));
@@ -600,7 +600,7 @@ function aiSessionsEnvelope(activeSessions, projectionRevision, options = {}) {
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation,
     };
@@ -629,7 +629,7 @@ function openWorkspacesEnvelope(activeSessions, projectionRevision, options = {}
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation,
     };
@@ -1223,7 +1223,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy AI upd
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
     });
 
@@ -1257,7 +1257,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy OPEN u
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
     });
 
@@ -1330,7 +1330,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and c
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession], 2, {
             attention: { 'codex:session-a': ['event-a', 'event-b'] },
@@ -1377,7 +1377,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession], 2, {
             attention: {
@@ -1425,7 +1425,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession, otherSession], 2, {
             attention: { 'codex:session-a': ['event-a', 'event-b'] },
@@ -1477,7 +1477,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelo
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession, otherSession], 2, {
             attention: {
@@ -1541,7 +1541,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes AI
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([
             attentionSession,
@@ -1609,7 +1609,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OP
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([
             attentionSession,
@@ -1656,7 +1656,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid pr
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage(replacement, 3),
     });
@@ -1691,7 +1691,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid OP
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage(replacement, 3),
     });
@@ -1915,7 +1915,7 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps acknowledgement pending u
                 renderedSession,
             ])}</div>`,
             searchCatalog: {
-                version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [],
+                version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [],
             },
             presentation: presentationMessage([renderedSession], projectionRevision, {
                 attention: { 'codex:session-a': attention },

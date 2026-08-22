@@ -536,7 +536,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab routes row clicks and keep
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'alpha' }, { identity: 'beta' }],
-            savedProjects: [],
+            savedProjects: [], todos: [],
         },
         presentation: {
             type: 'ai-session-presentation-state',
@@ -682,7 +682,7 @@ function makeSwitcherCatalog(cards) {
         sessions: [],
         worktrees: [],
         openWorkspaces: cards.map(card => ({ identity: card.navigationIdentity })),
-        savedProjects: [],
+        savedProjects: [], todos: [],
     };
 }
 

@@ -41,6 +41,11 @@ import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import type { AiSessionPresentationStateMessage } from '../aiSessions/types';
 import { buildOpenWindowRowViewModels } from '../openWorkspaces/windowRowViewModel';
 import { getOpenWindowMenu, getOpenWindowSwitcherGroupContent } from './webviewWindowSwitcherContent';
+import {
+    getWorkspaceIcon,
+    getWorkspaceIconTitle,
+    getWorkspaceRemoteType,
+} from './workspaceIconPresentation';
 
 const FAVORITES_GROUP_NAME = 'FAVORITES';
 const DEFAULT_MAX_VISIBLE_PROJECTS_PER_GROUP = 5;
@@ -340,8 +345,8 @@ export function getOpenWorkspacesGroupContent(
             ? 0
             : left.kind === 'current' ? -1 : 1);
     }
-    // 状态条占固定槽位（24px，见 styles.scss .open-window-switcher-status）：
-    // 文案单行省略，title 承载全量。
+    // 状态条只在 bridge 需要向用户说明状态时出现；ready 时不留空白行，
+    // 让 WINDOWS 标签紧贴窗口条目。文案单行省略，title 承载全量。
     const statusContent = otherWindowsStatus === 'update-required'
         ? `<div class="open-other-windows-state" role="status">
             <p title="Update the Agent Pivot UI Bridge extension to restore all open windows.">Update the Agent Pivot UI Bridge extension to restore all open windows.</p>
@@ -384,18 +389,6 @@ function getRunningSessionSurfaceFx(
         ? `<div class="project-session-fx open-session-surface-fx" data-session-fx="${sessionFx}"></div>`
         : '';
 }
-
-function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment']): ProjectRemoteType {
-    switch (environment) {
-        case 'ssh': return ProjectRemoteType.SSH;
-        case 'wsl': return ProjectRemoteType.WSL;
-        case 'devContainer': return ProjectRemoteType.DevContainer;
-        case 'remote': return ProjectRemoteType.Remote;
-        case 'local':
-        default: return ProjectRemoteType.None;
-    }
-}
-
 
 export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): string {
     var configuredMaxVisibleProjects = infos.config.get(
@@ -641,8 +634,8 @@ function getProjectDiv(
     var projectName = escapeAttribute(sanitizeProjectName(project.name));
     var searchText = escapeAttribute(getProjectSearchText(project));
     var escapedDescription = escapeAttribute(description);
-    var projectIcon = getProjectIcon(remoteType);
-    var projectIconTitle = getProjectIconTitle(remoteType);
+    var projectIcon = getWorkspaceIcon(remoteType);
+    var projectIconTitle = getWorkspaceIconTitle(remoteType);
     var favoriteTitle = project.favorite ? 'Remove From Favorites' : 'Add To Favorites';
     var projectActions = options.readOnlyProjects
         ? ''
@@ -722,33 +715,6 @@ export function getProjectSearchText(project: Project): string {
     return `${project.name || ''} ${description} ${aiSessionSearchText}`.toLowerCase();
 }
 
-
-function getProjectIcon(remoteType: ProjectRemoteType): string {
-    switch (remoteType) {
-        case ProjectRemoteType.SSH:
-        case ProjectRemoteType.WSL:
-        case ProjectRemoteType.Remote:
-            return Icons.terminal;
-        case ProjectRemoteType.DevContainer:
-            return Icons.container;
-        default:
-            return Icons.folder;
-    }
-}
-
-function getProjectIconTitle(remoteType: ProjectRemoteType): string {
-    switch (remoteType) {
-        case ProjectRemoteType.SSH:
-            return 'SSH Project';
-        case ProjectRemoteType.DevContainer:
-            return 'Dev Container Project';
-        case ProjectRemoteType.WSL:
-        case ProjectRemoteType.Remote:
-            return 'Remote Project';
-        default:
-            return 'Local Project';
-    }
-}
 
 function escapeStyleValue(value: string): string {
     return (value || '').replace(/[;"<>]/g, '').trim();

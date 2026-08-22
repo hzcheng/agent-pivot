@@ -1147,6 +1147,49 @@ body .project {
         max-height: min(216px, 40%);
         display: flex;
         flex-direction: column;
+        // WINDOWS is a persistent navigation rail, not a normal Dashboard
+        // card group. Keep its label quiet and attach the first row directly
+        // below it so the OPEN surface starts with useful content.
+        margin: 4px 0 0;
+        padding: 0 0 4px;
+        border-bottom: 1px solid var(--vscode-panel-border);
+
+        .open-window-switcher-header {
+            min-width: 0;
+            min-height: 20px;
+            padding: 0 6px;
+            border-bottom: 1px solid var(--vscode-panel-border, currentColor);
+            color: var(--vscode-descriptionForeground);
+            background: transparent;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: .08em;
+
+            .group-title-text {
+                margin-right: 0;
+                cursor: default;
+            }
+
+            .open-window-count {
+                min-width: 16px;
+                margin-right: 0;
+                padding: 1px 5px;
+                border: 0;
+                background: rgba(127, 127, 127, .14);
+                color: inherit;
+                font-size: 9px;
+                font-weight: 700;
+                line-height: 1.2;
+                text-align: center;
+            }
+        }
+
+        // A ready bridge contributes no message. Do not reserve a vacant
+        // status row between the label and the window list in that state.
+        .open-window-switcher-status:empty {
+            display: none;
+        }
 
         .open-window-switcher-list {
             flex: 1 1 auto;
@@ -1371,12 +1414,19 @@ body .project {
 
         .open-window-icon {
             flex: 0 0 auto;
-            display: flex;
-            opacity: 0.7;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            border: 1px solid transparent;
+            border-radius: 999px;
+            background: var(--vscode-sideBar-background);
+            color: var(--steward-foreground);
 
             svg {
-                width: 14px;
-                height: 14px;
+                width: 13px;
+                height: 13px;
                 fill: currentColor;
             }
         }
@@ -1385,15 +1435,6 @@ body .project {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-        }
-
-        .open-window-env-chip {
-            flex: 0 0 auto;
-            font-size: 10px;
-            padding: 0 5px;
-            border-radius: 3px;
-            background: var(--vscode-badge-background);
-            color: var(--vscode-badge-foreground);
         }
 
         .open-window-jump-hint {
@@ -1430,6 +1471,10 @@ body .project {
 
     &.open-window-row-current:hover {
         background: var(--vscode-list-inactiveSelectionBackground);
+    }
+
+    &:not(.open-window-row-current):not(.open-window-row-disabled) {
+        cursor: pointer;
     }
 
     &:focus-visible,
@@ -1486,7 +1531,19 @@ body .project {
     }
 
     .open-window-attention {
-        color: var(--vscode-editorWarning-foreground);
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 3px;
+        color: var(--vscode-errorForeground, var(--vscode-editorError-foreground, #f14c4c));
+    }
+
+    .open-window-attention-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, .12);
     }
 
     .open-window-pin,
@@ -1530,8 +1587,7 @@ body .project {
 
 @media (max-width: 279px) {
     .open-window-row {
-        .open-window-pin,
-        .open-window-env-chip {
+        .open-window-pin {
             display: none;
         }
     }

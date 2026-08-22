@@ -8,6 +8,7 @@ import type { OpenWindowRowViewModel } from '../openWorkspaces/windowRowViewMode
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import { escapeAttribute } from '../webviewHtmlEscape';
 import * as Icons from '../webviewIcons';
+import { getWorkspaceIcon, getWorkspaceIconTitle } from './workspaceIconPresentation';
 
 export const OPEN_WINDOW_SWITCHER_GROUP_ID = 'open-window-switcher';
 
@@ -48,9 +49,8 @@ export function getOpenWindowRowHtml(
     const escapedName = escapeAttribute(row.displayName);
     const escapedCardId = escapeAttribute(row.cardId);
     const escapedIdentity = escapeAttribute(row.navigationIdentity);
-    const envChip = row.environmentLabel && row.environmentLabel !== 'Local'
-        ? `<span class="open-window-env-chip">${escapeAttribute(row.environmentLabel)}</span>`
-        : '';
+    const workspaceIcon = getWorkspaceIcon(row.remoteType);
+    const workspaceIconTitle = getWorkspaceIconTitle(row.remoteType);
     const focusLabel = isCurrent
         ? `Current window: ${row.fullName}`
         : `Focus window: ${row.fullName}`;
@@ -67,13 +67,12 @@ export function getOpenWindowRowHtml(
     return `<div class="open-window-row${isCurrent ? ' open-window-row-current' : ''}${row.pinned ? ' open-window-row-pinned' : ''}${disabled ? ' open-window-row-disabled' : ''}" role="listitem" data-open-window-row data-id="${escapedCardId}" data-workspace-navigation-identity="${escapedIdentity}" data-window-kind="${row.kind}"${disabled ? ' data-navigation-disabled="true"' : ''}${row.canPin === false ? ' data-can-pin="false"' : ''}>
     <span class="open-window-indicator" aria-hidden="true"></span>
     <button type="button" class="open-window-focus" data-action="focus-open-window" title="${escapeAttribute(tooltip)}" aria-label="${escapeAttribute(focusLabel)}"${focusAria ? ' ' + focusAria : ''}>
-        <span class="open-window-icon" aria-hidden="true">${Icons.remote}</span>
+        <span class="open-window-icon" title="${workspaceIconTitle}" aria-hidden="true">${workspaceIcon}</span>
         <span class="open-window-name">${escapedName}</span>
-        ${envChip}
         <span class="open-window-jump-hint" aria-hidden="true">&#8599;</span>
     </button>
     ${getCountSlot(row.runningCount, 'open-window-running', '\u25CF', count => `${count} session${count === 1 ? '' : 's'} running in this window`, 'No running sessions')}
-    ${getCountSlot(row.attentionCount, 'open-window-attention', '\u26A0', count => `${count} session${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} attention in this window`, 'Nothing needs attention')}
+    ${getCountSlot(row.attentionCount, 'open-window-attention', '<span class="open-window-attention-dot" aria-hidden="true"></span>', count => `${count} session${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} attention in this window`, 'Nothing needs attention')}
     ${pinButton}
     <button type="button" class="open-window-more" data-action="open-window-menu" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
     <button type="button" class="open-window-retry" data-action="retry-open-window-navigation" hidden>Retry</button>

@@ -71,10 +71,10 @@ function renderSwitcherHtml() {
             name: 'alpha', runningSessionCount: 2, attentionCount: 1, pinned: true,
         }),
         makeCard('__openWorkspaceNavigation-' + 'b'.repeat(24), 'navigation', {
-            name: 'beta', runningSessionCount: 1,
+            name: 'beta', runningSessionCount: 1, environment: 'ssh', environmentLabel: 'SSH',
         }),
         makeCard('__openWorkspaceNavigation-' + 'c'.repeat(24), 'navigation', {
-            name: 'gamma',
+            name: 'gamma', environment: 'devContainer', environmentLabel: 'Dev Container',
         }),
     ]);
     return getOpenWindowSwitcherGroupContent(rows, 'ready');
@@ -135,6 +135,8 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
                 runningAria: row.querySelector('.open-window-running').getAttribute('aria-label'),
                 attentionAria: row.querySelector('.open-window-attention').getAttribute('aria-label'),
             })),
+            iconTitles: rows.map(row => row.querySelector('.open-window-icon').getAttribute('title')),
+            environmentChipCount: document.querySelectorAll('.open-window-env-chip').length,
             pinPressed: rows.map(row => row.querySelector('[data-action="toggle-open-workspace-pin"]').getAttribute('aria-pressed')),
             moreHaspopup: rows.map(row => row.querySelector('[data-action="open-window-menu"]').getAttribute('aria-haspopup')),
         };
@@ -151,10 +153,12 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
     assert.match(structure.navigation.title, /^Focus window: beta/);
     // 运行/待处理为 0 时留空但保留槽位（含 aria-label）。
     assert.deepEqual(structure.counts, [
-        { running: '●2', attention: '⚠1', runningAria: '2 sessions running in this window', attentionAria: '1 session needs attention in this window' },
+        { running: '●2', attention: '1', runningAria: '2 sessions running in this window', attentionAria: '1 session needs attention in this window' },
         { running: '●1', attention: '', runningAria: '1 session running in this window', attentionAria: 'Nothing needs attention' },
         { running: '', attention: '', runningAria: 'No running sessions', attentionAria: 'Nothing needs attention' },
     ]);
+    assert.deepEqual(structure.iconTitles, ['Local Project', 'SSH Project', 'Dev Container Project']);
+    assert.equal(structure.environmentChipCount, 0);
     assert.deepEqual(structure.pinPressed, ['true', 'false', 'false']);
     assert.deepEqual(structure.moreHaspopup, ['menu', 'menu', 'menu']);
 });
@@ -380,6 +384,33 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
     assert.equal(narrowPinVisible, false);
 });
 
+test('OPEN-WINDOW-SWITCHER-UI-001 keeps the ready WINDOWS label compact and flush with its rows', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'f'.repeat(24), 'current', { name: 'alpha' });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'g'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+    const layout = await page.evaluate(() => {
+        const header = document.querySelector('.open-window-switcher-header');
+        const status = document.querySelector('[data-open-window-switcher-status]');
+        const firstRow = document.querySelector('[data-open-window-row]');
+        const headerBox = header.getBoundingClientRect();
+        const rowBox = firstRow.getBoundingClientRect();
+        return {
+            headerHeight: Math.round(headerBox.height),
+            headerFontSize: getComputedStyle(header).fontSize,
+            headerBorderBottomWidth: getComputedStyle(header).borderBottomWidth,
+            statusDisplay: getComputedStyle(status).display,
+            rowGap: Math.round(rowBox.top - headerBox.bottom),
+        };
+    });
+
+    assert.equal(layout.statusDisplay, 'none', 'ready state must not reserve a blank status row');
+    assert.equal(layout.headerFontSize, '10px');
+    assert.equal(layout.headerBorderBottomWidth, '1px',
+        'a hairline separates the WINDOWS label from its rows');
+    assert.ok(layout.headerHeight <= 20, 'the navigation label stays smaller than a card header');
+    assert.ok(layout.rowGap <= 1, 'the first window row follows the label without a visual gap');
+});
+
 // --- production OPEN tab end-to-end (PR-B) ---------------------------------
 
 function loadWithFakeVscode(requestPath) {
@@ -588,9 +619,11 @@ test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab routes row clicks and keep
         'reconcile replays the pending navigation state after the replacement');
     assert.equal(
         await navigationRow.locator('.open-window-attention').textContent(),
-        '⚠2',
+        '2',
         'the refreshed row adopts the authoritative attention count',
     );
+    assert.equal(await navigationRow.locator('.open-window-attention-dot').count(), 1,
+        'the refreshed attention count keeps its red-dot marker');
 
     posted = await page.evaluate(() => window.__postedMessages);
     const receipt = posted.find(message => message.type === 'open-workspaces-rendered');
@@ -618,6 +651,27 @@ test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab routes row clicks and keep
         });
     }, navigationCard.id);
     assert.equal(await navigationRow.getAttribute('data-navigation-state'), null);
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 tail clicks switch windows without stealing dedicated row actions', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 'h'.repeat(24), 'current', { name: 'alpha' });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'i'.repeat(24), 'navigation', {
+        name: 'beta', runningSessionCount: 2, attentionCount: 1,
+    });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+    const navigationRow = page.locator(`[data-open-window-row][data-id="${navigationCard.id}"]`);
+
+    await navigationRow.locator('.open-window-running').click();
+    let posted = await page.evaluate(() => window.__postedMessages);
+    assert.deepEqual(posted.filter(message => message.type === 'open-window-navigation-request'), [{
+        type: 'open-window-navigation-request', version: 1, requestId: 1, cardId: navigationCard.id,
+    }], 'the fixed running-count slot is part of the window-switch hit area');
+
+    await navigationRow.locator('[data-action="open-window-menu"]').click();
+    posted = await page.evaluate(() => window.__postedMessages);
+    assert.equal(posted.filter(message => message.type === 'open-window-navigation-request').length, 1,
+        'the ⋯ menu remains the only non-switching region at the row tail');
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 1);
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 arrow keys move focus between rows and the more menu opens with keyboard dismissal', async t => {
@@ -782,7 +836,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 empty window accepts incremental ai-sessions u
         'the empty state stays rendered after the incremental update');
 });
 
-test('OPEN-WINDOW-SWITCHER-UI-001 bridge status transitions keep the switcher geometry constant', async t => {
+test('OPEN-WINDOW-SWITCHER-UI-001 bridge status appears only when it has a user-visible message', async t => {
     const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
     const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
     const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
@@ -801,21 +855,27 @@ test('OPEN-WINDOW-SWITCHER-UI-001 bridge status transitions keep the switcher ge
     });
 
     const ready = await measure();
-    assert.ok(ready.statusHeight > 0,
-        'the status slot stays reserved while the bridge is ready (fixed slot, zero displacement)');
+    assert.equal(ready.statusHeight, 0,
+        'a ready bridge does not reserve a blank status row');
     assert.equal(ready.rowTops.length, 2);
 
     let revision = 10;
-    for (const status of ['connecting', 'unavailable', 'update-required', 'ready']) {
+    for (const status of ['connecting', 'unavailable', 'update-required']) {
         await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], status, ++revision);
         const next = await measure();
-        assert.deepEqual(next, ready,
-            `bridge status "${status}" must not shift the switcher geometry`);
+        assert.ok(next.statusHeight > 0,
+            `bridge status "${status}" receives a visible status row`);
+        assert.equal(next.listTop - ready.listTop, next.statusHeight,
+            `bridge status "${status}" moves the list only by its own message height`);
     }
-    // The status text still renders inside the fixed slot.
+    // The status text renders only when it has a message.
     await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], 'connecting', ++revision);
     assert.match(await page.locator('[data-open-window-switcher-status]').textContent() || '',
         /Looking for your other open windows/);
+
+    await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], 'ready', ++revision);
+    assert.deepEqual(await measure(), ready,
+        'returning to ready removes the status row and restores the compact layout');
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 v4 replacement restores focus to the same row control', async t => {

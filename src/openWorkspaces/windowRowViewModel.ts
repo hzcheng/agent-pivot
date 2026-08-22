@@ -8,6 +8,8 @@ import type { WorkspaceCardViewModel } from '../models';
 import { sanitizeProjectName } from '../models';
 import { removeWorkspaceWindowDecorations } from '../workspaces/contextResolver';
 import { resolveWindowDisplayNames } from './windowDisplayNames';
+import { getWorkspaceRemoteType } from '../webview/workspaceIconPresentation';
+import { ProjectRemoteType } from '../models';
 
 export interface OpenWindowRowViewModel {
     cardId: string;
@@ -17,6 +19,7 @@ export interface OpenWindowRowViewModel {
     displayName: string;
     /** Undisambiguated workspace name for tooltips. */
     fullName: string;
+    remoteType: ProjectRemoteType;
     environmentLabel: string;
     runningCount: number;
     attentionCount: number;
@@ -51,6 +54,7 @@ export function buildOpenWindowRowViewModels(
         navigationIdentity: card.navigationIdentity,
         displayName: displayNames.get(card.id) || cleanName(card.name),
         fullName: cleanName(card.name),
+        remoteType: getWorkspaceRemoteType(card.environment),
         environmentLabel: card.environmentLabel || '',
         runningCount: Math.max(0, Math.floor(card.runningSessionCount || 0)),
         attentionCount: Math.max(0, Math.floor(card.attentionCount || 0)),

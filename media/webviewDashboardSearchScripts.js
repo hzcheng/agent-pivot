@@ -23,7 +23,6 @@ function filterDashboardCatalog(catalog, query) {
         { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
-        { id: 'todos', title: 'TODO RESULTS', type: 'todo', items: catalog.todos },
         { id: 'skills', title: 'SKILLS', type: 'skill', items: catalog.skills || [] },
     ];
     return sections
@@ -106,25 +105,6 @@ function renderDashboardSearchResults(container, sections) {
                 button.dataset.searchAction = 'reveal-skill';
                 button.dataset.skillDir = String(item.dirPath || '');
                 metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
-            } else if (section.type === 'todo') {
-                button.dataset.searchAction = 'show-todo';
-                button.dataset.todoId = String(item.todoId || '');
-                button.dataset.groupId = String(item.groupId || '');
-                button.classList.toggle('completed', item.completed === true);
-                var groupBadge = document.createElement('span');
-                groupBadge.className = 'dashboard-search-result-group steward-badge';
-                groupBadge.textContent = String(item.groupTitle || '');
-                metadata.appendChild(groupBadge);
-                var priority = document.createElement('span');
-                priority.className = 'dashboard-search-result-priority';
-                priority.textContent = String(item.priority || '').toUpperCase();
-                metadata.appendChild(priority);
-                if (item.completed === true) {
-                    var status = document.createElement('span');
-                    status.className = 'dashboard-search-result-status';
-                    status.textContent = 'Completed';
-                    metadata.appendChild(status);
-                }
             } else {
                 button.dataset.searchAction = 'open-saved-project';
                 metadata.textContent = [item.description].concat(item.groupLabels || []).filter(Boolean).join(' · ');

@@ -35,10 +35,8 @@ media/brand/**
 !media/webviewDashboardBundle.js
 !media/webviewAiSessionViewStateScripts.js
 !media/webviewWorkspaceUpdateScripts.js
-!media/webviewTodoGroupScripts.js
 !media/webviewProjectCollapseScripts.js
 !media/webviewOpenWindowNavigationScripts.js
-!media/webviewTodoControlScripts.js
 !media/webviewProjectContextMenuScripts.js
 !media/webviewProjectAiUpdateScripts.js
 !media/webviewProjectAiSessionControlsScripts.js
@@ -48,12 +46,9 @@ media/brand/**
 !media/webviewDashboardValidationScripts.js
 !media/webviewDashboardSearchScripts.js
 !media/webviewDashboardProjectsPanelScripts.js
-!media/webviewDashboardTodoPanelScripts.js
 !media/webviewDashboardAiPanelScripts.js
 !media/webviewPromptProtocolScripts.js
 !media/webviewPromptScripts.js
-!media/webviewTodoRenderScripts.js
-!media/webviewTodoScripts.js
 !media/conversationMermaidScripts.js
 !media/conversationReadingAnchorScripts.js
 !media/conversationOutlineScripts.js

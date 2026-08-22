@@ -1,7 +1,6 @@
 'use strict';
 
 import type * as vscode from 'vscode';
-import type { TodoSearchCatalogItem } from './todos/types';
 import { StorageOption, VSCODE_REMOTE_PREFIX, WSL_DEFAULT_REGEX } from "./constants";
 import type { AiSessionAttentionReason } from './aiSessions/lifecycle';
 import type { ActiveAiSessionViewModel, AiSessionTabId, WorkspaceAiSessionViewModel } from './aiSessions/types';
@@ -208,7 +207,6 @@ export interface StewardInfos {
     config: vscode.WorkspaceConfiguration;
     otherStorageHasData: boolean;
     favoritesGroupCollapsed?: boolean;
-    todoSearchItems?: TodoSearchCatalogItem[];
     skills?: import('./skills/types').SkillRecord[];
 }
 

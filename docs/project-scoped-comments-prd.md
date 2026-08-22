@@ -14,7 +14,7 @@ Agent Pivot 的 AI Conversation viewer 已提供批注（comment）能力：选�
 - 一个奇思妙想、一个优化点、一条待办；
 - 需要跨 session 共享的上下文（「这个项目统一用 pnpm」）。
 
-这类内容今天没有归属：记成 Session note 会错误地绑定在当前 session 上；记到 TODO tab 又是机器全局的长期规划，粒度不对。用户需要的是一块**项目级的速记与工作项区域**：本项目所有 session 可见、可分类、可随手派发给本项目任意 session 执行。
+这类内容今天没有归属：记成 Session note 会错误地绑定在当前 session 上，而机器全局的长期规划粒度也不对。用户需要的是一块**项目级的速记与工作项区域**：本项目所有 session 可见、可分类、可随手派发给本项目任意 session 执行。
 
 ## 2. 目标
 
@@ -23,7 +23,7 @@ Agent Pivot 的 AI Conversation viewer 已提供批注（comment）能力：选�
 - 项目笔记支持**自由 tag**：卡片上增删 tag，分区顶部按 tag 过滤。
 - 项目笔记可**一键发送到当前 viewer 的 session** 输入框（复用现有 staging 管线），发送不置为完成，保留派发历史。
 - 捕获成本极低：速记输入框常驻项目分区顶部；选中文本可一键存为项目笔记（引用文本降级为出处快照）。
-- 不改动 Dashboard 的任何 tab（OPEN 保持干净、不加 tab、TODO 不动）。
+- 不改动 Dashboard 的任何 tab（OPEN 保持干净、不加 tab）。
 
 ## 3. 非目标
 
@@ -39,20 +39,18 @@ Agent Pivot 的 AI Conversation viewer 已提供批注（comment）能力：选�
 
 ## 4. 产品定位
 
-批注体系由此形成三个层次，各司其职：
+批注体系由此形成两个层次，各司其职：
 
 | 层次 | 回答的问题 | 作用域 | 存储 key | 生命周期 |
 | --- | --- | --- | --- | --- |
 | 引用批注 | 这段输出有问题 / 要追问 | 单 session（锚点强制） | `(projectId, provider, sessionId)` | 发送即 done |
 | **项目笔记（本 PRD）** | 这个项目我记了什么、哪条该让谁做 | **项目** | `projectId` | open → 可多次派发 → 手动 done |
-| TODO tab | 我长期规划了什么 | 机器全局 | globalState | open → done |
 
 方案取舍（已讨论并排除的备选）：
 
 - **按「是否带引用」隐式区分作用域**：无引用的合法 session 私有笔记会被迫泄漏到全项目，且发送语义（发给谁）含糊。拒绝。
 - **Dashboard 新增 INBOX tab**：tab 数量不再增加。拒绝。
 - **OPEN tab 内嵌分区**：OPEN 是本机窗口切换入口，保持干净。拒绝。
-- **并入 TODO tab**：TODO 的定位是机器全局长期规划（其 PRD 明确不做项目级），混入项目级条目会污染同步模型与定位。拒绝。
 
 ## 5. 页面入口与布局
 
@@ -148,7 +146,7 @@ export interface ProjectComment {
 - 写入策略与 `ConversationCommentFileStore` 一致：临时文件原子替换、revision 乐观并发、空列表删文件。
 - **跨 viewer 同步**：任一 viewer 对项目分区的修改，由 host 广播给本项目所有打开的 viewer 刷新（复用 dashboard 现有的 webview 推送机制）。本 Session 分区维持现有的 per-viewer 恢复逻辑。
 - **Session rebind**：项目笔记不参与 rebind 拷贝（它们是项目级资产，与 session 世代无关）；本 Session 批注的 rebind 行为不变。
-- 冲突策略：最后写入覆盖（与 comment / TODO 一致），不引入合并模型。
+- 冲突策略：最后写入覆盖（与 comment 一致），不引入合并模型。
 
 ## 8. 交互规约
 
@@ -223,7 +221,7 @@ viewer 内选中文本时，悬浮动作提供两个选项：
 
 - **Comment 系统**：共享侧边栏容器与发送管线；数据模型、存储、controller 独立。`buildConversationCommentsPrompt` 新增项目笔记分支或并列函数。
 - **Session rebind**：项目笔记豁免拷贝（见 §7）。
-- **Dashboard**：零改动（OPEN / PROJECTS / TODO 三个 tab 均不涉及）。
+- **Dashboard**：零改动（OPEN / PROJECTS / AI 三个 tab 均不涉及）。
 - **全局搜索**：v1 不纳入 dashboard 搜索索引（P2 候选）。
 
 ## 13. 实现前置事项

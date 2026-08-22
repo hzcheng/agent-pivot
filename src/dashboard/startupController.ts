@@ -13,7 +13,6 @@ export interface DashboardMigrationComponentResult {
 
 export interface DashboardMigrationResult {
     projects: DashboardMigrationComponentResult;
-    todos: DashboardMigrationComponentResult;
 }
 
 export function settleMigration(
@@ -66,8 +65,7 @@ export class DashboardStartupController {
 
         this.assertActive();
         this.reportComponentError('project', migration.projects);
-        this.reportComponentError('TODO', migration.todos);
-        if (!migration.projects.migrated && !migration.todos.migrated) {
+        if (!migration.projects.migrated) {
             return migration;
         }
 
@@ -83,7 +81,7 @@ export class DashboardStartupController {
     }
 
     private reportComponentError(
-        component: 'project' | 'TODO',
+        component: 'project',
         result: DashboardMigrationComponentResult
     ): void {
         if (!Object.prototype.hasOwnProperty.call(result, 'error')) {

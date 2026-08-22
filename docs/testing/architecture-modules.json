@@ -55,7 +55,6 @@
         "MOD-PROMPT-LIBRARY",
         "MOD-SHARED-KERNEL",
         "MOD-SKILL-MANAGEMENT",
-        "MOD-TODO",
         "MOD-WORKSPACE-IDENTITY",
         "MOD-WORKTREE-LIFECYCLE"
       ],
@@ -476,7 +475,6 @@
         "MOD-DASHBOARD-SHELL",
         "MOD-SHARED-KERNEL",
         "MOD-SKILL-MANAGEMENT",
-        "MOD-TODO",
         "MOD-WORKSPACE-IDENTITY",
         "MOD-WORKTREE-LIFECYCLE"
       ],
@@ -667,7 +665,6 @@
         "MOD-DASHBOARD-SHELL",
         "MOD-SHARED-KERNEL",
         "MOD-SKILL-MANAGEMENT",
-        "MOD-TODO",
         "MOD-WORKSPACE-IDENTITY"
       ],
       "roles": [
@@ -835,49 +832,6 @@
       ]
     },
     {
-      "id": "MOD-TODO",
-      "title": "Todo list",
-      "purpose": "Todo store, service, and panel capability.",
-      "source": {
-        "include": [
-          "src/todos/**"
-        ],
-        "exclude": []
-      },
-      "publicEntrypoints": [
-        "src/todos/service.ts",
-        "src/todos/todoPanelCapability.ts",
-        "src/todos/types.ts"
-      ],
-      "mayDependOn": [
-        "MOD-DASHBOARD-SHELL",
-        "MOD-SHARED-KERNEL"
-      ],
-      "roles": [
-        {
-          "role": "domain",
-          "include": [
-            "src/todos/types.ts"
-          ]
-        },
-        {
-          "role": "presentation",
-          "include": [
-            "src/todos/webviewContent.ts"
-          ]
-        },
-        {
-          "role": "application",
-          "include": [
-            "**"
-          ]
-        }
-      ],
-      "productCapabilities": [
-        "MAIN-TODO-CONTINUOUS-EXPERIENCE"
-      ]
-    },
-    {
       "id": "MOD-PROMPT-LIBRARY",
       "title": "Prompt library",
       "purpose": "Prompt library service and webview content.",
@@ -1012,7 +966,6 @@
         "MOD-AI-SESSION-PROVIDER",
         "MOD-AI-SESSION-RUNTIME",
         "MOD-SKILL-MANAGEMENT",
-        "MOD-TODO",
         "MOD-WORKSPACE-IDENTITY",
         "MOD-WORKTREE-LIFECYCLE"
       ],

@@ -95,7 +95,7 @@ export interface ProjectMessageHandlersOptions {
  * `selected-project` open flow (including its attention acknowledgement) and
  * the thin project/group mutation delegates.
  *
- * Extracted from `initializeDashboard` in src/dashboard.ts (see the todo panel
+ * Extracted from `initializeDashboard` in src/dashboard.ts (see the panel
  * capability for the same slice pattern). Behaviour is unchanged: the handler
  * bodies delegate to the same controllers with the same arguments; only their
  * ownership moved.

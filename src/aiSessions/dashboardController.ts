@@ -7,7 +7,6 @@ import {
     getRenderedCurrentWorkspaceNavigationIdentity,
 } from './presentationMessage';
 import type { BuildAiSessionsUpdatedMessageInput } from '../dashboard/webviewUpdateMessages';
-import type { TodoSearchCatalogItem } from '../todos/types';
 import type { AiSessionPresentationTransaction } from '../workspaces/sessionHydrationController';
 
 interface DisposableLike {
@@ -22,7 +21,6 @@ export interface AiSessionDashboardControllerOptions<
     invalidateCache: (providerId: AiSessionProviderId) => void;
     watchSessionChanges: (providerId: AiSessionProviderId, onDidChange: () => void) => DisposableLike;
     getGroups: () => Group[];
-    getTodoSearchItems: () => TodoSearchCatalogItem[];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
     getCards: (projection: TProjection) => WorkspaceCardViewModel[];
     buildAiSessionsUpdatedMessage: (input: BuildAiSessionsUpdatedMessageInput) => AiSessionsUpdatedMessage;
@@ -210,7 +208,6 @@ export class AiSessionDashboardController<
             cards,
             sequence: projection.revision,
             generatedAt: new Date().toISOString(),
-            todoSearchItems: this.options.getTodoSearchItems(),
             skills: this.options.getSkillRecords ? this.options.getSkillRecords() : [],
             runningCardAnimation,
             runningIconAnimation,

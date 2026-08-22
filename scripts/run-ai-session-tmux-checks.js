@@ -9771,9 +9771,7 @@ function runTmuxWebviewExperienceChecks() {
     const projectScript = [
         'webviewAiSessionViewStateScripts.js',
         'webviewWorkspaceUpdateScripts.js',
-        'webviewTodoGroupScripts.js',
         'webviewProjectCollapseScripts.js',
-        'webviewTodoControlScripts.js',
         'webviewProjectContextMenuScripts.js',
         'webviewProjectAiUpdateScripts.js',
         'webviewProjectAiSessionControlsScripts.js',

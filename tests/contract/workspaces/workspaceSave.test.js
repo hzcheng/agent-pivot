@@ -193,7 +193,6 @@ test('PERSIST-WORKSPACE-SAVE-001 settles migration before saving and preserves f
             await migrationGate;
             return {
                 projects: { migrated: true },
-                todos: { migrated: false },
             };
         },
         () => adapter.completePendingWorkspaceSave()
@@ -238,7 +237,6 @@ test('PERSIST-WORKSPACE-SAVE-001 retains pending intent after failed migration f
     await startup(
         async () => ({
             projects: { migrated: false, error: new Error('forced migration failure') },
-            todos: { migrated: false },
         }),
         () => adapter.completePendingWorkspaceSave()
     ).startUp();

@@ -21,56 +21,13 @@ function canAcceptProject(target, source) {
     return !isFavoritesProjectContainer(target) && !target.closest('[data-virtual-group]');
 }
 
-function canAcceptTodoGroup(target, source) {
-    return Boolean(target && source && target === source && target.matches('.todo-groups'));
-}
-
-function canMoveTodoGroup(el, source, handle) {
-    return Boolean(el && source && handle
-        && el.matches('.todo-group')
-        && source.matches('.todo-groups')
-        && handle.closest('[data-drag-todo-group]'));
-}
-
-function canAcceptTodoItem(target, source) {
-    return Boolean(target && source && target === source && target.matches('.todo-list'));
-}
-
-function canMoveTodoItem(el, source, handle) {
-    return Boolean(el && source && handle
-        && el.matches('.todo-item')
-        && source.matches('.todo-list')
-        && handle.closest('[data-drag-todo-item]'));
-}
-
-function dispatchTodoDragCommand(action, payload, legacyMessage) {
-    if (window.__agentPivotTodo
-        && typeof window.__agentPivotTodo.dispatch === 'function') {
-        window.__agentPivotTodo.dispatch(action, payload);
-        return;
-    }
-    window.vscode.postMessage(legacyMessage);
-}
-
-function getTodoGroupIds(root) {
-    return [].slice.call(root.querySelectorAll('.todo-groups > .todo-group[data-todo-group-id]'))
-        .map(group => group.getAttribute('data-todo-group-id'))
-        .filter(groupId => Boolean(groupId));
-}
-
-function getTodoIds(container) {
-    return [].slice.call(container.querySelectorAll(':scope > .todo-item[data-todo-id]:not([hidden])'))
-        .map(todo => todo.getAttribute('data-todo-id'))
-        .filter(todoId => Boolean(todoId));
-}
-
 function disposeDnD(root) {
     var dnd = root && root.__agentPivotDnD;
     if (!dnd) {
         return;
     }
 
-    [dnd.projectDrake, dnd.groupsDrake, dnd.todoGroupsDrake, dnd.todoItemsDrake]
+    [dnd.projectDrake, dnd.groupsDrake]
         .filter(drake => drake && typeof drake.destroy === 'function')
         .forEach(drake => drake.destroy());
     if (dnd.scroll && typeof dnd.scroll.destroy === 'function') {
@@ -90,9 +47,6 @@ function initDnD(root) {
 
     const projectsContainerSelector = ".group-list";
     const groupsContainerSelector = ".groups-wrapper";
-    const todoGroupsContainerSelector = ".todo-groups";
-    const todoItemsContainerSelector = ".todo-list";
-
     root.__agentPivotDnDInitialized = true;
 
     var projectsContainers = root.querySelectorAll(projectsContainerSelector);
@@ -122,60 +76,10 @@ function initDnD(root) {
     });
     groupsDrake.on('drop', onReordered);
 
-    var todoGroupsContainers = root.querySelectorAll(todoGroupsContainerSelector);
-    var todoGroupsDrake = todoGroupsContainers.length
-        ? dragula([].slice.call(todoGroupsContainers), {
-            moves: function (el, source, handle) {
-                return canMoveTodoGroup(el, source, handle);
-            },
-            accepts: function (el, target, source) {
-                return canAcceptTodoGroup(target, source);
-            },
-        })
-        : null;
-    if (todoGroupsDrake) {
-        todoGroupsDrake.on('drop', function () {
-            var groupIds = getTodoGroupIds(root);
-            dispatchTodoDragCommand('reorder-groups', { groupIds }, {
-                type: 'todo-reorder-groups',
-                groupIds,
-            });
-        });
-    }
-
-    var todoItemsContainers = root.querySelectorAll(todoItemsContainerSelector);
-    var todoItemsDrake = todoItemsContainers.length
-        ? dragula([].slice.call(todoItemsContainers), {
-            moves: function (el, source, handle) {
-                return canMoveTodoItem(el, source, handle);
-            },
-            accepts: function (el, target, source) {
-                return canAcceptTodoItem(target, source);
-            },
-        })
-        : null;
-    if (todoItemsDrake) {
-        todoItemsDrake.on('drop', function (el, target, source) {
-            var todoGroup = source && source.closest('.todo-group[data-todo-group-id]');
-            if (!todoGroup) {
-                return;
-            }
-            var groupId = todoGroup.getAttribute('data-todo-group-id');
-            var todoIds = getTodoIds(source);
-            dispatchTodoDragCommand('reorder-items', { groupId, todoIds }, {
-                type: 'todo-reorder-items',
-                groupId,
-                todoIds,
-            });
-        });
-    }
-
     const scroll = autoScroll(window, {
         margin: 20,
         autoScroll: function () {
-            return this.down && (projectDrake.dragging || groupsDrake.dragging
-                || (todoGroupsDrake && todoGroupsDrake.dragging)
-                || (todoItemsDrake && todoItemsDrake.dragging));
+            return this.down && (projectDrake.dragging || groupsDrake.dragging);
         }
     });
 
@@ -183,8 +87,6 @@ function initDnD(root) {
         if (e.key === "Escape") {
             projectDrake.cancel(true);
             groupsDrake.cancel(true);
-            if (todoGroupsDrake) todoGroupsDrake.cancel(true);
-            if (todoItemsDrake) todoItemsDrake.cancel(true);
         }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -227,8 +129,6 @@ function initDnD(root) {
     root.__agentPivotDnD = {
         projectDrake,
         groupsDrake,
-        todoGroupsDrake,
-        todoItemsDrake,
         scroll,
         onKeyDown,
     };

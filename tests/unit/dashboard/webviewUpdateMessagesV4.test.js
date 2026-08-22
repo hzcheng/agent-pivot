@@ -35,7 +35,6 @@ function input(overrides = {}) {
         semanticRevision: 'rev-1',
         projectionRevision: 3,
         otherWindowsStatus: 'ready',
-        todoSearchItems: [],
         presentation: { version: 1, projects: {} },
         ...overrides,
     };

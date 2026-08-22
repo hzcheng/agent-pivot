@@ -107,16 +107,8 @@ const workspaceUpdateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewWorkspaceUpdateScripts.js'),
     'utf8'
 );
-const todoGroupScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoGroupScripts.js'),
-    'utf8'
-);
 const projectCollapseScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
-    'utf8'
-);
-const todoControlScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewTodoControlScripts.js'),
     'utf8'
 );
 const projectContextMenuScript = fs.readFileSync(
@@ -433,9 +425,7 @@ async function bootCardPageScripts(page, preserveInitialMessages = false) {
     await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: workspaceUpdateScript });
-    await page.addScriptTag({ content: todoGroupScript });
     await page.addScriptTag({ content: projectCollapseScript });
-    await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: groupFormScript });
@@ -490,9 +480,7 @@ async function openListPage(t, activeAiSessions, historySessions) {
     await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: viewStateScript });
     await page.addScriptTag({ content: workspaceUpdateScript });
-    await page.addScriptTag({ content: todoGroupScript });
     await page.addScriptTag({ content: projectCollapseScript });
-    await page.addScriptTag({ content: todoControlScript });
     await page.addScriptTag({ content: projectContextMenuScript });
     await page.addScriptTag({ content: projectAiUpdateScript });
     await page.addScriptTag({ content: groupFormScript });
@@ -612,8 +600,7 @@ function aiSessionsEnvelope(activeSessions, projectionRevision, options = {}) {
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation,
     };
@@ -642,8 +629,7 @@ function openWorkspacesEnvelope(activeSessions, projectionRevision, options = {}
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation,
     };
@@ -1058,7 +1044,6 @@ test('OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001 applies a production OPEN tran
         getCurrentWorkspaceAiSessions: () => aiSessionViewModel(replacement),
         beginAiSessionProjection: () => transaction,
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCollapsed: () => false,
         getRunningCardAnimation: () => 'current',
         getRunningIconAnimation: () => 'current',
@@ -1238,8 +1223,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy AI upd
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
     });
 
@@ -1273,8 +1257,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects legacy OPEN u
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
     });
 
@@ -1347,8 +1330,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and c
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession], 2, {
             attention: { 'codex:session-a': ['event-a', 'event-b'] },
@@ -1395,8 +1377,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession], 2, {
             attention: {
@@ -1444,8 +1425,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession, otherSession], 2, {
             attention: { 'codex:session-a': ['event-a', 'event-b'] },
@@ -1497,8 +1477,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelo
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([attentionSession, otherSession], 2, {
             attention: {
@@ -1562,8 +1541,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes AI
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([
             attentionSession,
@@ -1631,8 +1609,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OP
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage([
             attentionSession,
@@ -1679,8 +1656,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid pr
             sessions: [],
             worktrees: [],
             openWorkspaces: [],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage(replacement, 3),
     });
@@ -1715,8 +1691,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 rejects an invalid OP
             sessions: [],
             worktrees: [],
             openWorkspaces: [{ identity: 'project-a' }],
-            savedProjects: [],
-            todos: [],
+            savedProjects: [], todos: [],
         },
         presentation: presentationMessage(replacement, 3),
     });
@@ -2224,7 +2199,6 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         invalidateCache() {},
         watchSessionChanges: () => ({ dispose() {} }),
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCards,
         buildAiSessionsUpdatedMessage,
         getRunningCardAnimation: () => undefined,
@@ -2263,7 +2237,6 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         semanticRevision: 'initial-fixture-open-workspaces',
         projectionRevision: initialEnvelope.projectionRevision,
         otherWindowsStatus: 'ready',
-        todoSearchItems: [],
         presentation: initialEnvelope.presentation,
     });
     const bridgeAcknowledgements = [];
@@ -3092,8 +3065,8 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 boot imports the legacy webview sub
         };
     });
     for (const source of [
-        scrollStateScript, viewStateScript, workspaceUpdateScript, todoGroupScript,
-        projectCollapseScript, todoControlScript, projectContextMenuScript,
+        scrollStateScript, viewStateScript, workspaceUpdateScript,
+        projectCollapseScript, projectContextMenuScript,
         projectAiUpdateScript, groupFormScript, aiSessionControlsScript, projectScript,
     ]) {
         await page.addScriptTag({ content: source });

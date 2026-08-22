@@ -146,7 +146,7 @@ Summarize:
   read that line first. Update every inline fake `vscode` surface
   (`tests/fixtures/aiSessions/runtimeHostActivationHarness.js`,
   `tests/integration/dashboard/helpers/terminalCloseHarness.js`,
-  `todoPanelHarness.js`) and every hardcoded command list
+  harnesses) and every hardcoded command list
   (`dashboardBoundaries.test.js` twice, `runtimeComposition.test.js`,
   `extensionHostSuite.test.js`, `run-dashboard-webview-checks.js`) alongside
   `DASHBOARD_COMMANDS` and `package.json`.

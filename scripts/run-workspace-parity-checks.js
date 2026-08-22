@@ -291,7 +291,6 @@ async function runShapeLifecycle(shape, index) {
         getWorkspaceProjectColor: () => '',
         getCurrentWorkspaceAiSessions: () => null,
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCollapsed: () => collapsed,
         getRunningCardAnimation: () => 'current',
         getRunningIconAnimation: () => undefined,

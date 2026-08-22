@@ -1,7 +1,6 @@
 'use strict';
 
 import type { AiSessionProviderId, Group, Project } from '../models';
-import type { TodoSearchCatalogItem } from '../todos/types';
 import type { WorktreeActivity, WorktreeRowViewModel } from '../aiSessions/types';
 import type { WorktreeKey } from '../worktrees';
 
@@ -67,7 +66,8 @@ export interface DashboardWorkspaceSearchCatalog {
     worktrees: DashboardWorkspaceSearchWorktreeItem[];
     openWorkspaces: DashboardSearchWorkspaceItem[];
     savedProjects: DashboardSearchProjectItem[];
-    todos: TodoSearchCatalogItem[];
+    /** Kept empty for catalog v3 compatibility; TODO results are no longer rendered. */
+    todos: unknown[];
     skills?: DashboardSearchSkillItem[];
 }
 
@@ -172,7 +172,6 @@ function buildSavedProjectSearchItems(groups: Group[]): DashboardSearchProjectIt
 export function buildWorkspaceDashboardSearchCatalog(
     groups: Group[],
     workspaces: DashboardSearchWorkspace[],
-    todos: TodoSearchCatalogItem[] = [],
     skills: import('../skills/types').SkillRecord[] = []
 ): DashboardWorkspaceSearchCatalog {
     const current = (workspaces || []).find(workspace => workspace.kind === 'current');
@@ -302,7 +301,7 @@ export function buildWorkspaceDashboardSearchCatalog(
         worktrees,
         openWorkspaces,
         savedProjects,
-        todos,
+        todos: [],
         ...(skillItems.length ? { skills: skillItems } : {}),
     };
 }

@@ -48,44 +48,6 @@ function validateReducedMotion(source) {
     }
 }
 
-function validateTodoFocus(source) {
-    const focus = extractBlock(source, '.todo-square-toggle:focus-within');
-    assert.ok(focus.includes('outline: 1px solid var(--vscode-focusBorder)'),
-        'TODO-KEYBOARD-FOCUS-001 missing visible outline');
-    assert.ok(focus.includes('outline-offset: 1px'), 'TODO-KEYBOARD-FOCUS-001 missing outline offset');
-}
-
-function validateTodoLayout(source) {
-    const list = extractBlock(source, '.todo-list');
-    assert.ok(list.includes(
-        'max-height: calc(var(--todo-list-max-height) + var(--todo-list-expanded-extra-height, 0px))'
-    ), 'TODO-RESPONSIVE-LAYOUT-001 list must honor the configured group viewport');
-    assert.ok(list.includes('overflow-y: auto'),
-        'TODO-RESPONSIVE-LAYOUT-001 overflowing groups must remain scrollable');
-    const title = extractBlock(source, '.todo-title-text');
-    for (const value of ['display: -webkit-box', '-webkit-line-clamp: 2', '-webkit-box-orient: vertical',
-        'overflow-wrap: anywhere']) {
-        assert.ok(title.includes(value), `TODO-RESPONSIVE-LAYOUT-001 title missing ${value}`);
-    }
-    assert.equal(title.includes('white-space: nowrap'), false,
-        'TODO-RESPONSIVE-LAYOUT-001 titles must use both available lines');
-    const expanded = extractBlock(source, '.todo-item.expanded');
-    assert.ok(expanded.includes('height: var(--todo-expanded-item-height, auto) !important'),
-        'TODO-MAX-VISIBLE-PER-GROUP-001 expanded cards must own their measured content height');
-    assert.ok(expanded.includes('-webkit-line-clamp: unset'),
-        'TODO-RESPONSIVE-LAYOUT-001 inline detail must reveal the complete title');
-    const inlineValue = extractBlock(source, '.todo-inline-value');
-    assert.ok(inlineValue.includes('overflow-wrap: anywhere') && inlineValue.includes('white-space: pre-wrap'),
-        'TODO-RESPONSIVE-LAYOUT-001 inline detail values must wrap without clipping');
-    const fixedGroup = extractBlock(source, '.todo-compose-group-fixed');
-    assert.ok(fixedGroup.includes('flex: 1 1 0') && fixedGroup.includes('min-height: 28px'),
-        'TODO-RESPONSIVE-LAYOUT-001 fixed group must align with the full composer controls');
-    const narrow = extractBlock(source, '@media (max-width: 320px)');
-    for (const value of ['.todo-compose-meta', 'flex-wrap: wrap']) {
-        assert.ok(narrow.includes(value), `TODO-RESPONSIVE-LAYOUT-001 narrow layout missing ${value}`);
-    }
-}
-
 function validatePromptCompactCardStyles(source) {
     const id = 'WEBVIEW-AI-PROMPT-STYLES-001';
     const itemView = extractBlock(source, '.prompt-item-view');
@@ -304,21 +266,6 @@ function validateDangerActions(source) {
     assertDeclarations(rule, id, ['color: var(--vscode-errorForeground)']);
 }
 
-function validateTodoVisualState(source) {
-    const id = 'TODO-VISUAL-STATE-001';
-    assertDeclarations(ruleForSelector(source, '.todo-group-count'), id,
-        ['font-size: 10px', 'opacity: 0.55', 'white-space: nowrap']);
-    assertDeclarations(ruleForSelector(source, '.todo-priority-choice input:checked + span'), id,
-        ['border-color: var(--vscode-panel-border)', 'color: var(--vscode-foreground)',
-            'background: var(--vscode-list-inactiveSelectionBackground)']);
-    assertDeclarations(ruleForSelector(source, '.todo-list > .steward-item-card:last-child'), id, ['margin-bottom: 0']);
-    assertDeclarations(ruleForSelector(source, '.todo-detail-notes'), id, ['white-space: pre-wrap']);
-    const completedRules = cssRules(source).filter(rule =>
-        rule.selectors.some(selector => selector.includes('.todo-item.completed')));
-    assert.ok(completedRules.length > 0, `${id} must retain completed TODO presentation`);
-    assert.equal(completedRules.some(rule => /(^|;)\s*background(?:-color)?\s*:/.test(rule.body)), false,
-        `${id} completed TODO rules must not override the shared card background`);
-}
 
 function validateCollapsePresentation(source) {
     const id = 'WEBVIEW-COLLAPSE-PRESENTATION-001';
@@ -417,26 +364,6 @@ test('WEBVIEW-REDUCED-MOTION-001 disables dashboard and session animation for re
         /WEBVIEW-REDUCED-MOTION-001/);
 });
 
-test('TODO-KEYBOARD-FOCUS-001 keeps the hidden completed toggle keyboard-visible', () => {
-    validateTodoFocus(styles);
-    assert.throws(() => validateTodoFocus(styles.replace(
-        '.todo-square-toggle:focus-within {\n    outline: 1px solid var(--vscode-focusBorder);',
-        '.todo-square-toggle:focus-within {\n    outline: none;')),
-        /TODO-KEYBOARD-FOCUS-001/);
-});
-
-test('TODO-RESPONSIVE-LAYOUT-001 keeps TODO titles readable in configured scrolling groups', () => {
-    validateTodoLayout(styles);
-    assert.throws(() => validateTodoLayout(styles.replace(
-        'overflow-wrap: anywhere;\n    -webkit-box-orient: vertical;\n    -webkit-line-clamp: 2;',
-        'overflow-wrap: anywhere;\n    -webkit-box-orient: vertical;\n    -webkit-line-clamp: 1;')),
-        /TODO-RESPONSIVE-LAYOUT-001/);
-    assert.throws(() => validateTodoLayout(styles.replace(
-        'overflow-y: auto;',
-        'overflow: visible;')),
-        /TODO-RESPONSIVE-LAYOUT-001/);
-});
-
 test('WEBVIEW-SHARED-CARD-STATE-001 preserves shared header/card geometry and interaction states', () => {
     validateSharedCardPresentation(compiledStyles);
     assert.throws(() => validateSharedCardPresentation(compileStyles(styles.replace('height: 58px;', 'height: 59px;'))),
@@ -451,15 +378,7 @@ test('WEBVIEW-ACTION-ACCESSIBILITY-001 gives danger actions matching hover and k
         /WEBVIEW-ACTION-ACCESSIBILITY-001|expected exactly one compiled CSS rule/);
 });
 
-test('TODO-VISUAL-STATE-001 preserves count, priority, spacing, notes, footer, and completed-card presentation', () => {
-    validateTodoVisualState(compiledStyles);
-    assert.throws(() => validateTodoVisualState(compileStyles(styles.replace(
-        '.todo-item.completed .todo-title-text {',
-        '.todo-item.completed .todo-title-text {\n    background: red;'))),
-        /TODO-VISUAL-STATE-001/);
-});
-
-test('WEBVIEW-COLLAPSE-PRESENTATION-001 rotates group and TODO collapse indicators', () => {
+test('WEBVIEW-COLLAPSE-PRESENTATION-001 rotates group collapse indicators', () => {
     validateCollapsePresentation(compiledStyles);
     assert.throws(() => validateCollapsePresentation(compileStyles(styles.replace(
         'transform: rotate(-90deg);', 'transform: rotate(0deg);'))),

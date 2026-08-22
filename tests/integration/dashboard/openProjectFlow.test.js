@@ -38,17 +38,9 @@ const workspaceUpdateWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewWorkspaceUpdateScripts.js'
 ), 'utf8');
-const todoGroupWebviewSource = fs.readFileSync(path.join(
-    repositoryRoot,
-    'src', 'webview', 'webviewTodoGroupScripts.js'
-), 'utf8');
 const projectCollapseWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
     'src', 'webview', 'webviewProjectCollapseScripts.js'
-), 'utf8');
-const todoControlWebviewSource = fs.readFileSync(path.join(
-    repositoryRoot,
-    'src', 'webview', 'webviewTodoControlScripts.js'
 ), 'utf8');
 const projectContextMenuWebviewSource = fs.readFileSync(path.join(
     repositoryRoot,
@@ -145,14 +137,8 @@ function createOpenWorkspaceUpdateVm(wrapper, catalogs) {
     vm.runInNewContext(workspaceUpdateWebviewSource, context, {
         filename: 'webviewWorkspaceUpdateScripts.js',
     });
-    vm.runInNewContext(todoGroupWebviewSource, context, {
-        filename: 'webviewTodoGroupScripts.js',
-    });
     vm.runInNewContext(projectCollapseWebviewSource, context, {
         filename: 'webviewProjectCollapseScripts.js',
-    });
-    vm.runInNewContext(todoControlWebviewSource, context, {
-        filename: 'webviewTodoControlScripts.js',
     });
     vm.runInNewContext(projectContextMenuWebviewSource, context, {
         filename: 'webviewProjectContextMenuScripts.js',
@@ -302,8 +288,7 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
             { workspaceId: 'other-a', action: 'switch-open-workspace' },
             { workspaceId: 'other-b', action: 'switch-open-workspace' },
         ],
-        savedProjects: [],
-        todos: [{ todoId: 'preserved' }],
+        savedProjects: [], todos: [],
     };
     const switcherRow = (id, kind, identity) =>
         `<div class="open-window-row${kind === 'current' ? ' open-window-row-current' : ''}" role="listitem"`
@@ -333,7 +318,6 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
     });
 
     assert.equal(context.applyOpenWorkspacesUpdate(openUpdate('valid', validHtml)), true);
-    assert.equal(catalogs[0].todos[0].todoId, 'preserved');
 
     const attentionHtml = validHtml.replace(
         'data-id="other-a"',
@@ -347,7 +331,6 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 applies consistent updates and
     );
     assert.equal(context.applyOpenWorkspacesUpdate(openUpdate('running-only', runningHtml)), true);
     assert.equal(catalogs.length, 3);
-    assert.ok(catalogs.every(value => value.todos[0].todoId === 'preserved'));
 
     const duplicateIdentityHtml = runningHtml.replace(
         'data-workspace-navigation-identity="navigation-b"',

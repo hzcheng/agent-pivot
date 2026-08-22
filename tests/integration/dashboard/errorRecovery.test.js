@@ -1012,48 +1012,6 @@ test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 routes workspace, configuration
     ]);
 });
 
-test('TODO-COMPLETION-INCREMENTAL-001 suppresses only a local todoData configuration echo', async () => {
-    const events = [];
-    let localEcho = true;
-    const controller = new DashboardLifecycleController({
-        checkDataMigration: async () => events.push('migrate'),
-        reconcileProjectCatalog: async () => events.push('reconcile'),
-        applyProjectColorToCurrentWindow: () => events.push('color'),
-        refresh: reason => events.push(['refresh', reason]),
-        publishOpenWorkspace: () => events.push('publish'),
-        evaluateAiSessionAttention: () => undefined,
-        consumeTodoDataWriteEcho: () => localEcho,
-    });
-    const todoDataChange = makeConfigurationEvent('agentPivot.todoData');
-
-    await controller.handleConfigurationChanged(todoDataChange);
-    assert.deepEqual(events, []);
-
-    localEcho = false;
-    await controller.handleConfigurationChanged(todoDataChange);
-    assert.deepEqual(events, [
-        'color',
-        ['refresh', 'configuration-changed'],
-        'publish',
-    ]);
-
-    events.length = 0;
-    localEcho = true;
-    await controller.handleConfigurationChanged(makeConfigurationEvent(
-        'agentPivot.todoData',
-        'agentPivot.storeProjectsInSettings',
-        'agentPivot.projectSyncData',
-        'agentPivot.customCss'
-    ));
-    assert.deepEqual(events, [
-        'migrate',
-        'reconcile',
-        'color',
-        ['refresh', 'configuration-changed'],
-        'publish',
-    ]);
-});
-
 test('PROJECT-CATALOG-SYNC-CONFLICT-001 reconciles synchronized project data before dashboard publication', async () => {
     const events = [];
     const controller = new DashboardLifecycleController({
@@ -1141,7 +1099,7 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 retries a failed migration withou
     const controller = makeStartupController(async () => {
         attempt += 1;
         if (attempt === 1) throw new Error('destination unavailable');
-        return { projects: { migrated: true }, todos: { migrated: false } };
+        return { projects: { migrated: true } };
     }, events);
 
     await controller.checkDataMigration();
@@ -1184,7 +1142,6 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during migration prevent
     active = false;
     migrationGate.resolve({
         projects: { migrated: true },
-        todos: { migrated: false },
     });
 
     await assert.rejects(startup, error => error === disposedGeneration);
@@ -1200,7 +1157,6 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during pending workspace
     const controller = makeStartupController(
         async () => ({
             projects: { migrated: true },
-            todos: { migrated: false },
         }),
         effects,
         {
@@ -1262,7 +1218,6 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 PERSIST-DASHBOARD-LIFECYCLE-CONTR
             }
             return {
                 projects: { migrated: true },
-                todos: { migrated: false },
             };
         },
         effects,

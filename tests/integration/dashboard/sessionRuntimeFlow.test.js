@@ -391,7 +391,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 coalesces watcher refr
         isVisible: () => true,
         invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }),
-        getGroups: () => [], getTodoSearchItems: () => [], getCards: () => [],
+        getGroups: () => [], getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: reason => {
@@ -446,7 +446,7 @@ test('ACTIVE-SESSION-PRESENTATION-TRANSACTION-001 builds cards and HTML with one
         isVisible: () => true,
         invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }),
-        getGroups: () => [], getTodoSearchItems: () => [],
+        getGroups: () => [],
         getCards: value => { cardsProjection = value; return []; },
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
@@ -484,7 +484,7 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 posts changed owner e
         providerIds: ['codex'], isVisible: () => true,
         invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }),
-        getGroups: () => [], getTodoSearchItems: () => [], getCards: () => [],
+        getGroups: () => [], getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => projection,
@@ -523,7 +523,7 @@ test('WEBVIEW-SIDEBAR-VISIBILITY-RETENTION-001 reuses provider watchers across r
             watcherStarts += 1;
             return { dispose: () => { watcherDisposals += 1; } };
         },
-        getGroups: () => [], getTodoSearchItems: () => [], getCards: () => [],
+        getGroups: () => [], getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => ({ revision: 1 }),
@@ -571,7 +571,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-WATCHER-COALESCING-001 never postpones a pend
         isVisible: () => true,
         invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }),
-        getGroups: () => [], getTodoSearchItems: () => [],
+        getGroups: () => [],
         // A live session keeps mutating, so no refresh is ever skipped as unchanged.
         getCards: () => { cardRevision += 1; return []; },
         getRunningCardAnimation: () => `revision-${cardRevision}`,
@@ -638,7 +638,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 invalidates and refreshes for 
         providerIds: ['codex'], isVisible: () => true,
         invalidateCache: providerId => invalidated.push(providerId),
         watchSessionChanges: () => ({ dispose() {} }), getGroups: () => [],
-        getTodoSearchItems: () => [{ todoId: 'fixture-todo' }], getCards: () => [],
+        getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: reason => {
@@ -665,7 +665,6 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-CONTROLLER-001 invalidates and refreshes for 
     assert.deepEqual(messages.map(message => message.type), [
         'ai-sessions-updated',
     ]);
-    assert.ok(messages.every(message => message.searchCatalog.todos[0].todoId === 'fixture-todo'));
     controller.dispose();
 });
 
@@ -679,7 +678,7 @@ test('WEBVIEW-AI-SESSION-DASHBOARD-UNCHANGED-MESSAGE-SKIP-001 retries an unchang
     const controller = new AiSessionDashboardController({
         providerIds: ['codex'], isVisible: () => true, invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }), getGroups: () => [],
-        getTodoSearchItems: () => [], getCards: () => [],
+        getCards: () => [],
         getRunningCardAnimation: () => undefined,
         getRunningIconAnimation: () => undefined,
         beginProjection: () => ({ revision: deliveries.length + 1 }),
@@ -714,7 +713,6 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 keeps dashboard-visible delivery failu
         invalidateCache: () => undefined,
         watchSessionChanges: () => ({ dispose() {} }),
         getGroups: () => [],
-        getTodoSearchItems: () => [],
         getCards: () => {
             if (failureMode === 'build') {
                 throw new Error('build failed');

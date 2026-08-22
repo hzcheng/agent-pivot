@@ -24,7 +24,6 @@ import {
 } from './constants';
 
 import { createProjectServices } from './dashboard/sections/projectServices';
-import { createTodoPanelCapability } from './todos/todoPanelCapability';
 import { initializePromptMementoStore } from './prompts/service';
 import { createPanelStack } from './dashboard/sections/panelStack';
 import { createProjectControllers } from './dashboard/sections/projectControllers';
@@ -613,8 +612,7 @@ async function initializeDashboard(
         }
         const messageType = (message as { type?: unknown }).type;
         return typeof messageType === 'string'
-            && (messageType.startsWith('todo-')
-                || storageMutationMessageTypes.has(messageType));
+            && storageMutationMessageTypes.has(messageType);
     };
 
     const {
@@ -632,11 +630,9 @@ async function initializeDashboard(
     });
     resources.assertActive();
     const {
-        todoService,
         promptService,
         promptDashboardController,
         skillPanel,
-        todoPanel,
     } = createPanelStack({
         context,
         provider,
@@ -645,9 +641,7 @@ async function initializeDashboard(
         timeBootstrapPhase,
         logError,
         logDashboardDiagnostic,
-        projectService,
         promptStore,
-        getOpenWorkspaceCards,
     });
     const {
         projectSurface,
@@ -1575,7 +1569,6 @@ async function initializeDashboard(
         invalidateCache: providerId => invalidateAiSessionCache(providerId),
         watchSessionChanges: (providerId, onDidChange) => getRegisteredAiSessionProvider(providerId).service.watchSessionChanges(onDidChange),
         getGroups: () => projectService.getGroups(),
-        getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: projection => getOpenWorkspaceCards(projection),
         buildAiSessionsUpdatedMessage,
@@ -2277,7 +2270,6 @@ async function initializeDashboard(
         saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
         handlers: {
             ...conversationHandlers,
-            ...todoPanel.handlers,
             ...projectHandlers,
             ...skillPanel.handlers,
             ...dashboardMessageHandlers,
@@ -2433,7 +2425,6 @@ async function initializeDashboard(
             return transaction;
         },
         getGroups: () => projectService.getGroups(),
-        getTodoSearchItems: () => todoService.getSearchItems(),
         getSkillRecords: () => skillPanel.getRecords(),
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
@@ -2926,7 +2917,6 @@ async function initializeDashboard(
         get config() { return getAgentPivotConfiguration() },
         get otherStorageHasData() { return projectService.otherStorageHasData() },
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
-        get todoSearchItems() { return todoService.getSearchItems() },
         get skills() { return skillPanel.getRecords() },
     };
     projectsPanelController = new ProjectsPanelController({
@@ -2934,7 +2924,6 @@ async function initializeDashboard(
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
             projectService.getGroups(),
             getOpenWorkspaceCards(),
-            todoService.getSearchItems(),
             skillPanel.getRecords(),
         ),
         renderHtml: groups => getProjectsPanelContent(groups, stewardInfos),
@@ -2950,13 +2939,9 @@ async function initializeDashboard(
         assertActive: () => resources.assertActive(),
         migrateDataIfNeeded: async () => {
             const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
-            const todoMigration = settleMigration(() => todoService.migrateDataIfNeeded());
-            if (storageMigrationSettled) {
-                todoPanel.setStorageMigrationReady(todoMigration.then(() => undefined));
-            }
-            const [projects, todos] = await Promise.all([projectMigration, todoMigration]);
+            const projects = await projectMigration;
             settleStorageMigration(true);
-            return { projects, todos };
+            return { projects };
         },
         refreshDashboard: () => provider.refresh(),
         publishOpenWorkspace: () => openWorkspaceController.publish(),
@@ -3000,7 +2985,6 @@ async function initializeDashboard(
             await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
         },
         reconcileProjectCatalog: () => projectService.reconcileProjectCatalog(),
-        consumeTodoDataWriteEcho: () => todoService.consumeCurrentSettingsDataLocalWriteEcho(),
         consumeProjectCatalogWriteEcho: change =>
             projectService.consumeProjectCatalogWriteEcho(change),
         consumePromptDataWriteEcho: () =>

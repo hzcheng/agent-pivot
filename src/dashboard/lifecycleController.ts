@@ -5,7 +5,7 @@ import { AGENT_PIVOT_CONFIG_SECTION } from '../constants';
 const configurationKey = (key: string): string =>
     `${AGENT_PIVOT_CONFIG_SECTION}.${key}`;
 
-const NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS = [
+const DASHBOARD_CONFIGURATION_SECTIONS = [
     'searchIsActiveByDefault',
     'customCss',
     'recentColors',
@@ -18,7 +18,6 @@ const NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS = [
     'aiSessionRunningCardCustomImage',
     'aiSessionRunningIconCustomImage',
     'skills.globalStorePath',
-    'maxVisibleTodosPerGroup',
     'maxVisibleProjectsPerGroup',
     'aiSessionAttention.enabled',
     'displayProjectPath',
@@ -47,7 +46,6 @@ export interface DashboardLifecycleControllerOptions {
     ) => Promise<void>;
     checkDataMigration: (openStewardAfterMigrate: boolean) => Promise<void>;
     reconcileProjectCatalog?: () => Promise<void>;
-    consumeTodoDataWriteEcho?: () => boolean;
     consumeProjectCatalogWriteEcho?: (
         change: { syncData: boolean; legacyGroups: boolean }
     ) => boolean;
@@ -90,9 +88,6 @@ export class DashboardLifecycleController {
             await this.options.prepareConfigurationChange(event);
             this.assertActive();
         }
-        const todoDataChanged = event.affectsConfiguration(configurationKey('todoData'));
-        const localTodoDataWriteEcho = todoDataChanged
-            && this.options.consumeTodoDataWriteEcho?.() === true;
         const projectCatalogChange = {
             syncData: event.affectsConfiguration(configurationKey('projectSyncData')),
             legacyGroups: event.affectsConfiguration(configurationKey('projectData')),
@@ -104,8 +99,8 @@ export class DashboardLifecycleController {
         const promptDataChanged = event.affectsConfiguration(configurationKey('promptData'));
         const localPromptDataWriteEcho = promptDataChanged
             && this.options.consumePromptDataWriteEcho?.() === true;
-        const nonTodoDashboardConfigurationChanged =
-            NON_TODO_DASHBOARD_CONFIGURATION_SECTIONS.some(
+        const dashboardConfigurationChanged =
+            DASHBOARD_CONFIGURATION_SECTIONS.some(
                 section => event.affectsConfiguration(section)
             );
 
@@ -121,9 +116,8 @@ export class DashboardLifecycleController {
             }
         }
 
-        const trackedDataChanged = todoDataChanged || projectCatalogChanged || promptDataChanged;
-        const fullDashboardRefreshRequired = nonTodoDashboardConfigurationChanged
-            || (todoDataChanged && !localTodoDataWriteEcho);
+        const trackedDataChanged = projectCatalogChanged || promptDataChanged;
+        const fullDashboardRefreshRequired = dashboardConfigurationChanged;
         if (trackedDataChanged && !fullDashboardRefreshRequired) {
             if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
                 this.options.refreshProjects?.('configuration-changed');

@@ -18,7 +18,6 @@ function makeCatalog() {
         sessions: [],
         openWorkspaces: [],
         savedProjects: [],
-        todos: [],
     };
 }
 

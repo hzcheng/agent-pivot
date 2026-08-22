@@ -83,7 +83,6 @@ function renderDashboardShell() {
                 remoteContainers: false,
             },
             otherStorageHasData: false,
-            todoSearchItems: [],
         },
         true,
     );
@@ -884,7 +883,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 moves successful Prompt form focus to st
     }
 });
 
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard shell on one row', async t => {
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete three-tab Dashboard shell on one row', async t => {
     const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
     t.after(() => browser.close());
     const dashboardHtml = renderDashboardShell();
@@ -895,6 +894,11 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
             const page = await browser.newPage({ viewport: { width, height: 700 } });
             try {
                 await page.setContent(dashboardHtml);
+                assert.equal(
+                    await page.locator('.dashboard-style-loading-tab').count(),
+                    3,
+                    'the startup skeleton must match the three-tab dashboard'
+                );
                 const layout = await page.evaluate(() => {
                     const viewportWidth = document.documentElement.clientWidth;
                     const boundsOf = element => {
@@ -966,14 +970,14 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                     };
                 });
 
-                assert.deepEqual(layout.labels, ['OPEN', 'PROJECTS', 'TODO', 'AI']);
+                assert.deepEqual(layout.labels, ['OPEN', 'PROJECTS', 'AI']);
                 assert.deepEqual(
                     layout.tabDetails.map(tab => tab.ariaLabel),
-                    ['Open', 'Projects', 'Todo', 'AI']
+                    ['Open', 'Projects', 'AI']
                 );
                 assert.deepEqual(
                     layout.tabDetails.map(tab => tab.title),
-                    ['Open', 'Projects', 'Todo', 'AI']
+                    ['Open', 'Projects', 'AI']
                 );
                 assert.ok(
                     layout.tabDetails.every(tab =>
@@ -1006,6 +1010,22 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                     layout.documentScrollWidth <= layout.documentClientWidth,
                     `Dashboard document overflows at ${width}px: ${JSON.stringify(layout)}`
                 );
+                const tabs = layout.controls.filter(control =>
+                    ['Open', 'Projects', 'AI'].includes(control.label));
+                assert.equal(tabs.length, 3, `Dashboard tabs are missing at ${width}px`);
+                assert.ok(
+                    Math.max(...tabs.map(tab => tab.bounds.width))
+                        - Math.min(...tabs.map(tab => tab.bounds.width)) <= 1,
+                    `Dashboard tabs must split the strip evenly at ${width}px: ${JSON.stringify(tabs)}`
+                );
+                assert.ok(
+                    Math.abs(tabs[0].bounds.left - layout.tabList.left) <= 1
+                        && Math.abs(tabs.at(-1).bounds.right - layout.tabList.right) <= 1,
+                    `Dashboard tabs must span the complete strip at ${width}px: ${JSON.stringify({
+                        tabs,
+                        tabList: layout.tabList,
+                    })}`
+                );
                 for (const [shellName, shell] of [
                     ['filter wrapper', layout.filterWrapper],
                     ['tab list', layout.tabList],
@@ -1030,7 +1050,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete four-tab Dashboard sh
                         `${control.label} clips at ${width}px: ${JSON.stringify(control)}`
                     );
                 }
-                assert.deepEqual(layout.rowCounts, [4]);
+                assert.deepEqual(layout.rowCounts, [3]);
             } finally {
                 await page.close();
             }

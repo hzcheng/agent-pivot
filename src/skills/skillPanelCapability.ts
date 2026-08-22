@@ -71,7 +71,7 @@ export interface SkillPanelCapability {
  * pipeline with its request dedupe, the migrate-to-central flow, and every
  * `*-skill*` message handler.
  *
- * Extracted from `initializeDashboard` in src/dashboard.ts (see the todo panel
+ * Extracted from `initializeDashboard` in src/dashboard.ts (see the panel
  * capability for the same slice pattern). Behaviour is unchanged: the handler
  * bodies, validation order, settlement fallbacks, and migration prompts are
  * the same; only their ownership moved.

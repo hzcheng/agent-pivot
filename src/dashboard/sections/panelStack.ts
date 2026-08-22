@@ -10,19 +10,14 @@ import { getPromptSurfaceContent, getAiPanelContent } from '../../prompts/webvie
 import { createSkillPanelCapability } from '../../skills/skillPanelCapability';
 import { SkillGroupStore } from '../../skills/skillGroupStore';
 import { getSkillsPanelContent } from '../../skills/webviewSkillContent';
-import { createTodoPanelCapability } from '../../todos/todoPanelCapability';
-import { TodoService } from '../../todos/service';
-import { buildWorkspaceDashboardSearchCatalog } from '../../webview/dashboardViewModel';
 import { getAgentPivotConfiguration } from '../../configuration';
-import type { WorkspaceCardViewModel } from '../../models';
 import type { AgentPivotViewProvider } from '../viewProvider';
-import type ProjectService from '../../services/projectService';
 import type { DashboardBootstrapResources } from '../bootstrapResources';
 
 /**
- * Composition section (MOD-DASHBOARD-SHELL): the prompt, skill, and todo
- * panel stack. Extracted from the composition root; construction and
- * ownResource registration order are unchanged.
+ * Composition section (MOD-DASHBOARD-SHELL): the prompt and skill
+ * panel stack. Extracted from the composition root; remaining construction
+ * and ownResource registration order are unchanged.
  */
 export interface PanelStackDeps {
     context: vscode.ExtensionContext;
@@ -32,26 +27,21 @@ export interface PanelStackDeps {
     timeBootstrapPhase: <T>(phase: string, run: () => T | Promise<T>) => Promise<T>;
     logError: (message: string, error: unknown) => void;
     logDashboardDiagnostic: (event: Record<string, unknown>) => void;
-    projectService: ProjectService;
     promptStore: { readSetting: () => unknown; writeGlobalSetting: (value: unknown) => Promise<void> };
-    getOpenWorkspaceCards: () => WorkspaceCardViewModel[];
 }
 
 export interface PanelStack {
-    todoService: TodoService;
     promptService: PromptService;
     promptDashboardController: PromptDashboardController;
     skillPanel: ReturnType<typeof createSkillPanelCapability>;
-    todoPanel: ReturnType<typeof createTodoPanelCapability>;
 }
 
 export function createPanelStack(deps: PanelStackDeps): PanelStack {
     const {
         context, provider, ownResource, timeBootstrapPhase,
-        logError, logDashboardDiagnostic, projectService, promptStore, getOpenWorkspaceCards,
+        logError, logDashboardDiagnostic, promptStore,
     } = deps;
 
-    const todoService = new TodoService(context);
     const promptService = new PromptService({
         readSetting: promptStore.readSetting,
         writeGlobalSetting: promptStore.writeGlobalSetting,
@@ -114,28 +104,9 @@ export function createPanelStack(deps: PanelStackDeps): PanelStack {
             ),
         ),
     });
-    const todoPanel = ownResource(() => createTodoPanelCapability({
-        provider,
-        todoService,
-        getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            projectService.getGroups(),
-            getOpenWorkspaceCards(),
-            todoService.getSearchItems(),
-            skillPanel.getRecords(),
-        ),
-        getConfiguration: () => getAgentPivotConfiguration(),
-        showInputBox: options => vscode.window.showInputBox(options),
-        showWarningMessage: (message, messageOptions, ...items) =>
-            vscode.window.showWarningMessage(message, messageOptions, ...items),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logError,
-    }));
-
     return {
-        todoService,
         promptService,
         promptDashboardController,
         skillPanel,
-        todoPanel,
     };
 }

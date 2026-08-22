@@ -137,10 +137,8 @@ export async function openTaskResultReview(
     title: string,
     onError?: (message: string, error: unknown) => void
 ): Promise<void> {
-    const files = await new Promise<string[]>(resolve => {
-        execFile('git', [
-            '-C', worktreePath, 'diff', '--name-only', '-z', baselineSha,
-        ], {
+    const listFiles = (args: string[]) => new Promise<string[]>(resolve => {
+        execFile('git', ['-C', worktreePath, ...args], {
             cwd: worktreePath,
             timeout: GIT_SHOW_TIMEOUT_MS,
             maxBuffer: GIT_SHOW_MAX_OUTPUT_BYTES,
@@ -148,10 +146,18 @@ export async function openTaskResultReview(
         }, (error, stdout) => {
             resolve(error
                 ? []
-                : stdout.split('\0').filter(token => token)
-                    .slice(0, MAX_DIFF_FILES));
+                : stdout.split('\0').filter(token => token));
         });
     });
+    // Task result ⊃ Working changes (PRD §4.3): untracked files join the
+    // tracked diff, otherwise files visible in Working changes would be
+    // missing from the review.
+    const tracked = await listFiles(['diff', '--name-only', '-z', baselineSha]);
+    const untracked = await listFiles(
+        ['ls-files', '--others', '--exclude-standard', '-z']);
+    const untrackedSet = new Set(untracked);
+    const files = [...new Set([...tracked, ...untracked])]
+        .slice(0, MAX_DIFF_FILES);
     if (!files.length) {
         return;
     }
@@ -159,7 +165,11 @@ export async function openTaskResultReview(
         const fileUri = vscode.Uri.file(path.join(worktreePath, file));
         return [
             fileUri,
-            gitContentUri(worktreePath, baselineSha, file),
+            // An untracked file has no baseline side: render it as an
+            // empty original, like an added file.
+            untrackedSet.has(file)
+                ? gitContentUri(worktreePath, EMPTY_REF, file)
+                : gitContentUri(worktreePath, baselineSha, file),
             // A deleted file has no working-tree document: render the
             // modified side as empty content instead of a missing file.
             existsSync(fileUri.fsPath)

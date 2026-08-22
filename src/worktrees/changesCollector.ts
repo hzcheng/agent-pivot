@@ -49,7 +49,8 @@ export interface MemberChangesSnapshot {
     /**
      * Task-result file count (changes-panel PRD §5.3): files whose net
      * content differs between the baseline and the current worktree
-     * (committed + uncommitted, untracked excluded). Absent when unknown.
+     * (committed + uncommitted + untracked — Task result ⊃ Working
+     * changes, PRD §4.3). Absent when unknown.
      */
     taskFileCount?: number;
     collectedAt: number;
@@ -241,9 +242,22 @@ export class ChangesCollector {
                 '-C', worktreePath,
                 'diff', '--name-only', '-z', baseline.commitSha,
             ], worktreePath);
-            snapshot.taskFileCount = diff.stdout.split('\0')
-                .filter(token => token && token.length <= MAX_PATH_LENGTH)
-                .length;
+            const others = await this.execGit([
+                '-C', worktreePath,
+                'ls-files', '--others', '--exclude-standard', '-z',
+            ], worktreePath);
+            // Task result ⊃ Working changes (PRD §4.3): the tracked diff
+            // alone silently drops untracked files. Both listings must
+            // succeed — a tracked-only count would fake completeness.
+            const paths = new Set<string>();
+            for (const output of [diff.stdout, others.stdout]) {
+                for (const token of output.split('\0')) {
+                    if (token && token.length <= MAX_PATH_LENGTH) {
+                        paths.add(token);
+                    }
+                }
+            }
+            snapshot.taskFileCount = paths.size;
         } catch (_error) {
             // taskFileCount stays unknown; the task layer hides itself.
         }

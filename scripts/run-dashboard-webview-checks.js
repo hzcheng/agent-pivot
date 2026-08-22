@@ -418,7 +418,7 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(emptyWindowMessage.currentWorkspaceCount, 0,
         'a zero-root (empty-window) current card is not renderable and must not be declared');
     assert.ok(!emptyWindowMessage.html.includes('data-current-workspace'),
-        'the empty-window current group renders the empty state instead of a card');
+        'the empty-window session surface must not claim current-session identity');
     const presentationMessage = require('../out/aiSessions/presentationMessage');
     assert.strictEqual(presentationMessage.getRenderedCurrentWorkspaceNavigationIdentity([
         { kind: 'current', navigationIdentity: 'empty-window', roots: [] },
@@ -864,15 +864,12 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual(currentRow.includes('open-window-env-chip'), false,
         'local windows do not carry an environment chip');
     assert.strictEqual(currentRow.includes('Local'), false);
-    // 当前窗口同时以无头壳里的 current-detail 卡片存在（过渡形态）。
-    assert.ok(workspaceHtml.includes('open-current-workspace-group'));
-    assert.strictEqual(
-        workspaceHtml.includes('class="group-title steward-section-header steward-group-header">\n        <span class="group-title-text">CURRENT WINDOW'),
-        false,
-        'the transitional current group is headless',
-    );
+    // PR-D：CHATS/ALL 已从 current-detail 卡片提升为一级 OPEN surface。
+    assert.ok(workspaceHtml.includes('data-open-session-surface'));
+    assert.strictEqual(workspaceHtml.includes('class="workspace-card'), false,
+        'the lifted OPEN surface must not wrap sessions in a workspace-card element');
     assert.strictEqual((workspaceHtml.match(/data-current-workspace/g) || []).length, 1,
-        'only the headless current-detail card owns current-session behavior');
+        'only the lifted OPEN session surface owns current-session behavior');
     assert.ok(workspaceHtml.includes('data-open-workspace-pin-live-region'));
 
     const pinnedWindowHtml = webviewContent.getOpenWorkspacesGroupContent([{
@@ -914,38 +911,9 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual(/rootCount|sessionCount|aiSessionCount/.test(consistencyBody), false,
         'current-card DOM consistency must not equate card count with roots or sessions');
     const stateBody = extractFunctionBody(projectSource, 'getWorkspaceUpdateDomState');
-    assert.ok(stateBody.includes('.open-current-workspace-group'));
-    assert.ok(stateBody.includes('.workspace-card[data-workspace-scope-identity]'));
+    assert.ok(stateBody.includes('[data-open-session-surface]'));
+    assert.ok(stateBody.includes('data-workspace-scope-identity'));
     assert.strictEqual(/workspace-root|codex-session-row/.test(stateBody), false);
-
-    let createdReplacementHolder = false;
-    const currentCard = {};
-    const duplicateCardOutsideCurrentGroup = {};
-    const currentGroup = {
-        contains: card => card === currentCard,
-    };
-    const wrapper = {
-        querySelector: selector => selector === '.open-current-workspace-group' ? currentGroup : null,
-        querySelectorAll: selector => selector === '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
-            ? [currentCard, duplicateCardOutsideCurrentGroup]
-            : [],
-    };
-    const context = {
-        document: {
-            querySelector: selector => selector === '.sticky-groups-wrapper' ? wrapper : null,
-            createElement: () => {
-                createdReplacementHolder = true;
-                throw new Error('a duplicate current card must be rejected before parsing replacement HTML');
-            },
-        },
-        window: {},
-    };
-    vm.runInNewContext(projectSource, context);
-    assert.strictEqual(context.applyWorkspaceUpdate({
-        type: 'workspace-updated', version: 2, currentWorkspaceCount: 1, html: '<div></div>',
-    }), false);
-    assert.strictEqual(createdReplacementHolder, false,
-        'the v2 handler must not mount another current card when one exists outside the owned group');
 
     const preservedOtherNavigationCard = {
         matches: selector => selector === '.workspace-card[data-other-workspace]',
@@ -958,29 +926,29 @@ function runWorkspaceCardRenderingChecks() {
             ? preservedOtherNavigationCard
             : null,
     };
-    const replacementCard = {};
-    const replacementGroup = {
-        matches: selector => selector === '.open-current-workspace-group',
-        querySelectorAll: selector => selector === '.workspace-card[data-workspace-scope-identity]'
-            ? [replacementCard]
-            : [],
+    const replacementSurface = {
+        matches: selector => selector === '[data-open-session-surface]',
+        hasAttribute: attribute => attribute === 'data-current-workspace'
+            || attribute === 'data-workspace-scope-identity',
+        querySelectorAll: () => [],
     };
-    let mountedCurrentGroup;
+    let mountedCurrentSurface;
     let successfulWrapper;
-    const replaceableCurrentGroup = {
-        matches: selector => selector === '.open-current-workspace-group',
-        contains: card => card === currentCard,
+    const replaceableCurrentSurface = {
+        matches: selector => selector === '[data-open-session-surface]',
+        hasAttribute: attribute => attribute === 'data-current-workspace'
+            || attribute === 'data-workspace-scope-identity',
         replaceWith: replacement => {
-            const currentIndex = successfulWrapper.children.indexOf(replaceableCurrentGroup);
-            assert.notStrictEqual(currentIndex, -1, 'the fake current group must be mounted before replacement');
+            const currentIndex = successfulWrapper.children.indexOf(replaceableCurrentSurface);
+            assert.notStrictEqual(currentIndex, -1, 'the fake session surface must be mounted before replacement');
             successfulWrapper.children.splice(currentIndex, 1, replacement);
-            mountedCurrentGroup = replacement;
+            mountedCurrentSurface = replacement;
         },
     };
     successfulWrapper = {
-        children: [replaceableCurrentGroup, preservedOtherWindowsGroup],
+        children: [preservedOtherWindowsGroup, replaceableCurrentSurface],
         querySelector(selector) {
-            if (selector === '.open-current-workspace-group') {
+            if (selector === '[data-open-session-surface]') {
                 return this.children.find(node => node.matches?.(selector)) || null;
             }
             if (selector === '.open-other-windows-group') {
@@ -991,16 +959,14 @@ function runWorkspaceCardRenderingChecks() {
             }
             return null;
         },
-        querySelectorAll: selector => selector === '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
-            ? [currentCard]
-            : [],
+        querySelectorAll: () => [],
     };
     const successfulContext = {
         document: {
             querySelector: selector => selector === '.sticky-groups-wrapper' ? successfulWrapper : null,
             createElement: () => ({
-                children: [replacementGroup],
-                firstElementChild: replacementGroup,
+                children: [replacementSurface],
+                firstElementChild: replacementSurface,
                 set innerHTML(_value) {},
             }),
         },
@@ -1009,12 +975,12 @@ function runWorkspaceCardRenderingChecks() {
     vm.runInNewContext(projectSource, successfulContext);
     assert.strictEqual(successfulContext.applyWorkspaceUpdate({
         type: 'workspace-updated', version: 2, currentWorkspaceCount: 1,
-        html: '<div class="open-current-workspace-group"></div>',
+        html: '<div data-open-session-surface data-current-workspace data-workspace-scope-identity></div>',
     }), true);
-    assert.strictEqual(mountedCurrentGroup, replacementGroup,
-        'a valid current-group update must replace the current group');
-    assert.deepStrictEqual(successfulWrapper.children, [replacementGroup, preservedOtherWindowsGroup],
-        'a current-group update must replace one child while preserving the real OTHER WINDOWS sibling');
+    assert.strictEqual(mountedCurrentSurface, replacementSurface,
+        'a valid session-surface update must replace the current surface');
+    assert.deepStrictEqual(successfulWrapper.children, [preservedOtherWindowsGroup, replacementSurface],
+        'a session-surface update must preserve the real WINDOWS switcher sibling');
     assert.strictEqual(successfulWrapper.querySelector('.open-other-windows-group'), preservedOtherWindowsGroup,
         'the same OTHER WINDOWS node must remain mounted');
     assert.strictEqual(
@@ -1058,13 +1024,14 @@ function runWorkspaceCardRenderingChecks() {
     const savedSurface = makeTabSurface(stableCardId);
     const stateContext = { document: {}, window: {} };
     vm.runInNewContext(projectSource, stateContext);
-    const zeroRootCurrentGroup = {
-        matches: selector => selector === '.open-current-workspace-group',
-        querySelectorAll: selector => selector === '.workspace-card[data-workspace-scope-identity]' ? [] : [],
+    const zeroRootSessionSurface = {
+        matches: selector => selector === '[data-open-session-surface]',
+        hasAttribute: () => false,
+        querySelectorAll: () => [],
     };
-    assert.strictEqual(stateContext.isWorkspaceUpdateDomConsistent({ currentWorkspaceCount: 0 }, zeroRootCurrentGroup), true,
-        'a zero-root resolver message must be DOM-consistent with an empty current group');
-    assert.strictEqual(stateContext.isWorkspaceUpdateDomConsistent({ currentWorkspaceCount: 1 }, zeroRootCurrentGroup), false,
+    assert.strictEqual(stateContext.isWorkspaceUpdateDomConsistent({ currentWorkspaceCount: 0 }, zeroRootSessionSurface), true,
+        'a zero-root resolver message must be DOM-consistent with an empty session surface');
+    assert.strictEqual(stateContext.isWorkspaceUpdateDomConsistent({ currentWorkspaceCount: 1 }, zeroRootSessionSurface), false,
         'the incremental consistency guard must reject a declared 1/rendered 0 split');
     stateContext.writeAiSessionTabState(vscodeApi, stableCardId, 'chats');
     stateContext.restoreAiSessionTabsFromState({

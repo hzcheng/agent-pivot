@@ -295,6 +295,46 @@ export function getCurrentWorkspaceGroupContent(
 </div>`;
 }
 
+export function getOpenSessionSurfaceContent(
+    card: WorkspaceCardViewModel | null,
+    hasOtherWindows: boolean = false,
+    runningCardAnimation?: string,
+    runningIconAnimation?: string,
+): string {
+    const currentCard = card && card.kind === 'current' && card.roots.length > 0 ? card : null;
+    if (!currentCard) {
+        return `<div class="open-session-surface open-session-surface-empty" data-open-session-surface role="region" aria-label="Current window sessions">
+            ${getOpenCurrentWorkspaceEmptyState(hasOtherWindows)}
+        </div>`;
+    }
+    const roots = currentCard.roots.slice().sort((left, right) => left.ordinal - right.ordinal);
+    const aiSessions = currentCard.aiSessions;
+    const aiSessionCount = aiSessions?.aiSessionCount || 0;
+    const activeSessionCount = aiSessions?.activeSessionCount || 0;
+    const attentionCount = currentCard.attentionCount || 0;
+    const summaryParts = [
+        aiSessionCount ? `${aiSessionCount} AI session${aiSessionCount === 1 ? '' : 's'}` : '',
+        activeSessionCount ? `${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}` : '',
+        attentionCount ? `${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention` : '',
+    ].filter(Boolean);
+    const summaryLabel = escapeAttribute(summaryParts.join(', '));
+    const badge = summaryParts.length
+        ? `<span class="project-codex-badge" data-ai-session-total-count="${aiSessionCount}" data-ai-session-active-count="${activeSessionCount}" data-ai-session-attention-count="${attentionCount}" title="${summaryLabel}" aria-label="${summaryLabel}">${
+            aiSessionCount ? `<span class="ai-session-total-count">AI ${aiSessionCount}</span>` : ''
+        }${activeSessionCount ? `<span class="ai-session-active-count" aria-label="${activeSessionCount} active AI session${activeSessionCount === 1 ? '' : 's'}">●${activeSessionCount}</span>` : ''
+        }${attentionCount ? `<b class="ai-session-attention-count" aria-label="${attentionCount} AI session${attentionCount === 1 ? ' needs' : 's need'} attention">${attentionCount}</b>` : ''
+        }</span>`
+        : '';
+    return `<div class="open-session-surface" data-open-session-surface data-id="${escapeAttribute(currentCard.id)}" data-current-workspace data-workspace-card-kind="current" data-workspace-navigation-identity="${escapeAttribute(currentCard.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(currentCard.scopeIdentity)}" role="region" aria-label="Current window sessions">
+        ${getRunningSessionSurfaceFx(currentCard, runningCardAnimation)}
+        ${badge}
+        ${getAiSessionsDiv(getWorkspaceAiSessionSurface(currentCard), {
+            showRootChips: roots.length > 1,
+            runningIconAnimation,
+        })}
+    </div>`;
+}
+
 export function getOpenWorkspacesGroupContent(
     cards: WorkspaceCardViewModel[],
     otherWindowsStatus: OpenWorkspaceBridgeStatus = 'ready',
@@ -337,7 +377,7 @@ export function getOpenWorkspacesGroupContent(
         otherWindowsStatus,
         statusContent,
     );
-    const currentSection = getCurrentWorkspaceGroupContent(
+    const currentSection = getOpenSessionSurfaceContent(
         current,
         navigationCards.length > 0,
         runningCardAnimation,
@@ -412,6 +452,20 @@ function getWorkspaceCardDiv(
         ${sessionSection}
     </div>
 </div>`;
+}
+
+function getRunningSessionSurfaceFx(
+    card: WorkspaceCardViewModel,
+    runningCardAnimation?: string,
+): string {
+    const runningSessionCount = (card.aiSessions?.activeSessions || [])
+        .filter(session => session.executionState === 'running').length;
+    const sessionFx = runningSessionCount > 0
+        ? normalizeRunningCardAnimation(runningCardAnimation)
+        : '';
+    return sessionFx && sessionFx !== 'none'
+        ? `<div class="project-session-fx open-session-surface-fx" data-session-fx="${sessionFx}"></div>`
+        : '';
 }
 
 function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment']): ProjectRemoteType {

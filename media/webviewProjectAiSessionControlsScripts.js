@@ -239,7 +239,8 @@ function initProjectAiSessionControls(options) {
     window.__agentPivotBatchAiSessions = batchAiSessionManager;
 
     function onTriggerAiSessionAction(target, projectId) {
-        var projectDiv = target.closest('.project[data-id]');
+        var projectDiv = target.closest('.project[data-id]')
+            || target.closest('[data-open-session-surface][data-id]');
         var managedWorktreeRemoveAction = target.closest(
             '[data-action="remove-managed-worktree"]'
         );
@@ -439,7 +440,7 @@ function initProjectAiSessionControls(options) {
         // PRD：非活动 tab 上的 ▾ 点击 = 先激活 CHATS 再开菜单。
         var viewMenuTrigger = target.closest('[data-action="toggle-chats-view-menu"]');
         if (viewMenuTrigger) {
-            var menuProjectDiv = viewMenuTrigger.closest('.project[data-id]');
+            var menuProjectDiv = viewMenuTrigger.closest('[data-open-session-surface][data-id]');
             if (menuProjectDiv) {
                 var chatsTabSelected = menuProjectDiv.querySelector(
                     '[data-ai-session-tab="chats"]'
@@ -2564,7 +2565,8 @@ function initProjectAiSessionControls(options) {
             '.codex-session-row[data-session-provider="' + pending.provider
                 + '"][data-session-id="' + CSS.escape(pending.sessionId) + '"]'
         );
-        var project = row && row.closest('.workspace-card[data-current-workspace]');
+        var project = row && (row.closest('.workspace-card[data-current-workspace]')
+            || row.closest('[data-open-session-surface][data-current-workspace]'));
         var liveRegion = project && project.querySelector('[data-ai-session-live-region]');
         if (liveRegion) liveRegion.textContent = message;
     }
@@ -2697,7 +2699,7 @@ function initProjectAiSessionControls(options) {
     }
 
     function closeAiSessionProviderMenus(exceptProjectDiv) {
-        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+        document.querySelectorAll('.project[data-id], [data-open-session-surface][data-id]').forEach(projectDiv => {
             if (projectDiv !== exceptProjectDiv) {
                 setAiSessionProviderMenuOpen(projectDiv, false);
             }
@@ -2748,7 +2750,7 @@ function initProjectAiSessionControls(options) {
     }
 
     function closeChatsViewMenus(exceptProjectDiv) {
-        document.querySelectorAll('.project[data-id]').forEach(projectDiv => {
+        document.querySelectorAll('[data-open-session-surface][data-id]').forEach(projectDiv => {
             if (projectDiv !== exceptProjectDiv) {
                 setChatsViewMenuOpen(projectDiv, false);
             }
@@ -2853,7 +2855,11 @@ function initProjectAiSessionControls(options) {
 
     function syncAiSessionBatchManagementDom(projectDiv) {
         var snapshot = batchAiSessionManager.snapshot();
-        document.querySelectorAll('.project[data-ai-session-managing], .project[data-ai-session-pending]').forEach(project => {
+        document.querySelectorAll(
+            '.project[data-ai-session-managing], .project[data-ai-session-pending], '
+            + '[data-open-session-surface][data-ai-session-managing], '
+            + '[data-open-session-surface][data-ai-session-pending]'
+        ).forEach(project => {
             if (project !== projectDiv || project.getAttribute("data-id") !== snapshot.projectId) {
                 project.removeAttribute("data-ai-session-managing");
                 project.removeAttribute("data-ai-session-pending");

@@ -1,10 +1,12 @@
 function getWorkspaceUpdateDomState(root) {
-    var currentGroup = root.matches?.('.open-current-workspace-group')
+    var currentSurface = root.matches?.('[data-open-session-surface]')
         ? root
-        : root.querySelector('.open-current-workspace-group');
+        : root.querySelector('[data-open-session-surface]');
     return {
-        currentWorkspaceCount: currentGroup
-            ? currentGroup.querySelectorAll('.workspace-card[data-workspace-scope-identity]').length
+        currentWorkspaceCount: currentSurface
+            && currentSurface.hasAttribute('data-current-workspace')
+            && currentSurface.hasAttribute('data-workspace-scope-identity')
+            ? 1
             : 0,
     };
 }
@@ -53,8 +55,8 @@ function restoreOpenTabListScroll(list, saved, itemSelector, keyAttribute) {
     list.scrollTop = Math.min(Math.max(0, Number(fallbackTop) || 0), maxScrollTop);
 }
 
-var OPEN_TAB_CURRENT_LIST_SELECTOR = '.open-current-workspace-group .group-list';
-var OPEN_TAB_CURRENT_ITEM_SELECTOR = '.workspace-card[data-workspace-scope-identity]';
+var OPEN_TAB_CURRENT_LIST_SELECTOR = '[data-open-session-surface]';
+var OPEN_TAB_CURRENT_ITEM_SELECTOR = '[data-open-session-surface][data-workspace-scope-identity]';
 var OPEN_TAB_OTHER_LIST_SELECTOR = '.open-window-switcher-group [data-open-window-switcher-list]';
 var OPEN_TAB_OTHER_ITEM_SELECTOR = '[data-open-window-row][data-workspace-navigation-identity]';
 
@@ -76,12 +78,8 @@ function applyWorkspaceUpdate(message, options) {
     }
 
     var wrapper = document.querySelector('.sticky-groups-wrapper');
-    var currentGroup = wrapper && wrapper.querySelector('.open-current-workspace-group');
-    if (!wrapper || !currentGroup || typeof document.createElement !== 'function') {
-        return false;
-    }
-    var currentCards = Array.from(wrapper.querySelectorAll('.workspace-card[data-current-workspace][data-workspace-scope-identity]'));
-    if (currentCards.some(card => !currentGroup.contains(card))) {
+    var currentSurface = wrapper && wrapper.querySelector('[data-open-session-surface]');
+    if (!wrapper || !currentSurface || typeof document.createElement !== 'function') {
         return false;
     }
     var holder = document.createElement('div');
@@ -89,7 +87,7 @@ function applyWorkspaceUpdate(message, options) {
     var replacement = holder.firstElementChild;
     if (!replacement
         || holder.children.length !== 1
-        || !replacement.matches('.open-current-workspace-group')
+        || !replacement.matches('[data-open-session-surface]')
         || !isWorkspaceUpdateDomConsistent(message, replacement)) {
         return false;
     }
@@ -98,9 +96,12 @@ function applyWorkspaceUpdate(message, options) {
         return false;
     }
 
-    var aiSessionStates = captureCurrentWorkspaceAiSessionStates(currentGroup);
+    // State helpers query descendants; capture from the wrapper so the
+    // surface itself is included (querySelectorAll on the surface excludes
+    // its own node).
+    var aiSessionStates = captureCurrentWorkspaceAiSessionStates(wrapper);
     var currentListScroll = captureOpenTabListScroll(
-        queryOpenTabList(currentGroup, '.group-list'),
+        currentSurface,
         OPEN_TAB_CURRENT_ITEM_SELECTOR,
         'data-workspace-scope-identity'
     );
@@ -110,25 +111,25 @@ function applyWorkspaceUpdate(message, options) {
         && typeof window.__agentPivotWorktreeGroupForm.captureFocus === 'function') {
         window.__agentPivotWorktreeGroupForm.captureFocus();
     }
-    currentGroup.replaceWith(replacement);
+    currentSurface.replaceWith(replacement);
     restoreOpenTabListScroll(
-        queryOpenTabList(replacement, '.group-list'),
+        replacement,
         currentListScroll,
         OPEN_TAB_CURRENT_ITEM_SELECTOR,
         'data-workspace-scope-identity'
     );
     if (typeof restoreAiSessionTabsFromState === 'function') {
-        restoreAiSessionTabsFromState(replacement, window.vscode);
+        restoreAiSessionTabsFromState(wrapper, window.vscode);
     }
     restoreCurrentWorkspaceAiSessionViewStates(
-        replacement,
+        wrapper,
         aiSessionStates,
         projectId => options
             && typeof options.canRestoreAiSessionProviderMenu === 'function'
             && options.canRestoreAiSessionProviderMenu(projectId)
     );
-    restoreCurrentWorkspaceAiSessionAnchorsAndFocus(replacement, aiSessionStates);
-    revealChangedFocusedAiSessionCard(replacement, aiSessionStates);
+    restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
+    revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();
     }
@@ -493,7 +494,7 @@ function getOpenWorkspacesUpdateDomState(root) {
         navigationWindowRowCount: navigationRows.length,
         currentDetailCount: projectionRoot.querySelectorAll(
             wrapperPrefix
-                + '.workspace-card[data-current-workspace][data-workspace-scope-identity]'
+                + '[data-open-session-surface][data-current-workspace][data-workspace-scope-identity]'
         ).length,
         hasUniqueNavigationIdentities: navigationIdentities.every(identity => !!identity)
             && new Set(navigationIdentities).size === navigationIdentities.length,

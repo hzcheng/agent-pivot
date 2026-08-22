@@ -461,7 +461,7 @@ test('WEBVIEW-WEBVIEW-OPTIONS-001 enables scripts and limits local resources to 
     });
 });
 
-test('OPEN-WINDOW-SWITCHER-UI-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 renders WINDOWS switcher rows above the headless current-detail card', () => {
+test('OPEN-WINDOW-SWITCHER-UI-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIEW-DISPLAY-001 renders WINDOWS switcher rows above the lifted session surface', () => {
     const html = webviewModules.content.getOpenWorkspacesGroupContent([
         makeWorkspaceCard({
             id: 'current',
@@ -473,12 +473,12 @@ test('OPEN-WINDOW-SWITCHER-UI-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIE
         makeWorkspaceCard({ id: 'navigation', kind: 'navigation', name: 'Other' }),
     ], 'ready');
 
-    // ① The switcher group leads; the headless current-detail group follows.
+    // ① The switcher group leads; the CHATS/ALL surface follows directly.
     const switcherStart = html.indexOf('open-window-switcher-group');
-    const currentStart = html.indexOf('open-current-workspace-group');
+    const currentStart = html.indexOf('<div class="open-session-surface"');
     assert.ok(switcherStart >= 0, 'the window switcher group must render');
     assert.ok(currentStart > switcherStart,
-        'the current-detail group follows the window switcher');
+        'the lifted session surface follows the window switcher');
     const switcherSection = html.slice(0, currentStart);
     assert.match(switcherSection, /class="group open-window-switcher-group" role="list"/);
     assert.match(switcherSection, /data-other-windows-status="ready"/);
@@ -510,11 +510,11 @@ test('OPEN-WINDOW-SWITCHER-UI-001 WEBVIEW-CURRENT-WORKSPACE-RENDERING-001 WEBVIE
     assert.match(html, /aria-label="Current window: Current" aria-disabled="true" aria-current="true"/);
     assert.match(html, /aria-label="Focus window: Other"/);
 
-    // ③ The headless current group keeps the detailed card only.
+    // ③ The lifted surface owns the current session identity directly.
     const currentSection = html.slice(currentStart);
-    assert.match(currentSection, /open-current-workspace-group-headless/);
-    assert.doesNotMatch(currentSection, /group-title/,
-        'the current-detail group stays headless');
+    assert.match(currentSection, /class="open-session-surface"/);
+    assert.doesNotMatch(currentSection, /class="workspace-card/,
+        'the lifted surface must not retain a current-detail card wrapper');
     assert.match(currentSection, /data-current-workspace/);
     assert.match(currentSection, /data-workspace-scope-identity/);
     assert.equal((currentSection.match(/class="codex-sessions"/g) || []).length, 1);
@@ -553,11 +553,10 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders saved project names for single-root wi
     )).map(match => match[1]);
     assert.deepEqual(rowNames, ['agent-pivot', 'reddb project'],
         'every window renders its disambiguated name in the switcher row');
-    const detailNames = Array.from(html.matchAll(
-        /<h2 class="project-header">([^<]+)<\/h2>/g
-    )).map(match => match[1]);
-    assert.deepEqual(detailNames, ['agent-pivot'],
-        'the current-detail card keeps its full header');
+    assert.match(html, /data-open-session-surface data-id="current"/,
+        'the current window owns one direct CHATS/ALL surface');
+    assert.doesNotMatch(html, /<h2 class="project-header">/,
+        'the retired current-detail header is not rendered');
 });
 
 test('WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-001 WEBVIEW-MULTI-PROVIDER-SESSION-HISTORY-002 renders a pinned-first selected-provider history list', () => {
@@ -1640,7 +1639,7 @@ test('WORKTREE-QUICK-SWITCH-001 reveals, expands, and persists the selected work
                         : selector.includes('.ai-session-worktree-group') ? [group] : [],
     };
     harness.context.document.querySelectorAll = selector =>
-        selector === '.workspace-card[data-workspace-navigation-identity]' ? [workspace] : [];
+        selector === '[data-open-session-surface][data-workspace-navigation-identity]' ? [workspace] : [];
 
     assert.equal(harness.context.window.__agentPivotRevealWorkspaceWorktree(
         'navigation-1', '/repo/.git', '/repo/topic'
@@ -2032,7 +2031,7 @@ function assertCrossProviderBatchScope(source = projectVmSource) {
     const harness = createProjectVm({
         source,
         querySelectorAll: selector =>
-            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+            selector === '[data-open-session-surface][data-current-workspace][data-id]' ? [project] : [],
     });
     const targetFor = action => ({
         closest(selector) {
@@ -2152,7 +2151,7 @@ test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 announces bounded aggregate outco
     const project = createCrossProviderBatchProject();
     const harness = createProjectVm({
         querySelectorAll: selector =>
-            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+            selector === '[data-open-session-surface][data-current-workspace][data-id]' ? [project] : [],
     });
     const manager = harness.context.window.__agentPivotBatchAiSessions;
 
@@ -2240,7 +2239,7 @@ function assertBatchSelectionReconcilesAuthoritativeRows(source = projectVmSourc
     const harness = createProjectVm({
         source,
         querySelectorAll: selector =>
-            selector === '.workspace-card[data-current-workspace][data-id]' ? [project] : [],
+            selector === '[data-open-session-surface][data-current-workspace][data-id]' ? [project] : [],
     });
     const manager = harness.context.window.__agentPivotBatchAiSessions;
     manager.enter('workspace-a');

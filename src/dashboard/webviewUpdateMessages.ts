@@ -11,7 +11,7 @@ import {
     DashboardWorkspaceSearchCatalog,
 } from '../webview/dashboardViewModel';
 import {
-    getCurrentWorkspaceGroupContent,
+    getOpenSessionSurfaceContent,
     getOpenWorkspacesGroupContent,
 } from '../webview/webviewContent';
 
@@ -149,7 +149,7 @@ export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessa
         projectionRevision: input.sequence,
         generatedAt: input.generatedAt,
         currentWorkspaceCount: currentWorkspaceCount as 0 | 1,
-        html: getCurrentWorkspaceGroupContent(
+        html: getOpenSurfaceForAiSessionsUpdate(
             current,
             input.cards.some(card => card.kind === 'navigation'),
             input.runningCardAnimation,
@@ -162,4 +162,21 @@ export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessa
         ),
         presentation: input.presentation,
     };
+}
+
+function getOpenSurfaceForAiSessionsUpdate(
+    current: WorkspaceCardViewModel | null,
+    hasOtherWindows: boolean,
+    runningCardAnimation?: string,
+    runningIconAnimation?: string,
+): string {
+    // The incremental channel replaces only the lifted session surface. The
+    // full OPEN replacement owns the WINDOWS switcher and calls the public
+    // renderer directly.
+    return getOpenSessionSurfaceContent(
+        current,
+        hasOtherWindows,
+        runningCardAnimation,
+        runningIconAnimation,
+    );
 }

@@ -1005,6 +1005,22 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete three-tab Dashboard s
                     layout.documentScrollWidth <= layout.documentClientWidth,
                     `Dashboard document overflows at ${width}px: ${JSON.stringify(layout)}`
                 );
+                const tabs = layout.controls.filter(control =>
+                    ['Open', 'Projects', 'AI'].includes(control.label));
+                assert.equal(tabs.length, 3, `Dashboard tabs are missing at ${width}px`);
+                assert.ok(
+                    Math.max(...tabs.map(tab => tab.bounds.width))
+                        - Math.min(...tabs.map(tab => tab.bounds.width)) <= 1,
+                    `Dashboard tabs must split the strip evenly at ${width}px: ${JSON.stringify(tabs)}`
+                );
+                assert.ok(
+                    Math.abs(tabs[0].bounds.left - layout.tabList.left) <= 1
+                        && Math.abs(tabs.at(-1).bounds.right - layout.tabList.right) <= 1,
+                    `Dashboard tabs must span the complete strip at ${width}px: ${JSON.stringify({
+                        tabs,
+                        tabList: layout.tabList,
+                    })}`
+                );
                 for (const [shellName, shell] of [
                     ['filter wrapper', layout.filterWrapper],
                     ['tab list', layout.tabList],

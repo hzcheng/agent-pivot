@@ -5606,7 +5606,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     const pill = page.locator('[data-telemetry-comments]');
     assert.equal(await toolbarSend.isDisabled(), true);
     assert.equal(await pill.isVisible(), true);
-    assert.equal(await pill.innerText(), '0');
+    assert.equal(await pill.innerText(), '0 · 0');
 
     await page.locator('[data-telemetry-comments]').click();
     await page.locator('[data-comment-action="new"]').click();
@@ -5635,7 +5635,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         'Send 1 open comment to the session input'
     );
     assert.equal(await pill.isVisible(), true);
-    assert.equal(await pill.innerText(), '1/1');
+    assert.equal(await pill.innerText(), '1 · 0');
 
     await page.locator('[data-conversation-position]').click();
     await pill.click();
@@ -7014,7 +7014,8 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     const card = page.locator('[data-comment-id="comment-1"]');
     const noteCard = page.locator('[data-comment-id="comment-2"]');
 
-    // Read mode renders the full comment without a textarea or clipping.
+    // Read mode renders the full comment without a textarea; short
+    // comments stay unclamped (no clamp class, no toggle).
     assert.equal(await card.locator('textarea').count(), 0);
     const body = card.locator('.conversation-comment-body');
     assert.equal(
@@ -7024,6 +7025,18 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     assert.equal(await body.evaluate(element =>
         element.scrollHeight <= element.clientHeight
     ), true, 'read mode must show the full comment without scrolling');
+    assert.equal(
+        await body.evaluate(element =>
+            element.classList.contains('is-clamped')
+        ),
+        false,
+        'short comments must not be clamped'
+    );
+    assert.equal(
+        await card.locator('[data-comment-clamp-toggle]').count(),
+        0,
+        'short comments never render a clamp toggle'
+    );
     assert.equal(
         await card.locator('.conversation-comment-meta span').first()
             .textContent(),
@@ -7600,10 +7613,10 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
         'toolbar buttons must share one uniform icon size'
     );
 
-    // Telemetry pill reports open/total.
+    // Telemetry pill reports session · workspace open counts.
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        '2/3'
+        '2 · 0'
     );
 
     // A done card settled outside a send starts collapsed and dimmed.
@@ -7671,7 +7684,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     await settle(sendAll, 2, allDone);
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        '0/3'
+        '0 · 0'
     );
     await page.locator('[data-comment-filter="open"]').click();
     assert.equal(await page.locator('[data-comment-id]').count(), 0);
@@ -7741,7 +7754,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     assert.equal(await page.locator('[data-comment-marker]').count(), 0);
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        '0'
+        '0 · 0'
     );
 });
 
@@ -7925,8 +7938,8 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     );
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        '2/2',
-        'the telemetry pill carries the open/total counts'
+        '2 · 0',
+        'the telemetry pill carries the session · workspace open counts'
     );
     const commentToolbar = page.locator('[data-session-comments-header]');
     assert.equal(await commentToolbar.count(), 1);
@@ -8192,7 +8205,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     );
     assert.equal(
         await page.locator('[data-telemetry-comments]').innerText(),
-        '1/2',
+        '1 · 0',
         'the telemetry pill reflects the reopened comment'
     );
     assert.equal(
@@ -12596,4 +12609,340 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
     assert.equal(
         await page.locator('[data-telemetry-changes-value]').innerText(), '1',
         'a stale generation never overwrites the current state');
+});
+
+
+test('CONVERSATION-COMMENTS-PILL-001 shows session · workspace open counts refreshed from both stacks', async t => {
+    const interactionId = 'input-pill-counts';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 700 },
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const pill = page.locator('[data-telemetry-comments]');
+    const pillText = () => page
+        .locator('[data-telemetry-comments-value]')
+        .innerText();
+    assert.equal(await pill.isVisible(), true);
+    assert.equal(await pillText(), '0 · 0');
+
+    // Session mutations drive the first count.
+    await page.locator('[data-comment-action="new"]').click();
+    await page.locator('[data-comment-input]').fill('Note for the session.');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const sessionAdd = (await postedMessages(page)).at(-1);
+    const sessionComment = {
+        id: 'c-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Note for the session.',
+        status: 'open',
+        createdAt: 1000,
+    };
+    await sendPage(page, commentSettlement(sessionAdd, [sessionComment]));
+    assert.equal(await pillText(), '1 · 0');
+
+    // Workspace mutations refresh the second count via the stack's
+    // afterSettle hook — no extra wiring.
+    await page.locator('[data-project-comment-action="open-composer"]')
+        .click();
+    await page.locator('[data-project-comment-input]')
+        .fill('Note for the workspace.');
+    await page.locator('[data-project-comment-input]').press('Control+Enter');
+    const projectAdd = (await postedMessages(page)).at(-1);
+    assert.equal(
+        projectAdd.type,
+        'conversation-viewer-project-comment-mutation'
+    );
+    const note = {
+        id: 'n-1',
+        text: 'Note for the workspace.',
+        tags: [],
+        status: 'open',
+        createdAt: 1000,
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(projectAdd, [note]));
+    assert.equal(await pillText(), '1 · 1');
+
+    // Status flips move only their own stack's count.
+    await page.locator(
+        '[data-project-comment-id="n-1"]'
+            + ' [data-project-comment-action="toggle-status"]'
+    ).click();
+    const statusRequest = (await postedMessages(page)).at(-1);
+    await sendPage(page, projectCommentSettlement(statusRequest, [{
+        ...note,
+        status: 'done',
+        doneAt: 2000,
+    }]));
+    assert.equal(await pillText(), '1 · 0');
+
+    // The tooltip spells out both counts.
+    assert.equal(
+        await pill.getAttribute('title'),
+        '1 open session comment · 0 open workspace notes — click to review'
+    );
+});
+
+test('CONVERSATION-COMMENTS-CLAMP-001 clamps long cards with an in-memory expand toggle on both stacks', async t => {
+    const interactionId = 'input-clamp';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 860 },
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'comments',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const longText = Array.from(
+        { length: 24 },
+        (_, index) => `Line ${index + 1} of a very long comment body.`
+    ).join('\n');
+    const isClamped = locator => locator
+        .locator('.conversation-comment-body')
+        .evaluate(element => element.classList.contains('is-clamped'));
+
+    await page.locator('[data-comment-action="new"]').click();
+    await page.locator('[data-comment-input]').fill('placeholder');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    const comments = [{
+        id: 'long-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: longText,
+        status: 'open',
+        createdAt: 1000,
+    }, {
+        id: 'short-1',
+        scope: 'session',
+        messageId: '',
+        interactionId: '',
+        role: 'user',
+        quote: '',
+        prefix: '',
+        suffix: '',
+        comment: 'Short note.',
+        status: 'open',
+        createdAt: 1001,
+    }];
+    await sendPage(page, commentSettlement(addRequest, comments));
+
+    // A long open card is visually clamped while the full text stays in
+    // the DOM; the toggle lives outside the icon actions row.
+    const longCard = page.locator('[data-comment-id="long-1"]');
+    const longBody = longCard.locator('.conversation-comment-body');
+    assert.equal(await isClamped(longCard), true);
+    assert.equal(await longBody.textContent(), longText);
+    const toggle = longCard.locator('[data-comment-clamp-toggle]');
+    assert.equal(await toggle.innerText(), 'Show more');
+    assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(
+        await longCard
+            .locator('.conversation-comment-actions [data-comment-clamp-toggle]')
+            .count(),
+        0,
+        'the clamp toggle stays out of the icon actions row'
+    );
+
+    // Short cards never clamp.
+    const shortCard = page.locator('[data-comment-id="short-1"]');
+    assert.equal(
+        await shortCard.locator('[data-comment-clamp-toggle]').count(),
+        0
+    );
+    assert.equal(await isClamped(shortCard), false);
+
+    // Expand → full height; collapse → clamped again (in-memory only).
+    await toggle.click();
+    assert.equal(await isClamped(longCard), false);
+    const expandedToggle = longCard.locator('[data-comment-clamp-toggle]');
+    assert.equal(await expandedToggle.innerText(), 'Show less');
+    assert.equal(
+        await expandedToggle.getAttribute('aria-expanded'),
+        'true'
+    );
+    await expandedToggle.click();
+    assert.equal(await isClamped(longCard), true);
+    assert.equal(
+        await longCard.locator('[data-comment-clamp-toggle]').innerText(),
+        'Show more'
+    );
+
+    // Done cards are exempt: a freshly sent card renders expanded once
+    // (noteSentComments) with the full body unclamped and no toggle.
+    await longCard.locator('[data-comment-action="send-comment"]').click();
+    const sendRequest = (await postedMessages(page)).at(-1);
+    await sendPage(page, commentSettlement(sendRequest, [{
+        ...comments[0],
+        status: 'done',
+        sentAt: 3000,
+    }, comments[1]]));
+    assert.equal(await isClamped(longCard), false);
+    assert.equal(await longBody.textContent(), longText);
+    assert.equal(
+        await longCard.locator('[data-comment-clamp-toggle]').count(),
+        0,
+        'expanded done cards stay unclamped'
+    );
+
+    // Collapse the done card, then re-expand it: no clamp either way.
+    await longCard.locator('[data-comment-action="toggle-done"]').click();
+    assert.equal(
+        await longCard.locator('[data-comment-clamp-toggle]').count(),
+        0,
+        'collapsed done cards never offer a clamp toggle'
+    );
+    await longCard.locator('.conversation-comment-collapsed-body').click();
+    assert.equal(await isClamped(longCard), false);
+    assert.equal(await longBody.textContent(), longText);
+    assert.equal(
+        await longCard.locator('[data-comment-clamp-toggle]').count(),
+        0
+    );
+
+    // The Workspace stack clamps the same way.
+    await page.locator('[data-project-comment-action="open-composer"]')
+        .click();
+    await page.locator('[data-project-comment-input]').fill('placeholder');
+    await page.locator('[data-project-comment-input]').press('Control+Enter');
+    const projectAdd = (await postedMessages(page)).at(-1);
+    const note = {
+        id: 'wn-1',
+        text: longText,
+        tags: [],
+        status: 'open',
+        createdAt: 1000,
+        dispatches: [],
+    };
+    await sendPage(page, projectCommentSettlement(projectAdd, [note]));
+    const noteCard = page.locator('[data-project-comment-id="wn-1"]');
+    const noteBody = noteCard.locator('.conversation-comment-body');
+    assert.equal(await isClamped(noteCard), true);
+    assert.equal(await noteBody.textContent(), longText);
+    const noteToggle = noteCard.locator(
+        '[data-project-comment-clamp-toggle]'
+    );
+    assert.equal(await noteToggle.innerText(), 'Show more');
+    await noteToggle.click();
+    assert.equal(await isClamped(noteCard), false);
+    assert.equal(
+        await noteCard
+            .locator('[data-project-comment-clamp-toggle]')
+            .innerText(),
+        'Show less'
+    );
+});
+
+test('CONVERSATION-COMMENTS-CLAMP-001 reveal measures after opening the panel and expands a clamped card', async t => {
+    const interactionId = 'input-clamp-reveal';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 860 },
+        interactionIds: [interactionId],
+        interactionId,
+        initialWebviewState: {
+            conversationSidebar: {
+                open: true,
+                width: 280,
+                view: 'outline',
+                query: '',
+            },
+        },
+        pageOverrides: {
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const longText = Array.from(
+        { length: 24 },
+        (_, index) => `Line ${index + 1} of a very long comment body.`
+    ).join('\n');
+
+    // The comment settles while the Comments view is hidden: measurements
+    // are meaningless at that point and must be redone on reveal.
+    await page.locator('[data-telemetry-comments]').click();
+    await page.locator('[data-comment-action="new"]').click();
+    await page.locator('[data-comment-input]').fill('placeholder');
+    await page.locator('[data-comment-input]').press('Control+Enter');
+    const addRequest = (await postedMessages(page)).at(-1);
+    const quoteComment = {
+        id: 'q-1',
+        messageId: `${interactionId}:user`,
+        interactionId,
+        role: 'user',
+        quote: 'safe',
+        prefix: '',
+        suffix: '',
+        comment: longText,
+        status: 'open',
+        createdAt: 1000,
+    };
+    await sendPage(page, commentSettlement(addRequest, [quoteComment]));
+    const card = page.locator('[data-comment-id="q-1"]');
+    assert.equal(await card.locator(
+        '.conversation-comment-body'
+    ).evaluate(element => element.classList.contains('is-clamped')), true);
+    const toggle = card.locator('[data-comment-clamp-toggle]');
+    assert.equal(await toggle.innerText(), 'Show more');
+
+    // Clicking the message marker reveals the card fully expanded.
+    await page.locator('[data-conversation-position]').click();
+    await page.locator('[data-comment-marker]').click();
+    assert.equal(await card.evaluate(element =>
+        element.classList.contains('conversation-comment-flash')
+    ), true);
+    assert.equal(await card.locator(
+        '.conversation-comment-body'
+    ).evaluate(element => element.classList.contains('is-clamped')), false);
+    assert.equal(
+        await card.locator('[data-comment-clamp-toggle]').innerText(),
+        'Show less'
+    );
 });

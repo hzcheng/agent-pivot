@@ -205,6 +205,15 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 leads the telemetry bar with a provi
     assert.match(claude, /Provider · Claude/);
 });
 
+test('CONVERSATION-TELEMETRY-CONTROLLER-001 renders the comments pill with dual session · workspace open counts', () => {
+    const html = renderConversationTelemetry(undefined, 'kimi');
+    assert.match(html, /data-telemetry-comments-value>0 · 0</);
+    assert.match(
+        html,
+        /0 open session comments · 0 open workspace notes — click to review/
+    );
+});
+
 
 test('CONVERSATION-SESSION-STATUS-002 renders the viewed session state on the provider pill', () => {
     const attention = renderConversationTelemetry(undefined, 'codex', 'attention');

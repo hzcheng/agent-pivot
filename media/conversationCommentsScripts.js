@@ -61,6 +61,7 @@
             selectedCommentText: null,
             editingComment: null,
             expandedDoneComments: new Set(),
+            expandedClampedComments: new Set(),
             draggedCommentId: null,
             commentsPanelFilter: null,
             projectComments: [],
@@ -73,6 +74,7 @@
             editingProjectComment: null,
             projectTagEditor: null,
             expandedDoneProjectComments: new Set(),
+            expandedClampedProjectComments: new Set(),
             projectSectionCollapsed: false,
             sessionSectionCollapsed: false,
             draggedProjectCommentId: null,
@@ -462,6 +464,13 @@
             }, { open: 0, done: 0 });
         }
 
+        function workspaceNoteOpenCount() {
+            if (!projectCommentsAvailable) return 0;
+            return state.projectComments.reduce(function (count, note) {
+                return note.status === 'open' ? count + 1 : count;
+            }, 0);
+        }
+
         function updateSectionCount(element, counts, noun) {
             var total = counts.open + counts.done;
             element.textContent = counts.open + '/' + total;
@@ -509,18 +518,22 @@
                 var telemetryCommentValue = telemetryComments.querySelector(
                     '[data-telemetry-comments-value]'
                 );
-                var visibleCommentCount = state.comments.length > 0
-                    ? counts.open + '/' + state.comments.length
-                    : '0';
+                var sessionOpenCount = counts.open;
+                var workspaceOpenCount = workspaceNoteOpenCount();
+                var visibleCommentCount = sessionOpenCount
+                    + ' · ' + workspaceOpenCount;
                 if (telemetryCommentValue) {
                     telemetryCommentValue.textContent = visibleCommentCount;
                 } else {
                     telemetryComments.textContent = visibleCommentCount;
                 }
-                var telemetryCommentLabel = counts.open
-                    + ' open of '
-                    + state.comments.length
-                    + (state.comments.length === 1 ? ' comment' : ' comments')
+                var telemetryCommentLabel = sessionOpenCount
+                    + ' open session comment'
+                    + (sessionOpenCount === 1 ? '' : 's')
+                    + ' · '
+                    + workspaceOpenCount
+                    + ' open workspace note'
+                    + (workspaceOpenCount === 1 ? '' : 's')
                     + ' — click to review';
                 telemetryComments.title = telemetryCommentLabel;
                 telemetryComments.setAttribute(
@@ -793,6 +806,98 @@
                 });
         }
 
+        // Long-comment clamping: open cards render their body inside a
+        // clampable container (CSS max-height, full text stays in the DOM).
+        // A per-card toggle expands/collapses; expansion is in-memory only.
+        function markCommentClampable(element) {
+            element.classList.add('conversation-comment-clampable');
+            element.classList.add('is-clamped');
+            var fade = document.createElement('div');
+            fade.className = 'conversation-comment-clamp-fade';
+            fade.setAttribute('aria-hidden', 'true');
+            element.appendChild(fade);
+        }
+
+        function createCommentClampToggle(toggleAttribute, expanded) {
+            var toggle = document.createElement('button');
+            toggle.type = 'button';
+            toggle.className = 'conversation-comment-clamp-toggle';
+            toggle.setAttribute(toggleAttribute, '');
+            toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            toggle.textContent = expanded ? 'Show less' : 'Show more';
+            return toggle;
+        }
+
+        function measureCommentCardClamps(
+            list,
+            idAttribute,
+            toggleAttribute,
+            expandedSet
+        ) {
+            if (!list) return;
+            var cards = list.querySelectorAll('[' + idAttribute + ']');
+            Array.prototype.forEach.call(cards, function (card) {
+                var toggle = card.querySelector('[' + toggleAttribute + ']');
+                if (card.getAttribute('data-comment-status') !== 'open') {
+                    // Done cards never clamp; drop a stale toggle if the
+                    // card flipped status while present in the expanded set.
+                    if (toggle) toggle.remove();
+                    return;
+                }
+                var id = card.getAttribute(idAttribute);
+                if (id && expandedSet.has(id)) {
+                    if (!toggle) {
+                        card.appendChild(
+                            createCommentClampToggle(toggleAttribute, true)
+                        );
+                    }
+                    return;
+                }
+                var body = card.querySelector(
+                    '.conversation-comment-clampable'
+                );
+                if (!body) return;
+                if (!body.classList.contains('is-clamped')) {
+                    body.classList.add('is-clamped');
+                }
+                // Hidden subtrees (closed panel) report zero heights; the
+                // ResizeObserver re-measures once they become visible.
+                var overflow = body.scrollHeight > body.clientHeight + 1;
+                if (!overflow) {
+                    body.classList.remove('is-clamped');
+                    if (toggle) toggle.remove();
+                    return;
+                }
+                if (!toggle) {
+                    card.appendChild(
+                        createCommentClampToggle(toggleAttribute, false)
+                    );
+                } else {
+                    toggle.textContent = 'Show more';
+                    toggle.setAttribute('aria-expanded', 'false');
+                }
+            });
+        }
+
+        function measureAllCommentClamps() {
+            if (commentUiAvailable) {
+                measureCommentCardClamps(
+                    commentList,
+                    'data-comment-id',
+                    'data-comment-clamp-toggle',
+                    state.expandedClampedComments
+                );
+            }
+            if (projectCommentsAvailable) {
+                measureCommentCardClamps(
+                    projectCommentList,
+                    'data-project-comment-id',
+                    'data-project-comment-clamp-toggle',
+                    state.expandedClampedProjectComments
+                );
+            }
+        }
+
         function renderComments() {
             if (!commentUiAvailable) return;
             clearStackDragState(sessionStack);
@@ -812,6 +917,11 @@
             state.expandedDoneComments.forEach(function (id) {
                 if (!ids.has(id)) {
                     state.expandedDoneComments.delete(id);
+                }
+            });
+            state.expandedClampedComments.forEach(function (id) {
+                if (!ids.has(id)) {
+                    state.expandedClampedComments.delete(id);
                 }
             });
             updateFilterButtons();
@@ -963,9 +1073,15 @@
                     'danger'
                 ));
 
+                var clampExpanded = state.expandedClampedComments.has(
+                    comment.id
+                );
                 var body = document.createElement('div');
                 body.className = 'conversation-comment-body';
                 body.textContent = comment.comment;
+                if (comment.status === 'open' && !clampExpanded) {
+                    markCommentClampable(body);
+                }
                 item.appendChild(body);
                 if (comment.scope !== 'session') {
                     var quoteGroup = document.createElement('div');
@@ -1003,6 +1119,12 @@
                 item.appendChild(
                     buildCommentTagsRow(sessionStack, comment)
                 );
+                if (comment.status === 'open' && clampExpanded) {
+                    item.appendChild(createCommentClampToggle(
+                        'data-comment-clamp-toggle',
+                        true
+                    ));
+                }
                 commentList.appendChild(item);
             });
             commentEmpty.hidden = state.comments.length > 0;
@@ -1038,6 +1160,12 @@
                 // disabled pending state instead of reviving controls.
                 setStackPending(sessionStack, true);
             }
+            measureCommentCardClamps(
+                commentList,
+                'data-comment-id',
+                'data-comment-clamp-toggle',
+                state.expandedClampedComments
+            );
         }
 
         function clearStackDragState(stack) {
@@ -1132,10 +1260,26 @@
                 renderComments();
             }
             setSidebarView('comments', true, true);
+            // The panel may have been hidden while renderComments() ran; now
+            // that it is visible, clamp measurements are meaningful again.
+            measureAllCommentClamps();
             var card = commentList.querySelector(
                 '[data-comment-id="' + CSS.escape(commentId) + '"]'
             );
             if (!card) return false;
+            var clampToggle = card.querySelector(
+                '[data-comment-clamp-toggle]'
+            );
+            if (clampToggle && !state.expandedClampedComments.has(commentId)) {
+                // Reveal the full card when its content is clamped (a
+                // rendered toggle means the measurement found overflow).
+                state.expandedClampedComments.add(commentId);
+                renderComments();
+                card = commentList.querySelector(
+                    '[data-comment-id="' + CSS.escape(commentId) + '"]'
+                );
+                if (!card) return false;
+            }
             card.scrollIntoView({ block: 'center' });
             card.classList.add('conversation-comment-flash');
             window.setTimeout(function () {
@@ -2281,9 +2425,15 @@
                 'danger'
             ));
 
+            var projectClampExpanded = state.expandedClampedProjectComments.has(
+                comment.id
+            );
             var body = document.createElement('div');
             body.className = 'conversation-comment-body';
             body.textContent = comment.text;
+            if (comment.status === 'open' && !projectClampExpanded) {
+                markCommentClampable(body);
+            }
             item.appendChild(body);
             if (comment.source) {
                 var quoteGroup = document.createElement('div');
@@ -2325,6 +2475,12 @@
             }
             item.appendChild(meta);
             item.appendChild(buildCommentTagsRow(projectStack, comment));
+            if (comment.status === 'open' && projectClampExpanded) {
+                item.appendChild(createCommentClampToggle(
+                    'data-project-comment-clamp-toggle',
+                    true
+                ));
+            }
             return item;
         }
 
@@ -2438,6 +2594,16 @@
             resetStackClearAllConfirmation(projectStack);
             renderCommentsFilterBar();
             projectCommentList.replaceChildren();
+            var projectIds = new Set(state.projectComments.map(
+                function (comment) {
+                    return comment.id;
+                }
+            ));
+            state.expandedClampedProjectComments.forEach(function (id) {
+                if (!projectIds.has(id)) {
+                    state.expandedClampedProjectComments.delete(id);
+                }
+            });
             var visible = visibleProjectComments();
             visible.forEach(function (comment, index) {
                 projectCommentList.appendChild(
@@ -2479,6 +2645,12 @@
                 // disabled pending state instead of reviving controls.
                 setStackPending(projectStack, true);
             }
+            measureCommentCardClamps(
+                projectCommentList,
+                'data-project-comment-id',
+                'data-project-comment-clamp-toggle',
+                state.expandedClampedProjectComments
+            );
         }
 
         function applyProjectCommentsResult(message) {
@@ -2596,6 +2768,19 @@
         function attach() {
             if (!commentUiAvailable) return;
             attachCommentsSectionSash();
+            if (typeof ResizeObserver === 'function') {
+                // Re-measure clamp overflow whenever a list changes size:
+                // panel open, sidebar view switch, panel width drag. The
+                // observer also covers the hidden-to-visible transition that
+                // makes synchronous measurements during render meaningless.
+                var clampObserver = new ResizeObserver(function () {
+                    measureAllCommentClamps();
+                });
+                clampObserver.observe(commentList);
+                if (projectCommentList) {
+                    clampObserver.observe(projectCommentList);
+                }
+            }
             messages.addEventListener('mouseup', function () {
                 window.setTimeout(captureCommentSelection, 0);
             });
@@ -2659,6 +2844,24 @@
                 openCommentComposer();
             });
             commentsRoot.addEventListener('click', function (event) {
+                var clampToggle = event.target && event.target.closest
+                    ? event.target.closest('[data-comment-clamp-toggle]')
+                    : null;
+                if (clampToggle && commentsRoot.contains(clampToggle)) {
+                    var clampCard = clampToggle.closest('[data-comment-id]');
+                    var clampId = clampCard
+                        ? clampCard.getAttribute('data-comment-id')
+                        : null;
+                    if (clampId) {
+                        if (state.expandedClampedComments.has(clampId)) {
+                            state.expandedClampedComments.delete(clampId);
+                        } else {
+                            state.expandedClampedComments.add(clampId);
+                        }
+                        renderComments();
+                    }
+                    return;
+                }
                 var button = event.target && event.target.closest
                     ? event.target.closest('[data-comment-action]')
                     : null;
@@ -2904,6 +3107,35 @@
                     }
                 });
                 projectCommentsRoot.addEventListener('click', function (event) {
+                    var clampToggle = event.target && event.target.closest
+                        ? event.target.closest(
+                            '[data-project-comment-clamp-toggle]'
+                        )
+                        : null;
+                    if (clampToggle
+                        && projectCommentsRoot.contains(clampToggle)) {
+                        var clampCard = clampToggle.closest(
+                            '[data-project-comment-id]'
+                        );
+                        var clampId = clampCard
+                            ? clampCard.getAttribute('data-project-comment-id')
+                            : null;
+                        if (clampId) {
+                            if (state.expandedClampedProjectComments.has(
+                                clampId
+                            )) {
+                                state.expandedClampedProjectComments.delete(
+                                    clampId
+                                );
+                            } else {
+                                state.expandedClampedProjectComments.add(
+                                    clampId
+                                );
+                            }
+                            renderProjectComments();
+                        }
+                        return;
+                    }
                     var button = event.target && event.target.closest
                         ? event.target.closest('[data-project-comment-action]')
                         : null;

@@ -1671,6 +1671,54 @@ body[data-conversation-loading='true'] .conversation-messages {
     word-break: break-word;
 }
 
+.conversation-comment-clampable {
+    position: relative;
+
+    &.is-clamped {
+        // ≈7 lines at 0.78rem/1.5; the full text stays in the DOM.
+        max-height: 8.3rem;
+        overflow: hidden;
+    }
+}
+
+.conversation-comment-clamp-fade {
+    display: none;
+}
+
+.conversation-comment-clampable.is-clamped .conversation-comment-clamp-fade {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: block;
+    height: 1.4rem;
+    pointer-events: none;
+    background: linear-gradient(
+        to bottom,
+        transparent,
+        var(--vscode-editor-background)
+    );
+}
+
+.conversation-comment-clamp-toggle {
+    display: block;
+    margin-top: 0.25rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--vscode-textLink-foreground);
+    font-size: 0.72rem;
+    cursor: pointer;
+
+    &:hover {
+        text-decoration: underline;
+    }
+
+    &[hidden] {
+        display: none;
+    }
+}
+
 .conversation-comment-meta {
     display: flex;
     min-width: 0;

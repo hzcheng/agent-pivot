@@ -366,9 +366,6 @@ export function renderConversationViewerDocument(
                             class="conversation-comments-tab-count"
                             data-comments-tab-count="workspace"></span></button>
                 </div>
-                <div class="conversation-comments-filter-bar"
-                    data-comments-filter-bar role="group"
-                    aria-label="Filter comments and notes" hidden></div>
                 <div class="conversation-comments-body" data-comments-body>
                     <section class="conversation-comments-pane"
                         id="conversation-comments-pane-workspace"
@@ -506,6 +503,9 @@ export function renderConversationViewerDocument(
                     </div>
                     </section>
                 </div>
+                <div class="conversation-comments-filter-bar"
+                    data-comments-filter-bar role="group"
+                    aria-label="Filter comments and notes" hidden></div>
             </section>
             <section id="conversation-subagents-panel"
                 class="conversation-subagents" data-conversation-subagents

@@ -143,7 +143,6 @@ P3  ├─ host: workspaceComments.ts / workspaceCommentStore.ts / workspaceComm
             aria-controls="conversation-comments-panel-workspace">
       Workspace <span data-comments-tab-count="workspace"></span></button>
   </div>
-  <div class="conversation-comments-filter-bar" data-comments-filter-bar ...></div>
   <section role="tabpanel" id="conversation-comments-panel-session"
            data-comments-panel="session" aria-labelledby="...tab-session">
     <!-- 区头操作行（＋ ✈ eraser trash；删 count、删折叠 toggle）+ composer + list + filter-empty + empty -->
@@ -152,10 +151,11 @@ P3  ├─ host: workspaceComments.ts / workspaceCommentStore.ts / workspaceComm
            data-comments-panel="workspace" aria-labelledby="...tab-workspace" hidden>
     <!-- 区头操作行 + composer（含 source 快照）+ list + empty -->
   </section>
+  <div class="conversation-comments-filter-bar" data-comments-filter-bar ...></div>
 </section>
 ```
 
-删除：sash（L431-436）、两个区头折叠 toggle、区头 count 元素（D4）。filter bar 保留单容器（D3）。
+删除：sash（L431-436）、两个区头折叠 toggle、区头 count 元素（D4）。filter bar 保留单容器（D3），但固定在面板底部，避免其出现/消失推动上方内容。
 
 ### 6.2 tab 状态机（comments 脚本）
 

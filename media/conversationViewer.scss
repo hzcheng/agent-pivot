@@ -2008,7 +2008,7 @@ blockquote.conversation-comment-clampable.is-clamped {
     margin: 0 -0.5rem;
     gap: 0.3rem;
     align-items: center;
-    padding: 0.2rem 0.5rem;
+    padding: 0.2rem 0.4rem;
     background: var(--vscode-panelSectionHeader-background, var(--vscode-editorGroupHeader-tabsBackground));
     border-bottom: 1px solid var(--vscode-panel-border);
 }
@@ -2252,8 +2252,8 @@ button.conversation-comment-status-chip {
     gap: 0.25rem;
     align-items: center;
     flex-wrap: wrap;
-    padding: 0.25rem 0.5rem;
-    border-bottom: 1px solid var(--vscode-panel-border);
+    padding: 0.25rem 0.4rem;
+    border-top: 1px solid var(--vscode-panel-border);
 }
 
 .conversation-comments-filter-bar[hidden] {

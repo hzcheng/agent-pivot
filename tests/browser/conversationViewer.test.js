@@ -5185,8 +5185,9 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         outlineScriptSource: previousOutlineScript,
         transformHostDocument(html) {
             return html.replace(
-                /<div class="conversation-comments-tabs"[\s\S]*?<\/div>\s*<div class="conversation-comments-filter-bar"/,
-                '<div class="conversation-comments-filter-bar"'
+                /<div class="conversation-comments-tabs"[\s\S]*?<\/div>\s*<div class="conversation-comments-body"/,
+                '<div class="conversation-comments-filter-bar" hidden></div>'
+                    + '<div class="conversation-comments-body"'
             ).replace(/ data-comments-panel="(session|workspace)"/g, '');
         },
     });
@@ -5912,6 +5913,40 @@ test('CONVERSATION-COMMENTS-TABS-001 PROJECT-COMMENTS-UI-001 captures, tags, fil
     assert.deepEqual(
         await filterChips.allInnerTexts(),
         ['All · 1', 'Open · 1', 'Done · 0', 'bug · 1']
+    );
+    assert.deepEqual(
+        await page.evaluate(() => {
+            const tabs = document.querySelector(
+                '[data-comments-tabs]'
+            ).getBoundingClientRect();
+            const header = document.querySelector(
+                '[data-project-comments-header]'
+            ).getBoundingClientRect();
+            const filter = document.querySelector(
+                '[data-comments-filter-bar]'
+            ).getBoundingClientRect();
+            const card = document.querySelector(
+                '[data-project-comment-id]'
+            ).getBoundingClientRect();
+            const panel = document.querySelector(
+                '[data-conversation-comments]'
+            ).getBoundingClientRect();
+            return {
+                toolbarMatchesTabs:
+                    Math.abs(header.left - tabs.left) <= 1
+                    && Math.abs(header.right - tabs.right) <= 1,
+                toolbarWiderThanCards: header.left < card.left - 1
+                    && header.right > card.right + 1,
+                filterPinnedBelowCards:
+                    filter.top >= card.bottom
+                    && Math.abs(filter.bottom - panel.bottom) <= 1,
+            };
+        }),
+        {
+            toolbarMatchesTabs: true,
+            toolbarWiderThanCards: true,
+            filterPinnedBelowCards: true,
+        }
     );
 
     // A second, untagged note lands on top (newest first).

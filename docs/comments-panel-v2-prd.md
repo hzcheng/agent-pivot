@@ -45,17 +45,17 @@ Conversation viewer 的 Comments 侧边栏目前承载两套评论栈：Session 
 Comments 面板
 ┌──────────────────────────────────┐
 │ [ Session ·2 ] [ Workspace ·3 ]  │  ← 子 tab 条，标签自带 open 计数
-│ (全部) (Open·2) (Done·1) (bug·1) │  ← 当前 tab 自己的过滤行（各自 tag 词汇表）
 │ ┌──────────────────────────────┐ │
 │ │ 当前 tab 的卡片列表（全高）    │ │
 │ │ …                            │ │
 │ └──────────────────────────────┘ │
 │ [composer：由 ＋ 或选区气泡打开]   │
+│ (全部) (Open·2) (Done·1) (bug·1) │  ← 当前 tab 自己的过滤行固定在面板底部
 └──────────────────────────────────┘
 ```
 
 - 面板顶部新增 tab 条；tab 标签格式 `Session ·N` / `Workspace ·N`，N 为各栈 open 数，与 pill 口径一致（§6）。
-- 过滤行从「两栈统一」拆为**各 tab 独立**：Session tab 过滤 session 批注及其 tag；Workspace tab 过滤 workspace 笔记及其 tag。消除现有统一过滤条跨作用域混排 tag 的含糊语义。
+- 过滤行从「两栈统一」拆为**各 tab 独立**并固定在面板底部：Session tab 过滤 session 批注及其 tag；Workspace tab 过滤 workspace 笔记及其 tag。消除现有统一过滤条跨作用域混排 tag 的含糊语义，也避免过滤行出现/消失时推动上方内容。
 - 每 tab 保留自己的区头操作行（＋ 新建、✈ 批量发送、清除已完成、清空），语义与现状一致。
 
 ### 4.2 删除的存量机制

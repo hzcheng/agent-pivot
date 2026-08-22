@@ -5149,7 +5149,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'f95e0a9697f6f5dcf9bb3be1fc684798489d67e9ce74067e8b72c2111bca541e',
+        '',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -12667,19 +12667,21 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
         'web · ⎇ agent-pivot/fix-login-ui',
     ]);
 
-    // Cross-member hint.
+    // Cross-member hint: a clickable button naming the action and the
+    // target repo (PRD §15.1) — the old bare '+N in <repos>' text is gone.
     assert.equal(
         await page.locator('[data-changes-cross-member]').innerText(),
-        '+1 in web');
+        '1 more change in web · Go to web');
 
-    // Task result layer with the containment note and review entry.
+    // Task result layer, line 1 in the Since-start reference frame
+    // (PRD §14.1), with the containment note and review entry.
     assert.equal(
         await page.locator('[data-changes-task-summary]').innerText(),
-        '5 files · 2 commits');
-    assert.ok((await page.locator('[data-changes-task]')
+        'Since start · 5 files · 2 commits');
+    assert.ok((await page.locator('[data-changes-task-summary]')
         .getAttribute('data-tooltip'))
         .includes('includes committed and uncommitted changes'));
-    assert.equal(await page.locator('[data-changes-task]')
+    assert.equal(await page.locator('[data-changes-task-summary]')
         .getAttribute('title'), null,
         'the task row hint moved to the tooltip overlay (PRD §17)');
 
@@ -12794,7 +12796,20 @@ test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-s
         ]);
     assert.equal(
         await page.locator('[data-changes-task-summary]').innerText(),
-        '5 files · 2 commits');
+        'Since start · 5 files · 2 commits');
+
+    // The tracking line (PRD §14.1 second reference frame) follows the
+    // selected member's upstream union: short ref + ahead/behind, with the
+    // full ref and the no-fetch caveat on the tooltip overlay.
+    const tracking = page.locator('[data-changes-task-tracking]');
+    assert.equal(await tracking.isVisible(), true);
+    assert.equal(
+        await tracking.innerText(),
+        'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind');
+    assert.equal(
+        await tracking.getAttribute('data-tooltip'),
+        'refs/remotes/origin/agent-pivot/fix-login\n'
+            + 'Based on local remote-tracking refs; no fetch was performed');
 
     // exactKeys discipline: a member carrying a key the webview does not
     // know invalidates the whole state — the panel never half-renders.
@@ -12810,6 +12825,10 @@ test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-s
             'infra · ⎇ agent-pivot/infra',
         ],
         'a member with an unrecognized key drops the whole state message');
+    assert.equal(
+        await page.locator('[data-changes-task-tracking]').innerText(),
+        'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind',
+        'the rejected state leaves the tracking line untouched');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 compresses single-child directory chains like Source Control', async t => {
@@ -12897,10 +12916,15 @@ test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is 
     await sendChanges(page, changesFixture({
         collectedAt: 1724000015000,
         members: [{
-            memberId: 'm-api', repoLabel: 'api',
+            memberId: 'm-api', repoLabel: 'api-renamed',
             branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
             availability: 'available', workingItemCount: 9,
             aheadCount: 2, taskFileCount: 5, truncated: false,
+        }, {
+            memberId: 'm-web', repoLabel: 'web',
+            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
+            availability: 'available', workingItemCount: 1,
+            aheadCount: 0, truncated: false,
         }],
     }));
     assert.equal(await page.evaluate(() =>
@@ -12908,6 +12932,501 @@ test('WORKTREE-CHANGES-PANEL-001 never rebuilds the member dropdown while it is 
             === window.__firstOption), false,
         'after blur a changed member set rebuilds the options');
     assert.equal((await select.inputValue()), 'm-api');
+    // The visible label of the select overlay tracks the rebuilt options.
+    assert.equal(
+        await page.locator('[data-changes-repo-name]').innerText(),
+        'api-renamed');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 renders a two-row member header with a repo picker overlay and a branch row', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const state = changesFixture();
+    state.members.push({
+        memberId: 'm-infra', repoLabel: 'infra',
+        branchName: 'agent-pivot/infra', worktreePath: '/wt/infra',
+        availability: 'available', workingItemCount: 0,
+        aheadCount: 0, truncated: false,
+    });
+    await sendChanges(page, state);
+    await page.locator('[data-telemetry-changes]').click();
+
+    // Row 1: ‹ › icon buttons with accessible names and overlay hints,
+    // always shown while more than one member exists.
+    const prev = page.locator('[data-changes-prev]');
+    const next = page.locator('[data-changes-next]');
+    assert.equal(await prev.isVisible(), true);
+    assert.equal(await prev.getAttribute('aria-label'), 'Previous repository');
+    assert.equal(await prev.getAttribute('data-tooltip'), 'Previous repository');
+    assert.equal(await next.isVisible(), true);
+    assert.equal(await next.getAttribute('aria-label'), 'Next repository');
+    assert.equal(await next.getAttribute('data-tooltip'), 'Next repository');
+
+    // Row 1 middle: a visible repo label under a transparent native
+    // <select> overlay — the closed state is custom DOM (repo name + ▾),
+    // the popup stays native. The label's tooltip carries the full
+    // worktree path (PRD §15.1).
+    assert.equal(
+        await page.locator('[data-changes-repo-name]').innerText(), 'api');
+    assert.equal(
+        await page.locator('[data-changes-repo-label]')
+            .getAttribute('data-tooltip'),
+        '/wt/api');
+    const select = page.locator('[data-changes-member-select]');
+    assert.equal(await select.inputValue(), 'm-api');
+    assert.equal(await select.getAttribute('data-tooltip'), '/wt/api',
+        'the overlaying select reveals the worktree path on hover/focus');
+    const overlayStyle = await select.evaluate(element => ({
+        opacity: getComputedStyle(element).opacity,
+        position: getComputedStyle(element).position,
+    }));
+    assert.equal(overlayStyle.opacity, '0',
+        'the native select is a transparent overlay over the label');
+    assert.equal(overlayStyle.position, 'absolute');
+
+    // (i/n) position indicator, shown whenever n > 1 (PRD §14.2).
+    const position = page.locator('[data-changes-position]');
+    assert.equal(await position.isVisible(), true);
+    assert.equal(await position.innerText(), '(1/3)');
+
+    // The live region announces the position for screen readers.
+    const live = page.locator('[data-changes-live]');
+    assert.equal(await live.getAttribute('aria-live'), 'polite');
+    assert.equal(await live.innerText(), 'api, 1 of 3');
+
+    // No detached marker for an in-workspace member.
+    assert.equal(
+        await page.locator('[data-changes-outside]').isHidden(), true);
+
+    // Row 2: the branch owns the row — prefix elides, the last segment
+    // stays visible (two-span middle ellipsis, PRD §15.1).
+    const branch = page.locator('[data-changes-branch]');
+    assert.equal(
+        await page.locator('[data-changes-branch-prefix]').innerText(),
+        'agent-pivot/');
+    assert.equal(
+        await page.locator('[data-changes-branch-tail]').innerText(),
+        'fix-login');
+    const branchTooltip = await branch.getAttribute('data-tooltip');
+    assert.ok(branchTooltip.includes('agent-pivot/fix-login'));
+    assert.ok(branchTooltip.includes('/wt/api'));
+
+    // Row 2 right: refresh + Source Control exit moved out of the old
+    // toolbar; the SCM glyph is the branch-style Source Control icon, not
+    // the external-open arrow (PRD §17).
+    assert.equal(
+        await page.locator('.conversation-changes-branch-row '
+            + '[data-changes-refresh]').count(),
+        1);
+    assert.equal(
+        await page.locator('.conversation-changes-branch-row '
+            + '[data-changes-open-scm]').count(),
+        1);
+    assert.equal(
+        await page.locator('[data-changes-open-scm] svg circle').count(),
+        3,
+        'the SCM button carries the three-node Source Control glyph');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends, announces the position, and keeps focus', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const state = changesFixture();
+    state.members.push({
+        memberId: 'm-infra', repoLabel: 'infra',
+        branchName: 'agent-pivot/infra', worktreePath: '/wt/infra',
+        availability: 'available', workingItemCount: 2,
+        aheadCount: 0, truncated: false,
+    });
+    await sendChanges(page, state);
+    await page.locator('[data-telemetry-changes]').click();
+
+    const next = page.locator('[data-changes-next]');
+    const prev = page.locator('[data-changes-prev]');
+    const position = page.locator('[data-changes-position]');
+    const live = page.locator('[data-changes-live]');
+    const select = page.locator('[data-changes-member-select]');
+    const detailFor = memberId => ({
+        memberId, availability: 'available',
+        baselineSha: 'a'.repeat(40), aheadCount: 0, taskFileCount: 1,
+        items: [], truncated: false,
+    });
+    const selectMember = async memberId => {
+        await sendChanges(page, {
+            ...state,
+            selectedMemberId: memberId,
+            detail: detailFor(memberId),
+        });
+    };
+
+    // › posts the existing select intent for the next manifest-order member.
+    await next.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select',
+        version: 1,
+        memberId: 'm-web',
+    });
+    await selectMember('m-web');
+    assert.equal(
+        await page.locator('[data-changes-repo-name]').innerText(), 'web');
+    assert.equal(await select.inputValue(), 'm-web',
+        'the native select value syncs with the cycled selection');
+    assert.equal(await position.innerText(), '(2/3)');
+    assert.equal(await live.innerText(), 'web, 2 of 3',
+        'aria-live announces the new position');
+
+    // Focus stays on › after the re-render, so Enter cycles again.
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-next]')), true,
+        '‹ › keep focus across the state push (PRD §15.2)');
+    await page.keyboard.press('Enter');
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select',
+        version: 1,
+        memberId: 'm-infra',
+    });
+    await selectMember('m-infra');
+    assert.equal(await position.innerText(), '(3/3)');
+
+    // Wrapping: › at the last member selects the first.
+    await next.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select',
+        version: 1,
+        memberId: 'm-api',
+    });
+    await selectMember('m-api');
+    assert.equal(await position.innerText(), '(1/3)');
+    assert.equal(await live.innerText(), 'api, 1 of 3');
+
+    // ‹ at the first member wraps to the last.
+    await prev.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select',
+        version: 1,
+        memberId: 'm-infra',
+    });
+});
+
+test('WORKTREE-CHANGES-PANEL-001 degrades a single member to a static repo title without a select', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture({
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 3,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }],
+        selectedMemberId: 'm-api',
+    }));
+    await page.locator('[data-telemetry-changes]').click();
+
+    // ‹ › and (i/n) hide; no select is rendered at all — the repo name is
+    // a plain text title, not a disabled dropdown (PRD §15.1/§16).
+    assert.equal(
+        await page.locator('[data-changes-prev]').isHidden(), true);
+    assert.equal(
+        await page.locator('[data-changes-next]').isHidden(), true);
+    assert.equal(
+        await page.locator('[data-changes-position]').isHidden(), true);
+    assert.equal(
+        await page.locator('[data-changes-member-select]').count(), 0,
+        'single-member sessions render no select element');
+    const title = page.locator('[data-changes-repo-title]');
+    assert.equal(await title.isVisible(), true);
+    assert.equal(await title.innerText(), 'api');
+    assert.equal(await title.getAttribute('data-tooltip'), '/wt/api');
+
+    // The branch row stays visible for a single member (PRD §16).
+    assert.equal(
+        await page.locator('[data-changes-branch-tail]').innerText(),
+        'fix-login');
+
+    // An unmanaged synthetic member without a branch falls back to a
+    // stated placeholder instead of a blank row.
+    await sendChanges(page, changesFixture({
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: '', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 3,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }],
+        selectedMemberId: 'm-api',
+    }));
+    assert.equal(
+        await page.locator('[data-changes-branch-tail]').innerText(),
+        '(no branch)');
+    assert.equal(
+        await page.locator('[data-changes-branch-prefix]').innerText(), '');
+    assert.equal(
+        await page.locator('[data-changes-branch]')
+            .getAttribute('data-tooltip'),
+        '/wt/api',
+        'no branch name to reveal — the tooltip keeps the worktree path');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 marks detached members in the closed label and keeps the option suffix', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const state = changesFixture();
+    state.members[0].detached = true;
+    await sendChanges(page, state);
+    await page.locator('[data-telemetry-changes]').click();
+
+    // Closed state: an independent muted element next to the label
+    // (PRD §15.1 detached 双承载).
+    const outside = page.locator('[data-changes-outside]');
+    assert.equal(await outside.isVisible(), true);
+    assert.equal(await outside.innerText(), 'Outside workspace');
+
+    // Popup: the option keeps its (outside workspace) suffix so other
+    // detached members are recognizable before selection.
+    assert.deepEqual(
+        await page.locator('[data-changes-member-select] option')
+            .allInnerTexts(),
+        [
+            'api · ⎇ agent-pivot/fix-login (outside workspace)',
+            'web · ⎇ agent-pivot/fix-login-ui',
+        ]);
+
+    // Selecting the non-detached member hides the badge again.
+    await sendChanges(page, {
+        ...state,
+        selectedMemberId: 'm-web',
+        detail: {
+            memberId: 'm-web', availability: 'available',
+            baselineSha: 'b'.repeat(40), aheadCount: 0, taskFileCount: 1,
+            items: [], truncated: false,
+        },
+    });
+    assert.equal(await outside.isHidden(), true);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 cross-member hint counts readable members and jumps to the next one with changes', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const member = (memberId, repoLabel, workingItemCount, extra = {}) => ({
+        memberId, repoLabel,
+        branchName: 'task/x', worktreePath: `/wt/${repoLabel}`,
+        availability: 'available', workingItemCount,
+        aheadCount: 0, truncated: false, ...extra,
+    });
+    const detailFor = memberId => ({
+        memberId, availability: 'available',
+        baselineSha: 'a'.repeat(40), aheadCount: 0, taskFileCount: 1,
+        items: [], truncated: false,
+    });
+    const hint = page.locator('[data-changes-cross-member]');
+
+    // Count and jump target come from the same set: readable members
+    // (availability !== 'unreadable') other than the selected one.
+    await sendChanges(page, changesFixture({
+        members: [
+            member('m-api', 'api', 3),
+            member('m-web', 'web', 1),
+            member('m-infra', 'infra', 2),
+        ],
+        selectedMemberId: 'm-api',
+        detail: detailFor('m-api'),
+    }));
+    await page.locator('[data-telemetry-changes]').click();
+    assert.equal(await hint.evaluate(element => element.tagName), 'BUTTON',
+        'the hint is a clickable button, not bare text');
+    assert.equal(
+        await hint.innerText(),
+        '3 more changes in web, infra · Go to web');
+    assert.equal(
+        await hint.getAttribute('data-tooltip'),
+        'web: 1\ninfra: 2',
+        'the full per-repo breakdown rides the tooltip overlay');
+    await hint.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select',
+        version: 1,
+        memberId: 'm-web',
+    });
+
+    // The jump target is the NEXT member with changes in fixed manifest
+    // order starting after the selected one — not the first in the list.
+    await sendChanges(page, changesFixture({
+        members: [
+            member('m-web', 'web', 1),
+            member('m-api', 'api', 3),
+            member('m-infra', 'infra', 2),
+        ],
+        selectedMemberId: 'm-api',
+        detail: detailFor('m-api'),
+    }));
+    assert.equal(
+        await hint.innerText(),
+        '3 more changes in web, infra · Go to infra');
+    await hint.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-changes-select',
+        version: 1,
+        memberId: 'm-infra',
+    });
+
+    // More than two repos truncate to "<a>, <b> +M more".
+    await sendChanges(page, changesFixture({
+        members: [
+            member('m-api', 'api', 3),
+            member('m-web', 'web', 1),
+            member('m-infra', 'infra', 1),
+            member('m-db', 'db', 1),
+        ],
+        selectedMemberId: 'm-api',
+        detail: detailFor('m-api'),
+    }));
+    assert.equal(
+        await hint.innerText(),
+        '3 more changes in web, infra +1 more · Go to web');
+    assert.equal(
+        await hint.getAttribute('data-tooltip'),
+        'web: 1\ninfra: 1\ndb: 1');
+
+    // Unreadable members never enter the count or the jump candidates —
+    // unknown is never counted as zero, nor as a clickable target.
+    await sendChanges(page, changesFixture({
+        members: [
+            member('m-api', 'api', 3),
+            member('m-web', 'web', 5, { availability: 'unreadable' }),
+            member('m-infra', 'infra', 2),
+        ],
+        selectedMemberId: 'm-api',
+        detail: detailFor('m-api'),
+    }));
+    assert.equal(
+        await hint.innerText(),
+        '2 more changes in infra · Go to infra');
+
+    // All changes from the current member → no hint at all.
+    await sendChanges(page, changesFixture({
+        members: [
+            member('m-api', 'api', 3),
+            member('m-web', 'web', 0),
+            member('m-infra', 'infra', 0),
+        ],
+        selectedMemberId: 'm-api',
+        detail: detailFor('m-api'),
+    }));
+    assert.equal(await hint.isHidden(), true);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 renders the tracking line from the selected member three-state union', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const state = changesFixture();
+    state.members[0].upstream = {
+        status: 'tracked',
+        fullRef: 'refs/remotes/origin/agent-pivot/fix-login',
+        sha: 'd'.repeat(40),
+        ahead: 2,
+        behind: 1,
+    };
+    state.members[1].upstream = { status: 'none' };
+    await sendChanges(page, state);
+    await page.locator('[data-telemetry-changes]').click();
+    const tracking = page.locator('[data-changes-task-tracking]');
+
+    // tracked: short upstream + fork counts; full ref and the no-fetch
+    // caveat on the tooltip overlay (PRD §14.1).
+    assert.equal(
+        await tracking.innerText(),
+        'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind');
+    assert.equal(
+        await tracking.getAttribute('data-tooltip'),
+        'refs/remotes/origin/agent-pivot/fix-login\n'
+            + 'Based on local remote-tracking refs; no fetch was performed');
+
+    // The line follows the selected member: web has no tracking branch —
+    // a stated fact in neutral descriptionForeground, never a warning.
+    await sendChanges(page, {
+        ...state,
+        selectedMemberId: 'm-web',
+        detail: {
+            memberId: 'm-web', availability: 'available',
+            baselineSha: 'b'.repeat(40), aheadCount: 0, taskFileCount: 1,
+            items: [], truncated: false,
+        },
+    });
+    assert.equal(await tracking.innerText(), 'No tracking branch');
+    assert.equal(await tracking.getAttribute('data-tooltip'), null);
+    assert.equal(
+        await tracking.evaluate(element => getComputedStyle(element).color),
+        'rgb(160, 160, 160)',
+        'No tracking branch uses the neutral descriptionForeground');
+
+    // unknown: the query failed — never rendered as a fact.
+    const unknownState = {
+        ...state,
+        selectedMemberId: 'm-web',
+        detail: {
+            memberId: 'm-web', availability: 'available',
+            baselineSha: 'b'.repeat(40), aheadCount: 0, taskFileCount: 1,
+            items: [], truncated: false,
+        },
+    };
+    unknownState.members = state.members.map((member, index) =>
+        index === 1 ? { ...member, upstream: { status: 'unknown' } } : member);
+    await sendChanges(page, unknownState);
+    assert.equal(await tracking.innerText(), 'Tracking unknown');
+
+    // A member without upstream data (unreadable) renders no line at all.
+    const bareState = changesFixture();
+    await sendChanges(page, bareState);
+    assert.equal(await tracking.isHidden(), true);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → refresh → SCM → hint → content', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+
+    await page.locator('[data-changes-prev]').focus();
+    const stops = [
+        '[data-changes-member-select]',
+        '[data-changes-next]',
+        '[data-changes-refresh]',
+        '[data-changes-open-scm]',
+        '[data-changes-cross-member]',
+        '[data-changes-review]',
+    ];
+    for (const selector of stops) {
+        await page.keyboard.press('Tab');
+        assert.equal(
+            await page.evaluate(expected =>
+                document.activeElement
+                    === document.querySelector(expected), selector),
+            true,
+            `Tab from the header should land on ${selector}`);
+    }
+
+    // Without a cross-member hint the stop is skipped entirely.
+    await sendChanges(page, changesFixture({
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/wt/api',
+            availability: 'available', workingItemCount: 3,
+            aheadCount: 2, taskFileCount: 5, truncated: false,
+        }, {
+            memberId: 'm-web', repoLabel: 'web',
+            branchName: 'agent-pivot/fix-login-ui', worktreePath: '/wt/web',
+            availability: 'available', workingItemCount: 0,
+            aheadCount: 0, truncated: false,
+        }],
+        selectedMemberId: 'm-api',
+    }));
+    await page.locator('[data-changes-open-scm]').focus();
+    await page.keyboard.press('Tab');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement
+                === document.querySelector('[data-changes-review]')),
+        true,
+        'with no hint rendered, SCM tabs straight into the content area');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 scrolls long change lists instead of clipping them', async t => {
@@ -13622,9 +14141,9 @@ test('WORKTREE-CHANGES-PANEL-001 migrates every native title in the Changes pane
     assert.equal(await openScm.getAttribute('aria-label'),
         'Open in Source Control');
 
-    const taskRow = page.locator('[data-changes-task]');
-    assert.equal(await taskRow.getAttribute('title'), null);
-    assert.ok((await taskRow.getAttribute('data-tooltip'))
+    const taskSummary = page.locator('[data-changes-task-summary]');
+    assert.equal(await taskSummary.getAttribute('title'), null);
+    assert.ok((await taskSummary.getAttribute('data-tooltip'))
         .includes('includes committed and uncommitted changes'));
 
     const memberSelect = page.locator('[data-changes-member-select]');

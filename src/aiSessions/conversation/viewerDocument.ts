@@ -529,42 +529,105 @@ export function renderConversationViewerDocument(
                 class="conversation-changes" data-conversation-changes
                 role="region" aria-label="Changes"
                 hidden>
-                <div class="conversation-changes-toolbar">
-                    <select class="conversation-changes-member-select"
-                        data-changes-member-select
-                        aria-label="Worktree to inspect"></select>
-                    <button type="button"
-                        class="conversation-icon-button"
-                        data-changes-open-scm
-                        data-tooltip="Open in Source Control"
-                        aria-label="Open in Source Control"
-                        ><svg viewBox="0 0 16 16" width="13" height="13"
-                            aria-hidden="true" fill="none"
-                            stroke="currentColor" stroke-width="1.3"
-                            stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M9.5 3.5H13v3.5"/><path d="M13 3.5 8.2 8.3"/>
-                            <path d="M11.5 9.3v2.4a1.3 1.3 0 0 1-1.3 1.3H4.3A1.3 1.3 0 0 1 3 11.7V5.8a1.3 1.3 0 0 1 1.3-1.3h2.4"/></svg>
-                    </button>
-                    <button type="button"
-                        class="conversation-icon-button"
-                        data-changes-refresh
-                        data-tooltip="Refresh"
-                        aria-label="Refresh"
-                        ><svg viewBox="0 0 16 16" width="13" height="13"
-                            aria-hidden="true" fill="none"
-                            stroke="currentColor" stroke-width="1.3"
-                            stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.7"/>
-                            <path d="M13.6 2.1v2.6h-2.6"/></svg>
-                    </button>
+                <div class="conversation-changes-header">
+                    <div class="conversation-changes-repo-row">
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-prev
+                            data-tooltip="Previous repository"
+                            aria-label="Previous repository"
+                            hidden><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 3.5 5.5 8l4.5 4.5"/></svg>
+                        </button>
+                        <span class="conversation-changes-repo-title"
+                            data-changes-repo-title hidden></span>
+                        <div class="conversation-changes-repo-picker"
+                            data-changes-repo-picker hidden>
+                            <span class="conversation-changes-repo-label"
+                                data-changes-repo-label><span
+                                    class="conversation-changes-repo-name"
+                                    data-changes-repo-name></span><span
+                                    class="conversation-changes-repo-affordance"
+                                    aria-hidden="true">▾</span></span>
+                            <select class="conversation-changes-member-select"
+                                data-changes-member-select
+                                aria-label="Worktree to inspect"></select>
+                        </div>
+                        <span class="conversation-changes-outside"
+                            data-changes-outside hidden>Outside workspace</span>
+                        <span class="conversation-changes-position"
+                            data-changes-position hidden></span>
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-next
+                            data-tooltip="Next repository"
+                            aria-label="Next repository"
+                            hidden><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M6 3.5l4.5 4.5L6 12.5"/></svg>
+                        </button>
+                    </div>
+                    <div class="conversation-changes-branch-row">
+                        <span class="conversation-changes-branch"
+                            data-changes-branch><span
+                                class="conversation-changes-branch-icon"
+                                aria-hidden="true">⎇</span><span
+                                class="conversation-changes-branch-name"><span
+                                    class="conversation-changes-branch-prefix"
+                                    data-changes-branch-prefix></span><span
+                                    class="conversation-changes-branch-tail"
+                                    data-changes-branch-tail></span></span></span>
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-refresh
+                            data-tooltip="Refresh"
+                            aria-label="Refresh"
+                            ><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.7"/>
+                                <path d="M13.6 2.1v2.6h-2.6"/></svg>
+                        </button>
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-open-scm
+                            data-tooltip="Open in Source Control"
+                            aria-label="Open in Source Control"
+                            ><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="4" cy="3.3" r="1.4"/>
+                                <circle cx="4" cy="12.7" r="1.4"/>
+                                <circle cx="10" cy="5" r="1.4"/>
+                                <path d="M4 4.7v6.6"/>
+                                <path d="M4 10.3c0-2.1 1.9-3.5 4.5-3.9"/></svg>
+                        </button>
+                    </div>
+                    <span class="conversation-changes-live" data-changes-live
+                        aria-live="polite"></span>
                 </div>
-                <p class="conversation-changes-cross-member"
-                    data-changes-cross-member hidden></p>
+                <button type="button"
+                    class="conversation-changes-cross-member"
+                    data-changes-cross-member hidden><span
+                        data-changes-cross-member-summary></span><span
+                        class="conversation-changes-cross-member-go"
+                        data-changes-cross-member-go></span></button>
                 <div class="conversation-changes-task" data-changes-task
-                    data-tooltip="Net result vs task start — includes committed and uncommitted changes"
                     hidden>
-                    <span class="conversation-changes-task-summary"
-                        data-changes-task-summary></span>
+                    <div class="conversation-changes-task-lines">
+                        <span class="conversation-changes-task-summary"
+                            data-changes-task-summary
+                            data-tooltip="Net result vs task start — includes committed and uncommitted changes"></span>
+                        <span class="conversation-changes-task-tracking"
+                            data-changes-task-tracking hidden></span>
+                    </div>
                     <button type="button"
                         class="conversation-changes-action"
                         data-changes-review>Review</button>

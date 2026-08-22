@@ -3012,27 +3012,167 @@ body.vscode-high-contrast-light {
     }
 }
 
-.conversation-changes-toolbar {
+.conversation-changes-header {
     display: flex;
-    align-items: center;
-    gap: 0.35rem;
+    flex-direction: column;
+    gap: 0.1rem;
 
-    select {
-        flex: 1;
-        min-width: 0;
-        background: var(--vscode-dropdown-background);
-        border: 1px solid var(--vscode-dropdown-border, transparent);
-        color: var(--vscode-dropdown-foreground);
-        font-size: 0.85em;
-        overflow: hidden;
-        text-overflow: ellipsis;
+    [hidden] {
+        display: none;
     }
 }
 
-.conversation-changes-cross-member {
+.conversation-changes-repo-row {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+    min-height: 22px;
+}
+
+.conversation-changes-repo-title {
+    flex: 1;
+    font-size: 0.85em;
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-repo-picker {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+}
+
+.conversation-changes-repo-label {
+    align-items: center;
+    background: var(--vscode-dropdown-background);
+    border: 1px solid var(--vscode-dropdown-border, transparent);
+    color: var(--vscode-dropdown-foreground);
+    display: flex;
+    font-size: 0.85em;
+    gap: 0.2rem;
+    min-width: 0;
+    padding: 0.1rem 0.3rem;
+    width: 100%;
+}
+
+.conversation-changes-repo-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-repo-affordance {
+    flex: none;
+    font-size: 0.8em;
+}
+
+// The native select is a transparent overlay on top of the visible label:
+// the closed state is the custom label DOM, the popup stays native
+// (PRD §15.1).
+.conversation-changes-repo-picker select {
+    height: 100%;
+    left: 0;
+    margin: 0;
+    opacity: 0;
+    position: absolute;
+    top: 0;
+    width: 100%;
+}
+
+.conversation-changes-outside {
     color: var(--vscode-descriptionForeground);
+    flex: none;
+    font-size: 0.75em;
+}
+
+.conversation-changes-position {
+    color: var(--vscode-descriptionForeground);
+    flex: none;
+    font-size: 0.8em;
+}
+
+.conversation-changes-branch-row {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+    min-height: 22px;
+}
+
+.conversation-changes-branch {
+    align-items: center;
+    color: var(--vscode-descriptionForeground);
+    display: flex;
+    flex: 1;
+    font-size: 0.8em;
+    gap: 0.25rem;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.conversation-changes-branch-icon {
+    flex: none;
+}
+
+.conversation-changes-branch-name {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.conversation-changes-branch-prefix {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-branch-tail {
+    flex: none;
+}
+
+// Screen-reader-only live region announcing "<repo>, <i> of <n>".
+.conversation-changes-live {
+    clip: rect(0 0 0 0);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    width: 1px;
+}
+
+.conversation-changes-cross-member {
+    background: none;
+    border: none;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    display: block;
+    font: inherit;
     font-size: 0.8em;
     margin: 0;
+    overflow: hidden;
+    padding: 0.05rem 0.2rem;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+
+    &:hover,
+    &:focus-visible {
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &[hidden] {
+        display: none;
+    }
+}
+
+.conversation-changes-cross-member-go {
+    color: var(--vscode-textLink-foreground);
 }
 
 .conversation-changes-task {
@@ -3041,6 +3181,16 @@ body.vscode-high-contrast-light {
     gap: 0.5rem;
     justify-content: space-between;
     padding: 0.1rem 0.2rem;
+
+    &[hidden] {
+        display: none;
+    }
+}
+
+.conversation-changes-task-lines {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
 }
 
 .conversation-changes-task-summary {
@@ -3048,6 +3198,21 @@ body.vscode-high-contrast-light {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+// The tracking line states facts only — 'No tracking branch' is the
+// neutral steady state for agent worktrees, never a warning color
+// (PRD §17).
+.conversation-changes-task-tracking {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &[hidden] {
+        display: none;
+    }
 }
 
 .conversation-changes-working {

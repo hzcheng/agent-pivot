@@ -171,7 +171,11 @@ async function main() {
                 selectClipped: (() => {
                     const select = panel.querySelector(
                         '[data-changes-member-select]');
-                    return select.scrollWidth > select.clientWidth + 1;
+                    // Single-member sessions render no select at all — the
+                    // repo name is a plain text title (PRD §15.1).
+                    return select
+                        ? select.scrollWidth > select.clientWidth + 1
+                        : null;
                 })(),
             };
         });

@@ -158,10 +158,25 @@
         var button = options.telemetryChanges;
         var buttonValue = options.telemetryChangesValue;
         var memberSelect = options.memberSelect;
+        var prevButton = options.prevButton;
+        var nextButton = options.nextButton;
+        var positionIndicator = options.positionIndicator;
+        var repoTitle = options.repoTitle;
+        var repoPicker = options.repoPicker;
+        var repoLabel = options.repoLabel;
+        var repoName = options.repoName;
+        var outsideBadge = options.outsideBadge;
+        var branchRoot = options.branchRoot;
+        var branchPrefix = options.branchPrefix;
+        var branchTail = options.branchTail;
+        var liveRegion = options.liveRegion;
         var refreshButton = options.refreshButton;
         var crossMemberNote = options.crossMemberNote;
+        var crossMemberSummary = options.crossMemberSummary;
+        var crossMemberGo = options.crossMemberGo;
         var taskRoot = options.taskRoot;
         var taskSummary = options.taskSummary;
+        var taskTracking = options.taskTracking;
         var reviewButton = options.reviewButton;
         var groupsRoot = options.groupsRoot;
         var emptyRoot = options.emptyRoot;
@@ -174,6 +189,7 @@
             : { hide: function () {} };
         var latestState = null;
         var lastSelectSignature = '';
+        var lastLiveText = '';
 
         function exactKeys(value, required, optional) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -454,7 +470,6 @@
             memberSelect.value = state.members.some(function (member) {
                 return member.memberId === selected;
             }) ? selected : '';
-            memberSelect.disabled = state.members.length <= 1;
             lastSelectSignature = signature;
             var selectedMember = state.members.filter(function (member) {
                 return member.memberId === selected;
@@ -467,6 +482,231 @@
                     selectedMember.worktreePath);
             } else {
                 memberSelect.removeAttribute('data-tooltip');
+            }
+        }
+
+        function selectedMemberOf(state) {
+            var selected = state.selectedMemberId
+                || (state.members[0] && state.members[0].memberId) || '';
+            return state.members.filter(function (member) {
+                return member.memberId === selected;
+            })[0] || state.members[0] || null;
+        }
+
+        // Row 1 + row 2 of the member header (PRD §15.1): ‹ › cycling
+        // buttons, a visible repo label under a transparent native select
+        // overlay, the (i/n) position indicator, and the branch row. The
+        // cycling order is the members array order — the manifest order —
+        // recomputed from the latest state on every activation (PRD §14.2).
+        function renderHeader(state) {
+            var member = selectedMemberOf(state);
+            var count = state.members.length;
+            var multi = count > 1;
+            if (prevButton) {
+                prevButton.hidden = !multi;
+            }
+            if (nextButton) {
+                nextButton.hidden = !multi;
+            }
+            if (positionIndicator) {
+                positionIndicator.hidden = !multi;
+                if (multi && member) {
+                    positionIndicator.textContent = '('
+                        + (state.members.indexOf(member) + 1) + '/' + count
+                        + ')';
+                }
+            }
+            // Single member: no select at all — the repo name degrades to
+            // a plain text title, not a disabled dropdown (PRD §15.1).
+            if (repoPicker && repoTitle && memberSelect) {
+                repoPicker.hidden = !multi;
+                repoTitle.hidden = multi;
+                if (multi) {
+                    if (!memberSelect.isConnected) {
+                        repoPicker.appendChild(memberSelect);
+                    }
+                } else if (memberSelect.isConnected) {
+                    repoPicker.removeChild(memberSelect);
+                }
+            }
+            if (member) {
+                if (!multi && repoTitle) {
+                    repoTitle.textContent = member.repoLabel;
+                    repoTitle.setAttribute('data-tooltip',
+                        member.worktreePath);
+                }
+                if (multi && repoName) {
+                    repoName.textContent = member.repoLabel;
+                }
+                if (multi && repoLabel) {
+                    repoLabel.setAttribute('data-tooltip',
+                        member.worktreePath);
+                }
+                if (outsideBadge) {
+                    outsideBadge.hidden = !member.detached;
+                }
+            }
+            renderMemberSelect(state);
+            if (liveRegion) {
+                var announcement = multi && member
+                    ? member.repoLabel + ', '
+                        + (state.members.indexOf(member) + 1) + ' of ' + count
+                    : '';
+                if (announcement !== lastLiveText) {
+                    lastLiveText = announcement;
+                    liveRegion.textContent = announcement;
+                }
+            }
+            // Row 2: the branch owns the row; the last path segment stays
+            // visible while the prefix elides (two-span middle ellipsis).
+            if (branchRoot && member) {
+                var branchName = member.branchName || '';
+                branchRoot.setAttribute('data-tooltip', branchName
+                    ? branchName + '\n' + member.worktreePath
+                    : member.worktreePath);
+                var slash = branchName.lastIndexOf('/');
+                if (branchPrefix) {
+                    branchPrefix.textContent = slash >= 0
+                        ? branchName.slice(0, slash + 1)
+                        : '';
+                }
+                if (branchTail) {
+                    branchTail.textContent = branchName
+                        ? (slash >= 0
+                            ? branchName.slice(slash + 1)
+                            : branchName)
+                        : '(no branch)';
+                }
+            }
+        }
+
+        function cycleMember(delta) {
+            if (!latestState || latestState.kind !== 'ready') {
+                return;
+            }
+            var members = latestState.members;
+            if (members.length <= 1) {
+                return;
+            }
+            var current = selectedMemberOf(latestState);
+            var index = current ? members.indexOf(current) : 0;
+            if (index < 0) {
+                index = 0;
+            }
+            var target = members[
+                (index + delta + members.length) % members.length];
+            if (target) {
+                post({
+                    type: 'conversation-viewer-changes-select',
+                    version: 1,
+                    memberId: target.memberId,
+                });
+            }
+        }
+
+        // Cross-member hint (PRD §15.1): count and jump target share one
+        // candidate set — readable members (availability !== 'unreadable')
+        // other than the selected one. Unreadable members are unknown, and
+        // unknown is never counted as zero nor offered as a target.
+        function crossMemberCandidates(state) {
+            var selected = state.selectedMemberId;
+            return state.members.filter(function (member) {
+                return member.memberId !== selected
+                    && member.availability !== 'unreadable'
+                    && member.workingItemCount > 0;
+            });
+        }
+
+        function crossMemberTarget(state) {
+            var members = state.members;
+            var current = selectedMemberOf(state);
+            var index = current ? members.indexOf(current) : 0;
+            if (index < 0) {
+                index = 0;
+            }
+            for (var step = 1; step < members.length; step += 1) {
+                var candidate = members[(index + step) % members.length];
+                if (candidate.memberId !== state.selectedMemberId
+                    && candidate.availability !== 'unreadable'
+                    && candidate.workingItemCount > 0) {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+
+        function renderCrossMemberNote(state) {
+            if (!crossMemberNote) {
+                return;
+            }
+            var others = crossMemberCandidates(state);
+            var target = crossMemberTarget(state);
+            // All changes from the current member → no hint at all.
+            if (!others.length || !target) {
+                crossMemberNote.hidden = true;
+                return;
+            }
+            var total = others.reduce(function (sum, member) {
+                return sum + member.workingItemCount;
+            }, 0);
+            var names = others.map(function (member) {
+                return member.repoLabel;
+            });
+            var listed = names.length > 2
+                ? names.slice(0, 2).join(', ') + ' +' + (names.length - 2)
+                    + ' more'
+                : names.join(', ');
+            crossMemberNote.hidden = false;
+            if (crossMemberSummary) {
+                crossMemberSummary.textContent = total === 1
+                    ? '1 more change in ' + listed
+                    : total + ' more changes in ' + listed;
+            }
+            if (crossMemberGo) {
+                crossMemberGo.textContent = ' · Go to ' + target.repoLabel;
+            }
+            crossMemberNote.setAttribute('data-tooltip',
+                others.map(function (member) {
+                    return member.repoLabel + ': ' + member.workingItemCount;
+                }).join('\n'));
+        }
+
+        // Summary area line 2 (PRD §14.1): the upstream reference frame as
+        // a three-state union — 'none' is a stated fact in neutral color,
+        // 'unknown' a failed query; neither is ever rendered as zero.
+        function shortUpstreamRef(fullRef) {
+            var prefix = 'refs/remotes/';
+            return fullRef.indexOf(prefix) === 0
+                ? fullRef.slice(prefix.length)
+                : fullRef;
+        }
+
+        function renderTracking(state) {
+            if (!taskTracking) {
+                return;
+            }
+            var member = selectedMemberOf(state);
+            var upstream = member && member.upstream;
+            if (!upstream) {
+                taskTracking.hidden = true;
+                taskTracking.textContent = '';
+                taskTracking.removeAttribute('data-tooltip');
+                return;
+            }
+            taskTracking.hidden = false;
+            if (upstream.status === 'tracked') {
+                taskTracking.textContent = 'Tracking '
+                    + shortUpstreamRef(upstream.fullRef) + ' · '
+                    + upstream.ahead + ' ahead · ' + upstream.behind
+                    + ' behind';
+                taskTracking.setAttribute('data-tooltip',
+                    upstream.fullRef + '\nBased on local remote-tracking '
+                        + 'refs; no fetch was performed');
+            } else {
+                taskTracking.textContent = upstream.status === 'none'
+                    ? 'No tracking branch'
+                    : 'Tracking unknown';
+                taskTracking.removeAttribute('data-tooltip');
             }
         }
 
@@ -659,32 +899,17 @@
                 }
             }
             var content = !unavailable && state.kind === 'ready';
-            // The toolbar (select + actions) stays visible in every state;
-            // only the task-result row and lists degrade.
+            // The header rows stay visible in every state; only the
+            // task-result row and lists degrade.
             if (taskRoot) {
                 taskRoot.hidden = !content;
             }
             if (!content) return;
-            renderMemberSelect(state);
+            renderHeader(state);
 
             var detail = state.detail;
             var aggregate = state.aggregate;
-            if (crossMemberNote) {
-                var others = state.members.filter(function (member) {
-                    return member.memberId !== state.selectedMemberId
-                        && member.workingItemCount > 0;
-                });
-                var otherCount = others.reduce(function (sum, member) {
-                    return sum + member.workingItemCount;
-                }, 0);
-                crossMemberNote.hidden = !(others.length && otherCount);
-                if (others.length && otherCount) {
-                    crossMemberNote.textContent = '+' + otherCount + ' in '
-                        + others.map(function (member) {
-                            return member.repoLabel;
-                        }).join(', ');
-                }
-            }
+            renderCrossMemberNote(state);
 
             var showTask = !!detail && detail.baselineSha !== undefined
                 && detail.availability === 'available'
@@ -697,7 +922,9 @@
             }
             if (taskSummary && detail) {
                 if (showTask) {
-                    taskSummary.textContent = detail.taskFileCount + ' files · '
+                    // Line 1, baseline reference frame (PRD §14.1).
+                    taskSummary.textContent = 'Since start · '
+                        + detail.taskFileCount + ' files · '
                         + (detail.aheadCount || 0) + ' commits';
                 } else if (detail.availability === 'baselineUnavailable') {
                     taskSummary.textContent = 'No recorded task start'
@@ -709,6 +936,7 @@
                     taskSummary.textContent = '';
                 }
             }
+            renderTracking(state);
             if (reviewButton) {
                 // No baseline (or nothing to review) hides the action
                 // entirely — a dead Review link reads as a bug.
@@ -747,6 +975,33 @@
                         version: 1,
                         memberId: memberSelect.value,
                     });
+                });
+            }
+            // ‹ › reuse the plain select intent — the protocol needs no
+            // next/previous command (PRD §14.2).
+            if (prevButton) {
+                prevButton.addEventListener('click', function () {
+                    cycleMember(-1);
+                });
+            }
+            if (nextButton) {
+                nextButton.addEventListener('click', function () {
+                    cycleMember(1);
+                });
+            }
+            if (crossMemberNote) {
+                crossMemberNote.addEventListener('click', function () {
+                    if (!latestState) {
+                        return;
+                    }
+                    var target = crossMemberTarget(latestState);
+                    if (target) {
+                        post({
+                            type: 'conversation-viewer-changes-select',
+                            version: 1,
+                            memberId: target.memberId,
+                        });
+                    }
                 });
             }
             if (refreshButton) {
@@ -792,6 +1047,7 @@
                 subscriptionGeneration = generation;
                 latestState = null;
                 lastSelectSignature = '';
+                lastLiveText = '';
                 collapsedFolders = {};
                 tooltip.hide();
                 if (button) {

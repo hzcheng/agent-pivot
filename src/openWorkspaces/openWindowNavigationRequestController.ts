@@ -29,6 +29,10 @@ export interface OpenWindowNavigationRequestControllerOptions {
     /** Local aggregate-only diagnostic hook; never receives card identity. */
     recordTelemetry?: (event: Record<string, unknown>) => void;
     nowMs?: () => number;
+    /** Timestamp-only local state shared by extension hosts in open windows. */
+    readLastFocusedNavigationAtMs?: () => number | undefined;
+    writeLastFocusedNavigationAtMs?: (atMs: number) => PromiseLike<unknown>;
+    nowEpochMs?: () => number;
 }
 
 interface ParsedNavigationRequest {
@@ -70,9 +74,11 @@ function parseRequest(raw: unknown): ParsedNavigationRequest | null {
 
 export class OpenWindowNavigationRequestController {
     private readonly nowMs: () => number;
+    private readonly nowEpochMs: () => number;
 
     constructor(private readonly options: OpenWindowNavigationRequestControllerOptions) {
         this.nowMs = options.nowMs || (() => Date.now());
+        this.nowEpochMs = options.nowEpochMs || (() => Date.now());
     }
 
     async handle(raw: unknown): Promise<void> {
@@ -82,6 +88,7 @@ export class OpenWindowNavigationRequestController {
             await this.settleMalformed(raw);
             return;
         }
+        this.recordSuspectedCorrection(this.nowEpochMs());
         const startedAtMs = this.nowMs();
         let outcome: OpenWorkspaceNavigationSettlement;
         try {
@@ -91,6 +98,9 @@ export class OpenWindowNavigationRequestController {
             outcome = 'failed';
         }
         this.recordTelemetry(outcome, this.nowMs() - startedAtMs);
+        if (outcome === 'focused') {
+            await this.recordFocusedNavigation(this.nowEpochMs());
+        }
         await this.settle(request, outcome);
     }
 
@@ -136,6 +146,37 @@ export class OpenWindowNavigationRequestController {
             });
         } catch (_error) {
             // Diagnostics must never change navigation settlement behavior.
+        }
+    }
+
+    private recordSuspectedCorrection(nowEpochMs: number): void {
+        try {
+            const previousAtMs = this.options.readLastFocusedNavigationAtMs?.();
+            if (!Number.isSafeInteger(previousAtMs)
+                || previousAtMs as number > nowEpochMs) {
+                return;
+            }
+            const delayMs = nowEpochMs - (previousAtMs as number);
+            if (delayMs > 3_000) {
+                return;
+            }
+            this.options.recordTelemetry?.({
+                event: 'open-tab-window-navigation-suspected-correction',
+                delayMs: Math.max(0, Math.round(delayMs)),
+            });
+        } catch (_error) {
+            // A diagnostic-only read must never change navigation behavior.
+        }
+    }
+
+    private async recordFocusedNavigation(nowEpochMs: number): Promise<void> {
+        try {
+            if (!Number.isSafeInteger(nowEpochMs) || nowEpochMs < 0) {
+                return;
+            }
+            await this.options.writeLastFocusedNavigationAtMs?.(nowEpochMs);
+        } catch (_error) {
+            // A diagnostic-only write must never change navigation settlement.
         }
     }
 }

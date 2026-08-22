@@ -52,11 +52,12 @@ record redacted evidence, and replace every `NOT RUN` result.
 
 ### OPEN-TAB-TELEMETRY-001 — privacy and aggregate observations
 
-- Verify local diagnostics include only the navigation outcome/duration and
-  CHATS menu-open event; they must not contain a window name, path, card ID,
-  or session ID.
-- Before claiming success metrics, define how task start/completion and a
-  suspected wrong selection are collected. The current implementation does
-  not infer those outcomes from private identifiers.
+- Verify local diagnostics include only the navigation outcome/duration, a
+  timestamp-only suspected rapid correction signal, and the CHATS menu-open
+  event; they must not contain a window name, path, card ID, or session ID.
+- Before claiming the remaining success metrics, define how task
+  start/completion and empty-worktree management completion are collected. The
+  rapid-correction signal is intentionally only a suspected wrong selection,
+  never an identifier-based inference.
 - Result: `NOT RUN`.
 - Evidence: `UNRECORDED`.

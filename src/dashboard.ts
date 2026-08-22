@@ -17,6 +17,7 @@ import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
+    OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
     OPEN_TAB_LAYOUT_NOTICE_DISMISSED_KEY,
     USER_CANCELED,
     RelevantExtensions,
@@ -2462,6 +2463,14 @@ async function initializeDashboard(
         logError,
         recordTelemetry: event => logOpenWorkspaceDiagnostic('Telemetry', event),
         nowMs: monotonicNowMs,
+        readLastFocusedNavigationAtMs: () => context.globalState.get<number>(
+            OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
+        ),
+        writeLastFocusedNavigationAtMs: atMs => context.globalState.update(
+            OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
+            atMs,
+        ),
+        nowEpochMs: () => Date.now(),
     });
     ownResource(() => worktreeSnapshotCoordinator.onDidChange(state => {
         if ((state.kind === 'ready' && !state.refreshing) || state.kind === 'error') {

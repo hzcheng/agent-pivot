@@ -81,3 +81,32 @@ test('WORKTREE-CHANGES-COLLECT-001 reads a real repository end to end', async t 
     const rewritten = await collector.collect(repo, unrelated);
     assert.equal(rewritten.availability, 'historyRewritten');
 });
+
+test('WORKTREE-CHANGES-COLLECT-001 task file count unions the tracked diff and untracked files', async t => {
+    const { repo } = await repositoryFixture(t);
+    const baselineSha = git(repo, ['rev-parse', 'HEAD']);
+    const baseline = {
+        commitSha: baselineSha,
+        capturedAt: Date.now(),
+        source: { kind: 'branch', fullRef: 'refs/heads/main' },
+    };
+    const collector = new ChangesCollector();
+
+    // One committed file ahead, one modified tracked file, and untracked
+    // files (an ignored one must stay out).
+    await fs.promises.writeFile(path.join(repo, 'committed.ts'), 'committed\n');
+    git(repo, ['add', 'committed.ts']);
+    git(repo, ['commit', '-m', 'intermediate', '-q']);
+    await fs.promises.writeFile(path.join(repo, 'tracked.ts'), 'two\n');
+    await fs.promises.writeFile(path.join(repo, 'scratch.txt'), 'untracked\n');
+    await fs.promises.writeFile(path.join(repo, '.gitignore'), 'ignored.log\n');
+    await fs.promises.writeFile(path.join(repo, 'ignored.log'), 'ignored\n');
+
+    const snapshot = await collector.collect(repo, baseline);
+    assert.equal(snapshot.availability, 'available');
+    // Tracked diff: committed.ts + tracked.ts = 2; untracked: scratch.txt
+    // + .gitignore = 2 (ignored.log excluded); Task result ⊃ Working
+    // changes (PRD §4.3) — untracked must join the count.
+    assert.equal(snapshot.taskFileCount, 4,
+        'task result counts committed + modified + untracked files');
+});

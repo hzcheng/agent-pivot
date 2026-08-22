@@ -192,3 +192,26 @@ test('WORKTREE-CHANGES-PANEL-001 task result review falls back to a per-file lis
     assert.equal(diffQuery(diff[2]).ref, '~empty~');
     assert.equal(diff[3], 'c.txt');
 });
+
+test('WORKTREE-CHANGES-PANEL-001 task result review includes untracked files with an empty baseline side', async t => {
+    const repo = await repoFixture(t);
+    await fs.promises.writeFile(path.join(repo.dir, 'new.txt'), 'new\n');
+    const executed = [];
+    const service = loadService(executed, { failChanges: false });
+
+    await service.openTaskResultReview(repo.dir, repo.baseline, 'Task result');
+
+    assert.equal(executed.length, 1, 'the multi-diff opens without a diff fallback');
+    const [command, , resources] = executed[0];
+    assert.equal(command, 'vscode.changes');
+    // Task result ⊃ Working changes (PRD §4.3): the untracked file joins
+    // the tracked diff (a.txt modified + c.txt deleted + new.txt untracked).
+    assert.equal(resources.length, 3);
+    const byName = Object.fromEntries(
+        resources.map(entry => [path.basename(entry[0].fsPath), entry]));
+    assert.ok(byName['new.txt'], 'the untracked file is part of the review');
+    assert.equal(diffQuery(byName['new.txt'][1]).ref, '~empty~',
+        'an untracked file has no baseline side — empty original');
+    assert.equal(byName['new.txt'][2].scheme, 'file',
+        'an untracked file renders its working-tree document');
+});

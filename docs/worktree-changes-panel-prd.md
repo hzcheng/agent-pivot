@@ -359,7 +359,7 @@ Part II 是 Part I 的增量增强；凡 Part II 未明确修改的行为，一�
 - 标识**显示在各 tab 的摘要区**（§15.4/§15.5），与同一参考系的数字同处，不单独占头部行。
 - 采集挂在现有 member 采集链路上；upstream 采集失败独立降级，不影响 baseline 数字。
 
-附注（三态采集链，`rev-parse @{upstream}` 失败无法区分 none/unknown，不可用）：① `git symbolic-ref -q HEAD` 取当前分支 ref（空 = detached HEAD → `none`）；② `git for-each-ref --format=%(upstream) <branchRef>`——**成功且为空 = `none`，命令失败/超时 = `unknown`**；③ 有 upstream 时 `git rev-parse HEAD <fullRef>`（单进程取 headSha + upstream sha）；④ `git rev-list --left-right --count <fullRef>...HEAD`（**左数 = behind，右数 = ahead**，实现别写反）。③④ 失败同样归 `unknown`。每 member 新增 ≤4 个 git 进程。
+附注（三态采集链，`rev-parse @{upstream}` 失败无法区分 none/unknown，不可用）：① `git symbolic-ref -q HEAD` 取当前分支 ref（空 = detached HEAD → `none`）；② `git for-each-ref --format=%(upstream) <branchRef>`——**成功且为空 = `none`，命令失败/超时 = `unknown`**；③ 有 upstream 时 `git rev-parse HEAD <fullRef>`（单进程取 headSha + upstream sha）；无 upstream（none/unknown）时单独 `git rev-parse HEAD`——失效签名对无 tracking 的 member 也需要 HEAD（§14.3 第 2 条）；④ `git rev-list --left-right --count <fullRef>...HEAD`（**左数 = behind，右数 = ahead**，实现别写反）。③④ 失败同样归 `unknown`。每 member 新增 ≤4 个 git 进程。
 
 ### 14.2 Member 顺序与位置指示（验收标准）
 

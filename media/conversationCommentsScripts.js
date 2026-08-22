@@ -486,7 +486,7 @@
             if (!tab) return;
             var count = tab.querySelector('[data-comments-tab-count]');
             if (count) {
-                count.textContent = ' · ' + openCount;
+                count.textContent = '· ' + openCount;
             }
             var label = name + ': ' + openCount + ' open ' + noun;
             tab.title = label;

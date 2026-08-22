@@ -1572,6 +1572,7 @@ body[data-conversation-loading='true'] .conversation-messages {
 }
 
 .conversation-comments-tab-count {
+    padding-left: 0.3rem;
     color: var(--vscode-descriptionForeground);
     font-weight: 400;
 }

@@ -5892,11 +5892,11 @@ test('CONVERSATION-COMMENTS-TABS-001 PROJECT-COMMENTS-UI-001 captures, tags, fil
     // Tab labels carry the same live open counts as the telemetry pill.
     assert.equal(
         await workspaceTab.locator('[data-comments-tab-count]').innerText(),
-        ' · 2'
+        '· 2'
     );
     assert.equal(
         await sessionTab.locator('[data-comments-tab-count]').innerText(),
-        ' · 0'
+        '· 0'
     );
 
     // Tag filtering narrows the list and toggles back off.
@@ -6056,7 +6056,7 @@ test('CONVERSATION-COMMENTS-TABS-001 PROJECT-COMMENTS-UI-001 captures, tags, fil
     assert.equal(await workspacePane.isVisible(), false);
     assert.equal(
         await sessionTab.locator('[data-comments-tab-count]').innerText(),
-        ' · 0'
+        '· 0'
     );
     assert.equal(
         await page.evaluate(() =>
@@ -6263,7 +6263,7 @@ test('PROJECT-COMMENTS-UI-001 toggles, edits, and deletes notes with source snap
     assert.equal(
         await page.locator('[data-comments-tab="workspace"]')
             .locator('[data-comments-tab-count]').innerText(),
-        ' · 0'
+        '· 0'
     );
     assert.equal(
         await card.getAttribute('data-comment-status'),

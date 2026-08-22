@@ -1567,6 +1567,16 @@ for (const mutation of [
     },
     {
         id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
+        file: 'src/webview/webviewWorkspaceUpdateScripts.js',
+        expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
+        mutate: source => replaceFixtureSource(
+            source,
+            'currentSurface.replaceWith(replacement);',
+            'replacement.replaceWith(currentSurface);'
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-PRESENTATION-TRANSACTION-001',
         file: 'src/webview/webviewProjectAiUpdateScripts.js',
         expectedDetail: 'every Presentation must match the rendered workspace before revision adoption',
         mutate: source => replaceFixtureSource(

@@ -195,7 +195,7 @@ async function postAuthoritativeWorktreeRemoval(page, sequence) {
 
 test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the card provider', async t => {
     const page = await openQuickCreatePage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const quickButton = project.locator('[data-action="create-ai-session-quick"]');
 
     assert.equal(await quickButton.getAttribute('data-provider'), 'codex');
@@ -253,7 +253,7 @@ test('WORKTREE-PROVISIONING-PROTOCOL-001 the anchor menu opens the inline group 
             activity: 'idle',
         },
     });
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     assert.equal(await project.locator('[data-action="create-isolated-session"]').count(), 0,
         'the standalone new-worktree button is gone');
 
@@ -313,7 +313,7 @@ test('WORKTREE-MANAGED-CLEANUP-001 removal stays discoverable for busy managed w
         },
         activity: 'attention', sessions: [], authority: { canResume: true, canRemove: true },
     }] });
-    await page.locator('.project[data-id="project-a"] .ai-session-worktree-more').click();
+    await page.locator('[data-open-session-surface][data-id="project-a"] .ai-session-worktree-more').click();
     const removeItem = page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]');
     assert.equal(await removeItem.isVisible(), true,
         'the menu always offers removal for usable worktrees; the host explains any refusal');
@@ -332,7 +332,7 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         },
         activity: 'idle', sessions: [], authority: { canResume: true, canRemove: true },
     }] });
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const button = project.locator('.ai-session-worktree-more');
     const menu = page.locator('#aiSessionWorktreeMenu');
     const removeItem = menu.locator('[data-action="worktree-remove"]');
@@ -375,7 +375,7 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         type: 'managed-worktree-removal-settlement', version: 1,
         requestId, status: 'succeeded',
     } })), retry.requestId);
-    assert.match(await page.locator('.project[data-id="project-a"] '
+    assert.match(await page.locator('[data-open-session-surface][data-id="project-a"] '
         + '[data-ai-session-live-region]').textContent(), /local branch kept/);
 });
 
@@ -403,7 +403,7 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact
         }],
     });
     const button = page.locator(
-        '.project[data-id="project-a"] .ai-session-worktree-more'
+        '[data-open-session-surface][data-id="project-a"] .ai-session-worktree-more'
     );
     await button.click();
     const menu = page.locator('#aiSessionWorktreeMenu');
@@ -443,7 +443,7 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 the menu offers every provider for the 
             authority: { canResume: true },
         }],
     });
-    await page.locator('.project[data-id="project-a"] .ai-session-worktree-more').click();
+    await page.locator('[data-open-session-surface][data-id="project-a"] .ai-session-worktree-more').click();
     const menu = page.locator('#aiSessionWorktreeMenu');
     await menu.locator('[data-action="worktree-provider-create"][data-provider="claude"]').click();
     assert.deepEqual(await postedMessages(page), [{
@@ -488,7 +488,7 @@ test('WORKTREE-GROUPING-UI-001 collapsing a worktree really hides every session 
             authority: { canResume: true },
         }],
     });
-    const group = page.locator('.project[data-id="project-a"] .ai-session-worktree-group');
+    const group = page.locator('[data-open-session-surface][data-id="project-a"] .ai-session-worktree-group');
     const rows = group.locator('.codex-session-row');
     assert.equal(await rows.count(), 2);
     assert.equal(await rows.first().isVisible(), true);
@@ -527,7 +527,7 @@ test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon seeds the creation form 
         }],
     });
     const button = page.locator(
-        '.project[data-id="project-a"] .ai-session-worktree-more'
+        '[data-open-session-surface][data-id="project-a"] .ai-session-worktree-more'
     );
     assert.equal(await button.locator('svg').count(), 1,
         'the row actions affordance is an icon, not an English label');
@@ -571,10 +571,10 @@ test('WORKTREE-GROUPING-UI-001 revealing a switched session follows it into its 
             authority: { canResume: true },
         }],
     });
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     // Start with the worktree group collapsed.
     await page.evaluate(() => {
-        const projectDiv = document.querySelector('.project[data-id="project-a"]');
+        const projectDiv = document.querySelector('[data-open-session-surface][data-id="project-a"]');
         setAiSessionWorktreeGroupExpanded(
             projectDiv,
             projectDiv.querySelector('.ai-session-worktree-group'),
@@ -613,7 +613,7 @@ test('WORKTREE-GROUPING-UI-001 revealing a plain session lands on Chats active',
             attached: true,
         }],
     });
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
 
     await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'reveal-ai-session-requested', version: 1,
@@ -675,7 +675,7 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
             worktree(secondKey, 'refs/heads/feature/backend'),
         ],
     });
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const toggleAll = project.locator('[data-action="toggle-all-ai-session-worktrees"]');
     const rows = project.locator('.ai-session-worktree-group .codex-session-row');
 
@@ -699,7 +699,7 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
 
     // A mixed state collapses everything first, matching group-toggle intuition.
     await page.evaluate(() => {
-        const projectDiv = document.querySelector('.project[data-id="project-a"]');
+        const projectDiv = document.querySelector('[data-open-session-surface][data-id="project-a"]');
         setAiSessionWorktreeGroupExpanded(
             projectDiv,
             projectDiv.querySelectorAll('.ai-session-worktree-group')[0],
@@ -713,7 +713,7 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
 
 test('WORKTREE-GROUPING-UI-001 selecting a CHATS/ALL tab reports it for authoritative re-renders', async t => {
     const page = await openQuickCreatePage(t);
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
 
     await project.locator('[data-ai-session-tab="all"]').click();
     assert.deepEqual(await postedMessages(page), [{
@@ -744,7 +744,7 @@ test('AI-SESSION-QUICK-CREATE-001 the split button arrow opens the create dropdo
 
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
 
-    await page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
+    await page.locator('[data-open-session-surface][data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
 
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true);
     assert.equal(await dropdown.getAttribute('data-dropdown-project-id'), 'project-a');
@@ -773,7 +773,7 @@ test('AI-SESSION-QUICK-CREATE-001 the dropdown keeps the full interactive creati
     const page = await openQuickCreatePage(t);
     const dropdown = page.locator('#aiSessionCreateDropdown');
 
-    await page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
+    await page.locator('[data-open-session-surface][data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
     await dropdown.locator('[data-action="create-ai-session"]').click();
 
     assert.deepEqual(await postedMessages(page), [{
@@ -787,7 +787,7 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
     const page = await openQuickCreatePage(t);
     const dropdown = page.locator('#aiSessionCreateDropdown');
 
-    await page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
+    await page.locator('[data-open-session-surface][data-id="project-a"] [data-action="create-ai-session-dropdown"]').click();
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true);
 
     await page.locator('#outside').click();
@@ -798,7 +798,7 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
 test('AI-SESSION-QUICK-CREATE-001 the fast tooltip appears promptly on hover and focus', async t => {
     const page = await openQuickCreatePage(t, { profile: 'deepseek' });
     const quickButton = page.locator(
-        '.project[data-id="project-a"] [data-action="create-ai-session-quick"]'
+        '[data-open-session-surface][data-id="project-a"] [data-action="create-ai-session-quick"]'
     );
     const tip = page.locator('.ai-session-fast-tooltip');
 
@@ -817,7 +817,7 @@ test('AI-SESSION-QUICK-CREATE-001 the fast tooltip appears promptly on hover and
 
 test('AI-SESSION-QUICK-CREATE-001 the quick button tooltip identifies the provider and profile', async t => {
     const page = await openQuickCreatePage(t, { profile: 'deepseek', withStyles: true });
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const quickButton = project.locator('[data-action="create-ai-session-quick"]');
 
     assert.equal(await quickButton.getAttribute('aria-label'),
@@ -836,7 +836,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button tooltip identifies the provid
 
 test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provider, not the list filter', async t => {
     const page = await openQuickCreatePage(t, { provider: 'kimi', withStyles: true });
-    const project = page.locator('.project[data-id="project-a"]');
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const quickButton = project.locator('[data-action="create-ai-session-quick"]');
 
     assert.equal(await quickButton.getAttribute('data-provider'), 'kimi',
@@ -844,7 +844,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provid
     assert.equal(await quickButton.getAttribute('aria-label'), 'New Kimi session');
     assert.equal(await quickButton.getAttribute('data-tooltip'), 'New Kimi session');
     assert.equal(
-        await page.locator('.project[data-id="project-a"] [data-ai-session-region]')
+        await page.locator('[data-open-session-surface][data-id="project-a"] [data-ai-session-region]')
             .getAttribute('data-active-ai-session-provider'),
         'codex',
         'the session list filter keeps its own primary provider'
@@ -860,7 +860,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provid
 
 test('AI-SESSION-QUICK-CREATE-001 the arrow toggles the dropdown and mirrors aria-expanded', async t => {
     const page = await openQuickCreatePage(t);
-    const arrow = page.locator('.project[data-id="project-a"] [data-action="create-ai-session-dropdown"]');
+    const arrow = page.locator('[data-open-session-surface][data-id="project-a"] [data-action="create-ai-session-dropdown"]');
     const dropdown = page.locator('#aiSessionCreateDropdown');
 
     assert.equal(await arrow.getAttribute('aria-haspopup'), 'menu');

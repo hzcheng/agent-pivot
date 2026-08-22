@@ -969,6 +969,8 @@ function initProjectAiSessionControls(options) {
             });
         } else if (action === 'worktree-remove' && context.canRemove) {
             var projectDiv = document.querySelector(
+                '[data-open-session-surface][data-id="' + CSS.escape(context.projectId) + '"]'
+            ) || document.querySelector(
                 '.project[data-id="' + CSS.escape(context.projectId) + '"]'
             );
             var group = projectDiv && projectDiv.querySelector(

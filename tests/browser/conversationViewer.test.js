@@ -2,7 +2,6 @@
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const Module = require('node:module');
 const os = require('node:os');
@@ -5150,15 +5149,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         'bf9c914c932eb222ebbc2134d80c2625740fdd04ac3ee89ea0438b9941484c0c',
         'the previous Outline fixture must stay byte-exact'
     );
-    const previousCommentsScript = execFileSync(
-        'git',
-        [
-            'show',
-            '41241758007eb86ba54b7abfd8697ab1663b0295:'
-                + 'src/webview/conversationCommentsScripts.js',
-        ],
-        { cwd: path.join(__dirname, '../..') }
-    ).toString('utf8');
+    const previousCommentsScript = fs.readFileSync(
+        path.join(
+            __dirname,
+            'fixtures/previousConversationCommentsScripts.js'
+        ),
+        'utf8'
+    );
     assert.equal(
         sha256(previousCommentsScript),
         'eae6747466b532101f8a9d2c6975ab43b10a681cb4891f4e76bcbf7830667faa',

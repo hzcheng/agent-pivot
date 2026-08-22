@@ -12745,6 +12745,62 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
     });
 });
 
+test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-state union', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    const changesButton = page.locator('[data-telemetry-changes]');
+    const state = changesFixture();
+    state.members[0].headSha = 'c'.repeat(40);
+    state.members[0].upstream = {
+        status: 'tracked',
+        fullRef: 'refs/remotes/origin/agent-pivot/fix-login',
+        sha: 'd'.repeat(40),
+        ahead: 2,
+        behind: 1,
+    };
+    state.members[1].headSha = 'e'.repeat(40);
+    state.members[1].upstream = { status: 'none' };
+    state.members.push({
+        memberId: 'm-infra', repoLabel: 'infra',
+        branchName: 'agent-pivot/infra', worktreePath: '/wt/infra',
+        availability: 'baselineUnavailable', workingItemCount: 0,
+        truncated: false, upstream: { status: 'unknown' },
+    });
+    await sendChanges(page, state);
+
+    // The state passes validMember's whitelist and renders normally.
+    assert.equal(await changesButton.isVisible(), true);
+    assert.equal(
+        await page.locator('[data-telemetry-changes-value]').innerText(),
+        '4 · 2');
+    await changesButton.click();
+    assert.deepEqual(
+        await page.locator('[data-changes-member-select] option')
+            .allInnerTexts(),
+        [
+            'api · ⎇ agent-pivot/fix-login',
+            'web · ⎇ agent-pivot/fix-login-ui',
+            'infra · ⎇ agent-pivot/infra',
+        ]);
+    assert.equal(
+        await page.locator('[data-changes-task-summary]').innerText(),
+        '5 files · 2 commits');
+
+    // exactKeys discipline: a member carrying a key the webview does not
+    // know invalidates the whole state — the panel never half-renders.
+    const forged = changesFixture();
+    forged.members[0].upstreamSha = 'f'.repeat(40);
+    await sendChanges(page, forged);
+    assert.deepEqual(
+        await page.locator('[data-changes-member-select] option')
+            .allInnerTexts(),
+        [
+            'api · ⎇ agent-pivot/fix-login',
+            'web · ⎇ agent-pivot/fix-login-ui',
+            'infra · ⎇ agent-pivot/infra',
+        ],
+        'a member with an unrecognized key drops the whole state message');
+});
+
 test('WORKTREE-CHANGES-PANEL-001 compresses single-child directory chains like Source Control', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture({

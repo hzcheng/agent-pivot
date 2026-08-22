@@ -48,7 +48,11 @@ export { WorktreeDeletionController } from './deletionController';
 export { ManagedWorktreeRemovalController } from './managedWorktreeRemovalController';
 export { WorktreeSnapshotCoordinator } from './snapshotCoordinator';
 export { ChangesCollector, aggregateMemberChanges } from './changesCollector';
-export type { MemberChangesSnapshot, WorkingChangeItem } from './changesCollector';
+export type {
+    MemberChangesSnapshot,
+    MemberUpstreamState,
+    WorkingChangeItem,
+} from './changesCollector';
 
 // Git and setup infrastructure.
 export { GitWorktreeProvisioner } from './gitWorktreeProvisioner';

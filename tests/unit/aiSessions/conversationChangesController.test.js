@@ -116,6 +116,65 @@ test('WORKTREE-CHANGES-PANEL-001 resolves group members through the manifest and
     assert.equal(posted[0].subscriptionGeneration, 7);
 });
 
+test('WORKTREE-CHANGES-PANEL-001 member views carry headSha and the upstream tracking state', async () => {
+    const headSha = 'c'.repeat(40);
+    const upstreamSha = 'd'.repeat(40);
+    const { posted, controller } = fixture({
+        collector: new ChangesCollector({
+            execGit: async args => {
+                if (args.includes('status')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (args.includes('symbolic-ref')) {
+                    return {
+                        stdout: 'refs/heads/agent-pivot/fix-login\n', stderr: '',
+                    };
+                }
+                if (args.includes('for-each-ref')) {
+                    return {
+                        stdout: 'refs/remotes/origin/agent-pivot/fix-login\n',
+                        stderr: '',
+                    };
+                }
+                if (args.includes('rev-parse')) {
+                    return { stdout: `${headSha}\n${upstreamSha}\n`, stderr: '' };
+                }
+                if (args.includes('--left-right')) {
+                    return { stdout: '1\t2\n', stderr: '' };
+                }
+                return { stdout: '', stderr: '' };
+            },
+            now: () => 1724000000000,
+        }),
+    });
+    await controller.activate(TARGET);
+    const member = lastChanges(posted).members[0];
+    assert.equal(member.headSha, headSha);
+    assert.deepEqual(member.upstream, {
+        status: 'tracked',
+        fullRef: 'refs/remotes/origin/agent-pivot/fix-login',
+        sha: upstreamSha,
+        ahead: 2,
+        behind: 1,
+    });
+});
+
+test('WORKTREE-CHANGES-PANEL-001 unreadable member views omit headSha and upstream', async () => {
+    const { posted, controller } = fixture({
+        collector: new ChangesCollector({
+            execGit: async () => {
+                throw new Error('not a git repository');
+            },
+            now: () => 1724000000000,
+        }),
+    });
+    await controller.activate(TARGET);
+    const member = lastChanges(posted).members[0];
+    assert.equal(member.availability, 'unreadable');
+    assert.ok(!('headSha' in member));
+    assert.ok(!('upstream' in member));
+});
+
 test('WORKTREE-CHANGES-PANEL-001 retired identity beats the live fallback', async () => {
     const { posted, controller } = fixture({
         findGroupByWorktreeKey: () => undefined,

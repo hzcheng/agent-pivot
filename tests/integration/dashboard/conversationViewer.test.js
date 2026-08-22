@@ -5308,4 +5308,10 @@ test('WORKTREE-CHANGES-PANEL-001 the viewer publishes collected working items fo
     assert.deepEqual(state.detail.items.map(item => item.path),
         ['changed.ts'],
         'the modified file reaches the webview');
+    const member = state.members[0];
+    assert.equal(member.headSha,
+        git(fixture.worktreePath, ['rev-parse', 'HEAD']),
+        'the member view carries the collected HEAD sha');
+    assert.deepEqual(member.upstream, { status: 'none' },
+        'the fixture worktree has no tracking branch — a stated fact');
 });

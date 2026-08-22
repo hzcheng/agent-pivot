@@ -489,6 +489,11 @@ function memberView(
             ? { taskFileCount: snapshot.taskFileCount }
             : {}),
         truncated: snapshot?.truncated ?? false,
+        // Tracking facts (PRD §14.4): both absent for unreadable members.
+        ...(snapshot?.headSha !== undefined
+            ? { headSha: snapshot.headSha }
+            : {}),
+        ...(snapshot?.upstream ? { upstream: snapshot.upstream } : {}),
         ...(member.detached ? { detached: true } : {}),
     };
 }

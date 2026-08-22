@@ -52,11 +52,38 @@
                 'historyRewritten', 'unreadable'].includes(value);
         }
 
+        // Tracking-branch three-state union (PRD §14.1/§14.4): 'none' is
+        // a stated fact, 'unknown' a failed query — never rendered as 0.
+        function validUpstream(upstream) {
+            if (!upstream || typeof upstream !== 'object'
+                || Array.isArray(upstream)) {
+                return false;
+            }
+            if (upstream.status === 'none' || upstream.status === 'unknown') {
+                return exactKeys(upstream, ['status'], []);
+            }
+            if (upstream.status === 'tracked') {
+                return exactKeys(upstream,
+                        ['status', 'fullRef', 'sha', 'ahead', 'behind'], [])
+                    && typeof upstream.fullRef === 'string'
+                    && upstream.fullRef.length > 0
+                    && upstream.fullRef.length <= 1024
+                    && typeof upstream.sha === 'string'
+                    && /^[0-9a-f]{40}$/.test(upstream.sha)
+                    && Number.isSafeInteger(upstream.ahead)
+                    && upstream.ahead >= 0
+                    && Number.isSafeInteger(upstream.behind)
+                    && upstream.behind >= 0;
+            }
+            return false;
+        }
+
         function validMember(member) {
             return exactKeys(member, [
                 'memberId', 'repoLabel', 'branchName', 'worktreePath',
                 'availability', 'workingItemCount', 'truncated',
-            ], ['aheadCount', 'taskFileCount', 'detached'])
+            ], ['aheadCount', 'taskFileCount', 'detached', 'headSha',
+                'upstream'])
                 && typeof member.memberId === 'string'
                 && member.memberId.length > 0
                 && member.memberId.length <= 128
@@ -72,6 +99,11 @@
                 && (member.taskFileCount === undefined
                     || (Number.isSafeInteger(member.taskFileCount)
                         && member.taskFileCount >= 0))
+                && (member.headSha === undefined
+                    || (typeof member.headSha === 'string'
+                        && /^[0-9a-f]{40}$/.test(member.headSha)))
+                && (member.upstream === undefined
+                    || validUpstream(member.upstream))
                 && typeof member.truncated === 'boolean';
         }
 

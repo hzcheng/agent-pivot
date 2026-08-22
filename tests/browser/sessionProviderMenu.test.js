@@ -599,8 +599,8 @@ test('AI-SESSION-PROVIDER-MENU-007 reveal targets the selected ALL panel when a 
         };
     });
     for (const source of [
-        scrollStateScript, viewStateScript, workspaceUpdateScript, todoGroupScript,
-        projectCollapseScript, todoControlScript, projectContextMenuScript, projectAiUpdateScript,
+        scrollStateScript, viewStateScript, workspaceUpdateScript,
+        projectCollapseScript, projectContextMenuScript, projectAiUpdateScript,
         groupFormScript, aiSessionControlsScript, projectScript,
     ]) {
         await page.addScriptTag({ content: source });

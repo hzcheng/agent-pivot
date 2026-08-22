@@ -402,6 +402,7 @@
     var changesController = changesUiAvailable
         ? window.__agentPivotConversation.changes.create({
             post: post,
+            panelRoot: changesRoot,
             telemetryChanges: telemetryChanges,
             telemetryChangesValue: telemetryChangesValue,
             memberSelect: changesMemberSelect,

@@ -3885,6 +3885,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Strips the changes-panel tooltip overlay wiring (PRD §17): the
+        // previous-generation script never passed a panelRoot.
+        .replace(
+                '            post: post,\n' +
+                '            panelRoot: changesRoot,\n' +
+                '            telemetryChanges: telemetryChanges,\n',
+                '            post: post,\n' +
+                '            telemetryChanges: telemetryChanges,\n')
         .replace(
             '    var sessionCommentsTab = document.querySelector(\n'
                 + "        '[data-comments-tab=\"session\"]'\n"
@@ -12669,8 +12677,11 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
         await page.locator('[data-changes-task-summary]').innerText(),
         '5 files · 2 commits');
     assert.ok((await page.locator('[data-changes-task]')
-        .getAttribute('title'))
+        .getAttribute('data-tooltip'))
         .includes('includes committed and uncommitted changes'));
+    assert.equal(await page.locator('[data-changes-task]')
+        .getAttribute('title'), null,
+        'the task row hint moved to the tooltip overlay (PRD §17)');
 
     // Working groups render in SCM order; Untracked merges into Changes —
     // the U badge already marks untracked rows, so a separate section only
@@ -12695,7 +12706,7 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
         'the src/auth chain compresses into a single folder row');
     assert.ok(folders[0].includes('src/auth'));
     const untrackedBadge = changesGroup.locator(
-        '.conversation-changes-file[title="src/auth/login.test.ts"] '
+        '.conversation-changes-file[data-tooltip="src/auth/login.test.ts"] '
             + '.conversation-changes-file-status-untracked');
     assert.equal(await untrackedBadge.innerText(), 'U',
         'the untracked row keeps its badge inside the merged section');
@@ -12705,7 +12716,7 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
         hasText: 'src/auth',
     });
     const loginRow = changesGroup.locator(
-        '.conversation-changes-file[title="src/auth/login.ts"]');
+        '.conversation-changes-file[data-tooltip="src/auth/login.ts"]');
     await authFolder.click();
     assert.equal(await loginRow.isVisible(), false);
     await authFolder.click();
@@ -12824,7 +12835,7 @@ test('WORKTREE-CHANGES-PANEL-001 compresses single-child directory chains like S
         'com → xhs → reddb and service → impl render as two compressed rows'
     );
     const fooRow = page.locator(
-        '.conversation-changes-file[title="com/xhs/reddb/service/impl/Foo.java"]');
+        '.conversation-changes-file[data-tooltip="com/xhs/reddb/service/impl/Foo.java"]');
     assert.equal(await fooRow.isVisible(), true);
     assert.equal(
         await fooRow.evaluate(element => element.style.paddingLeft),
@@ -13042,7 +13053,6 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         await page.locator('[data-telemetry-changes-value]').innerText(), '1',
         'a stale generation never overwrites the current state');
 });
-
 
 test('CONVERSATION-COMMENTS-PILL-001 shows session · workspace open counts refreshed from both stacks', async t => {
     const interactionId = 'input-pill-counts';
@@ -13432,5 +13442,219 @@ test('CONVERSATION-COMMENTS-CLAMP-001 reveal measures after opening the panel an
     assert.equal(
         await card.locator('[data-comment-clamp-toggle]').textContent(),
         'Show less'
+    );
+});
+
+test('WORKTREE-CHANGES-PANEL-001 tooltip overlay opens on hover and focus, and closes on Esc, blur, and sidebar close', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+
+    const panel = page.locator('[data-conversation-changes]');
+    const overlay = page.locator('.conversation-tooltip-overlay');
+    const refresh = page.locator('[data-changes-refresh]');
+
+    // Hover: a single overlay node hangs directly off <body> with
+    // position: fixed — it escapes every overflow clipping container in the
+    // panel. aria-describedby ties the trigger to it so the visible hint
+    // and the spoken description share one source (PRD §17).
+    await refresh.hover();
+    assert.equal(await overlay.isVisible(), true);
+    assert.equal(await overlay.innerText(), 'Refresh');
+    assert.equal(await overlay.getAttribute('role'), 'tooltip');
+    assert.equal(
+        await overlay.evaluate(element =>
+            element.parentElement === document.body),
+        true,
+        'the overlay is a direct child of <body>'
+    );
+    assert.equal(
+        await overlay.evaluate(element =>
+            getComputedStyle(element).position),
+        'fixed',
+        'the overlay is fixed-positioned, never clipped by panel overflow'
+    );
+    const overlayId = await overlay.getAttribute('id');
+    assert.ok(overlayId, 'the overlay carries an id');
+    assert.equal(await refresh.getAttribute('aria-describedby'), overlayId);
+
+    // Moving the mouse away closes the hint and drops the description link.
+    await page.locator('.conversation-changes-group-header').first().hover();
+    assert.equal(await overlay.isHidden(), true);
+    assert.equal(await refresh.getAttribute('aria-describedby'), null);
+
+    // Keyboard focus shows the same hint.
+    await refresh.focus();
+    assert.equal(await overlay.isVisible(), true);
+    assert.equal(await overlay.innerText(), 'Refresh');
+    assert.equal(await refresh.getAttribute('aria-describedby'), overlayId);
+
+    // Blur closes it — focus landing on the select opens that hint instead.
+    await page.locator('[data-changes-member-select]').focus();
+    assert.equal(await refresh.getAttribute('aria-describedby'), null);
+    assert.equal(await overlay.isVisible(), true);
+    assert.equal(await overlay.innerText(), '/wt/api');
+    assert.equal(
+        await page.locator('[data-changes-member-select]')
+            .getAttribute('aria-describedby'),
+        overlayId
+    );
+
+    // Esc closes the focused trigger's hint. (Focus sits inside the
+    // sidebar, so the sidebar's own Esc handling also closes the panel —
+    // the pre-existing layered behavior from PRD §17.)
+    await page.keyboard.press('Escape');
+    assert.equal(await overlay.isHidden(), true);
+    assert.equal(
+        await page.locator('[data-changes-member-select]')
+            .getAttribute('aria-describedby'),
+        null
+    );
+
+    // Closing the sidebar closes the hint: reopen, re-show, then close.
+    await page.locator('[data-telemetry-changes]').click();
+    assert.equal(await panel.isVisible(), true);
+    await refresh.hover();
+    assert.equal(await overlay.isVisible(), true);
+    await page.locator('[data-telemetry-changes]').click();
+    await overlay.waitFor({ state: 'hidden' });
+    assert.equal(await refresh.getAttribute('aria-describedby'), null);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 tooltip overlay stays fixed inside the viewport and closes on panel scroll', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const manyItems = Array.from({ length: 60 }, (_unused, index) => ({
+        group: 'changes',
+        xy: ' M',
+        path: `src/deeply/nested/directory/structure/file-${String(index).padStart(2, '0')}.ts`,
+    }));
+    await sendChanges(page, changesFixture({
+        detail: {
+            memberId: 'm-api', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 2, taskFileCount: 60,
+            items: manyItems,
+            truncated: false,
+        },
+    }));
+    await page.locator('[data-telemetry-changes]').click();
+    const overlay = page.locator('.conversation-tooltip-overlay');
+    const groups = page.locator('[data-changes-groups]');
+    const viewport = page.viewportSize();
+    const overlayBox = () => overlay.evaluate(element => {
+        const box = element.getBoundingClientRect();
+        return {
+            left: box.left, top: box.top,
+            right: box.right, bottom: box.bottom,
+        };
+    });
+    const assertInsideViewport = box => {
+        assert.ok(box.left >= 0, `left ${box.left} is inside the viewport`);
+        assert.ok(box.top >= 0, `top ${box.top} is inside the viewport`);
+        assert.ok(box.right <= viewport.width,
+            `right ${box.right} is clamped to ${viewport.width}`);
+        assert.ok(box.bottom <= viewport.height,
+            `bottom ${box.bottom} is clamped to ${viewport.height}`);
+    };
+
+    // Trigger at the bottom edge of the scroll container: the hint clamps
+    // into the viewport instead of sinking below it or being clipped.
+    await groups.evaluate(element => {
+        element.scrollTop = element.scrollHeight;
+    });
+    const lastRow = page.locator('.conversation-changes-file', {
+        hasText: 'file-59.ts',
+    });
+    await lastRow.hover();
+    assert.equal(await overlay.isVisible(), true);
+    assert.equal(await overlay.innerText(),
+        'src/deeply/nested/directory/structure/file-59.ts');
+    assertInsideViewport(await overlayBox());
+
+    // Scrolling the panel's scroll container closes the hint.
+    await groups.evaluate(element => {
+        element.scrollTop = 0;
+    });
+    await overlay.waitFor({ state: 'hidden' });
+    assert.equal(await lastRow.getAttribute('aria-describedby'), null);
+
+    // Trigger at the top edge of the scroll container stays unclipped too.
+    const firstRow = page.locator('.conversation-changes-file', {
+        hasText: 'file-00.ts',
+    });
+    await firstRow.hover();
+    assert.equal(await overlay.isVisible(), true);
+    assertInsideViewport(await overlayBox());
+
+    // A right-edge trigger (the SCM button at the panel's end) clamps
+    // horizontally into the viewport.
+    const openScm = page.locator('[data-changes-open-scm]');
+    await openScm.hover();
+    assert.equal(await overlay.isVisible(), true);
+    assert.equal(await overlay.innerText(), 'Open in Source Control');
+    assertInsideViewport(await overlayBox());
+});
+
+test('WORKTREE-CHANGES-PANEL-001 migrates every native title in the Changes panel to data-tooltip', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+    const panel = page.locator('[data-conversation-changes]');
+
+    assert.equal(await panel.locator('[title]').count(), 0,
+        'no native title survives anywhere inside the Changes panel');
+
+    const refresh = page.locator('[data-changes-refresh]');
+    assert.equal(await refresh.getAttribute('title'), null);
+    assert.equal(await refresh.getAttribute('data-tooltip'), 'Refresh');
+    assert.equal(await refresh.getAttribute('aria-label'), 'Refresh',
+        'aria-label still carries the accessible name');
+
+    const openScm = page.locator('[data-changes-open-scm]');
+    assert.equal(await openScm.getAttribute('title'), null);
+    assert.equal(await openScm.getAttribute('data-tooltip'),
+        'Open in Source Control');
+    assert.equal(await openScm.getAttribute('aria-label'),
+        'Open in Source Control');
+
+    const taskRow = page.locator('[data-changes-task]');
+    assert.equal(await taskRow.getAttribute('title'), null);
+    assert.ok((await taskRow.getAttribute('data-tooltip'))
+        .includes('includes committed and uncommitted changes'));
+
+    const memberSelect = page.locator('[data-changes-member-select]');
+    assert.equal(await memberSelect.getAttribute('title'), null);
+    assert.equal(await memberSelect.getAttribute('data-tooltip'), '/wt/api',
+        'the select reveals the full worktree path through the overlay');
+
+    // File rows keep the full path in the overlay; folder rows the full
+    // directory path — neither touches the native title anymore.
+    assert.deepEqual(
+        await panel.locator('.conversation-changes-file')
+            .evaluateAll(elements => elements.map(element => ({
+                title: element.getAttribute('title'),
+                tooltip: element.getAttribute('data-tooltip'),
+            }))),
+        [
+            { title: null, tooltip: 'src/auth/session.ts' },
+            { title: null, tooltip: 'src/auth/login.test.ts' },
+            { title: null, tooltip: 'src/auth/login.ts' },
+        ]
+    );
+    assert.deepEqual(
+        await panel.locator('.conversation-changes-folder')
+            .evaluateAll(elements => elements.map(element => ({
+                title: element.getAttribute('title'),
+                tooltip: element.getAttribute('data-tooltip'),
+            }))),
+        [
+            { title: null, tooltip: 'src/auth' },
+            { title: null, tooltip: 'src/auth' },
+        ]
     );
 });

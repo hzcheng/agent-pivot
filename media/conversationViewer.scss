@@ -3188,3 +3188,40 @@ body.vscode-high-contrast-light {
 .conversation-telemetry-changes[disabled] {
     opacity: 0.55;
 }
+
+// Panel-level tooltip overlay (changes-panel PRD §17): a single JS-driven
+// node hung on <body>. position: fixed escapes the panel's overflow
+// hidden/auto clipping containers that a pure-CSS pseudo-element tooltip
+// cannot; left/top are set per trigger by the changes script.
+.conversation-tooltip-overlay {
+    position: fixed;
+    z-index: 5;
+    box-sizing: border-box;
+    max-width: min(18rem, calc(100vw - 1rem));
+    padding: 0.28rem 0.5rem;
+    border: 1px solid var(
+        --vscode-editorHoverWidget-border,
+        var(--vscode-panel-border)
+    );
+    border-radius: 0.3rem;
+    color: var(
+        --vscode-editorHoverWidget-foreground,
+        var(--vscode-editor-foreground)
+    );
+    background: var(
+        --vscode-editorHoverWidget-background,
+        var(--vscode-editor-background)
+    );
+    box-shadow: 0 0.2rem 0.6rem var(--vscode-widget-shadow, transparent);
+    font-size: 0.76rem;
+    line-height: 1.35;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    // The hint never intercepts the mouse — hovering it must not read as
+    // leaving the trigger.
+    pointer-events: none;
+
+    &[hidden] {
+        display: none;
+    }
+}

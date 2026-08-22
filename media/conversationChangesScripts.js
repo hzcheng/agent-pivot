@@ -14,6 +14,145 @@
     var SECTION_GROUPS = [['merge'], ['staged'], ['changes', 'untracked']];
     var MAX_TOOLTIP_MEMBER_LINES = 8;
 
+    // Panel-level tooltip overlay (changes-panel PRD §17). A pure-CSS
+    // pseudo-element tooltip cannot escape the panel's overflow
+    // hidden/auto clipping containers, and content: attr(data-tooltip) is
+    // not a reliable screen-reader description — so a single JS-driven
+    // node hangs off <body> with position: fixed, driven by the
+    // data-tooltip attribute, triggered by hover and keyboard focus, and
+    // closed by Esc, blur, scroll, or sidebar close. aria-describedby ties
+    // the trigger to the overlay while it is visible: the visible hint and
+    // the spoken description share one source. The trigger's accessible
+    // name still comes from aria-label/text content — the tooltip never
+    // replaces it.
+    function createTooltipOverlay(panelRoot) {
+        var OVERLAY_ID = 'conversation-changes-tooltip-overlay';
+        var VIEWPORT_GAP = 4;
+        var overlay = null;
+        var activeTrigger = null;
+
+        function ensureOverlay() {
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = OVERLAY_ID;
+                overlay.className = 'conversation-tooltip-overlay';
+                overlay.setAttribute('role', 'tooltip');
+                overlay.hidden = true;
+                document.body.appendChild(overlay);
+            }
+            return overlay;
+        }
+
+        function hide() {
+            if (!activeTrigger) {
+                return;
+            }
+            activeTrigger.removeAttribute('aria-describedby');
+            activeTrigger = null;
+            if (overlay) {
+                overlay.hidden = true;
+            }
+        }
+
+        function show(trigger) {
+            if (activeTrigger === trigger) {
+                return;
+            }
+            hide();
+            var text = trigger.getAttribute('data-tooltip');
+            if (!text) {
+                return;
+            }
+            var node = ensureOverlay();
+            node.textContent = text;
+            node.hidden = false;
+            activeTrigger = trigger;
+            trigger.setAttribute('aria-describedby', OVERLAY_ID);
+            // Pin below the trigger; clamp into the webview viewport when
+            // the hint would overflow horizontally or vertically. No
+            // automatic flipping — the PRD asks for clamping only.
+            var rect = trigger.getBoundingClientRect();
+            var maxLeft = Math.max(VIEWPORT_GAP,
+                window.innerWidth - node.offsetWidth - VIEWPORT_GAP);
+            var maxTop = Math.max(VIEWPORT_GAP,
+                window.innerHeight - node.offsetHeight - VIEWPORT_GAP);
+            node.style.left = Math.max(VIEWPORT_GAP,
+                Math.min(rect.left, maxLeft)) + 'px';
+            node.style.top = Math.max(VIEWPORT_GAP,
+                Math.min(rect.bottom + VIEWPORT_GAP, maxTop)) + 'px';
+        }
+
+        function eventTrigger(event) {
+            return event.target && event.target.closest
+                ? event.target.closest('[data-tooltip]')
+                : null;
+        }
+
+        // Delegation on the panel root only: the telemetry bar carries its
+        // own CSS tooltip on the same data-tooltip attribute and must not
+        // gain a second, JS-driven popup.
+        panelRoot.addEventListener('mouseover', function (event) {
+            var trigger = eventTrigger(event);
+            if (trigger) {
+                show(trigger);
+            }
+        });
+        panelRoot.addEventListener('mouseout', function (event) {
+            if (!activeTrigger || eventTrigger(event) !== activeTrigger) {
+                return;
+            }
+            if (event.relatedTarget
+                && activeTrigger.contains(event.relatedTarget)) {
+                return;
+            }
+            // A focused trigger keeps its hint until blur — keyboard users
+            // never move the mouse.
+            if (document.activeElement === activeTrigger) {
+                return;
+            }
+            hide();
+        });
+        panelRoot.addEventListener('focusin', function (event) {
+            var trigger = eventTrigger(event);
+            if (trigger) {
+                show(trigger);
+            }
+        });
+        panelRoot.addEventListener('focusout', function (event) {
+            if (activeTrigger && event.target === activeTrigger) {
+                hide();
+            }
+        });
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                hide();
+            }
+        });
+        // Scroll events do not bubble; capture catches the panel's scroll
+        // containers. A fixed overlay would otherwise strand mid-viewport
+        // while its trigger scrolled away.
+        document.addEventListener('scroll', hide, true);
+        window.addEventListener('blur', hide);
+        // Sidebar close flips the hidden attribute of the panel root (view
+        // switch) or of an ancestor (whole sidebar) — the hint must not
+        // outlive its panel.
+        var visibilityObserver = new MutationObserver(function () {
+            if (!panelRoot.isConnected || panelRoot.offsetParent === null) {
+                hide();
+            }
+        });
+        var observedNode = panelRoot;
+        while (observedNode && observedNode !== document.body) {
+            visibilityObserver.observe(observedNode, {
+                attributes: true,
+                attributeFilter: ['hidden'],
+            });
+            observedNode = observedNode.parentElement;
+        }
+
+        return { hide: hide };
+    }
+
     function create(options) {
         var post = options.post;
         var button = options.telemetryChanges;
@@ -30,6 +169,9 @@
         var openScmButton = options.openScmButton;
         var updateToggle = options.updateToggle || function () {};
         var subscriptionGeneration = options.subscriptionGeneration;
+        var tooltip = options.panelRoot
+            ? createTooltipOverlay(options.panelRoot)
+            : { hide: function () {} };
         var latestState = null;
         var lastSelectSignature = '';
 
@@ -317,9 +459,15 @@
             var selectedMember = state.members.filter(function (member) {
                 return member.memberId === selected;
             })[0];
-            memberSelect.title = selectedMember
-                ? selectedMember.worktreePath
-                : '';
+            // No native title: the worktree path rides the panel-level
+            // tooltip overlay (PRD §17) — the select's accessible name
+            // stays on its aria-label.
+            if (selectedMember) {
+                memberSelect.setAttribute('data-tooltip',
+                    selectedMember.worktreePath);
+            } else {
+                memberSelect.removeAttribute('data-tooltip');
+            }
         }
 
         function clearChildren(root) {
@@ -346,9 +494,9 @@
             var row = document.createElement('button');
             row.type = 'button';
             row.className = 'conversation-changes-file';
-            row.title = item.originalPath
+            row.setAttribute('data-tooltip', item.originalPath
                 ? item.originalPath + ' → ' + item.path
-                : item.path;
+                : item.path);
             row.appendChild(statusBadge(item));
             var name = document.createElement('span');
             name.className = 'conversation-changes-file-path';
@@ -418,7 +566,7 @@
         // SCM-style compression (PRD 体验反馈): a directory chain whose
         // levels each hold a single child directory and no files renders as
         // one row (a/b/c) instead of one indented row per level. The chain's
-        // final directory keeps the collapse key and title.
+        // final directory keeps the collapse key and tooltip.
         function compressDir(dir) {
             var names = [dir.name];
             var node = dir;
@@ -441,7 +589,7 @@
                 folderRow.style.paddingLeft = (0.2 + depth * 0.7) + 'rem';
                 folderRow.setAttribute('aria-expanded',
                     collapsed ? 'false' : 'true');
-                folderRow.title = dir.fullPath;
+                folderRow.setAttribute('data-tooltip', dir.fullPath);
                 var chevron = document.createElement('span');
                 chevron.className = 'conversation-changes-folder-chevron';
                 chevron.textContent = collapsed ? '▸' : '▾';
@@ -472,6 +620,9 @@
 
         function renderGroups(detail) {
             if (!groupsRoot) return;
+            // Rebuilt rows orphan any trigger the overlay points at —
+            // close it instead of leaving a stale hint mid-viewport.
+            tooltip.hide();
             clearChildren(groupsRoot);
             SECTION_GROUPS.forEach(function (sectionGroups) {
                 var group = sectionGroups[0];
@@ -642,6 +793,7 @@
                 latestState = null;
                 lastSelectSignature = '';
                 collapsedFolders = {};
+                tooltip.hide();
                 if (button) {
                     button.hidden = true;
                     button.classList.remove(

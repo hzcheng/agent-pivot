@@ -535,7 +535,8 @@ export function renderConversationViewerDocument(
                         aria-label="Worktree to inspect"></select>
                     <button type="button"
                         class="conversation-icon-button"
-                        data-changes-open-scm title="Open in Source Control"
+                        data-changes-open-scm
+                        data-tooltip="Open in Source Control"
                         aria-label="Open in Source Control"
                         ><svg viewBox="0 0 16 16" width="13" height="13"
                             aria-hidden="true" fill="none"
@@ -546,7 +547,8 @@ export function renderConversationViewerDocument(
                     </button>
                     <button type="button"
                         class="conversation-icon-button"
-                        data-changes-refresh title="Refresh"
+                        data-changes-refresh
+                        data-tooltip="Refresh"
                         aria-label="Refresh"
                         ><svg viewBox="0 0 16 16" width="13" height="13"
                             aria-hidden="true" fill="none"
@@ -559,7 +561,7 @@ export function renderConversationViewerDocument(
                 <p class="conversation-changes-cross-member"
                     data-changes-cross-member hidden></p>
                 <div class="conversation-changes-task" data-changes-task
-                    title="Net result vs task start — includes committed and uncommitted changes"
+                    data-tooltip="Net result vs task start — includes committed and uncommitted changes"
                     hidden>
                     <span class="conversation-changes-task-summary"
                         data-changes-task-summary></span>

@@ -634,7 +634,7 @@ test('WORKTREE-GROUPING-UI-001 revealing a switched session follows it into its 
         true,
         'the group expands so the session row is visible'
     );
-    assert.deepEqual((await postedMessages(page)).at(-1), {
+    assert.deepEqual((await postedMessages(page)).find(message => message.type === 'select-ai-session-surface'), {
         type: 'select-ai-session-surface',
         version: 1,
         projectId: 'project-a',
@@ -767,7 +767,9 @@ test('WORKTREE-GROUPING-UI-001 selecting a surface reports it for authoritative 
     );
 
     await project.locator('[data-ai-session-surface-tab="chats"]').click();
-    assert.deepEqual((await postedMessages(page)).at(-1), {
+    assert.deepEqual((await postedMessages(page)).find(
+        message => message.type === 'select-ai-session-surface' && message.surface === 'chats'
+    ), {
         type: 'select-ai-session-surface',
         version: 1,
         projectId: 'project-a',

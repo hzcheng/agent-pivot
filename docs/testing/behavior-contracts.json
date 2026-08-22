@@ -2977,6 +2977,26 @@
     ]
   },
   {
+    "id": "OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001",
+    "domain": "persistence",
+    "title": "Window-scoped AI session view state (CHATS/ALL tab, CHATS view mode, collapsed worktree groups) persists Host-side keyed by workspace scope identity through a versioned webview protocol, with legacy surface/sub-tab migration mapped per the OPEN tab PRD",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/persistence/stores.test.js",
+      "tests/contract/dashboard/messageHandlers.test.js",
+      "tests/contract/aiSessions/controllerBoundaries.test.js",
+      "tests/browser/worktreeGrouping.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/workspaceStateStore.ts",
+      "src/aiSessions/commandController.ts",
+      "src/dashboard/messageHandlers.ts",
+      "src/webview/webviewAiSessionViewStateScripts.js",
+      "src/webview/webviewProjectAiSessionControlsScripts.js"
+    ]
+  },
+  {
     "id": "WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001",
     "domain": "webview",
     "title": "Expanded current-window card fits its OPEN tab region below the persistent WINDOWS switcher with the visible AI session panel filling the card and the session list as the only inner scroll surface",

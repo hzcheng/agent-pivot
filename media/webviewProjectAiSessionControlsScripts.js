@@ -441,6 +441,17 @@ function initProjectAiSessionControls(options) {
                 projectId: projectId,
                 surface: selectedSurface,
             });
+            if (selectedSurface === 'chats') {
+                // M2 transition: entering the legacy CHATS surface maps the
+                // current sub-tab onto the host-persisted window view tab.
+                var currentSubTab = getSelectedAiSessionTab(projectDiv);
+                window.vscode.postMessage({
+                    type: 'select-ai-session-view-tab',
+                    version: 1,
+                    projectId: projectId,
+                    tab: currentSubTab === 'sessions' ? 'all' : 'chats',
+                });
+            }
             return true;
         }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');
@@ -448,6 +459,15 @@ function initProjectAiSessionControls(options) {
             var selectedTab = normalizeAiSessionTab(tabAction.getAttribute('data-tab'));
             selectAiSessionTabDom(projectDiv, selectedTab);
             writeAiSessionTabState(window.vscode, projectId, selectedTab);
+            // M2 transition: mirror the sub-tab selection into the
+            // host-persisted window view state (ACTIVE → chats, ALL → all) so
+            // the PR-D cutover reads live values instead of a migration.
+            window.vscode.postMessage({
+                type: 'select-ai-session-view-tab',
+                version: 1,
+                projectId: projectId,
+                tab: selectedTab === 'active' ? 'chats' : 'all',
+            });
             return true;
         }
 

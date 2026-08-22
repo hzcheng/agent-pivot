@@ -45,6 +45,10 @@ function createFixture(overrides = {}) {
         aiSessionCommandController: {
             toggleSessionsExpanded: record('toggleSessionsExpanded'),
             selectSurface: record('selectSurface'),
+            selectWindowViewTab: record('selectWindowViewTab'),
+            selectChatsViewMode: record('selectChatsViewMode'),
+            setCollapsedWorktreeGroups: record('setCollapsedWorktreeGroups'),
+            importLegacyWindowViewTab: record('importLegacyWindowViewTab'),
             selectProviders: record('selectProviders'),
             togglePin: record('togglePin'),
             renameSession: record('renameSession'),
@@ -85,6 +89,11 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
         'prompt-insert-terminal',
         'toggle-codex-sessions',
         'select-ai-session-surface',
+        // M2 window view-state protocol (PR-C; the PR-D cutover consumes it).
+        'select-ai-session-view-tab',
+        'select-ai-session-chats-view-mode',
+        'set-ai-session-collapsed-worktree-groups',
+        'migrate-ai-session-view-state',
         'select-ai-session-providers',
         'focus-ai-session-terminal',
         'focus-pending-ai-session',
@@ -437,6 +446,48 @@ test('WORKTREE-GROUPING-UI-001 stores the surface selection only from exact enve
         projectId: 'p1', surface: 'chats',
     });
     assert.equal(calls.length, 1, 'extra keys and wrong versions must be rejected');
+});
+
+test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protocol only from exact envelopes', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['select-ai-session-view-tab']({
+        type: 'select-ai-session-view-tab', version: 1, projectId: 'p1', tab: 'all',
+    });
+    await handlers['select-ai-session-chats-view-mode']({
+        type: 'select-ai-session-chats-view-mode', version: 1, projectId: 'p1', viewMode: 'tree',
+    });
+    await handlers['set-ai-session-collapsed-worktree-groups']({
+        type: 'set-ai-session-collapsed-worktree-groups', version: 1, projectId: 'p1',
+        collapsedKeys: ['["__anchor__"]'],
+    });
+    await handlers['migrate-ai-session-view-state']({
+        type: 'migrate-ai-session-view-state', version: 1, projectId: 'p1', tab: 'chats',
+    });
+    assert.deepEqual(calls, [
+        ['selectWindowViewTab', 'p1', 'all'],
+        ['selectChatsViewMode', 'p1', 'tree'],
+        ['setCollapsedWorktreeGroups', 'p1', ['["__anchor__"]']],
+        ['importLegacyWindowViewTab', 'p1', 'chats'],
+    ]);
+
+    calls.length = 0;
+    await handlers['select-ai-session-view-tab']({
+        type: 'select-ai-session-view-tab', version: 2, projectId: 'p1', tab: 'all',
+    });
+    await handlers['select-ai-session-view-tab']({
+        type: 'select-ai-session-view-tab', version: 1, projectId: 'p1', tab: 'all', extra: true,
+    });
+    await handlers['select-ai-session-chats-view-mode']({
+        type: 'select-ai-session-chats-view-mode', version: 1, projectId: 'p1',
+    });
+    await handlers['set-ai-session-collapsed-worktree-groups']({
+        type: 'set-ai-session-collapsed-worktree-groups', version: 1, projectId: 'p1',
+    });
+    await handlers['migrate-ai-session-view-state']({
+        type: 'migrate-ai-session-view-state', version: 1, projectId: 'p1',
+    });
+    assert.equal(calls.length, 0, 'wrong versions and missing/extra keys must be rejected');
 });
 
 test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 delegates archive, provider, and pin mutations', async () => {

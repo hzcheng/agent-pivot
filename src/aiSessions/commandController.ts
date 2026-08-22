@@ -191,6 +191,22 @@ export interface AiSessionCommandControllerOptions {
         workspaceScopeIdentity: string,
         surface: 'worktree' | 'chats'
     ) => Thenable<unknown>;
+    setWindowViewTab: (
+        workspaceScopeIdentity: string,
+        tab: 'chats' | 'all'
+    ) => Thenable<unknown>;
+    setChatsViewMode: (
+        workspaceScopeIdentity: string,
+        viewMode: 'tree' | 'list'
+    ) => Thenable<unknown>;
+    setCollapsedWorktreeGroups: (
+        workspaceScopeIdentity: string,
+        collapsedKeys: readonly string[]
+    ) => Thenable<unknown>;
+    importLegacyWindowViewTab: (
+        workspaceScopeIdentity: string,
+        tab: 'chats' | 'all'
+    ) => Thenable<boolean>;
     setProviderSelection: (
         workspaceScopeIdentity: string,
         selection: AiSessionProviderSelection
@@ -354,6 +370,64 @@ export class AiSessionCommandController {
             return;
         }
         await this.options.setSelectedSurface(workspaceTarget.workspace.scopeIdentity, surface);
+        // M2 transition dual-write: the legacy WORKTREE surface maps onto
+        // CHATS + tree in the window view-state store, so the PR-D cutover
+        // reads live values instead of a one-shot migration. The 'chats'
+        // surface carries no view state — the sub-tab writes it directly.
+        if (surface === 'worktree') {
+            await this.options.setWindowViewTab(workspaceTarget.workspace.scopeIdentity, 'chats');
+            await this.options.setChatsViewMode(workspaceTarget.workspace.scopeIdentity, 'tree');
+        }
+    }
+
+    async selectWindowViewTab(projectId: unknown, tab: unknown): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId
+            || (tab !== 'chats' && tab !== 'all')) {
+            return;
+        }
+        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
+        if (!workspaceTarget) {
+            return;
+        }
+        await this.options.setWindowViewTab(workspaceTarget.workspace.scopeIdentity, tab);
+    }
+
+    async selectChatsViewMode(projectId: unknown, viewMode: unknown): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId
+            || (viewMode !== 'tree' && viewMode !== 'list')) {
+            return;
+        }
+        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
+        if (!workspaceTarget) {
+            return;
+        }
+        await this.options.setChatsViewMode(workspaceTarget.workspace.scopeIdentity, viewMode);
+    }
+
+    async setCollapsedWorktreeGroups(projectId: unknown, collapsedKeys: unknown): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId || !Array.isArray(collapsedKeys)) {
+            return;
+        }
+        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
+        if (!workspaceTarget) {
+            return;
+        }
+        await this.options.setCollapsedWorktreeGroups(
+            workspaceTarget.workspace.scopeIdentity,
+            collapsedKeys.filter((key): key is string => typeof key === 'string')
+        );
+    }
+
+    async importLegacyWindowViewTab(projectId: unknown, tab: unknown): Promise<void> {
+        if (typeof projectId !== 'string' || !projectId
+            || (tab !== 'chats' && tab !== 'all')) {
+            return;
+        }
+        const workspaceTarget = this.options.getWorkspaceTarget(projectId);
+        if (!workspaceTarget) {
+            return;
+        }
+        await this.options.importLegacyWindowViewTab(workspaceTarget.workspace.scopeIdentity, tab);
     }
 
     async selectProviders(

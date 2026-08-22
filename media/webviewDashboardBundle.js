@@ -240,6 +240,18 @@ function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
         aiSessionCollapsedWorktrees: projects,
         aiSessionExpandedGroupMembers: memberDetails,
     }));
+    // M2 transition: mirror the collapsed set into the host-persisted window
+    // view state so the PR-D tree view restores it across reloads. Every
+    // caller is a user-intent path (toggle / collapse-all / reveal-expand),
+    // never a replacement replay, so this posts exactly once per gesture.
+    if (typeof vscodeApi.postMessage === 'function') {
+        vscodeApi.postMessage({
+            type: 'set-ai-session-collapsed-worktree-groups',
+            version: 1,
+            projectId: projectId,
+            collapsedKeys: projects[projectId],
+        });
+    }
     syncAiSessionWorktreeCollapseAllButton(projectDiv);
 }
 
@@ -569,6 +581,39 @@ function getSelectedAiSessionTab(projectDiv) {
     if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
     var selected = projectDiv.querySelector('[data-ai-session-tab][aria-selected="true"]');
     return selected ? normalizeAiSessionTab(selected.getAttribute('data-ai-session-tab')) : null;
+}
+
+// M2 transition: import the webview-held legacy sub-tab selection into the
+// host-persisted window view state exactly once per boot ('sessions' → ALL;
+// anything else is the CHATS default). The host first-writer-wins per scope,
+// so a live post-upgrade selection is never clobbered by a stale boot import.
+var legacyAiSessionTabImportDone = false;
+
+function maybeImportLegacyAiSessionViewState(vscodeApi, root) {
+    if (legacyAiSessionTabImportDone) {
+        return;
+    }
+    legacyAiSessionTabImportDone = true;
+    if (!vscodeApi || typeof vscodeApi.postMessage !== 'function') {
+        return;
+    }
+    var tabs = readAiSessionTabState(vscodeApi);
+    var currentCard = (root || document).querySelector(
+        '.workspace-card[data-current-workspace][data-id]'
+    );
+    var projectId = currentCard && currentCard.getAttribute('data-id');
+    var legacyTab = projectId && Object.prototype.hasOwnProperty.call(tabs, projectId)
+        ? tabs[projectId]
+        : null;
+    if (!legacyTab) {
+        return;
+    }
+    vscodeApi.postMessage({
+        type: 'migrate-ai-session-view-state',
+        version: 1,
+        projectId: projectId,
+        tab: legacyTab === 'sessions' ? 'all' : 'chats',
+    });
 }
 
 function getAiSessionScrollItemKey(row) {
@@ -5088,6 +5133,17 @@ function initProjectAiSessionControls(options) {
                 projectId: projectId,
                 surface: selectedSurface,
             });
+            if (selectedSurface === 'chats') {
+                // M2 transition: entering the legacy CHATS surface maps the
+                // current sub-tab onto the host-persisted window view tab.
+                var currentSubTab = getSelectedAiSessionTab(projectDiv);
+                window.vscode.postMessage({
+                    type: 'select-ai-session-view-tab',
+                    version: 1,
+                    projectId: projectId,
+                    tab: currentSubTab === 'sessions' ? 'all' : 'chats',
+                });
+            }
             return true;
         }
         var tabAction = target.closest('[data-action="select-ai-session-tab"][data-tab]');
@@ -5095,6 +5151,15 @@ function initProjectAiSessionControls(options) {
             var selectedTab = normalizeAiSessionTab(tabAction.getAttribute('data-tab'));
             selectAiSessionTabDom(projectDiv, selectedTab);
             writeAiSessionTabState(window.vscode, projectId, selectedTab);
+            // M2 transition: mirror the sub-tab selection into the
+            // host-persisted window view state (ACTIVE → chats, ALL → all) so
+            // the PR-D cutover reads live values instead of a migration.
+            window.vscode.postMessage({
+                type: 'select-ai-session-view-tab',
+                version: 1,
+                projectId: projectId,
+                tab: selectedTab === 'active' ? 'chats' : 'all',
+            });
             return true;
         }
 
@@ -8693,6 +8758,10 @@ function initProjects() {
         documentGeneration: window.__agentPivotReadyDocumentGeneration,
     });
     restoreAiSessionTabsFromState(document, window.vscode);
+    // M2 transition: import the legacy webview-held sub-tab selection into the
+    // host-persisted window view state once per boot (first-writer-wins host
+    // side), right after the in-session restore above consumed the same map.
+    maybeImportLegacyAiSessionViewState(window.vscode, document);
     window.vscode.postMessage({ type: 'request-active-ai-session-terminal' });
 
     observeStickyGroupHeaderOffset();

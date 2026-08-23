@@ -3975,12 +3975,6 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '    var changesCommitsView = document.querySelector(\n' +
                 '        \'[data-changes-commits-view]\'\n' +
                 '    );\n' +
-                '    var changesCommitsSummary = document.querySelector(\n' +
-                '        \'[data-changes-commits-summary]\'\n' +
-                '    );\n' +
-                '    var changesCommitsTracking = document.querySelector(\n' +
-                '        \'[data-changes-commits-tracking]\'\n' +
-                '    );\n' +
                 '    var changesCommitsNotice = document.querySelector(\n' +
                 '        \'[data-changes-commits-notice]\'\n' +
                 '    );\n' +
@@ -4008,7 +4002,6 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '')
         .replace(
                 '        && !!changesSubtabs && !!changesFilesView && !!changesCommitsView\n' +
-                '        && !!changesCommitsSummary && !!changesCommitsTracking\n' +
                 '        && !!changesCommitsNotice && !!changesCommitsList\n' +
                 '        && !!changesCommitsEmpty && !!changesCommitsLoading\n' +
                 '        && !!changesCommitsError && !!changesCommitsRetry\n' +
@@ -4018,8 +4011,6 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '            subtabs: changesSubtabs,\n' +
                 '            filesView: changesFilesView,\n' +
                 '            commitsView: changesCommitsView,\n' +
-                '            commitsSummary: changesCommitsSummary,\n' +
-                '            commitsTracking: changesCommitsTracking,\n' +
                 '            commitsNotice: changesCommitsNotice,\n' +
                 '            commitsList: changesCommitsList,\n' +
                 '            commitsEmpty: changesCommitsEmpty,\n' +
@@ -15221,10 +15212,12 @@ test('WORKTREE-CHANGES-COMMITS-001 switching to Commits requests the first page 
     assert.equal(
         await page.locator('[data-changes-open-scm]').isEnabled(), true);
 
-    // Header: the member's own ahead count + tracking line (§15.5.1).
+    // Summary and tracking information live on the shared Review icon;
+    // the Commits tab begins with the list rather than duplicated headers.
     assert.equal(
-        await page.locator('[data-changes-commits-summary]').innerText(),
-        'Since start · 2 commits');
+        await page.locator('[data-changes-commits-summary]').count(), 0);
+    assert.equal(
+        await page.locator('[data-changes-commits-tracking]').count(), 0);
 
     await sendCommitsList(page, commitsFixture());
     const rows = page.locator('.conversation-changes-commit-row');
@@ -15771,7 +15764,10 @@ test('WORKTREE-CHANGES-COMMITS-001 focus falls back to the parent commit or the 
 });
 
 test('WORKTREE-CHANGES-COMMITS-001 the fold toggle expands and collapses every loaded commit row', async t => {
-    const { page } = await openHostViewerDocument(t, {});
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
     await openCommitsTab(page);
     await sendCommitsList(page, commitsFixture());
 

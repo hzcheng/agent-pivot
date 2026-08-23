@@ -688,17 +688,6 @@ export function renderConversationViewerDocument(
                     role="tabpanel"
                     aria-labelledby="conversation-changes-tab-commits"
                     hidden>
-                    <div class="conversation-changes-task-lines
-                            conversation-changes-commits-header">
-                        <span class="conversation-changes-task-summary
-                                conversation-changes-tooltip-target"
-                            data-changes-commits-summary tabindex="0"
-                            ></span>
-                        <span class="conversation-changes-task-tracking
-                                conversation-changes-tooltip-target"
-                            data-changes-commits-tracking tabindex="0"
-                            hidden></span>
-                    </div>
                     <p class="conversation-changes-commits-notice"
                         data-changes-commits-notice hidden></p>
                     <div class="conversation-changes-commits-list"

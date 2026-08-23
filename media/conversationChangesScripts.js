@@ -183,8 +183,6 @@
         var subtabsRoot = options.subtabs;
         var filesView = options.filesView;
         var commitsView = options.commitsView;
-        var commitsSummary = options.commitsSummary;
-        var commitsTracking = options.commitsTracking;
         var commitsNotice = options.commitsNotice;
         var commitsList = options.commitsList;
         var commitsEmpty = options.commitsEmpty;
@@ -389,15 +387,6 @@
             if (commitsMore) commitsMore.hidden = true;
             if (commitsFull) commitsFull.hidden = true;
             if (commitsNotice) commitsNotice.hidden = true;
-            if (commitsSummary) {
-                commitsSummary.textContent = '';
-                commitsSummary.removeAttribute('data-tooltip');
-            }
-            if (commitsTracking) {
-                commitsTracking.hidden = true;
-                commitsTracking.textContent = '';
-                commitsTracking.removeAttribute('data-tooltip');
-            }
             commitsFocusKey = null;
             currentMemberId = null;
             lastFocusedTreeKey = null;
@@ -2117,42 +2106,6 @@
                 ? state.detail
                 : null;
             var cache = commitsCacheFor(member, detail);
-
-            // Header (PRD §15.5.1): the member's own ahead count — the
-            // same source as the Files tab's commit count.
-            if (commitsSummary) {
-                var summaryText;
-                if (member.availability === 'baselineUnavailable'
-                    || member.availability === 'historyRewritten') {
-                    summaryText = 'Current branch history';
-                } else {
-                    summaryText = 'Since start · '
-                        + (member.aheadCount === undefined
-                            ? '? commits'
-                            : member.aheadCount === 1
-                                ? '1 commit'
-                                : member.aheadCount + ' commits');
-                }
-                commitsSummary.textContent = summaryText;
-                commitsSummary.setAttribute('data-tooltip', summaryText);
-            }
-            if (commitsTracking) {
-                var upstream = member.upstream;
-                if (!upstream) {
-                    commitsTracking.hidden = true;
-                } else {
-                    commitsTracking.hidden = false;
-                    var text = upstream.status === 'tracked'
-                        ? 'Tracking ' + shortUpstreamRef(upstream.fullRef)
-                            + ' · ' + upstream.ahead + ' ahead · '
-                            + upstream.behind + ' behind'
-                        : upstream.status === 'none'
-                            ? 'No tracking branch'
-                            : 'Tracking unknown';
-                    commitsTracking.textContent = text;
-                    commitsTracking.setAttribute('data-tooltip', text);
-                }
-            }
 
             // Baseline-missing notice (PRD §15.5.9): the whole tab is one
             // history stream; no fabricated Since-start boundary.

@@ -3230,10 +3230,6 @@ body.vscode-high-contrast-light {
     }
 }
 
-.conversation-changes-commits-header {
-    margin-bottom: 0.15rem;
-}
-
 .conversation-changes-commits-notice {
     color: var(--vscode-descriptionForeground);
     font-size: 0.8em;
@@ -3399,33 +3395,6 @@ body.vscode-high-contrast-light {
     flex: none;
     flex-wrap: nowrap;
     gap: 0.1rem;
-}
-
-// Commits keeps its compact summary and tracking facts in this shared
-// header. Files moved those facts to the Review tooltip instead.
-.conversation-changes-task-lines {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.conversation-changes-task-summary {
-    font-size: 0.85em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.conversation-changes-task-tracking {
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.8em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    &[hidden] {
-        display: none;
-    }
 }
 
 .conversation-changes-working {

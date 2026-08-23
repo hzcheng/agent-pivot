@@ -505,8 +505,6 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 ```
 │  [ Files | Commits ]                      │
 │  ───────────────────────────────────────  │
-│  Since start · 3 commits                    │
-│  Tracking origin/fix-x · 1 ahead · 3 behind │
 │  ▾ ● a1b2c3d  fix: token refresh race     │
 │      hzcheng · 2h ago                     │
 │      M  src/auth/login.ts        +12 −3   │
@@ -521,7 +519,7 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 
 行为明细（验收标准）：
 
-1. **默认口径 Since start**（`<baseline>..<historyHead>`，完整可达 DAG，§14.3），按新到旧排序，**50 条/页分页**：范围未穷尽时底部 `Load more`，穷尽（`sectionComplete`）后才渲染 baseline 收尾行——未达真实边界不渲染（不暗示中间无遗漏）。标题区两行（§14.1 口径）：`Since start · N commits` + `Tracking origin/fix-x · 1 ahead · 3 behind`——N 是**该 member** 的 ahead 数，与 Files tab 摘要区的 commits 数同源同数；多 member 时 telemetry 按钮为聚合值，二者参考系不同、不互相比对（§10 第 1 条）。
+1. **默认口径 Since start**（`<baseline>..<historyHead>`，完整可达 DAG，§14.3），按新到旧排序，**50 条/页分页**：范围未穷尽时底部 `Load more`，穷尽（`sectionComplete`）后才渲染 baseline 收尾行——未达真实边界不渲染（不暗示中间无遗漏）。`Since start · N files · M commits` 与 tracking 信息仅在行 3 的 Review tooltip 中出现（§15.1）；Commits 不重复渲染两行标题，列表直接开始。多 member 时 telemetry 按钮为聚合值，Review 为当前 member，二者参考系不同、不互相比对（§10 第 1 条）。
 2. **commit 行**：chevron + tracking 徽标 + 短 SHA + subject（尾部省略）+ 第二行 `authorName · 相对时间`。**行级 tracking 徽标显示矩阵**（只陈述事实，§14.1 纪律；tooltip 用 §17 可聚焦机制）：
    | upstream | inTrackingBranch | 行级显示 |
    | --- | --- | --- |
@@ -552,10 +550,10 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 | 单 member（多数派场景） | ‹ › 与 `(i/n)` 隐藏、repo 名渲染为普通文本标题（非 disabled select，§15.1）；头部为行 1 标题 + 行 2 + 行 3 共三行——**记录决策：接受该垂直成本**，换取单/多仓库信息架构统一（行 2 分支恒可见对单仓库同样是 P1 修复） |
 | detached member | 保留可切换，行 1 标注 Outside workspace；upstream 标识独立降级 |
 | unmanaged 合成 member | 单 member 退化同上；branchName 缺失时行 2 显示 `(no branch)` |
-| 无 tracking branch | 摘要区第二行显示 `No tracking branch`；commit 行不显示徽标；**不推断"从未推送"**（§14.1 纪律） |
-| tracking 指向不同名分支（如 origin/main） | 照常按事实显示 `Tracking origin/main · N ahead · M behind`——语义依然成立（"相对跟踪分支的分叉"） |
+| 无 tracking branch | Review tooltip 显示 `No tracking branch`；commit 行不显示徽标；**不推断"从未推送"**（§14.1 纪律） |
+| tracking 指向不同名分支（如 origin/main） | Review tooltip 照常按事实显示 `Tracking origin/main · N ahead · M behind`——语义依然成立（"相对跟踪分支的分叉"） |
 | upstream 分叉（diverged） | ahead / behind 双非零照常显示 |
-| baseline 缺失 / 改写 | Commits 的 Since start 段降级文案；full history 仍可用 |
+| baseline 缺失 / 改写 | Commits 顶部保留降级说明条；full history 仍可用 |
 | member unreadable | Files 沿用 Part I partial 标注；Commits tab 提示态 |
 | retired session | 沿用 Part I retired 降级，查看对话不受影响 |
 | git 命令失败 / 超时（5s） | Commits 区独立 Error 态 + 重试，不拖垮 Files tab |
@@ -696,7 +694,7 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 | PR-A/PR-B 半成品态 | PR-A 含最终头部结构 + Files 内容区**完整键盘模型**；行 3 中间态 = 仅右侧 action slot、不渲染子 tab 控件；markup/样式/测试一次到位避免重复重写。PR-B 只做 Commits 增量（§19） |
 | full history IA/协议未闭环 | 模型闭环：Since start 段保留 + baseline 行下方追加 Earlier commits 段；baseline 缺失/改写 → `Current branch history` 单列表；新增 `BaselineRow` 类型与采集；分页 = 冻结 `historyHead` + `--skip` + sha 去重 + HEAD 变化即重置；scope 按 member 记忆恢复（§14.3/§15.5） |
 | Commits 失效签名漏 upstream | 签名 = HEAD sha + baseline sha/availability + upstream fullRef + upstream resolved sha + ahead/behind；member 视图新增 `headSha` 与 `upstream` 字段（§14.3/§14.4） |
-| 摘要行符号不可读 | 放弃 ↑/⇡ 箭头区分参考系，改两行明确语言 `Since start · …` / `Tracking <upstream> · N ahead · M behind`（§14.1/§15.4/§15.5） |
+| 摘要行符号不可读 | 放弃 ↑/⇡ 箭头区分参考系，改为 Review tooltip 中的明确语言 `Since start · …` / `Tracking <upstream> · N ahead · M behind`（§14.1/§15.1/§15.5） |
 | 原生 `title` 不可靠 | 可见提示一律复用现有可聚焦 tooltip 机制（`conversation-telemetry-tooltip` 模式）；`aria-label` 与 tooltip 分工、不互相替代；全文禁止依赖原生 `title`（§17 及各处分发） |
 | disabled select 当静态标题 | 单 member 渲染普通文本标题，多 member 才渲染 select（改变现状行为，§15.1/§16） |
 | Commits 下禁用折叠按钮 | 改隐藏按钮内容、保留固定宽度 action slot（§15.3） |

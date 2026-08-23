@@ -186,12 +186,6 @@
     var changesCommitsView = document.querySelector(
         '[data-changes-commits-view]'
     );
-    var changesCommitsSummary = document.querySelector(
-        '[data-changes-commits-summary]'
-    );
-    var changesCommitsTracking = document.querySelector(
-        '[data-changes-commits-tracking]'
-    );
     var changesCommitsNotice = document.querySelector(
         '[data-changes-commits-notice]'
     );
@@ -336,7 +330,6 @@
         && !!changesCrossMemberSummary && !!changesCrossMemberGo
         && !!telemetryChanges
         && !!changesSubtabs && !!changesFilesView && !!changesCommitsView
-        && !!changesCommitsSummary && !!changesCommitsTracking
         && !!changesCommitsNotice && !!changesCommitsList
         && !!changesCommitsEmpty && !!changesCommitsLoading
         && !!changesCommitsError && !!changesCommitsRetry
@@ -509,8 +502,6 @@
             subtabs: changesSubtabs,
             filesView: changesFilesView,
             commitsView: changesCommitsView,
-            commitsSummary: changesCommitsSummary,
-            commitsTracking: changesCommitsTracking,
             commitsNotice: changesCommitsNotice,
             commitsList: changesCommitsList,
             commitsEmpty: changesCommitsEmpty,

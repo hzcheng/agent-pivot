@@ -495,10 +495,19 @@ export class ConversationChangesController {
             this.handleVanishedCommit(active);
             return;
         }
+        if (detail.degraded) {
+            // A timed-out or failed detail lookup must not fail the open
+            // silently (PRD §14.3 failure discipline).
+            this.options.onError?.(
+                'Failed to load commit details for the diff.',
+                detail.degraded);
+            this.options.showToast?.('Failed to load the commit details.');
+            return;
+        }
         const file = detail.files.find(candidate =>
             candidate.path === input.path
             && candidate.oldPath === input.oldPath);
-        if (!file || detail.degraded) {
+        if (!file) {
             return;
         }
         try {
@@ -534,6 +543,10 @@ export class ConversationChangesController {
             return;
         }
         if (detail.degraded) {
+            this.options.onError?.(
+                'Failed to load commit details for the review.',
+                detail.degraded);
+            this.options.showToast?.('Failed to load the commit details.');
             return;
         }
         try {

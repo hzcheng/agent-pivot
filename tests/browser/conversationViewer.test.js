@@ -15660,3 +15660,40 @@ test('WORKTREE-CHANGES-COMMITS-001 ArrowLeft on a leaf row moves to the parent c
         document.activeElement.getAttribute('data-commit-sha')),
         'c'.repeat(40));
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 collapsing an in-flight detail keeps the row collapsed when the response lands', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    // Expand, then collapse before the detail response arrives.
+    const row = page.locator('.conversation-changes-commit-row').first();
+    await row.click();
+    const detailRequest = (await postedIntents(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commit-detail')
+        .at(-1);
+    assert.equal(detailRequest.sha, 'c'.repeat(40));
+    await row.click();
+    assert.equal(await row.getAttribute('aria-expanded'), 'false');
+
+    // The late response is correlated but must not re-expand the row.
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row').count(), 0,
+        'a collapsed row never re-expands from an in-flight response');
+    assert.equal(await row.getAttribute('aria-expanded'), 'false');
+});

@@ -1744,8 +1744,12 @@
                 return true;
             }
             delete cache.latestDetailRequestIds[message.sha];
-            var entry = cache.expanded[message.sha]
-                || (cache.expanded[message.sha] = {});
+            var entry = cache.expanded[message.sha];
+            if (!entry) {
+                // The row was collapsed or evicted while the request was
+                // in flight: its response must not re-expand it.
+                return true;
+            }
             if (message.degraded) {
                 entry.status = 'failed';
             } else {
@@ -2020,6 +2024,9 @@
         function toggleCommitExpanded(member, cache, sha) {
             if (cache.expanded[sha]) {
                 delete cache.expanded[sha];
+                // Collapsing cancels the pending detail: its response
+                // must not resurrect the row.
+                delete cache.latestDetailRequestIds[sha];
                 cache.expandedOrder = cache.expandedOrder.filter(
                     function (entry) { return entry !== sha; });
             } else {
@@ -2029,6 +2036,7 @@
                 while (cache.expandedOrder.length > COMMITS_EXPANDED_LIMIT) {
                     var evicted = cache.expandedOrder.shift();
                     delete cache.expanded[evicted];
+                    delete cache.latestDetailRequestIds[evicted];
                 }
                 requestCommitDetail(member.memberId, sha);
             }

@@ -815,3 +815,36 @@ test('WORKTREE-CHANGES-COMMITS-001 diff and review open failures surface as host
         'Failed to open the commit review.',
     ], 'open failures toast instead of vanishing (PRD §14.3)');
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 degraded detail lookups on open-file and review toast instead of vanishing', async () => {
+    const sha = 'c'.repeat(40);
+    const toasts = [];
+    const opened = [];
+    const reviewed = [];
+    const { controller } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+                degraded: 'timeout',
+            }),
+            commitExists: async () => true,
+        },
+        openCommitFileDiff: async (...args) => opened.push(args),
+        openCommitReview: async (...args) => reviewed.push(args),
+        showToast: message => toasts.push(message),
+    });
+    await controller.activate(TARGET);
+    await controller.handleCommitOpenFile({
+        memberId: 'member-1', sha, path: 'src/a.ts',
+    });
+    await controller.handleCommitReview({ memberId: 'member-1', sha });
+    assert.deepEqual(toasts, [
+        'Failed to load the commit details.',
+        'Failed to load the commit details.',
+    ]);
+    assert.equal(opened.length, 0, 'no diff opens without the detail');
+    assert.equal(reviewed.length, 0);
+});

@@ -24,6 +24,7 @@ const {
 } = require('../../../out/aiSessions/attentionProject');
 const {
     buildAttentionQueue,
+    filterAttentionQueueToReachableWindows,
     formatAttentionStatusBar,
 } = require('../../../out/aiSessions/attentionQueue');
 const {
@@ -130,6 +131,24 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 matches logical session keys and missing ro
     assert.equal(queue.localCount, 2, 'logical keys and primary-root fallback still match');
     assert.equal(buildAttentionQueue({ aggregate: input.aggregate, workspace: null }).localCount, 0);
     assert.deepEqual(buildAttentionQueue({ aggregate: null, workspace: makeWorkspace() }).items, []);
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 removes attention from closed remote windows before presenting the queue', () => {
+    const queue = buildAttentionQueue(makeQueueInput());
+    const reachable = filterAttentionQueueToReachableWindows(
+        queue,
+        projectId => projectId !== projectKeyOf('file:///work/other')
+    );
+
+    assert.deepEqual(reachable.items.map(item => `${item.provider}:${item.sessionId}`), [
+        'kimi:sess-1',
+        'codex:sess-2',
+    ]);
+    assert.equal(reachable.total, 2);
+    assert.equal(reachable.localCount, 2);
+    assert.equal(reachable.remoteCount, 0);
+    assert.equal(queue.total, 3,
+        'filtering an unreachable window does not acknowledge or mutate its source aggregate');
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 formats the status bar text and tooltip', () => {
@@ -344,7 +363,102 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump hops to the window owning a remote ses
     ], 'remote jumps switch windows; the remote window drains its own queue');
 });
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 jump reports an unmatchable remote session and an empty queue', async () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 skips a window that closes during Next Attention and reaches the next live session', async () => {
+    const closedProject = projectKeyOf('file:///work/closed');
+    const liveProject = projectKeyOf('file:///work/live');
+    const queue = {
+        items: [
+            {
+                provider: 'claude', sessionId: 'closed-session', projectId: closedProject,
+                eventIds: ['closed-event'], reasons: ['failed'], observedAtMs: 1, local: false,
+            },
+            {
+                provider: 'codex', sessionId: 'live-session', projectId: liveProject,
+                eventIds: ['live-event'], reasons: ['input-required'], observedAtMs: 2, local: false,
+            },
+        ],
+        localCount: 0,
+        remoteCount: 2,
+        total: 2,
+    };
+    const calls = [];
+    const jump = createAttentionQueueJumpHandler({
+        buildQueue: () => queue,
+        focusSession: async () => true,
+        openConversation: async () => true,
+        acknowledge: async () => {},
+        shouldAcknowledge: () => false,
+        findNavigationCardId: projectId => {
+            calls.push(['findNavigationCardId', projectId]);
+            return projectId === liveProject ? 'live-card' : null;
+        },
+        openNavigationCard: async cardId => { calls.push(['openNavigationCard', cardId]); },
+        showInformationMessage: message => { calls.push(['info', message]); },
+        showWarningMessage: message => { calls.push(['warning', message]); },
+    });
+
+    await jump();
+
+    assert.deepEqual(calls, [
+        ['findNavigationCardId', closedProject],
+        ['findNavigationCardId', liveProject],
+        ['openNavigationCard', 'live-card'],
+    ]);
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 skips a closed window without re-landing on the watched session', async () => {
+    const currentProject = projectKeyOf('file:///work/current');
+    const closedProject = projectKeyOf('file:///work/closed');
+    const liveProject = projectKeyOf('file:///work/live');
+    const queue = {
+        items: [
+            {
+                provider: 'codex', sessionId: 'current-session', projectId: currentProject,
+                eventIds: ['current-event'], reasons: ['input-required'], observedAtMs: 1, local: true,
+            },
+            {
+                provider: 'claude', sessionId: 'closed-session', projectId: closedProject,
+                eventIds: ['closed-event'], reasons: ['failed'], observedAtMs: 2, local: false,
+            },
+            {
+                provider: 'kimi', sessionId: 'live-session', projectId: liveProject,
+                eventIds: ['live-event'], reasons: ['completed'], observedAtMs: 3, local: false,
+            },
+        ],
+        localCount: 1,
+        remoteCount: 2,
+        total: 3,
+    };
+    const calls = [];
+    const jump = createAttentionQueueJumpHandler({
+        buildQueue: () => queue,
+        focusSession: async item => {
+            calls.push(['focusSession', item.sessionId]);
+            return true;
+        },
+        openConversation: async () => true,
+        acknowledge: async () => {},
+        shouldAcknowledge: () => false,
+        getCurrentIdentity: () => ({ provider: 'codex', sessionId: 'current-session' }),
+        findNavigationCardId: projectId => {
+            calls.push(['findNavigationCardId', projectId]);
+            return projectId === liveProject ? 'live-card' : null;
+        },
+        openNavigationCard: async cardId => { calls.push(['openNavigationCard', cardId]); },
+        showInformationMessage: message => { calls.push(['info', message]); },
+        showWarningMessage: message => { calls.push(['warning', message]); },
+    });
+
+    await jump();
+
+    assert.deepEqual(calls, [
+        ['findNavigationCardId', closedProject],
+        ['findNavigationCardId', liveProject],
+        ['openNavigationCard', 'live-card'],
+    ]);
+});
+
+test('ATTENTION-STATUS-BAR-QUEUE-001 reports no reachable attention when every remote window has closed', async () => {
     const remoteQueue = buildAttentionQueue({
         aggregate: makeQueueInput().aggregate,
         workspace: null,
@@ -353,7 +467,9 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 jump reports an unmatchable remote session 
     await remote.options();
     assert.deepEqual(remote.calls, [
         ['findNavigationCardId', projectKeyOf('file:///work/other')],
-        ['warning', 'Agent Pivot: the session that needs attention is in a window that is no longer open.'],
+        ['findNavigationCardId', projectKeyOf('file:///work/alpha')],
+        ['findNavigationCardId', projectKeyOf('file:///work/alpha')],
+        ['info', 'Agent Pivot: no reachable AI sessions need attention.'],
     ]);
 
     const empty = makeJumpOptions({

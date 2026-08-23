@@ -84,7 +84,10 @@ import {
     getAttentionSummaryForProjectKeys,
     getLogicalAttentionSessionKey,
 } from './aiSessions/attentionProject';
-import { buildAttentionQueue } from './aiSessions/attentionQueue';
+import {
+    buildAttentionQueue,
+    filterAttentionQueueToReachableWindows,
+} from './aiSessions/attentionQueue';
 import type {
     AttentionQueue,
     AttentionQueueWorkspace,
@@ -2552,10 +2555,14 @@ async function initializeDashboard(
                 sessions,
             };
         }
-        return buildAttentionQueue({
+        const queue = buildAttentionQueue({
             aggregate: aiSessionAttentionController.getEffectiveAggregate(),
             workspace,
         });
+        return filterAttentionQueueToReachableWindows(
+            queue,
+            projectId => !!findAttentionNavigationCardId(projectId)
+        );
     };
     attentionStatusBarController = ownResource(() =>
         createAttentionStatusBarController({
@@ -2851,7 +2858,14 @@ async function initializeDashboard(
         onAggregate: aggregate => {
             latestOpenWorkspaceAggregate = aggregate;
             const statusChanged = openWorkspaceDashboardController.setBridgeStatus('ready');
-            if (openWorkspaceDashboardController.setAggregate(aggregate) || statusChanged) {
+            const aggregateChanged = openWorkspaceDashboardController.setAggregate(aggregate);
+            if (aggregateChanged || statusChanged) {
+                // The attention bridge and the open-window bridge settle
+                // independently. Rebuild the presentation queue whenever the
+                // authoritative window roster changes so a normally closed
+                // window disappears immediately rather than waiting for an
+                // attention lease to expire.
+                attentionStatusBarController?.refresh(buildCurrentAttentionQueue());
                 postOpenWorkspacesUpdated();
             }
             void conversationCapability.viewer.publishSessionStatus();
@@ -2859,6 +2873,7 @@ async function initializeDashboard(
         onError: error => logOpenWorkspaceBridgeError(error),
         onStatusChange: status => {
             if (openWorkspaceDashboardController.setBridgeStatus(status)) {
+                attentionStatusBarController?.refresh(buildCurrentAttentionQueue());
                 postOpenWorkspacesUpdated();
             }
         },

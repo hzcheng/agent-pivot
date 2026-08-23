@@ -128,6 +128,27 @@ export function buildAttentionQueue(input: {
     };
 }
 
+/**
+ * Omits remote items whose owning window is no longer in the authoritative
+ * open-window roster. This is a presentation/navigation filter only: it does
+ * not acknowledge or alter the bridge aggregate, so a transient lookup miss
+ * cannot discard an attention event.
+ */
+export function filterAttentionQueueToReachableWindows(
+    queue: AttentionQueue,
+    isRemoteProjectReachable: (projectId: string) => boolean,
+): AttentionQueue {
+    const items = queue.items.filter(item => item.local
+        || isRemoteProjectReachable(item.projectId));
+    const localCount = items.filter(item => item.local).length;
+    return {
+        items,
+        localCount,
+        remoteCount: items.length - localCount,
+        total: items.length,
+    };
+}
+
 function attentionProviderLabel(provider: AiSessionProviderId): string {
     if (provider === 'kimi') {
         return 'Kimi';

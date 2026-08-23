@@ -625,7 +625,23 @@ export function renderConversationViewerDocument(
                 <div class="conversation-changes-actions"
                     data-changes-actions>
                     <div class="conversation-changes-subtabs"
-                        data-changes-subtabs></div>
+                        data-changes-subtabs role="tablist"
+                        aria-label="Changes view">
+                        <button type="button" role="tab"
+                            class="conversation-changes-subtab"
+                            id="conversation-changes-tab-files"
+                            data-changes-subtab="files"
+                            aria-selected="true"
+                            aria-controls="conversation-changes-files-view"
+                            >Files</button>
+                        <button type="button" role="tab"
+                            class="conversation-changes-subtab"
+                            id="conversation-changes-tab-commits"
+                            data-changes-subtab="commits"
+                            aria-selected="false" tabindex="-1"
+                            aria-controls="conversation-changes-commits-view"
+                            >Commits</button>
+                    </div>
                     <div class="conversation-changes-fold">
                         <button type="button"
                             class="conversation-icon-button"
@@ -653,6 +669,11 @@ export function renderConversationViewerDocument(
                         </button>
                     </div>
                 </div>
+                <div class="conversation-changes-files-view"
+                    data-changes-files-view
+                    id="conversation-changes-files-view"
+                    role="tabpanel"
+                    aria-labelledby="conversation-changes-tab-files">
                 <div class="conversation-changes-task" data-changes-task
                     hidden>
                     <div class="conversation-changes-task-lines">
@@ -674,6 +695,52 @@ export function renderConversationViewerDocument(
                     <div data-changes-groups></div>
                     <p class="conversation-changes-empty"
                         data-changes-empty hidden>No changes</p>
+                </div>
+                </div>
+                <div class="conversation-changes-commits-view"
+                    data-changes-commits-view
+                    id="conversation-changes-commits-view"
+                    role="tabpanel"
+                    aria-labelledby="conversation-changes-tab-commits"
+                    hidden>
+                    <div class="conversation-changes-task-lines
+                            conversation-changes-commits-header">
+                        <span class="conversation-changes-task-summary
+                                conversation-changes-tooltip-target"
+                            data-changes-commits-summary tabindex="0"
+                            ></span>
+                        <span class="conversation-changes-task-tracking
+                                conversation-changes-tooltip-target"
+                            data-changes-commits-tracking tabindex="0"
+                            hidden></span>
+                    </div>
+                    <p class="conversation-changes-commits-notice"
+                        data-changes-commits-notice hidden></p>
+                    <div class="conversation-changes-commits-list"
+                        data-changes-commits-list role="tree"
+                        aria-label="Commits"></div>
+                    <p class="conversation-changes-empty"
+                        data-changes-commits-empty
+                        hidden>No commits since start</p>
+                    <p class="conversation-changes-commits-loading"
+                        data-changes-commits-loading
+                        hidden>Loading commits…</p>
+                    <div class="conversation-changes-commits-error"
+                        data-changes-commits-error hidden>
+                        <span data-changes-commits-error-text
+                            >Failed to load commits</span>
+                        <button type="button"
+                            class="conversation-changes-action"
+                            data-changes-commits-retry>Retry</button>
+                    </div>
+                    <button type="button"
+                        class="conversation-changes-action
+                            conversation-changes-commits-more"
+                        data-changes-commits-more hidden>Load more</button>
+                    <button type="button"
+                        class="conversation-changes-action"
+                        data-changes-commits-full
+                        hidden>Show full branch history</button>
                 </div>
                 <p class="conversation-changes-unavailable"
                     data-changes-unavailable hidden></p>

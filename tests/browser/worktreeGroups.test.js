@@ -479,12 +479,40 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
     t.after(() => page.close());
     assert.equal(await page.locator('.ai-session-worktree-anchor').count(), 1);
     assert.equal(await page.locator('.ai-session-worktree-task-group').count(), 1);
-    const layout = await page.evaluate(() => ({
-        viewportWidth: document.documentElement.clientWidth,
-        documentWidth: document.documentElement.scrollWidth,
-    }));
+    const layout = await page.evaluate(() => {
+        const anchor = document.querySelector('.ai-session-worktree-anchor');
+        const group = document.querySelector('.ai-session-worktree-task-group');
+        const actions = Array.from(document.querySelectorAll(
+            '.ai-session-worktree-toolbar [data-action="create-ai-session-quick"], '
+            + '.ai-session-worktree-toolbar [data-action="open-ai-session-preset-menu"], '
+            + '.ai-session-worktree-toolbar .ai-session-worktree-more'));
+        const quickSvg = anchor.querySelector('[data-action="create-ai-session-quick"] svg');
+        const quickButton = quickSvg.closest('button');
+        const svgBox = quickSvg.getBoundingClientRect();
+        const buttonBox = quickButton.getBoundingClientRect();
+        return {
+            viewportWidth: document.documentElement.clientWidth,
+            documentWidth: document.documentElement.scrollWidth,
+            anchorWidth: anchor.getBoundingClientRect().width,
+            groupWidth: group.getBoundingClientRect().width,
+            quickCenterOffset: Math.abs((svgBox.left + svgBox.width / 2)
+                - (buttonBox.left + buttonBox.width / 2)),
+            actionStyles: actions.map(action => {
+                const style = getComputedStyle(action);
+                return { borderLeftWidth: style.borderLeftWidth, color: style.color };
+            }),
+        };
+    });
     assert.ok(layout.documentWidth <= layout.viewportWidth + 1,
         `no horizontal overflow at 170px (document ${layout.documentWidth}px)`);
+    assert.ok(Math.abs(layout.anchorWidth - layout.groupWidth) <= 1,
+        `tree rows share one width (${layout.anchorWidth}px vs ${layout.groupWidth}px)`);
+    assert.ok(layout.quickCenterOffset <= 0.5,
+        `the quick-create icon is centered (${layout.quickCenterOffset}px offset)`);
+    assert.ok(layout.actionStyles.every(action => action.borderLeftWidth === '0px'),
+        'row actions have no vertical separators');
+    assert.ok(layout.actionStyles.every(action => action.color === 'rgb(221, 221, 221)'),
+        'row action icons inherit the normal foreground color');
 });
 
 test('WORKTREE-GROUPS-RENAME-001 expanded member details stay contained at 170px', async t => {

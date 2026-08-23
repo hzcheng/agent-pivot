@@ -2964,10 +2964,17 @@ body.steward-sidebar {
         }
 
         .ai-session-worktree-group {
+            box-sizing: border-box;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 7px;
             background: var(--vscode-sideBar-background);
             overflow: hidden;
+        }
+
+        // Tree rows always fill the same list column. List-view launcher
+        // targets share the base class but intentionally remain compact.
+        .ai-session-worktree-list > .ai-session-worktree-group {
+            width: 100%;
         }
 
         .ai-session-worktree-header {
@@ -2994,6 +3001,7 @@ body.steward-sidebar {
         .ai-session-worktree-toolbar {
             display: flex;
             align-items: stretch;
+            width: 100%;
         }
 
         // `hidden` must beat the flex display while the rename editor owns
@@ -3012,7 +3020,8 @@ body.steward-sidebar {
             display: inline-flex;
             flex: 0 0 auto;
             align-items: stretch;
-            border-left: 1px solid var(--vscode-panel-border);
+            gap: 2px;
+            padding: 3px 0 3px 3px;
 
             button {
                 display: inline-flex;
@@ -3024,17 +3033,16 @@ body.steward-sidebar {
                 min-width: 24px;
                 padding: 0;
                 border: 0;
-                color: var(--vscode-descriptionForeground);
+                border-radius: 4px;
+                color: var(--vscode-foreground);
                 background: transparent;
                 cursor: pointer;
 
-                + button {
-                    border-left: 1px solid var(--vscode-panel-border);
-                }
-
                 svg {
+                    display: block;
                     width: 13px;
                     height: 13px;
+                    fill: currentColor;
                 }
 
                 &:hover,
@@ -3059,9 +3067,10 @@ body.steward-sidebar {
             align-self: stretch;
             box-sizing: border-box;
             min-width: 24px;
+            margin: 3px 3px 3px 2px;
             border: 0;
-            border-left: 1px solid var(--vscode-panel-border);
-            color: var(--vscode-descriptionForeground);
+            border-radius: 4px;
+            color: var(--vscode-foreground);
             background: transparent;
             cursor: pointer;
 
@@ -3108,10 +3117,6 @@ body.steward-sidebar {
                 font-size: 10px;
                 text-overflow: ellipsis;
                 white-space: nowrap;
-            }
-
-            .ai-session-worktree-launch-actions {
-                border-left: 1px solid var(--vscode-panel-border);
             }
 
             .ai-session-worktree-launch-actions button {

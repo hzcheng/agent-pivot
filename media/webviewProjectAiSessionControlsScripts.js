@@ -296,16 +296,6 @@ function initProjectAiSessionControls(options) {
             toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);
             return true;
         }
-        var mergeGroupsAction = target.closest(
-            '[data-action="merge-worktree-groups"][data-group-id]'
-        );
-        if (mergeGroupsAction) {
-            submitMergeWorktreeGroups(
-                projectId,
-                mergeGroupsAction.getAttribute('data-group-id'),
-                mergeGroupsAction);
-            return true;
-        }
         var setPrimaryAction = target.closest(
             '[data-action="set-group-primary"][data-group-id][data-member-id]'
         );
@@ -816,6 +806,7 @@ function initProjectAiSessionControls(options) {
             canRemove: button.getAttribute('data-can-remove') === 'true',
             canBranchCreate: button.getAttribute('data-can-branch-create') === 'true'
                 && button.getAttribute('data-worktree-head-kind') === 'branch',
+            canMerge: button.getAttribute('data-can-merge') === 'true',
         };
         menu.__originButton = button;
         var hasWorktreeTarget = !!(menu.__context.repositoryKey && menu.__context.worktreePath);
@@ -846,6 +837,8 @@ function initProjectAiSessionControls(options) {
         deriveItem.hidden = !menu.__context.groupId;
         var addRepoItem = menu.querySelector('[data-action="worktree-group-add-repo"]');
         addRepoItem.hidden = !menu.__context.groupId;
+        var mergeItem = menu.querySelector('[data-action="merge-worktree-groups"]');
+        mergeItem.hidden = !menu.__context.groupId || !menu.__context.canMerge;
         var groupDeleteItem = menu.querySelector('[data-action="worktree-group-delete"]');
         groupDeleteItem.hidden = !menu.__context.groupId;
         var sessionSeparator = menu.querySelector('[data-worktree-session-separator]');
@@ -963,6 +956,8 @@ function initProjectAiSessionControls(options) {
                     targetGroupId: context.groupId,
                 });
             }
+        } else if (action === 'merge-worktree-groups' && context.groupId && context.canMerge) {
+            submitMergeWorktreeGroups(context.projectId, context.groupId, item);
         } else if (action === 'worktree-group-delete' && context.groupId) {
             startWorktreeGroupMemberDeletion(context.projectId, context.groupId, '', {
                 mode: 'group',

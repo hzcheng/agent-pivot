@@ -4,6 +4,25 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-08-23
+
+### Added
+
+- Worktree group Sessions gain a Changes view in the AI Conversation
+  sidebar: a per-repository two-row header with ‹ › cycling between member
+  worktrees, the branch name with its tracking state (ahead/behind against
+  the upstream, or an explicit "No tracking branch"), a task-result summary
+  with a one-click Review multi-diff (untracked files included), collapsible
+  Source-Control-style change groups with a complete keyboard tree, and a
+  focusable tooltip overlay for every truncated label. New installations get
+  a one-time 320px panel width recommendation.
+- The Changes view carries a Files | Commits sub-tab. Commits lists the
+  history since the task started with frozen-head pagination, per-commit
+  tracking badges, inline file expansion with +/- counts, per-commit Review
+  and file diff actions, a baseline boundary row, and an optional full
+  branch history continuation. Refresh, Source Control, and a single
+  collapse/expand toggle live in one shared action row across both tabs.
+
 ### Changed
 
 - The OPEN tab now keeps a fixed WINDOWS switcher above the current window's

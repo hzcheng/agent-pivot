@@ -14313,7 +14313,11 @@ test('WORKTREE-CHANGES-PANEL-001 implements the Files tree keyboard model', asyn
 test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture());
-    await page.locator('[data-telemetry-changes]').click();
+    const changesButton = page.locator('[data-telemetry-changes]');
+    await changesButton.click();
+    await changesButton.evaluate(element => {
+        window.__changesButtonBeforeSessionReset = element;
+    });
     const stagedHeader = page.locator('.conversation-changes-group-header', {
         hasText: 'Staged Changes',
     });
@@ -14362,6 +14366,12 @@ test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset',
     assert.equal(
         await page.locator('[data-changes-fold-toggle]').isDisabled(), true,
         'no state means nothing to fold');
+    assert.equal(await changesButton.isVisible(), true,
+        'the Changes telemetry button stays mounted through a session handoff');
+    assert.equal(await page.evaluate(() =>
+        window.__changesButtonBeforeSessionReset
+            === document.querySelector('[data-telemetry-changes]')), true,
+    'the handoff keeps the same button node rather than flashing a replacement');
 
     // The new session's state starts from clean fold defaults even though
     // the member ids repeat.

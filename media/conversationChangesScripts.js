@@ -2732,12 +2732,11 @@
                 updateFoldActions();
                 tooltip.hide();
                 clearAuthoritativeContent();
-                if (button) {
-                    button.hidden = true;
-                    button.classList.remove(
-                        'conversation-telemetry-changes-unavailable');
-                    updateToggle();
-                }
+                // Keep the already-rendered telemetry button through the
+                // session handoff, just like position/comments/subagents.
+                // The next authoritative changes state decides whether the
+                // new session supports it; hiding here made every Git
+                // session switch flash unnecessarily.
                 if (groupsRoot) {
                     clearChildren(groupsRoot);
                 }

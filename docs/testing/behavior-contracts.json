@@ -6200,6 +6200,35 @@
     ]
   },
   {
+    "id": "WORKTREE-CHANGES-COMMITS-001",
+    "domain": "webview",
+    "title": "Changes panel Commits sub-tab: request/response lazy commit history with frozen historyHead pagination (no empty pages, baseline closing row only at the real boundary, Earlier section continuing from the baseline's ancestors), per-member scope/scroll/expansion memory, requestId + generation double-discard, invalidation-signature silent refetch, honest degraded states (timeout retry, history-moved restart, unreadable notice, current-branch-history single stream), inline file expansion with numstat and the 400-file cap disclosed, bound open-file/review intents, and the full keyboard model",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js",
+      "tests/unit/aiSessions/conversationChangesController.test.js",
+      "tests/unit/aiSessions/conversationViewerProtocol.test.js",
+      "tests/unit/worktrees/commitsCollector.test.js",
+      "tests/contract/worktrees/commitsCollector.test.js",
+      "tests/unit/services/gitChangesDiff.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/worktrees/commitsCollector.ts",
+      "src/aiSessions/conversation/conversationChangesController.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/webview/conversationChangesScripts.js",
+      "src/webview/conversationSidebarScripts.js",
+      "src/services/gitChangesDiff.ts",
+      "media/conversationViewer.scss",
+      "scripts/dev/changes-panel-screenshot.js"
+    ]
+  },
+  {
     "id": "ARCH-POLICY-SCHEMA-001",
     "domain": "architecture",
     "title": "The architecture module registry enforces its schema: unique well-formed module ids, resolvable mayDependOn and product capability references, and declared roles",

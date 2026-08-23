@@ -95,20 +95,21 @@ async function main() {
         });
         await page.route('https://fonts.local/**', route =>
             route.fulfill({ body: '', contentType: 'text/css' }));
-        await page.setContent(html);
-        await page.evaluate(() => {
+        // Every (re)load gets the API stub: the script below reloads the
+        // page, which wipes evaluate-time globals.
+        await page.addInitScript(() => {
             window.__postedMessages = [];
-            window.vscode = {
+            window.acquireVsCodeApi = () => ({
                 postMessage(message) {
                     window.__postedMessages.push(message);
                 },
-                getState: () => ({
-                    conversationSidebar: { open: true, view: 'changes' },
-                }),
+                // No persisted state: the panel starts closed and the
+                // telemetry click below opens it.
+                getState: () => ({}),
                 setState() {},
-            };
+            });
         });
-        // Re-run the viewer script so it picks up window.vscode.
+        await page.setContent(html);
         await page.evaluate(() => undefined);
         await page.reload();
         await page.setContent(html);
@@ -173,6 +174,100 @@ async function main() {
         await page.screenshot({
             path: path.join(outDir, 'changes-min-192.png'),
         });
+
+        // Commits sub-tab at all three widths (PRD §15.5): switch over,
+        // answer the lazy list request with a small history including
+        // both tracking badges, and expand the first commit inline.
+        await page.locator('[data-changes-subtab="commits"]').click();
+        const listRequest = await page.evaluate(() =>
+            window.__postedMessages.filter(message =>
+                message.type === 'conversation-viewer-commits-list')
+                .at(-1));
+        await page.evaluate(requestId => {
+            const sha = index => String(index).padStart(40, 'c');
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-commits',
+                    version: 1,
+                    requestId,
+                    subscriptionGeneration: Number(
+                        document.body.getAttribute(
+                            'data-subscription-generation')),
+                    memberId: 'm-api',
+                    scope: 'since-start',
+                    offset: 0,
+                    historyHead: sha(9),
+                    commits: [{
+                        sha: sha(9), subject: 'fix: token refresh race',
+                        authorName: 'hzcheng', authorTime: 1724000000,
+                        inTrackingBranch: false,
+                    }, {
+                        sha: sha(8), subject: 'chore: setup script',
+                        authorName: 'hzcheng', authorTime: 1723990000,
+                        inTrackingBranch: true,
+                    }],
+                    hasMore: false,
+                    sectionComplete: true,
+                    baselineRow: {
+                        sha: 'a'.repeat(40), subject: 'main · merged #241',
+                    },
+                },
+            }));
+        }, listRequest.requestId);
+        await page.locator('.conversation-changes-commit-row').first()
+            .waitFor({ state: 'visible' });
+        const detailRequest = await (async () => {
+            await page.locator('.conversation-changes-commit-row').first()
+                .click();
+            return page.evaluate(() =>
+                window.__postedMessages.filter(message =>
+                    message.type === 'conversation-viewer-commit-detail')
+                    .at(-1));
+        })();
+        await page.evaluate(requestId => {
+            window.dispatchEvent(new MessageEvent('message', {
+                data: {
+                    type: 'conversation-viewer-commit-detail',
+                    version: 1,
+                    requestId,
+                    subscriptionGeneration: Number(
+                        document.body.getAttribute(
+                            'data-subscription-generation')),
+                    memberId: 'm-api',
+                    sha: String(9).padStart(40, 'c'),
+                    files: [{
+                        path: 'src/auth/login.ts', status: 'M',
+                        additions: 12, deletions: 3,
+                    }, {
+                        path: 'src/auth/session.ts', status: 'M',
+                        additions: 4, deletions: 1,
+                    }],
+                    totalFiles: 2,
+                    filesTruncated: false,
+                },
+            }));
+        }, detailRequest.requestId);
+        await page.locator('.conversation-changes-commit-file-row')
+            .first().waitFor({ state: 'visible' });
+        await page.screenshot({
+            path: path.join(outDir, 'changes-commits-192.png'),
+        });
+        await page.evaluate(() => {
+            document.querySelector('.conversation-workspace')
+                .style.setProperty('--conversation-comments-width', '240px');
+        });
+        await page.screenshot({
+            path: path.join(outDir, 'changes-commits-240.png'),
+        });
+        await page.evaluate(() => {
+            document.querySelector('.conversation-workspace')
+                .style.setProperty('--conversation-comments-width', '320px');
+        });
+        await page.screenshot({
+            path: path.join(outDir, 'changes-commits-320.png'),
+        });
+        // Back to Files for the overflow probe.
+        await page.locator('[data-changes-subtab="files"]').click();
         const overflow = await page.evaluate(() => {
             const panel = document.querySelector('[data-conversation-changes]');
             return {

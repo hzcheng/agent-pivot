@@ -949,7 +949,9 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps the focused card highlight when anot
     await postHostMessage(page, presentationMessage(initial, 2, { revealFocused: true }));
     assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
     assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), '');
-    assert.equal(await primaryAction.getAttribute('title'), 'Open AI conversation for Codex Session');
+    assert.equal(await primaryAction.getAttribute('title'), null);
+    assert.match(await primaryAction.getAttribute('data-tooltip'),
+        /^Open AI conversation for Codex Session\nProvider: Codex\nProfile: default/);
     assert.match(
         await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
         /rgba?\(0, 127, 212/
@@ -970,7 +972,9 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps the focused card highlight when anot
     assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
     assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), '');
     assert.equal(await focusedRow.locator('.ai-session-open-conversation-hint').count(), 1);
-    assert.equal(await primaryAction.getAttribute('title'), 'Open AI conversation for Codex Session');
+    assert.equal(await primaryAction.getAttribute('title'), null);
+    assert.match(await primaryAction.getAttribute('data-tooltip'),
+        /^Open AI conversation for Codex Session\nProvider: Codex\nProfile: default/);
     assert.match(
         await focusedRow.evaluate(element => getComputedStyle(element).boxShadow),
         /rgba?\(0, 127, 212/
@@ -2441,10 +2445,9 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 transfers pending focus through the comple
             revealFocused: true,
         }
     ));
-    assert.equal(
-        await pendingRow.locator('.ai-session-primary-action').getAttribute('title'),
-        'Focus pending Codex Session'
-    );
+    assert.equal(await pendingRow.locator('.ai-session-primary-action').getAttribute('title'), null);
+    assert.match(await pendingRow.locator('.ai-session-primary-action').getAttribute('data-tooltip'),
+        /^Focus pending Codex Session\nProvider: Codex\nProfile: default/);
     assert.equal(
         await pendingRow.locator('.ai-session-open-conversation-hint').count(),
         0
@@ -2685,7 +2688,12 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals a newer direct focus projection in
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);
     assert.equal(
         await row(page, 'codex', 'active-7').locator('.ai-session-primary-action').getAttribute('title'),
-        'Open AI conversation for Codex Session'
+        null
+    );
+    assert.match(
+        await row(page, 'codex', 'active-7').locator('.ai-session-primary-action')
+            .getAttribute('data-tooltip'),
+        /^Open AI conversation for Codex Session\nProvider: Codex\nProfile: default/
     );
     assert.equal(
         await row(page, 'codex', 'active-7').locator('.ai-session-primary-action').getAttribute('aria-label'),
@@ -2693,7 +2701,12 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals a newer direct focus projection in
     );
     assert.equal(
         await row(page, 'codex', 'active-1').locator('.ai-session-primary-action').getAttribute('title'),
-        'Focus Codex Session'
+        null
+    );
+    assert.match(
+        await row(page, 'codex', 'active-1').locator('.ai-session-primary-action')
+            .getAttribute('data-tooltip'),
+        /^Focus Codex Session\nProvider: Codex\nProfile: default/
     );
     assert.equal(
         await row(page, 'codex', 'active-1').locator('.ai-session-primary-action').getAttribute('aria-label'),
@@ -2908,6 +2921,7 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
         [{
             ...session('codex', 'session-running', false),
             updatedAt: now.toISOString(),
+            profile: 'review',
         }],
         { width: 360, height: 700 },
         `<div class="open-session-surface" data-open-session-surface data-id="project-a" data-current-workspace>
@@ -2915,6 +2929,7 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
                 [{
                     ...session('codex', 'session-running', false),
                     updatedAt: now.toISOString(),
+                    profile: 'review',
                 }],
                 [{
                     ...historySession('codex', 'history-stopped'),
@@ -2940,6 +2955,7 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
             metaCount: el.querySelectorAll('.codex-session-meta').length,
             ariaLabel: el.querySelector('.ai-session-primary-action').getAttribute('aria-label'),
             title: el.querySelector('.ai-session-primary-action').getAttribute('title'),
+            tooltip: el.querySelector('.ai-session-primary-action').getAttribute('data-tooltip'),
         };
     });
 
@@ -2952,9 +2968,17 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
     assert.match(activeMetrics.ariaLabel, /Running/);
     assert.match(activeMetrics.ariaLabel, new RegExp(`last activity ${expectedTime}`));
     assert.match(activeMetrics.ariaLabel, /session #session-/);
-    assert.match(activeMetrics.title, /^Focus Codex Session\nTitle codex session-running\nStatus Running/);
-    assert.match(activeMetrics.title, new RegExp(`Last activity ${expectedTime}`));
-    assert.match(activeMetrics.title, /Session #session-/);
+    assert.equal(activeMetrics.title, null,
+        'the chat row uses one fast tooltip rather than a delayed native title');
+    assert.match(activeMetrics.tooltip, /^Focus Codex Session\nProvider: Codex\nProfile: review\nTitle codex session-running\nStatus Running/);
+    assert.match(activeMetrics.tooltip, new RegExp(`Last activity ${expectedTime}`));
+    assert.match(activeMetrics.tooltip, /Session #session-/);
+    const activeAction = activeRow.locator('.ai-session-primary-action');
+    await activeAction.hover();
+    const fastTooltip = page.locator('.ai-session-fast-tooltip');
+    await fastTooltip.waitFor({ state: 'visible' });
+    assert.match(await fastTooltip.textContent(), /^Focus Codex Session\nProvider: Codex\nProfile: review/,
+        'hover renders the provider and profile through the fast tooltip overlay');
     assert.equal(await activeRow.locator('.codex-session-archive, .ai-session-close-terminal').count(), 0,
         'destructive actions must be available from the row menu, not the hover pill');
 
@@ -3001,6 +3025,24 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
     assert.match(historyMetrics.ariaLabel, /session #history-/);
     assert.equal(await historyRow.locator('.codex-session-archive').count(), 0,
         'archive stays behind the ALL row menu');
+});
+
+test('OPEN-TAB-SESSION-SINGLE-LINE-001 keeps Workspace running status out of chat tooltips', async t => {
+    const active = [session('codex', 'tooltip-scope', false)];
+    const page = await openCardPage(t, active, { width: 360, height: 700 },
+        currentWorkspaceGroupMarkup(active));
+    const workspace = page.locator('[data-open-session-surface][data-current-workspace]');
+
+    await postHostMessage(page, presentationMessage(active, 1));
+
+    assert.equal(await workspace.getAttribute('title'), null,
+        'the running-state title must not be inherited by every chat and worktree descendant');
+    const action = workspace.locator('.active-ai-session-row[data-session-id="tooltip-scope"] .ai-session-primary-action');
+    assert.equal(await action.getAttribute('title'), null,
+        'the chat action also avoids a second delayed native tooltip');
+    assert.match(await action.getAttribute('data-tooltip'),
+        /^Focus Codex Session\nProvider: Codex\nProfile: default\nTitle codex tooltip-scope/);
+
 });
 
 test('OPEN-TAB-SESSION-SINGLE-LINE-001 hides secondary chips before sacrificing the title at narrow widths', async t => {

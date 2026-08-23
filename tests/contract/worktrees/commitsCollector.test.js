@@ -25,6 +25,11 @@ async function repositoryFixture(t) {
     git(repo, ['init', '-b', 'main']);
     git(repo, ['config', 'user.name', 'Agent Pivot Tests']);
     git(repo, ['config', 'user.email', 'tests@example.invalid']);
+    // Git may launch maintenance after a burst of fixture commits. Keep the
+    // repository self-contained so its after hook never races a background
+    // writer while removing .git/info.
+    git(repo, ['config', 'gc.auto', '0']);
+    git(repo, ['config', 'maintenance.auto', 'false']);
     t.after(async () =>
         fs.promises.rm(sandbox, { recursive: true, force: true }));
     return { sandbox, repo };

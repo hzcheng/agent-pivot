@@ -439,7 +439,7 @@ type CommitsDegraded =
 
 **失效与刷新纪律（验收标准——懒加载数据不得静默过期）：**
 
-1. 行 2 的 `⟳` 同时重采 changes 快照与当前 member 的 commits 列表（两路独立降级）。
+1. 行 3 的 `⟳` 同时重采 changes 快照与当前 member 的 commits 列表（两路独立降级）。
 2. changes-state 推送到达时，比对**失效签名**——`HEAD sha`、`baseline sha / availability`、`upstream fullRef`、`upstream resolved sha`、`upstream ahead/behind` 任一分量变化 → 该 member 的 commits 缓存作废。**push / fetch / tracking 变更即使不改变 commit 列表，也会改变标题区分叉计数与行级 tracking 徽标**，必须覆盖（member 视图需携带上述字段，见 §14.4）；若 Commits tab 正在展示该 member，**静默重取**（不抢焦点、不清空展开状态以外的滚动位置；数据量小，直接重取而非"N new commits"提示条）。
 3. 切换 member：Commits 区**立即清空并进入列表级 loading**，绝不残留上一 member 的列表（张冠李戴比空白更糟）；commits 缓存按 member 保留，切回时若未失效则即时渲染。
 4. 所有 commits 响应纳入 **`requestId` + `subscriptionGeneration` 双重丢弃**：同 member 同 scope 仅最新 requestId 的响应生效；generation 覆盖 session / member 切换的在途请求（沿用 Part I 保护）。
@@ -460,15 +460,16 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 ```
 ┌─ Changes ──────────────────────────────┐
 │  ‹  [api ▾]                     (2/3) › │ ← 行 1：repo 行
-│  ⎇ fix/harness-registry…nsumption  ⟳ ↗ │ ← 行 2：分支独占行 + 刷新 + SCM 出口
+│  [SCM] fix/harness-registry…nsumption 10↑ 34↓ │ ← 行 2：SCM 出口 + 分支及远端差异
 │  2 more changes in web, infra · Go to web →  │ ← 跨 member 提示（条件渲染，可点击）
-│  [ Files | Commits ]           ⤒ ⤓     │ ← 行 3：子 tab + 折叠控制（§15.3/§15.4）
+│  [ Files | Commits ]            ⌃  ⟳  ◉ │ ← 行 3：子 tab + 折叠、刷新、Review 图标（§15.3/§15.4）
 ```
 
 - **行 1**：`‹` `›` 为图标按钮（chevron-left/right）。中间 repo 名的可实现形态 = **可见 label + 透明原生 `<select>` 覆盖层**（select 绝对定位覆盖 label、`opacity: 0`、宽 100%）——原生 select 的闭合文本就是 selected option 文本，CSS 无法让闭合态与 popup 用两套 label；覆盖层方案下：闭合态是自定义 DOM（repo 名 + `▾`，可自由截断/灰化），popup 是原生 option（键盘方向键 / type-ahead / Esc / listbox 语义与读屏能力保留，且不被面板 `overflow: hidden` 裁剪）。option 文案维持现行 `repo · ⎇ branch` 并**保留 `(outside workspace)` 后缀**（popup 内可预先辨认 detached member；计数按现行纪律活在 tooltip 与面板，不进选项文本）。
 - **行 1 退化**：单 member 时 ‹ › 与 `(i/n)` 隐藏，**repo 名渲染为普通文本标题**而非 disabled select——禁用态的语义是"不可用"且会退出 Tab 序，与"静态标题"不符（改变现状行为，见 §20 第三轮）。多 member 才渲染 select。
-- **行 2**：分支名独占一行，中间省略；完整分支名 + worktree 路径经 §17 tooltip overlay 展示（不依赖原生 `title`）；branchName 缺失（unmanaged 合成 member）时显示 `(no branch)`。右侧 `⟳` 刷新与 **Source Control 图标**（不用 `↗`——动作发生在当前窗口，↗ 易被理解为外部打开）并排——SCM 出口沿用 Part I"v3 后体验迭代"的定位，视觉位置贴近现行工具栏，肌肉记忆损耗最小。
+- **行 2**：**Source Control 图标**（不用 `↗`——动作发生在当前窗口，`↗` 易被理解为外部打开）占据最左侧的操作位，后接分支名及相对其远端 tracking branch 的提交差（如 `10↑ 34↓`）；与行 1 的上一仓库按钮占位一致，使分支文字与 repo 文字对齐。分支名中间省略，差异计数固定在右侧可见；完整分支名、worktree 路径、tracking ref 与本地 remote-tracking 限制经 §17 tooltip overlay 展示（不依赖原生 `title`）。没有 tracking branch 或查询未知时不显示计数，更不伪造为 0；branchName 缺失（unmanaged 合成 member）时显示 `(no branch)`。
 - **行 3 与标识条**：v2 草案曾有独立的第三行标识条，评审后与各 tab 摘要行合并（见 §15.4/§15.5）——`↑n since start` 与 Task result 行的 commits 数本是同一数字，同参考系的信息同行展示，头部省一整行。
+- **行 3 的 Review**：Review 是与 Collapse/Expand All、Refresh 并列的图标按钮（eye）；不再在 Files 内容区保留常驻的 Task result / tracking 两行或文字按钮。hover 或键盘聚焦时，§17 tooltip overlay 展示 `Since start · N files · M commits`、净结果口径、tracking 全引用及其本地 remote-tracking 限制；没有可靠 baseline 或没有可 review 的变化时隐藏，避免出现无效入口。
 - **跨 member 提示行**：从纯文本升级为**可点击**，文案直接说明动作与目标：`<N> more changes in <repo 列表> · Go to <目标 repo>`——现行 `+N in <repo 列表>` 只汇总量不说明点击目的，视觉承诺与实际动作不一致（Part I 文字稿的 "N changes in M other repositories" 从未实现，不采用）。repo 列表超过 2 个时截断为 `<a>, <b> +M more`，完整分解经 §17 tooltip 展示；**计数与跳转候选同一集合：`availability !== 'unreadable'` 的 readable member**（baselineUnavailable / historyRewritten 的 Working changes 仍可读，必须计入；unreadable 的状态由按钮 partial 标注承载）；计数 = 其他 readable member 的未提交改动 item 数之和；点击目标 = 固定顺序下一个 `workingItemCount > 0` 的 readable member；若改动全部来自当前 member 则不渲染（闭环 Part I P1 的 next-member 导航）。
 - **detached 标注**：闭合态在行 1 label 旁的**独立小字元素** "Outside workspace"；popup option 文本同时保留 `(outside workspace)` 后缀（双承载：闭合态可见、popup 内其他 detached member 可预先辨认）。沿用 Part I §6.3 语义。
 - **键盘与 ARIA**：详见 §17。
@@ -487,8 +488,8 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 - **组头行**：展开 `▾ Staged Changes · 2`，折叠 `▸ Staged Changes · 2`；计数恒显，口径为 **item 行数**（同文件 staged+unstaged 计 2，与 Part I `workingItemCount` 一致——防止误读为文件数）。空组不渲染（沿用 Part I）。
 - **Collapse All**：当前 member 的所有目录 + 所有组头收起 → 只剩组头行列表，一屏看清改动分布。
 - **Expand All**：所有组 + 所有目录展开。
-- 两个按钮常驻行 3 右侧，图标用 VS Code 用户已认识的 collapse-all / expand-all 图形（内联 SVG，与现有 ⟳ 同风格）；可见提示用 §17 可聚焦 tooltip（"Collapse all" / "Expand all"，键盘可达），`aria-label` 承载可访问名称——二者分工、不互相替代，不依赖原生 `title`。
-- **Commits tab 下隐藏按钮内容但保留固定宽度的 action slot**——布局不抖动，也不暴露与当前 tab 无关的死操作（disabled 按钮通常不可聚焦，其 tooltip 解释难以触达，不如不渲染）；Files tab 无改动空态下按钮禁用。
+- 行 3 右侧用一个切换式折叠按钮：存在展开项时为 Collapse all，全部收起时为 Expand all；图形采用与刷新按钮同色、同笔触的单 chevron，语义由 §17 可聚焦 tooltip（"Collapse all" / "Expand all"，键盘可达）与 `aria-label` 说明——二者分工、不互相替代，不依赖原生 `title`。
+- **Commits tab** 复用同一按钮展开或收起已加载的 commit 行；没有已加载提交时禁用。Files tab 无改动空态同样禁用。
 - 作用域 = 当前选中 member；折叠状态沿用内存态（`collapsedFolders` + 新增 `collapsedGroups`），不持久化，`resetSession` 清空——与现状纪律一致。
 - ARIA：组头 button 带 `aria-expanded`。
 
@@ -497,21 +498,13 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 - **命名**：内层 tab 命名为 `Files | Commits`——外层 sidebar 视图已叫 "Changes"（telemetry 按钮），内层再叫 Changes 会形成"Changes 里的 Changes"两级同名，评审、测试、读屏报读三层都会绕。
 - **定位说明**：这是**面板内二级分段控件**，是一个新范式——Part I 体验迭代删除的是侧边栏 tab 行（视图切换器上收到 telemetry 按钮），本子 tab 不构成该决策的回退。规格：`role="tablist"` + `role="tab"` + `aria-selected`，`←`/`→` 方向键切换 tab。
 - 选中态持久化进 webview state（`conversationSidebar.changesSubTab`，新增键向后兼容），reload 后恢复；切 session 不重置（与 sidebar view 行为一致）。
-- **Files tab** 内容 = Part I §5.3 全部现状，唯一修改是 **Task result 摘要区扩展为两行明确语言**（§14.1 口径）：
-  ```
-  Since start · 5 files · 2 commits
-  Tracking origin/fix-x · 1 ahead · 3 behind
-  [Review this repository]
-  ```
-  （"Includes committed and uncommitted" 说明保留；tracking 行按 §14.1 降级。）
+- **Files tab** 内容 = Part I §5.3 的 Working changes 树；Task result 摘要、tracking 事实与 Review action 收敛至行 3 的 Review 图标 tooltip（§15.1），不再占用常驻面板高度。tooltip 保留 "Includes committed and uncommitted" 口径；tracking 按 §14.1 降级。
 
 ### 15.5 Commits 子 tab
 
 ```
 │  [ Files | Commits ]                      │
 │  ───────────────────────────────────────  │
-│  Since start · 3 commits                    │
-│  Tracking origin/fix-x · 1 ahead · 3 behind │
 │  ▾ ● a1b2c3d  fix: token refresh race     │
 │      hzcheng · 2h ago                     │
 │      M  src/auth/login.ts        +12 −3   │
@@ -526,7 +519,7 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 
 行为明细（验收标准）：
 
-1. **默认口径 Since start**（`<baseline>..<historyHead>`，完整可达 DAG，§14.3），按新到旧排序，**50 条/页分页**：范围未穷尽时底部 `Load more`，穷尽（`sectionComplete`）后才渲染 baseline 收尾行——未达真实边界不渲染（不暗示中间无遗漏）。标题区两行（§14.1 口径）：`Since start · N commits` + `Tracking origin/fix-x · 1 ahead · 3 behind`——N 是**该 member** 的 ahead 数，与 Files tab 摘要区的 commits 数同源同数；多 member 时 telemetry 按钮为聚合值，二者参考系不同、不互相比对（§10 第 1 条）。
+1. **默认口径 Since start**（`<baseline>..<historyHead>`，完整可达 DAG，§14.3），按新到旧排序，**50 条/页分页**：范围未穷尽时底部 `Load more`，穷尽（`sectionComplete`）后才渲染 baseline 收尾行——未达真实边界不渲染（不暗示中间无遗漏）。`Since start · N files · M commits` 与 tracking 信息仅在行 3 的 Review tooltip 中出现（§15.1）；Commits 不重复渲染两行标题，列表直接开始。多 member 时 telemetry 按钮为聚合值，Review 为当前 member，二者参考系不同、不互相比对（§10 第 1 条）。
 2. **commit 行**：chevron + tracking 徽标 + 短 SHA + subject（尾部省略）+ 第二行 `authorName · 相对时间`。**行级 tracking 徽标显示矩阵**（只陈述事实，§14.1 纪律；tooltip 用 §17 可聚焦机制）：
    | upstream | inTrackingBranch | 行级显示 |
    | --- | --- | --- |
@@ -557,10 +550,10 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 | 单 member（多数派场景） | ‹ › 与 `(i/n)` 隐藏、repo 名渲染为普通文本标题（非 disabled select，§15.1）；头部为行 1 标题 + 行 2 + 行 3 共三行——**记录决策：接受该垂直成本**，换取单/多仓库信息架构统一（行 2 分支恒可见对单仓库同样是 P1 修复） |
 | detached member | 保留可切换，行 1 标注 Outside workspace；upstream 标识独立降级 |
 | unmanaged 合成 member | 单 member 退化同上；branchName 缺失时行 2 显示 `(no branch)` |
-| 无 tracking branch | 摘要区第二行显示 `No tracking branch`；commit 行不显示徽标；**不推断"从未推送"**（§14.1 纪律） |
-| tracking 指向不同名分支（如 origin/main） | 照常按事实显示 `Tracking origin/main · N ahead · M behind`——语义依然成立（"相对跟踪分支的分叉"） |
+| 无 tracking branch | Review tooltip 显示 `No tracking branch`；commit 行不显示徽标；**不推断"从未推送"**（§14.1 纪律） |
+| tracking 指向不同名分支（如 origin/main） | Review tooltip 照常按事实显示 `Tracking origin/main · N ahead · M behind`——语义依然成立（"相对跟踪分支的分叉"） |
 | upstream 分叉（diverged） | ahead / behind 双非零照常显示 |
-| baseline 缺失 / 改写 | Commits 的 Since start 段降级文案；full history 仍可用 |
+| baseline 缺失 / 改写 | Commits 顶部保留降级说明条；full history 仍可用 |
 | member unreadable | Files 沿用 Part I partial 标注；Commits tab 提示态 |
 | retired session | 沿用 Part I retired 降级，查看对话不受影响 |
 | git 命令失败 / 超时（5s） | Commits 区独立 Error 态 + 重试，不拖垮 Files tab |
@@ -569,12 +562,12 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 
 ## 17. 视觉与交互规范（Part II，UI 摘要）
 
-- 图标：‹ › = chevron-left/right；Collapse/Expand All = VS Code collapse-all / expand-all 图形（内联 SVG，与现有 ⟳ 同风格）；SCM 出口 = **Source Control 图标**（不用 `↗`——动作发生在当前窗口，↗ 易被理解为外部打开）；commit 徽标 ●/○/✓。
+- 图标：‹ › = chevron-left/right；Collapse/Expand All = 与 ⟳ 同色、同笔触的单 chevron（状态由方向与 tooltip 表达）；Review = eye，与 Collapse/Expand All、⟳ 使用同一图标按钮样式；SCM 出口 = **Source Control 图标**（不用 `↗`——动作发生在当前窗口，↗ 易被理解为外部打开）；commit 徽标 ●/○/✓。
 - **Tooltip 基础设施 = 面板级 JS overlay（新组件）**：纯 CSS 伪元素方案（`conversation-telemetry-tooltip`）**逃不出面板与文件列表的 `overflow: hidden/auto` 裁剪容器**（滚动区顶部/底部文件行、右侧按钮、192px 窄宽都会截断），且 `content: attr(data-tooltip)` 不是可靠的读屏描述——因此实现 JS tooltip overlay：单一节点挂 body、`position: fixed` 逃出所有裁剪容器、按触发元素 JS 定位、`data-tooltip` 属性驱动、hover/focus 触发、Esc/blur/滚动/面板关闭时关闭、`aria-describedby` 关联触发元素（**可见提示与读屏描述同源**）。`aria-label` 承载可访问名称，tooltip 承载视觉提示，二者分工、不互相替代；**不依赖原生 `title`**；现状 ⟳/SCM 按钮的原生 `title` 一并迁移。
 - 色彩：全部沿用 vscode 主题变量；`No tracking branch` 与 `●`（Not in tracking branch）用中性 `descriptionForeground`，**不用 warning 色**（无 tracking 是 agent task 的常态，不应被误读为告警）。
 - 密度：头部行与子 tab 行均为紧凑行高（≈22px）；Commits 文件行与 Files 文件行同高、同缩进体系。
 - 动画：不做布局动画（沿用现状即时重排）；‹ › 切换不做滑动动画（兼容老 Chromium webview，不引入超出现状用法的 CSS 特性）。
-- **完整 Tab 序**：‹ → repo select → › → ⟳ → SCM 按钮 → 跨 member 提示（渲染时）→ 子 tab → Collapse/Expand All → 内容区（Review → 组头/目录/文件行）。
+- **完整 Tab 序**：‹ → repo select → › → SCM 按钮 → 分支 → 跨 member 提示（渲染时）→ 子 tab → Collapse/Expand All → ⟳ → Review（可用时）→ 内容区（组头/目录/文件行）。
 - **内容区键盘模型（对齐 VS Code 树形惯例，验收标准）**：
   - roving tabindex：整个内容区一个 Tab 停靠点，`↑`/`↓` 在可见项间移动；
   - `←`：已展开节点 → 折叠，已折叠或叶子节点 → 移到父节点；`→`：已折叠节点 → 展开，已展开节点 → 移到第一个子节点；
@@ -598,7 +591,7 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 - tracking 语义：无 tracking branch / tracking 指向不同名分支（如 origin/main）/ diverged 三态文案正确；push 或 fetch 后（HEAD 不变）分叉计数与行级徽标随失效签名刷新；
 - 边界提交：baseline 缺失、history rewritten、merge commit（first-parent 明细）、root commit；
 - 上限：since-start 200 条截断标注；单 commit 超 400 files 走 Review；
-- 显示：192px / 200% zoom / 高对比度主题下摘要两行与头部无溢出；
+- 显示：192px / 200% zoom / 高对比度主题下头部 action 行无溢出；Review tooltip 可读且不被裁剪；
 - 键盘与读屏：全键盘完成 §17 全部操作；所有图标按钮与徽标的可访问名称正确；
 - tooltip overlay：滚动区顶部/底部文件行、192px 窄宽、头部右侧按钮均无裁剪/错位；
 - 性能实测：tracking 采集增量 P95 ≤150ms（每 member ≤4 个新增 git 进程）；commits 首屏 P95 ≤300ms；
@@ -610,7 +603,7 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 
 - **本期，拆两个串行 PR**（每个都是完整产品增量，无半成品态），外加一个前置缺陷修复小 PR：
   - **PR-0（前置缺陷修复，独立小 PR）**：Task result 目前**排除 untracked**——`taskFileCount` 只跑 `git diff --name-only <baseline>`（tracked 差异），Review 同样只读 tracked diff——与 Part I §4.3"Task result ⊃ Working changes（含 untracked）"的承诺矛盾（Working 里看得到的 untracked 文件，Task result 数字与 Review 里没有）。修复为 tracked diff ∪ untracked 并集（Review 中 untracked 的 original 侧用 EMPTY_REF），含回归测试。**修实现，不改承诺**。
-  - **PR-A（头部 + Files 完成态）**：最终头部结构（行 1 repo 行：可见 label + 透明 select 覆盖层 / 行 2 分支行）、tracking 采集与 3 处协议同步（§14.4 字段）、Files 摘要区两行（§15.4）、‹ › 循环 + `(i/n)`、跨 member 提示升级（readable 口径）、组头可折叠 + Collapse/Expand All、**Files 内容区完整键盘模型（§17）**、**Files 滚动位置按 member 记忆（§15.2）**、**tooltip overlay 基础设施（§17，含现状 `title` 迁移）**、首开 320px 推荐（双状态位）。**PR-A 中间态定义**：行 3 仅渲染右侧 action slot（Collapse/Expand All），不渲染子 tab 控件，Files 为唯一视图；markup / 样式 / browser 测试按最终结构一次到位，避免两个 PR 重复重写；含受影响的 WORKTREE-CHANGES-PANEL-001 browser 测试重写与 behavior-contracts 登记。
+  - **PR-A（头部 + Files 完成态）**：最终头部结构（行 1 repo 行：可见 label + 透明 select 覆盖层 / 行 2 分支行）、tracking 采集与 3 处协议同步（§14.4 字段）、行 3 Review 图标及其 task/tracking tooltip（§15.1/§15.4）、‹ › 循环 + `(i/n)`、跨 member 提示升级（readable 口径）、组头可折叠 + Collapse/Expand All、**Files 内容区完整键盘模型（§17）**、**Files 滚动位置按 member 记忆（§15.2）**、**tooltip overlay 基础设施（§17，含现状 `title` 迁移）**、首开 320px 推荐（双状态位）。**PR-A 中间态定义**：行 3 仅渲染右侧 action slot（Collapse/Expand All），不渲染子 tab 控件，Files 为唯一视图；markup / 样式 / browser 测试按最终结构一次到位，避免两个 PR 重复重写；含受影响的 WORKTREE-CHANGES-PANEL-001 browser 测试重写与 behavior-contracts 登记。
   - **PR-B（Commits tab）**：子 tab 框架（Files | Commits，装入行 3 左槽）、§14.3 数据契约（四类消息 + requestId/generation 双重丢弃 + 分页模型）与失效纪律、Commits 列表 / 展开 / 分页 / 降级、parent↔commit 单文件 diff 与 `openCommitReview`、Commits 内容区键盘行为（§17 模型在 Commits 列表的实例化）、Commits 滚动位置与展开项按 member 记忆。
 - **P1**：base moved 标识（Part I 顺延）；live 脉冲标识；Graph ↗ 出口（探测 git-graph / GitLens 命令，缺失隐藏）；commit 搜索；目录搜索（Part I P1 保留）；Files 文件行 numstat（Part I P1 保留）；MRU / 智能切换顺序评估（先用固定顺序的 dogfooding 反馈验证）；跨 member Review all；事件埋点设施探索（§18）。
 - **P2**：commits 与 worktree 清理流程联动——"可清理"信号需先持久化 task branch 的 publication target 再评估（tracking 事实不足以推断 pushed，§14.1 纪律）。
@@ -701,7 +694,7 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 | PR-A/PR-B 半成品态 | PR-A 含最终头部结构 + Files 内容区**完整键盘模型**；行 3 中间态 = 仅右侧 action slot、不渲染子 tab 控件；markup/样式/测试一次到位避免重复重写。PR-B 只做 Commits 增量（§19） |
 | full history IA/协议未闭环 | 模型闭环：Since start 段保留 + baseline 行下方追加 Earlier commits 段；baseline 缺失/改写 → `Current branch history` 单列表；新增 `BaselineRow` 类型与采集；分页 = 冻结 `historyHead` + `--skip` + sha 去重 + HEAD 变化即重置；scope 按 member 记忆恢复（§14.3/§15.5） |
 | Commits 失效签名漏 upstream | 签名 = HEAD sha + baseline sha/availability + upstream fullRef + upstream resolved sha + ahead/behind；member 视图新增 `headSha` 与 `upstream` 字段（§14.3/§14.4） |
-| 摘要行符号不可读 | 放弃 ↑/⇡ 箭头区分参考系，改两行明确语言 `Since start · …` / `Tracking <upstream> · N ahead · M behind`（§14.1/§15.4/§15.5） |
+| 摘要行符号不可读 | 放弃 ↑/⇡ 箭头区分参考系，改为 Review tooltip 中的明确语言 `Since start · …` / `Tracking <upstream> · N ahead · M behind`（§14.1/§15.1/§15.5） |
 | 原生 `title` 不可靠 | 可见提示一律复用现有可聚焦 tooltip 机制（`conversation-telemetry-tooltip` 模式）；`aria-label` 与 tooltip 分工、不互相替代；全文禁止依赖原生 `title`（§17 及各处分发） |
 | disabled select 当静态标题 | 单 member 渲染普通文本标题，多 member 才渲染 select（改变现状行为，§15.1/§16） |
 | Commits 下禁用折叠按钮 | 改隐藏按钮内容、保留固定宽度 action slot（§15.3） |

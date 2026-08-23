@@ -158,6 +158,9 @@
     var changesBranchTail = document.querySelector(
         '[data-changes-branch-tail]'
     );
+    var changesBranchDivergence = document.querySelector(
+        '[data-changes-branch-divergence]'
+    );
     var changesLive = document.querySelector('[data-changes-live]');
     var changesRefresh = document.querySelector('[data-changes-refresh]');
     var changesCrossMember = document.querySelector(
@@ -168,13 +171,6 @@
     );
     var changesCrossMemberGo = document.querySelector(
         '[data-changes-cross-member-go]'
-    );
-    var changesTask = document.querySelector('[data-changes-task]');
-    var changesTaskSummary = document.querySelector(
-        '[data-changes-task-summary]'
-    );
-    var changesTaskTracking = document.querySelector(
-        '[data-changes-task-tracking]'
     );
     var changesReview = document.querySelector('[data-changes-review]');
     var changesFoldToggle = document.querySelector(
@@ -192,12 +188,6 @@
     );
     var changesCommitsView = document.querySelector(
         '[data-changes-commits-view]'
-    );
-    var changesCommitsSummary = document.querySelector(
-        '[data-changes-commits-summary]'
-    );
-    var changesCommitsTracking = document.querySelector(
-        '[data-changes-commits-tracking]'
     );
     var changesCommitsNotice = document.querySelector(
         '[data-changes-commits-notice]'
@@ -336,7 +326,6 @@
         && !!changesRepoTitle && !!changesRepoPicker && !!changesRepoLabel
         && !!changesRepoName && !!changesOutside && !!changesBranch
         && !!changesBranchPrefix && !!changesBranchTail && !!changesLive
-        && !!changesTask && !!changesTaskSummary && !!changesTaskTracking
         && !!changesReview
         && !!changesFoldToggle
         && !!changesGroups && !!changesEmpty
@@ -344,7 +333,6 @@
         && !!changesCrossMemberSummary && !!changesCrossMemberGo
         && !!telemetryChanges
         && !!changesSubtabs && !!changesFilesView && !!changesCommitsView
-        && !!changesCommitsSummary && !!changesCommitsTracking
         && !!changesCommitsNotice && !!changesCommitsList
         && !!changesCommitsEmpty && !!changesCommitsLoading
         && !!changesCommitsError && !!changesCommitsRetry
@@ -503,14 +491,12 @@
             branchRoot: changesBranch,
             branchPrefix: changesBranchPrefix,
             branchTail: changesBranchTail,
+            branchDivergence: changesBranchDivergence,
             liveRegion: changesLive,
             refreshButton: changesRefresh,
             crossMemberNote: changesCrossMember,
             crossMemberSummary: changesCrossMemberSummary,
             crossMemberGo: changesCrossMemberGo,
-            taskRoot: changesTask,
-            taskSummary: changesTaskSummary,
-            taskTracking: changesTaskTracking,
             reviewButton: changesReview,
             foldToggle: changesFoldToggle,
             groupsRoot: changesGroups,
@@ -520,8 +506,6 @@
             subtabs: changesSubtabs,
             filesView: changesFilesView,
             commitsView: changesCommitsView,
-            commitsSummary: changesCommitsSummary,
-            commitsTracking: changesCommitsTracking,
             commitsNotice: changesCommitsNotice,
             commitsList: changesCommitsList,
             commitsEmpty: changesCommitsEmpty,

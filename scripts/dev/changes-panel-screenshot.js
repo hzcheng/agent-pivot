@@ -134,6 +134,11 @@ async function main() {
                             worktreePath: '/wt/api',
                             availability: 'available', workingItemCount: 3,
                             aheadCount: 2, truncated: false,
+                            upstream: {
+                                status: 'tracked',
+                                fullRef: 'refs/remotes/origin/agent-pivot/fix-login',
+                                sha: 'b'.repeat(40), ahead: 10, behind: 34,
+                            },
                         }],
                         selectedMemberId: 'm-api',
                         detail: {

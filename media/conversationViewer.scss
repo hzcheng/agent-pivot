@@ -3118,14 +3118,9 @@ body.vscode-high-contrast-light {
     display: flex;
     flex: 1;
     font-size: 0.8em;
-    gap: 0.25rem;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
-}
-
-.conversation-changes-branch-icon {
-    flex: none;
 }
 
 .conversation-changes-branch-name {
@@ -3133,6 +3128,15 @@ body.vscode-high-contrast-light {
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    white-space: nowrap;
+}
+
+.conversation-changes-branch-divergence {
+    color: var(--vscode-descriptionForeground);
+    flex: none;
+    font-size: 0.9em;
+    font-variant-numeric: tabular-nums;
+    margin-left: 0.4rem;
     white-space: nowrap;
 }
 
@@ -3233,10 +3237,6 @@ body.vscode-high-contrast-light {
     &[hidden] {
         display: none;
     }
-}
-
-.conversation-changes-commits-header {
-    margin-bottom: 0.15rem;
 }
 
 .conversation-changes-commits-notice {
@@ -3404,46 +3404,6 @@ body.vscode-high-contrast-light {
     flex: none;
     flex-wrap: nowrap;
     gap: 0.1rem;
-}
-
-.conversation-changes-task {
-    align-items: baseline;
-    display: flex;
-    gap: 0.5rem;
-    justify-content: space-between;
-    padding: 0.1rem 0.2rem;
-
-    &[hidden] {
-        display: none;
-    }
-}
-
-.conversation-changes-task-lines {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-
-.conversation-changes-task-summary {
-    font-size: 0.85em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-// The tracking line states facts only — 'No tracking branch' is the
-// neutral steady state for agent worktrees, never a warning color
-// (PRD §17).
-.conversation-changes-task-tracking {
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.8em;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    &[hidden] {
-        display: none;
-    }
 }
 
 .conversation-changes-working {

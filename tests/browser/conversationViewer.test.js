@@ -15697,3 +15697,57 @@ test('WORKTREE-CHANGES-COMMITS-001 collapsing an in-flight detail keeps the row 
         'a collapsed row never re-expands from an in-flight response');
     assert.equal(await row.getAttribute('aria-expanded'), 'false');
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 focus falls back to the parent commit or the sub-tab when the focused row vanishes', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    // Expand the first commit and focus its file row.
+    const firstRow = page.locator('.conversation-changes-commit-row').first();
+    await firstRow.focus();
+    await page.keyboard.press('Enter');
+    const detailRequest = (await postedIntents(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commit-detail')
+        .at(-1);
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.classList.contains(
+            'conversation-changes-commit-file-row')), true);
+
+    // A changed signature silently refetches (§14.3.2): the paged rows
+    // are discarded and the focused file row vanishes — focus must land
+    // on the sub-tab, never the document body.
+    const moved = changesFixture();
+    moved.members[0].headSha = 'e'.repeat(40);
+    moved.members[0].aheadCount = 3;
+    await sendChanges(page, moved);
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-subtab="commits"]')),
+        true,
+        'focus retreats to the sub-tab while the list reloads (§17)');
+
+    // The refetched list renders; focus stays on the sub-tab until the
+    // user re-enters (no focus yanking from a background response).
+    await sendCommitsList(page, commitsFixture());
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-subtab="commits"]')),
+        true);
+});

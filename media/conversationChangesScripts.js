@@ -2206,10 +2206,24 @@
                 commitsMore.textContent = 'Load more';
             }
             setCommitsRowRoving();
-            if (refocusCommits && commitsFocusKey) {
-                var focusRow = rowByCommitsKey(commitsFocusKey);
+            if (refocusCommits) {
+                // The exact row may be gone after a refresh or cache
+                // invalidation: fall back to its parent commit row, then
+                // the first row, then the sub-tab itself — focus never
+                // falls to the document body (PRD §17).
+                var focusRow = rowByCommitsKey(commitsFocusKey)
+                    || (commitsFocusKey
+                        && rowByCommitsKey(
+                            String(commitsFocusKey).split('\0')[0]))
+                    || commitsRowRows()[0];
                 if (focusRow) {
                     focusCommitsRow(focusRow);
+                } else if (subtabsRoot) {
+                    var activeTab = subtabsRoot.querySelector(
+                        '[data-changes-subtab="' + activeSubTab + '"]');
+                    if (activeTab) {
+                        activeTab.focus();
+                    }
                 }
             }
         }

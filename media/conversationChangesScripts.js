@@ -55,13 +55,15 @@
         }
 
         function show(trigger) {
-            if (activeTrigger === trigger) {
-                return;
-            }
-            hide();
             var text = trigger.getAttribute('data-tooltip');
             if (!text) {
+                if (activeTrigger === trigger) {
+                    hide();
+                }
                 return;
+            }
+            if (activeTrigger !== trigger) {
+                hide();
             }
             var node = ensureOverlay();
             node.textContent = text;
@@ -349,6 +351,7 @@
         }
 
         function clearAuthoritativeContent() {
+            tooltip.hide();
             if (prevButton) prevButton.hidden = true;
             if (nextButton) nextButton.hidden = true;
             if (positionIndicator) {
@@ -508,6 +511,22 @@
             button.removeAttribute('title');
             button.setAttribute('aria-label', retired ? tooltip : aria);
             button.setAttribute('data-tooltip', tooltip);
+            updateToggle();
+        }
+
+        function resetButtonForSession() {
+            if (!button) return;
+            // Preserve the button node so it does not flash during a
+            // conversation handoff, but never let the outgoing session's
+            // worktree counts or repository details leak into the new one.
+            button.hidden = false;
+            button.classList.remove('conversation-telemetry-changes-unavailable');
+            if (buttonValue) {
+                buttonValue.textContent = '';
+            }
+            button.removeAttribute('title');
+            button.setAttribute('aria-label', 'Loading changes');
+            button.setAttribute('data-tooltip', 'Loading changes…');
             updateToggle();
         }
 
@@ -1415,6 +1434,10 @@
                 ensureCommits(state);
                 renderCommits(state);
             }
+            // The selected worktree may have changed while a panel tooltip
+            // was open. Close it rather than leaving a stale member's
+            // details on screen; the next hover/focus reads the new value.
+            tooltip.hide();
             void aggregate;
         }
 
@@ -2732,11 +2755,7 @@
                 updateFoldActions();
                 tooltip.hide();
                 clearAuthoritativeContent();
-                // Keep the already-rendered telemetry button through the
-                // session handoff, just like position/comments/subagents.
-                // The next authoritative changes state decides whether the
-                // new session supports it; hiding here made every Git
-                // session switch flash unnecessarily.
+                resetButtonForSession();
                 if (groupsRoot) {
                     clearChildren(groupsRoot);
                 }

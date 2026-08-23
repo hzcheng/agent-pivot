@@ -3964,6 +3964,49 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '            foldToggle: changesFoldToggle,\n',
                 '            collapseAllButton: changesCollapseAll,\n' +
                 '            expandAllButton: changesExpandAll,\n')
+        // Strips the branch divergence display wiring: the previous
+        // generation only rendered the branch name in its second row.
+        .replace(
+                '    var changesBranchDivergence = document.querySelector(\n' +
+                "        '[data-changes-branch-divergence]'\n" +
+                '    );\n',
+                '')
+        .replace(
+                '            branchDivergence: changesBranchDivergence,\n',
+                '')
+        // Restores the task-summary wiring removed from the current panel.
+        // The adjacent Viewer fixture predates that compaction and must stay
+        // byte-identical to its checked-in historical generation.
+        .replace(
+                '    var changesCrossMemberGo = document.querySelector(\n' +
+                "        '[data-changes-cross-member-go]'\n" +
+                '    );\n' +
+                "    var changesReview = document.querySelector('[data-changes-review]');\n",
+                '    var changesCrossMemberGo = document.querySelector(\n' +
+                "        '[data-changes-cross-member-go]'\n" +
+                '    );\n' +
+                "    var changesTask = document.querySelector('[data-changes-task]');\n" +
+                '    var changesTaskSummary = document.querySelector(\n' +
+                "        '[data-changes-task-summary]'\n" +
+                '    );\n' +
+                '    var changesTaskTracking = document.querySelector(\n' +
+                "        '[data-changes-task-tracking]'\n" +
+                '    );\n' +
+                "    var changesReview = document.querySelector('[data-changes-review]');\n")
+        .replace(
+                '        && !!changesBranchPrefix && !!changesBranchTail && !!changesLive\n' +
+                '        && !!changesReview\n',
+                '        && !!changesBranchPrefix && !!changesBranchTail && !!changesLive\n' +
+                '        && !!changesTask && !!changesTaskSummary && !!changesTaskTracking\n' +
+                '        && !!changesReview\n')
+        .replace(
+                '            crossMemberGo: changesCrossMemberGo,\n' +
+                '            reviewButton: changesReview,\n',
+                '            crossMemberGo: changesCrossMemberGo,\n' +
+                '            taskRoot: changesTask,\n' +
+                '            taskSummary: changesTaskSummary,\n' +
+                '            taskTracking: changesTaskTracking,\n' +
+                '            reviewButton: changesReview,\n')
         // Strips the Commits sub-tab wiring (PRD §15.4): the
         // previous-generation script had no sub-tab handles, no commits
         // options, and no restoreSubTab call.
@@ -13682,6 +13725,10 @@ test('WORKTREE-CHANGES-PANEL-001 puts selected-member tracking facts in the Revi
     assert.equal(
         (await review.getAttribute('data-tooltip')).includes(
             'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind'), true);
+    await review.hover();
+    const overlay = page.locator('.conversation-tooltip-overlay');
+    assert.ok((await overlay.innerText()).includes(
+        'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind'));
 
     // The line follows the selected member: web has no tracking branch —
     // a stated fact in neutral descriptionForeground, never a warning.
@@ -13696,6 +13743,14 @@ test('WORKTREE-CHANGES-PANEL-001 puts selected-member tracking facts in the Revi
     });
     assert.ok((await review.getAttribute('data-tooltip')).includes(
         'No tracking branch'));
+    assert.equal(await overlay.isHidden(), true,
+        'a state refresh closes a visible hint instead of leaving stale details');
+    await page.mouse.move(0, 0);
+    await review.hover();
+    assert.ok((await overlay.innerText()).includes('No tracking branch'),
+        'the next hover reads the refreshed selected member');
+    assert.equal((await overlay.innerText()).includes('origin/agent-pivot'),
+        false, 'the next hover never restores the previous member details');
 
     // unknown: the query failed — never rendered as a fact.
     const unknownState = {
@@ -13717,6 +13772,8 @@ test('WORKTREE-CHANGES-PANEL-001 puts selected-member tracking facts in the Revi
     const bareState = changesFixture();
     await sendChanges(page, bareState);
     assert.equal(await review.isVisible(), true);
+    assert.equal((await review.getAttribute('data-tooltip')).includes('Tracking'),
+        false, 'members without upstream data do not invent a tracking line');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 hides Review when task facts are unknown and never zero-washes counts', async t => {
@@ -14372,6 +14429,15 @@ test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset',
         window.__changesButtonBeforeSessionReset
             === document.querySelector('[data-telemetry-changes]')), true,
     'the handoff keeps the same button node rather than flashing a replacement');
+    assert.equal(await page.locator('[data-telemetry-changes-value]').innerText(),
+        '', 'the old session\'s counts disappear before the new state arrives');
+    assert.equal(await changesButton.getAttribute('aria-label'),
+        'Loading changes');
+    assert.equal(await changesButton.getAttribute('data-tooltip'),
+        'Loading changes…');
+    assert.equal((await changesButton.getAttribute('class')).includes(
+        'conversation-telemetry-changes-unavailable'), false,
+    'the old session\'s unavailable state cannot leak into the handoff');
 
     // The new session's state starts from clean fold defaults even though
     // the member ids repeat.

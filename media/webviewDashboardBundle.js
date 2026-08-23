@@ -560,25 +560,12 @@ function restoreAiSessionListAnchor(list, anchor) {
     });
 }
 
-function getFocusedAiSessionCardIdentity(projectDiv) {
-    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return null;
-    var row = projectDiv.querySelector(
-        '.codex-sessions .codex-session-row'
-        + '[data-session-focused][data-session-provider][data-session-id]'
-    );
-    return row ? {
-        provider: row.getAttribute('data-session-provider') || '',
-        sessionId: row.getAttribute('data-session-id') || '',
-    } : null;
-}
-
 function captureAiSessionViewState(projectDiv) {
     // M2 panels: CHATS (tree) scrolls its worktree list; ALL scrolls the
     // history list. Both anchors ride every authoritative replacement.
     var chatsList = projectDiv.querySelector('.ai-session-chats-panel .ai-session-worktree-list');
     var allList = projectDiv.querySelector('.ai-session-history-panel .codex-sessions-list');
     var focused = typeof document !== 'undefined' ? document.activeElement : null;
-    var focusedSession = getFocusedAiSessionCardIdentity(projectDiv);
     var focusedInside = focused && typeof focused.closest === 'function'
         && (focused.closest('.project[data-id]')
             || focused.closest('[data-open-session-surface][data-id]')) === projectDiv;
@@ -597,7 +584,6 @@ function captureAiSessionViewState(projectDiv) {
         pendingCount: projectDiv.querySelectorAll('.active-ai-session-row[data-session-pending]').length,
         activeCount: projectDiv.querySelectorAll('.active-ai-session-row[data-session-active]').length,
         restoreFocus: !!focusedInside,
-        focusedSession: focusedSession,
         focusedTab: focusedTab && focusedTab.getAttribute('data-ai-session-tab'),
         focusedRow: focusedRow ? {
             provider: focusedRow.getAttribute('data-session-provider') || '',
@@ -704,34 +690,6 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
         restoreAiSessionViewFocus(projectDiv, viewState, selectedTab);
     }
     return selectedTab;
-}
-
-function revealChangedFocusedAiSessionCard(root, states) {
-    if (!root || typeof root.querySelectorAll !== 'function'
-        || !states || typeof states.get !== 'function') return;
-    root.querySelectorAll('[data-open-session-surface][data-current-workspace][data-id]').forEach(projectDiv => {
-        var state = states.get(projectDiv.getAttribute('data-id'));
-        var previous = state && state.view ? state.view.focusedSession : null;
-        var row = projectDiv.querySelector(
-            '.ai-session-chats-panel .codex-session-row[data-session-focused]'
-            + '[data-session-provider][data-session-id]'
-        );
-        if (!row) return;
-        var provider = row.getAttribute('data-session-provider') || '';
-        var sessionId = row.getAttribute('data-session-id') || '';
-        if (previous && previous.provider === provider && previous.sessionId === sessionId) {
-            return;
-        }
-        // Session focus moved to this card during the authoritative refresh:
-        // surface it instead of preserving the stale scroll position.
-        var panel = row.closest('[data-ai-session-panel]');
-        if (panel && panel.hidden) {
-            selectAiSessionTabDom(projectDiv, 'chats');
-            writeAiSessionTabState(window.vscode, projectDiv.getAttribute('data-id'), 'chats');
-            postSelectedAiSessionViewTab(projectDiv.getAttribute('data-id'), 'chats');
-        }
-        row.scrollIntoView({ block: 'nearest' });
-    });
 }
 
 function captureAiSessionProviderMenuState(projectDiv) {
@@ -996,7 +954,6 @@ function applyWorkspaceUpdate(message, options) {
             && options.canRestoreAiSessionProviderMenu(projectId)
     );
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
-    revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();
     }
@@ -1299,7 +1256,6 @@ function applyOpenWorkspacesUpdate(message, options) {
     }
     restoreCurrentWorkspaceAiSessionViewStates(wrapper, aiSessionStates);
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
-    revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     reconcilePendingOpenWorkspacePins(wrapper);
     // Replay the navigation pending/error row state before restoring focus so
     // an error row's Retry control is visible (focusable) again. The caller

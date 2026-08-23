@@ -116,7 +116,6 @@ function applyWorkspaceUpdate(message, options) {
             && options.canRestoreAiSessionProviderMenu(projectId)
     );
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
-    revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     if (typeof window.__agentPivotSyncCollapseButton === 'function') {
         window.__agentPivotSyncCollapseButton();
     }
@@ -419,7 +418,6 @@ function applyOpenWorkspacesUpdate(message, options) {
     }
     restoreCurrentWorkspaceAiSessionViewStates(wrapper, aiSessionStates);
     restoreCurrentWorkspaceAiSessionAnchorsAndFocus(wrapper, aiSessionStates);
-    revealChangedFocusedAiSessionCard(wrapper, aiSessionStates);
     reconcilePendingOpenWorkspacePins(wrapper);
     // Replay the navigation pending/error row state before restoring focus so
     // an error row's Retry control is visible (focusable) again. The caller

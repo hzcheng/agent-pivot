@@ -358,7 +358,11 @@ export class CommitsCollector {
                 '-C', worktreePath, 'log', '-1', '--format=%s', baselineSha,
             ], worktreePath);
             const subject = result.stdout.trim();
-            return subject ? { subject } : {};
+            // Bounded like commit subjects (PRD §14.3.5): the baseline
+            // row renders it into DOM text and a tooltip.
+            return subject
+                ? { subject: subject.slice(0, MAX_SUBJECT_LENGTH) }
+                : {};
         } catch (_error) {
             return {};
         }

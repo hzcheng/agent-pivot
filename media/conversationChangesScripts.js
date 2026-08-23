@@ -1419,6 +1419,10 @@
         // scroll survive a member switch; the invalidation signature
         // (§14.3 失效纪律) drops them when the underlying refs move.
         var commitsCaches = new Map();
+        // Bounds (panel-lifetime memory discipline): at most 16 member
+        // caches, at most 32 expanded commit details per member.
+        var COMMITS_CACHE_MEMBER_LIMIT = 16;
+        var COMMITS_EXPANDED_LIMIT = 32;
         // Roving-focus identity across re-renders: '<sha>' for a commit
         // row, '<sha>\0<file path>' for a file row, '<sha>\0review' for
         // the review action row.
@@ -1446,6 +1450,7 @@
             cache.earlierHasMore = false;
             cache.earlierOffset = 0;
             cache.expanded = Object.create(null);
+            cache.expandedOrder = [];
             cache.pageLoading = false;
             cache.latestListRequestId = null;
             cache.latestDetailRequestIds = Object.create(null);
@@ -1487,6 +1492,7 @@
                 earlierOffset: 0,
                 earlierCommits: [],
                 expanded: Object.create(null),
+                expandedOrder: [],
                 scrollTop: 0,
                 latestListRequestId: null,
                 latestDetailRequestIds: Object.create(null),
@@ -1507,6 +1513,12 @@
                 fresh.earlierActive = cache.earlierActive;
             }
             commitsCaches.set(member.memberId, fresh);
+            if (commitsCaches.size > COMMITS_CACHE_MEMBER_LIMIT) {
+                var oldest = commitsCaches.keys().next().value;
+                if (oldest && oldest !== member.memberId) {
+                    commitsCaches.delete(oldest);
+                }
+            }
             return fresh;
         }
 
@@ -1631,7 +1643,10 @@
                         && validCommitSha(message.baselineRow.sha)
                         && (message.baselineRow.subject === undefined
                             || typeof message.baselineRow.subject
-                                === 'string')));
+                                === 'string')
+                        && (message.baselineRow.subject === undefined
+                            || message.baselineRow.subject.length
+                                <= 1024)));
         }
 
         function validCommitDetailMessage(message) {
@@ -1984,6 +1999,9 @@
             var reviewButton = document.createElement('button');
             reviewButton.type = 'button';
             reviewButton.className = 'conversation-changes-action';
+            // The treeitem row is the single Tab stop (PRD §17); the
+            // button activates via the row's Enter/Space handling.
+            reviewButton.tabIndex = -1;
             reviewButton.textContent = 'Review this commit';
             reviewButton.addEventListener('click', function () {
                 postAction({
@@ -2002,8 +2020,16 @@
         function toggleCommitExpanded(member, cache, sha) {
             if (cache.expanded[sha]) {
                 delete cache.expanded[sha];
+                cache.expandedOrder = cache.expandedOrder.filter(
+                    function (entry) { return entry !== sha; });
             } else {
                 cache.expanded[sha] = { status: 'loading' };
+                cache.expandedOrder.push(sha);
+                // Evict the oldest expanded detail beyond the bound.
+                while (cache.expandedOrder.length > COMMITS_EXPANDED_LIMIT) {
+                    var evicted = cache.expandedOrder.shift();
+                    delete cache.expanded[evicted];
+                }
                 requestCommitDetail(member.memberId, sha);
             }
             renderCommitsIfVisible();
@@ -2282,6 +2308,16 @@
                 return;
             }
             if (!isCommitRow || !member || !cache) {
+                // A leaf's ArrowLeft moves to its parent commit row
+                // (PRD §17 — same rule as the Files tree).
+                if (event.key === 'ArrowLeft' && !isCommitRow && sha) {
+                    event.preventDefault();
+                    var parentRow = rowByCommitsKey(sha);
+                    if (parentRow) {
+                        focusCommitsRow(parentRow);
+                    }
+                    return;
+                }
                 // File and review rows are leaves: Enter/Space activates.
                 if ((event.key === 'Enter' || event.key === ' ')
                     && !isCommitRow) {

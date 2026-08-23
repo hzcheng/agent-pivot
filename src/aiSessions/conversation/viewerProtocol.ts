@@ -470,7 +470,7 @@ export function parseConversationViewerMessage(
         ])) {
             return undefined;
         }
-        if (!isRequestId(value.requestId)
+        if (!isCommitsRequestId(value.requestId)
             || !isChangesActionBinding(value)
             || !isChangesMemberId(value.memberId)
             || (value.scope !== 'since-start' && value.scope !== 'full')
@@ -489,7 +489,7 @@ export function parseConversationViewerMessage(
             'type', 'version', 'requestId', 'subscriptionGeneration',
             'projectId', 'provider', 'sessionId', 'memberId', 'sha',
         ])
-            || !isRequestId(value.requestId)
+            || !isCommitsRequestId(value.requestId)
             || !isChangesActionBinding(value)
             || !isChangesMemberId(value.memberId)
             || !isFullCommitSha(value.sha)) {
@@ -510,7 +510,7 @@ export function parseConversationViewerMessage(
         ])) {
             return undefined;
         }
-        if (!isRequestId(value.requestId)
+        if (!isCommitsRequestId(value.requestId)
             || !isChangesActionBinding(value)
             || !isChangesMemberId(value.memberId)
             || !isFullCommitSha(value.sha)
@@ -846,6 +846,14 @@ function isChangesFilePath(value: unknown): value is string {
 
 function isFullCommitSha(value: unknown): value is string {
     return typeof value === 'string' && /^[0-9a-f]{40}$/u.test(value);
+}
+
+/**
+ * Commits requestIds are intentionally narrower than the generic
+ * requestId charset (PRD §14.3.5): webview-generated, dash-joined.
+ */
+function isCommitsRequestId(value: unknown): value is string {
+    return typeof value === 'string' && /^[A-Za-z0-9-]{1,64}$/u.test(value);
 }
 
 function isRequestId(value: unknown): value is string {

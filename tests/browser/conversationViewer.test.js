@@ -15612,3 +15612,51 @@ test('WORKTREE-CHANGES-COMMITS-001 the commits list implements the keyboard mode
         document.activeElement.getAttribute('data-commit-sha')),
         'c'.repeat(40));
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 ArrowLeft on a leaf row moves to the parent commit and the review row is no Tab stop', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    const firstRow = page.locator('.conversation-changes-commit-row').first();
+    await firstRow.focus();
+    await page.keyboard.press('Enter');
+    const detailRequest = (await postedIntents(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commit-detail')
+        .at(-1);
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+
+    // The review row owns the keyboard stop; its button is not a separate
+    // Tab stop (PRD §17 one-stop tree).
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-review-row button')
+        .getAttribute('tabindex'), '-1');
+
+    // ArrowDown into the file row, ArrowLeft back to the parent commit.
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.classList.contains(
+            'conversation-changes-commit-file-row')), true);
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.classList.contains(
+            'conversation-changes-commit-row')), true,
+        'a leaf row\'s ArrowLeft lands on its parent commit');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.getAttribute('data-commit-sha')),
+        'c'.repeat(40));
+});

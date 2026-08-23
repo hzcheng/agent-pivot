@@ -768,4 +768,14 @@ test('WORKTREE-CHANGES-COMMITS-001 parses commits requests with binding and requ
     assert.equal(parseConversationViewerMessage(unbound), undefined);
     assert.equal(parseConversationViewerMessage(
         { ...list, subscriptionGeneration: 0 }), undefined);
+    // §14.3.5: commits requestIds are narrower than the generic
+    // requestId charset — dash-joined, 1..64 chars.
+    assert.equal(parseConversationViewerMessage(
+        { ...list, requestId: 'with_underscore' }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...list, requestId: 'a'.repeat(65) }), undefined);
+    assert.deepEqual(
+        parseConversationViewerMessage(
+            { ...list, requestId: 'a'.repeat(64) }),
+        { ...list, requestId: 'a'.repeat(64) });
 });

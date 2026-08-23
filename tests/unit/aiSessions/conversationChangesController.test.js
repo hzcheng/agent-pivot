@@ -742,3 +742,76 @@ test('WORKTREE-CHANGES-COMMITS-001 a rewritten-away commit toasts and triggers a
     await controller.handleCommitReview({ memberId: 'member-1', sha });
     assert.equal(toasts.length, 2);
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 a vanished commit during detail load also toasts and refreshes', async () => {
+    const sha = 'c'.repeat(40);
+    const toasts = [];
+    const { posted, controller } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+                degraded: 'unknown-commit',
+            }),
+            commitExists: async () => false,
+        },
+        showToast: message => toasts.push(message),
+    });
+    await controller.activate(TARGET);
+    const before = posted.length;
+    await controller.handleCommitDetail({
+        requestId: 'req-9', memberId: 'member-1', sha,
+    });
+    assert.deepEqual(toasts,
+        ['Commit no longer exists (history rewritten).'],
+        'unknown-commit surfaces as a toast, not a silent retry loop');
+    const response = posted.find(message =>
+        message.type === 'conversation-viewer-commit-detail');
+    assert.equal(response.degraded, 'unknown-commit',
+        'the row still settles its pending state');
+    for (let attempt = 0; attempt < 100
+        && !posted.slice(before).some(message =>
+            message.type === 'conversation-viewer-changes'); attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.ok(posted.slice(before).some(message =>
+        message.type === 'conversation-viewer-changes'),
+        'a refresh push follows (invalidation re-collects)');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 diff and review open failures surface as host toasts', async () => {
+    const sha = 'c'.repeat(40);
+    const toasts = [];
+    const detail = {
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1, filesTruncated: false, parentSha: 'b'.repeat(40),
+    };
+    const { controller } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => detail,
+            commitExists: async () => true,
+        },
+        openCommitFileDiff: async () => {
+            throw new Error('editor gone');
+        },
+        openCommitReview: async () => {
+            throw new Error('changes api gone');
+        },
+        showToast: message => toasts.push(message),
+    });
+    await controller.activate(TARGET);
+    await controller.handleCommitOpenFile({
+        memberId: 'member-1', sha, path: 'src/a.ts',
+    });
+    await controller.handleCommitReview({ memberId: 'member-1', sha });
+    assert.deepEqual(toasts, [
+        'Failed to open the file diff.',
+        'Failed to open the commit review.',
+    ], 'open failures toast instead of vanishing (PRD §14.3)');
+});

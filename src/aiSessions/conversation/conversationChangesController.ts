@@ -450,6 +450,12 @@ export class ConversationChangesController {
         if (this.active !== active) {
             return;
         }
+        if (result.degraded === 'unknown-commit') {
+            // The commit vanished mid-session (rebase rewrite): toast +
+            // refresh like the open-file/review paths (PRD §15.5.9). The
+            // response still settles the row's pending state below.
+            this.handleVanishedCommit(active);
+        }
         this.postCommitsResponse(panel, {
             type: 'conversation-viewer-commit-detail',
             version: 1,
@@ -495,11 +501,16 @@ export class ConversationChangesController {
         if (!file || detail.degraded) {
             return;
         }
-        await this.options.openCommitFileDiff(
-            member.worktreePath, input.sha, detail.parentSha,
-            { path: file.path, ...(file.oldPath
-                ? { oldPath: file.oldPath }
-                : {}) });
+        try {
+            await this.options.openCommitFileDiff(
+                member.worktreePath, input.sha, detail.parentSha,
+                { path: file.path, ...(file.oldPath
+                    ? { oldPath: file.oldPath }
+                    : {}) });
+        } catch (error) {
+            this.options.onError?.('Failed to open the commit diff.', error);
+            this.options.showToast?.('Failed to open the file diff.');
+        }
     }
 
     /** "Review this commit" multi-diff (PRD §15.5.5). */
@@ -525,13 +536,19 @@ export class ConversationChangesController {
         if (detail.degraded) {
             return;
         }
-        await this.options.openCommitReview(
-            member.worktreePath,
-            input.sha,
-            detail.parentSha,
-            `Commit ${input.sha.slice(0, 7)} · ${member.repoLabel} (${member.branchName})`,
-            detail.files,
-            detail.totalFiles);
+        try {
+            await this.options.openCommitReview(
+                member.worktreePath,
+                input.sha,
+                detail.parentSha,
+                `Commit ${input.sha.slice(0, 7)} · ${member.repoLabel} (${member.branchName})`,
+                detail.files,
+                detail.totalFiles);
+        } catch (error) {
+            this.options.onError?.('Failed to open the commit review.',
+                error);
+            this.options.showToast?.('Failed to open the commit review.');
+        }
     }
 
     /**

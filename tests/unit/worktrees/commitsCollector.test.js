@@ -298,3 +298,17 @@ test('WORKTREE-CHANGES-COMMITS-001 parsers bound their inputs', () => {
     assert.deepEqual(stats.get('bin.png'),
         { additions: undefined, deletions: undefined });
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 the baseline row subject is bounded like commit subjects', async () => {
+    const longSubject = 'x'.repeat(5000);
+    const { execGit } = scriptGit([
+        [has('rev-parse'), `${HEAD}\n`],
+        [has('log', '-1'), `${longSubject}\n`],
+        [has('log'), commitRow(C1, 'only', 'hz', 1) + '\n'],
+    ]);
+    const collector = new CommitsCollector({ execGit });
+    const result = await collector.list('/wt',
+        { scope: 'since-start', offset: 0 }, BASE);
+    assert.equal(result.baselineRow.subject.length, 1024,
+        'an unbounded baseline subject never reaches the webview');
+});

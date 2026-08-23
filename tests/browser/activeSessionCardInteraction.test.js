@@ -792,7 +792,7 @@ test('WEBVIEW-CURRENT-WINDOW-SESSION-FIT-001 keeps the lifted session surface pe
     assert.equal(await page.locator('.open-current-workspace-group').count(), 0);
 });
 
-test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI or open-workspaces refresh moves focus', async t => {
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 preserves the selected panel when an atomic refresh changes focus', async t => {
     const active = Array.from({ length: 8 }, (_, index) => session(
         'codex', `active-${index + 1}`, index === 0
     ));
@@ -810,7 +810,8 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI 
         ...entry,
         focused: index === 6,
     })), history);
-    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), false,
+        'a status refresh must preserve the CHATS viewport instead of revealing a new focus');
 
     await page.locator('[data-ai-session-tab="all"]').click();
     assert.equal(
@@ -822,10 +823,45 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 reveals the newly focused card when an AI 
         focused: index === 1,
     })), history, 'active', 3);
     assert.equal(
-        await page.locator('[data-ai-session-tab="chats"]').getAttribute('aria-selected'),
+        await page.locator('[data-ai-session-tab="all"]').getAttribute('aria-selected'),
         'true'
     );
-    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-2')), true);
+    assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-2')), false,
+        'an OPEN replacement must not switch tabs or scroll solely for a status focus change');
+});
+
+test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps the CHATS anchor and focus when attention clears', async t => {
+    const active = Array.from({ length: 8 }, (_, index) => session(
+        'codex', `active-${index + 1}`, index === 4
+    ));
+    const page = await openListPage(t, active, []);
+    const attentionRow = row(page, 'codex', 'active-5');
+    await waitForPageCondition(page, () => {
+        const list = document.querySelector('[data-ai-session-panel="chats"] .ai-session-worktree-list');
+        return list && list.scrollHeight > list.clientHeight;
+    });
+    await postHostMessage(page, presentationMessage(active, 1, {
+        attention: { 'codex:active-5': ['event-attention'] },
+        revealFocused: true,
+    }));
+    const before = await attentionRow.evaluate(node => {
+        const list = node.closest('.ai-session-worktree-list');
+        list.scrollTop = node.offsetTop - list.offsetTop - 22;
+        node.querySelector('.ai-session-primary-action').focus();
+        return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
+    });
+
+    await postListAiSessionsUpdate(page, active, [], 'active', 2);
+    const restored = row(page, 'codex', 'active-5');
+    assert.ok(Math.abs((await relativeTop(restored)) - before) <= 1,
+        'clearing the attention marker must retain the reader\'s CHATS anchor');
+    assert.equal(
+        await restored.locator('.ai-session-primary-action').evaluate(node => document.activeElement === node),
+        true,
+        'the replacement restores focus to the activated chat action',
+    );
+    assert.equal(await restored.locator('.ai-session-attention-indicator').count(), 0,
+        'the cleared presentation removes the attention marker in place');
 });
 
 test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when older HTML arrives later', async t => {

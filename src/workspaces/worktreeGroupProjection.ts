@@ -102,12 +102,6 @@ export interface WorktreeAdoptSuggestion {
     }[];
 }
 
-const ACTIVITY_ORDER: Record<WorktreeActivity, number> = {
-    attention: 0,
-    active: 1,
-    idle: 2,
-};
-
 /**
  * Pure projection from the raw Git snapshot + the authoritative group
  * manifest to the Worktree tab's row model (docs/worktree-tasks-prd.md §10).
@@ -279,10 +273,13 @@ export function buildWorktreeGroupProjection(
         }
     }
 
+    // Position is independent from volatile activity: clearing an attention
+    // badge must update only that group's state, never move the whole row.
+    // `groupId` is immutable, so it is a deterministic tie-breaker when two
+    // groups are created in the same clock tick (unlike a renameable label).
     groupRows.sort((left, right) =>
-        ACTIVITY_ORDER[left.activity] - ACTIVITY_ORDER[right.activity]
-        || createdAtOf(input.groups, right.groupId) - createdAtOf(input.groups, left.groupId)
-        || left.displayName.localeCompare(right.displayName));
+        createdAtOf(input.groups, right.groupId) - createdAtOf(input.groups, left.groupId)
+        || left.groupId.localeCompare(right.groupId));
 
     const unmanaged: ReadyWorktreeRow[] = [];
     for (const repository of repositories) {

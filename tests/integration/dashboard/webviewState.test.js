@@ -718,8 +718,8 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     assert.doesNotMatch(treePanel, /data-session-id="feature-session"/,
         'the CHATS tree never duplicates history sessions');
     assert.match(html, /data-worktree-activity="attention"/);
-    assert.ok(html.indexOf('feature/auth') < html.indexOf('feature/idle'),
-        'attention worktrees render first while stable snapshot order breaks ties');
+    assert.ok(html.indexOf('feature/idle') < html.indexOf('feature/auth'),
+        'status changes retain the stable snapshot order instead of moving attention worktrees');
     assert.match(html, /feature\/idle[\s\S]*?locked[\s\S]*?\(no active sessions\)/);
     assert.match(html, /2 more worktrees not shown/);
     assert.match(html, /data-action="toggle-ai-session-worktree"/);

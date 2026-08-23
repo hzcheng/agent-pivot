@@ -1215,12 +1215,10 @@ const guards = {
         ) || !hasValidFocusedTargetReturn
             || webviewScriptSources.some(source =>
                 source.includes('activeAiSessionTerminalState'))
-            || focusMarkerReadOwners.length !== 4
+            || focusMarkerReadOwners.length !== 2
             || ![
                 'focusAiSessionConversationOrigin',
                 'getAiSessionCardActivation',
-                'getFocusedAiSessionCardIdentity',
-                'revealChangedFocusedAiSessionCard',
             ].every(owner => focusMarkerReadOwners.filter(candidate =>
                 candidate === owner).length === 1)) {
             fail(this.id, risk,

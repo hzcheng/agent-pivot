@@ -856,6 +856,77 @@ test('WORKTREE-GROUPS-UI-001 authoritative updates preserve the worktree list sc
         'a refresh must not snap the worktree panel back to the top');
 });
 
+test('WORKTREE-GROUPS-ORDER-001 preserves rendered group order when attention clears', async t => {
+    const renderedGroups = olderActivity => surface({
+        worktreeGroups: [
+            groupRow({ groupId: 'g-newer', displayName: 'newer task', activity: 'active' }),
+            groupRow({
+                groupId: 'g-older', displayName: 'older task', activity: olderActivity,
+                members: [member({
+                    memberId: 'm-older', path: '/alpha/.worktrees/older-task',
+                    worktreeKey: {
+                        repositoryKey: '/alpha/.git',
+                        canonicalWorktreePath: '/alpha/.worktrees/older-task',
+                    },
+                })],
+            }),
+        ],
+    });
+    const initial = () => renderedGroups('attention');
+    const settled = () => renderedGroups('active');
+    const { page, applyUpdate, replacement } = await openGroupActionsPage(t, initial, settled);
+    const groupIds = () => page.locator('.ai-session-worktree-task-group')
+        .evaluateAll(rows => rows.map(row => row.getAttribute('data-group-id')));
+
+    assert.deepEqual(await groupIds(), ['g-newer', 'g-older']);
+    assert.equal(await applyUpdate(replacement()), true);
+    assert.deepEqual(await groupIds(), ['g-newer', 'g-older']);
+});
+
+test('WORKTREE-GROUPS-ORDER-001 preserves unmanaged worktree order when attention clears', async t => {
+    const worktrees = secondActivity => [
+        {
+            kind: 'ready',
+            git: {
+                key: {
+                    repositoryKey: '/alpha/.git',
+                    canonicalWorktreePath: '/alpha/.worktrees/first',
+                },
+                branchRef: 'refs/heads/first', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            },
+            activity: 'active', sessions: [], authority: { canResume: true, canRemove: true },
+        },
+        {
+            kind: 'ready',
+            git: {
+                key: {
+                    repositoryKey: '/beta/.git',
+                    canonicalWorktreePath: '/beta/.worktrees/second',
+                },
+                branchRef: 'refs/heads/second', head: 'b'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            },
+            activity: secondActivity, sessions: [], authority: { canResume: true, canRemove: true },
+        },
+    ];
+    const initial = () => surface({ worktrees: worktrees('attention') });
+    const settled = () => surface({ worktrees: worktrees('active') });
+    const { page, applyUpdate, replacement } = await openGroupActionsPage(t, initial, settled);
+    const paths = () => page.locator('.ai-session-worktree-group:not(.ai-session-worktree-anchor)')
+        .evaluateAll(rows => rows.map(row => row.getAttribute('data-worktree-path')));
+
+    assert.deepEqual(await paths(), [
+        '/alpha/.worktrees/first',
+        '/beta/.worktrees/second',
+    ]);
+    assert.equal(await applyUpdate(replacement()), true);
+    assert.deepEqual(await paths(), [
+        '/alpha/.worktrees/first',
+        '/beta/.worktrees/second',
+    ]);
+});
+
 async function openGroupActionsPage(t, sessionHtml, replacementHtml) {
     const groupHtml = () =>
         `<div class="open-session-surface" data-open-session-surface data-id="project-a"`

@@ -273,11 +273,12 @@ function initAiSessionPresentationDom(options) {
                 var actionAriaLabel = primaryAction.getAttribute(
                     'data-' + actionState + '-aria-label'
                 );
-                var actionTitle = primaryAction.getAttribute(
-                    'data-' + actionState + '-title'
+                var actionTooltip = primaryAction.getAttribute(
+                    'data-' + actionState + '-tooltip'
                 );
                 if (actionAriaLabel) primaryAction.setAttribute('aria-label', actionAriaLabel);
-                if (actionTitle) primaryAction.setAttribute('title', actionTitle);
+                if (actionTooltip) primaryAction.setAttribute('data-tooltip', actionTooltip);
+                primaryAction.removeAttribute('title');
             }
             var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
             if (focusedConversation && primaryAction && !conversationHint) {
@@ -307,7 +308,7 @@ function initAiSessionPresentationDom(options) {
         if (needsAttention && primaryAction && !indicator) {
             indicator = document.createElement('span');
             indicator.className = 'ai-session-attention-indicator';
-            indicator.title = 'AI session needs attention';
+            indicator.setAttribute('data-tooltip', 'AI session needs attention');
             indicator.setAttribute('aria-label', 'AI session needs attention');
             primaryAction.insertBefore(indicator, primaryAction.firstChild);
         } else if (!needsAttention && indicator) {
@@ -396,19 +397,21 @@ function initAiSessionPresentationDom(options) {
             return;
         }
         projectDiv.setAttribute('data-has-ai-session-badge', '');
-        summary.title = parts.join(', ');
-        summary.setAttribute('aria-label', parts.join(', '));
+        var summaryLabel = parts.join(', ');
+        summary.setAttribute('data-tooltip', summaryLabel);
+        summary.setAttribute('aria-label', summaryLabel);
     }
     function setCurrentWorkspaceRunningDom(projectDiv, message) {
         var running = message.runningSessionCount > 0;
         projectDiv.classList.toggle('session-running', running);
+        // A title on the Workspace container is inherited by every session
+        // and worktree descendant, stacking a delayed native tooltip on top
+        // of their fast data-tooltip overlay.
+        projectDiv.removeAttribute('title');
         if (running) {
             projectDiv.setAttribute('data-session-fx', message.runningCardAnimation);
-            projectDiv.title = 'Workspace — ' + message.runningSessionCount + ' active session'
-                + (message.runningSessionCount === 1 ? '' : 's') + ' running';
         } else {
             projectDiv.removeAttribute('data-session-fx');
-            projectDiv.removeAttribute('title');
         }
         var effect = projectDiv.querySelector('.project-session-fx');
         var showEffect = running && message.runningCardAnimation !== 'none';
@@ -439,7 +442,7 @@ function initAiSessionPresentationDom(options) {
             runningBadge.setAttribute(
                 'data-ai-session-active-count', String(message.runningSessionCount)
             );
-            runningBadge.title = runningLabel;
+            runningBadge.setAttribute('data-tooltip', runningLabel);
             runningBadge.setAttribute('aria-label', runningLabel);
             var runningCount = runningBadge.querySelector('.ai-session-active-count');
             runningCount.textContent = '●' + message.runningSessionCount;
@@ -459,7 +462,7 @@ function initAiSessionPresentationDom(options) {
                 + (message.attentionCount === 1 ? '' : 's') + ' need'
                 + (message.attentionCount === 1 ? 's' : '') + ' attention';
             attentionBadge.textContent = String(message.attentionCount);
-            attentionBadge.title = attentionLabel;
+            attentionBadge.setAttribute('data-tooltip', attentionLabel);
             attentionBadge.setAttribute('aria-label', attentionLabel);
         }
         projectDiv.toggleAttribute(

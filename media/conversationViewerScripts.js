@@ -169,13 +169,6 @@
     var changesCrossMemberGo = document.querySelector(
         '[data-changes-cross-member-go]'
     );
-    var changesTask = document.querySelector('[data-changes-task]');
-    var changesTaskSummary = document.querySelector(
-        '[data-changes-task-summary]'
-    );
-    var changesTaskTracking = document.querySelector(
-        '[data-changes-task-tracking]'
-    );
     var changesReview = document.querySelector('[data-changes-review]');
     var changesFoldToggle = document.querySelector(
         '[data-changes-fold-toggle]'
@@ -336,7 +329,6 @@
         && !!changesRepoTitle && !!changesRepoPicker && !!changesRepoLabel
         && !!changesRepoName && !!changesOutside && !!changesBranch
         && !!changesBranchPrefix && !!changesBranchTail && !!changesLive
-        && !!changesTask && !!changesTaskSummary && !!changesTaskTracking
         && !!changesReview
         && !!changesFoldToggle
         && !!changesGroups && !!changesEmpty
@@ -508,9 +500,6 @@
             crossMemberNote: changesCrossMember,
             crossMemberSummary: changesCrossMemberSummary,
             crossMemberGo: changesCrossMemberGo,
-            taskRoot: changesTask,
-            taskSummary: changesTaskSummary,
-            taskTracking: changesTaskTracking,
             reviewButton: changesReview,
             foldToggle: changesFoldToggle,
             groupsRoot: changesGroups,

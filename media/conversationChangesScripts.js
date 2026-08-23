@@ -174,9 +174,6 @@
         var crossMemberNote = options.crossMemberNote;
         var crossMemberSummary = options.crossMemberSummary;
         var crossMemberGo = options.crossMemberGo;
-        var taskRoot = options.taskRoot;
-        var taskSummary = options.taskSummary;
-        var taskTracking = options.taskTracking;
         var reviewButton = options.reviewButton;
         var foldToggleButton = options.foldToggle;
         var groupsRoot = options.groupsRoot;
@@ -377,17 +374,10 @@
                 liveRegion.textContent = '';
             }
             if (crossMemberNote) crossMemberNote.hidden = true;
-            if (taskRoot) taskRoot.hidden = true;
-            if (taskSummary) {
-                taskSummary.textContent = '';
-                taskSummary.removeAttribute('data-tooltip');
+            if (reviewButton) {
+                reviewButton.hidden = true;
+                reviewButton.removeAttribute('data-tooltip');
             }
-            if (taskTracking) {
-                taskTracking.hidden = true;
-                taskTracking.textContent = '';
-                taskTracking.removeAttribute('data-tooltip');
-            }
-            if (reviewButton) reviewButton.hidden = true;
             if (refreshButton) refreshButton.disabled = true;
             if (openScmButton) openScmButton.disabled = true;
             if (groupsRoot) clearChildren(groupsRoot);
@@ -796,36 +786,24 @@
                 : fullRef;
         }
 
-        function renderTracking(state) {
-            if (!taskTracking) {
-                return;
-            }
+        function trackingTooltip(state) {
             var member = selectedMemberOf(state);
             var upstream = member && member.upstream;
             if (!upstream) {
-                taskTracking.hidden = true;
-                taskTracking.textContent = '';
-                taskTracking.removeAttribute('data-tooltip');
-                return;
+                return '';
             }
-            taskTracking.hidden = false;
             if (upstream.status === 'tracked') {
                 var trackingText = 'Tracking '
                     + shortUpstreamRef(upstream.fullRef) + ' · '
                     + upstream.ahead + ' ahead · ' + upstream.behind
                     + ' behind';
-                taskTracking.textContent = trackingText;
-                taskTracking.setAttribute('data-tooltip',
-                    trackingText + '\n' + upstream.fullRef
-                        + '\nBased on local remote-tracking refs; '
-                        + 'no fetch was performed');
-            } else {
-                var stateText = upstream.status === 'none'
-                    ? 'No tracking branch'
-                    : 'Tracking unknown';
-                taskTracking.textContent = stateText;
-                taskTracking.setAttribute('data-tooltip', stateText);
+                return trackingText + '\n' + upstream.fullRef
+                    + '\nBased on local remote-tracking refs; '
+                    + 'no fetch was performed';
             }
+            return upstream.status === 'none'
+                ? 'No tracking branch'
+                : 'Tracking unknown';
         }
 
         function clearChildren(root) {
@@ -1363,49 +1341,44 @@
             var knownTask = detail.baselineSha !== undefined
                 && detail.availability === 'available'
                 && detail.taskFileCount !== undefined;
-            var showTask = knownTask;
-            if (taskRoot) {
-                taskRoot.hidden = detail.availability === 'unreadable';
-            }
-            if (taskSummary && detail) {
-                var summaryText;
-                if (knownTask) {
-                    // Line 1, baseline reference frame (PRD §14.1).
-                    summaryText = 'Since start · '
-                        + detail.taskFileCount + ' files · '
+            var summaryText;
+            if (knownTask) {
+                summaryText = 'Since start · '
+                    + detail.taskFileCount + ' files · '
+                    + (detail.aheadCount === undefined
+                        ? '?'
+                        : detail.aheadCount)
+                    + ' commits';
+            } else if (detail.availability === 'baselineUnavailable') {
+                summaryText = 'No recorded task start'
+                    + ' — only uncommitted changes are shown';
+            } else if (detail.availability === 'historyRewritten') {
+                summaryText = 'History rewritten'
+                    + ' — the recorded task start is no longer an ancestor';
+            } else {
+                summaryText = detail.availability === 'available'
+                    ? 'Since start · ? files'
                         + (detail.aheadCount === undefined
-                            ? '?'
-                            : detail.aheadCount)
-                        + ' commits';
-                } else if (detail.availability === 'baselineUnavailable') {
-                    summaryText = 'No recorded task start'
-                        + ' — only uncommitted changes are shown';
-                } else if (detail.availability === 'historyRewritten') {
-                    summaryText = 'History rewritten'
-                        + ' — the recorded task start is no longer an ancestor';
-                } else {
-                    summaryText = detail.availability === 'available'
-                        ? 'Since start · ? files'
-                            + (detail.aheadCount === undefined
-                                ? ' · ? commits'
-                                : ' · ' + detail.aheadCount + ' commits')
-                        : '';
-                }
-                taskSummary.textContent = summaryText;
-                if (summaryText) {
-                    taskSummary.setAttribute('data-tooltip', summaryText
-                        + '\nNet result vs task start — includes committed '
-                        + 'and uncommitted changes');
-                } else {
-                    taskSummary.removeAttribute('data-tooltip');
-                }
+                            ? ' · ? commits'
+                            : ' · ' + detail.aheadCount + ' commits')
+                    : '';
             }
-            renderTracking(state);
             if (reviewButton) {
                 // No baseline (or nothing to review) hides the action
                 // entirely — a dead Review link reads as a bug.
-                reviewButton.hidden = !showTask
+                reviewButton.hidden = !knownTask
                     || !(detail.taskFileCount > 0 || (detail.aheadCount || 0) > 0);
+                var reviewTracking = trackingTooltip(state);
+                if (!reviewButton.hidden) {
+                    reviewButton.setAttribute('data-tooltip', 'Review changes\n'
+                        + summaryText + '\nNet result vs task start — includes '
+                        + 'committed and uncommitted changes'
+                        + (reviewTracking
+                            ? '\n' + reviewTracking
+                            : ''));
+                } else {
+                    reviewButton.removeAttribute('data-tooltip');
+                }
             }
 
             if (detail) {

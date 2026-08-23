@@ -3401,18 +3401,8 @@ body.vscode-high-contrast-light {
     gap: 0.1rem;
 }
 
-.conversation-changes-task {
-    align-items: baseline;
-    display: flex;
-    gap: 0.5rem;
-    justify-content: space-between;
-    padding: 0.1rem 0.2rem;
-
-    &[hidden] {
-        display: none;
-    }
-}
-
+// Commits keeps its compact summary and tracking facts in this shared
+// header. Files moved those facts to the Review tooltip instead.
 .conversation-changes-task-lines {
     display: flex;
     flex-direction: column;
@@ -3426,9 +3416,6 @@ body.vscode-high-contrast-light {
     white-space: nowrap;
 }
 
-// The tracking line states facts only — 'No tracking branch' is the
-// neutral steady state for agent worktrees, never a warning color
-// (PRD §17).
 .conversation-changes-task-tracking {
     color: var(--vscode-descriptionForeground);
     font-size: 0.8em;

@@ -655,6 +655,19 @@ export function renderConversationViewerDocument(
                                 <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.7"/>
                                 <path d="M13.6 2.1v2.6h-2.6"/></svg>
                         </button>
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-review
+                            data-tooltip="Review changes"
+                            aria-label="Review changes"
+                            hidden><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M2.5 8s2-3.5 5.5-3.5S13.5 8 13.5 8
+                                    11.5 11.5 8 11.5 2.5 8 2.5 8Z"/>
+                                <circle cx="8" cy="8" r="1.6"/></svg>
+                        </button>
                     </div>
                 </div>
                 <div class="conversation-changes-files-view"
@@ -662,22 +675,6 @@ export function renderConversationViewerDocument(
                     id="conversation-changes-files-view"
                     role="tabpanel"
                     aria-labelledby="conversation-changes-tab-files">
-                <div class="conversation-changes-task" data-changes-task
-                    hidden>
-                    <div class="conversation-changes-task-lines">
-                        <span class="conversation-changes-task-summary
-                            conversation-changes-tooltip-target"
-                            data-changes-task-summary tabindex="0"
-                            data-tooltip="Net result vs task start — includes committed and uncommitted changes"></span>
-                        <span class="conversation-changes-task-tracking
-                            conversation-changes-tooltip-target"
-                            data-changes-task-tracking tabindex="0"
-                            hidden></span>
-                    </div>
-                    <button type="button"
-                        class="conversation-changes-action"
-                        data-changes-review>Review</button>
-                </div>
                 <div class="conversation-changes-working"
                     data-changes-working>
                     <div data-changes-groups></div>

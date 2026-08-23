@@ -169,6 +169,7 @@
         var branchRoot = options.branchRoot;
         var branchPrefix = options.branchPrefix;
         var branchTail = options.branchTail;
+        var branchDivergence = options.branchDivergence;
         var liveRegion = options.liveRegion;
         var refreshButton = options.refreshButton;
         var crossMemberNote = options.crossMemberNote;
@@ -367,6 +368,10 @@
             if (branchRoot) branchRoot.removeAttribute('data-tooltip');
             if (branchPrefix) branchPrefix.textContent = '';
             if (branchTail) branchTail.textContent = '';
+            if (branchDivergence) {
+                branchDivergence.hidden = true;
+                branchDivergence.textContent = '';
+            }
             if (liveRegion) {
                 lastLiveText = '';
                 liveRegion.textContent = '';
@@ -644,9 +649,32 @@
             // visible while the prefix elides (two-span middle ellipsis).
             if (branchRoot && member) {
                 var branchName = member.branchName || '';
-                branchRoot.setAttribute('data-tooltip', branchName
+                var upstream = member.upstream;
+                var tracked = upstream && upstream.status === 'tracked';
+                var divergenceText = tracked
+                    ? upstream.ahead + '↑ ' + upstream.behind + '↓'
+                    : '';
+                var branchTooltip = branchName
                     ? branchName + '\n' + member.worktreePath
-                    : member.worktreePath);
+                    : member.worktreePath;
+                if (tracked) {
+                    branchTooltip += '\nTracking '
+                        + shortUpstreamRef(upstream.fullRef) + ' · '
+                        + upstream.ahead + ' ahead · ' + upstream.behind
+                        + ' behind\nBased on local remote-tracking refs; '
+                        + 'no fetch was performed';
+                }
+                branchRoot.setAttribute('data-tooltip', branchTooltip);
+                branchRoot.setAttribute('aria-label', (branchName || '(no branch)')
+                    + (tracked
+                        ? ', ' + upstream.ahead + (upstream.ahead === 1
+                            ? ' commit ahead and '
+                            : ' commits ahead and ')
+                            + upstream.behind + (upstream.behind === 1
+                                ? ' commit behind '
+                                : ' commits behind ')
+                            + shortUpstreamRef(upstream.fullRef)
+                        : ''));
                 var slash = branchName.lastIndexOf('/');
                 if (branchPrefix) {
                     branchPrefix.textContent = slash >= 0
@@ -659,6 +687,10 @@
                             ? branchName.slice(slash + 1)
                             : branchName)
                         : '(no branch)';
+                }
+                if (branchDivergence) {
+                    branchDivergence.hidden = !tracked;
+                    branchDivergence.textContent = divergenceText;
                 }
             }
         }

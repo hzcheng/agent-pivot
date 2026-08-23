@@ -13015,6 +13015,15 @@ test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-s
             'web · ⎇ agent-pivot/fix-login-ui',
             'infra · ⎇ agent-pivot/infra',
         ]);
+    const branch = page.locator('[data-changes-branch]');
+    const divergence = page.locator('[data-changes-branch-divergence]');
+    assert.equal(await divergence.innerText(), '2↑ 1↓',
+        'the branch row exposes the selected worktree’s remote divergence');
+    assert.equal(await branch.getAttribute('aria-label'),
+        'agent-pivot/fix-login, 2 commits ahead and 1 commit behind '
+            + 'origin/agent-pivot/fix-login');
+    assert.ok((await branch.getAttribute('data-tooltip')).includes(
+        'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind'));
     const review = page.locator('[data-changes-review]');
     assert.ok((await review.getAttribute('data-tooltip')).includes(
         'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind'));
@@ -13036,6 +13045,18 @@ test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-s
     assert.ok((await review.getAttribute('data-tooltip')).includes(
         'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind'),
     'the rejected state leaves the Review hint untouched');
+
+    await sendChanges(page, {
+        ...state,
+        selectedMemberId: 'm-web',
+        detail: {
+            memberId: 'm-web', availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount: 0, taskFileCount: 1,
+            items: [], truncated: false,
+        },
+    });
+    assert.equal(await divergence.isHidden(), true,
+        'a worktree without a tracking branch has no fabricated 0↑ 0↓');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 keeps an adjacent version-1 script usable through dual-state publication', async t => {

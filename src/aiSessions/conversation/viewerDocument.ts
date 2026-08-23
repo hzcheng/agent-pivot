@@ -597,7 +597,10 @@ export function renderConversationViewerDocument(
                                 class="conversation-changes-branch-prefix"
                                 data-changes-branch-prefix></span><span
                                 class="conversation-changes-branch-tail"
-                                data-changes-branch-tail></span></span></span>
+                                data-changes-branch-tail></span></span><span
+                            class="conversation-changes-branch-divergence"
+                            data-changes-branch-divergence aria-hidden="true"
+                            hidden></span></span>
                     </div>
                     <span class="conversation-changes-live" data-changes-live
                         aria-live="polite"></span>

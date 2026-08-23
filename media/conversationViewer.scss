@@ -3131,6 +3131,15 @@ body.vscode-high-contrast-light {
     white-space: nowrap;
 }
 
+.conversation-changes-branch-divergence {
+    color: var(--vscode-descriptionForeground);
+    flex: none;
+    font-size: 0.9em;
+    font-variant-numeric: tabular-nums;
+    margin-left: 0.4rem;
+    white-space: nowrap;
+}
+
 .conversation-changes-branch-prefix {
     min-width: 0;
     overflow: hidden;

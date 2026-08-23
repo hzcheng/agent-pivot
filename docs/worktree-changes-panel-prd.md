@@ -460,14 +460,14 @@ member 视图新增字段时同步 **3 处**：`types.ts`（`ConversationChanges
 ```
 ┌─ Changes ──────────────────────────────┐
 │  ‹  [api ▾]                     (2/3) › │ ← 行 1：repo 行
-│  [SCM] fix/harness-registry…nsumption   │ ← 行 2：SCM 出口 + 分支独占行
+│  [SCM] fix/harness-registry…nsumption 10↑ 34↓ │ ← 行 2：SCM 出口 + 分支及远端差异
 │  2 more changes in web, infra · Go to web →  │ ← 跨 member 提示（条件渲染，可点击）
 │  [ Files | Commits ]            ⌃  ⟳  ◉ │ ← 行 3：子 tab + 折叠、刷新、Review 图标（§15.3/§15.4）
 ```
 
 - **行 1**：`‹` `›` 为图标按钮（chevron-left/right）。中间 repo 名的可实现形态 = **可见 label + 透明原生 `<select>` 覆盖层**（select 绝对定位覆盖 label、`opacity: 0`、宽 100%）——原生 select 的闭合文本就是 selected option 文本，CSS 无法让闭合态与 popup 用两套 label；覆盖层方案下：闭合态是自定义 DOM（repo 名 + `▾`，可自由截断/灰化），popup 是原生 option（键盘方向键 / type-ahead / Esc / listbox 语义与读屏能力保留，且不被面板 `overflow: hidden` 裁剪）。option 文案维持现行 `repo · ⎇ branch` 并**保留 `(outside workspace)` 后缀**（popup 内可预先辨认 detached member；计数按现行纪律活在 tooltip 与面板，不进选项文本）。
 - **行 1 退化**：单 member 时 ‹ › 与 `(i/n)` 隐藏，**repo 名渲染为普通文本标题**而非 disabled select——禁用态的语义是"不可用"且会退出 Tab 序，与"静态标题"不符（改变现状行为，见 §20 第三轮）。多 member 才渲染 select。
-- **行 2**：**Source Control 图标**（不用 `↗`——动作发生在当前窗口，`↗` 易被理解为外部打开）占据最左侧的操作位，后接分支名；与行 1 的上一仓库按钮占位一致，使分支文字与 repo 文字对齐。分支名中间省略；完整分支名 + worktree 路径经 §17 tooltip overlay 展示（不依赖原生 `title`）；branchName 缺失（unmanaged 合成 member）时显示 `(no branch)`。
+- **行 2**：**Source Control 图标**（不用 `↗`——动作发生在当前窗口，`↗` 易被理解为外部打开）占据最左侧的操作位，后接分支名及相对其远端 tracking branch 的提交差（如 `10↑ 34↓`）；与行 1 的上一仓库按钮占位一致，使分支文字与 repo 文字对齐。分支名中间省略，差异计数固定在右侧可见；完整分支名、worktree 路径、tracking ref 与本地 remote-tracking 限制经 §17 tooltip overlay 展示（不依赖原生 `title`）。没有 tracking branch 或查询未知时不显示计数，更不伪造为 0；branchName 缺失（unmanaged 合成 member）时显示 `(no branch)`。
 - **行 3 与标识条**：v2 草案曾有独立的第三行标识条，评审后与各 tab 摘要行合并（见 §15.4/§15.5）——`↑n since start` 与 Task result 行的 commits 数本是同一数字，同参考系的信息同行展示，头部省一整行。
 - **行 3 的 Review**：Review 是与 Collapse/Expand All、Refresh 并列的图标按钮（eye）；不再在 Files 内容区保留常驻的 Task result / tracking 两行或文字按钮。hover 或键盘聚焦时，§17 tooltip overlay 展示 `Since start · N files · M commits`、净结果口径、tracking 全引用及其本地 remote-tracking 限制；没有可靠 baseline 或没有可 review 的变化时隐藏，避免出现无效入口。
 - **跨 member 提示行**：从纯文本升级为**可点击**，文案直接说明动作与目标：`<N> more changes in <repo 列表> · Go to <目标 repo>`——现行 `+N in <repo 列表>` 只汇总量不说明点击目的，视觉承诺与实际动作不一致（Part I 文字稿的 "N changes in M other repositories" 从未实现，不采用）。repo 列表超过 2 个时截断为 `<a>, <b> +M more`，完整分解经 §17 tooltip 展示；**计数与跳转候选同一集合：`availability !== 'unreadable'` 的 readable member**（baselineUnavailable / historyRewritten 的 Working changes 仍可读，必须计入；unreadable 的状态由按钮 partial 标注承载）；计数 = 其他 readable member 的未提交改动 item 数之和；点击目标 = 固定顺序下一个 `workingItemCount > 0` 的 readable member；若改动全部来自当前 member 则不渲染（闭环 Part I P1 的 next-member 导航）。

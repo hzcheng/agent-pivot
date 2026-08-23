@@ -158,6 +158,9 @@
     var changesBranchTail = document.querySelector(
         '[data-changes-branch-tail]'
     );
+    var changesBranchDivergence = document.querySelector(
+        '[data-changes-branch-divergence]'
+    );
     var changesLive = document.querySelector('[data-changes-live]');
     var changesRefresh = document.querySelector('[data-changes-refresh]');
     var changesCrossMember = document.querySelector(
@@ -488,6 +491,7 @@
             branchRoot: changesBranch,
             branchPrefix: changesBranchPrefix,
             branchTail: changesBranchTail,
+            branchDivergence: changesBranchDivergence,
             liveRegion: changesLive,
             refreshButton: changesRefresh,
             crossMemberNote: changesCrossMember,

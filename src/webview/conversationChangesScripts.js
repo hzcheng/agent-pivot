@@ -178,8 +178,7 @@
         var taskSummary = options.taskSummary;
         var taskTracking = options.taskTracking;
         var reviewButton = options.reviewButton;
-        var collapseAllButton = options.collapseAllButton;
-        var expandAllButton = options.expandAllButton;
+        var foldToggleButton = options.foldToggle;
         var groupsRoot = options.groupsRoot;
         var emptyRoot = options.emptyRoot;
         var unavailableRoot = options.unavailableRoot;
@@ -602,11 +601,16 @@
             if (branchRoot) branchRoot.hidden = !member;
             if (refreshButton) refreshButton.disabled = false;
             if (openScmButton) openScmButton.disabled = false;
+            // ‹ › stay visible for a single member — disabled, not
+            // hidden, so row 1 looks identical across member counts
+            // (owner UX decision).
             if (prevButton) {
-                prevButton.hidden = !multi;
+                prevButton.hidden = false;
+                prevButton.disabled = !multi;
             }
             if (nextButton) {
-                nextButton.hidden = !multi;
+                nextButton.hidden = false;
+                nextButton.disabled = !multi;
             }
             if (positionIndicator) {
                 positionIndicator.hidden = !multi;
@@ -1277,19 +1281,59 @@
                 });
             });
             renderGroups(detail);
+            updateFoldActions();
         }
 
         // The fold actions die when there is nothing to fold (PRD §15.3:
         // the no-changes empty state disables both buttons).
+        // Live fold state comes from the DOM (aria-expanded), never from
+        // render-time captures — refresh and member switches re-render.
+        function foldRows() {
+            if (!groupsRoot) return [];
+            return Array.prototype.slice.call(groupsRoot.querySelectorAll(
+                '.conversation-changes-group-header, '
+                    + '.conversation-changes-folder'));
+        }
+
+        function allCollapsedNow() {
+            var rows = foldRows();
+            return rows.length > 0 && rows.every(function (row) {
+                return row.getAttribute('aria-expanded') === 'false';
+            });
+        }
+
+        // One toggle: anything expanded ⇒ Collapse all; fully collapsed ⇒
+        // Expand all. Both views share it — Commits folds commit rows
+        // instead of group/folder rows (same look, same discipline).
         function updateFoldActions() {
-            var empty = !latestState || !latestState.detail
-                || latestState.detail.items.length === 0;
-            if (collapseAllButton) {
-                collapseAllButton.disabled = empty;
+            if (!foldToggleButton) {
+                return;
             }
-            if (expandAllButton) {
-                expandAllButton.disabled = empty;
+            var empty;
+            var expand;
+            if (activeSubTab === 'commits') {
+                var member = latestState && selectedMemberOf(latestState);
+                var cache = member
+                    ? commitsCaches.get(member.memberId) : null;
+                empty = !cache
+                    || (!cache.commits.length && !cache.earlierCommits.length);
+                expand = !empty && !!cache && cache.expandedOrder.length === 0;
+            } else {
+                empty = !latestState || !latestState.detail
+                    || latestState.detail.items.length === 0;
+                expand = !empty && allCollapsedNow();
             }
+            foldToggleButton.disabled = !!empty;
+            var label = expand ? 'Expand all' : 'Collapse all';
+            foldToggleButton.setAttribute('aria-label', label);
+            foldToggleButton.setAttribute('data-tooltip', label);
+            Array.prototype.forEach.call(
+                foldToggleButton.querySelectorAll('[data-fold-icon]'),
+                function (icon) {
+                    var show = icon.getAttribute('data-fold-icon')
+                        === (expand ? 'expand' : 'collapse');
+                    icon.style.display = show ? '' : 'none';
+                });
         }
 
         function renderPanel(state) {
@@ -1405,8 +1449,8 @@
                 pendingMemberId = null;
             }
             renderButton(latestState);
-            updateFoldActions();
             renderPanel(latestState);
+            updateFoldActions();
             return true;
         }
 
@@ -1422,7 +1466,7 @@
         // Bounds (panel-lifetime memory discipline): at most 16 member
         // caches, at most 32 expanded commit details per member.
         var COMMITS_CACHE_MEMBER_LIMIT = 16;
-        var COMMITS_EXPANDED_LIMIT = 32;
+        var COMMITS_EXPANDED_LIMIT = 64;
         // Roving-focus identity across re-renders: '<sha>' for a commit
         // row, '<sha>\0<file path>' for a file row, '<sha>\0review' for
         // the review action row.
@@ -2043,9 +2087,42 @@
             renderCommitsIfVisible();
         }
 
+        // The shared fold toggle in the Commits view (§15.4): anything
+        // expanded ⇒ collapse every row (cancelling in-flight details);
+        // nothing expanded ⇒ expand every loaded commit.
+        function toggleAllCommitsCollapsed() {
+            var member = latestState && selectedMemberOf(latestState);
+            var cache = member && commitsCaches.get(member.memberId);
+            if (!member || !cache) {
+                return;
+            }
+            if (cache.expandedOrder.length) {
+                cache.expandedOrder.forEach(function (sha) {
+                    delete cache.latestDetailRequestIds[sha];
+                });
+                cache.expanded = Object.create(null);
+                cache.expandedOrder = [];
+            } else {
+                cache.commits.concat(cache.earlierCommits)
+                    .forEach(function (commit) {
+                        cache.expanded[commit.sha] = { status: 'loading' };
+                        cache.expandedOrder.push(commit.sha);
+                        while (cache.expandedOrder.length
+                            > COMMITS_EXPANDED_LIMIT) {
+                            var evicted = cache.expandedOrder.shift();
+                            delete cache.expanded[evicted];
+                            delete cache.latestDetailRequestIds[evicted];
+                        }
+                        requestCommitDetail(member.memberId, commit.sha);
+                    });
+            }
+            renderCommitsIfVisible();
+        }
+
         function renderCommitsIfVisible() {
             if (activeSubTab === 'commits' && latestState) {
                 renderCommits(latestState);
+                updateFoldActions();
             }
         }
 
@@ -2267,14 +2344,9 @@
                         tab.tabIndex = selected ? 0 : -1;
                     });
             }
-            // Commits view keeps the action slot's width but hides the
-            // fold buttons' content (PRD §15.3/§15.4).
-            [collapseAllButton, expandAllButton].forEach(function (button) {
-                if (button) {
-                    button.style.visibility = commitsActive
-                        ? 'hidden' : '';
-                }
-            });
+            // The fold toggle stays visible in the Commits tab but is
+            // inert there (PRD §15.3/§15.4); refresh and SCM keep working.
+            updateFoldActions();
         }
 
         function setActiveSubTab(tab, focusTab) {
@@ -2439,14 +2511,13 @@
                     }
                 });
             }
-            if (collapseAllButton) {
-                collapseAllButton.addEventListener('click', function () {
-                    setAllCollapsed(true);
-                });
-            }
-            if (expandAllButton) {
-                expandAllButton.addEventListener('click', function () {
-                    setAllCollapsed(false);
+            if (foldToggleButton) {
+                foldToggleButton.addEventListener('click', function () {
+                    if (activeSubTab === 'commits') {
+                        toggleAllCommitsCollapsed();
+                    } else {
+                        setAllCollapsed(!allCollapsedNow());
+                    }
                 });
             }
             if (groupsRoot) {

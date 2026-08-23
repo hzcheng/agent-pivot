@@ -3945,6 +3945,25 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '        && !!window.__agentPivotConversation.changes\n' +
                 '        && validCommentTarget(commentTarget);\n',
                 '        && !!window.__agentPivotConversation.changes;\n')
+        // Restores the previous fold-action pair: the merged fold toggle
+        // (single button with refresh/SCM moved into row 3) did not exist.
+        .replace(
+                '    var changesFoldToggle = document.querySelector(\n' +
+                '        \'[data-changes-fold-toggle]\'\n' +
+                '    );\n',
+                '    var changesCollapseAll = document.querySelector(\n' +
+                '        \'[data-changes-collapse-all]\'\n' +
+                '    );\n' +
+                '    var changesExpandAll = document.querySelector(\n' +
+                '        \'[data-changes-expand-all]\'\n' +
+                '    );\n')
+        .replace(
+                '        && !!changesFoldToggle\n',
+                '        && !!changesCollapseAll && !!changesExpandAll\n')
+        .replace(
+                '            foldToggle: changesFoldToggle,\n',
+                '            collapseAllButton: changesCollapseAll,\n' +
+                '            expandAllButton: changesExpandAll,\n')
         // Strips the Commits sub-tab wiring (PRD §15.4): the
         // previous-generation script had no sub-tab handles, no commits
         // options, and no restoreSubTab call.
@@ -13303,15 +13322,28 @@ test('WORKTREE-CHANGES-PANEL-001 renders a two-row member header with a repo pic
     assert.ok(branchTooltip.includes('agent-pivot/fix-login'));
     assert.ok(branchTooltip.includes('/wt/api'));
 
-    // Row 2 right: refresh + Source Control exit moved out of the old
-    // toolbar; the SCM glyph is the branch-style Source Control icon, not
-    // the external-open arrow (PRD §17).
+    // Row 2 is branch-only: refresh, Source Control, and the merged fold
+    // toggle live together in row 3's right slot. The SCM glyph is the
+    // branch-style Source Control icon, not the external-open arrow
+    // (PRD §17).
     assert.equal(
         await page.locator('.conversation-changes-branch-row '
             + '[data-changes-refresh]').count(),
-        1);
+        0);
     assert.equal(
         await page.locator('.conversation-changes-branch-row '
+            + '[data-changes-open-scm]').count(),
+        0);
+    assert.equal(
+        await page.locator('.conversation-changes-fold '
+            + '[data-changes-fold-toggle]').count(),
+        1, 'one merged fold toggle replaces the collapse/expand pair');
+    assert.equal(
+        await page.locator('.conversation-changes-fold '
+            + '[data-changes-refresh]').count(),
+        1);
+    assert.equal(
+        await page.locator('.conversation-changes-fold '
             + '[data-changes-open-scm]').count(),
         1);
     assert.equal(
@@ -13426,12 +13458,18 @@ test('WORKTREE-CHANGES-PANEL-001 degrades a single member to a static repo title
     }));
     await page.locator('[data-telemetry-changes]').click();
 
-    // ‹ › and (i/n) hide; no select is rendered at all — the repo name is
-    // a plain text title, not a disabled dropdown (PRD §15.1/§16).
+    // ‹ › stay visible but disabled for a single member — row 1 keeps one
+    // consistent look across member counts; (i/n) still hides and no
+    // select is rendered at all — the repo name is a plain text title,
+    // not a disabled dropdown (PRD §15.1/§16).
     assert.equal(
-        await page.locator('[data-changes-prev]').isHidden(), true);
+        await page.locator('[data-changes-prev]').isVisible(), true);
     assert.equal(
-        await page.locator('[data-changes-next]').isHidden(), true);
+        await page.locator('[data-changes-prev]').isDisabled(), true);
+    assert.equal(
+        await page.locator('[data-changes-next]').isVisible(), true);
+    assert.equal(
+        await page.locator('[data-changes-next]').isDisabled(), true);
     assert.equal(
         await page.locator('[data-changes-position]').isHidden(), true);
     assert.equal(
@@ -13791,7 +13829,7 @@ test('WORKTREE-CHANGES-PANEL-001 clears old member data on terminal and reset st
     assert.equal(await page.locator('.conversation-changes-file').count(), 0);
 });
 
-test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → branch → refresh → SCM → hint → fold actions → summary → content', async t => {
+test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → branch → hint → sub-tab → fold toggle → refresh → SCM → summary → content', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture());
     await page.locator('[data-telemetry-changes]').click();
@@ -13801,14 +13839,13 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
         '[data-changes-member-select]',
         '[data-changes-next]',
         '[data-changes-branch]',
-        '[data-changes-refresh]',
-        '[data-changes-open-scm]',
         '[data-changes-cross-member]',
         // Row 3's left slot: the selected sub-tab is the tablist's single
-        // Tab stop (PRD §15.4); fold actions follow it.
+        // Tab stop (PRD §15.4); the fold toggle, refresh, and SCM follow.
         '[data-changes-subtab="files"]',
-        '[data-changes-collapse-all]',
-        '[data-changes-expand-all]',
+        '[data-changes-fold-toggle]',
+        '[data-changes-refresh]',
+        '[data-changes-open-scm]',
         '[data-changes-task-summary]',
         '[data-changes-review]',
     ];
@@ -13837,28 +13874,35 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
         }],
         selectedMemberId: 'm-api',
     }));
-    await page.locator('[data-changes-open-scm]').focus();
+    await page.locator('[data-changes-branch]').focus();
     await page.keyboard.press('Tab');
     assert.equal(
         await page.evaluate(() =>
             document.activeElement
                 === document.querySelector('[data-changes-subtab="files"]')),
         true,
-        'with no hint rendered, SCM tabs into the sub-tab stop');
+        'with no hint rendered, the branch tabs into the sub-tab stop');
     await page.keyboard.press('Tab');
     assert.equal(
         await page.evaluate(() =>
             document.activeElement
-                === document.querySelector('[data-changes-collapse-all]')),
+                === document.querySelector('[data-changes-fold-toggle]')),
         true,
-        'the sub-tab stop leads into the fold actions');
+        'the sub-tab stop leads into the fold toggle');
     await page.keyboard.press('Tab');
     assert.equal(
         await page.evaluate(() =>
             document.activeElement
-                === document.querySelector('[data-changes-expand-all]')),
+                === document.querySelector('[data-changes-refresh]')),
         true,
-        'the fold actions end at expand');
+        'refresh follows the fold toggle');
+    await page.keyboard.press('Tab');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement
+                === document.querySelector('[data-changes-open-scm]')),
+        true,
+        'SCM ends the action row');
     await page.keyboard.press('Tab');
     assert.equal(
         await page.evaluate(() =>
@@ -13925,24 +13969,25 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
     await sendChanges(page, changesFixture());
     await page.locator('[data-telemetry-changes]').click();
 
-    // Row 3: an empty left slot (future subtabs) plus the two fold
-    // actions on the right — VS Code collapse-all/expand-all glyphs with
-    // aria-labels and overlay tooltips, never a native title (PRD §17).
-    const collapseAll = page.locator('[data-changes-collapse-all]');
-    const expandAll = page.locator('[data-changes-expand-all]');
-    assert.equal(await collapseAll.isVisible(), true);
-    assert.equal(await expandAll.isVisible(), true);
-    assert.equal(await collapseAll.isEnabled(), true);
-    assert.equal(await expandAll.isEnabled(), true);
-    assert.equal(await collapseAll.getAttribute('aria-label'), 'Collapse all');
-    assert.equal(await collapseAll.getAttribute('data-tooltip'), 'Collapse all');
-    assert.equal(await collapseAll.getAttribute('title'), null);
-    assert.equal(await expandAll.getAttribute('aria-label'), 'Expand all');
-    assert.equal(await expandAll.getAttribute('data-tooltip'), 'Expand all');
-    assert.equal(await expandAll.getAttribute('title'), null);
-    assert.equal(await collapseAll.locator('svg[aria-hidden="true"]').count(),
+    // Row 3: the sub-tabs on the left plus one merged fold toggle and
+    // the refresh/SCM actions on the right — a VS Code fold glyph with
+    // aria-label and overlay tooltip, never a native title (PRD §17).
+    const foldToggle = page.locator('[data-changes-fold-toggle]');
+    assert.equal(await foldToggle.isVisible(), true);
+    assert.equal(await foldToggle.isEnabled(), true);
+    assert.equal(await foldToggle.getAttribute('aria-label'),
+        'Collapse all');
+    assert.equal(await foldToggle.getAttribute('data-tooltip'),
+        'Collapse all');
+    assert.equal(await foldToggle.getAttribute('title'), null);
+    assert.equal(await foldToggle.locator('svg[aria-hidden="true"]').count(),
         1, 'the glyph is decorative — the name rides aria-label');
-    assert.equal(await expandAll.locator('svg[aria-hidden="true"]').count(), 1);
+    // Anything expanded ⇒ Collapse all; the icons swap with the label.
+    const visibleIcons = () => foldToggle.locator(
+        '[data-fold-icon]').evaluateAll(icons => icons
+            .filter(icon => icon.style.display !== 'none')
+            .map(icon => icon.getAttribute('data-fold-icon')));
+    assert.deepEqual(await visibleIcons(), ['collapse', 'collapse']);
 
     // Extremely narrow panel: the row stays on one line without
     // overflowing or compressing the buttons (PRD §16).
@@ -13963,8 +14008,9 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
     assert.ok(row3.widths.every(width => width >= 22),
         'the icon buttons are never compressed');
 
-    // Collapse all: only the group header rows remain.
-    await collapseAll.click();
+    // Collapse all: only the group header rows remain, and the toggle
+    // flips to Expand all.
+    await foldToggle.click();
     assert.deepEqual(
         await page.locator('.conversation-changes-group-header')
             .allInnerTexts(),
@@ -13979,9 +14025,12 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
     assert.equal(
         await page.locator('.conversation-changes-group-header[aria-expanded="false"]').count(),
         2);
+    assert.equal(await foldToggle.getAttribute('aria-label'), 'Expand all',
+        'fully collapsed flips the toggle to Expand all');
+    assert.deepEqual(await visibleIcons(), ['expand', 'expand']);
 
     // Expand all restores groups, folders, and files.
-    await expandAll.click();
+    await foldToggle.click();
     assert.deepEqual(
         await page.locator('.conversation-changes-group-header')
             .allInnerTexts(),
@@ -13993,7 +14042,10 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
         await page.locator('.conversation-changes-file:visible').count(),
         3);
 
-    // No-changes empty state disables both actions (PRD §15.3).
+    assert.equal(await foldToggle.getAttribute('aria-label'),
+        'Collapse all', 'expanding flips the toggle back');
+
+    // No-changes empty state disables the toggle (PRD §15.3).
     await sendChanges(page, changesFixture({
         detail: {
             memberId: 'm-api', availability: 'available',
@@ -14001,12 +14053,10 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
             items: [], truncated: false,
         },
     }));
-    assert.equal(await collapseAll.isDisabled(), true);
-    assert.equal(await expandAll.isDisabled(), true);
+    assert.equal(await foldToggle.isDisabled(), true);
     await sendChanges(page, changesFixture());
-    assert.equal(await collapseAll.isEnabled(), true,
-        'the actions wake up with the next non-empty state');
-    assert.equal(await expandAll.isEnabled(), true);
+    assert.equal(await foldToggle.isEnabled(), true,
+        'the toggle wakes up with the next non-empty state');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 keeps folder clicks and authoritative refreshes in sync', async t => {
@@ -14237,32 +14287,33 @@ test('WORKTREE-CHANGES-PANEL-001 implements the Files tree keyboard model', asyn
     const changesHeader = page.locator(
         '.conversation-changes-group-header', { hasText: 'Changes · 2' })
         .last();
-    const collapseAll = page.locator('[data-changes-collapse-all]');
-    const expandAll = page.locator('[data-changes-expand-all]');
-    await collapseAll.focus();
+    const foldToggle = page.locator('[data-changes-fold-toggle]');
+    await foldToggle.focus();
     await page.keyboard.press('Space');
     assert.equal(await page.evaluate(() =>
         document.activeElement
-            === document.querySelector('[data-changes-collapse-all]')), true,
-        'keyboard activation leaves focus on the fold action');
-    await expandAll.focus();
+            === document.querySelector('[data-changes-fold-toggle]')), true,
+        'keyboard activation leaves focus on the fold toggle');
+    assert.equal(await foldToggle.getAttribute('aria-label'), 'Expand all');
     await page.keyboard.press('Space');
     assert.equal(await page.evaluate(() =>
         document.activeElement
-            === document.querySelector('[data-changes-expand-all]')), true,
-        'expanding also preserves the action button focus');
+            === document.querySelector('[data-changes-fold-toggle]')), true,
+        'expanding also preserves the toggle focus');
+    assert.equal(await foldToggle.getAttribute('aria-label'),
+        'Collapse all');
 
     await page.locator('.conversation-changes-file', {
         hasText: 'login.test.ts',
     }).focus();
     // Programmatic activation keeps the focused tree row active, unlike a
     // Playwright click which focuses the toolbar button first.
-    await collapseAll.evaluate(element => element.click());
+    await foldToggle.evaluate(element => element.click());
     assert.equal(await page.evaluate(() => document.activeElement),
         await changesHeader.evaluate(element => element),
         'folding a focused child away restores its group header');
 
-    await expandAll.evaluate(element => element.click());
+    await foldToggle.evaluate(element => element.click());
     const focusedFile = page.locator('.conversation-changes-file', {
         hasText: 'login.test.ts',
     });
@@ -14335,7 +14386,7 @@ test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset',
         }),
     }, 'resetSession pulls the new session\'s state with its own binding');
     assert.equal(
-        await page.locator('[data-changes-collapse-all]').isDisabled(), true,
+        await page.locator('[data-changes-fold-toggle]').isDisabled(), true,
         'no state means nothing to fold');
 
     // The new session's state starts from clean fold defaults even though
@@ -14347,7 +14398,7 @@ test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset',
     assert.equal(await headerAgain.getAttribute('aria-expanded'), 'true',
         'reset clears the remembered collapse');
     assert.equal(
-        await page.locator('[data-changes-collapse-all]').isEnabled(), true);
+        await page.locator('[data-changes-fold-toggle]').isEnabled(), true);
 });
 
 test('WORKTREE-CHANGES-PANEL-001 scrolls long change lists instead of clipping them', async t => {
@@ -15078,8 +15129,9 @@ test('WORKTREE-CHANGES-PANEL-001 migrates every native title in the Changes pane
         'Open in Source Control');
 
     for (const [selector, label] of [
-        ['[data-changes-collapse-all]', 'Collapse all'],
-        ['[data-changes-expand-all]', 'Expand all'],
+        ['[data-changes-fold-toggle]', 'Collapse all'],
+        ['[data-changes-refresh]', 'Refresh'],
+        ['[data-changes-open-scm]', 'Open in Source Control'],
     ]) {
         const foldAction = page.locator(selector);
         assert.equal(await foldAction.getAttribute('title'), null);
@@ -15197,11 +15249,18 @@ test('WORKTREE-CHANGES-COMMITS-001 switching to Commits requests the first page 
         await page.locator('[data-changes-files-view]').isHidden(), true);
     assert.equal(
         await page.locator('[data-changes-commits-view]').isVisible(), true);
-    // The fold actions keep their slot width but hide in Commits (§15.4).
+    // The fold toggle stays enabled in Commits — it folds commit rows
+    // instead of file groups (§15.4); refresh and SCM keep working too.
+    // Nothing is loaded yet, so there is nothing to fold.
     assert.equal(
-        await page.locator('[data-changes-collapse-all]')
-            .evaluate(element => element.style.visibility),
-        'hidden');
+        await page.locator('[data-changes-fold-toggle]').isVisible(), true);
+    assert.equal(
+        await page.locator('[data-changes-fold-toggle]').isDisabled(), true,
+        'no commits loaded means nothing to fold');
+    assert.equal(
+        await page.locator('[data-changes-refresh]').isEnabled(), true);
+    assert.equal(
+        await page.locator('[data-changes-open-scm]').isEnabled(), true);
 
     // Header: the member's own ahead count + tracking line (§15.5.1).
     assert.equal(
@@ -15750,4 +15809,58 @@ test('WORKTREE-CHANGES-COMMITS-001 focus falls back to the parent commit or the 
         document.activeElement
             === document.querySelector('[data-changes-subtab="commits"]')),
         true);
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 the fold toggle expands and collapses every loaded commit row', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    const toggle = page.locator('[data-changes-fold-toggle]');
+    assert.equal(await toggle.isEnabled(), true);
+    assert.equal(await toggle.getAttribute('aria-label'), 'Expand all',
+        'nothing expanded yet — the toggle offers Expand all');
+
+    // Expand all: one detail request per loaded commit.
+    await toggle.click();
+    const details = (await postedIntents(page)).filter(message =>
+        message.type === 'conversation-viewer-commit-detail');
+    assert.deepEqual(details.map(message => message.sha),
+        ['c'.repeat(40), 'd'.repeat(40)],
+        'expand all fans out one detail request per commit');
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-inline-note').count(), 2,
+        'every row shows its inline loading state');
+
+    const generation = await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    for (const request of details) {
+        await sendPage(page, {
+            type: 'conversation-viewer-commit-detail',
+            version: 1,
+            requestId: request.requestId,
+            subscriptionGeneration: generation,
+            memberId: 'm-api',
+            sha: request.sha,
+            files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+                deletions: 0 }],
+            totalFiles: 1,
+            filesTruncated: false,
+        });
+    }
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row').count(), 2);
+    assert.equal(await toggle.getAttribute('aria-label'), 'Collapse all',
+        'expanded rows flip the toggle to Collapse all');
+
+    // Collapse all clears every expansion; like the Files fold actions,
+    // activating the toggle keeps focus on the toggle itself (§15.3).
+    await toggle.click();
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row').count(), 0);
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-fold-toggle]')), true,
+        'activating the toggle keeps focus on it');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Expand all');
 });

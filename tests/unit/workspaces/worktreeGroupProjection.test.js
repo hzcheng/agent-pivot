@@ -402,23 +402,39 @@ test('WORKTREE-GROUPS-002 colliding display names get a stable branch discrimina
     assert.equal(byId['g-2'].discriminator, 'agent-pivot/fix-login');
 });
 
-test('WORKTREE-GROUPS-002 groups sort by activity then recency', () => {
-    const { groups } = project({
-        groups: [
-            group({ groupId: 'g-idle', createdAt: 300 }),
-            group({
-                groupId: 'g-busy', createdAt: 100,
-                members: [member('/beta/.git', 'fix-login', { memberId: 'm-beta' })],
-            }),
-        ],
-        activeSessions: [{
-            key: 'codex:s1', provider: 'codex', sessionId: 's1', name: 'Live',
+test('WORKTREE-GROUPS-ORDER-001 keeps group positions stable when attention clears', () => {
+    const newerGroup = group({
+        groupId: 'g-newer', createdAt: 300,
+        members: [member('/beta/.git', 'fix-login', { memberId: 'm-newer' })],
+    });
+    const olderGroup = group({ groupId: 'g-older', createdAt: 100 });
+    const sessions = needsAttention => [
+        {
+            key: 'codex:newer', provider: 'codex', sessionId: 'newer', name: 'Newer',
             executionState: 'running', focused: false, needsAttention: false,
             pending: false, backend: 'vscode', attached: true,
-            worktreeKey: member('/beta/.git', 'fix-login').worktreeKey,
-        }],
+            worktreeKey: newerGroup.members[0].worktreeKey,
+        },
+        {
+            key: 'codex:older', provider: 'codex', sessionId: 'older', name: 'Older',
+            executionState: 'running', focused: false, needsAttention,
+            pending: false, backend: 'vscode', attached: true,
+            worktreeKey: olderGroup.members[0].worktreeKey,
+        },
+    ];
+    const attention = project({
+        groups: [newerGroup, olderGroup],
+        activeSessions: sessions(true),
     });
-    assert.deepEqual(groups.map(row => row.groupId), ['g-busy', 'g-idle']);
+    const cleared = project({
+        groups: [newerGroup, olderGroup],
+        activeSessions: sessions(false),
+    });
+
+    assert.equal(attention.groups.find(row => row.groupId === 'g-older').activity, 'attention');
+    assert.equal(cleared.groups.find(row => row.groupId === 'g-older').activity, 'active');
+    assert.deepEqual(attention.groups.map(row => row.groupId), ['g-newer', 'g-older']);
+    assert.deepEqual(cleared.groups.map(row => row.groupId), ['g-newer', 'g-older']);
 });
 
 test('WORKTREE-GROUPS-002 chips use the shortest prefix unique across the workspace', () => {

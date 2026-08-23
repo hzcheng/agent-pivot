@@ -3711,6 +3711,21 @@
     ]
   },
   {
+    "id": "WORKTREE-GROUPS-ORDER-001",
+    "domain": "session",
+    "title": "Worktree group order is stable across attention and activity status updates",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/workspaces/worktreeGroupProjection.test.js",
+      "tests/browser/worktreeGroups.test.js"
+    ],
+    "evidence": [
+      "src/workspaces/worktreeGroupProjection.ts",
+      "src/webview/webviewAiSessionContent.ts"
+    ]
+  },
+  {
     "id": "WORKTREE-GROUPS-UI-001",
     "domain": "webview",
     "title": "The Worktree surface unifies row behavior: every row carries the same actions menu (no standalone + or surface-level New-worktree button), the Current anchor menu offers session creation and new-worktree creation but never removal, group rows show chips and merge affordances, legacy-scope badges, and the surface stays usable at the minimum sidebar width",

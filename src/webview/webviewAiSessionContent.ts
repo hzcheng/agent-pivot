@@ -695,17 +695,8 @@ function getReadyWorktrees(
     rows: readonly WorktreeRowViewModel[] | undefined,
 ): ReadyWorktreeRow[] {
     return (rows || [])
-        .map((row, index) => ({ row, index }))
-        .filter((candidate): candidate is { row: ReadyWorktreeRow; index: number } =>
-            candidate.row.kind === 'ready' && candidate.row.git.isBare !== true)
-        .sort((left, right) => activityPriority(left.row.activity)
-            - activityPriority(right.row.activity)
-            || left.index - right.index)
-        .map(candidate => candidate.row);
-}
-
-function activityPriority(activity: ReadyWorktreeRow['activity']): number {
-    return activity === 'attention' ? 0 : activity === 'active' ? 1 : 2;
+        .filter((row): row is ReadyWorktreeRow =>
+            row.kind === 'ready' && row.git.isBare !== true);
 }
 
 function worktreeLookupKey(key: WorktreeKey): string {

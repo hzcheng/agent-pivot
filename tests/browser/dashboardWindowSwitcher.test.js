@@ -386,7 +386,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
     assert.equal(narrowPinVisible, false);
 });
 
-test('OPEN-WINDOW-SWITCHER-UI-001 keeps the ready WINDOWS label compact while reserving its bridge-status slot', async t => {
+test('OPEN-WINDOW-SWITCHER-UI-001 keeps bridge status in the WINDOWS title row without a gap before window rows', async t => {
     const currentCard = makeCard('__currentWorkspace-' + 'f'.repeat(24), 'current', { name: 'alpha' });
     const navigationCard = makeCard('__openWorkspaceNavigation-' + 'g'.repeat(24), 'navigation', { name: 'beta' });
     const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
@@ -401,17 +401,21 @@ test('OPEN-WINDOW-SWITCHER-UI-001 keeps the ready WINDOWS label compact while re
             headerFontSize: getComputedStyle(header).fontSize,
             headerBorderBottomWidth: getComputedStyle(header).borderBottomWidth,
             statusDisplay: getComputedStyle(status).display,
+            statusSharesHeader: status.parentElement === header,
             rowGap: Math.round(rowBox.top - headerBox.bottom),
         };
     });
 
-    assert.equal(layout.statusDisplay, 'flex', 'ready state reserves the fixed bridge-status slot');
+    assert.equal(layout.statusDisplay, 'flex', 'ready state reserves the fixed horizontal status slot');
+    assert.equal(layout.statusSharesHeader, true,
+        'bridge status stays in the WINDOWS title row instead of creating a second row');
     assert.equal(layout.headerFontSize, '10px');
     assert.equal(layout.headerBorderBottomWidth, '1px',
         'a hairline separates the WINDOWS label from its rows');
-    assert.ok(layout.headerHeight <= 20, 'the navigation label stays smaller than a card header');
-    assert.equal(layout.rowGap, 24,
-        'the fixed bridge-status slot is the only space between the label and first row');
+    assert.ok(layout.headerHeight <= 21,
+        'the navigation label stays compact, including its one-pixel separator');
+    assert.ok(layout.rowGap <= 1,
+        'the first window row follows the WINDOWS title without a blank status row');
 });
 
 // --- production OPEN tab end-to-end (PR-B) ---------------------------------

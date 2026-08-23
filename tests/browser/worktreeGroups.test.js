@@ -6,8 +6,11 @@ const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 
-const { getAiSessionsDiv } = require('../../out/webview/webviewAiSessionContent');
-const { getAiSessionWorktreeMenu } = require('../../out/webview/webviewAiSessionContent');
+const {
+    getAiSessionCreateDropdown,
+    getAiSessionsDiv,
+    getAiSessionWorktreeMenu,
+} = require('../../out/webview/webviewAiSessionContent');
 const {
     buildOpenWindowRowViewModels,
 } = require('../../out/openWorkspaces/windowRowViewModel');
@@ -977,6 +980,7 @@ async function openGroupActionsPage(t, sessionHtml, replacementHtml) {
     t.after(() => page.close());
     await page.setContent(`<!doctype html><html><body class="steward-sidebar">
         <div id="dashboard-tab-open"><div class="sticky-groups-wrapper">${groupHtml()}</div></div>
+        ${getAiSessionCreateDropdown()}
         ${getAiSessionWorktreeMenu()}
     </body></html>`);
     await page.addStyleTag({ content: styles });

@@ -140,7 +140,7 @@ test('WORKTREE-GROUPING-UI-001 collapse hides the session rows with the real sty
 
     await page.evaluate(() => {
         const header = document.querySelector(
-            '[data-ai-session-panel="chats"] .ai-session-worktree-header'
+            '[data-ai-session-panel="chats"] .ai-session-worktree-group:not(.ai-session-worktree-anchor) .ai-session-worktree-header'
         );
         setAiSessionWorktreeExpanded(header, false);
     });
@@ -149,7 +149,7 @@ test('WORKTREE-GROUPING-UI-001 collapse hides the session rows with the real sty
 
     await page.evaluate(() => {
         const header = document.querySelector(
-            '[data-ai-session-panel="chats"] .ai-session-worktree-header'
+            '[data-ai-session-panel="chats"] .ai-session-worktree-group:not(.ai-session-worktree-anchor) .ai-session-worktree-header'
         );
         setAiSessionWorktreeExpanded(header, true);
     });
@@ -196,12 +196,17 @@ test('WORKTREE-GROUPING-UI-001 WORKTREE-PROVISIONING-UI-001 WORKTREE-MANAGED-CLE
     assert.equal(await page.locator(
         '[data-ai-session-panel="chats"] .codex-session-row[data-session-id="frontend-session"]'
     ).count(), 1);
-    assert.equal(await page.locator('.ai-session-worktree-header').count(), 2);
-    assert.equal(await page.locator('.ai-session-worktree-more').count(), 2);
+    assert.equal(await page.locator('.ai-session-worktree-anchor').count(), 1,
+        'Current is a distinct top-level creation target');
+    assert.equal(await page.locator('.ai-session-worktree-group:not(.ai-session-worktree-anchor) .ai-session-worktree-header').count(), 2,
+        'both ordinary worktrees retain their headers');
+    assert.equal(await page.locator('.ai-session-worktree-header').count(), 3);
+    assert.equal(await page.locator('.ai-session-worktree-more').count(), 3);
     assert.equal(await page.locator('.ai-session-provisioning-row').count(), 1);
     assert.equal(await page.locator('[data-action="cancel-isolated-session"]').isVisible(), true);
     assert.equal(
-        await page.locator('.ai-session-worktree-more').first().getAttribute('aria-label'),
+        await page.locator('.ai-session-worktree-group:not(.ai-session-worktree-anchor) .ai-session-worktree-more')
+            .first().getAttribute('aria-label'),
         'Actions for frontend/feature-authentication-with-a-long-name'
     );
     const layout = await page.evaluate(() => ({
@@ -287,8 +292,8 @@ test('WORKTREE-GROUPING-UI-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 collapse g
     assert.equal(posts.length, 1, 'one mirror post per collapse gesture');
     assert.equal(posts[0].version, 1);
     assert.equal(posts[0].projectId, 'project-a');
-    assert.equal(posts[0].collapsedKeys.length, 2,
-        'both unmanaged worktree groups are reported collapsed');
+    assert.equal(posts[0].collapsedKeys.length, 3,
+        'Current and both unmanaged worktree groups are reported collapsed');
 
     // Expanding again mirrors the empty set.
     await page.evaluate(() => toggleAllAiSessionWorktrees(document.querySelector('[data-open-session-surface]')));
@@ -358,7 +363,7 @@ test('WORKTREE-GROUPING-UI-001 the host-persisted collapsed set renders collapse
         'false',
     );
     assert.equal(
-        await page.locator('.ai-session-worktree-group:not([data-worktree-collapsed])').count(),
+        await page.locator('.ai-session-worktree-group:not(.ai-session-worktree-anchor):not([data-worktree-collapsed])').count(),
         1,
         'the other group stays expanded',
     );

@@ -1628,6 +1628,27 @@ body .project {
     }
 }
 
+// Row-level chat launchers keep their fixed hit targets at narrow sidebar
+// widths. Secondary worktree metadata yields first so it cannot overlap the
+// + / preset / actions controls.
+@media (max-width: 220px) {
+    .ai-session-worktree-title {
+        min-width: 0;
+    }
+
+    .ai-session-worktree-health,
+    .ai-session-worktree-head {
+        display: none;
+    }
+
+    .ai-session-worktree-launch-actions button,
+    .ai-session-worktree-more {
+        width: 22px;
+        min-width: 22px;
+        flex-basis: 22px;
+    }
+}
+
 @media (max-width: 460px) {
     .dashboard-tab-button {
         gap: 0;

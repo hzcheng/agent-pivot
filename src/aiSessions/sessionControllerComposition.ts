@@ -268,13 +268,15 @@ export function createSessionControllerComposition(
     };
     const selectAiSessionCreationScopeTarget = async (
         workspace: OpenWorkspace,
-        explicitWorktreeKey?: WorktreeKey
+        explicitWorktreeKey?: WorktreeKey,
+        mainCheckoutOnly: boolean = false,
     ): Promise<AiSessionCreationScopeTarget | null> => {
         const resolution = resolveAiSessionWorktreeCreationTarget({
             workspace,
             snapshot: options.getWorktreeSnapshot(),
             activeEditorPath: options.getActiveEditorUri()?.fsPath,
             explicitKey: explicitWorktreeKey,
+            mainCheckoutOnly,
         });
         if (resolution.status === 'workspace') {
             return { kind: 'workspace' };

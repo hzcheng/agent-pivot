@@ -2309,15 +2309,22 @@ async function initializeDashboard(
             await aiSessionCreationController.createSession(e.projectId as string, worktreeKey);
         },
         createAiSessionQuick: async e => {
+            if (aiSessionCreationController.isCreatingSession()) {
+                void vscode.window.showInformationMessage(
+                    'A chat is already starting. Try again in a moment.');
+                return;
+            }
             const providerId = e.provider as AiSessionProviderId;
             const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
                 ? parseAiSessionCreationWorktreeKey(e.worktreeKey)
                 : undefined;
+            const currentWorktreeAnchor = e.currentWorktreeAnchor === true;
             if (worktreeKey === null) {
                 return;
             }
             if (providerId && isAiSessionProviderId(providerId)) {
                 const requestedProfile = e.codexProfile;
+                const requestedBaseProfile = e.codexProfileBase;
                 // The webview may only select a profile that the host just
                 // discovered. Reject unknown profile names instead of letting
                 // an arbitrary message alter Codex's launch environment.
@@ -2328,13 +2335,26 @@ async function initializeDashboard(
                             .includes(requestedProfile))) {
                     return;
                 }
+                if (requestedBaseProfile !== undefined
+                    && (providerId !== 'codex'
+                        || requestedBaseProfile !== true
+                        || requestedProfile !== undefined)) {
+                    return;
+                }
+                if (Object.prototype.hasOwnProperty.call(e, 'currentWorktreeAnchor')
+                    && e.currentWorktreeAnchor !== true) {
+                    return;
+                }
                 await aiSessionCreationController.createSessionQuick(
                     e.projectId as string,
                     providerId,
-                    typeof requestedProfile === 'string'
-                        ? { kind: 'profile', name: requestedProfile }
-                        : undefined,
-                    worktreeKey
+                    requestedBaseProfile === true
+                        ? { kind: 'base' }
+                        : typeof requestedProfile === 'string'
+                            ? { kind: 'profile', name: requestedProfile }
+                            : undefined,
+                    worktreeKey,
+                    currentWorktreeAnchor,
                 );
             }
         },

@@ -195,9 +195,10 @@ export function getAiSessionsDiv(project: AiSessionSurfaceViewModel, options: Ai
         ? project.quickCreateProfile
         : '';
     var provisioningWorktrees = getProvisioningWorktrees(project.worktrees);
+    var codexProfiles = escapeAttribute(JSON.stringify(project.codexProfiles || []));
 
     return `
-<div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-chats-view-mode="${chatsViewMode}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}">
+<div class="codex-sessions" data-ai-session-region data-active-ai-session-provider="${escapeAttribute(activeProvider)}" data-selected-ai-session-tab="${selectedTab}" data-chats-view-mode="${chatsViewMode}" data-selected-ai-session-providers="${escapeAttribute(selectedProviders.join(','))}" data-codex-profiles="${codexProfiles}">
     <div class="ai-session-chats-toolbar">
         <div class="ai-session-tabs" role="tablist" aria-label="Chat views">
             ${getChatsViewTabButton(project, activeSessions)}
@@ -781,13 +782,15 @@ function getQuickCreateTooltip(provider: AiSessionProviderId, profile: string): 
 function getWorktreeChatLaunchControls(
     quickCreateProvider: AiSessionProviderId,
     quickCreateProfile: string,
+    targetName: string,
     canCreate: boolean,
 ): string {
     const quickTooltip = getQuickCreateTooltip(quickCreateProvider, quickCreateProfile);
-    const quickAriaLabel = `Create chat with ${quickTooltip}`;
+    const quickAriaLabel = `Create chat in ${targetName} with ${quickTooltip}`;
+    const presetAriaLabel = `Choose chat provider and profile for ${targetName}`;
     return `<span class="ai-session-worktree-launch-actions">`
         + `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickAriaLabel)}" data-tooltip="${escapeAttribute(quickTooltip)}"${canCreate ? '' : ' disabled aria-disabled="true"'}>${Icons.add}</button>`
-        + `<button type="button" class="ai-session-worktree-preset-menu" data-action="open-ai-session-preset-menu" aria-label="Choose chat provider and profile" data-tooltip="Choose provider and profile" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"${canCreate ? '' : ' disabled aria-disabled="true"'}>${Icons.chevronDown}</button>`
+        + `<button type="button" class="ai-session-worktree-preset-menu" data-action="open-ai-session-preset-menu" aria-label="${escapeAttribute(presetAriaLabel)}" data-tooltip="Choose provider and profile" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"${canCreate ? '' : ' disabled aria-disabled="true"'}>${Icons.chevronDown}</button>`
         + `</span>`;
 }
 
@@ -798,7 +801,7 @@ function getChatsListLaunchRail(
 ): string {
     const current = `<div class="ai-session-list-launch-target ai-session-worktree-group" data-worktree-anchor>`
         + `<span class="ai-session-list-launch-title">Current</span>`
-        + getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, true)
+        + getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, 'Current', true)
         + `</div>`;
     const groups = (project.worktreeGroups || []).map(group => {
         const primary = group.members.find(member => member.isPrimary && member.status === 'ready');
@@ -808,15 +811,23 @@ function getChatsListLaunchRail(
         return `<div class="ai-session-list-launch-target ai-session-worktree-group"${worktreeAttributes}>`
             + `<span class="ai-session-list-launch-title" data-tooltip="${escapeAttribute(group.displayName)}">${escapeAttribute(group.displayName)}</span>`
             + getWorktreeChatLaunchControls(
-                quickCreateProvider, quickCreateProfile,
+                quickCreateProvider, quickCreateProfile, group.displayName,
                 group.canCreateSession && !!primary?.worktreeKey)
             + `</div>`;
     });
-    const worktrees = getReadyWorktrees(project.worktrees).map(worktree =>
+    const claimedWorktreeKeys = new Set<string>();
+    (project.worktreeGroups || []).forEach(group => group.members.forEach(member => {
+        if (member.worktreeKey) {
+            claimedWorktreeKeys.add(worktreeLookupKey(member.worktreeKey));
+        }
+    }));
+    const worktrees = getReadyWorktrees(project.worktrees)
+        .filter(worktree => !claimedWorktreeKeys.has(worktreeLookupKey(worktree.git.key)))
+        .map(worktree =>
         `<div class="ai-session-list-launch-target ai-session-worktree-group" data-worktree-repository-key="${escapeAttribute(worktree.git.key.repositoryKey)}" data-worktree-path="${escapeAttribute(worktree.git.key.canonicalWorktreePath)}">`
         + `<span class="ai-session-list-launch-title" data-tooltip="${escapeAttribute(getWorktreeLabel(worktree))}">${escapeAttribute(getWorktreeLabel(worktree))}</span>`
         + getWorktreeChatLaunchControls(
-            quickCreateProvider, quickCreateProfile, worktree.authority.canResume)
+            quickCreateProvider, quickCreateProfile, getWorktreeLabel(worktree), worktree.authority.canResume)
         + `</div>`);
     return `<div class="ai-session-list-launch-rail" aria-label="Create chat in a worktree">${current}${groups.join('')}${worktrees.join('')}</div>`;
 }
@@ -866,7 +877,7 @@ function getWorktreeGroupHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
-            ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, worktree.authority.canResume)}
+            ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, name, worktree.authority.canResume)}
             ${more}
         </div>
         <div class="ai-session-worktree-session-list">${entries.length
@@ -935,7 +946,7 @@ function getWorktreeAnchorHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
-            ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, true)}
+            ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, 'Current', true)}
             ${more}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
@@ -1105,7 +1116,7 @@ function getWorktreeGroupRowHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
-            ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, group.canCreateSession && !!primary?.worktreeKey)}
+            ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, name, group.canCreateSession && !!primary?.worktreeKey)}
             ${more}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
@@ -1450,15 +1461,19 @@ export function getAiSessionCreateDropdown(project?: AiSessionSurfaceViewModel) 
     const codexProfiles = Array.from(new Set(project?.codexProfiles || []))
         .filter(profile => !!profile)
         .sort((left, right) => left.localeCompare(right));
-    const preset = (provider: AiSessionProviderId, profile?: string) => {
+    const preset = (
+        provider: AiSessionProviderId,
+        profile?: string,
+        baseProfile: boolean = false,
+    ) => {
         const label = getQuickCreateTooltip(provider, profile || '');
-        return `<div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-preset" data-provider="${provider}"${profile ? ` data-profile="${escapeAttribute(profile)}"` : ''}>${escapeAttribute(label)}</div>`;
+        return `<div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-preset" data-provider="${provider}"${profile ? ` data-profile="${escapeAttribute(profile)}"` : ''}${baseProfile ? ' data-codex-profile-base="true"' : ''}>${escapeAttribute(label)}</div>`;
     };
     return `
 <div id="aiSessionCreateDropdown" class="custom-context-menu ai-session-create-dropdown-menu" role="menu" aria-label="Choose chat provider and profile">
     ${codexProfiles.map(profile => preset('codex', profile)).join('\n')}
     ${codexProfiles.length ? '<div class="custom-context-menu-separator" role="separator"></div>' : ''}
-    ${preset('codex')}
+    ${preset('codex', undefined, true)}
     ${preset('kimi')}
     ${preset('claude')}
 </div>`;

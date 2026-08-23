@@ -629,8 +629,8 @@ function runWorkspaceCardRenderingChecks() {
     assert.ok(multiHtml.includes('data-action="create-ai-session-quick"'));
     assert.ok(multiHtml.includes('data-provider="codex"'),
         'the Current row quick-create button carries the active provider');
-    assert.ok(multiHtml.includes('aria-label="Create chat with Codex"'),
-        'the row quick-create button announces the provider it will launch');
+    assert.ok(multiHtml.includes('aria-label="Create chat in Current with Codex"'),
+        'the row quick-create button announces both its target and provider');
     assert.ok(multiHtml.includes('data-action="open-ai-session-preset-menu"'),
         'each create target has a preset-menu trigger');
     assert.ok(multiHtml.includes('data-tooltip="Codex"'),
@@ -648,8 +648,8 @@ function runWorkspaceCardRenderingChecks() {
         quickCreateProfile: 'deepseek',
     };
     const captionHtml = webviewAiSessionContent.getAiSessionsDiv(captionSurface);
-    assert.ok(captionHtml.includes('aria-label="Create chat with Codex · deepseek"'),
-        'the quick button announces the effective profile');
+    assert.ok(captionHtml.includes('aria-label="Create chat in Current with Codex · deepseek"'),
+        'the quick button announces both its target and effective profile');
     assert.ok(captionHtml.includes('data-tooltip="Codex · deepseek"'),
         'the quick button tooltip shows the provider and profile');
 
@@ -662,7 +662,7 @@ function runWorkspaceCardRenderingChecks() {
         'a non-codex provider never carries the codex profile');
     assert.strictEqual(kimiCaptionHtml.includes('ai-session-chats-actions'), false,
         'no global action area crowds the CHATS toolbar');
-    assert.ok(kimiCaptionHtml.includes('aria-label="Create chat with Kimi"'));
+    assert.ok(kimiCaptionHtml.includes('aria-label="Create chat in Current with Kimi"'));
 
     const rememberedHtml = webviewAiSessionContent.getAiSessionsDiv({
         ...captionSurface,

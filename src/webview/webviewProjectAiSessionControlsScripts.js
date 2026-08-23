@@ -508,6 +508,9 @@ function initProjectAiSessionControls(options) {
                         canonicalWorktreePath: worktreeGroup.getAttribute('data-worktree-path'),
                     };
                 }
+                if (quickCreateAction.closest('[data-worktree-anchor]')) {
+                    message.currentWorktreeAnchor = true;
+                }
                 window.vscode.postMessage(message);
             }
 
@@ -521,7 +524,7 @@ function initProjectAiSessionControls(options) {
                 // Snapshot before closing: a second click on the arrow that
                 // opened the menu toggles it closed.
                 var wasOpenForProject = dropdownMenu.classList.contains('visible')
-                    && (dropdownMenu.getAttribute('data-dropdown-project-id') || '') === projectId;
+                    && dropdownMenu.__originButton === dropdownAction;
                 // Close other menus first (this also resets every arrow's
                 // aria-expanded via closeContextMenus).
                 var contextMenus = window.__agentPivotContextMenus;
@@ -534,6 +537,8 @@ function initProjectAiSessionControls(options) {
                 // Store the projectId on the menu element for menu item handlers
                 dropdownMenu.setAttribute('data-dropdown-project-id', projectId);
                 var dropdownGroup = dropdownAction.closest('.ai-session-worktree-group');
+                var sessionRegion = dropdownAction.closest('[data-ai-session-region]');
+                refreshAiSessionPresetMenu(dropdownMenu, sessionRegion, dropdownAction);
                 dropdownMenu.__context = {
                     projectId: projectId,
                     worktreeKey: dropdownGroup
@@ -545,6 +550,8 @@ function initProjectAiSessionControls(options) {
                             canonicalWorktreePath: dropdownGroup.getAttribute('data-worktree-path'),
                         }
                         : null,
+                    currentWorktreeAnchor: !!(dropdownGroup
+                        && dropdownGroup.hasAttribute('data-worktree-anchor')),
                 };
                 dropdownMenu.__originButton = dropdownAction;
                 dropdownAction.setAttribute('aria-expanded', 'true');
@@ -574,6 +581,49 @@ function initProjectAiSessionControls(options) {
             }
             return true;
         }
+
+    function refreshAiSessionPresetMenu(menu, sessionRegion, originButton) {
+        var profiles = [];
+        try {
+            var rawProfiles = sessionRegion?.getAttribute('data-codex-profiles') || '[]';
+            var parsedProfiles = JSON.parse(rawProfiles);
+            if (Array.isArray(parsedProfiles)) {
+                profiles = Array.from(new Set(parsedProfiles.filter(profile =>
+                    typeof profile === 'string' && profile.length > 0
+                ))).sort((left, right) => left.localeCompare(right));
+            }
+        } catch (_error) {
+            profiles = [];
+        }
+        menu.replaceChildren();
+        var targetName = originButton?.closest('.ai-session-worktree-group')
+            ?.querySelector('.ai-session-worktree-title, .ai-session-list-launch-title')?.textContent
+            || 'Current';
+        menu.setAttribute('aria-label', 'Choose chat provider and profile for ' + targetName);
+        var appendItem = function(provider, profile, baseProfile) {
+            var item = document.createElement('div');
+            item.className = 'custom-context-menu-item';
+            item.setAttribute('role', 'menuitem');
+            item.setAttribute('tabindex', '-1');
+            item.setAttribute('data-action', 'create-ai-session-preset');
+            item.setAttribute('data-provider', provider);
+            if (profile) item.setAttribute('data-profile', profile);
+            if (baseProfile) item.setAttribute('data-codex-profile-base', 'true');
+            item.textContent = profile ? 'Codex · ' + profile : provider === 'codex'
+                ? 'Codex' : provider === 'kimi' ? 'Kimi' : 'Claude';
+            menu.appendChild(item);
+        };
+        profiles.forEach(profile => appendItem('codex', profile, false));
+        if (profiles.length) {
+            var separator = document.createElement('div');
+            separator.className = 'custom-context-menu-separator';
+            separator.setAttribute('role', 'separator');
+            menu.appendChild(separator);
+        }
+        appendItem('codex', '', true);
+        appendItem('kimi', '', false);
+        appendItem('claude', '', false);
+    }
 
         var manageAction = target.closest('[data-action="manage-ai-sessions"][data-provider]');
         if (manageAction) {

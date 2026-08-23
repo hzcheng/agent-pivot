@@ -59,7 +59,8 @@ export interface AiSessionCreationControllerCommonOptions {
     pickProvider: () => Thenable<AiSessionProviderId | undefined>;
     selectCreationScopeTarget?: (
         workspace: WorkspaceAiSessionActionTarget['workspace'],
-        explicitWorktreeKey?: WorktreeKey
+        explicitWorktreeKey?: WorktreeKey,
+        mainCheckoutOnly?: boolean,
     ) => AiSessionCreationScopeTarget | null
         | Thenable<AiSessionCreationScopeTarget | null>
         | Promise<AiSessionCreationScopeTarget | null>;
@@ -171,6 +172,10 @@ export class AiSessionCreationController {
         this.options = options;
     }
 
+    isCreatingSession(): boolean {
+        return this.creating;
+    }
+
     /**
      * Full interactive flow: pick provider, (codex) pick profile, input title.
      */
@@ -241,7 +246,8 @@ export class AiSessionCreationController {
         projectId: string,
         providerId: AiSessionProviderId,
         codexProfileDecision?: SessionProfileDecision,
-        explicitWorktreeKey?: WorktreeKey
+        explicitWorktreeKey?: WorktreeKey,
+        mainCheckoutOnly: boolean = false,
     ): Promise<boolean> {
         if (this.creating) {
             return false;
@@ -260,7 +266,8 @@ export class AiSessionCreationController {
         try {
             const scopeTarget = await this.selectCreationScopeTarget(
                 target.workspace.workspace,
-                explicitWorktreeKey
+                explicitWorktreeKey,
+                mainCheckoutOnly,
             );
             if (!scopeTarget) {
                 return true;
@@ -567,12 +574,14 @@ export class AiSessionCreationController {
 
     private async selectCreationScopeTarget(
         workspace: WorkspaceAiSessionActionTarget['workspace'],
-        explicitWorktreeKey?: WorktreeKey
+        explicitWorktreeKey?: WorktreeKey,
+        mainCheckoutOnly: boolean = false,
     ): Promise<AiSessionCreationScopeTarget | null> {
         if (!this.options.selectCreationScopeTarget) {
             return { kind: 'workspace' };
         }
-        return this.options.selectCreationScopeTarget(workspace, explicitWorktreeKey);
+        return this.options.selectCreationScopeTarget(
+            workspace, explicitWorktreeKey, mainCheckoutOnly);
     }
 }
 

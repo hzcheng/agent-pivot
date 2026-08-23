@@ -114,6 +114,7 @@ async function openQuickCreatePage(t, options = {}) {
             worktreeRepositoryCount: 1,
             bareWorktreeCount: 0,
         } : {}),
+        ...(options.worktreeGroups ? { worktreeGroups: options.worktreeGroups } : {}),
         ...(options.anchor ? { worktreeAnchor: options.anchor } : {}),
         ...(options.chatsViewMode ? {
             windowViewState: { tab: 'chats', chatsViewMode: options.chatsViewMode },
@@ -204,22 +205,24 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the 
     const quickButton = project.locator('[data-action="create-ai-session-quick"]');
 
     assert.equal(await quickButton.getAttribute('data-provider'), 'codex');
-    assert.equal(await quickButton.getAttribute('aria-label'), 'Create chat with Codex');
+    assert.equal(await quickButton.getAttribute('aria-label'), 'Create chat in Current with Codex');
 
     await quickButton.click();
     assert.deepEqual(await postedMessages(page), [{
         type: 'create-ai-session-quick',
         projectId: 'project-a',
         provider: 'codex',
+        currentWorktreeAnchor: true,
     }]);
 
     const kimiQuickButton = page.locator('.project[data-id="project-b"] [data-action="create-ai-session-quick"]');
-    assert.equal(await kimiQuickButton.getAttribute('aria-label'), 'Create chat with Kimi');
+    assert.equal(await kimiQuickButton.getAttribute('aria-label'), 'Create chat in Current with Kimi');
     await kimiQuickButton.click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'create-ai-session-quick',
         projectId: 'project-b',
         provider: 'kimi',
+        currentWorktreeAnchor: true,
     });
 });
 
@@ -477,6 +480,37 @@ test('AI-SESSION-QUICK-CREATE-001 list view keeps inline create targets', async 
     assert.deepEqual(await postedMessages(page), [{
         type: 'create-ai-session-quick', projectId: 'project-a', provider: 'kimi', worktreeKey: key,
     }]);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 list view does not duplicate a managed group primary', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const readyWorktree = {
+        kind: 'ready',
+        git: {
+            key, branchRef: 'refs/heads/feature/auth', head: 'a'.repeat(40),
+            isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+        },
+        activity: 'idle', sessions: [], authority: { canResume: true },
+    };
+    const page = await openQuickCreatePage(t, {
+        chatsViewMode: 'list', worktrees: [readyWorktree],
+        worktreeGroups: [{
+            kind: 'group', groupId: 'feature-auth', displayName: 'feature-auth', revision: 1,
+            activity: 'idle', sessions: [], chips: [], hasDetachedMembers: false,
+            needsPrimarySelection: false, canCreateSession: true, mergeCandidateGroupIds: [],
+            members: [{
+                memberId: 'feature-auth-primary', repositoryKey: key.repositoryKey,
+                repositoryLabel: 'repo', branchName: 'feature/auth', path: key.canonicalWorktreePath,
+                status: 'ready', isPrimary: true, worktreeKey: key,
+            }],
+        }],
+    });
+    assert.equal(await page.locator('[data-open-session-surface][data-id="project-a"] '
+        + '.ai-session-list-launch-target[data-worktree-path="/repo-feature"]').count(), 1,
+    'the managed group is the sole creation target for its primary worktree');
 });
 
 test('AI-SESSION-QUICK-CREATE-001 the worktree actions menu contains management only', async t => {
@@ -797,6 +831,7 @@ test('AI-SESSION-QUICK-CREATE-001 dropdown provider items quick-create for the o
         type: 'create-ai-session-quick',
         projectId: 'project-b',
         provider: 'claude',
+        currentWorktreeAnchor: true,
     }], 'the menu item targets the project whose arrow opened the menu, not its own provider');
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false,
         'choosing an item closes the dropdown');
@@ -814,8 +849,60 @@ test('AI-SESSION-QUICK-CREATE-001 the preset menu sends the selected Codex profi
         projectId: 'project-a',
         provider: 'codex',
         codexProfile: 'deepseek',
+        currentWorktreeAnchor: true,
     }]);
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 the plain Codex preset explicitly selects base configuration', async t => {
+    const page = await openQuickCreatePage(t, { codexProfiles: ['deepseek'] });
+    await page.locator('[data-open-session-surface][data-id="project-a"] '
+        + '[data-action="open-ai-session-preset-menu"]').click();
+    await page.locator('#aiSessionCreateDropdown [data-action="create-ai-session-preset"]'
+        + '[data-provider="codex"][data-codex-profile-base="true"]').click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick', projectId: 'project-a', provider: 'codex',
+        codexProfileBase: true, currentWorktreeAnchor: true,
+    }]);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 switching row triggers rebinds the shared preset menu', async t => {
+    const first = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-first' };
+    const second = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-second' };
+    const row = (key, branchRef) => ({
+        kind: 'ready', git: {
+            key, branchRef, head: 'a'.repeat(40), isMain: false, isBare: false,
+            health: 'normal', headKind: 'branch',
+        }, activity: 'idle', sessions: [], authority: { canResume: true },
+    });
+    const page = await openQuickCreatePage(t, { worktrees: [
+        row(first, 'refs/heads/first'), row(second, 'refs/heads/second'),
+    ] });
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
+    await project.locator('[data-worktree-path="/repo-first"] [data-action="open-ai-session-preset-menu"]').click();
+    await project.locator('[data-worktree-path="/repo-second"] [data-action="open-ai-session-preset-menu"]').click();
+    assert.equal(await page.locator('#aiSessionCreateDropdown').evaluate(menu => menu.classList.contains('visible')), true);
+    await page.locator('#aiSessionCreateDropdown [data-provider="kimi"]').click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'create-ai-session-quick', projectId: 'project-a', provider: 'kimi', worktreeKey: second,
+    }]);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 preset menu reads profiles from the latest surface replacement', async t => {
+    const page = await openQuickCreatePage(t, { codexProfiles: ['removed-profile'] });
+    const replacement = getAiSessionsDiv(getSessionSurface('project-a', 'codex', {
+        codexProfiles: ['new-profile'],
+    }));
+    await page.evaluate(html => {
+        document.querySelector('[data-open-session-surface][data-id="project-a"]')
+            .innerHTML = html;
+    }, replacement);
+
+    await page.locator('[data-open-session-surface][data-id="project-a"] '
+        + '[data-action="open-ai-session-preset-menu"]').click();
+    const menu = page.locator('#aiSessionCreateDropdown');
+    assert.equal(await menu.locator('[data-profile="new-profile"]').count(), 1);
+    assert.equal(await menu.locator('[data-profile="removed-profile"]').count(), 0);
 });
 
 test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without posting', async t => {
@@ -855,7 +942,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button tooltip identifies the provid
     const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const quickButton = project.locator('[data-action="create-ai-session-quick"]');
 
-    assert.equal(await quickButton.getAttribute('aria-label'), 'Create chat with Codex · deepseek');
+    assert.equal(await quickButton.getAttribute('aria-label'), 'Create chat in Current with Codex · deepseek');
     assert.equal(await quickButton.getAttribute('data-tooltip'), 'Codex · deepseek');
     assert.equal(await project.locator('.ai-session-chats-actions').count(), 0,
         'the CHATS toolbar has no global create action');
@@ -874,7 +961,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provid
 
     assert.equal(await quickButton.getAttribute('data-provider'), 'kimi',
         'a stored codex-heavy list filter must not pin the quick-create button');
-    assert.equal(await quickButton.getAttribute('aria-label'), 'Create chat with Kimi');
+    assert.equal(await quickButton.getAttribute('aria-label'), 'Create chat in Current with Kimi');
     assert.equal(await quickButton.getAttribute('data-tooltip'), 'Kimi');
     assert.equal(
         await page.locator('[data-open-session-surface][data-id="project-a"] [data-ai-session-region]')
@@ -888,6 +975,7 @@ test('AI-SESSION-QUICK-CREATE-001 the quick button follows the remembered provid
         type: 'create-ai-session-quick',
         projectId: 'project-a',
         provider: 'kimi',
+        currentWorktreeAnchor: true,
     }], 'quick-create launches the remembered provider');
 });
 
@@ -939,6 +1027,7 @@ test('AI-SESSION-QUICK-CREATE-001 the dropdown is fully keyboard operable', asyn
         type: 'create-ai-session-quick',
         projectId: 'project-b',
         provider: 'kimi',
+        currentWorktreeAnchor: true,
     }], 'Enter activates the focused provider item for the originating project');
     assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
 
@@ -953,5 +1042,6 @@ test('AI-SESSION-QUICK-CREATE-001 the dropdown is fully keyboard operable', asyn
         type: 'create-ai-session-quick',
         projectId: 'project-b',
         provider: 'kimi',
+        currentWorktreeAnchor: true,
     }], 'Escape posts nothing');
 });

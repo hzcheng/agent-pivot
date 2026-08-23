@@ -70,6 +70,17 @@ test('WORKTREE-SESSION-CREATE-TARGET-001 active editor uniquely selects its sibl
     }), { status: 'selected', key: feature.key });
 });
 
+test('WORKTREE-SESSION-CREATE-TARGET-001 Current creation ignores an active feature worktree', () => {
+    const main = worktree('/repo', 'refs/heads/main');
+    const feature = worktree('/repo-feature', 'refs/heads/feature/auth');
+    assert.deepEqual(resolveAiSessionWorktreeCreationTarget({
+        workspace,
+        snapshot: snapshot([main, feature]),
+        activeEditorPath: '/repo-feature/frontend/src/login.ts',
+        mainCheckoutOnly: true,
+    }), { status: 'selected', key: main.key });
+});
+
 test('WORKTREE-SESSION-CREATE-TARGET-001 directly selects the only launchable worktree', () => {
     const linked = worktree('/repo-linked', undefined, { headKind: 'detached' });
     const bare = worktree('/repo.git', undefined, { isBare: true, headKind: 'unknown' });

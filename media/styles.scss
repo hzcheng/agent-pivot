@@ -1185,12 +1185,6 @@ body .project {
             }
         }
 
-        // A ready bridge contributes no message. Do not reserve a vacant
-        // status row between the label and the window list in that state.
-        .open-window-switcher-status:empty {
-            display: none;
-        }
-
         .open-window-switcher-list {
             flex: 1 1 auto;
             min-height: 0;

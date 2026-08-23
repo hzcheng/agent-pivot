@@ -1365,6 +1365,17 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and c
         await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'),
         ''
     );
+    assert.equal(await page.locator('[data-ai-session-live-region]').textContent(),
+        'codex session-a needs attention.');
+    await page.locator('[data-ai-session-live-region]').evaluate(element => { element.textContent = ''; });
+    await postHostMessage(page, {
+        type: 'ai-session-presentation-state',
+        ...presentationMessage([attentionSession], 3, {
+            attention: { 'codex:session-a': ['event-a', 'event-b'] },
+        }),
+    });
+    assert.equal(await page.locator('[data-ai-session-live-region]').textContent(), '',
+        'replaying already announced attention event IDs stays silent');
     await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
@@ -2944,6 +2955,10 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
     const activeRow = page.locator(
         '.active-ai-session-row[data-session-id="session-running"]'
     );
+    assert.equal(await page.locator('[role="tree"][aria-label="Active chats by worktree"]').count(), 1,
+        'the CHATS tree exposes its hierarchy to assistive technology');
+    assert.equal(await page.locator('[role="treeitem"][aria-level="1"]').count(), 1,
+        'the active worktree group is a top-level tree item');
     const activeMetrics = await activeRow.evaluate(el => {
         const rowBox = el.getBoundingClientRect();
         const name = el.querySelector('.codex-session-name').getBoundingClientRect();
@@ -2967,12 +2982,12 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
         'the title and status marker must share the row center');
     assert.match(activeMetrics.ariaLabel, /Running/);
     assert.match(activeMetrics.ariaLabel, new RegExp(`last activity ${expectedTime}`));
-    assert.match(activeMetrics.ariaLabel, /session #session-/);
+    assert.match(activeMetrics.ariaLabel, /session #session-running/);
     assert.equal(activeMetrics.title, null,
         'the chat row uses one fast tooltip rather than a delayed native title');
     assert.match(activeMetrics.tooltip, /^Focus Codex Session\nProvider: Codex\nProfile: review\nTitle codex session-running\nStatus Running/);
     assert.match(activeMetrics.tooltip, new RegExp(`Last activity ${expectedTime}`));
-    assert.match(activeMetrics.tooltip, /Session #session-/);
+    assert.match(activeMetrics.tooltip, /Session #session-running/);
     const activeAction = activeRow.locator('.ai-session-primary-action');
     await activeAction.hover();
     const fastTooltip = page.locator('.ai-session-fast-tooltip');

@@ -205,9 +205,11 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 webview pending lifecycle', async t 
     snapshot = await page.evaluate(id => ({
         state: document.querySelector(`[data-open-window-row][data-id="${id}"]`).getAttribute('data-navigation-state'),
         pending: window.__agentPivotOpenWindowNavigation.isPending(id),
+        announcement: document.querySelector('[data-open-window-nav-live-region]').textContent,
     }), cardId);
     assert.equal(snapshot.state, null);
     assert.equal(snapshot.pending, false);
+    assert.equal(snapshot.announcement, 'Now in window beta');
 
     // duplicate settlement after resolution is ignored
     await page.evaluate(id => {
@@ -384,7 +386,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
     assert.equal(narrowPinVisible, false);
 });
 
-test('OPEN-WINDOW-SWITCHER-UI-001 keeps the ready WINDOWS label compact and flush with its rows', async t => {
+test('OPEN-WINDOW-SWITCHER-UI-001 keeps the ready WINDOWS label compact while reserving its bridge-status slot', async t => {
     const currentCard = makeCard('__currentWorkspace-' + 'f'.repeat(24), 'current', { name: 'alpha' });
     const navigationCard = makeCard('__openWorkspaceNavigation-' + 'g'.repeat(24), 'navigation', { name: 'beta' });
     const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
@@ -403,12 +405,13 @@ test('OPEN-WINDOW-SWITCHER-UI-001 keeps the ready WINDOWS label compact and flus
         };
     });
 
-    assert.equal(layout.statusDisplay, 'none', 'ready state must not reserve a blank status row');
+    assert.equal(layout.statusDisplay, 'flex', 'ready state reserves the fixed bridge-status slot');
     assert.equal(layout.headerFontSize, '10px');
     assert.equal(layout.headerBorderBottomWidth, '1px',
         'a hairline separates the WINDOWS label from its rows');
     assert.ok(layout.headerHeight <= 20, 'the navigation label stays smaller than a card header');
-    assert.ok(layout.rowGap <= 1, 'the first window row follows the label without a visual gap');
+    assert.equal(layout.rowGap, 24,
+        'the fixed bridge-status slot is the only space between the label and first row');
 });
 
 // --- production OPEN tab end-to-end (PR-B) ---------------------------------
@@ -836,7 +839,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 empty window accepts incremental ai-sessions u
         'the empty state stays rendered after the incremental update');
 });
 
-test('OPEN-WINDOW-SWITCHER-UI-001 bridge status appears only when it has a user-visible message', async t => {
+test('OPEN-WINDOW-SWITCHER-UI-001 bridge status keeps window and chat surfaces stationary', async t => {
     const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
     const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });
     const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
@@ -845,18 +848,20 @@ test('OPEN-WINDOW-SWITCHER-UI-001 bridge status appears only when it has a user-
         const group = document.querySelector('[data-group-id="open-window-switcher"]');
         const status = group.querySelector('[data-open-window-switcher-status]');
         const list = group.querySelector('[data-open-window-switcher-list]');
+        const chats = document.querySelector('[data-open-session-surface]');
         return {
             groupHeight: group.getBoundingClientRect().height,
             statusHeight: status.getBoundingClientRect().height,
             listTop: list.getBoundingClientRect().top,
+            chatsTop: chats.getBoundingClientRect().top,
             rowTops: Array.from(list.querySelectorAll('[data-open-window-row]'))
                 .map(row => row.getBoundingClientRect().top),
         };
     });
 
     const ready = await measure();
-    assert.equal(ready.statusHeight, 0,
-        'a ready bridge does not reserve a blank status row');
+    assert.ok(ready.statusHeight > 0,
+        'a ready bridge reserves its blank status row');
     assert.equal(ready.rowTops.length, 2);
 
     let revision = 10;
@@ -865,8 +870,12 @@ test('OPEN-WINDOW-SWITCHER-UI-001 bridge status appears only when it has a user-
         const next = await measure();
         assert.ok(next.statusHeight > 0,
             `bridge status "${status}" receives a visible status row`);
-        assert.equal(next.listTop - ready.listTop, next.statusHeight,
-            `bridge status "${status}" moves the list only by its own message height`);
+        assert.equal(next.statusHeight, ready.statusHeight,
+            `bridge status "${status}" retains the fixed status-slot height`);
+        assert.equal(next.listTop, ready.listTop,
+            `bridge status "${status}" does not move window rows`);
+        assert.equal(next.chatsTop, ready.chatsTop,
+            `bridge status "${status}" does not move CHATS/ALL`);
     }
     // The status text renders only when it has a message.
     await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], 'connecting', ++revision);
@@ -875,7 +884,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 bridge status appears only when it has a user-
 
     await postOpenWorkspacesUpdate(page, [currentCard, navigationCard], 'ready', ++revision);
     assert.deepEqual(await measure(), ready,
-        'returning to ready removes the status row and restores the compact layout');
+        'returning to ready clears text without moving either surface');
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 v4 replacement restores focus to the same row control', async t => {

@@ -161,36 +161,54 @@ export function createAttentionQueueJumpHandler(
             // session before hopping to another window.
             next = items.find(item => item.local) || items[0];
         }
-        if (next.local) {
-            await jumpToLocal(next);
-            return;
-        }
-        lastKey = attentionQueueItemKey(next);
-        const cardId = options.findNavigationCardId(next.projectId);
-        if (!cardId) {
-            options.showWarningMessage(
-                'Agent Pivot: the session that needs attention is in a window'
-                    + ' that is no longer open.'
-            );
-            return;
-        }
-        if (options.requestRemoteFocus) {
-            let handedOff = false;
-            try {
-                handedOff = await options.requestRemoteFocus(next);
-            } catch (_error) {
-                handedOff = false;
+        let candidate = next;
+        for (let attempts = 0; attempts < items.length; attempts += 1) {
+            const candidateKey = attentionQueueItemKey(candidate);
+            const candidateIndex = items.findIndex(item =>
+                attentionQueueItemKey(item) === candidateKey);
+            if (candidateIndex < 0) {
+                break;
             }
-            await options.openNavigationCard(cardId);
-            if (!handedOff) {
-                options.showInformationMessage(
-                    'Agent Pivot: switched to the window with the session that needs attention;'
-                        + ' run Next Attention Session again to finish the jump.'
-                );
+            if (currentKey !== null
+                && items.length > 1
+                && candidateKey === currentKey) {
+                // A closed remote window may force us to advance farther than
+                // the initial selection. Preserve the existing guarantee that
+                // one press never returns to the session already in view.
+                candidate = items[(candidateIndex + 1) % items.length];
+                continue;
             }
-            return;
+            if (candidate.local) {
+                await jumpToLocal(candidate);
+                return;
+            }
+            lastKey = candidateKey;
+            const cardId = options.findNavigationCardId(candidate.projectId);
+            if (cardId) {
+                if (options.requestRemoteFocus) {
+                    let handedOff = false;
+                    try {
+                        handedOff = await options.requestRemoteFocus(candidate);
+                    } catch (_error) {
+                        handedOff = false;
+                    }
+                    await options.openNavigationCard(cardId);
+                    if (!handedOff) {
+                        options.showInformationMessage(
+                            'Agent Pivot: switched to the window with the session that needs attention;'
+                                + ' run Next Attention Session again to finish the jump.'
+                        );
+                    }
+                    return;
+                }
+                await options.openNavigationCard(cardId);
+                return;
+            }
+            candidate = items[(candidateIndex + 1) % items.length];
         }
-        await options.openNavigationCard(cardId);
+        options.showInformationMessage(
+            'Agent Pivot: no reachable AI sessions need attention.'
+        );
     }
 
     async function jumpToAttentionSession(item: AttentionQueueJumpTarget): Promise<void> {

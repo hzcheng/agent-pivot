@@ -601,11 +601,16 @@
             if (branchRoot) branchRoot.hidden = !member;
             if (refreshButton) refreshButton.disabled = false;
             if (openScmButton) openScmButton.disabled = false;
+            // ‹ › stay visible for a single member — disabled, not
+            // hidden, so row 1 looks identical across member counts
+            // (owner UX decision).
             if (prevButton) {
-                prevButton.hidden = !multi;
+                prevButton.hidden = false;
+                prevButton.disabled = !multi;
             }
             if (nextButton) {
-                nextButton.hidden = !multi;
+                nextButton.hidden = false;
+                nextButton.disabled = !multi;
             }
             if (positionIndicator) {
                 positionIndicator.hidden = !multi;

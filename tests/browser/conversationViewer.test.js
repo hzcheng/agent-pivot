@@ -13458,12 +13458,18 @@ test('WORKTREE-CHANGES-PANEL-001 degrades a single member to a static repo title
     }));
     await page.locator('[data-telemetry-changes]').click();
 
-    // ‹ › and (i/n) hide; no select is rendered at all — the repo name is
-    // a plain text title, not a disabled dropdown (PRD §15.1/§16).
+    // ‹ › stay visible but disabled for a single member — row 1 keeps one
+    // consistent look across member counts; (i/n) still hides and no
+    // select is rendered at all — the repo name is a plain text title,
+    // not a disabled dropdown (PRD §15.1/§16).
     assert.equal(
-        await page.locator('[data-changes-prev]').isHidden(), true);
+        await page.locator('[data-changes-prev]').isVisible(), true);
     assert.equal(
-        await page.locator('[data-changes-next]').isHidden(), true);
+        await page.locator('[data-changes-prev]').isDisabled(), true);
+    assert.equal(
+        await page.locator('[data-changes-next]').isVisible(), true);
+    assert.equal(
+        await page.locator('[data-changes-next]').isDisabled(), true);
     assert.equal(
         await page.locator('[data-changes-position]').isHidden(), true);
     assert.equal(

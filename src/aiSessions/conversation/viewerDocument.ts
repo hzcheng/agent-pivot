@@ -626,13 +626,13 @@ export function renderConversationViewerDocument(
                                 stroke="currentColor" stroke-width="1.3"
                                 stroke-linecap="round" stroke-linejoin="round">
                                 <path data-fold-icon="collapse"
-                                    d="M2.5 3h11"/>
+                                    d="M2.5 8.5 8 3l5.5 5.5"/>
                                 <path data-fold-icon="collapse"
-                                    d="M5 12.5 8 9.5l3 3"/>
+                                    d="M2.5 13.5 8 8l5.5 5.5"/>
                                 <path data-fold-icon="expand"
-                                    d="M5 6.5 8 9.5l3-3" style="display:none"/>
+                                    d="M2.5 3 8 8.5l5.5-5.5" style="display:none"/>
                                 <path data-fold-icon="expand"
-                                    d="M2.5 13h11" style="display:none"/></svg>
+                                    d="M2.5 8 8 13.5l5.5-5.5" style="display:none"/></svg>
                         </button>
                         <button type="button"
                             class="conversation-icon-button"

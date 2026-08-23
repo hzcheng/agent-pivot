@@ -740,6 +740,39 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     assert.match(toolbar, /data-action="toggle-chats-view-menu"/,
         'the CHATS tab pair carries the view-menu trigger');
 });
+
+test('WORKTREE-GROUPS-UI-001 renders merge eligibility on the unified actions menu trigger', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'merge-menu-coverage',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'chats',
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktreeGroups: [{
+            kind: 'group', groupId: 'merge-source', displayName: 'merge-source', revision: 1,
+            activity: 'idle', sessions: [], chips: [], hasDetachedMembers: false,
+            needsPrimarySelection: false, canCreateSession: true,
+            mergeCandidateGroupIds: ['merge-target'],
+            members: [{
+                memberId: 'member-1', repositoryKey: '/repo/.git', repositoryLabel: 'repo',
+                branchName: 'merge-source', path: '/repo/.worktrees/merge-source',
+                status: 'ready', isPrimary: true,
+                worktreeKey: {
+                    repositoryKey: '/repo/.git',
+                    canonicalWorktreePath: '/repo/.worktrees/merge-source',
+                },
+            }],
+        }],
+    });
+
+    assert.match(html, /data-group-id="merge-source"[\s\S]*?data-can-merge="true"/,
+        'eligible groups pass merge availability to their actions menu trigger');
+    assert.match(html, /data-action="ai-session-worktree-menu"/,
+        'the row keeps its unified actions menu trigger');
+    assert.doesNotMatch(html, /class="ai-session-worktree-merge"/,
+        'merge is not rendered as a standalone row button');
+});
+
 test('WORKTREE-GROUPING-UI-001 renders the host-persisted view tab without a restore flip', () => {
     const html = webviewModules.content.getAiSessionsDiv({
         id: 'view-state-memory',

@@ -987,12 +987,10 @@ function getWorktreeGroupRowHtml(
         data-can-resume="${group.canCreateSession && primary?.worktreeKey ? 'true' : 'false'}"
         data-can-remove="${group.canCreateSession && primary?.worktreeKey ? 'true' : 'false'}"
         data-can-branch-create="${group.canCreateSession && primary?.worktreeKey ? 'true' : 'false'}"
+        data-can-merge="${group.mergeCandidateGroupIds.length ? 'true' : 'false'}"
         data-quick-provider="${escapeAttribute(quickCreateProvider)}"
         data-quick-label="${escapeAttribute(quickLabel)}"
         data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`;
-    const merge = group.mergeCandidateGroupIds.length
-        ? `<button type="button" class="ai-session-worktree-merge" data-action="merge-worktree-groups" data-group-id="${escapeAttribute(group.groupId)}" aria-label="Merge ${escapeAttribute(name)} with another group" data-tooltip="Merge with another group…">${Icons.foldAll}</button>`
-        : '';
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
     const ariaLabel = `${name}, ${sessionLabel}, ${activity}`;
     const memberNames = group.members.map(member => member.status === 'ready'
@@ -1092,7 +1090,7 @@ function getWorktreeGroupRowHtml(
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
-            ${merge}${more}
+            ${more}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
             ? matched.map(entry => entry.html).join('\n')
@@ -1431,6 +1429,7 @@ export function getAiSessionWorktreeMenu() {
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-derive" hidden>Derive from this group…</div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-add-repo" hidden>Add repository to group…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="merge-worktree-groups" hidden>Merge with another group…</div>
     <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-group-delete" hidden>Remove group worktrees…</div>
     <div class="custom-context-menu-separator" role="separator" data-worktree-remove-separator></div>
     <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-remove">Remove worktree</div>

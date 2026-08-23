@@ -381,8 +381,8 @@ test('WORKTREE-GROUPS-UI-001 keeps the task name readable beside repository chip
         `no horizontal overflow (document ${layout.documentWidth}px)`);
 });
 
-test('WORKTREE-GROUPS-UI-001 shows the merge affordance and stable discriminator when needed', async t => {
-    const page = await openSurfacePage(surface({
+test('WORKTREE-GROUPS-UI-001 puts merge in the actions menu and keeps the discriminator stable', async t => {
+    const { page } = await openGroupActionsPage(t, () => surface({
         worktreeGroups: [
             groupRow({ mergeCandidateGroupIds: ['g-2'], discriminator: 'agent-pivot/fix-login' }),
             groupRow({
@@ -395,12 +395,15 @@ test('WORKTREE-GROUPS-UI-001 shows the merge affordance and stable discriminator
                 chips: [{ label: 'b', title: 'beta' }],
             }),
         ],
-    }), 320);
-    t.after(() => page.close());
+    }));
 
-    const merges = page.locator('[data-action="merge-worktree-groups"]');
-    assert.equal(await merges.count(), 2);
-    assert.equal(await merges.first().getAttribute('data-group-id'), 'g-1');
+    const groups = page.locator('.ai-session-worktree-task-group');
+    assert.equal(await groups.locator('[data-action="merge-worktree-groups"]').count(), 0,
+        'merge is not a standalone row affordance');
+    await groups.first().locator('.ai-session-worktree-more').evaluate(button => button.click());
+    const mergeItem = page.locator('#aiSessionWorktreeMenu [data-action="merge-worktree-groups"]');
+    assert.equal(await mergeItem.isVisible(), true,
+        'eligible groups expose merge from the actions menu');
     const names = await page.locator('.ai-session-worktree-task-group .ai-session-worktree-title')
         .allTextContents();
     assert.deepEqual(names, ['fix-login', 'fix-login']);
@@ -417,9 +420,11 @@ test('WORKTREE-GROUPS-UI-001 merge request ids carry a per-document nonce (revie
         ],
     });
     const firstDocument = await openGroupActionsPage(t, sessionHtml);
-    await firstDocument.page.locator(
-        '[data-action="merge-worktree-groups"][data-group-id="g-1"]')
+    await firstDocument.page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
         .evaluate(button => button.click());
+    await firstDocument.page.locator(
+        '#aiSessionWorktreeMenu [data-action="merge-worktree-groups"]')
+        .evaluate(item => item.click());
     const first = await firstDocument.page.evaluate(() => window.__postedMessages.at(-1));
     assert.match(first.requestId, /^worktree-merge-[a-z0-9]+-1$/,
         'the merge request id carries a per-document nonce');
@@ -435,9 +440,11 @@ test('WORKTREE-GROUPS-UI-001 merge request ids carry a per-document nonce (revie
     // never regenerate the previous document's first request id and be
     // answered from the stale cache without executing.
     const secondDocument = await openGroupActionsPage(t, sessionHtml);
-    await secondDocument.page.locator(
-        '[data-action="merge-worktree-groups"][data-group-id="g-1"]')
+    await secondDocument.page.locator('.ai-session-worktree-more[data-group-id="g-1"]')
         .evaluate(button => button.click());
+    await secondDocument.page.locator(
+        '#aiSessionWorktreeMenu [data-action="merge-worktree-groups"]')
+        .evaluate(item => item.click());
     const second = await secondDocument.page.evaluate(() => window.__postedMessages.at(-1));
     assert.match(second.requestId, /^worktree-merge-[a-z0-9]+-1$/);
     assert.notEqual(second.requestId, first.requestId,

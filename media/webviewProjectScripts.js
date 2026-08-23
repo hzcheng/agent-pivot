@@ -387,24 +387,17 @@ function initProjects() {
     }
 
     function activateAiSessionCreateDropdownItem(menuItem) {
-        var action = menuItem.getAttribute("data-action");
         var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
-        var projectId = dropdownMenu
-            ? dropdownMenu.getAttribute('data-dropdown-project-id') || ''
-            : '';
-        if (action === "create-ai-session-quick") {
-            var provider = menuItem.getAttribute("data-provider");
-            if (provider) {
-                window.vscode.postMessage({
-                    type: "create-ai-session-quick",
-                    projectId: projectId,
-                    provider: provider,
-                });
-            }
-        } else if (action === "create-ai-session") {
+        var context = dropdownMenu && dropdownMenu.__context;
+        var provider = menuItem.getAttribute("data-provider");
+        if (context && context.projectId && provider) {
+            var profile = menuItem.getAttribute('data-profile');
             window.vscode.postMessage({
-                type: "create-ai-session",
-                projectId: projectId,
+                type: "create-ai-session-quick",
+                projectId: context.projectId,
+                provider: provider,
+                ...(profile ? { codexProfile: profile } : {}),
+                ...(context.worktreeKey ? { worktreeKey: context.worktreeKey } : {}),
             });
         }
         contextMenus.closeContextMenus();
@@ -449,9 +442,9 @@ function initProjects() {
             return;
         }
 
-        // The create-dropdown arrow owns its toggle: the generic close would
+        // The preset trigger owns its toggle: the generic close would
         // hide the menu before the arrow handler can see it was open.
-        if (!e.target.closest('[data-action="create-ai-session-dropdown"]')
+        if (!e.target.closest('[data-action="open-ai-session-preset-menu"]')
             && !e.target.closest('[data-action="ai-session-worktree-menu"]')) {
             contextMenus.closeContextMenus();
         }

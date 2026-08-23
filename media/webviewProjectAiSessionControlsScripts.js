@@ -502,7 +502,7 @@ function initProjectAiSessionControls(options) {
                 var worktreeGroup = quickCreateAction.closest(
                     '[data-worktree-repository-key][data-worktree-path]'
                 );
-                if (worktreeGroup) {
+                if (worktreeGroup && !worktreeGroup.hasAttribute('data-worktree-anchor')) {
                     message.worktreeKey = {
                         repositoryKey: worktreeGroup.getAttribute('data-worktree-repository-key'),
                         canonicalWorktreePath: worktreeGroup.getAttribute('data-worktree-path'),
@@ -514,7 +514,7 @@ function initProjectAiSessionControls(options) {
             return true;
         }
 
-        var dropdownAction = target.closest('[data-action="create-ai-session-dropdown"]');
+        var dropdownAction = target.closest('[data-action="open-ai-session-preset-menu"]');
         if (dropdownAction) {
             var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
             if (dropdownMenu) {
@@ -533,6 +533,19 @@ function initProjectAiSessionControls(options) {
                 }
                 // Store the projectId on the menu element for menu item handlers
                 dropdownMenu.setAttribute('data-dropdown-project-id', projectId);
+                var dropdownGroup = dropdownAction.closest('.ai-session-worktree-group');
+                dropdownMenu.__context = {
+                    projectId: projectId,
+                    worktreeKey: dropdownGroup
+                        && !dropdownGroup.hasAttribute('data-worktree-anchor')
+                        && dropdownGroup.getAttribute('data-worktree-repository-key')
+                        && dropdownGroup.getAttribute('data-worktree-path')
+                        ? {
+                            repositoryKey: dropdownGroup.getAttribute('data-worktree-repository-key'),
+                            canonicalWorktreePath: dropdownGroup.getAttribute('data-worktree-path'),
+                        }
+                        : null,
+                };
                 dropdownMenu.__originButton = dropdownAction;
                 dropdownAction.setAttribute('aria-expanded', 'true');
                 // Position and show the dropdown below the button
@@ -801,7 +814,6 @@ function initProjectAiSessionControls(options) {
             groupId: button.getAttribute('data-group-id')
                 || group.getAttribute('data-group-id') || '',
             anchor: button.getAttribute('data-worktree-anchor') === 'true',
-            quickProvider: button.getAttribute('data-quick-provider') || '',
             canResume: button.getAttribute('data-can-resume') === 'true',
             canRemove: button.getAttribute('data-can-remove') === 'true',
             canBranchCreate: button.getAttribute('data-can-branch-create') === 'true'
@@ -810,18 +822,6 @@ function initProjectAiSessionControls(options) {
         };
         menu.__originButton = button;
         var hasWorktreeTarget = !!(menu.__context.repositoryKey && menu.__context.worktreePath);
-        var quickItem = menu.querySelector('[data-action="worktree-quick-create"]');
-        quickItem.textContent = button.getAttribute('data-quick-label')
-            || ('New session in ' + (button.getAttribute('data-worktree-name') || 'worktree'));
-        // Session creation works without a worktree target too: the Current
-        // anchor launches plain main-checkout sessions from the same menu,
-        // keeping single- and multi-root behavior identical.
-        quickItem.hidden = !menu.__context.canResume;
-        menu.querySelectorAll('[data-action="worktree-provider-create"]').forEach(item => {
-            item.hidden = !menu.__context.canResume;
-        });
-        var optionsItem = menu.querySelector('[data-action="worktree-create-with-options"]');
-        optionsItem.hidden = !menu.__context.canResume;
         var branchItem = menu.querySelector('[data-action="worktree-branch-create"]');
         branchItem.textContent = 'New worktree from '
             + (button.getAttribute('data-worktree-name') || 'this branch');
@@ -841,10 +841,6 @@ function initProjectAiSessionControls(options) {
         mergeItem.hidden = !menu.__context.groupId || !menu.__context.canMerge;
         var groupDeleteItem = menu.querySelector('[data-action="worktree-group-delete"]');
         groupDeleteItem.hidden = !menu.__context.groupId;
-        var sessionSeparator = menu.querySelector('[data-worktree-session-separator]');
-        if (sessionSeparator) {
-            sessionSeparator.hidden = quickItem.hidden && branchItem.hidden;
-        }
         var removeItem = menu.querySelector('[data-action="worktree-remove"]');
         removeItem.hidden = !menu.__context.canRemove || !hasWorktreeTarget;
         var removeSeparator = menu.querySelector('[data-worktree-remove-separator]');
@@ -900,30 +896,7 @@ function initProjectAiSessionControls(options) {
                 canonicalWorktreePath: context.worktreePath,
             }
             : null;
-        if (action === 'worktree-quick-create' && context.canResume) {
-            window.vscode.postMessage({
-                type: 'create-ai-session-quick',
-                projectId: context.projectId,
-                provider: context.quickProvider,
-                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
-            });
-        } else if (action === 'worktree-provider-create') {
-            var provider = item.getAttribute('data-provider');
-            if (!provider) return;
-            window.vscode.postMessage({
-                type: 'create-ai-session-quick',
-                projectId: context.projectId,
-                provider: provider,
-                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
-            });
-        } else if (action === 'worktree-create-with-options' && context.canResume) {
-            // The full creation flow: title, profile, and root pickers.
-            window.vscode.postMessage({
-                type: 'create-ai-session',
-                projectId: context.projectId,
-                ...(worktreeKey ? { worktreeKey: worktreeKey } : {}),
-            });
-        } else if (action === 'worktree-branch-create' && context.canBranchCreate) {
+        if (action === 'worktree-branch-create' && context.canBranchCreate) {
             // M2: absorbed by the inline creation form with a branch seed
             // (PRD §6.1 entry absorption).
             if (worktreeGroupForm) {

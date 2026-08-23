@@ -1094,6 +1094,7 @@ async function initializeDashboard(
             });
             return decision?.kind === 'profile' ? decision.name : undefined;
         },
+        getCodexProfiles: () => listCodexConfigProfiles(process.env, os.homedir(), logError),
         getQuickCreateProvider: scopeIdentity =>
             aiSessionWorkspaceStateStore.getQuickCreateProviders()[scopeIdentity],
         getWindowViewState: scopeIdentity =>
@@ -2316,10 +2317,23 @@ async function initializeDashboard(
                 return;
             }
             if (providerId && isAiSessionProviderId(providerId)) {
+                const requestedProfile = e.codexProfile;
+                // The webview may only select a profile that the host just
+                // discovered. Reject unknown profile names instead of letting
+                // an arbitrary message alter Codex's launch environment.
+                if (requestedProfile !== undefined
+                    && (providerId !== 'codex'
+                        || typeof requestedProfile !== 'string'
+                        || !listCodexConfigProfiles(process.env, os.homedir(), logError)
+                            .includes(requestedProfile))) {
+                    return;
+                }
                 await aiSessionCreationController.createSessionQuick(
                     e.projectId as string,
                     providerId,
-                    undefined,
+                    typeof requestedProfile === 'string'
+                        ? { kind: 'profile', name: requestedProfile }
+                        : undefined,
                     worktreeKey
                 );
             }

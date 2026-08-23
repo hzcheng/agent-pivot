@@ -109,6 +109,7 @@ export function getStewardContent(
         getEffectiveRunningIconAnimation(infos.config),
         windowPathSegmentsByCardId,
     );
+    var currentWorkspaceCard = workspaceCards.find(card => card.kind === 'current');
 
     return `
 <!DOCTYPE html>
@@ -201,7 +202,9 @@ export function getStewardContent(
         ${getProjectContextMenu()}
         ${getGroupContextMenu()}
         ${getAiSessionContextMenu()}
-        ${getAiSessionCreateDropdown()}
+        ${getAiSessionCreateDropdown(currentWorkspaceCard
+            ? getWorkspaceAiSessionSurface(currentWorkspaceCard)
+            : undefined)}
         ${getAiSessionWorktreeMenu()}
         ${getOpenWindowMenu()}
         </div>

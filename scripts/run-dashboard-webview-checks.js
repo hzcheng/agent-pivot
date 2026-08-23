@@ -624,17 +624,17 @@ function runWorkspaceCardRenderingChecks() {
     assert.strictEqual(multiHtml.includes('class="workspace-root-tag"'), false);
     assert.ok(multiHtml.includes('data-primary-root-id="root-api"'));
     assert.ok(multiHtml.includes('class="ai-session-root-chip"'));
-    assert.ok(multiHtml.includes('class="ai-session-create-split-button"'),
-        'the AI sessions header renders the split create button');
+    assert.strictEqual(multiHtml.includes('ai-session-create-split-button'), false,
+        'the CHATS toolbar has no global create button');
     assert.ok(multiHtml.includes('data-action="create-ai-session-quick"'));
     assert.ok(multiHtml.includes('data-provider="codex"'),
-        'the quick-create button carries the active provider');
-    assert.ok(multiHtml.includes('aria-label="New Codex session"'),
-        'the quick-create button announces the provider it will launch');
-    assert.ok(multiHtml.includes('data-action="create-ai-session-dropdown"'),
-        'the split button keeps a dropdown entry for other providers');
-    assert.ok(multiHtml.includes('data-tooltip="New Codex session"'),
-        'the quick-create button names its provider in the fast tooltip');
+        'the Current row quick-create button carries the active provider');
+    assert.ok(multiHtml.includes('aria-label="Create chat with Codex"'),
+        'the row quick-create button announces the provider it will launch');
+    assert.ok(multiHtml.includes('data-action="open-ai-session-preset-menu"'),
+        'each create target has a preset-menu trigger');
+    assert.ok(multiHtml.includes('data-tooltip="Codex"'),
+        'the quick-create tooltip contains only the provider/profile');
 
     const captionSurface = {
         id: 'project-caption',
@@ -648,9 +648,9 @@ function runWorkspaceCardRenderingChecks() {
         quickCreateProfile: 'deepseek',
     };
     const captionHtml = webviewAiSessionContent.getAiSessionsDiv(captionSurface);
-    assert.ok(captionHtml.includes('aria-label="New Codex session with profile deepseek"'),
+    assert.ok(captionHtml.includes('aria-label="Create chat with Codex · deepseek"'),
         'the quick button announces the effective profile');
-    assert.ok(captionHtml.includes('data-tooltip="New Codex session with profile deepseek"'),
+    assert.ok(captionHtml.includes('data-tooltip="Codex · deepseek"'),
         'the quick button tooltip shows the provider and profile');
 
     const kimiCaptionHtml = webviewAiSessionContent.getAiSessionsDiv({
@@ -658,11 +658,11 @@ function runWorkspaceCardRenderingChecks() {
         activeAiSessionProvider: 'kimi',
         quickCreateProfile: 'deepseek',
     });
-    assert.ok(kimiCaptionHtml.includes('data-tooltip="New Kimi session"'),
+    assert.ok(kimiCaptionHtml.includes('data-tooltip="Kimi"'),
         'a non-codex provider never carries the codex profile');
-    assert.ok(!kimiCaptionHtml.includes('ai-session-create-caption'),
-        'no visible caption crowds the toolbar row');
-    assert.ok(kimiCaptionHtml.includes('aria-label="New Kimi session"'));
+    assert.strictEqual(kimiCaptionHtml.includes('ai-session-chats-actions'), false,
+        'no global action area crowds the CHATS toolbar');
+    assert.ok(kimiCaptionHtml.includes('aria-label="Create chat with Kimi"'));
 
     const rememberedHtml = webviewAiSessionContent.getAiSessionsDiv({
         ...captionSurface,
@@ -672,7 +672,7 @@ function runWorkspaceCardRenderingChecks() {
     });
     assert.ok(rememberedHtml.includes('data-action="create-ai-session-quick" data-provider="kimi"'),
         'the quick button follows the remembered provider, not the list filter');
-    assert.ok(rememberedHtml.includes('data-tooltip="New Kimi session"'),
+    assert.ok(rememberedHtml.includes('data-tooltip="Kimi"'),
         'the quick button tooltip follows the remembered provider');
     assert.ok(rememberedHtml.includes('data-active-ai-session-provider="codex"'),
         'the session list filter keeps its own primary provider');
@@ -685,19 +685,24 @@ function runWorkspaceCardRenderingChecks() {
         'the caption and labels escape profile text');
     assert.ok(escapingHtml.includes('x&quot;&lt;script&gt;&quot;'));
     assert.strictEqual(multiHtml.includes('data-action="create-ai-session"'), false,
-        'the header split button replaces the bare create action');
+        'creation is always a one-click row action or preset');
 
-    const createDropdownHtml = webviewAiSessionContent.getAiSessionCreateDropdown();
+    const createDropdownHtml = webviewAiSessionContent.getAiSessionCreateDropdown({
+        id: 'project-caption', codexProfiles: ['deepseek'],
+    });
     assert.ok(createDropdownHtml.includes('id="aiSessionCreateDropdown"'),
-        'the create dropdown menu exists for the split button arrow');
+        'the create preset menu exists for row triggers');
     for (const provider of ['codex', 'kimi', 'claude']) {
         assert.ok(
-            createDropdownHtml.includes(`data-action="create-ai-session-quick" data-provider="${provider}"`),
-            `the create dropdown offers a quick ${provider} entry`
+            createDropdownHtml.includes(`data-action="create-ai-session-preset" data-provider="${provider}"`),
+            `the preset menu offers a ${provider} entry`
         );
     }
-    assert.ok(createDropdownHtml.includes('data-action="create-ai-session"'),
-        'the create dropdown keeps the full interactive entry');
+    assert.ok(createDropdownHtml.includes('data-profile="deepseek"'),
+        'the preset menu offers each discovered Codex profile directly');
+    const worktreeMenuHtml = webviewAiSessionContent.getAiSessionWorktreeMenu();
+    assert.strictEqual(worktreeMenuHtml.includes('worktree-quick-create'), false,
+        'the worktree actions menu no longer duplicates session creation');
     assert.strictEqual(multiHtml.includes('data-action="open-new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="new-session-in"'), false);
     assert.strictEqual(multiHtml.includes('data-action="selected-project"'), false);

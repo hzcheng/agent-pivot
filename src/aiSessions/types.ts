@@ -380,6 +380,8 @@ export interface WorkspaceAiSessionViewModel {
     truncatedWorktreeCount: number;
     /** The Codex profile a picker-free quick-create would launch with, when any. */
     quickCreateProfile?: string;
+    /** Named Codex profiles available for one-click creation. */
+    codexProfiles?: string[];
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
 }

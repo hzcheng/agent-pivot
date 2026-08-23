@@ -5090,9 +5090,11 @@ function runWebviewContentChecks() {
     }, { runningIconAnimation: 'custom' });
     assert.ok(sessionTabsHtml.includes('class="ai-session-chats-toolbar"'));
     assert.ok(sessionTabsHtml.includes('data-action="create-ai-session-quick" data-provider="codex"'),
-        'the chats toolbar quick-create button carries the active provider');
-    assert.ok(sessionTabsHtml.includes('data-action="create-ai-session-dropdown"'),
-        'the chats toolbar split button keeps the create dropdown entry');
+        'the Current row quick-create button carries the active provider');
+    assert.ok(sessionTabsHtml.includes('data-action="open-ai-session-preset-menu"'),
+        'each create target exposes the preset menu entry');
+    assert.ok(!sessionTabsHtml.includes('ai-session-create-split-button'),
+        'the chats toolbar has no global creation cluster');
     assert.ok(!sessionTabsHtml.includes('data-action="create-ai-session" data-provider='));
     assert.ok(sessionTabsHtml.includes('data-selected-ai-session-providers="codex"'));
     assert.ok(sessionTabsHtml.includes('data-active-ai-session-provider="codex"'));

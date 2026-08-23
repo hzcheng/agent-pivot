@@ -15249,12 +15249,14 @@ test('WORKTREE-CHANGES-COMMITS-001 switching to Commits requests the first page 
         await page.locator('[data-changes-files-view]').isHidden(), true);
     assert.equal(
         await page.locator('[data-changes-commits-view]').isVisible(), true);
-    // The fold toggle stays visible in Commits but is inert (disabled);
-    // refresh and SCM keep working (§15.4).
+    // The fold toggle stays enabled in Commits — it folds commit rows
+    // instead of file groups (§15.4); refresh and SCM keep working too.
+    // Nothing is loaded yet, so there is nothing to fold.
     assert.equal(
         await page.locator('[data-changes-fold-toggle]').isVisible(), true);
     assert.equal(
-        await page.locator('[data-changes-fold-toggle]').isDisabled(), true);
+        await page.locator('[data-changes-fold-toggle]').isDisabled(), true,
+        'no commits loaded means nothing to fold');
     assert.equal(
         await page.locator('[data-changes-refresh]').isEnabled(), true);
     assert.equal(
@@ -15807,4 +15809,58 @@ test('WORKTREE-CHANGES-COMMITS-001 focus falls back to the parent commit or the 
         document.activeElement
             === document.querySelector('[data-changes-subtab="commits"]')),
         true);
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 the fold toggle expands and collapses every loaded commit row', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    const toggle = page.locator('[data-changes-fold-toggle]');
+    assert.equal(await toggle.isEnabled(), true);
+    assert.equal(await toggle.getAttribute('aria-label'), 'Expand all',
+        'nothing expanded yet — the toggle offers Expand all');
+
+    // Expand all: one detail request per loaded commit.
+    await toggle.click();
+    const details = (await postedIntents(page)).filter(message =>
+        message.type === 'conversation-viewer-commit-detail');
+    assert.deepEqual(details.map(message => message.sha),
+        ['c'.repeat(40), 'd'.repeat(40)],
+        'expand all fans out one detail request per commit');
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-inline-note').count(), 2,
+        'every row shows its inline loading state');
+
+    const generation = await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    for (const request of details) {
+        await sendPage(page, {
+            type: 'conversation-viewer-commit-detail',
+            version: 1,
+            requestId: request.requestId,
+            subscriptionGeneration: generation,
+            memberId: 'm-api',
+            sha: request.sha,
+            files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+                deletions: 0 }],
+            totalFiles: 1,
+            filesTruncated: false,
+        });
+    }
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row').count(), 2);
+    assert.equal(await toggle.getAttribute('aria-label'), 'Collapse all',
+        'expanded rows flip the toggle to Collapse all');
+
+    // Collapse all clears every expansion; like the Files fold actions,
+    // activating the toggle keeps focus on the toggle itself (§15.3).
+    await toggle.click();
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row').count(), 0);
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-fold-toggle]')), true,
+        'activating the toggle keeps focus on it');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Expand all');
 });

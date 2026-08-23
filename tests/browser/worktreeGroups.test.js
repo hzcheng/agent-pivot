@@ -249,6 +249,8 @@ test('WORKTREE-GROUPS-UI-001 group rows carry inline chat launch controls', asyn
     assert.equal(await row.locator('[data-action="create-ai-session-quick"]').count(), 1);
     assert.equal(await row.locator('[data-action="open-ai-session-preset-menu"]').count(), 1);
     assert.equal(await row.locator('.ai-session-worktree-more').count(), 1);
+    assert.equal(await row.locator('[data-action="open-ai-session-preset-menu"] svg circle').count(), 3,
+        'the provider/profile control uses the sliders icon, not a disclosure chevron');
 });
 
 test('WORKTREE-GROUPS-UI-001 renders group repositories in the header tooltip, sessions, and a member summary', async t => {

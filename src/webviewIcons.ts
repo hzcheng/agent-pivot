@@ -31,6 +31,15 @@ export const chevronDown = `
 </svg>
 `;
 
+export const sliders = `
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 6h5M13 6h7M4 12h9M17 12h3M4 18h3M15 18h5"></path>
+    <circle cx="11" cy="6" r="2"></circle>
+    <circle cx="15" cy="12" r="2"></circle>
+    <circle cx="10" cy="18" r="2"></circle>
+</svg>
+`;
+
 export const trash = `
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
     <path d="M4 7h16"></path>

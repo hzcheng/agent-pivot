@@ -790,7 +790,7 @@ function getWorktreeChatLaunchControls(
     const presetAriaLabel = `Choose chat provider and profile for ${targetName}`;
     return `<span class="ai-session-worktree-launch-actions">`
         + `<button type="button" class="ai-session-worktree-quick-create" data-action="create-ai-session-quick" data-provider="${escapeAttribute(quickCreateProvider)}" aria-label="${escapeAttribute(quickAriaLabel)}" data-tooltip="${escapeAttribute(quickTooltip)}"${canCreate ? '' : ' disabled aria-disabled="true"'}>${Icons.add}</button>`
-        + `<button type="button" class="ai-session-worktree-preset-menu" data-action="open-ai-session-preset-menu" aria-label="${escapeAttribute(presetAriaLabel)}" data-tooltip="Choose provider and profile" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"${canCreate ? '' : ' disabled aria-disabled="true"'}>${Icons.chevronDown}</button>`
+        + `<button type="button" class="ai-session-worktree-preset-menu" data-action="open-ai-session-preset-menu" aria-label="${escapeAttribute(presetAriaLabel)}" data-tooltip="Choose provider and profile" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown"${canCreate ? '' : ' disabled aria-disabled="true"'}>${Icons.sliders}</button>`
         + `</span>`;
 }
 

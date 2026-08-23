@@ -1,7 +1,7 @@
 'use strict';
 
 import { execFile } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, realpathSync } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { WorkingChangeItem } from '../worktrees';
@@ -101,7 +101,23 @@ export async function openWorkingChangeDiff(
     item: WorkingChangeItem
 ): Promise<void> {
     const fileUri = vscode.Uri.file(path.join(worktreePath, item.path));
+    const pathIsMissingOrInsideWorktree = () => {
+        if (!existsSync(fileUri.fsPath)) {
+            return true;
+        }
+        const root = realpathSync(worktreePath);
+        const candidate = realpathSync(fileUri.fsPath);
+        const relative = path.relative(root, candidate);
+        return relative === '' || (relative !== '..'
+            && !relative.startsWith(`..${path.sep}`)
+            && !path.isAbsolute(relative))
+            ? true
+            : false;
+    };
     if (item.group === 'untracked' || item.group === 'merge') {
+        if (!pathIsMissingOrInsideWorktree()) {
+            return;
+        }
         await vscode.commands.executeCommand('vscode.open', fileUri);
         return;
     }
@@ -114,6 +130,9 @@ export async function openWorkingChangeDiff(
     const right = item.group === 'staged'
         ? gitContentUri(worktreePath, '', item.path)
         : fileUri;
+    if (item.group !== 'staged' && !pathIsMissingOrInsideWorktree()) {
+        return;
+    }
     const rightSide = isDeleted
         ? gitContentUri(worktreePath, EMPTY_REF, item.path)
         : right;
@@ -137,21 +156,58 @@ export async function openTaskResultReview(
     title: string,
     onError?: (message: string, error: unknown) => void
 ): Promise<void> {
-    const files = await new Promise<string[]>(resolve => {
-        execFile('git', [
-            '-C', worktreePath, 'diff', '--name-only', '-z', baselineSha,
-        ], {
+    const workingSideInsideWorktree = (file: string) => {
+        const filePath = path.join(worktreePath, file);
+        if (!existsSync(filePath)) {
+            return gitContentUri(worktreePath, EMPTY_REF, file);
+        }
+        const root = realpathSync(worktreePath);
+        const candidate = realpathSync(filePath);
+        const relative = path.relative(root, candidate);
+        const inside = relative === '' || (relative !== '..'
+            && !relative.startsWith(`..${path.sep}`)
+            && !path.isAbsolute(relative));
+        return inside
+            ? vscode.Uri.file(filePath)
+            : gitContentUri(worktreePath, EMPTY_REF, file);
+    };
+    const listFiles = (args: string[]) => new Promise<string[]>(
+        (resolve, reject) => {
+        execFile('git', ['-C', worktreePath, ...args], {
             cwd: worktreePath,
             timeout: GIT_SHOW_TIMEOUT_MS,
             maxBuffer: GIT_SHOW_MAX_OUTPUT_BYTES,
             encoding: 'utf8',
         }, (error, stdout) => {
-            resolve(error
-                ? []
-                : stdout.split('\0').filter(token => token)
-                    .slice(0, MAX_DIFF_FILES));
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve(stdout.split('\0').filter(token => token));
         });
     });
+    // Task result ⊃ Working changes (PRD §4.3): untracked files join the
+    // tracked diff, otherwise files visible in Working changes would be
+    // missing from the review.
+    let tracked: string[];
+    let untracked: string[];
+    try {
+        tracked = await listFiles(
+            ['diff', '--name-only', '-z', baselineSha]);
+        untracked = await listFiles(
+            ['ls-files', '--others', '--exclude-standard', '-z']);
+    } catch (error) {
+        onError?.(
+            'Task result review failed because Git could not list all files.',
+            error);
+        return;
+    }
+    const untrackedSet = new Set(untracked);
+    const allFiles = [...new Set([...tracked, ...untracked])];
+    const files = allFiles.slice(0, MAX_DIFF_FILES);
+    const reviewTitle = allFiles.length > files.length
+        ? `${title} (showing ${files.length} of ${allFiles.length})`
+        : title;
     if (!files.length) {
         return;
     }
@@ -159,16 +215,19 @@ export async function openTaskResultReview(
         const fileUri = vscode.Uri.file(path.join(worktreePath, file));
         return [
             fileUri,
-            gitContentUri(worktreePath, baselineSha, file),
+            // An untracked file has no baseline side: render it as an
+            // empty original, like an added file.
+            untrackedSet.has(file)
+                ? gitContentUri(worktreePath, EMPTY_REF, file)
+                : gitContentUri(worktreePath, baselineSha, file),
             // A deleted file has no working-tree document: render the
             // modified side as empty content instead of a missing file.
-            existsSync(fileUri.fsPath)
-                ? fileUri
-                : gitContentUri(worktreePath, EMPTY_REF, file),
+            workingSideInsideWorktree(file),
         ];
     });
     try {
-        await vscode.commands.executeCommand('vscode.changes', title, resources);
+        await vscode.commands.executeCommand(
+            'vscode.changes', reviewTitle, resources);
     } catch (error) {
         onError?.(
             'vscode.changes failed; falling back to a per-file diff list.',
@@ -177,7 +236,7 @@ export async function openTaskResultReview(
         // pick one file at a time, baseline → worktree.
         const picked = await vscode.window.showQuickPick(
             files.map((file, index) => ({ label: file, index })),
-            { placeHolder: title }
+            { placeHolder: reviewTitle }
         );
         if (!picked) {
             return;

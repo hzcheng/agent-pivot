@@ -609,9 +609,16 @@ test('CONVERSATION-COPY-ACTIONS-001 validates code and message copy payloads', (
 });
 
 test('WORKTREE-CHANGES-PANEL-001 parses open-file intents with every porcelain XY shape', () => {
+    const binding = {
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
     const base = {
         type: 'conversation-viewer-changes-open-file',
         version: 1,
+        ...binding,
         memberId: 'member-1',
         group: 'changes',
         path: 'src/a.ts',
@@ -629,4 +636,63 @@ test('WORKTREE-CHANGES-PANEL-001 parses open-file intents with every porcelain X
     assert.equal(parseConversationViewerMessage({ ...base, group: 'weird' }), undefined);
     assert.equal(parseConversationViewerMessage({ ...base, memberId: '../evil' }),
         undefined);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 binds every changes action to generation and session identity', () => {
+    const binding = {
+        subscriptionGeneration: 2,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const intents = [{
+        type: 'conversation-viewer-changes-select',
+        version: 1,
+        ...binding,
+        memberId: 'member-1',
+    }, {
+        type: 'conversation-viewer-changes-refresh',
+        version: 1,
+        ...binding,
+    }, {
+        type: 'conversation-viewer-changes-review',
+        version: 1,
+        ...binding,
+        memberId: 'member-1',
+    }, {
+        type: 'conversation-viewer-changes-open-scm',
+        version: 1,
+        ...binding,
+        memberId: 'member-1',
+    }, {
+        type: 'conversation-viewer-changes-open-file',
+        version: 1,
+        ...binding,
+        memberId: 'member-1',
+        group: 'staged',
+        xy: 'M ',
+        path: 'src/a.ts',
+    }];
+    for (const intent of intents) {
+        assert.deepEqual(parseConversationViewerMessage(intent), intent,
+            `${intent.type} must parse with its binding`);
+        // A stray binding field invalidates the whole intent.
+        assert.equal(parseConversationViewerMessage(
+            { ...intent, subscriptionGeneration: 0 }), undefined);
+        assert.equal(parseConversationViewerMessage(
+            { ...intent, subscriptionGeneration: 1.5 }), undefined);
+        assert.equal(parseConversationViewerMessage(
+            { ...intent, projectId: '' }), undefined);
+        assert.equal(parseConversationViewerMessage(
+            { ...intent, provider: 'not-a-provider' }), undefined);
+        assert.equal(parseConversationViewerMessage(
+            { ...intent, sessionId: '' }), undefined);
+        // An unknown extra key invalidates the intent (exact-key
+        // discipline), and a missing binding key fails closed.
+        assert.equal(parseConversationViewerMessage(
+            { ...intent, stray: true }), undefined);
+        const { sessionId: _dropped, ...unbound } = intent;
+        assert.equal(parseConversationViewerMessage(unbound), undefined,
+            `${intent.type} without sessionId must not parse`);
+    }
 });

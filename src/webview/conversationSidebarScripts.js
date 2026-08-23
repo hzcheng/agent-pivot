@@ -26,6 +26,9 @@
             commentsPanelOpen: false,
             commentsPanelWidth: 240,
             sidebarView: 'outline',
+            widthUserResized: false,
+            changesWidthRecommendationApplied: false,
+            restoredRecommendationPersistPending: false,
         };
 
         function readCommentsPanelState() {
@@ -65,6 +68,16 @@
                     query: outlineQuery(),
                     subagentsRunningOnly: subagentsRunningOnlyQuery(),
                 };
+                if (typeof state.widthUserResized === 'boolean') {
+                    next.conversationSidebar.widthUserResized =
+                        state.widthUserResized;
+                }
+                if (typeof state.changesWidthRecommendationApplied
+                    === 'boolean') {
+                    next.conversationSidebar
+                        .changesWidthRecommendationApplied =
+                        state.changesWidthRecommendationApplied;
+                }
                 delete next.conversationCommentsPanel;
                 vscodeApi.setState(next);
             } catch (_error) {
@@ -141,6 +154,23 @@
             ));
             commentsResizer.setAttribute('aria-valuenow', String(width));
             updateCommentsToggle();
+            if (state.restoredRecommendationPersistPending) {
+                state.restoredRecommendationPersistPending = false;
+                saveCommentsPanelState();
+            }
+        }
+
+        function applyChangesWidthRecommendation() {
+            if (!state.commentsPanelOpen || state.sidebarView !== 'changes') {
+                return false;
+            }
+            if (state.widthUserResized !== false
+                || state.changesWidthRecommendationApplied === true) {
+                return false;
+            }
+            state.commentsPanelWidth = 320;
+            state.changesWidthRecommendationApplied = true;
+            return true;
         }
 
         function setCommentsPanelOpen(open, persist) {
@@ -154,6 +184,7 @@
                 && view !== 'subagents' && view !== 'changes') return;
             state.sidebarView = view;
             state.commentsPanelOpen = open;
+            applyChangesWidthRecommendation();
             applyCommentsPanelLayout();
             if (persist) saveCommentsPanelState();
         }
@@ -176,6 +207,7 @@
             var resizingPointerId = null;
             commentsResizer.addEventListener('pointerdown', function (event) {
                 if (event.button !== 0) return;
+                state.widthUserResized = true;
                 resizingPointerId = event.pointerId;
                 commentsResizer.setPointerCapture(event.pointerId);
                 event.preventDefault();
@@ -209,6 +241,7 @@
                     return;
                 }
                 event.preventDefault();
+                state.widthUserResized = true;
                 setCommentsPanelWidth(nextWidth, true);
             });
             window.addEventListener('resize', applyCommentsPanelLayout);
@@ -239,11 +272,27 @@
                     savedCommentsPanel.width
                 );
             }
+            state.widthUserResized =
+                typeof savedCommentsPanel.widthUserResized === 'boolean'
+                    ? savedCommentsPanel.widthUserResized
+                    : undefined;
+            state.changesWidthRecommendationApplied =
+                typeof savedCommentsPanel
+                    .changesWidthRecommendationApplied === 'boolean'
+                    ? savedCommentsPanel.changesWidthRecommendationApplied
+                    : undefined;
             if (savedCommentsPanel.view === 'outline'
                 || savedCommentsPanel.view === 'comments'
                 || savedCommentsPanel.view === 'subagents'
                 || savedCommentsPanel.view === 'changes') {
                 state.sidebarView = savedCommentsPanel.view;
+            }
+            if (state.commentsPanelOpen && state.sidebarView === 'changes'
+                && state.widthUserResized === false
+                && state.changesWidthRecommendationApplied === false) {
+                state.commentsPanelWidth = 320;
+                state.changesWidthRecommendationApplied = true;
+                state.restoredRecommendationPersistPending = true;
             }
         }
 

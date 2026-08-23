@@ -137,15 +137,52 @@
     var changesMemberSelect = document.querySelector(
         '[data-changes-member-select]'
     );
+    var changesPrev = document.querySelector('[data-changes-prev]');
+    var changesNext = document.querySelector('[data-changes-next]');
+    var changesPosition = document.querySelector('[data-changes-position]');
+    var changesRepoTitle = document.querySelector(
+        '[data-changes-repo-title]'
+    );
+    var changesRepoPicker = document.querySelector(
+        '[data-changes-repo-picker]'
+    );
+    var changesRepoLabel = document.querySelector(
+        '[data-changes-repo-label]'
+    );
+    var changesRepoName = document.querySelector('[data-changes-repo-name]');
+    var changesOutside = document.querySelector('[data-changes-outside]');
+    var changesBranch = document.querySelector('[data-changes-branch]');
+    var changesBranchPrefix = document.querySelector(
+        '[data-changes-branch-prefix]'
+    );
+    var changesBranchTail = document.querySelector(
+        '[data-changes-branch-tail]'
+    );
+    var changesLive = document.querySelector('[data-changes-live]');
     var changesRefresh = document.querySelector('[data-changes-refresh]');
     var changesCrossMember = document.querySelector(
         '[data-changes-cross-member]'
+    );
+    var changesCrossMemberSummary = document.querySelector(
+        '[data-changes-cross-member-summary]'
+    );
+    var changesCrossMemberGo = document.querySelector(
+        '[data-changes-cross-member-go]'
     );
     var changesTask = document.querySelector('[data-changes-task]');
     var changesTaskSummary = document.querySelector(
         '[data-changes-task-summary]'
     );
+    var changesTaskTracking = document.querySelector(
+        '[data-changes-task-tracking]'
+    );
     var changesReview = document.querySelector('[data-changes-review]');
+    var changesCollapseAll = document.querySelector(
+        '[data-changes-collapse-all]'
+    );
+    var changesExpandAll = document.querySelector(
+        '[data-changes-expand-all]'
+    );
     var changesGroups = document.querySelector('[data-changes-groups]');
     var changesEmpty = document.querySelector('[data-changes-empty]');
     var changesUnavailable = document.querySelector(
@@ -261,11 +298,19 @@
         && !!outlineBookmarksOnly;
     var changesUiAvailable = sidebarUiAvailable
         && !!changesRoot && !!changesMemberSelect && !!changesRefresh
-        && !!changesTask && !!changesTaskSummary && !!changesReview
+        && !!changesPrev && !!changesNext && !!changesPosition
+        && !!changesRepoTitle && !!changesRepoPicker && !!changesRepoLabel
+        && !!changesRepoName && !!changesOutside && !!changesBranch
+        && !!changesBranchPrefix && !!changesBranchTail && !!changesLive
+        && !!changesTask && !!changesTaskSummary && !!changesTaskTracking
+        && !!changesReview
+        && !!changesCollapseAll && !!changesExpandAll
         && !!changesGroups && !!changesEmpty
         && !!changesUnavailable && !!changesOpenScm && !!changesCrossMember
+        && !!changesCrossMemberSummary && !!changesCrossMemberGo
         && !!telemetryChanges
-        && !!window.__agentPivotConversation.changes;
+        && !!window.__agentPivotConversation.changes
+        && validCommentTarget(commentTarget);
     var bookmarkUiAvailable = sidebarUiAvailable
         && validCommentTarget(commentTarget);
     var commentUiAvailable = sidebarUiAvailable
@@ -402,14 +447,33 @@
     var changesController = changesUiAvailable
         ? window.__agentPivotConversation.changes.create({
             post: post,
+            target: commentTarget,
+            panelRoot: changesRoot,
             telemetryChanges: telemetryChanges,
             telemetryChangesValue: telemetryChangesValue,
             memberSelect: changesMemberSelect,
+            prevButton: changesPrev,
+            nextButton: changesNext,
+            positionIndicator: changesPosition,
+            repoTitle: changesRepoTitle,
+            repoPicker: changesRepoPicker,
+            repoLabel: changesRepoLabel,
+            repoName: changesRepoName,
+            outsideBadge: changesOutside,
+            branchRoot: changesBranch,
+            branchPrefix: changesBranchPrefix,
+            branchTail: changesBranchTail,
+            liveRegion: changesLive,
             refreshButton: changesRefresh,
             crossMemberNote: changesCrossMember,
+            crossMemberSummary: changesCrossMemberSummary,
+            crossMemberGo: changesCrossMemberGo,
             taskRoot: changesTask,
             taskSummary: changesTaskSummary,
+            taskTracking: changesTaskTracking,
             reviewButton: changesReview,
+            collapseAllButton: changesCollapseAll,
+            expandAllButton: changesExpandAll,
             groupsRoot: changesGroups,
             emptyRoot: changesEmpty,
             unavailableRoot: changesUnavailable,
@@ -1067,7 +1131,10 @@
             message.subscriptionGeneration
         );
         if (changesController) {
-            changesController.resetSession(message.subscriptionGeneration);
+            changesController.resetSession(
+                message.subscriptionGeneration,
+                nextCommentTarget
+            );
         }
         commentTarget = nextCommentTarget;
         restoreTarget = {

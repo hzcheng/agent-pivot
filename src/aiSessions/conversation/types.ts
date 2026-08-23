@@ -246,6 +246,23 @@ export type ConversationChangesAvailability =
   | 'historyRewritten'
   | 'unreadable';
 
+/**
+ * Tracking-branch state (changes-panel PRD §14.1): `none` = no upstream
+ * configured (a stated fact), `unknown` = the fact query failed —
+ * never rendered as zero.
+ */
+export type ConversationChangesUpstream =
+  | {
+        status: 'tracked';
+        /** Upstream full ref; the webview strips 'refs/remotes/' to display. */
+        fullRef: string;
+        sha: string;
+        ahead: number;
+        behind: number;
+    }
+  | { status: 'none' }
+  | { status: 'unknown' };
+
 export interface ConversationChangesMemberView {
     memberId: string;
     repoLabel: string;
@@ -258,6 +275,10 @@ export interface ConversationChangesMemberView {
     /** Task-result net file count (baseline → current worktree). */
     taskFileCount?: number;
     truncated: boolean;
+    /** HEAD sha at collection time; absent for unreadable members. */
+    headSha?: string;
+    /** Tracking-branch state (PRD §14.1); absent for unreadable members. */
+    upstream?: ConversationChangesUpstream;
     /** Repository outside the open workspace (detached member). */
     detached?: boolean;
 }

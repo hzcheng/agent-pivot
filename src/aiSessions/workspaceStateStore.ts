@@ -33,6 +33,8 @@ const MAX_COLLAPSED_WORKTREE_GROUPS = 500;
 const MAX_WORKTREE_GROUP_KEY_LENGTH = 1024;
 
 export default class AiSessionWorkspaceStateStore {
+    private windowViewStateWrite: Promise<void> = Promise.resolve();
+
     constructor(
         private readonly state: MementoLike,
         private readonly isProviderId: (value: string) => value is AiSessionProviderId,
@@ -191,9 +193,20 @@ export default class AiSessionWorkspaceStateStore {
         if (!workspaceScopeIdentity) {
             return;
         }
-        const states = this.readWindowViewStates();
-        states[workspaceScopeIdentity] = patch(states[workspaceScopeIdentity] || {});
-        await this.state.update(WORKSPACE_AI_SESSION_VIEW_STATE_KEY, states);
+        await this.enqueueWindowViewStateWrite(async () => {
+            // Re-read only after earlier messages using this memento key have
+            // committed. Tab, view-mode, and collapse messages are independent
+            // patches, not competing whole-state snapshots.
+            const states = this.readWindowViewStates();
+            states[workspaceScopeIdentity] = patch(states[workspaceScopeIdentity] || {});
+            await this.state.update(WORKSPACE_AI_SESSION_VIEW_STATE_KEY, states);
+        });
+    }
+
+    private enqueueWindowViewStateWrite<T>(operation: () => Promise<T>): Promise<T> {
+        const next = this.windowViewStateWrite.catch(() => undefined).then(operation);
+        this.windowViewStateWrite = next.then(() => undefined, () => undefined);
+        return next;
     }
 
     async setWindowViewTab(
@@ -257,17 +270,19 @@ export default class AiSessionWorkspaceStateStore {
         if (!workspaceScopeIdentity || (tab !== 'chats' && tab !== 'all')) {
             return false;
         }
-        if (this.readWindowViewStates()[workspaceScopeIdentity]?.tab) {
-            return false;
-        }
-        if (this.getSelectedSurfaces()[workspaceScopeIdentity] === 'worktree') {
-            return false;
-        }
-        await this.updateWindowViewState(workspaceScopeIdentity, current => ({
-            ...current,
-            tab,
-        }));
-        return true;
+        return this.enqueueWindowViewStateWrite(async () => {
+            if (this.readWindowViewStates()[workspaceScopeIdentity]?.tab
+                || this.getSelectedSurfaces()[workspaceScopeIdentity] === 'worktree') {
+                return false;
+            }
+            const states = this.readWindowViewStates();
+            states[workspaceScopeIdentity] = {
+                ...(states[workspaceScopeIdentity] || {}),
+                tab,
+            };
+            await this.state.update(WORKSPACE_AI_SESSION_VIEW_STATE_KEY, states);
+            return true;
+        });
     }
 
     private readProviderSelections(): Record<string, AiSessionProviderSelection> {

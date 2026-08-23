@@ -1640,6 +1640,7 @@ var agentPivotOpenWindowNavigation = (function () {
         if (message.outcome === 'focused') {
             errorByCardId.delete(message.cardId);
             applyRowState(message.cardId, 'idle');
+            announce(message.cardId, 'Now in window');
         } else {
             errorByCardId.set(message.cardId, {
                 outcome: message.outcome,
@@ -2560,6 +2561,18 @@ function initAiSessionPresentationDom(options) {
             indicator.remove();
         }
     }
+    var announcedAttentionEventIds = new Set();
+    function announceNewAiSessionAttention(projectDiv, row, eventIds, needsAttention) {
+        if (!needsAttention || !eventIds.length) return;
+        var newEventIds = eventIds.filter(eventId => !announcedAttentionEventIds.has(eventId));
+        if (!newEventIds.length) return;
+        newEventIds.forEach(eventId => announcedAttentionEventIds.add(eventId));
+        var liveRegion = projectDiv.querySelector('[data-ai-session-live-region]');
+        var name = row.querySelector('.codex-session-name');
+        if (liveRegion && name?.textContent) {
+            liveRegion.textContent = name.textContent.trim() + ' needs attention.';
+        }
+    }
     function setAiSessionExecutionDom(row, presentation, iconAnimation) {
         row.setAttribute('data-execution-state', presentation.executionState);
         if (presentation.executionState === 'running' && iconAnimation !== 'none') {
@@ -2772,10 +2785,14 @@ function initAiSessionPresentationDom(options) {
                     presentation.eventIds,
                     presentation.needsAttention
                 );
+                announceNewAiSessionAttention(
+                    projectDiv, row, presentation.eventIds, presentation.needsAttention
+                );
             } else if (row.classList.contains('active-ai-session-row')) {
                 setAiSessionAttentionDom(row, [], false);
             } else {
                 setAiSessionAttentionDom(row, eventIds, eventIds.length > 0);
+                announceNewAiSessionAttention(projectDiv, row, eventIds, eventIds.length > 0);
             }
         });
         if (projectDiv) {

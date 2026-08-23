@@ -162,6 +162,7 @@ var agentPivotOpenWindowNavigation = (function () {
         if (message.outcome === 'focused') {
             errorByCardId.delete(message.cardId);
             applyRowState(message.cardId, 'idle');
+            announce(message.cardId, 'Now in window');
         } else {
             errorByCardId.set(message.cardId, {
                 outcome: message.outcome,

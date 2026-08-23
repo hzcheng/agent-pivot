@@ -391,8 +391,8 @@ function getChatsTreePanel(
         </div>`
         : '';
     const treeBody = hasTreeContent
-        ? `<div class="ai-session-worktree-list">${provisioningRows}${anchorHtml}${groupRowsHtml}${adoptSuggestions}${groups}${strayUnmanaged}${empty}${truncated}</div>`
-        : `<div class="ai-session-worktree-list">${empty}${chatsEmpty}</div>`;
+        ? `<div class="ai-session-worktree-list" role="tree" aria-label="Active chats by worktree">${provisioningRows}${anchorHtml}${groupRowsHtml}${adoptSuggestions}${groups}${strayUnmanaged}${empty}${truncated}</div>`
+        : `<div class="ai-session-worktree-list" role="tree" aria-label="Active chats by worktree">${empty}${chatsEmpty}</div>`;
     return `<div id="ai-session-chats-${projectId}" class="ai-session-tab-panel ai-session-chats-panel" role="tabpanel" data-ai-session-panel="chats" aria-labelledby="ai-session-chats-tab-${projectId}"${selected ? '' : ' hidden'}>
         <div class="ai-session-group-form-slot" data-worktree-group-form-slot hidden></div>
         ${getReadyWorktrees(project.worktrees).length
@@ -817,7 +817,7 @@ function getWorktreeGroupHtml(
         data-quick-provider="${escapeAttribute(quickCreateProvider)}"
         data-quick-label="${escapeAttribute(quickLabel)}"
         data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`;
-    return `<section class="ai-session-worktree-group" data-worktree-repository-key="${escapeAttribute(worktree.git.key.repositoryKey)}" data-worktree-path="${escapeAttribute(worktree.git.key.canonicalWorktreePath)}" data-worktree-activity="${worktree.activity}"${collapsedState.section} style="order: ${groupOrder}">
+    return `<section class="ai-session-worktree-group" role="treeitem" aria-level="1" data-worktree-repository-key="${escapeAttribute(worktree.git.key.repositoryKey)}" data-worktree-path="${escapeAttribute(worktree.git.key.canonicalWorktreePath)}" data-worktree-activity="${worktree.activity}"${collapsedState.section} style="order: ${groupOrder}">
         <div class="ai-session-worktree-toolbar">
             <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="${collapsedState.expanded}" aria-label="${escapeAttribute(ariaLabel)}">
                 <span class="ai-session-worktree-indicator" aria-hidden="true">${worktree.activity === 'idle' ? '○' : '●'}</span>
@@ -897,7 +897,7 @@ function getWorktreeAnchorHtml(
     // The per-repository branch detail lives on the fast hover tooltip; the
     // row itself stays a single compact line (annotation: the inline summary
     // squeezed the "Current" title away).
-    return `<section class="ai-session-worktree-group ai-session-worktree-anchor" data-worktree-anchor data-worktree-activity="${anchor.activity}"${collapsedState.section}${singleMainKey ? ` data-worktree-repository-key="${escapeAttribute(singleMainKey.repositoryKey)}" data-worktree-path="${escapeAttribute(singleMainKey.canonicalWorktreePath)}"` : ''}>
+    return `<section class="ai-session-worktree-group ai-session-worktree-anchor" role="treeitem" aria-level="1" data-worktree-anchor data-worktree-activity="${anchor.activity}"${collapsedState.section}${singleMainKey ? ` data-worktree-repository-key="${escapeAttribute(singleMainKey.repositoryKey)}" data-worktree-path="${escapeAttribute(singleMainKey.canonicalWorktreePath)}"` : ''}>
         <div class="ai-session-worktree-toolbar">
             <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="${collapsedState.expanded}" aria-label="${escapeAttribute(ariaLabel)}" data-tooltip="${escapeAttribute(tooltipSummary)}">
                 <span class="ai-session-worktree-indicator" aria-hidden="true">${anchor.activity === 'idle' ? '○' : '●'}</span>
@@ -1075,7 +1075,7 @@ function getWorktreeGroupRowHtml(
             `${group.scopeOutdatedSessions} session${group.scopeOutdatedSessions === 1 ? '' : 's'} cannot write the new worktree yet — restart to pick it up.`
         )}</div>`
         : '';
-    return `<section class="ai-session-worktree-group ai-session-worktree-task-group" data-group-id="${escapeAttribute(group.groupId)}" data-group-revision="${group.revision}" data-worktree-activity="${group.activity}"${collapsedState.section}${primaryAttributes} style="order: ${groupOrder}">
+    return `<section class="ai-session-worktree-group ai-session-worktree-task-group" role="treeitem" aria-level="1" data-group-id="${escapeAttribute(group.groupId)}" data-group-revision="${group.revision}" data-worktree-activity="${group.activity}"${collapsedState.section}${primaryAttributes} style="order: ${groupOrder}">
         <div class="ai-session-worktree-toolbar">
             <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="${collapsedState.expanded}" aria-label="${escapeAttribute(headerAriaLabel)}"${repositoryTooltip}>
                 <span class="ai-session-worktree-indicator" aria-hidden="true">${group.activity === 'idle' ? '○' : '●'}</span>
@@ -1129,7 +1129,7 @@ function getUnmanagedWorktreeGroupHtml(
 ): string {
     const count = entries.length;
     const collapsedState = worktreeCollapsedState(collapsed);
-    return `<section class="ai-session-worktree-group ai-session-worktree-unmanaged" data-worktree-unmanaged${collapsedState.section} style="order: ${groupOrder}">
+    return `<section class="ai-session-worktree-group ai-session-worktree-unmanaged" role="treeitem" aria-level="1" data-worktree-unmanaged${collapsedState.section} style="order: ${groupOrder}">
         <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="${collapsedState.expanded}" aria-label="Unmanaged, ${count} session${count === 1 ? '' : 's'}, idle">
             <span class="ai-session-worktree-indicator" aria-hidden="true">○</span>
             <span class="ai-session-worktree-title">Unmanaged</span>
@@ -1156,9 +1156,7 @@ function getCodexSessionRow(
 ) {
     var sessionName = escapeAttribute(sanitizeProjectName(session.name || session.id));
     var sessionId = escapeAttribute(session.id || '');
-    var shortSessionId = escapeAttribute((session.id || '').substring(0, 8));
     var updatedAt = escapeAttribute(formatSessionTimestamp(session.updatedAt));
-    var shortId = shortSessionId ? `#${shortSessionId}` : '';
     var staleStatus = runtime?.stale ? 'Runtime status is stale' : '';
     var providerLabel = getAiProviderLabel(provider);
     var pinned = !!session.pinned;
@@ -1211,12 +1209,12 @@ function getCodexSessionRow(
         `Title ${sessionName}`,
         `Status ${statusLabel}`,
         updatedAt ? `Last activity ${updatedAt}` : '',
-        shortId ? `Session ${shortId}` : '',
+        sessionId ? `Session #${sessionId}` : '',
         staleStatus,
     ].filter(Boolean).join('\n');
     primaryAriaLabel += `, ${statusLabel}`
         + `${updatedAt ? `, last activity ${updatedAt}` : ''}`
-        + `${shortId ? `, session ${shortId}` : ''}`;
+        + `${sessionId ? `, session #${sessionId}` : ''}`;
     const primaryTooltip = `${worktreeGone ? 'Worktree deleted — view the conversation instead' : `${primaryAction} ${providerLabel} Session`}\n${rowDetails}`;
     var primaryRootId = session.primaryRootId || runtime?.primaryRootId || '';
     var primaryRootLabel = session.primaryRootLabel || runtime?.primaryRootLabel || '';
@@ -1262,7 +1260,6 @@ function getActiveAiSessionRow(
     var providerLabel = getAiProviderLabel(model.provider);
     var sessionName = escapeAttribute(sanitizeProjectName(model.name || model.sessionId || `New ${providerLabel} session`));
     var sessionId = escapeAttribute(model.sessionId || '');
-    var shortSessionId = sessionId ? `#${escapeAttribute(sessionId.substring(0, 8))}` : '';
     var createdAt = escapeAttribute(formatSessionTimestamp(model.updatedAt || model.createdAt));
     var iconFx = model.executionState === 'running'
         ? normalizeRunningIconAnimation(runningIconAnimation)
@@ -1345,7 +1342,7 @@ function getActiveAiSessionRow(
         `Title ${sessionName}`,
         `Status ${statusLabel}`,
         createdAt ? `Last activity ${createdAt}` : '',
-        shortSessionId ? `Session ${shortSessionId}` : '',
+        sessionId ? `Session #${sessionId}` : '',
         runtimeStatusLabel,
         runtimeBadgeDescription,
         staleStatus,
@@ -1353,7 +1350,7 @@ function getActiveAiSessionRow(
     ].filter(Boolean).join('\n');
     primaryAriaLabel += `, ${statusLabel}`
         + `${createdAt ? `, last activity ${createdAt}` : ''}`
-        + `${shortSessionId ? `, session ${shortSessionId}` : ''}`
+        + `${sessionId ? `, session #${sessionId}` : ''}`
         + `${runtimeStatusLabel ? `, runtime conflict` : ''}`
         + `${staleStatus ? ', runtime status is stale' : ''}`
         + `${legacyScopeBadge ? ', legacy workspace scope' : ''}`;

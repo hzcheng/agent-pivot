@@ -212,6 +212,36 @@ test('PERSIST-PROJECT-STATE-STORE-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 win
     assert.deepEqual(junkStore.getWindowViewState(''), {});
 });
 
+test('PERSIST-PROJECT-STATE-STORE-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 serializes concurrent tab, view-mode, and collapse writes', async () => {
+    const values = {};
+    const state = {
+        memento: {
+            get(key, fallback) {
+                return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : fallback;
+            },
+            async update(key, value) {
+                // All callers can read before the first write commits. This
+                // reproduces rapid tab/view/collapse messages from one window.
+                await Promise.resolve();
+                values[key] = value;
+            },
+        },
+    };
+    const store = new AiSessionWorkspaceStateStore(state.memento, value => value === 'codex');
+
+    await Promise.all([
+        store.setWindowViewTab('scope-race', 'all'),
+        store.setChatsViewMode('scope-race', 'list'),
+        store.setCollapsedWorktreeGroups('scope-race', ['["group","review"]']),
+    ]);
+
+    assert.deepEqual(store.getWindowViewState('scope-race'), {
+        tab: 'all',
+        chatsViewMode: 'list',
+        collapsedWorktreeGroups: ['["group","review"]'],
+    }, 'rapid independent messages preserve every field after reload');
+});
+
 test('PERSIST-PROJECT-STATE-STORE-001 OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 legacy sub-tab import is first-writer-wins and stays out of the worktree-surface migration', async () => {
     const state = makeState({
         'workspaceAiSessionSurface.v1': { 'scope-worktree': 'worktree' },

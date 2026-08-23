@@ -109,9 +109,9 @@ export function getOpenWindowSwitcherGroupContent(
     return `<div class="group open-window-switcher-group" role="list" aria-label="Windows" data-group-id="${OPEN_WINDOW_SWITCHER_GROUP_ID}" data-virtual-group data-system-group="${OPEN_WINDOW_SWITCHER_GROUP_ID}" data-other-windows-status="${otherWindowsStatus}">
     <div class="group-title open-window-switcher-header">
         <span class="group-title-text">WINDOWS</span>
+        <div class="open-window-switcher-status" data-open-window-switcher-status>${statusContent}</div>
         <span class="group-title-badge open-window-count">${rows.length}</span>
     </div>
-    <div class="open-window-switcher-status" data-open-window-switcher-status>${statusContent}</div>
     <div class="open-window-switcher-list" data-open-window-switcher-list>
         <div class="open-workspace-pin-live-region" data-open-workspace-pin-live-region role="status" aria-live="polite" aria-atomic="true"></div>
         <div class="open-window-nav-live-region" data-open-window-nav-live-region role="status" aria-live="polite" aria-atomic="true"></div>

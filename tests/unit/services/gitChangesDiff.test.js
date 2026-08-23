@@ -293,3 +293,93 @@ test('WORKTREE-CHANGES-PANEL-001 names the truncation when task review exceeds t
         'the review title discloses the cap instead of implying completeness');
     assert.equal(changes[2].length, 400);
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 commit file diff opens parent ↔ commit with rename and root shapes', async () => {
+    const executed = [];
+    const service = loadService(executed);
+    const sha = 'c'.repeat(40);
+    const parent = 'b'.repeat(40);
+
+    await service.openCommitFileDiff('/wt', sha, parent,
+        { path: 'src/new.ts', oldPath: 'src/old.ts' });
+    const [command, left, right, title] = executed[0];
+    assert.equal(command, 'vscode.diff');
+    assert.equal(diffQuery(left).ref, parent, 'the left side is the parent');
+    assert.equal(diffQuery(left).path, 'src/old.ts',
+        'a rename reads the old path on the parent side');
+    assert.equal(diffQuery(right).ref, sha, 'the right side is the commit');
+    assert.equal(diffQuery(right).path, 'src/new.ts');
+    assert.match(title, /src\/old\.ts → src\/new\.ts \(ccccccc\)/);
+
+    // Root commit: the parent side is the empty sentinel.
+    await service.openCommitFileDiff('/wt', sha, undefined,
+        { path: 'README.md' });
+    assert.equal(diffQuery(executed[1][1]).ref, '~empty~',
+        'a root commit renders an empty parent side');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 commit review opens one multi-diff and discloses the file cap', async () => {
+    const executed = [];
+    const service = loadService(executed, { failChanges: false });
+    const sha = 'c'.repeat(40);
+    const parent = 'b'.repeat(40);
+    const files = [
+        { path: 'src/a.ts' },
+        { path: 'src/new.ts', oldPath: 'src/old.ts' },
+    ];
+
+    await service.openCommitReview('/wt', sha, parent, 'Commit ccccccc',
+        files, 2);
+
+    const [command, title, resources] = executed[0];
+    assert.equal(command, 'vscode.changes');
+    assert.equal(title, 'Commit ccccccc');
+    assert.equal(resources.length, 2);
+    for (const [label, original, modified] of resources) {
+        assert.equal(label.scheme, 'file');
+        assert.equal(diffQuery(original).ref, parent,
+            'the original side reads the first parent');
+        assert.equal(diffQuery(modified).ref, sha,
+            'the modified side reads the commit');
+    }
+    assert.equal(diffQuery(resources[1][1]).path, 'src/old.ts',
+        'renames read the old path on the original side');
+
+    // The cap is named, never implied away (PRD §15.5.3).
+    await service.openCommitReview('/wt', sha, parent, 'Commit ccccccc',
+        files, 405);
+    assert.equal(executed[1][1], 'Commit ccccccc (showing 2 of 405)');
+
+    // A root commit renders every original side empty.
+    await service.openCommitReview('/wt', sha, undefined, 'Root',
+        [{ path: 'README.md' }], 1);
+    assert.equal(diffQuery(executed[2][2][0][1]).ref, '~empty~');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 commit review falls back to a per-file list and reports the failure', async () => {
+    const executed = [];
+    const errors = [];
+    const service = loadService(executed, {
+        failChanges: true,
+        quickPick: { label: 'src/a.ts', index: 0 },
+    });
+    const sha = 'c'.repeat(40);
+    const parent = 'b'.repeat(40);
+
+    await service.openCommitReview('/wt', sha, parent, 'Commit ccccccc',
+        [{ path: 'src/a.ts' }], 1,
+        (message, error) => errors.push([message, error]));
+
+    assert.equal(errors.length, 1,
+        'a rejected vscode.changes must reach the log sink');
+    const diff = executed.find(entry => entry[0] === 'vscode.diff');
+    assert.ok(diff, 'the picked file opens a single diff');
+    assert.equal(diffQuery(diff[1]).ref, parent);
+    assert.equal(diffQuery(diff[2]).ref, sha);
+
+    // An empty file list opens nothing and never calls vscode.changes.
+    const quiet = [];
+    const quietService = loadService(quiet, { failChanges: false });
+    await quietService.openCommitReview('/wt', sha, parent, 'Empty', [], 0);
+    assert.equal(quiet.length, 0);
+});

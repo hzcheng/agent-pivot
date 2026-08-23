@@ -53,6 +53,17 @@ export type {
     MemberUpstreamState,
     WorkingChangeItem,
 } from './changesCollector';
+export { CommitsCollector } from './commitsCollector';
+export type {
+    BaselineRow,
+    CommitDetailResult,
+    CommitFile,
+    CommitSummary,
+    CommitsDegraded,
+    CommitsListRequest,
+    CommitsListResult,
+    CommitsScope,
+} from './commitsCollector';
 
 // Git and setup infrastructure.
 export { GitWorktreeProvisioner } from './gitWorktreeProvisioner';

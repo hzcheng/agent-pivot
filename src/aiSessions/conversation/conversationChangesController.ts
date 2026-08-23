@@ -9,6 +9,11 @@ import {
     MemberChangesSnapshot,
 } from '../../worktrees';
 import type {
+    CommitFile,
+    CommitsCollector,
+    CommitsListRequest,
+} from '../../worktrees';
+import type {
     WorktreeGroup,
     WorktreeGroupMember,
 } from '../../worktrees';
@@ -18,6 +23,8 @@ import type {
     ConversationChangesFileItem,
     ConversationChangesMemberView,
     ConversationChangesState,
+    ConversationCommitsListMessage,
+    ConversationCommitDetailMessage,
 } from './types';
 import type { ConversationViewerTarget } from './viewerTarget';
 
@@ -69,6 +76,7 @@ export interface ConversationChangesControllerOptions {
         navigationIdentity: string
     ) => RetiredWorktreeIdentity[];
     collector: ChangesCollector;
+    commitsCollector: CommitsCollector;
     openWorkingChangeDiff: (
         worktreePath: string,
         item: ConversationChangesFileItem
@@ -78,7 +86,26 @@ export interface ConversationChangesControllerOptions {
         baselineSha: string,
         title: string
     ) => Promise<void>;
+    openCommitFileDiff: (
+        worktreePath: string,
+        commitSha: string,
+        parentSha: string | undefined,
+        file: Pick<CommitFile, 'path' | 'oldPath'>
+    ) => Promise<void>;
+    openCommitReview: (
+        worktreePath: string,
+        commitSha: string,
+        parentSha: string | undefined,
+        title: string,
+        files: readonly Pick<CommitFile, 'path' | 'oldPath'>[],
+        totalFiles: number
+    ) => Promise<void>;
     showWorktreeInSourceControl: (worktreeRoot: string) => Promise<void>;
+    /**
+     * Non-blocking host notice (PRD §14.3): a vanished commit or a failed
+     * diff surfaces as a toast plus a refresh push, never an error modal.
+     */
+    showToast?: (message: string) => void;
     /** Git API change events (P0 main refresh channel, PRD §5.4). */
     watchRepositoryChanges?: (
         paths: readonly string[],
@@ -95,6 +122,16 @@ interface ActiveChanges {
     selectedMemberId?: string;
     watcher?: { dispose(): void };
 }
+
+// Omit must distribute over the response union; a plain Omit<A|B, …>
+// collapses it to the common keys and rejects every real payload.
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+    ? Omit<T, K>
+    : never;
+type UnstampedCommitsResponse = DistributiveOmit<
+    ConversationCommitsListMessage | ConversationCommitDetailMessage,
+    'subscriptionGeneration'
+>;
 
 /**
  * Drives the conversation Changes button + sidebar tab (changes-panel
@@ -322,6 +359,202 @@ export class ConversationChangesController {
         if (member) {
             await this.options.showWorktreeInSourceControl(member.worktreePath);
         }
+    }
+
+    /**
+     * Commits-tab lazy loading (PRD §14.3): one page of commit summaries.
+     * The response is correlated by requestId and stamped with the
+     * current generation at publish time — the webview drops stale or
+     * superseded responses, so the host never revalidates them.
+     */
+    async handleCommitsList(input: {
+        requestId: string;
+        memberId: string;
+        scope: 'since-start' | 'full';
+        offset: number;
+        historyHead?: string;
+    }): Promise<void> {
+        const active = this.active;
+        const member = active?.changeSet.members.find(candidate =>
+            candidate.memberId === input.memberId);
+        const panel = this.options.getPanel();
+        if (!active || !member || !panel) {
+            return;
+        }
+        const snapshot = active.snapshots.get(member.memberId);
+        const availability = snapshot?.availability
+            ?? (member.baseline ? 'unreadable' : 'baselineUnavailable');
+        if (availability === 'unreadable') {
+            this.postCommitsResponse(panel, {
+                type: 'conversation-viewer-commits',
+                version: 1,
+                requestId: input.requestId,
+                memberId: member.memberId,
+                scope: input.scope,
+                offset: input.offset,
+                historyHead: '',
+                commits: [],
+                hasMore: false,
+                degraded: 'unreadable',
+            });
+            return;
+        }
+        const baselineSha = availability === 'available' && member.baseline
+            ? member.baseline.commitSha
+            : undefined;
+        const upstream = snapshot?.upstream;
+        const upstreamSha = upstream?.status === 'tracked'
+            ? upstream.sha
+            : undefined;
+        const request: CommitsListRequest = {
+            scope: input.scope,
+            offset: input.offset,
+            ...(input.historyHead ? { historyHead: input.historyHead } : {}),
+        };
+        const result = await this.options.commitsCollector.list(
+            member.worktreePath, request, baselineSha, upstreamSha);
+        if (this.active !== active) {
+            return;
+        }
+        this.postCommitsResponse(panel, {
+            type: 'conversation-viewer-commits',
+            version: 1,
+            requestId: input.requestId,
+            memberId: member.memberId,
+            scope: input.scope,
+            offset: input.offset,
+            historyHead: result.historyHead,
+            commits: result.commits,
+            hasMore: result.hasMore,
+            ...(result.sectionComplete ? { sectionComplete: true } : {}),
+            ...(result.baselineRow ? { baselineRow: result.baselineRow } : {}),
+            ...(result.degraded ? { degraded: result.degraded } : {}),
+        });
+    }
+
+    /** Inline file detail for one expanded commit row (PRD §15.5.3). */
+    async handleCommitDetail(input: {
+        requestId: string;
+        memberId: string;
+        sha: string;
+    }): Promise<void> {
+        const active = this.active;
+        const member = active?.changeSet.members.find(candidate =>
+            candidate.memberId === input.memberId);
+        const panel = this.options.getPanel();
+        if (!active || !member || !panel) {
+            return;
+        }
+        const result = await this.options.commitsCollector.detail(
+            member.worktreePath, input.sha);
+        if (this.active !== active) {
+            return;
+        }
+        this.postCommitsResponse(panel, {
+            type: 'conversation-viewer-commit-detail',
+            version: 1,
+            requestId: input.requestId,
+            memberId: member.memberId,
+            sha: input.sha,
+            files: result.files,
+            totalFiles: result.totalFiles,
+            filesTruncated: result.filesTruncated,
+            ...(result.degraded ? { degraded: result.degraded } : {}),
+        });
+    }
+
+    /**
+     * parent ↔ commit diff for one file (PRD §15.5.4). The submitted
+     * descriptor is resolved against the authoritative commit detail —
+     * the webview identifies the file, it cannot mint one.
+     */
+    async handleCommitOpenFile(input: {
+        memberId: string;
+        sha: string;
+        path: string;
+        oldPath?: string;
+    }): Promise<void> {
+        const active = this.active;
+        const member = active?.changeSet.members.find(candidate =>
+            candidate.memberId === input.memberId);
+        if (!active || !member) {
+            return;
+        }
+        const detail = await this.options.commitsCollector.detail(
+            member.worktreePath, input.sha);
+        if (this.active !== active) {
+            return;
+        }
+        if (detail.degraded === 'unknown-commit') {
+            this.handleVanishedCommit(active);
+            return;
+        }
+        const file = detail.files.find(candidate =>
+            candidate.path === input.path
+            && candidate.oldPath === input.oldPath);
+        if (!file || detail.degraded) {
+            return;
+        }
+        await this.options.openCommitFileDiff(
+            member.worktreePath, input.sha, detail.parentSha,
+            { path: file.path, ...(file.oldPath
+                ? { oldPath: file.oldPath }
+                : {}) });
+    }
+
+    /** "Review this commit" multi-diff (PRD §15.5.5). */
+    async handleCommitReview(input: {
+        memberId: string;
+        sha: string;
+    }): Promise<void> {
+        const active = this.active;
+        const member = active?.changeSet.members.find(candidate =>
+            candidate.memberId === input.memberId);
+        if (!active || !member) {
+            return;
+        }
+        const detail = await this.options.commitsCollector.detail(
+            member.worktreePath, input.sha);
+        if (this.active !== active) {
+            return;
+        }
+        if (detail.degraded === 'unknown-commit') {
+            this.handleVanishedCommit(active);
+            return;
+        }
+        if (detail.degraded) {
+            return;
+        }
+        await this.options.openCommitReview(
+            member.worktreePath,
+            input.sha,
+            detail.parentSha,
+            `Commit ${input.sha.slice(0, 7)} · ${member.repoLabel} (${member.branchName})`,
+            detail.files,
+            detail.totalFiles);
+    }
+
+    /**
+     * A commit that vanished mid-session (rebase rewrite): toast plus a
+     * refresh push — the invalidation signature comparison retriggers
+     * collection naturally (PRD §14.3).
+     */
+    private handleVanishedCommit(active: ActiveChanges): void {
+        this.options.showToast?.(
+            'Commit no longer exists (history rewritten).');
+        void this.collectAndPublish(active.target);
+    }
+
+    private postCommitsResponse(
+        panel: vscode.WebviewPanel,
+        message: UnstampedCommitsResponse
+    ): void {
+        // Same discipline as publishState: stamp the CURRENT generation
+        // at publish time so a stale in-flight response is dropped.
+        void Promise.resolve(panel.webview.postMessage({
+            ...message,
+            subscriptionGeneration: this.options.getSubscriptionGeneration(),
+        }));
     }
 
     private matchesActive(target: ConversationViewerTarget): boolean {

@@ -4,7 +4,7 @@ import { execFile } from 'child_process';
 import { existsSync, realpathSync } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { WorkingChangeItem } from '../worktrees';
+import type { CommitFile, WorkingChangeItem } from '../worktrees';
 
 /**
  * Read-only git object content for diff editors (changes-panel PRD §5.3).
@@ -236,6 +236,84 @@ export async function openTaskResultReview(
         // pick one file at a time, baseline → worktree.
         const picked = await vscode.window.showQuickPick(
             files.map((file, index) => ({ label: file, index })),
+            { placeHolder: reviewTitle }
+        );
+        if (!picked) {
+            return;
+        }
+        const [, original, modified] = resources[picked.index];
+        await vscode.commands.executeCommand(
+            'vscode.diff', original, modified, picked.label);
+    }
+}
+
+/**
+ * Opens one commit-file diff in the current window (changes-panel PRD
+ * §15.5.4): parent ↔ commit, merge commits against the first parent.
+ * `parentSha` is undefined for a root commit; the missing side resolves
+ * to empty content through the content provider (gitShow tolerates
+ * absent objects), which covers added and deleted files without special
+ * casing.
+ */
+export async function openCommitFileDiff(
+    worktreePath: string,
+    commitSha: string,
+    parentSha: string | undefined,
+    file: Pick<CommitFile, 'path' | 'oldPath'>
+): Promise<void> {
+    const left = parentSha
+        ? gitContentUri(worktreePath, parentSha, file.oldPath || file.path)
+        : gitContentUri(worktreePath, EMPTY_REF, file.oldPath || file.path);
+    const right = gitContentUri(worktreePath, commitSha, file.path);
+    const shortSha = commitSha.slice(0, 7);
+    const name = file.oldPath
+        ? `${file.oldPath} → ${file.path} (${shortSha})`
+        : `${file.path} (${shortSha})`;
+    await vscode.commands.executeCommand('vscode.diff', left, right, name);
+}
+
+/**
+ * "Review this commit" (changes-panel PRD §15.5.5): one multi-diff of
+ * parent → commit for the listed files. Shares openTaskResultReview's
+ * three parts — the GitDiffContentProvider, `vscode.changes` triples,
+ * and the capability fallback — but its semantics are commit-scoped, so
+ * it is a sibling, not a reuse. `files` is the already-capped collector
+ * detail list; `totalFiles` keeps the truncation honest in the title.
+ */
+export async function openCommitReview(
+    worktreePath: string,
+    commitSha: string,
+    parentSha: string | undefined,
+    title: string,
+    files: readonly Pick<CommitFile, 'path' | 'oldPath'>[],
+    totalFiles: number,
+    onError?: (message: string, error: unknown) => void
+): Promise<void> {
+    if (!files.length) {
+        return;
+    }
+    const reviewTitle = totalFiles > files.length
+        ? `${title} (showing ${files.length} of ${totalFiles})`
+        : title;
+    const resources: [vscode.Uri, vscode.Uri, vscode.Uri][] = files.map(
+        file => [
+            vscode.Uri.file(path.join(worktreePath, file.path)),
+            parentSha
+                ? gitContentUri(
+                    worktreePath, parentSha, file.oldPath || file.path)
+                : gitContentUri(
+                    worktreePath, EMPTY_REF, file.oldPath || file.path),
+            gitContentUri(worktreePath, commitSha, file.path),
+        ]);
+    try {
+        await vscode.commands.executeCommand(
+            'vscode.changes', reviewTitle, resources);
+    } catch (error) {
+        onError?.(
+            'vscode.changes failed; falling back to a per-file diff list.',
+            error);
+        const picked = await vscode.window.showQuickPick(
+            files.map((file, index) => ({ label: file.path, index })),
             { placeHolder: reviewTitle }
         );
         if (!picked) {

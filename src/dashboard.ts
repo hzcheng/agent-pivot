@@ -41,6 +41,8 @@ import ClaudeSessionService from './services/claudeSessionService';
 import { showWorktreeInSourceControl } from './services/sourceControl';
 import { watchRepositories } from './services/sourceControl';
 import {
+    openCommitFileDiff,
+    openCommitReview,
     openTaskResultReview,
     openWorkingChangeDiff,
     registerGitDiffContentProvider,
@@ -1848,8 +1850,17 @@ async function initializeDashboard(
             openTaskResultReview: (worktreePath, baselineSha, title) =>
                 openTaskResultReview(worktreePath, baselineSha, title,
                     (message, error) => logError(message, error)),
+            openCommitFileDiff: (worktreePath, commitSha, parentSha, file) =>
+                openCommitFileDiff(worktreePath, commitSha, parentSha, file),
+            openCommitReview:
+                (worktreePath, commitSha, parentSha, title, files, total) =>
+                    openCommitReview(worktreePath, commitSha, parentSha,
+                        title, files, total,
+                        (message, error) => logError(message, error)),
             showWorktreeInSourceControl: worktreeRoot =>
                 showWorktreeInSourceControl(worktreeRoot),
+            showToast: message =>
+                void vscode.window.showWarningMessage(message),
             watchRepositoryChanges: (paths, onChange) =>
                 watchRepositories(paths, onChange),
             onError: (message, error) => logError(message, error),

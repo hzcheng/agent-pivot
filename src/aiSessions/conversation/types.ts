@@ -2,6 +2,12 @@
 
 import type { AiSessionProviderId } from '../../models';
 import type { AiSessionDisposable } from '../types';
+import type {
+    BaselineRow,
+    CommitFile,
+    CommitSummary,
+    CommitsDegraded,
+} from '../../worktrees';
 
 export const CONVERSATION_LIMITS = Object.freeze({
     previewGraphemes: 160,
@@ -316,6 +322,42 @@ export interface ConversationChangesState {
     selectedMemberId?: string;
     detail?: ConversationChangesDetail;
     collectedAt: number;
+}
+
+/**
+ * Commits-tab responses (changes-panel PRD §14.3): correlated by
+ * requestId and stamped with the subscription generation, so the webview
+ * drops stale or superseded responses. The payload types are the
+ * collector's own (src/worktrees/commitsCollector.ts) — the wire shape
+ * is the host data shape.
+ */
+export interface ConversationCommitsListMessage {
+    type: 'conversation-viewer-commits';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    memberId: string;
+    scope: 'since-start' | 'full';
+    offset: number;
+    historyHead: string;
+    commits: CommitSummary[];
+    hasMore: boolean;
+    sectionComplete?: boolean;
+    baselineRow?: BaselineRow;
+    degraded?: CommitsDegraded;
+}
+
+export interface ConversationCommitDetailMessage {
+    type: 'conversation-viewer-commit-detail';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    memberId: string;
+    sha: string;
+    files: CommitFile[];
+    totalFiles: number;
+    filesTruncated: boolean;
+    degraded?: CommitsDegraded;
 }
 
 export class ConversationError extends Error {

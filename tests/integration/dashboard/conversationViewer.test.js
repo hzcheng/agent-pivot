@@ -39,6 +39,9 @@ const { ConversationViewer } = loadConversationViewer();
 const {
     ChangesCollector,
 } = require('../../../out/worktrees/changesCollector');
+const {
+    CommitsCollector,
+} = require('../../../out/worktrees/commitsCollector');
 
 function git(cwd, args) {
     return childProcess.execFileSync('git', ['-C', cwd, ...args], {
@@ -5486,4 +5489,102 @@ test('WORKTREE-CHANGES-PANEL-001 drops changes actions stranded by a session swi
         'a pre-switch review intent must not act on the new session');
     assert.equal(scmCalls, 0,
         'a pre-switch open-SCM intent must not act on the new session');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 commits requests bind to generation and session like changes actions', async t => {
+    const fixture = await worktreeChangesFixture(t);
+    // One commit past the baseline, so the since-start page is non-empty.
+    await fs.promises.writeFile(
+        path.join(fixture.worktreePath, 'committed.ts'), 'c\n');
+    git(fixture.worktreePath, ['add', 'committed.ts']);
+    git(fixture.worktreePath, ['commit', '-m', 'task commit', '-q']);
+    const baseline = {
+        commitSha: fixture.baselineSha,
+        capturedAt: Date.now(),
+        source: { kind: 'branch', fullRef: 'refs/heads/main' },
+    };
+    const worktreeKey = {
+        repositoryKey: await fs.promises.realpath(path.join(fixture.repo, '.git')),
+        canonicalWorktreePath: await fs.promises.realpath(fixture.worktreePath),
+    };
+    const { viewer, panel } = createViewer({
+        changes: {
+            resolveSessionIdentity: async () => ({
+                worktreeKey,
+                navigationIdentity: 'nav',
+            }),
+            resolveWorktreeKey: async () => undefined,
+            findGroupByWorktreeKey: () => ({
+                groupId: 'group-1',
+                primaryMemberId: 'member-1',
+                members: [{
+                    memberId: 'member-1',
+                    repositoryKey: worktreeKey.repositoryKey,
+                    worktreeKey,
+                    branchName: 'agent-pivot/task',
+                    path: worktreeKey.canonicalWorktreePath,
+                    state: 'ready',
+                    baseline,
+                }],
+            }),
+            listRetiredIdentities: () => [],
+            collector: new ChangesCollector(),
+            commitsCollector: new CommitsCollector(),
+            openWorkingChangeDiff: async () => {},
+            openTaskResultReview: async () => {},
+            openCommitFileDiff: async () => {},
+            openCommitReview: async () => {},
+            showWorktreeInSourceControl: async () => {},
+        },
+    });
+    t.after(() => viewer.dispose());
+
+    await viewer.open(target('session-1'));
+
+    let publication;
+    for (let attempt = 0; attempt < 50 && !publication; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        publication = panel.postedMessages
+            .filter(message => message.type === 'conversation-viewer-changes')
+            .filter(message => message.version === 2)
+            .at(-1);
+    }
+    assert.ok(publication, 'a changes state is published');
+    const generationA = publication.subscriptionGeneration;
+    const request = overrides => ({
+        type: 'conversation-viewer-commits-list',
+        version: 1,
+        requestId: 'req-1',
+        subscriptionGeneration: generationA,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-1',
+        memberId: 'member-1',
+        scope: 'since-start',
+        offset: 0,
+        ...overrides,
+    });
+
+    // The correctly bound request gets a real, correlated response.
+    await panel.receive(request());
+    const response = panel.postedMessages
+        .filter(message => message.type === 'conversation-viewer-commits')
+        .at(-1);
+    assert.ok(response, 'a commits response is published');
+    assert.equal(response.requestId, 'req-1');
+    assert.equal(response.subscriptionGeneration, generationA);
+    assert.equal(response.memberId, 'member-1');
+    assert.equal(response.commits.length, 1,
+        'the real collector lists the fixture commit since baseline — got: '
+            + JSON.stringify(response));
+    assert.equal(response.sectionComplete, true);
+    assert.equal(response.baselineRow.sha, fixture.baselineSha);
+
+    // A request stranded by a session switch is dropped without a response.
+    await viewer.follow(target('session-2'));
+    const before = panel.postedMessages.length;
+    await panel.receive(request({ requestId: 'req-stale' }));
+    assert.ok(!panel.postedMessages.slice(before).some(message =>
+        message.type === 'conversation-viewer-commits'),
+        'a pre-switch commits request never reaches the new session');
 });

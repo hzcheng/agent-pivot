@@ -190,6 +190,50 @@ export interface ConversationViewerChangesOpenScmMessage
     memberId: string;
 }
 
+/**
+ * Commits-tab lazy loading (changes-panel PRD §14.3): request/response
+ * messages off the steady-state changes push. Requests carry a
+ * webview-generated requestId (per member+scope, only the latest wins)
+ * plus the same generation/session binding as changes actions, so an
+ * intent stranded by a session switch fails closed.
+ */
+export interface ConversationViewerCommitsListMessage
+    extends ConversationViewerChangesActionBase {
+    type: 'conversation-viewer-commits-list';
+    requestId: string;
+    memberId: string;
+    scope: 'since-start' | 'full';
+    offset: number;
+    /** Frozen HEAD sha from the scope's first page; later pages echo it. */
+    historyHead?: string;
+}
+
+export interface ConversationViewerCommitDetailMessage
+    extends ConversationViewerChangesActionBase {
+    type: 'conversation-viewer-commit-detail';
+    requestId: string;
+    memberId: string;
+    sha: string;
+}
+
+export interface ConversationViewerCommitOpenFileMessage
+    extends ConversationViewerChangesActionBase {
+    type: 'conversation-viewer-commit-open-file';
+    requestId: string;
+    memberId: string;
+    sha: string;
+    path: string;
+    oldPath?: string;
+}
+
+export interface ConversationViewerCommitReviewMessage
+    extends ConversationViewerChangesActionBase {
+    type: 'conversation-viewer-commit-review';
+    requestId: string;
+    memberId: string;
+    sha: string;
+}
+
 export interface ConversationViewerSendSelectionMessage {
     type: 'conversation-viewer-send-selection';
     version: 1;
@@ -305,7 +349,11 @@ export type ConversationViewerMessage =
     | ConversationViewerChangesRefreshMessage
     | ConversationViewerChangesOpenFileMessage
     | ConversationViewerChangesReviewMessage
-    | ConversationViewerChangesOpenScmMessage;
+    | ConversationViewerChangesOpenScmMessage
+    | ConversationViewerCommitsListMessage
+    | ConversationViewerCommitDetailMessage
+    | ConversationViewerCommitOpenFileMessage
+    | ConversationViewerCommitReviewMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
     'conversation-viewer-previous',
@@ -409,6 +457,69 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerChangesOpenFileMessage;
+    }
+    if (value.type === 'conversation-viewer-commits-list') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'memberId', 'scope',
+            'offset',
+        ]) && !hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'memberId', 'scope',
+            'offset', 'historyHead',
+        ])) {
+            return undefined;
+        }
+        if (!isRequestId(value.requestId)
+            || !isChangesActionBinding(value)
+            || !isChangesMemberId(value.memberId)
+            || (value.scope !== 'since-start' && value.scope !== 'full')
+            || !Number.isSafeInteger(value.offset)
+            || (value.offset as number) < 0
+            || (value.offset as number) > 1_000_000
+            || (value.historyHead !== undefined
+                && !isFullCommitSha(value.historyHead))) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCommitsListMessage;
+    }
+    if (value.type === 'conversation-viewer-commit-detail'
+        || value.type === 'conversation-viewer-commit-review') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'memberId', 'sha',
+        ])
+            || !isRequestId(value.requestId)
+            || !isChangesActionBinding(value)
+            || !isChangesMemberId(value.memberId)
+            || !isFullCommitSha(value.sha)) {
+            return undefined;
+        }
+        return value as unknown as
+            | ConversationViewerCommitDetailMessage
+            | ConversationViewerCommitReviewMessage;
+    }
+    if (value.type === 'conversation-viewer-commit-open-file') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'memberId', 'sha', 'path',
+        ]) && !hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'memberId', 'sha', 'path',
+            'oldPath',
+        ])) {
+            return undefined;
+        }
+        if (!isRequestId(value.requestId)
+            || !isChangesActionBinding(value)
+            || !isChangesMemberId(value.memberId)
+            || !isFullCommitSha(value.sha)
+            || !isChangesFilePath(value.path)
+            || (value.oldPath !== undefined
+                && !isChangesFilePath(value.oldPath))) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCommitOpenFileMessage;
     }
     if (value.type === 'conversation-viewer-switch-session') {
         if (!hasExactKeys(value, ['type', 'version', 'direction'])
@@ -731,6 +842,10 @@ function isChangesFilePath(value: unknown): value is string {
         && value.length > 0
         && value.length <= 4096
         && !/[\0]/.test(value);
+}
+
+function isFullCommitSha(value: unknown): value is string {
+    return typeof value === 'string' && /^[0-9a-f]{40}$/u.test(value);
 }
 
 function isRequestId(value: unknown): value is string {

@@ -13322,10 +13322,10 @@ test('WORKTREE-CHANGES-PANEL-001 renders a two-row member header with a repo pic
     assert.ok(branchTooltip.includes('agent-pivot/fix-login'));
     assert.ok(branchTooltip.includes('/wt/api'));
 
-    // Row 2 is branch-only: refresh, Source Control, and the merged fold
-    // toggle live together in row 3's right slot. The SCM glyph is the
-    // branch-style Source Control icon, not the external-open arrow
-    // (PRD §17).
+    // Source Control occupies row 2's leading icon slot, matching the
+    // previous-repository slot above it. The branch label therefore begins
+    // at the same x coordinate as the repository label. Refresh and the
+    // folded action remain in row 3.
     assert.equal(
         await page.locator('.conversation-changes-branch-row '
             + '[data-changes-refresh]').count(),
@@ -13333,7 +13333,19 @@ test('WORKTREE-CHANGES-PANEL-001 renders a two-row member header with a repo pic
     assert.equal(
         await page.locator('.conversation-changes-branch-row '
             + '[data-changes-open-scm]').count(),
+        1);
+    assert.equal(
+        await page.locator('.conversation-changes-fold '
+            + '[data-changes-open-scm]').count(),
         0);
+    assert.equal(
+        await page.locator('.conversation-changes-branch-icon').count(),
+        0, 'the SCM action is the branch row’s sole leading icon');
+    assert.equal(await page.locator('[data-changes-branch]').evaluate(
+        (branch, selector) => branch.getBoundingClientRect().x
+            === document.querySelector(selector).getBoundingClientRect().x,
+        '[data-changes-repo-picker]'), true,
+    'branch and repository labels share the same leading text alignment');
     assert.equal(
         await page.locator('.conversation-changes-fold '
             + '[data-changes-fold-toggle]').count(),
@@ -13343,13 +13355,12 @@ test('WORKTREE-CHANGES-PANEL-001 renders a two-row member header with a repo pic
             + '[data-changes-refresh]').count(),
         1);
     assert.equal(
-        await page.locator('.conversation-changes-fold '
-            + '[data-changes-open-scm]').count(),
-        1);
-    assert.equal(
         await page.locator('[data-changes-open-scm] svg circle').count(),
         3,
         'the SCM button carries the three-node Source Control glyph');
+    assert.equal(
+        await page.locator('[data-changes-fold-toggle] svg path').count(),
+        2, 'the fold glyph uses one light chevron for each toggle state');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends, announces the position, and keeps focus', async t => {
@@ -13829,7 +13840,7 @@ test('WORKTREE-CHANGES-PANEL-001 clears old member data on terminal and reset st
     assert.equal(await page.locator('.conversation-changes-file').count(), 0);
 });
 
-test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → branch → hint → sub-tab → fold toggle → refresh → SCM → summary → content', async t => {
+test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → › → SCM → branch → hint → sub-tab → fold toggle → refresh → summary → content', async t => {
     const { page } = await openHostViewerDocument(t, {});
     await sendChanges(page, changesFixture());
     await page.locator('[data-telemetry-changes]').click();
@@ -13838,14 +13849,14 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
     const stops = [
         '[data-changes-member-select]',
         '[data-changes-next]',
+        '[data-changes-open-scm]',
         '[data-changes-branch]',
         '[data-changes-cross-member]',
         // Row 3's left slot: the selected sub-tab is the tablist's single
-        // Tab stop (PRD §15.4); the fold toggle, refresh, and SCM follow.
+        // Tab stop (PRD §15.4); the fold toggle and refresh follow.
         '[data-changes-subtab="files"]',
         '[data-changes-fold-toggle]',
         '[data-changes-refresh]',
-        '[data-changes-open-scm]',
         '[data-changes-task-summary]',
         '[data-changes-review]',
     ];
@@ -13900,16 +13911,9 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
     assert.equal(
         await page.evaluate(() =>
             document.activeElement
-                === document.querySelector('[data-changes-open-scm]')),
-        true,
-        'SCM ends the action row');
-    await page.keyboard.press('Tab');
-    assert.equal(
-        await page.evaluate(() =>
-            document.activeElement
                 === document.querySelector('[data-changes-task-summary]')),
         true,
-        'expand leads into the focusable task summary');
+        'refresh leads into the focusable task summary');
     await page.keyboard.press('Tab');
     assert.equal(
         await page.evaluate(() =>
@@ -13970,7 +13974,7 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
     await page.locator('[data-telemetry-changes]').click();
 
     // Row 3: the sub-tabs on the left plus one merged fold toggle and
-    // the refresh/SCM actions on the right — a VS Code fold glyph with
+    // refresh on the right — a light single-chevron fold glyph with
     // aria-label and overlay tooltip, never a native title (PRD §17).
     const foldToggle = page.locator('[data-changes-fold-toggle]');
     assert.equal(await foldToggle.isVisible(), true);
@@ -13987,7 +13991,7 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
         '[data-fold-icon]').evaluateAll(icons => icons
             .filter(icon => icon.style.display !== 'none')
             .map(icon => icon.getAttribute('data-fold-icon')));
-    assert.deepEqual(await visibleIcons(), ['collapse', 'collapse']);
+    assert.deepEqual(await visibleIcons(), ['collapse']);
 
     // Extremely narrow panel: the row stays on one line without
     // overflowing or compressing the buttons (PRD §16).
@@ -14027,7 +14031,7 @@ test('WORKTREE-CHANGES-PANEL-001 collapses and expands every group and folder fr
         2);
     assert.equal(await foldToggle.getAttribute('aria-label'), 'Expand all',
         'fully collapsed flips the toggle to Expand all');
-    assert.deepEqual(await visibleIcons(), ['expand', 'expand']);
+    assert.deepEqual(await visibleIcons(), ['expand']);
 
     // Expand all restores groups, folders, and files.
     await foldToggle.click();
@@ -15097,12 +15101,12 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay stays fixed inside the viewport
     assert.equal(await overlay.isVisible(), true);
     assertInsideViewport(await overlayBox());
 
-    // A right-edge trigger (the SCM button at the panel's end) clamps
+    // A right-edge trigger (the refresh button at the panel's end) clamps
     // horizontally into the viewport.
-    const openScm = page.locator('[data-changes-open-scm]');
-    await openScm.hover();
+    const refresh = page.locator('[data-changes-refresh]');
+    await refresh.hover();
     assert.equal(await overlay.isVisible(), true);
-    assert.equal(await overlay.innerText(), 'Open in Source Control');
+    assert.equal(await overlay.innerText(), 'Refresh');
     assertInsideViewport(await overlayBox());
 });
 

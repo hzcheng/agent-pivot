@@ -773,6 +773,39 @@ test('WORKTREE-GROUPS-UI-001 renders merge eligibility on the unified actions me
         'merge is not rendered as a standalone row button');
 });
 
+test('WORKTREE-GROUPS-UI-001 moves group repository names into the header tooltip', () => {
+    const html = webviewModules.content.getAiSessionsDiv({
+        id: 'repository-tooltip-coverage',
+        activeAiSessionProvider: 'codex',
+        selectedAiSessionProviders: ['codex'],
+        activeAiSessionTab: 'chats',
+        codexSessions: [], kimiSessions: [], claudeSessions: [], activeAiSessions: [],
+        worktreeGroups: [{
+            kind: 'group', groupId: 'repository-tooltip-group', displayName: 'fix-login', revision: 1,
+            activity: 'idle', sessions: [],
+            chips: [{ label: 'alpha', title: 'alpha' }, { label: 'beta', title: 'beta' }],
+            hasDetachedMembers: false, needsPrimarySelection: false, canCreateSession: true,
+            mergeCandidateGroupIds: [],
+            members: [{
+                memberId: 'member-1', repositoryKey: '/repo/.git', repositoryLabel: 'alpha',
+                branchName: 'fix-login', path: '/repo/.worktrees/fix-login',
+                status: 'ready', isPrimary: true,
+                worktreeKey: {
+                    repositoryKey: '/repo/.git',
+                    canonicalWorktreePath: '/repo/.worktrees/fix-login',
+                },
+            }],
+        }],
+    });
+
+    assert.match(html, /data-tooltip="Repositories:\nalpha\nbeta"/,
+        'the group header tooltip provides every repository name');
+    assert.match(html, /aria-label="fix-login, 0 sessions, idle, repositories: alpha, beta"/,
+        'the same names remain accessible without hover');
+    assert.doesNotMatch(html, /ai-session-repo-chip/,
+        'repository chips no longer occupy the single-line header');
+});
+
 test('WORKTREE-GROUPING-UI-001 renders the host-persisted view tab without a restore flip', () => {
     const html = webviewModules.content.getAiSessionsDiv({
         id: 'view-state-memory',

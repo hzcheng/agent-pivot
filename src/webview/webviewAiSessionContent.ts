@@ -14,7 +14,6 @@ import type {
     WorktreeAnchorViewModel,
     WorktreeGroupMemberStatus,
     WorktreeGroupRowViewModel,
-    WorktreeRepositoryChip,
     WorktreeRowViewModel,
 } from '../aiSessions/types';
 import { worktreeKeysMatch } from '../worktrees';
@@ -922,17 +921,8 @@ function getWorktreeGroupRowsHtml(
 }
 
 /**
- * One repository chip on a worktree group row (PRD §10): the shortest
- * unique prefix inline, the full repository name on the hover tooltip and
- * as the accessible name.
- */
-function renderRepositoryChip(chip: WorktreeRepositoryChip): string {
-    return `<span class="ai-session-repo-chip" role="note" aria-label="${escapeAttribute(chip.title)}" data-tooltip="${escapeAttribute(chip.title)}">${escapeAttribute(chip.label)}</span>`;
-}
-
-/**
- * One manifest-backed worktree group row (PRD §10): display name plus
- * repository chips, sessions aggregated across members as the primary
+ * One manifest-backed worktree group row (PRD §10): display name plus a
+ * repository-list tooltip, sessions aggregated across members as the primary
  * content, and a secondary member summary line.
  */
 function getWorktreeGroupRowHtml(
@@ -956,19 +946,13 @@ function getWorktreeGroupRowHtml(
     const discriminator = group.discriminator
         ? `<span class="ai-session-worktree-discriminator">${escapeAttribute(group.discriminator)}</span>`
         : '';
-    // PRD §10: at most four chips render inline; the rest collapse into a
-    // +N chip so the task name keeps its space. The +N chip names every
-    // collapsed repository in full — one tooltip line each plus a complete
-    // accessible name, since hover alone cannot carry the information.
-    const MAX_VISIBLE_CHIPS = 4;
-    const collapsedChips = group.chips.slice(MAX_VISIBLE_CHIPS);
-    const collapsedNames = collapsedChips.map(chip => chip.title);
-    const chips = group.chips.slice(0, MAX_VISIBLE_CHIPS)
-        .map(chip => renderRepositoryChip(chip))
-        .join('')
-        + (collapsedChips.length
-            ? `<span class="ai-session-repo-chip ai-session-repo-chip-more" role="note" aria-label="${escapeAttribute(`${collapsedChips.length} more repositories: ${collapsedNames.join(', ')}`)}" data-tooltip="${escapeAttribute(collapsedNames.join('\n'))}">+${collapsedChips.length}</span>`
-            : '');
+    // Repository chips compete directly with the task name for the one-line
+    // group header. Keep every repository available from the title tooltip
+    // instead, and mirror it in the accessible name for non-pointer users.
+    const repositoryNames = group.chips.map(chip => chip.title);
+    const repositoryTooltip = repositoryNames.length
+        ? ` data-tooltip="${escapeAttribute(`Repositories:\n${repositoryNames.join('\n')}`)}"`
+        : '';
     // Never fall back to a non-primary member silently: when the primary is
     // unavailable the user must explicitly choose a replacement.
     const primary = group.members.find(member => member.isPrimary && member.status === 'ready');
@@ -993,6 +977,9 @@ function getWorktreeGroupRowHtml(
         data-quick-profile="${escapeAttribute(quickCreateProfile)}">${Icons.moreActions}</button>`;
     const sessionLabel = `${count} session${count === 1 ? '' : 's'}`;
     const ariaLabel = `${name}, ${sessionLabel}, ${activity}`;
+    const headerAriaLabel = repositoryNames.length
+        ? `${ariaLabel}, repositories: ${repositoryNames.join(', ')}`
+        : ariaLabel;
     const memberNames = group.members.map(member => member.status === 'ready'
         ? member.repositoryLabel
         : `${member.repositoryLabel} (${member.status})`).join(', ');
@@ -1083,10 +1070,10 @@ function getWorktreeGroupRowHtml(
         : '';
     return `<section class="ai-session-worktree-group ai-session-worktree-task-group" data-group-id="${escapeAttribute(group.groupId)}" data-group-revision="${group.revision}" data-worktree-activity="${group.activity}"${collapsedState.section}${primaryAttributes} style="order: ${groupOrder}">
         <div class="ai-session-worktree-toolbar">
-            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="${collapsedState.expanded}" aria-label="${escapeAttribute(ariaLabel)}">
+            <button type="button" class="ai-session-worktree-header" data-action="toggle-ai-session-worktree" aria-expanded="${collapsedState.expanded}" aria-label="${escapeAttribute(headerAriaLabel)}"${repositoryTooltip}>
                 <span class="ai-session-worktree-indicator" aria-hidden="true">${group.activity === 'idle' ? '○' : '●'}</span>
                 <span class="ai-session-worktree-title">${escapeAttribute(name)}</span>
-                ${discriminator}${chips}
+                ${discriminator}
                 <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
                 <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>

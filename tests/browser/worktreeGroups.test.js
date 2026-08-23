@@ -262,7 +262,7 @@ test('WORKTREE-GROUPS-UI-001 group rows carry no standalone plus button', async 
     assert.equal(await row.locator('.ai-session-worktree-more').count(), 1);
 });
 
-test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a member summary', async t => {
+test('WORKTREE-GROUPS-UI-001 renders group repositories in the header tooltip, sessions, and a member summary', async t => {
     const page = await openSurfacePage(surface({
         worktreeGroups: [groupRow({
             members: [
@@ -281,7 +281,13 @@ test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a memb
 
     const row = page.locator('.ai-session-worktree-task-group');
     assert.equal(await row.count(), 1);
-    assert.deepEqual(await row.locator('.ai-session-repo-chip').allTextContents(), ['a', 'b']);
+    const header = row.locator('.ai-session-worktree-header');
+    assert.equal(await header.getAttribute('data-tooltip'), 'Repositories:\nalpha\nbeta',
+        'repository names move out of the row and into the header tooltip');
+    assert.match(await header.getAttribute('aria-label'), /repositories: alpha, beta$/,
+        'the full repository list remains available to keyboard and assistive-technology users');
+    assert.equal(await row.locator('.ai-session-repo-chip').count(), 0,
+        'repository chips do not compete with the task name for inline space');
     assert.equal(await row.locator('.codex-session-row[data-session-id="s-1"]').count(), 1,
         'sessions aggregate across group members');
     const summary = await row.locator('.ai-session-worktree-member-summary').textContent();
@@ -297,10 +303,10 @@ test('WORKTREE-GROUPS-UI-001 renders group rows with chips, sessions, and a memb
         'no merge affordance without a same-slug candidate');
 });
 
-test('WORKTREE-GROUPS-UI-001 collapses repository chips beyond four into an accessible +N marker', async t => {
-    // PRD §10 / annotation feedback: the task name must keep its space —
-    // chips beyond four collapse into a +N marker whose tooltip and
-    // accessible name list every collapsed repository in full.
+test('WORKTREE-GROUPS-UI-001 puts every group repository in the header tooltip', async t => {
+    // Annotation feedback: repository chips consume the task-name space.
+    // The header tooltip has the complete list, regardless of repository
+    // count, while the row itself stays chip-free.
     const page = await openSurfacePage(surface({
         worktreeGroups: [
             groupRow({
@@ -328,30 +334,24 @@ test('WORKTREE-GROUPS-UI-001 collapses repository chips beyond four into an acce
     t.after(() => page.close());
 
     const row = page.locator('.ai-session-worktree-task-group').first();
-    assert.deepEqual(await row.locator('.ai-session-repo-chip').allTextContents(),
-        ['a', 'b', 'g', 'd', '+2'],
-        'only four chips render inline; the rest collapse into +N');
-    const more = row.locator('.ai-session-repo-chip-more');
-    assert.equal(await more.count(), 1);
-    assert.equal(await more.getAttribute('data-tooltip'), 'epsilon\nzeta',
-        'the +N hover tooltip lists every collapsed repository in full');
-    assert.equal(await more.getAttribute('aria-label'),
-        '2 more repositories: epsilon, zeta',
-        'the +N marker carries a complete accessible name (hover is not the only carrier)');
-    assert.equal(await row.locator('.ai-session-repo-chip').first().getAttribute('aria-label'), 'alpha',
-        'each visible chip keeps its full-name accessible name');
+    const header = row.locator('.ai-session-worktree-header');
+    assert.equal(await header.getAttribute('data-tooltip'),
+        'Repositories:\nalpha\nbeta\ngamma\ndelta\nepsilon\nzeta',
+        'all repositories are available from one tooltip, without a +N truncation marker');
+    assert.match(await header.getAttribute('aria-label'),
+        /repositories: alpha, beta, gamma, delta, epsilon, zeta$/);
+    assert.equal(await row.locator('.ai-session-repo-chip').count(), 0);
 
     const fourChipRow = page.locator('.ai-session-worktree-task-group').nth(1);
-    assert.deepEqual(await fourChipRow.locator('.ai-session-repo-chip').allTextContents(),
-        ['a', 'b', 'g', 'd'], 'four chips still render inline');
-    assert.equal(await fourChipRow.locator('.ai-session-repo-chip-more').count(), 0,
-        'no +N marker at exactly four chips');
+    assert.equal(await fourChipRow.locator('.ai-session-worktree-header').getAttribute('data-tooltip'),
+        'Repositories:\nalpha\nbeta\ngamma\ndelta');
+    assert.equal(await fourChipRow.locator('.ai-session-repo-chip').count(), 0,
+        'the four-repository case is also chip-free');
 });
 
-test('WORKTREE-GROUPS-UI-001 keeps the task name readable beside repository chips', async t => {
-    // Annotation feedback: chips squeezed the task name away in multi-root
-    // workspaces; the title keeps a readable floor and chips shrink first
-    // (their full names stay available on hover tooltips).
+test('WORKTREE-GROUPS-UI-001 keeps the task name readable without repository chips', async t => {
+    // Repository names live in the header tooltip, leaving the task title as
+    // the only flexible label in the group header.
     const page = await openSurfacePage(surface({
         worktreeGroups: [groupRow({
             displayName: 'fix-the-authentication-login-flow-regression',
@@ -376,7 +376,7 @@ test('WORKTREE-GROUPS-UI-001 keeps the task name readable beside repository chip
         };
     });
     assert.ok(layout.titleWidth >= 40,
-        `the task name keeps a readable floor beside the chips (got ${layout.titleWidth}px)`);
+        `the task name keeps a readable floor (got ${layout.titleWidth}px)`);
     assert.ok(layout.documentWidth <= layout.viewportWidth + 1,
         `no horizontal overflow (document ${layout.documentWidth}px)`);
 });

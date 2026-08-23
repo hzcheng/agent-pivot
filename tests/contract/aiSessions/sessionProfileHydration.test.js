@@ -122,9 +122,10 @@ test('SESSION-CODEX-PROFILE-BADGE-001 rows render badges with tooltips and aria 
         claudeSessions: [],
         activeAiSessions: [],
     });
-    assert.match(html, /ai-session-profile-badge[^>]*title="Codex config profile: deepseek"/);
-    assert.match(html, /aria-label="Codex config profile: deepseek"/);
-    assert.match(html, /Codex session Profiled, Codex config profile deepseek/);
+    assert.match(html, /ai-session-profile-badge[^>]*data-tooltip="Profile: deepseek"/);
+    assert.match(html, /ai-session-profile-badge[^>]*aria-label="Profile: deepseek"/);
+    assert.match(html, /Codex session Profiled, Profile: deepseek/);
+    assert.match(html, /ai-session-primary-action[^>]*data-tooltip="[^"]*Provider: Codex\nProfile: deepseek/);
     assert.match(html, /ai-session-profile-unavailable/);
     assert.match(html, /deleted-profile · unavailable/);
     assert.doesNotMatch(html, /Base configuration \(no profile\)/, 'base decisions render no badge');
@@ -150,8 +151,9 @@ test('SESSION-CODEX-PROFILE-BADGE-001 rows render badges with tooltips and aria 
             attached: true,
         }],
     });
-    assert.match(activeHtml, /ai-session-profile-badge[^>]*title="Codex config profile: deepseek"/);
-    assert.match(activeHtml, /Codex session Active run, Codex config profile deepseek/);
+    assert.match(activeHtml, /ai-session-profile-badge[^>]*data-tooltip="Profile: deepseek"/);
+    assert.match(activeHtml, /Codex session Active run, Profile: deepseek/);
+    assert.match(activeHtml, /ai-session-primary-action[^>]*data-tooltip="[^"]*Provider: Codex\nProfile: deepseek/);
 });
 
 test('SESSION-CODEX-PROFILE-BADGE-001 profile names are HTML-escaped in badges', () => {

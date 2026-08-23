@@ -553,6 +553,7 @@
             "src/worktrees/gitWorktree*.ts",
             "src/worktrees/worktreeSetupRunner.ts",
             "src/worktrees/changesCollector.ts",
+            "src/worktrees/commitsCollector.ts",
             "src/worktrees/gitRepositoryStateMonitor.ts"
           ]
         },

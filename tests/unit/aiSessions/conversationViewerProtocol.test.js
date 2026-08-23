@@ -696,3 +696,86 @@ test('WORKTREE-CHANGES-PANEL-001 binds every changes action to generation and se
             `${intent.type} without sessionId must not parse`);
     }
 });
+
+test('WORKTREE-CHANGES-COMMITS-001 parses commits requests with binding and request correlation', () => {
+    const binding = {
+        requestId: 'req-1',
+        subscriptionGeneration: 3,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const sha = 'a'.repeat(40);
+    const list = {
+        type: 'conversation-viewer-commits-list',
+        version: 1,
+        ...binding,
+        memberId: 'member-1',
+        scope: 'since-start',
+        offset: 0,
+    };
+    assert.deepEqual(parseConversationViewerMessage(list), list);
+    assert.deepEqual(parseConversationViewerMessage(
+        { ...list, historyHead: sha }),
+        { ...list, historyHead: sha },
+        'later pages echo the frozen history head');
+    const detail = {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        ...binding,
+        memberId: 'member-1',
+        sha,
+    };
+    assert.deepEqual(parseConversationViewerMessage(detail), detail);
+    const review = {
+        ...detail,
+        type: 'conversation-viewer-commit-review',
+    };
+    assert.deepEqual(parseConversationViewerMessage(review), review);
+    const openFile = {
+        type: 'conversation-viewer-commit-open-file',
+        version: 1,
+        ...binding,
+        memberId: 'member-1',
+        sha,
+        path: 'src/a.ts',
+        oldPath: 'src/old.ts',
+    };
+    assert.deepEqual(parseConversationViewerMessage(openFile), openFile);
+
+    // Fail closed on bad shapes, bounds, enumerations, and stray keys.
+    assert.equal(parseConversationViewerMessage(
+        { ...list, scope: 'everything' }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...list, offset: -1 }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...list, offset: 1_000_001 }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...list, historyHead: 'short' }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...detail, sha: 'short' }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...openFile, path: '' }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...openFile, oldPath: 'a\0b' }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...list, stray: true }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...detail, requestId: '' }), undefined);
+    // Commits requests keep the changes-action binding discipline: an
+    // intent without session identity must not parse.
+    const { sessionId: _dropped, ...unbound } = list;
+    assert.equal(parseConversationViewerMessage(unbound), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...list, subscriptionGeneration: 0 }), undefined);
+    // §14.3.5: commits requestIds are narrower than the generic
+    // requestId charset — dash-joined, 1..64 chars.
+    assert.equal(parseConversationViewerMessage(
+        { ...list, requestId: 'with_underscore' }), undefined);
+    assert.equal(parseConversationViewerMessage(
+        { ...list, requestId: 'a'.repeat(65) }), undefined);
+    assert.deepEqual(
+        parseConversationViewerMessage(
+            { ...list, requestId: 'a'.repeat(64) }),
+        { ...list, requestId: 'a'.repeat(64) });
+});

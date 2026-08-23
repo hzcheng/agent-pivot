@@ -184,6 +184,22 @@
         var emptyRoot = options.emptyRoot;
         var unavailableRoot = options.unavailableRoot;
         var openScmButton = options.openScmButton;
+        var subtabsRoot = options.subtabs;
+        var filesView = options.filesView;
+        var commitsView = options.commitsView;
+        var commitsSummary = options.commitsSummary;
+        var commitsTracking = options.commitsTracking;
+        var commitsNotice = options.commitsNotice;
+        var commitsList = options.commitsList;
+        var commitsEmpty = options.commitsEmpty;
+        var commitsLoading = options.commitsLoading;
+        var commitsError = options.commitsError;
+        var commitsRetry = options.commitsRetry;
+        var commitsMore = options.commitsMore;
+        var commitsFull = options.commitsFull;
+        var getSubTab = options.getChangesSubTab
+            || function () { return 'files'; };
+        var setSubTab = options.setChangesSubTab || function () {};
         var updateToggle = options.updateToggle || function () {};
         var subscriptionGeneration = options.subscriptionGeneration;
         var target = options.target;
@@ -377,6 +393,23 @@
             if (openScmButton) openScmButton.disabled = true;
             if (groupsRoot) clearChildren(groupsRoot);
             if (emptyRoot) emptyRoot.hidden = true;
+            if (commitsList) clearChildren(commitsList);
+            if (commitsEmpty) commitsEmpty.hidden = true;
+            if (commitsLoading) commitsLoading.hidden = true;
+            if (commitsError) commitsError.hidden = true;
+            if (commitsMore) commitsMore.hidden = true;
+            if (commitsFull) commitsFull.hidden = true;
+            if (commitsNotice) commitsNotice.hidden = true;
+            if (commitsSummary) {
+                commitsSummary.textContent = '';
+                commitsSummary.removeAttribute('data-tooltip');
+            }
+            if (commitsTracking) {
+                commitsTracking.hidden = true;
+                commitsTracking.textContent = '';
+                commitsTracking.removeAttribute('data-tooltip');
+            }
+            commitsFocusKey = null;
             currentMemberId = null;
             lastFocusedTreeKey = null;
             pendingFocusRestore = null;
@@ -1337,10 +1370,23 @@
                     emptyRoot.hidden = detail.items.length > 0;
                 }
             }
+            // Commits tab (PRD §14.3.2/§15.5): a signature change drops
+            // the member's cache; a visible tab silently refetches.
+            applySubTabVisibility();
+            if (activeSubTab === 'commits') {
+                ensureCommits(state);
+                renderCommits(state);
+            }
             void aggregate;
         }
 
         function apply(message) {
+            // Commits responses (PRD §14.3) route through the same entry;
+            // validators drop malformed, stale-generation, or superseded
+            // payloads before any cache is touched.
+            if (applyCommitsMessage(message)) {
+                return true;
+            }
             if (!message || typeof message !== 'object'
                 || message.type !== 'conversation-viewer-changes'
                 || (message.version !== 1 && message.version !== 2)
@@ -1362,6 +1408,965 @@
             updateFoldActions();
             renderPanel(latestState);
             return true;
+        }
+
+        // ===== Commits sub-tab (PRD §14.3 request/response lazy loading,
+        // §15.4 framework, §15.5 rendering, §15.2 per-member memory) =====
+
+        var activeSubTab = getSubTab() === 'commits' ? 'commits' : 'files';
+        var commitsRequestSeq = 0;
+        // Per-member caches (PRD §15.2): scope, pages, expansion, and
+        // scroll survive a member switch; the invalidation signature
+        // (§14.3 失效纪律) drops them when the underlying refs move.
+        var commitsCaches = new Map();
+        // Bounds (panel-lifetime memory discipline): at most 16 member
+        // caches, at most 32 expanded commit details per member.
+        var COMMITS_CACHE_MEMBER_LIMIT = 16;
+        var COMMITS_EXPANDED_LIMIT = 32;
+        // Roving-focus identity across re-renders: '<sha>' for a commit
+        // row, '<sha>\0<file path>' for a file row, '<sha>\0review' for
+        // the review action row.
+        var commitsFocusKey = null;
+
+        function nextCommitsRequestId() {
+            commitsRequestSeq += 1;
+            return 'commits-' + commitsRequestSeq;
+        }
+
+        // Full list-state reset (refresh ⟳, Retry, history-moved):
+        // member scope memory and the cache's identity survive, paged
+        // data and expansion do not.
+        function resetCommitsList(cache) {
+            cache.status = 'idle';
+            cache.degraded = null;
+            cache.historyHead = null;
+            cache.commits = [];
+            cache.earlierCommits = [];
+            cache.seenShas = Object.create(null);
+            cache.hasMore = false;
+            cache.sectionComplete = false;
+            cache.baselineRow = null;
+            cache.earlierActive = false;
+            cache.earlierHasMore = false;
+            cache.earlierOffset = 0;
+            cache.expanded = Object.create(null);
+            cache.expandedOrder = [];
+            cache.pageLoading = false;
+            cache.latestListRequestId = null;
+            cache.latestDetailRequestIds = Object.create(null);
+        }
+
+        // The invalidation signature (PRD §14.3.2): HEAD sha, baseline
+        // identity, and the full upstream tuple — a push/fetch changes
+        // fork counts and row badges without changing the commit list.
+        function commitsSignatureOf(member, detail) {
+            var upstream = member && member.upstream;
+            return JSON.stringify([
+                member.availability,
+                member.headSha || null,
+                detail && detail.baselineSha || null,
+                upstream ? upstream.status : null,
+                upstream && upstream.fullRef || null,
+                upstream && upstream.sha || null,
+                upstream && upstream.status === 'tracked'
+                    ? upstream.ahead : null,
+                upstream && upstream.status === 'tracked'
+                    ? upstream.behind : null,
+            ]);
+        }
+
+        function newCommitsCache(member, detail) {
+            return {
+                signature: commitsSignatureOf(member, detail),
+                scope: 'since-start',
+                status: 'idle',
+                degraded: null,
+                historyHead: null,
+                commits: [],
+                seenShas: Object.create(null),
+                hasMore: false,
+                sectionComplete: false,
+                baselineRow: null,
+                earlierActive: false,
+                earlierHasMore: false,
+                earlierOffset: 0,
+                earlierCommits: [],
+                expanded: Object.create(null),
+                expandedOrder: [],
+                scrollTop: 0,
+                latestListRequestId: null,
+                latestDetailRequestIds: Object.create(null),
+            };
+        }
+
+        // A signature change invalidates the cache (§14.3.2); the scope
+        // and expansion state survive a same-member refetch.
+        function commitsCacheFor(member, detail) {
+            var cache = commitsCaches.get(member.memberId);
+            var signature = commitsSignatureOf(member, detail);
+            if (cache && cache.signature === signature) {
+                return cache;
+            }
+            var fresh = newCommitsCache(member, detail);
+            if (cache) {
+                fresh.scope = cache.scope;
+                fresh.earlierActive = cache.earlierActive;
+            }
+            commitsCaches.set(member.memberId, fresh);
+            if (commitsCaches.size > COMMITS_CACHE_MEMBER_LIMIT) {
+                var oldest = commitsCaches.keys().next().value;
+                if (oldest && oldest !== member.memberId) {
+                    commitsCaches.delete(oldest);
+                }
+            }
+            return fresh;
+        }
+
+        function requestCommitsPage(member, cache, scope, offset) {
+            if (!member || !cache) {
+                return;
+            }
+            var requestId = nextCommitsRequestId();
+            cache.latestListRequestId = requestId;
+            cache.status = cache.commits.length ? cache.status : 'loading';
+            postAction({
+                type: 'conversation-viewer-commits-list',
+                version: 1,
+                requestId: requestId,
+                memberId: member.memberId,
+                scope: scope,
+                offset: offset,
+                ...(cache.historyHead ? { historyHead: cache.historyHead } : {}),
+            });
+        }
+
+        function requestCommitDetail(memberId, sha) {
+            var cache = commitsCaches.get(memberId);
+            if (!cache) {
+                return;
+            }
+            var requestId = nextCommitsRequestId();
+            cache.latestDetailRequestIds[sha] = requestId;
+            postAction({
+                type: 'conversation-viewer-commit-detail',
+                version: 1,
+                requestId: requestId,
+                memberId: memberId,
+                sha: sha,
+            });
+        }
+
+        // ---- response validation (PRD §14.3.5 bounds) ----
+
+        var COMMITS_DEGRADED = ['unreadable', 'timeout', 'history-moved',
+            'unknown-commit', 'error'];
+        var COMMIT_FILE_STATUSES = ['A', 'M', 'D', 'R', 'C', 'T', 'U'];
+
+        function validCommitSha(value) {
+            return typeof value === 'string'
+                && /^[0-9a-f]{40}$/.test(value);
+        }
+
+        function validCommitsRequestId(value) {
+            return typeof value === 'string'
+                && /^[A-Za-z0-9-]{1,64}$/.test(value);
+        }
+
+        function validCommitSummary(commit) {
+            return exactKeys(commit,
+                    ['sha', 'subject', 'authorName', 'authorTime'],
+                    ['inTrackingBranch'])
+                && validCommitSha(commit.sha)
+                && typeof commit.subject === 'string'
+                && commit.subject.length <= 1024
+                && typeof commit.authorName === 'string'
+                && commit.authorName.length <= 256
+                && Number.isSafeInteger(commit.authorTime)
+                && commit.authorTime >= 0
+                && (commit.inTrackingBranch === undefined
+                    || typeof commit.inTrackingBranch === 'boolean');
+        }
+
+        function validCommitFile(file) {
+            return exactKeys(file, ['path', 'status'],
+                    ['oldPath', 'additions', 'deletions'])
+                && typeof file.path === 'string'
+                && file.path.length > 0 && file.path.length <= 4096
+                && (file.oldPath === undefined
+                    || (typeof file.oldPath === 'string'
+                        && file.oldPath.length > 0
+                        && file.oldPath.length <= 4096))
+                && COMMIT_FILE_STATUSES.includes(file.status)
+                && (file.additions === undefined
+                    || (Number.isSafeInteger(file.additions)
+                        && file.additions >= 0 && file.additions <= 1e7))
+                && (file.deletions === undefined
+                    || (Number.isSafeInteger(file.deletions)
+                        && file.deletions >= 0 && file.deletions <= 1e7));
+        }
+
+        function validCommitsEnvelope(message, type, required, optional) {
+            return message && typeof message === 'object'
+                && !Array.isArray(message)
+                && message.type === type
+                && message.version === 1
+                && exactKeys(message, required, optional)
+                && validCommitsRequestId(message.requestId)
+                && message.subscriptionGeneration === subscriptionGeneration
+                && typeof message.memberId === 'string'
+                && (message.degraded === undefined
+                    || COMMITS_DEGRADED.includes(message.degraded));
+        }
+
+        function validCommitsListMessage(message) {
+            if (!validCommitsEnvelope(message, 'conversation-viewer-commits',
+                    ['type', 'version', 'requestId', 'subscriptionGeneration',
+                        'memberId', 'scope', 'offset', 'historyHead',
+                        'commits', 'hasMore'],
+                    ['sectionComplete', 'baselineRow', 'degraded'])) {
+                return false;
+            }
+            return (message.scope === 'since-start'
+                    || message.scope === 'full')
+                && Number.isSafeInteger(message.offset)
+                && message.offset >= 0 && message.offset <= 1e6
+                && (message.historyHead === ''
+                    || validCommitSha(message.historyHead))
+                && Array.isArray(message.commits)
+                && message.commits.length <= 200
+                && message.commits.every(validCommitSummary)
+                && typeof message.hasMore === 'boolean'
+                && (message.sectionComplete === undefined
+                    || typeof message.sectionComplete === 'boolean')
+                && (message.baselineRow === undefined
+                    || (exactKeys(message.baselineRow, ['sha'], ['subject'])
+                        && validCommitSha(message.baselineRow.sha)
+                        && (message.baselineRow.subject === undefined
+                            || typeof message.baselineRow.subject
+                                === 'string')
+                        && (message.baselineRow.subject === undefined
+                            || message.baselineRow.subject.length
+                                <= 1024)));
+        }
+
+        function validCommitDetailMessage(message) {
+            if (!validCommitsEnvelope(message,
+                    'conversation-viewer-commit-detail',
+                    ['type', 'version', 'requestId', 'subscriptionGeneration',
+                        'memberId', 'sha', 'files', 'totalFiles',
+                        'filesTruncated'],
+                    ['degraded'])) {
+                return false;
+            }
+            return validCommitSha(message.sha)
+                && Array.isArray(message.files)
+                && message.files.length <= 400
+                && message.files.every(validCommitFile)
+                && Number.isSafeInteger(message.totalFiles)
+                && message.totalFiles >= 0 && message.totalFiles <= 1e6
+                && typeof message.filesTruncated === 'boolean';
+        }
+
+        // ---- response application: requestId + generation double
+        // discard (PRD §14.3.4) ----
+
+        function applyCommitsListResponse(message) {
+            var cache = commitsCaches.get(message.memberId);
+            if (!cache
+                || message.requestId !== cache.latestListRequestId) {
+                return true;
+            }
+            cache.latestListRequestId = null;
+            cache.pageLoading = false;
+            if (message.degraded === 'history-moved') {
+                // History moved mid-pagination: discard the paged data
+                // and restart the scope from its first page (§14.3).
+                resetCommitsList(cache);
+                var member = latestState && latestState.members.find(
+                    function (candidate) {
+                        return candidate.memberId === message.memberId;
+                    });
+                // The since-start scope always restarts first: the
+                // Earlier section is re-entered explicitly via Show full
+                // branch history (its data was discarded above).
+                requestCommitsPage(member, cache, 'since-start', 0);
+                renderCommitsIfVisible();
+                return true;
+            }
+            if (message.degraded) {
+                cache.status = 'error';
+                cache.degraded = message.degraded;
+                renderCommitsIfVisible();
+                return true;
+            }
+            cache.status = 'ready';
+            cache.degraded = null;
+            cache.historyHead = message.historyHead || cache.historyHead;
+            var target = message.scope === 'full'
+                ? cache.earlierCommits
+                : cache.commits;
+            if (message.scope === 'full') {
+                cache.earlierActive = true;
+                cache.earlierHasMore = message.hasMore;
+                cache.earlierOffset = message.offset
+                    + message.commits.length;
+            } else {
+                cache.hasMore = message.hasMore;
+            }
+            message.commits.forEach(function (commit) {
+                // Cross-page dedupe by sha (§14.3): the baseline closing
+                // row and the full scope's first row share one sha.
+                if (cache.seenShas[commit.sha]) {
+                    return;
+                }
+                if (message.scope === 'full' && cache.baselineRow
+                    && commit.sha === cache.baselineRow.sha) {
+                    // The Earlier section starts at the baseline itself;
+                    // its closing row is already rendered above.
+                    return;
+                }
+                cache.seenShas[commit.sha] = true;
+                target.push(commit);
+            });
+            if (message.sectionComplete) {
+                cache.sectionComplete = true;
+                cache.baselineRow = message.baselineRow || null;
+            }
+            renderCommitsIfVisible();
+            return true;
+        }
+
+        function applyCommitDetailResponse(message) {
+            var cache = commitsCaches.get(message.memberId);
+            if (!cache
+                || cache.latestDetailRequestIds[message.sha]
+                    !== message.requestId) {
+                return true;
+            }
+            delete cache.latestDetailRequestIds[message.sha];
+            var entry = cache.expanded[message.sha];
+            if (!entry) {
+                // The row was collapsed or evicted while the request was
+                // in flight: its response must not re-expand it.
+                return true;
+            }
+            if (message.degraded) {
+                entry.status = 'failed';
+            } else {
+                entry.status = 'ready';
+                entry.files = message.files;
+                entry.totalFiles = message.totalFiles;
+                entry.filesTruncated = message.filesTruncated;
+            }
+            renderCommitsIfVisible();
+            return true;
+        }
+
+        function applyCommitsMessage(message) {
+            if (!message || typeof message !== 'object'
+                || (message.type !== 'conversation-viewer-commits'
+                    && message.type
+                        !== 'conversation-viewer-commit-detail')) {
+                return false;
+            }
+            if (message.type === 'conversation-viewer-commits') {
+                return validCommitsListMessage(message)
+                    ? (applyCommitsListResponse(message), true)
+                    : false;
+            }
+            return validCommitDetailMessage(message)
+                ? (applyCommitDetailResponse(message), true)
+                : false;
+        }
+
+        // ---- rendering ----
+
+        function relativeCommitTime(authorTime) {
+            var seconds = Math.max(0, Math.floor(Date.now() / 1000)
+                - authorTime);
+            if (seconds < 60) return 'just now';
+            var minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return minutes + 'm ago';
+            var hours = Math.floor(minutes / 60);
+            if (hours < 24) return hours + 'h ago';
+            var days = Math.floor(hours / 24);
+            if (days < 30) return days + 'd ago';
+            return new Date(authorTime * 1000).toLocaleDateString();
+        }
+
+        function commitsRowRows() {
+            if (!commitsList) return [];
+            return Array.prototype.slice.call(
+                commitsList.querySelectorAll(
+                    '.conversation-changes-commit-row, '
+                        + '.conversation-changes-commit-file-row, '
+                        + '.conversation-changes-commit-review-row'));
+        }
+
+        function focusCommitsRow(row) {
+            commitsRowRows().forEach(function (candidate) {
+                candidate.tabIndex = candidate === row ? 0 : -1;
+            });
+            if (row) {
+                commitsFocusKey = commitsRowKeyOf(row);
+                row.focus();
+            }
+        }
+
+        function commitsRowKeyOf(row) {
+            var sha = row.getAttribute('data-commit-sha');
+            if (!sha) return null;
+            if (row.classList.contains('conversation-changes-commit-row')) {
+                return sha;
+            }
+            if (row.classList.contains(
+                'conversation-changes-commit-review-row')) {
+                return sha + '\0review';
+            }
+            return sha + '\0' + (row.getAttribute('data-file-path') || '');
+        }
+
+        function rowByCommitsKey(key) {
+            if (!commitsList || !key) return null;
+            return Array.prototype.slice.call(
+                commitsList.querySelectorAll(
+                    '.conversation-changes-commit-row, '
+                        + '.conversation-changes-commit-file-row, '
+                        + '.conversation-changes-commit-review-row')
+            ).find(function (row) {
+                return commitsRowKeyOf(row) === key;
+            }) || null;
+        }
+
+        function setCommitsRowRoving(preferred) {
+            var rows = commitsRowRows();
+            var current = preferred
+                || rowByCommitsKey(commitsFocusKey)
+                || rows.find(function (row) { return row.tabIndex === 0; })
+                || rows[0];
+            rows.forEach(function (row) {
+                row.tabIndex = row === current ? 0 : -1;
+            });
+        }
+
+        function buildCommitRow(member, cache, commit) {
+            var row = document.createElement('div');
+            row.className = 'conversation-changes-commit-row';
+            row.setAttribute('role', 'treeitem');
+            row.setAttribute('tabindex', '-1');
+            row.setAttribute('data-commit-sha', commit.sha);
+            var expanded = !!cache.expanded[commit.sha];
+            row.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            // The badge's semantics fold into the row label (PRD §15.5.2):
+            // the badge itself never takes focus.
+            var badgeText = commit.inTrackingBranch === false
+                ? 'not in tracking branch'
+                : commit.inTrackingBranch === true
+                    ? 'in tracking branch'
+                    : null;
+            row.setAttribute('aria-label',
+                commit.sha.slice(0, 7) + ', ' + commit.subject
+                    + (badgeText ? ', ' + badgeText : ''));
+
+            var firstLine = document.createElement('div');
+            firstLine.className = 'conversation-changes-commit-line';
+            var chevron = document.createElement('span');
+            chevron.className = 'conversation-changes-commit-chevron';
+            chevron.setAttribute('aria-hidden', 'true');
+            chevron.textContent = expanded ? '▾' : '▸';
+            firstLine.appendChild(chevron);
+            if (badgeText) {
+                var badge = document.createElement('span');
+                badge.className = 'conversation-changes-commit-badge '
+                    + (commit.inTrackingBranch
+                        ? 'conversation-changes-commit-badge-in'
+                        : 'conversation-changes-commit-badge-out');
+                badge.setAttribute('aria-hidden', 'true');
+                badge.textContent = commit.inTrackingBranch ? '✓' : '●';
+                firstLine.appendChild(badge);
+            }
+            var sha = document.createElement('span');
+            sha.className = 'conversation-changes-commit-sha';
+            sha.textContent = commit.sha.slice(0, 7);
+            firstLine.appendChild(sha);
+            var subject = document.createElement('span');
+            subject.className = 'conversation-changes-commit-subject '
+                + 'conversation-changes-tooltip-target';
+            subject.setAttribute('tabindex', '-1');
+            subject.textContent = commit.subject;
+            subject.setAttribute('data-tooltip', commit.subject);
+            firstLine.appendChild(subject);
+            row.appendChild(firstLine);
+
+            var meta = document.createElement('div');
+            meta.className = 'conversation-changes-commit-meta';
+            meta.textContent = commit.authorName + ' · '
+                + relativeCommitTime(commit.authorTime);
+            row.appendChild(meta);
+            return row;
+        }
+
+        function buildCommitFileRow(member, commit, file) {
+            var row = document.createElement('div');
+            row.className = 'conversation-changes-commit-file-row';
+            row.setAttribute('role', 'treeitem');
+            row.setAttribute('tabindex', '-1');
+            row.setAttribute('data-commit-sha', commit.sha);
+            row.setAttribute('data-file-path', file.path);
+            if (file.oldPath) {
+                row.setAttribute('data-file-old-path', file.oldPath);
+            }
+            var status = document.createElement('span');
+            status.className = 'conversation-changes-file-status '
+                + 'conversation-changes-file-status-'
+                + (file.status === 'A' ? 'untracked'
+                    : file.status === 'D' ? 'deleted' : 'modified');
+            status.textContent = file.status;
+            row.appendChild(status);
+            var name = document.createElement('span');
+            name.className = 'conversation-changes-commit-file-name '
+                + 'conversation-changes-tooltip-target';
+            name.setAttribute('tabindex', '-1');
+            var label = file.oldPath
+                ? file.oldPath + ' → ' + file.path
+                : file.path;
+            name.textContent = file.path.split('/').pop();
+            name.setAttribute('data-tooltip', label);
+            row.appendChild(name);
+            if (file.additions !== undefined
+                || file.deletions !== undefined) {
+                var numstat = document.createElement('span');
+                numstat.className = 'conversation-changes-commit-numstat';
+                numstat.textContent = '+'
+                    + (file.additions === undefined ? '-' : file.additions)
+                    + ' −'
+                    + (file.deletions === undefined ? '-' : file.deletions);
+                row.appendChild(numstat);
+            }
+            row.addEventListener('click', function () {
+                postAction({
+                    type: 'conversation-viewer-commit-open-file',
+                    version: 1,
+                    requestId: nextCommitsRequestId(),
+                    memberId: member.memberId,
+                    sha: commit.sha,
+                    path: file.path,
+                    ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+                });
+            });
+            return row;
+        }
+
+        function buildCommitExpansion(member, cache, commit) {
+            var entry = cache.expanded[commit.sha];
+            var fragment = document.createDocumentFragment();
+            if (!entry || entry.status === 'loading') {
+                var loading = document.createElement('p');
+                loading.className = 'conversation-changes-commit-inline-note';
+                loading.textContent = 'Loading files…';
+                fragment.appendChild(loading);
+                return fragment;
+            }
+            if (entry.status === 'failed') {
+                var failed = document.createElement('p');
+                failed.className = 'conversation-changes-commit-inline-note';
+                failed.textContent = 'Failed · ';
+                var retry = document.createElement('button');
+                retry.type = 'button';
+                retry.className = 'conversation-changes-action';
+                retry.textContent = 'Retry';
+                retry.addEventListener('click', function () {
+                    entry.status = 'loading';
+                    requestCommitDetail(member.memberId, commit.sha);
+                    renderCommitsIfVisible();
+                });
+                failed.appendChild(retry);
+                fragment.appendChild(failed);
+                return fragment;
+            }
+            entry.files.forEach(function (file) {
+                fragment.appendChild(buildCommitFileRow(member, commit, file));
+            });
+            if (entry.filesTruncated) {
+                var truncated = document.createElement('p');
+                truncated.className =
+                    'conversation-changes-commit-inline-note';
+                truncated.textContent = 'Showing ' + entry.files.length
+                    + ' of ' + entry.totalFiles + ' files';
+                fragment.appendChild(truncated);
+            }
+            var review = document.createElement('div');
+            review.className = 'conversation-changes-commit-review-row';
+            review.setAttribute('role', 'treeitem');
+            review.setAttribute('tabindex', '-1');
+            review.setAttribute('data-commit-sha', commit.sha);
+            var reviewButton = document.createElement('button');
+            reviewButton.type = 'button';
+            reviewButton.className = 'conversation-changes-action';
+            // The treeitem row is the single Tab stop (PRD §17); the
+            // button activates via the row's Enter/Space handling.
+            reviewButton.tabIndex = -1;
+            reviewButton.textContent = 'Review this commit';
+            reviewButton.addEventListener('click', function () {
+                postAction({
+                    type: 'conversation-viewer-commit-review',
+                    version: 1,
+                    requestId: nextCommitsRequestId(),
+                    memberId: member.memberId,
+                    sha: commit.sha,
+                });
+            });
+            review.appendChild(reviewButton);
+            fragment.appendChild(review);
+            return fragment;
+        }
+
+        function toggleCommitExpanded(member, cache, sha) {
+            if (cache.expanded[sha]) {
+                delete cache.expanded[sha];
+                // Collapsing cancels the pending detail: its response
+                // must not resurrect the row.
+                delete cache.latestDetailRequestIds[sha];
+                cache.expandedOrder = cache.expandedOrder.filter(
+                    function (entry) { return entry !== sha; });
+            } else {
+                cache.expanded[sha] = { status: 'loading' };
+                cache.expandedOrder.push(sha);
+                // Evict the oldest expanded detail beyond the bound.
+                while (cache.expandedOrder.length > COMMITS_EXPANDED_LIMIT) {
+                    var evicted = cache.expandedOrder.shift();
+                    delete cache.expanded[evicted];
+                    delete cache.latestDetailRequestIds[evicted];
+                }
+                requestCommitDetail(member.memberId, sha);
+            }
+            renderCommitsIfVisible();
+        }
+
+        function renderCommitsIfVisible() {
+            if (activeSubTab === 'commits' && latestState) {
+                renderCommits(latestState);
+            }
+        }
+
+        function renderCommits(state) {
+            if (!commitsView) {
+                return;
+            }
+            // Re-rendering detaches every row: remember whether focus
+            // lived inside the list so it lands back on the same key
+            // (PRD §17 focus discipline).
+            var refocusCommits = commitsList
+                && commitsList.contains(document.activeElement);
+            var member = selectedMemberOf(state);
+            if (!member) {
+                return;
+            }
+            var detail = state.detail
+                && state.detail.memberId === member.memberId
+                ? state.detail
+                : null;
+            var cache = commitsCacheFor(member, detail);
+
+            // Header (PRD §15.5.1): the member's own ahead count — the
+            // same source as the Files tab's commit count.
+            if (commitsSummary) {
+                var summaryText;
+                if (member.availability === 'baselineUnavailable'
+                    || member.availability === 'historyRewritten') {
+                    summaryText = 'Current branch history';
+                } else {
+                    summaryText = 'Since start · '
+                        + (member.aheadCount === undefined
+                            ? '? commits'
+                            : member.aheadCount === 1
+                                ? '1 commit'
+                                : member.aheadCount + ' commits');
+                }
+                commitsSummary.textContent = summaryText;
+                commitsSummary.setAttribute('data-tooltip', summaryText);
+            }
+            if (commitsTracking) {
+                var upstream = member.upstream;
+                if (!upstream) {
+                    commitsTracking.hidden = true;
+                } else {
+                    commitsTracking.hidden = false;
+                    var text = upstream.status === 'tracked'
+                        ? 'Tracking ' + shortUpstreamRef(upstream.fullRef)
+                            + ' · ' + upstream.ahead + ' ahead · '
+                            + upstream.behind + ' behind'
+                        : upstream.status === 'none'
+                            ? 'No tracking branch'
+                            : 'Tracking unknown';
+                    commitsTracking.textContent = text;
+                    commitsTracking.setAttribute('data-tooltip', text);
+                }
+            }
+
+            // Baseline-missing notice (PRD §15.5.9): the whole tab is one
+            // history stream; no fabricated Since-start boundary.
+            var noticeText = member.availability === 'unreadable'
+                    || cache.degraded === 'unreadable'
+                ? 'This repository is unavailable.'
+                : member.availability === 'baselineUnavailable'
+                    ? 'Baseline unavailable — showing the current branch history'
+                    : member.availability === 'historyRewritten'
+                        ? 'History rewritten — showing the current branch history'
+                        : null;
+            if (commitsNotice) {
+                commitsNotice.hidden = !noticeText;
+                if (noticeText) {
+                    commitsNotice.textContent = noticeText;
+                }
+            }
+            var listUsable = member.availability !== 'unreadable'
+                && cache.degraded !== 'unreadable';
+
+            clearChildren(commitsList);
+            if (!listUsable) {
+                commitsList.hidden = true;
+            } else {
+                commitsList.hidden = false;
+                cache.commits.forEach(function (commit) {
+                    var row = buildCommitRow(member, cache, commit);
+                    commitsList.appendChild(row);
+                    if (cache.expanded[commit.sha]) {
+                        commitsList.appendChild(
+                            buildCommitExpansion(member, cache, commit));
+                    }
+                });
+                if (cache.baselineRow) {
+                    var baseline = document.createElement('div');
+                    baseline.className =
+                        'conversation-changes-commit-baseline';
+                    var label = '○ (baseline)'
+                        + (cache.baselineRow.subject
+                            ? ' ' + cache.baselineRow.subject
+                            : ' ' + cache.baselineRow.sha.slice(0, 7));
+                    baseline.textContent = label;
+                    baseline.setAttribute('data-tooltip', cache.baselineRow.sha);
+                    commitsList.appendChild(baseline);
+                }
+                // The Earlier section appends below the baseline closing
+                // row (PRD §15.5.7).
+                if (cache.earlierActive && cache.earlierCommits.length) {
+                    var earlierHeader = document.createElement('div');
+                    earlierHeader.className =
+                        'conversation-changes-commit-earlier-header';
+                    earlierHeader.textContent = 'Earlier commits';
+                    commitsList.appendChild(earlierHeader);
+                    cache.earlierCommits.forEach(function (commit) {
+                        var row = buildCommitRow(member, cache, commit);
+                        commitsList.appendChild(row);
+                        if (cache.expanded[commit.sha]) {
+                            commitsList.appendChild(buildCommitExpansion(
+                                member, cache, commit));
+                        }
+                    });
+                }
+                // Per-member scroll memory (§15.2).
+                if (cache.scrollTop) {
+                    commitsList.scrollTop = cache.scrollTop;
+                }
+            }
+
+            if (commitsEmpty) {
+                commitsEmpty.hidden = !listUsable
+                    || cache.status === 'loading'
+                    || cache.commits.length > 0;
+            }
+            if (commitsLoading) {
+                commitsLoading.hidden = cache.status !== 'loading';
+            }
+            if (commitsError) {
+                var errored = cache.status === 'error'
+                    && cache.degraded !== 'unreadable';
+                commitsError.hidden = !errored;
+            }
+
+            // Footer actions (PRD §15.5.7).
+            var baselineKnown = member.availability === 'available'
+                && detail && detail.baselineSha;
+            if (commitsMore) {
+                commitsMore.hidden = !listUsable
+                    || cache.status !== 'ready' || !cache.hasMore;
+                commitsMore.disabled = !!cache.pageLoading;
+            }
+            if (commitsFull) {
+                commitsFull.hidden = !listUsable || !baselineKnown
+                    || !cache.sectionComplete || cache.earlierActive;
+            }
+            // The Earlier section reuses the same Load more button after
+            // activation: its request switches scope to 'full'.
+            if (commitsMore && cache.earlierActive) {
+                commitsMore.textContent = 'Load earlier commits';
+                commitsMore.hidden = !listUsable || !cache.earlierHasMore;
+            } else if (commitsMore) {
+                commitsMore.textContent = 'Load more';
+            }
+            setCommitsRowRoving();
+            if (refocusCommits) {
+                // The exact row may be gone after a refresh or cache
+                // invalidation: fall back to its parent commit row, then
+                // the first row, then the sub-tab itself — focus never
+                // falls to the document body (PRD §17).
+                var focusRow = rowByCommitsKey(commitsFocusKey)
+                    || (commitsFocusKey
+                        && rowByCommitsKey(
+                            String(commitsFocusKey).split('\0')[0]))
+                    || commitsRowRows()[0];
+                if (focusRow) {
+                    focusCommitsRow(focusRow);
+                } else if (subtabsRoot) {
+                    var activeTab = subtabsRoot.querySelector(
+                        '[data-changes-subtab="' + activeSubTab + '"]');
+                    if (activeTab) {
+                        activeTab.focus();
+                    }
+                }
+            }
+        }
+
+        function ensureCommits(state) {
+            var member = selectedMemberOf(state);
+            if (!member) {
+                return;
+            }
+            var detail = state.detail
+                && state.detail.memberId === member.memberId
+                ? state.detail
+                : null;
+            var cache = commitsCacheFor(member, detail);
+            if (cache.status === 'idle'
+                && member.availability !== 'unreadable') {
+                cache.status = 'loading';
+                requestCommitsPage(member, cache, cache.scope, 0);
+            }
+        }
+
+        // ---- sub-tab framework (PRD §15.4) ----
+
+        function applySubTabVisibility() {
+            var commitsActive = activeSubTab === 'commits';
+            if (filesView) {
+                filesView.hidden = commitsActive;
+            }
+            if (commitsView) {
+                commitsView.hidden = !commitsActive;
+            }
+            if (subtabsRoot) {
+                Array.prototype.forEach.call(
+                    subtabsRoot.querySelectorAll('[data-changes-subtab]'),
+                    function (tab) {
+                        var selected =
+                            tab.getAttribute('data-changes-subtab')
+                                === activeSubTab;
+                        tab.setAttribute('aria-selected',
+                            selected ? 'true' : 'false');
+                        tab.tabIndex = selected ? 0 : -1;
+                    });
+            }
+            // Commits view keeps the action slot's width but hides the
+            // fold buttons' content (PRD §15.3/§15.4).
+            [collapseAllButton, expandAllButton].forEach(function (button) {
+                if (button) {
+                    button.style.visibility = commitsActive
+                        ? 'hidden' : '';
+                }
+            });
+        }
+
+        function setActiveSubTab(tab, focusTab) {
+            if (tab !== 'files' && tab !== 'commits'
+                || tab === activeSubTab) {
+                return;
+            }
+            activeSubTab = tab;
+            setSubTab(tab, true);
+            applySubTabVisibility();
+            if (tab === 'commits' && latestState) {
+                ensureCommits(latestState);
+                renderCommits(latestState);
+            }
+            if (focusTab && subtabsRoot) {
+                var tabElement = subtabsRoot.querySelector(
+                    '[data-changes-subtab="' + tab + '"]');
+                if (tabElement) {
+                    tabElement.focus();
+                }
+            }
+        }
+
+        function handleCommitsKeydown(event) {
+            var rows = commitsRowRows();
+            if (!rows.length) {
+                return;
+            }
+            var current = document.activeElement;
+            var index = rows.indexOf(current);
+            if (index < 0) {
+                return;
+            }
+            var member = latestState && selectedMemberOf(latestState);
+            var cache = member && commitsCaches.get(member.memberId);
+            var sha = current.getAttribute('data-commit-sha');
+            var isCommitRow = current.classList
+                && current.classList.contains(
+                    'conversation-changes-commit-row');
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                var next = event.key === 'ArrowDown'
+                    ? Math.min(index + 1, rows.length - 1)
+                    : Math.max(index - 1, 0);
+                focusCommitsRow(rows[next]);
+                return;
+            }
+            if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault();
+                focusCommitsRow(event.key === 'Home'
+                    ? rows[0]
+                    : rows[rows.length - 1]);
+                return;
+            }
+            if (!isCommitRow || !member || !cache) {
+                // A leaf's ArrowLeft moves to its parent commit row
+                // (PRD §17 — same rule as the Files tree).
+                if (event.key === 'ArrowLeft' && !isCommitRow && sha) {
+                    event.preventDefault();
+                    var parentRow = rowByCommitsKey(sha);
+                    if (parentRow) {
+                        focusCommitsRow(parentRow);
+                    }
+                    return;
+                }
+                // File and review rows are leaves: Enter/Space activates.
+                if ((event.key === 'Enter' || event.key === ' ')
+                    && !isCommitRow) {
+                    event.preventDefault();
+                    var nestedButton = current.querySelector
+                        ? current.querySelector('button')
+                        : null;
+                    if (nestedButton) {
+                        nestedButton.click();
+                    } else {
+                        current.click();
+                    }
+                }
+                return;
+            }
+            if (event.key === 'ArrowRight' || event.key === 'Enter'
+                || event.key === ' ') {
+                event.preventDefault();
+                if (!cache.expanded[sha]) {
+                    toggleCommitExpanded(member, cache, sha);
+                }
+                return;
+            }
+            if (event.key === 'ArrowLeft' && cache.expanded[sha]) {
+                event.preventDefault();
+                toggleCommitExpanded(member, cache, sha);
+            }
         }
 
         function attach() {
@@ -1405,6 +2410,18 @@
             }
             if (refreshButton) {
                 refreshButton.addEventListener('click', function () {
+                    // ⟳ recollects both the changes snapshot and the
+                    // current member's commits list — two independently
+                    // degraded paths (PRD §14.3.1).
+                    var member = latestState && selectedMemberOf(latestState);
+                    if (member && activeSubTab === 'commits') {
+                        var cache = commitsCaches.get(member.memberId);
+                        if (cache) {
+                            resetCommitsList(cache);
+                        }
+                        ensureCommits(latestState);
+                        renderCommits(latestState);
+                    }
                     postAction({
                         type: 'conversation-viewer-changes-refresh',
                         version: 1,
@@ -1520,12 +2537,152 @@
                     }
                 });
             }
+            if (subtabsRoot) {
+                subtabsRoot.addEventListener('click', function (event) {
+                    var tab = event.target && event.target.closest
+                        ? event.target.closest('[data-changes-subtab]')
+                        : null;
+                    if (tab) {
+                        setActiveSubTab(
+                            tab.getAttribute('data-changes-subtab'), false);
+                    }
+                });
+                // Tablist keyboard: ← → with automatic activation and a
+                // roving tabindex across the two tabs (PRD §15.4).
+                subtabsRoot.addEventListener('keydown', function (event) {
+                    if (event.key !== 'ArrowLeft'
+                        && event.key !== 'ArrowRight') {
+                        return;
+                    }
+                    var tabs = Array.prototype.slice.call(
+                        subtabsRoot.querySelectorAll(
+                            '[data-changes-subtab]'));
+                    var index = tabs.indexOf(document.activeElement);
+                    if (index < 0) {
+                        return;
+                    }
+                    event.preventDefault();
+                    var next = event.key === 'ArrowRight'
+                        ? (index + 1) % tabs.length
+                        : (index + tabs.length - 1) % tabs.length;
+                    setActiveSubTab(
+                        tabs[next].getAttribute('data-changes-subtab'),
+                        true);
+                });
+            }
+            if (commitsList) {
+                // Per-member scroll memory (§15.2): the list records its
+                // position into the member's cache as it scrolls.
+                commitsList.addEventListener('scroll', function () {
+                    var member = latestState && selectedMemberOf(latestState);
+                    var cache = member && commitsCaches.get(member.memberId);
+                    if (cache) {
+                        cache.scrollTop = commitsList.scrollTop;
+                    }
+                });
+                // Track focus regardless of how it arrived (mouse,
+                // keyboard, script) so re-renders can restore it.
+                commitsList.addEventListener('focusin', function (event) {
+                    var row = event.target && event.target.closest
+                        ? event.target.closest(
+                            '.conversation-changes-commit-row, '
+                                + '.conversation-changes-commit-file-row, '
+                                + '.conversation-changes-commit-review-row')
+                        : null;
+                    if (row) {
+                        commitsFocusKey = commitsRowKeyOf(row);
+                    }
+                });
+                commitsList.addEventListener('click', function (event) {
+                    var row = event.target && event.target.closest
+                        ? event.target.closest(
+                            '.conversation-changes-commit-row')
+                        : null;
+                    if (!row || !latestState) {
+                        return;
+                    }
+                    var member = selectedMemberOf(latestState);
+                    var cache = member
+                        && commitsCaches.get(member.memberId);
+                    if (!member || !cache) {
+                        return;
+                    }
+                    toggleCommitExpanded(member, cache,
+                        row.getAttribute('data-commit-sha'));
+                    focusCommitsRow(rowByCommitsKey(
+                        row.getAttribute('data-commit-sha')));
+                });
+                commitsList.addEventListener('keydown', handleCommitsKeydown);
+            }
+            if (commitsRetry) {
+                commitsRetry.addEventListener('click', function () {
+                    var member = latestState && selectedMemberOf(latestState);
+                    var cache = member && commitsCaches.get(member.memberId);
+                    if (member && cache) {
+                        resetCommitsList(cache);
+                        ensureCommits(latestState);
+                        renderCommits(latestState);
+                    }
+                });
+            }
+            if (commitsMore) {
+                commitsMore.addEventListener('click', function () {
+                    var member = latestState && selectedMemberOf(latestState);
+                    var cache = member && commitsCaches.get(member.memberId);
+                    if (!member || !cache || cache.status !== 'ready') {
+                        return;
+                    }
+                    // One in-flight page at a time; renderCommits
+                    // re-enables the button when the response lands
+                    // (success or degraded — both settle the page).
+                    cache.pageLoading = true;
+                    if (cache.earlierActive) {
+                        requestCommitsPage(member, cache, 'full',
+                            cache.earlierOffset);
+                    } else {
+                        requestCommitsPage(member, cache, 'since-start',
+                            cache.commits.length);
+                    }
+                    renderCommitsIfVisible();
+                });
+            }
+            if (commitsFull) {
+                commitsFull.addEventListener('click', function () {
+                    var member = latestState && selectedMemberOf(latestState);
+                    var cache = member && commitsCaches.get(member.memberId);
+                    if (!member || !cache || !cache.sectionComplete) {
+                        return;
+                    }
+                    cache.earlierActive = true;
+                    cache.earlierOffset = 0;
+                    // The Earlier section continues from the baseline's
+                    // ancestors, never from HEAD (§14.3) — the closing
+                    // row's sha is skipped by cross-page dedupe.
+                    requestCommitsPage(member, cache, 'full', 0);
+                    renderCommitsIfVisible();
+                });
+            }
+            applySubTabVisibility();
         }
 
         attach();
 
         return {
             apply: apply,
+            // The sidebar restores persisted state after this controller
+            // is created: adopt a persisted Commits sub-tab then (PRD
+            // §15.4 — the choice survives reloads and session switches).
+            restoreSubTab: function () {
+                var restored = getSubTab();
+                if (restored === 'commits' || restored === 'files') {
+                    activeSubTab = restored;
+                }
+                applySubTabVisibility();
+                if (activeSubTab === 'commits' && latestState) {
+                    ensureCommits(latestState);
+                    renderCommits(latestState);
+                }
+            },
             // Session switches advance the viewer's generation without a
             // document rebuild — adopt it and drop the old session's
             // state, or every later changes message is rejected as stale.
@@ -1537,6 +2694,8 @@
                 lastLiveText = '';
                 highestChangesVersion = 0;
                 memberContexts.clear();
+                commitsCaches.clear();
+                commitsFocusKey = null;
                 pendingMemberId = null;
                 currentMemberId = null;
                 lastFocusedTreeKey = null;

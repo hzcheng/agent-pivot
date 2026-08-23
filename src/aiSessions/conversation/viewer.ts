@@ -992,7 +992,11 @@ export class ConversationViewer implements ConversationViewerApi {
             || parsed.type === 'conversation-viewer-changes-select'
             || parsed.type === 'conversation-viewer-changes-open-file'
             || parsed.type === 'conversation-viewer-changes-review'
-            || parsed.type === 'conversation-viewer-changes-open-scm') {
+            || parsed.type === 'conversation-viewer-changes-open-scm'
+            || parsed.type === 'conversation-viewer-commits-list'
+            || parsed.type === 'conversation-viewer-commit-detail'
+            || parsed.type === 'conversation-viewer-commit-open-file'
+            || parsed.type === 'conversation-viewer-commit-review') {
             // Changes actions are bound to the authoritative target and
             // generation: an intent stranded by a session switch must not
             // act on the newly active session when member IDs overlap.
@@ -1037,6 +1041,42 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-changes-open-scm') {
             await this.changesController?.handleOpenScm(parsed.memberId);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-commits-list') {
+            await this.changesController?.handleCommitsList({
+                requestId: parsed.requestId,
+                memberId: parsed.memberId,
+                scope: parsed.scope,
+                offset: parsed.offset,
+                ...(parsed.historyHead
+                    ? { historyHead: parsed.historyHead }
+                    : {}),
+            });
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-commit-detail') {
+            await this.changesController?.handleCommitDetail({
+                requestId: parsed.requestId,
+                memberId: parsed.memberId,
+                sha: parsed.sha,
+            });
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-commit-open-file') {
+            await this.changesController?.handleCommitOpenFile({
+                memberId: parsed.memberId,
+                sha: parsed.sha,
+                path: parsed.path,
+                ...(parsed.oldPath ? { oldPath: parsed.oldPath } : {}),
+            });
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-commit-review') {
+            await this.changesController?.handleCommitReview({
+                memberId: parsed.memberId,
+                sha: parsed.sha,
+            });
             return;
         }
         if (parsed.type === 'conversation-viewer-rename-session') {

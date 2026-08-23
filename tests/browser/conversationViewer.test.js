@@ -2598,6 +2598,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
             subagentsRunningOnly: false,
             widthUserResized: false,
             changesWidthRecommendationApplied: false,
+            changesSubTab: 'files',
         }
     );
     await page.locator('[data-outline-search]').fill('');
@@ -3944,6 +3945,78 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '        && !!window.__agentPivotConversation.changes\n' +
                 '        && validCommentTarget(commentTarget);\n',
                 '        && !!window.__agentPivotConversation.changes;\n')
+        // Strips the Commits sub-tab wiring (PRD §15.4): the
+        // previous-generation script had no sub-tab handles, no commits
+        // options, and no restoreSubTab call.
+        .replace(
+                '    var changesSubtabs = document.querySelector(\'[data-changes-subtabs]\');\n' +
+                '    var changesFilesView = document.querySelector(\n' +
+                '        \'[data-changes-files-view]\'\n' +
+                '    );\n' +
+                '    var changesCommitsView = document.querySelector(\n' +
+                '        \'[data-changes-commits-view]\'\n' +
+                '    );\n' +
+                '    var changesCommitsSummary = document.querySelector(\n' +
+                '        \'[data-changes-commits-summary]\'\n' +
+                '    );\n' +
+                '    var changesCommitsTracking = document.querySelector(\n' +
+                '        \'[data-changes-commits-tracking]\'\n' +
+                '    );\n' +
+                '    var changesCommitsNotice = document.querySelector(\n' +
+                '        \'[data-changes-commits-notice]\'\n' +
+                '    );\n' +
+                '    var changesCommitsList = document.querySelector(\n' +
+                '        \'[data-changes-commits-list]\'\n' +
+                '    );\n' +
+                '    var changesCommitsEmpty = document.querySelector(\n' +
+                '        \'[data-changes-commits-empty]\'\n' +
+                '    );\n' +
+                '    var changesCommitsLoading = document.querySelector(\n' +
+                '        \'[data-changes-commits-loading]\'\n' +
+                '    );\n' +
+                '    var changesCommitsError = document.querySelector(\n' +
+                '        \'[data-changes-commits-error]\'\n' +
+                '    );\n' +
+                '    var changesCommitsRetry = document.querySelector(\n' +
+                '        \'[data-changes-commits-retry]\'\n' +
+                '    );\n' +
+                '    var changesCommitsMore = document.querySelector(\n' +
+                '        \'[data-changes-commits-more]\'\n' +
+                '    );\n' +
+                '    var changesCommitsFull = document.querySelector(\n' +
+                '        \'[data-changes-commits-full]\'\n' +
+                '    );\n',
+                '')
+        .replace(
+                '        && !!changesSubtabs && !!changesFilesView && !!changesCommitsView\n' +
+                '        && !!changesCommitsSummary && !!changesCommitsTracking\n' +
+                '        && !!changesCommitsNotice && !!changesCommitsList\n' +
+                '        && !!changesCommitsEmpty && !!changesCommitsLoading\n' +
+                '        && !!changesCommitsError && !!changesCommitsRetry\n' +
+                '        && !!changesCommitsMore && !!changesCommitsFull\n',
+                '')
+        .replace(
+                '            subtabs: changesSubtabs,\n' +
+                '            filesView: changesFilesView,\n' +
+                '            commitsView: changesCommitsView,\n' +
+                '            commitsSummary: changesCommitsSummary,\n' +
+                '            commitsTracking: changesCommitsTracking,\n' +
+                '            commitsNotice: changesCommitsNotice,\n' +
+                '            commitsList: changesCommitsList,\n' +
+                '            commitsEmpty: changesCommitsEmpty,\n' +
+                '            commitsLoading: changesCommitsLoading,\n' +
+                '            commitsError: changesCommitsError,\n' +
+                '            commitsRetry: changesCommitsRetry,\n' +
+                '            commitsMore: changesCommitsMore,\n' +
+                '            commitsFull: changesCommitsFull,\n' +
+                '            getChangesSubTab: sidebarController.getChangesSubTab,\n' +
+                '            setChangesSubTab: sidebarController.setChangesSubTab,\n',
+                '')
+        .replace(
+                '        if (changesController) {\n' +
+                '            changesController.restoreSubTab();\n' +
+                '        }\n',
+                '')
         .replace(
                 '        if (changesController) {\n' +
                 '            changesController.resetSession(\n' +
@@ -5459,6 +5532,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             subagentsRunningOnly: false,
             widthUserResized: true,
             changesWidthRecommendationApplied: false,
+            changesSubTab: 'files',
         }
     );
 
@@ -5476,6 +5550,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             subagentsRunningOnly: false,
             widthUserResized: true,
             changesWidthRecommendationApplied: false,
+            changesSubTab: 'files',
         }
     );
 
@@ -5685,6 +5760,7 @@ test('WORKTREE-CHANGES-PANEL-001 recommends 320px once on the first Changes open
             subagentsRunningOnly: false,
             widthUserResized: false,
             changesWidthRecommendationApplied: true,
+            changesSubTab: 'files',
         }
     );
 
@@ -5742,6 +5818,7 @@ test('WORKTREE-CHANGES-PANEL-001 recommends 320px once on the first Changes open
                 subagentsRunningOnly: false,
                 widthUserResized: false,
                 changesWidthRecommendationApplied: false,
+                changesSubTab: 'files',
             },
         },
     });
@@ -13727,6 +13804,9 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
         '[data-changes-refresh]',
         '[data-changes-open-scm]',
         '[data-changes-cross-member]',
+        // Row 3's left slot: the selected sub-tab is the tablist's single
+        // Tab stop (PRD §15.4); fold actions follow it.
+        '[data-changes-subtab="files"]',
         '[data-changes-collapse-all]',
         '[data-changes-expand-all]',
         '[data-changes-task-summary]',
@@ -13762,9 +13842,16 @@ test('WORKTREE-CHANGES-PANEL-001 keeps the header tab order: ‹ → select → 
     assert.equal(
         await page.evaluate(() =>
             document.activeElement
+                === document.querySelector('[data-changes-subtab="files"]')),
+        true,
+        'with no hint rendered, SCM tabs into the sub-tab stop');
+    await page.keyboard.press('Tab');
+    assert.equal(
+        await page.evaluate(() =>
+            document.activeElement
                 === document.querySelector('[data-changes-collapse-all]')),
         true,
-        'with no hint rendered, SCM tabs into the fold actions');
+        'the sub-tab stop leads into the fold actions');
     await page.keyboard.press('Tab');
     assert.equal(
         await page.evaluate(() =>
@@ -15035,4 +15122,632 @@ test('WORKTREE-CHANGES-PANEL-001 migrates every native title in the Changes pane
             { title: null, tooltip: 'src/auth' },
         ]
     );
+});
+
+// ===== Commits sub-tab (PRD §14.3/§15.4/§15.5) =====
+
+function commitsFixture(overrides = {}) {
+    return {
+        memberId: 'm-api',
+        scope: 'since-start',
+        offset: 0,
+        historyHead: 'f'.repeat(40),
+        commits: [{
+            sha: 'c'.repeat(40), subject: 'fix: token refresh race',
+            authorName: 'hzcheng', authorTime: 1724000000,
+            inTrackingBranch: false,
+        }, {
+            sha: 'd'.repeat(40), subject: 'chore: setup script',
+            authorName: 'hzcheng', authorTime: 1723990000,
+            inTrackingBranch: true,
+        }],
+        hasMore: false,
+        ...overrides,
+    };
+}
+
+async function sendCommitsList(page, payload, generationOverride) {
+    const generation = generationOverride || await page.evaluate(() =>
+        Number(document.body.getAttribute('data-subscription-generation')));
+    // Echo the latest list request's correlation id unless the test
+    // overrides it: responses with a superseded requestId are discarded
+    // by design (PRD §14.3.4).
+    const requestId = payload.requestId || (await postedMessages(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commits-list')
+        .at(-1)?.requestId;
+    await sendPage(page, {
+        type: 'conversation-viewer-commits',
+        version: 1,
+        requestId,
+        subscriptionGeneration: generation,
+        ...payload,
+    });
+}
+
+async function openCommitsTab(page) {
+    await sendChanges(page, changesFixture());
+    await page.locator('[data-telemetry-changes]').click();
+    await page.locator('[data-changes-subtab="commits"]').click();
+}
+
+test('WORKTREE-CHANGES-COMMITS-001 switching to Commits requests the first page and renders rows', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+
+    // Entering the tab requests page 0 of the since-start scope, bound to
+    // the session identity and generation (PRD §14.3).
+    const request = (await postedIntents(page)).at(-1);
+    assert.equal(request.type, 'conversation-viewer-commits-list');
+    assert.equal(request.memberId, 'm-api');
+    assert.equal(request.scope, 'since-start');
+    assert.equal(request.offset, 0);
+    assert.equal(request.historyHead, undefined,
+        'the first page carries no frozen head');
+    assert.match(request.requestId, /^commits-\d+$/);
+    assert.equal(request.projectId, 'project-a');
+    assert.equal(request.sessionId, 'session-host-document');
+    assert.ok(request.subscriptionGeneration >= 1);
+
+    assert.equal(
+        await page.locator('[data-changes-subtab="commits"]')
+            .getAttribute('aria-selected'),
+        'true');
+    assert.equal(
+        await page.locator('[data-changes-files-view]').isHidden(), true);
+    assert.equal(
+        await page.locator('[data-changes-commits-view]').isVisible(), true);
+    // The fold actions keep their slot width but hide in Commits (§15.4).
+    assert.equal(
+        await page.locator('[data-changes-collapse-all]')
+            .evaluate(element => element.style.visibility),
+        'hidden');
+
+    // Header: the member's own ahead count + tracking line (§15.5.1).
+    assert.equal(
+        await page.locator('[data-changes-commits-summary]').innerText(),
+        'Since start · 2 commits');
+
+    await sendCommitsList(page, commitsFixture());
+    const rows = page.locator('.conversation-changes-commit-row');
+    assert.equal(await rows.count(), 2);
+    assert.equal(await rows.nth(0).getAttribute('aria-label'),
+        'ccccccc, fix: token refresh race, not in tracking branch',
+        'the badge semantics fold into the row label (§15.5.2)');
+    assert.equal(await rows.nth(1).getAttribute('aria-label'),
+        'ddddddd, chore: setup script, in tracking branch');
+    assert.equal(await rows.nth(0).locator(
+        '.conversation-changes-commit-badge').innerText(), '●');
+    assert.equal(await rows.nth(1).locator(
+        '.conversation-changes-commit-badge').innerText(), '✓');
+    assert.match(await rows.nth(0).locator(
+        '.conversation-changes-commit-meta').innerText(), /hzcheng · /);
+
+    // No baseline closing row before the section completes (§15.5.6).
+    assert.equal(
+        await page.locator('.conversation-changes-commit-baseline').count(),
+        0);
+
+    // Switching back to Files restores the working tree view.
+    await page.locator('[data-changes-subtab="files"]').click();
+    assert.equal(
+        await page.locator('[data-changes-files-view]').isVisible(), true);
+    assert.equal(
+        await page.locator('[data-changes-subtab="files"]')
+            .getAttribute('aria-selected'),
+        'true');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 the sub-tab persists across reloads and sessions', async t => {
+    const first = await openHostViewerDocument(t, {});
+    await openCommitsTab(first.page);
+    assert.equal(
+        await first.page.evaluate(() =>
+            window.__webviewState.conversationSidebar.changesSubTab),
+        'commits');
+
+    // A reload with the persisted state reopens the Commits tab.
+    const second = await openHostViewerDocument(t, {
+        initialWebviewState: {
+            conversationSidebar: {
+                open: false, width: 240, view: 'changes', query: '',
+                subagentsRunningOnly: false, changesSubTab: 'commits',
+            },
+        },
+    });
+    await sendChanges(second.page, changesFixture());
+    await second.page.locator('[data-telemetry-changes]').click();
+    assert.equal(
+        await second.page.locator('[data-changes-subtab="commits"]')
+            .getAttribute('aria-selected'),
+        'true',
+        'the persisted sub-tab restores without a click');
+    assert.equal(
+        await second.page.locator('[data-changes-commits-view]')
+            .isVisible(),
+        true);
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 expands a commit inline, opens files, and reviews the commit', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    const row = page.locator('.conversation-changes-commit-row').first();
+    await row.click();
+    const detailRequest = (await postedIntents(page)).at(-1);
+    assert.equal(detailRequest.type, 'conversation-viewer-commit-detail');
+    assert.equal(detailRequest.sha, 'c'.repeat(40));
+    assert.equal(await page.evaluate(
+        () => document.activeElement === document.querySelector(
+            '.conversation-changes-commit-row')),
+        true, 'expansion keeps focus on the row');
+    assert.match(await page.locator(
+        '.conversation-changes-commit-inline-note').innerText(),
+        /Loading files/);
+
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{
+            path: 'src/auth/login.ts', status: 'M',
+            additions: 12, deletions: 3,
+        }, {
+            path: 'src/auth/new.ts', oldPath: 'src/auth/old.ts',
+            status: 'R', additions: 4, deletions: 1,
+        }],
+        totalFiles: 2,
+        filesTruncated: false,
+    });
+    const fileRows = page.locator('.conversation-changes-commit-file-row');
+    assert.equal(await fileRows.count(), 2);
+    assert.equal(await fileRows.nth(1).locator(
+        '.conversation-changes-commit-file-name')
+        .getAttribute('data-tooltip'), 'src/auth/old.ts → src/auth/new.ts');
+    assert.equal(await fileRows.nth(0).locator(
+        '.conversation-changes-commit-numstat').innerText(), '+12 −3');
+
+    // Clicking a file posts the bound open-file intent.
+    await fileRows.first().click();
+    const openFile = (await postedIntents(page)).at(-1);
+    assert.equal(openFile.type, 'conversation-viewer-commit-open-file');
+    assert.equal(openFile.sha, 'c'.repeat(40));
+    assert.equal(openFile.path, 'src/auth/login.ts');
+    assert.equal(openFile.projectId, 'project-a');
+
+    // Review this commit rides the same binding.
+    await page.locator('.conversation-changes-commit-review-row button')
+        .click();
+    const review = (await postedIntents(page)).at(-1);
+    assert.equal(review.type, 'conversation-viewer-commit-review');
+    assert.equal(review.sha, 'c'.repeat(40));
+
+    // A stale detail response (superseded requestId) is discarded.
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: 'commits-999',
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'd'.repeat(40),
+        files: [{ path: 'evil.ts', status: 'M' }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row', { hasText: 'evil.ts' })
+        .count(), 0, 'a superseded requestId never renders (§14.3.4)');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 pages with a frozen head, renders the baseline row at the boundary, and continues into Earlier commits', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+
+    // First page: hasMore, no closing row yet.
+    await sendCommitsList(page, commitsFixture({
+        hasMore: true,
+        commits: Array.from({ length: 50 }, (_unused, index) => ({
+            sha: String(index + 1).padStart(40, 'a'),
+            subject: `commit ${index}`, authorName: 'hz',
+            authorTime: 1724000000 - index,
+        })),
+    }));
+    assert.equal(
+        await page.locator('.conversation-changes-commit-row').count(), 50);
+    const more = page.locator('[data-changes-commits-more]');
+    assert.equal(await more.isVisible(), true);
+    assert.equal(await more.innerText(), 'Load more');
+
+    await more.click();
+    const pageTwo = (await postedIntents(page)).at(-1);
+    assert.equal(pageTwo.offset, 50);
+    assert.equal(pageTwo.historyHead, 'f'.repeat(40),
+        'later pages echo the frozen history head (§14.3)');
+
+    // Last page: sectionComplete + baseline closing row.
+    await sendCommitsList(page, commitsFixture({
+        offset: 50,
+        commits: [{
+            sha: 'e'.repeat(40), subject: 'oldest', authorName: 'hz',
+            authorTime: 1723900000,
+        }],
+        hasMore: false,
+        sectionComplete: true,
+        baselineRow: {
+            sha: 'a'.repeat(40), subject: 'main · merged #241',
+        },
+    }), undefined);
+    await page.evaluate(() => undefined);
+    // The second response needs the requestId the button issued.
+    // (It was 'commits-3': tab-open list + load-more.)
+    assert.equal(
+        await page.locator('.conversation-changes-commit-baseline')
+            .innerText(),
+        '○ (baseline) main · merged #241');
+
+    // Show full branch history only after the boundary (§15.5.7).
+    const full = page.locator('[data-changes-commits-full]');
+    assert.equal(await full.isVisible(), true);
+    await full.click();
+    const earlierRequest = (await postedIntents(page)).at(-1);
+    assert.equal(earlierRequest.scope, 'full');
+    assert.equal(earlierRequest.offset, 0);
+
+    await sendCommitsList(page, commitsFixture({
+        scope: 'full',
+        offset: 0,
+        commits: [{
+            // The baseline sha itself: deduped against the rendered
+            // closing row (§14.3).
+            sha: 'a'.repeat(40), subject: 'main · merged #241',
+            authorName: 'hz', authorTime: 1723800000,
+        }, {
+            sha: '0'.repeat(40), subject: 'ancient', authorName: 'hz',
+            authorTime: 1723700000,
+        }],
+        hasMore: false,
+    }));
+    assert.match(await page.locator(
+        '.conversation-changes-commit-earlier-header').innerText(),
+        /Earlier commits/);
+    const subjects = await page.locator(
+        '.conversation-changes-commit-subject').allInnerTexts();
+    assert.ok(subjects.indexOf('ancient')
+        > subjects.indexOf('oldest'),
+        'the Earlier section appends below the since-start section');
+    assert.equal(subjects.filter(subject =>
+        subject === 'main · merged #241').length, 0,
+        'the baseline row is never duplicated as a commit row');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 degrades honestly: timeout retries, history-moved restarts, unreadable notices', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+
+    await sendCommitsList(page, commitsFixture({
+        commits: [], hasMore: false, historyHead: '', degraded: 'timeout',
+    }));
+    assert.equal(await page.locator(
+        '[data-changes-commits-error]').isVisible(), true);
+    await page.locator('[data-changes-commits-retry]').click();
+    const retry = (await postedIntents(page)).at(-1);
+    assert.equal(retry.type, 'conversation-viewer-commits-list');
+    assert.equal(retry.offset, 0, 'Retry restarts the first page');
+
+    await sendCommitsList(page, commitsFixture(), undefined);
+    await page.evaluate(() => undefined);
+    assert.equal(
+        await page.locator('.conversation-changes-commit-row').count(), 2,
+        'the retry renders the recovered list');
+
+    // history-moved: paged data is discarded and the scope restarts.
+    await sendCommitsList(page, commitsFixture({
+        degraded: 'history-moved', historyHead: 'e'.repeat(40),
+        commits: [], hasMore: false,
+    }));
+    const restart = (await postedIntents(page)).at(-1);
+    assert.equal(restart.type, 'conversation-viewer-commits-list');
+    assert.equal(restart.offset, 0);
+    assert.equal(restart.historyHead, undefined,
+        'a history-moved restart drops the stale frozen head');
+
+    // Unreadable member: the tab shows a notice, the Files tab is intact.
+    await sendChanges(page, changesFixture({
+        members: [{
+            memberId: 'm-api', repoLabel: 'api',
+            branchName: 'agent-pivot/fix-login', worktreePath: '/gone',
+            availability: 'unreadable', workingItemCount: 0,
+            truncated: false,
+        }],
+        selectedMemberId: 'm-api',
+        detail: {
+            memberId: 'm-api', availability: 'unreadable',
+            items: [], truncated: false,
+        },
+    }));
+    await page.locator('[data-changes-subtab="commits"]').click();
+    assert.match(await page.locator(
+        '[data-changes-commits-notice]').innerText(), /unavailable/);
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 a changed invalidation signature silently refetches; an unchanged one does not', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+    const before = (await postedIntents(page)).length;
+
+    // Same signature → no refetch.
+    await sendChanges(page, changesFixture());
+    assert.equal((await postedIntents(page)).length, before,
+        'an unchanged signature re-renders without a new request');
+
+    // headSha moved (a commit landed) → silent refetch of the first page.
+    const moved = changesFixture();
+    moved.members[0].headSha = 'e'.repeat(40);
+    moved.members[0].aheadCount = 3;
+    await sendChanges(page, moved);
+    const refetch = (await postedIntents(page)).at(-1);
+    assert.equal(refetch.type, 'conversation-viewer-commits-list');
+    assert.equal(refetch.offset, 0);
+    assert.equal(refetch.historyHead, undefined);
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 switching members clears the list and restores the cached one on return', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+    assert.equal(
+        await page.locator('.conversation-changes-commit-row').count(), 2);
+
+    const memberState = (selectedMemberId, aheadCount) => changesFixture({
+        selectedMemberId,
+        detail: {
+            memberId: selectedMemberId, availability: 'available',
+            baselineSha: 'a'.repeat(40), aheadCount, taskFileCount: 1,
+            items: [], truncated: false,
+        },
+    });
+
+    // Switch to m-web: the list clears immediately into loading (§14.3.3).
+    await sendChanges(page, memberState('m-web', 0));
+    assert.equal(
+        await page.locator('.conversation-changes-commit-row').count(), 0,
+        'the previous member\'s commits never linger (§14.3.3)');
+    assert.equal(
+        await page.locator('[data-changes-commits-loading]').isVisible(),
+        true);
+    const webRequest = (await postedIntents(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commits-list')
+        .at(-1);
+    assert.equal(webRequest.memberId, 'm-web');
+
+    await sendCommitsList(page, {
+        memberId: 'm-web',
+        scope: 'since-start',
+        offset: 0,
+        historyHead: 'f'.repeat(40),
+        commits: [{
+            sha: '7'.repeat(40), subject: 'web commit', authorName: 'hz',
+            authorTime: 1724000000,
+        }],
+        hasMore: false,
+    });
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-row').count(), 1);
+
+    // Back to m-api: the valid cache renders instantly, no new request.
+    const count = (await postedIntents(page)).filter(message =>
+        message.type === 'conversation-viewer-commits-list').length;
+    await sendChanges(page, memberState('m-api', 2));
+    assert.equal(
+        await page.locator('.conversation-changes-commit-row').count(), 2,
+        'a valid per-member cache renders instantly on return');
+    assert.equal(
+        (await postedIntents(page)).filter(message =>
+            message.type === 'conversation-viewer-commits-list').length,
+        count,
+        'no refetch for a valid cache (§15.2 per-member memory)');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 the commits list implements the keyboard model', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    const firstRow = page.locator('.conversation-changes-commit-row').first();
+    await firstRow.focus();
+    // Enter expands and keeps the row focused.
+    await page.keyboard.press('Enter');
+    const detailRequest = (await postedIntents(page)).at(-1);
+    assert.equal(detailRequest.type, 'conversation-viewer-commit-detail');
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+
+    // ArrowDown moves into the expanded file row; Enter opens it.
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.classList.contains(
+            'conversation-changes-commit-file-row')), true);
+    await page.keyboard.press('Enter');
+    const openFile = (await postedIntents(page)).at(-1);
+    assert.equal(openFile.type, 'conversation-viewer-commit-open-file');
+    assert.equal(openFile.path, 'src/a.ts');
+
+    // ArrowUp back to the commit row, ArrowLeft collapses it.
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row').count(), 0);
+    assert.equal(
+        await firstRow.getAttribute('aria-expanded'), 'false');
+
+    // Home/End bound the traversal.
+    await page.keyboard.press('End');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.getAttribute('data-commit-sha')),
+        'd'.repeat(40));
+    await page.keyboard.press('Home');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.getAttribute('data-commit-sha')),
+        'c'.repeat(40));
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 ArrowLeft on a leaf row moves to the parent commit and the review row is no Tab stop', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    const firstRow = page.locator('.conversation-changes-commit-row').first();
+    await firstRow.focus();
+    await page.keyboard.press('Enter');
+    const detailRequest = (await postedIntents(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commit-detail')
+        .at(-1);
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+
+    // The review row owns the keyboard stop; its button is not a separate
+    // Tab stop (PRD §17 one-stop tree).
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-review-row button')
+        .getAttribute('tabindex'), '-1');
+
+    // ArrowDown into the file row, ArrowLeft back to the parent commit.
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.classList.contains(
+            'conversation-changes-commit-file-row')), true);
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.classList.contains(
+            'conversation-changes-commit-row')), true,
+        'a leaf row\'s ArrowLeft lands on its parent commit');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.getAttribute('data-commit-sha')),
+        'c'.repeat(40));
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 collapsing an in-flight detail keeps the row collapsed when the response lands', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    // Expand, then collapse before the detail response arrives.
+    const row = page.locator('.conversation-changes-commit-row').first();
+    await row.click();
+    const detailRequest = (await postedIntents(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commit-detail')
+        .at(-1);
+    assert.equal(detailRequest.sha, 'c'.repeat(40));
+    await row.click();
+    assert.equal(await row.getAttribute('aria-expanded'), 'false');
+
+    // The late response is correlated but must not re-expand the row.
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+    assert.equal(await page.locator(
+        '.conversation-changes-commit-file-row').count(), 0,
+        'a collapsed row never re-expands from an in-flight response');
+    assert.equal(await row.getAttribute('aria-expanded'), 'false');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 focus falls back to the parent commit or the sub-tab when the focused row vanishes', async t => {
+    const { page } = await openHostViewerDocument(t, {});
+    await openCommitsTab(page);
+    await sendCommitsList(page, commitsFixture());
+
+    // Expand the first commit and focus its file row.
+    const firstRow = page.locator('.conversation-changes-commit-row').first();
+    await firstRow.focus();
+    await page.keyboard.press('Enter');
+    const detailRequest = (await postedIntents(page))
+        .filter(message =>
+            message.type === 'conversation-viewer-commit-detail')
+        .at(-1);
+    await sendPage(page, {
+        type: 'conversation-viewer-commit-detail',
+        version: 1,
+        requestId: detailRequest.requestId,
+        subscriptionGeneration: await page.evaluate(() =>
+            Number(document.body.getAttribute(
+                'data-subscription-generation'))),
+        memberId: 'm-api',
+        sha: 'c'.repeat(40),
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1,
+        filesTruncated: false,
+    });
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement.classList.contains(
+            'conversation-changes-commit-file-row')), true);
+
+    // A changed signature silently refetches (§14.3.2): the paged rows
+    // are discarded and the focused file row vanishes — focus must land
+    // on the sub-tab, never the document body.
+    const moved = changesFixture();
+    moved.members[0].headSha = 'e'.repeat(40);
+    moved.members[0].aheadCount = 3;
+    await sendChanges(page, moved);
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-subtab="commits"]')),
+        true,
+        'focus retreats to the sub-tab while the list reloads (§17)');
+
+    // The refetched list renders; focus stays on the sub-tab until the
+    // user re-enters (no focus yanking from a background response).
+    await sendCommitsList(page, commitsFixture());
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            === document.querySelector('[data-changes-subtab="commits"]')),
+        true);
 });

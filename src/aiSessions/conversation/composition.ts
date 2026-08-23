@@ -57,6 +57,7 @@ import {
 import { ConversationWorktreeResolver } from './worktreeResolver';
 import type { ConversationChangesControllerOptions } from './conversationChangesController';
 import { ChangesCollector } from '../../worktrees';
+import { CommitsCollector } from '../../worktrees';
 import { readCodexRolloutTelemetry } from '../codexRolloutWorkdir';
 import CodexRolloutGoalTurnsReader from '../codexRolloutGoalTurns';
 import {
@@ -137,6 +138,7 @@ export interface ConversationCapabilityOptions {
         ConversationChangesControllerOptions,
         'getPanel' | 'getTarget' | 'getSubscriptionGeneration'
         | 'isSuspended' | 'resolveWorktreeKey' | 'collector'
+        | 'commitsCollector'
     >;
     insertIntoActiveTerminal?: (
         text: string
@@ -255,6 +257,7 @@ function createAvailableConversationCapability(
     });
     const codexGoalTurns = new CodexRolloutGoalTurnsReader();
     const changesCollector = new ChangesCollector({ now: options.now });
+    const commitsCollector = new CommitsCollector();
     const codexAdapter = ownership.own(factories.createCodexAdapter({
         client: codexClient,
         watchSessionChanges: onDidChange =>
@@ -415,6 +418,7 @@ function createAvailableConversationCapability(
                 resolveWorktreeKey: candidatePath =>
                     worktreeResolver.resolveKey(candidatePath),
                 collector: changesCollector,
+                commitsCollector,
             }
             : undefined,
         followAdjacentConversation: (direction, currentTarget) => {

@@ -82,6 +82,17 @@ function fixture(overrides = {}) {
         }),
         openWorkingChangeDiff: async () => {},
         openTaskResultReview: async () => {},
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+            }),
+            commitExists: async () => true,
+        },
+        openCommitFileDiff: async () => {},
+        openCommitReview: async () => {},
         showWorktreeInSourceControl: async () => {},
         now: () => 1724000000000,
         ...overrides,
@@ -551,4 +562,289 @@ test('WORKTREE-CHANGES-PANEL-001 refresh re-resolves membership changes', async 
         'a member swap surfaces without reopening the conversation');
     assert.equal(state.selectedMemberId, 'member-2',
         'a vanished selection falls back to a live member');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 commits list responds with the stamped generation and member correlation', async () => {
+    const sha = 'c'.repeat(40);
+    const listArgs = [];
+    const { posted, controller } = fixture({
+        commitsCollector: {
+            list: async (worktreePath, request, baselineSha, upstreamSha) => {
+                listArgs.push({ worktreePath, request, baselineSha, upstreamSha });
+                return {
+                    commits: [{
+                        sha, subject: 'fix: race', authorName: 'hz',
+                        authorTime: 1724000000, inTrackingBranch: false,
+                    }],
+                    hasMore: false,
+                    historyHead: 'f'.repeat(40),
+                    sectionComplete: true,
+                    baselineRow: { sha: BASELINE.commitSha, subject: 'base' },
+                };
+            },
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+            }),
+            commitExists: async () => true,
+        },
+    });
+    await controller.activate(TARGET);
+    await controller.handleCommitsList({
+        requestId: 'req-1', memberId: 'member-1',
+        scope: 'since-start', offset: 0,
+    });
+    const response = posted.find(message =>
+        message.type === 'conversation-viewer-commits');
+    assert.ok(response, 'a commits response is posted');
+    assert.equal(response.requestId, 'req-1');
+    assert.equal(response.subscriptionGeneration, 7,
+        'the response is stamped with the current generation');
+    assert.equal(response.memberId, 'member-1');
+    assert.equal(response.commits[0].sha, sha);
+    assert.equal(response.sectionComplete, true);
+    assert.deepEqual(response.baselineRow,
+        { sha: BASELINE.commitSha, subject: 'base' });
+    assert.equal(listArgs[0].baselineSha, BASELINE.commitSha,
+        'an available member passes its frozen baseline to the collector');
+    assert.equal(listArgs[0].upstreamSha, undefined,
+        'a member without tracking collects no row badge set (§15.5.2)');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 commits list responds degraded for unreadable members and ignores unknown members', async () => {
+    const { posted, controller } = fixture();
+    await controller.activate(TARGET);
+    await controller.handleCommitsList({
+        requestId: 'req-x', memberId: 'nobody',
+        scope: 'since-start', offset: 0,
+    });
+    assert.ok(!posted.some(message =>
+        message.type === 'conversation-viewer-commits'),
+        'an unknown member id gets no response');
+
+    // Unreadable member: the collector fails (repo gone), so availability
+    // is unreadable and the response degrades without collector work.
+    const gone = fixture({
+        collector: new ChangesCollector({
+            execGit: async () => {
+                throw new Error('not a git repository');
+            },
+        }),
+    });
+    await gone.controller.activate(TARGET);
+    await gone.controller.handleCommitsList({
+        requestId: 'req-y', memberId: 'member-1',
+        scope: 'since-start', offset: 0,
+    });
+    const degraded = gone.posted.find(message =>
+        message.type === 'conversation-viewer-commits');
+    assert.equal(degraded.degraded, 'unreadable');
+    assert.equal(degraded.commits.length, 0);
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 commit detail and review resolve the authoritative member state', async () => {
+    const sha = 'c'.repeat(40);
+    const parent = 'b'.repeat(40);
+    const detail = {
+        files: [
+            { path: 'src/a.ts', status: 'M', additions: 3, deletions: 1 },
+            { path: 'src/new.ts', oldPath: 'src/old.ts', status: 'R' },
+        ],
+        totalFiles: 2,
+        filesTruncated: false,
+        parentSha: parent,
+    };
+    const reviewed = [];
+    const opened = [];
+    const { posted, controller } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => detail,
+            commitExists: async () => true,
+        },
+        openCommitReview: async (...args) => reviewed.push(args),
+        openCommitFileDiff: async (...args) => opened.push(args),
+    });
+    await controller.activate(TARGET);
+
+    await controller.handleCommitDetail({
+        requestId: 'req-2', memberId: 'member-1', sha,
+    });
+    const detailResponse = posted.find(message =>
+        message.type === 'conversation-viewer-commit-detail');
+    assert.equal(detailResponse.requestId, 'req-2');
+    assert.equal(detailResponse.sha, sha);
+    assert.equal(detailResponse.files.length, 2);
+    assert.equal(detailResponse.subscriptionGeneration, 7);
+
+    // Open-file resolves the file against the authoritative detail: a
+    // descriptor the commit does not contain is refused.
+    await controller.handleCommitOpenFile({
+        memberId: 'member-1', sha, path: 'src/evil.ts',
+    });
+    assert.equal(opened.length, 0);
+    await controller.handleCommitOpenFile({
+        memberId: 'member-1', sha, path: 'src/new.ts', oldPath: 'src/old.ts',
+    });
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0][0], WT_PATH);
+    assert.equal(opened[0][1], sha);
+    assert.equal(opened[0][2], parent,
+        'the diff opens parent ↔ commit (root commits pass undefined)');
+    assert.deepEqual(opened[0][3],
+        { path: 'src/new.ts', oldPath: 'src/old.ts' });
+
+    await controller.handleCommitReview({ memberId: 'member-1', sha });
+    assert.equal(reviewed.length, 1);
+    assert.equal(reviewed[0][2], parent);
+    assert.equal(reviewed[0][4].length, 2);
+    assert.equal(reviewed[0][5], 2,
+        'the review title stays honest about the file cap');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 a rewritten-away commit toasts and triggers a refresh push', async () => {
+    const sha = 'c'.repeat(40);
+    const toasts = [];
+    const { posted, controller, options } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+                degraded: 'unknown-commit',
+            }),
+            commitExists: async () => false,
+        },
+        openCommitFileDiff: async () => {
+            throw new Error('must not open');
+        },
+        openCommitReview: async () => {
+            throw new Error('must not open');
+        },
+        showToast: message => toasts.push(message),
+    });
+    await controller.activate(TARGET);
+    const before = posted.length;
+    await controller.handleCommitOpenFile({
+        memberId: 'member-1', sha, path: 'src/a.ts',
+    });
+    assert.deepEqual(toasts,
+        ['Commit no longer exists (history rewritten).']);
+    for (let attempt = 0; attempt < 100
+        && posted.length === before; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.ok(posted.length > before,
+        'a refresh push follows the toast (invalidation re-collects)');
+
+    await controller.handleCommitReview({ memberId: 'member-1', sha });
+    assert.equal(toasts.length, 2);
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 a vanished commit during detail load also toasts and refreshes', async () => {
+    const sha = 'c'.repeat(40);
+    const toasts = [];
+    const { posted, controller } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+                degraded: 'unknown-commit',
+            }),
+            commitExists: async () => false,
+        },
+        showToast: message => toasts.push(message),
+    });
+    await controller.activate(TARGET);
+    const before = posted.length;
+    await controller.handleCommitDetail({
+        requestId: 'req-9', memberId: 'member-1', sha,
+    });
+    assert.deepEqual(toasts,
+        ['Commit no longer exists (history rewritten).'],
+        'unknown-commit surfaces as a toast, not a silent retry loop');
+    const response = posted.find(message =>
+        message.type === 'conversation-viewer-commit-detail');
+    assert.equal(response.degraded, 'unknown-commit',
+        'the row still settles its pending state');
+    for (let attempt = 0; attempt < 100
+        && !posted.slice(before).some(message =>
+            message.type === 'conversation-viewer-changes'); attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.ok(posted.slice(before).some(message =>
+        message.type === 'conversation-viewer-changes'),
+        'a refresh push follows (invalidation re-collects)');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 diff and review open failures surface as host toasts', async () => {
+    const sha = 'c'.repeat(40);
+    const toasts = [];
+    const detail = {
+        files: [{ path: 'src/a.ts', status: 'M', additions: 1,
+            deletions: 0 }],
+        totalFiles: 1, filesTruncated: false, parentSha: 'b'.repeat(40),
+    };
+    const { controller } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => detail,
+            commitExists: async () => true,
+        },
+        openCommitFileDiff: async () => {
+            throw new Error('editor gone');
+        },
+        openCommitReview: async () => {
+            throw new Error('changes api gone');
+        },
+        showToast: message => toasts.push(message),
+    });
+    await controller.activate(TARGET);
+    await controller.handleCommitOpenFile({
+        memberId: 'member-1', sha, path: 'src/a.ts',
+    });
+    await controller.handleCommitReview({ memberId: 'member-1', sha });
+    assert.deepEqual(toasts, [
+        'Failed to open the file diff.',
+        'Failed to open the commit review.',
+    ], 'open failures toast instead of vanishing (PRD §14.3)');
+});
+
+test('WORKTREE-CHANGES-COMMITS-001 degraded detail lookups on open-file and review toast instead of vanishing', async () => {
+    const sha = 'c'.repeat(40);
+    const toasts = [];
+    const opened = [];
+    const reviewed = [];
+    const { controller } = fixture({
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: 'f'.repeat(40),
+            }),
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+                degraded: 'timeout',
+            }),
+            commitExists: async () => true,
+        },
+        openCommitFileDiff: async (...args) => opened.push(args),
+        openCommitReview: async (...args) => reviewed.push(args),
+        showToast: message => toasts.push(message),
+    });
+    await controller.activate(TARGET);
+    await controller.handleCommitOpenFile({
+        memberId: 'member-1', sha, path: 'src/a.ts',
+    });
+    await controller.handleCommitReview({ memberId: 'member-1', sha });
+    assert.deepEqual(toasts, [
+        'Failed to load the commit details.',
+        'Failed to load the commit details.',
+    ]);
+    assert.equal(opened.length, 0, 'no diff opens without the detail');
+    assert.equal(reviewed.length, 0);
 });

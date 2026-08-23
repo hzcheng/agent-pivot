@@ -3202,6 +3202,203 @@ body.vscode-high-contrast-light {
     min-width: 0;
 }
 
+.conversation-changes-subtab {
+    background: none;
+    border: none;
+    border-bottom: 1px solid transparent;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-size: 0.82em;
+    padding: 0.1rem 0.35rem;
+
+    &[aria-selected="true"] {
+        border-bottom-color: var(--vscode-focusBorder);
+        color: var(--vscode-foreground);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+}
+
+// Commits sub-tab (PRD §15.5).
+.conversation-changes-files-view,
+.conversation-changes-commits-view {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+
+    &[hidden] {
+        display: none;
+    }
+}
+
+.conversation-changes-commits-header {
+    margin-bottom: 0.15rem;
+}
+
+.conversation-changes-commits-notice {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8em;
+    margin: 0.15rem 0;
+}
+
+.conversation-changes-commits-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.conversation-changes-commit-row {
+    border-radius: 2px;
+    cursor: pointer;
+    padding: 0.1rem 0.15rem;
+
+    &:hover {
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+}
+
+.conversation-changes-commit-line {
+    align-items: baseline;
+    display: flex;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.conversation-changes-commit-chevron {
+    flex: none;
+    font-size: 0.8em;
+}
+
+.conversation-changes-commit-badge {
+    flex: none;
+    font-size: 0.75em;
+}
+
+.conversation-changes-commit-badge-out {
+    color: var(--vscode-charts-orange);
+}
+
+.conversation-changes-commit-badge-in {
+    color: var(--vscode-charts-green);
+}
+
+.conversation-changes-commit-sha {
+    color: var(--vscode-descriptionForeground);
+    flex: none;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.8em;
+}
+
+.conversation-changes-commit-subject {
+    flex: 1;
+    font-size: 0.85em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-commit-meta {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.75em;
+    padding-left: 1.35rem;
+}
+
+.conversation-changes-commit-file-row {
+    align-items: baseline;
+    border-radius: 2px;
+    cursor: pointer;
+    display: flex;
+    gap: 0.35rem;
+    min-width: 0;
+    padding: 0.05rem 0.15rem 0.05rem 1.35rem;
+
+    &:hover {
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+}
+
+.conversation-changes-commit-file-name {
+    flex: 1;
+    font-size: 0.82em;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-commit-numstat {
+    color: var(--vscode-descriptionForeground);
+    flex: none;
+    font-size: 0.75em;
+}
+
+.conversation-changes-commit-inline-note {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.78em;
+    margin: 0.05rem 0 0.05rem 1.35rem;
+}
+
+.conversation-changes-commit-baseline {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.8em;
+    overflow: hidden;
+    padding: 0.1rem 0.15rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-changes-commit-earlier-header {
+    border-top: 1px solid var(--vscode-panel-border, transparent);
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.78em;
+    margin-top: 0.2rem;
+    padding: 0.2rem 0.15rem 0.05rem;
+}
+
+.conversation-changes-commit-review-row {
+    border-radius: 2px;
+    padding-left: 1.35rem;
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+}
+
+.conversation-changes-commits-loading {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.85em;
+    margin: 0.3rem 0;
+}
+
+.conversation-changes-commits-error {
+    align-items: baseline;
+    color: var(--vscode-errorForeground);
+    display: flex;
+    font-size: 0.82em;
+    gap: 0.4rem;
+    margin: 0.2rem 0;
+
+    &[hidden] {
+        display: none;
+    }
+}
+
 .conversation-changes-fold {
     display: flex;
     flex: none;

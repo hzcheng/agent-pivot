@@ -26,6 +26,7 @@
             commentsPanelOpen: false,
             commentsPanelWidth: 240,
             sidebarView: 'outline',
+            changesSubTab: 'files',
             widthUserResized: false,
             changesWidthRecommendationApplied: false,
             restoredRecommendationPersistPending: false,
@@ -77,6 +78,11 @@
                     next.conversationSidebar
                         .changesWidthRecommendationApplied =
                         state.changesWidthRecommendationApplied;
+                }
+                if (state.changesSubTab === 'files'
+                    || state.changesSubTab === 'commits') {
+                    next.conversationSidebar.changesSubTab =
+                        state.changesSubTab;
                 }
                 delete next.conversationCommentsPanel;
                 vscodeApi.setState(next);
@@ -195,6 +201,12 @@
             if (persist) saveCommentsPanelState();
         }
 
+        function setChangesSubTab(subTab, persist) {
+            if (subTab !== 'files' && subTab !== 'commits') return;
+            state.changesSubTab = subTab;
+            if (persist) saveCommentsPanelState();
+        }
+
         function attach() {
             if (!sidebarUiAvailable) return;
             sidebarToggle.addEventListener('click', function () {
@@ -287,6 +299,10 @@
                 || savedCommentsPanel.view === 'changes') {
                 state.sidebarView = savedCommentsPanel.view;
             }
+            if (savedCommentsPanel.changesSubTab === 'files'
+                || savedCommentsPanel.changesSubTab === 'commits') {
+                state.changesSubTab = savedCommentsPanel.changesSubTab;
+            }
             if (state.commentsPanelOpen && state.sidebarView === 'changes'
                 && state.widthUserResized === false
                 && state.changesWidthRecommendationApplied === false) {
@@ -308,6 +324,8 @@
             setView: setSidebarView,
             isPanelOpen: function () { return state.commentsPanelOpen; },
             getView: function () { return state.sidebarView; },
+            getChangesSubTab: function () { return state.changesSubTab; },
+            setChangesSubTab: setChangesSubTab,
             updateToggle: updateCommentsToggle,
         });
     }

@@ -189,6 +189,43 @@
         '[data-changes-unavailable]'
     );
     var changesOpenScm = document.querySelector('[data-changes-open-scm]');
+    var changesSubtabs = document.querySelector('[data-changes-subtabs]');
+    var changesFilesView = document.querySelector(
+        '[data-changes-files-view]'
+    );
+    var changesCommitsView = document.querySelector(
+        '[data-changes-commits-view]'
+    );
+    var changesCommitsSummary = document.querySelector(
+        '[data-changes-commits-summary]'
+    );
+    var changesCommitsTracking = document.querySelector(
+        '[data-changes-commits-tracking]'
+    );
+    var changesCommitsNotice = document.querySelector(
+        '[data-changes-commits-notice]'
+    );
+    var changesCommitsList = document.querySelector(
+        '[data-changes-commits-list]'
+    );
+    var changesCommitsEmpty = document.querySelector(
+        '[data-changes-commits-empty]'
+    );
+    var changesCommitsLoading = document.querySelector(
+        '[data-changes-commits-loading]'
+    );
+    var changesCommitsError = document.querySelector(
+        '[data-changes-commits-error]'
+    );
+    var changesCommitsRetry = document.querySelector(
+        '[data-changes-commits-retry]'
+    );
+    var changesCommitsMore = document.querySelector(
+        '[data-changes-commits-more]'
+    );
+    var changesCommitsFull = document.querySelector(
+        '[data-changes-commits-full]'
+    );
     var closeSubagent = document.querySelector(
         '[data-action="close-subagent"]'
     );
@@ -309,6 +346,12 @@
         && !!changesUnavailable && !!changesOpenScm && !!changesCrossMember
         && !!changesCrossMemberSummary && !!changesCrossMemberGo
         && !!telemetryChanges
+        && !!changesSubtabs && !!changesFilesView && !!changesCommitsView
+        && !!changesCommitsSummary && !!changesCommitsTracking
+        && !!changesCommitsNotice && !!changesCommitsList
+        && !!changesCommitsEmpty && !!changesCommitsLoading
+        && !!changesCommitsError && !!changesCommitsRetry
+        && !!changesCommitsMore && !!changesCommitsFull
         && !!window.__agentPivotConversation.changes
         && validCommentTarget(commentTarget);
     var bookmarkUiAvailable = sidebarUiAvailable
@@ -478,6 +521,21 @@
             emptyRoot: changesEmpty,
             unavailableRoot: changesUnavailable,
             openScmButton: changesOpenScm,
+            subtabs: changesSubtabs,
+            filesView: changesFilesView,
+            commitsView: changesCommitsView,
+            commitsSummary: changesCommitsSummary,
+            commitsTracking: changesCommitsTracking,
+            commitsNotice: changesCommitsNotice,
+            commitsList: changesCommitsList,
+            commitsEmpty: changesCommitsEmpty,
+            commitsLoading: changesCommitsLoading,
+            commitsError: changesCommitsError,
+            commitsRetry: changesCommitsRetry,
+            commitsMore: changesCommitsMore,
+            commitsFull: changesCommitsFull,
+            getChangesSubTab: sidebarController.getChangesSubTab,
+            setChangesSubTab: sidebarController.setChangesSubTab,
             updateToggle: sidebarController.updateToggle,
             subscriptionGeneration: state.subscriptionGeneration,
         })
@@ -2126,6 +2184,9 @@
                 subagentsRunningOnly.checked =
                     savedCommentsPanel.subagentsRunningOnly === true;
             }
+        }
+        if (changesController) {
+            changesController.restoreSubTab();
         }
         sidebarController.applyLayout();
         outlineController.filter();

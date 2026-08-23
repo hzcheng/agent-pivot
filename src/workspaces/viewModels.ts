@@ -30,6 +30,8 @@ export interface BuildWorkspaceAiSessionViewModelInput {
     expanded?: boolean;
     /** The Codex profile a picker-free quick-create would launch with, when any. */
     quickCreateProfile?: string;
+    /** Named Codex profiles available for one-click creation. */
+    codexProfiles?: readonly string[];
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
     /** M2 window-scoped view state (CHATS/ALL tab, view mode, collapsed groups). */
@@ -123,6 +125,7 @@ export function buildWorkspaceAiSessionViewModel(
         } : {}),
         truncatedWorktreeCount: input.worktreeSnapshot?.truncatedWorktreeCount || 0,
         ...(input.quickCreateProfile ? { quickCreateProfile: input.quickCreateProfile } : {}),
+        ...(input.codexProfiles?.length ? { codexProfiles: input.codexProfiles.slice() } : {}),
         ...(input.quickCreateProvider ? { quickCreateProvider: input.quickCreateProvider } : {}),
     };
 }

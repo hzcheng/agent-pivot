@@ -521,10 +521,13 @@ test('AI-SESSION-QUICK-CREATE-001 a quick-create in flight rejects concurrent at
     });
 
     const first = fixture.controller.createSessionQuick('p', 'codex');
+    assert.equal(fixture.controller.isCreatingSession(), true,
+        'the host can acknowledge a rapid follow-up instead of silently dropping it');
     assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), false,
         'a concurrent quick-create must not start a second runtime');
     release();
     assert.equal(await first, true);
+    assert.equal(fixture.controller.isCreatingSession(), false);
     assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true,
         'the creating guard releases once the first attempt settles');
 });

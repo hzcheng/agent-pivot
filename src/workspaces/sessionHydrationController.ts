@@ -125,6 +125,8 @@ export interface WorkspaceSessionHydrationControllerOptions<TTerminal = unknown>
     getProfileAvailability?: () => Readonly<Record<string, boolean>>;
     /** The Codex profile a picker-free quick-create would launch with, when any. */
     getQuickCreateProfile?: () => string | undefined;
+    /** Named Codex profiles available for one-click creation. */
+    getCodexProfiles?: () => readonly string[];
     /** The provider quick-create remembers for a workspace, when any. */
     getQuickCreateProvider?: (
         workspaceScopeIdentity: string
@@ -223,6 +225,7 @@ export class WorkspaceSessionHydrationController<TTerminal = unknown> {
             pendingProfiles: this.options.getPendingProfiles?.() || {},
             profileAvailability: this.options.getProfileAvailability?.() || {},
             quickCreateProfile: this.options.getQuickCreateProfile?.(),
+            codexProfiles: this.options.getCodexProfiles?.(),
             quickCreateProvider: this.options.getQuickCreateProvider?.(workspace.scopeIdentity),
             activeRuntimes: projection.activeRuntimes,
             pendingRuntimes: projection.pendingRuntimes,

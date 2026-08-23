@@ -49,7 +49,7 @@ function hydrate(overrides = {}) {
 }
 
 test('SESSION-CODEX-PROFILE-BADGE-001 history sessions carry profile metadata', () => {
-    const result = hydrate();
+    const result = hydrate({ codexProfiles: ['deepseek', 'research'] });
     const byId = new Map(result.sessionsByProvider.codex.map(session => [session.id, session]));
     assert.deepEqual(
         { profile: byId.get('s-profile').profile, unavailable: byId.get('s-profile').profileUnavailable },
@@ -61,6 +61,8 @@ test('SESSION-CODEX-PROFILE-BADGE-001 history sessions carry profile metadata', 
         { profile: 'deleted-profile', unavailable: true },
         'a deleted profile file is flagged unavailable'
     );
+    assert.deepEqual(result.codexProfiles, ['deepseek', 'research'],
+        'the creation surface receives the host-discovered profile presets');
 });
 
 test('SESSION-CODEX-PROFILE-BADGE-001 active and pending runtimes carry profile metadata', () => {

@@ -95,6 +95,8 @@ export interface HydrateWorkspaceAiSessionsInput<TTerminal = unknown> {
     profileAvailability?: Readonly<Record<string, boolean>>;
     /** The Codex profile a picker-free quick-create would launch with, when any. */
     quickCreateProfile?: string;
+    /** Named Codex profiles available for one-click creation. */
+    codexProfiles?: readonly string[];
     /** The provider quick-create remembers for this workspace, when any. */
     quickCreateProvider?: AiSessionProviderId;
     activeRuntimes?: readonly AiSessionRuntimeSnapshot<TTerminal>[];
@@ -244,6 +246,7 @@ export function hydrateWorkspaceAiSessions<TTerminal = unknown>(
         windowViewState: input.windowViewState,
         expanded: input.expanded,
         quickCreateProfile: input.quickCreateProfile,
+        codexProfiles: input.codexProfiles,
         quickCreateProvider: input.quickCreateProvider,
         worktreeSnapshot: input.worktreeSnapshot,
         provisioningWorktrees: input.provisioningWorktrees,

@@ -1628,6 +1628,27 @@ body .project {
     }
 }
 
+// Row-level chat launchers keep their fixed hit targets at narrow sidebar
+// widths. Secondary worktree metadata yields first so it cannot overlap the
+// + / preset / actions controls.
+@media (max-width: 220px) {
+    .ai-session-worktree-title {
+        min-width: 0;
+    }
+
+    .ai-session-worktree-health,
+    .ai-session-worktree-head {
+        display: none;
+    }
+
+    .ai-session-worktree-launch-actions button,
+    .ai-session-worktree-more {
+        width: 22px;
+        min-width: 22px;
+        flex-basis: 22px;
+    }
+}
+
 @media (max-width: 460px) {
     .dashboard-tab-button {
         gap: 0;
@@ -2943,10 +2964,17 @@ body.steward-sidebar {
         }
 
         .ai-session-worktree-group {
+            box-sizing: border-box;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 7px;
             background: var(--vscode-sideBar-background);
             overflow: hidden;
+        }
+
+        // Tree rows always fill the same list column. List-view launcher
+        // targets share the base class but intentionally remain compact.
+        .ai-session-worktree-list > .ai-session-worktree-group {
+            width: 100%;
         }
 
         .ai-session-worktree-header {
@@ -2973,6 +3001,7 @@ body.steward-sidebar {
         .ai-session-worktree-toolbar {
             display: flex;
             align-items: stretch;
+            width: 100%;
         }
 
         // `hidden` must beat the flex display while the rename editor owns
@@ -2987,6 +3016,49 @@ body.steward-sidebar {
             flex: 1 1 auto;
         }
 
+        .ai-session-worktree-launch-actions {
+            display: inline-flex;
+            flex: 0 0 auto;
+            align-items: stretch;
+            gap: 2px;
+            padding: 3px 0 3px 3px;
+
+            button {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                align-self: stretch;
+                box-sizing: border-box;
+                width: 24px;
+                min-width: 24px;
+                padding: 0;
+                border: 0;
+                border-radius: 4px;
+                color: var(--vscode-foreground);
+                background: transparent;
+                cursor: pointer;
+
+                svg {
+                    display: block;
+                    width: 13px;
+                    height: 13px;
+                    fill: currentColor;
+                }
+
+                &:hover,
+                &:focus-visible,
+                &[aria-expanded="true"] {
+                    color: var(--steward-foreground);
+                    background: var(--vscode-list-hoverBackground);
+                }
+
+                &:disabled {
+                    opacity: .4;
+                    cursor: default;
+                }
+            }
+        }
+
         .ai-session-worktree-more {
             display: inline-flex;
             flex: 0 0 24px;
@@ -2995,9 +3067,10 @@ body.steward-sidebar {
             align-self: stretch;
             box-sizing: border-box;
             min-width: 24px;
+            margin: 3px 3px 3px 2px;
             border: 0;
-            border-left: 1px solid var(--vscode-panel-border);
-            color: var(--vscode-descriptionForeground);
+            border-radius: 4px;
+            color: var(--vscode-foreground);
             background: transparent;
             cursor: pointer;
 
@@ -3016,6 +3089,38 @@ body.steward-sidebar {
             &:disabled {
                 opacity: .55;
                 cursor: progress;
+            }
+        }
+
+        .ai-session-list-launch-rail {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin: 0 0 7px;
+        }
+
+        .ai-session-list-launch-target {
+            display: inline-flex;
+            align-items: stretch;
+            min-width: 0;
+            max-width: 100%;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            background: var(--vscode-sideBar-background);
+
+            .ai-session-list-launch-title {
+                overflow: hidden;
+                min-width: 0;
+                max-width: 150px;
+                padding: 4px 6px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 10px;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .ai-session-worktree-launch-actions button {
+                min-height: 22px;
             }
         }
 
@@ -3866,28 +3971,6 @@ body.steward-sidebar {
 
         .ai-session-legacy-scope {
             color: var(--vscode-editorWarning-foreground);
-        }
-
-        .ai-session-worktree-quick-create {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 18px;
-            height: 18px;
-            padding: 0;
-            border: none;
-            background: transparent;
-            color: var(--vscode-descriptionForeground);
-            cursor: pointer;
-
-            &:hover {
-                color: var(--vscode-foreground);
-            }
-
-            svg {
-                width: 12px;
-                height: 12px;
-            }
         }
 
         .ai-session-tab-count {

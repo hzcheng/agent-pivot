@@ -44,6 +44,8 @@ export function resolveAiSessionWorktreeCreationTarget(options: {
     snapshot?: WorktreeSnapshot | null;
     activeEditorPath?: string | null;
     explicitKey?: WorktreeKey;
+    /** Limit a Current-row launch to main checkout worktrees. */
+    mainCheckoutOnly?: boolean;
 }): AiSessionWorktreeCreationResolution {
     if (!options.snapshot) {
         return { status: 'blocked', reason: 'snapshot-unavailable' };
@@ -59,7 +61,8 @@ export function resolveAiSessionWorktreeCreationTarget(options: {
         repository.worktrees.forEach(worktree => candidates.push({ repository, worktree }));
         return candidates;
     }, [] as WorkspaceWorktreeCandidate[]);
-    const usable = all.filter(candidate => isLaunchableWorktree(candidate.worktree));
+    const usable = all.filter(candidate => isLaunchableWorktree(candidate.worktree)
+        && (!options.mainCheckoutOnly || candidate.worktree.isMain));
 
     if (options.explicitKey) {
         const selected = usable.find(candidate =>
@@ -75,7 +78,9 @@ export function resolveAiSessionWorktreeCreationTarget(options: {
             options.workspace,
             options.snapshot,
         );
-        if (active && isLaunchableWorktree(active.worktree)) {
+        if (active
+            && isLaunchableWorktree(active.worktree)
+            && (!options.mainCheckoutOnly || active.worktree.isMain)) {
             return { status: 'selected', key: { ...active.worktree.key } };
         }
     }

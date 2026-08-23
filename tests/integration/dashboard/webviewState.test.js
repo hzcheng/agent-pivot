@@ -729,14 +729,18 @@ test('WORKTREE-GROUPING-UI-001 renders Worktree and Chats with worktree status r
     assert.match(treePanel, /data-action="ai-session-worktree-menu"/,
         'each worktree row exposes one unified actions menu');
     assert.doesNotMatch(treePanel, /ai-session-create-split-button/,
-        'the global session create cluster stays in the toolbar, not the tree');
+        'the retired global session create cluster is gone');
+    assert.match(treePanel, /data-action="create-ai-session-quick"/,
+        'each worktree create target exposes a quick-create action');
+    assert.match(treePanel, /data-action="open-ai-session-preset-menu"/,
+        'each worktree create target exposes a preset-menu action');
     assert.doesNotMatch(html, /ai-session-module-header/,
         'the retired module header must not render');
     const toolbar = html.match(/ai-session-chats-toolbar[\s\S]*?ai-session-tab-panel/)[0];
     assert.ok(toolbar.indexOf('data-ai-session-tab="chats"') >= 0
         && toolbar.indexOf('data-ai-session-tab="all"') >= 0
-        && toolbar.indexOf('data-action="create-ai-session-quick"') >= 0,
-        'the CHATS/ALL tabs and the create actions share one toolbar row');
+        && toolbar.indexOf('data-action="create-ai-session-quick"') === -1,
+        'the CHATS/ALL toolbar contains tabs only');
     assert.match(toolbar, /data-action="toggle-chats-view-menu"/,
         'the CHATS tab pair carries the view-menu trigger');
 });
@@ -862,7 +866,7 @@ test('WORKTREE-GROUPING-UI-001 renders a persisted recency-sorted CHATS list wit
     assert.match(html, /aria-checked="true"[^>]*data-view-mode="list"/);
 });
 
-test('WORKTREE-GROUPING-UI-001 keeps CHATS available when no worktrees exist', () => {
+test('WORKTREE-GROUPING-UI-001 keeps Current as the create target when no worktrees exist', () => {
     const html = webviewModules.content.getAiSessionsDiv({
         id: 'flat-default',
         activeAiSessionProvider: 'codex',
@@ -873,9 +877,11 @@ test('WORKTREE-GROUPING-UI-001 keeps CHATS available when no worktrees exist', (
     assert.match(html, /data-selected-ai-session-tab="chats"/);
     assert.match(html, /data-ai-session-panel="chats"/);
     assert.match(html, /data-ai-session-panel="all"/);
-    // CHATS 空态：无 worktree 且无 active session 时给新建入口与 ALL 出口。
-    assert.match(html, /No active sessions/);
-    assert.match(html, /data-action="create-ai-session"/);
+    // Current remains available as the inline creation target even in an
+    // otherwise empty non-Git workspace.
+    assert.match(html, /ai-session-worktree-anchor/);
+    assert.match(html, /data-action="create-ai-session-quick"/);
+    assert.match(html, /data-action="open-ai-session-preset-menu"/);
     assert.match(html, /data-action="select-ai-session-tab" data-tab="all"/);
     assert.doesNotMatch(html, /data-ai-session-grouping-select/);
 });

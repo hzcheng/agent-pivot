@@ -3728,7 +3728,7 @@
   {
     "id": "WORKTREE-GROUPS-UI-001",
     "domain": "webview",
-    "title": "The Worktree surface unifies row behavior: every row carries the same actions menu (no standalone +, merge, or surface-level New-worktree button), the Current anchor menu offers session creation and new-worktree creation but never removal, eligible group menus offer merge, group rows show chips and legacy-scope badges, and the surface stays usable at the minimum sidebar width",
+    "title": "The Worktree surface unifies row behavior: every row carries the same actions menu (no standalone +, merge, or surface-level New-worktree button), the Current anchor menu offers session creation and new-worktree creation but never removal, eligible group menus offer merge, group repository names live in the header tooltip alongside legacy-scope badges, and the surface stays usable at the minimum sidebar width",
     "priority": "P0",
     "status": "automated",
     "owners": [

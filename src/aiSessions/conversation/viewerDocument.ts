@@ -585,33 +585,6 @@ export function renderConversationViewerDocument(
                                     data-changes-branch-prefix></span><span
                                     class="conversation-changes-branch-tail"
                                     data-changes-branch-tail></span></span></span>
-                        <button type="button"
-                            class="conversation-icon-button"
-                            data-changes-refresh
-                            data-tooltip="Refresh"
-                            aria-label="Refresh"
-                            ><svg viewBox="0 0 16 16" width="13" height="13"
-                                aria-hidden="true" fill="none"
-                                stroke="currentColor" stroke-width="1.3"
-                                stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.7"/>
-                                <path d="M13.6 2.1v2.6h-2.6"/></svg>
-                        </button>
-                        <button type="button"
-                            class="conversation-icon-button"
-                            data-changes-open-scm
-                            data-tooltip="Open in Source Control"
-                            aria-label="Open in Source Control"
-                            ><svg viewBox="0 0 16 16" width="13" height="13"
-                                aria-hidden="true" fill="none"
-                                stroke="currentColor" stroke-width="1.3"
-                                stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="4" cy="3.3" r="1.4"/>
-                                <circle cx="4" cy="12.7" r="1.4"/>
-                                <circle cx="10" cy="5" r="1.4"/>
-                                <path d="M4 4.7v6.6"/>
-                                <path d="M4 10.3c0-2.1 1.9-3.5 4.5-3.9"/></svg>
-                        </button>
                     </div>
                     <span class="conversation-changes-live" data-changes-live
                         aria-live="polite"></span>
@@ -645,27 +618,48 @@ export function renderConversationViewerDocument(
                     <div class="conversation-changes-fold">
                         <button type="button"
                             class="conversation-icon-button"
-                            data-changes-collapse-all
+                            data-changes-fold-toggle
                             data-tooltip="Collapse all"
                             aria-label="Collapse all"
                             disabled><svg viewBox="0 0 16 16" width="13" height="13"
                                 aria-hidden="true" fill="none"
                                 stroke="currentColor" stroke-width="1.3"
                                 stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M2.5 3h11"/>
-                                <path d="M5 12.5 8 9.5l3 3"/></svg>
+                                <path data-fold-icon="collapse"
+                                    d="M2.5 3h11"/>
+                                <path data-fold-icon="collapse"
+                                    d="M5 12.5 8 9.5l3 3"/>
+                                <path data-fold-icon="expand"
+                                    d="M5 6.5 8 9.5l3-3" style="display:none"/>
+                                <path data-fold-icon="expand"
+                                    d="M2.5 13h11" style="display:none"/></svg>
                         </button>
                         <button type="button"
                             class="conversation-icon-button"
-                            data-changes-expand-all
-                            data-tooltip="Expand all"
-                            aria-label="Expand all"
-                            disabled><svg viewBox="0 0 16 16" width="13" height="13"
+                            data-changes-refresh
+                            data-tooltip="Refresh"
+                            aria-label="Refresh"
+                            ><svg viewBox="0 0 16 16" width="13" height="13"
                                 aria-hidden="true" fill="none"
                                 stroke="currentColor" stroke-width="1.3"
                                 stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M5 6.5 8 9.5l3-3"/>
-                                <path d="M2.5 13h11"/></svg>
+                                <path d="M13.4 8a5.4 5.4 0 1 1-1.5-3.7"/>
+                                <path d="M13.6 2.1v2.6h-2.6"/></svg>
+                        </button>
+                        <button type="button"
+                            class="conversation-icon-button"
+                            data-changes-open-scm
+                            data-tooltip="Open in Source Control"
+                            aria-label="Open in Source Control"
+                            ><svg viewBox="0 0 16 16" width="13" height="13"
+                                aria-hidden="true" fill="none"
+                                stroke="currentColor" stroke-width="1.3"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="4" cy="3.3" r="1.4"/>
+                                <circle cx="4" cy="12.7" r="1.4"/>
+                                <circle cx="10" cy="5" r="1.4"/>
+                                <path d="M4 4.7v6.6"/>
+                                <path d="M4 10.3c0-2.1 1.9-3.5 4.5-3.9"/></svg>
                         </button>
                     </div>
                 </div>

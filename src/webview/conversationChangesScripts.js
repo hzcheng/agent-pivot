@@ -178,8 +178,7 @@
         var taskSummary = options.taskSummary;
         var taskTracking = options.taskTracking;
         var reviewButton = options.reviewButton;
-        var collapseAllButton = options.collapseAllButton;
-        var expandAllButton = options.expandAllButton;
+        var foldToggleButton = options.foldToggle;
         var groupsRoot = options.groupsRoot;
         var emptyRoot = options.emptyRoot;
         var unavailableRoot = options.unavailableRoot;
@@ -1277,19 +1276,48 @@
                 });
             });
             renderGroups(detail);
+            updateFoldActions();
         }
 
         // The fold actions die when there is nothing to fold (PRD §15.3:
         // the no-changes empty state disables both buttons).
+        // Live fold state comes from the DOM (aria-expanded), never from
+        // render-time captures — refresh and member switches re-render.
+        function foldRows() {
+            if (!groupsRoot) return [];
+            return Array.prototype.slice.call(groupsRoot.querySelectorAll(
+                '.conversation-changes-group-header, '
+                    + '.conversation-changes-folder'));
+        }
+
+        function allCollapsedNow() {
+            var rows = foldRows();
+            return rows.length > 0 && rows.every(function (row) {
+                return row.getAttribute('aria-expanded') === 'false';
+            });
+        }
+
+        // One toggle: anything expanded ⇒ Collapse all; fully collapsed ⇒
+        // Expand all. Always visible; inert in the Commits tab.
         function updateFoldActions() {
+            if (!foldToggleButton) {
+                return;
+            }
             var empty = !latestState || !latestState.detail
                 || latestState.detail.items.length === 0;
-            if (collapseAllButton) {
-                collapseAllButton.disabled = empty;
-            }
-            if (expandAllButton) {
-                expandAllButton.disabled = empty;
-            }
+            foldToggleButton.disabled = empty
+                || activeSubTab === 'commits';
+            var expand = !empty && allCollapsedNow();
+            var label = expand ? 'Expand all' : 'Collapse all';
+            foldToggleButton.setAttribute('aria-label', label);
+            foldToggleButton.setAttribute('data-tooltip', label);
+            Array.prototype.forEach.call(
+                foldToggleButton.querySelectorAll('[data-fold-icon]'),
+                function (icon) {
+                    var show = icon.getAttribute('data-fold-icon')
+                        === (expand ? 'expand' : 'collapse');
+                    icon.style.display = show ? '' : 'none';
+                });
         }
 
         function renderPanel(state) {
@@ -1405,8 +1433,8 @@
                 pendingMemberId = null;
             }
             renderButton(latestState);
-            updateFoldActions();
             renderPanel(latestState);
+            updateFoldActions();
             return true;
         }
 
@@ -2267,14 +2295,9 @@
                         tab.tabIndex = selected ? 0 : -1;
                     });
             }
-            // Commits view keeps the action slot's width but hides the
-            // fold buttons' content (PRD §15.3/§15.4).
-            [collapseAllButton, expandAllButton].forEach(function (button) {
-                if (button) {
-                    button.style.visibility = commitsActive
-                        ? 'hidden' : '';
-                }
-            });
+            // The fold toggle stays visible in the Commits tab but is
+            // inert there (PRD §15.3/§15.4); refresh and SCM keep working.
+            updateFoldActions();
         }
 
         function setActiveSubTab(tab, focusTab) {
@@ -2439,14 +2462,9 @@
                     }
                 });
             }
-            if (collapseAllButton) {
-                collapseAllButton.addEventListener('click', function () {
-                    setAllCollapsed(true);
-                });
-            }
-            if (expandAllButton) {
-                expandAllButton.addEventListener('click', function () {
-                    setAllCollapsed(false);
+            if (foldToggleButton) {
+                foldToggleButton.addEventListener('click', function () {
+                    setAllCollapsed(!allCollapsedNow());
                 });
             }
             if (groupsRoot) {

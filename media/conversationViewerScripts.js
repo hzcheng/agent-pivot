@@ -177,11 +177,8 @@
         '[data-changes-task-tracking]'
     );
     var changesReview = document.querySelector('[data-changes-review]');
-    var changesCollapseAll = document.querySelector(
-        '[data-changes-collapse-all]'
-    );
-    var changesExpandAll = document.querySelector(
-        '[data-changes-expand-all]'
+    var changesFoldToggle = document.querySelector(
+        '[data-changes-fold-toggle]'
     );
     var changesGroups = document.querySelector('[data-changes-groups]');
     var changesEmpty = document.querySelector('[data-changes-empty]');
@@ -341,7 +338,7 @@
         && !!changesBranchPrefix && !!changesBranchTail && !!changesLive
         && !!changesTask && !!changesTaskSummary && !!changesTaskTracking
         && !!changesReview
-        && !!changesCollapseAll && !!changesExpandAll
+        && !!changesFoldToggle
         && !!changesGroups && !!changesEmpty
         && !!changesUnavailable && !!changesOpenScm && !!changesCrossMember
         && !!changesCrossMemberSummary && !!changesCrossMemberGo
@@ -515,8 +512,7 @@
             taskSummary: changesTaskSummary,
             taskTracking: changesTaskTracking,
             reviewButton: changesReview,
-            collapseAllButton: changesCollapseAll,
-            expandAllButton: changesExpandAll,
+            foldToggle: changesFoldToggle,
             groupsRoot: changesGroups,
             emptyRoot: changesEmpty,
             unavailableRoot: changesUnavailable,

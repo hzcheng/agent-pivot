@@ -484,10 +484,20 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
     const layout = await page.evaluate(() => {
         const anchor = document.querySelector('.ai-session-worktree-anchor');
         const group = document.querySelector('.ai-session-worktree-task-group');
-        const actions = Array.from(document.querySelectorAll(
-            '.ai-session-worktree-toolbar [data-action="create-ai-session-quick"], '
-            + '.ai-session-worktree-toolbar [data-action="open-ai-session-preset-menu"], '
-            + '.ai-session-worktree-toolbar .ai-session-worktree-more'));
+        const actionStyles = Array.from(document.querySelectorAll('.ai-session-worktree-toolbar'))
+            .map(toolbar => Array.from(toolbar.querySelectorAll(
+                '[data-action="create-ai-session-quick"], '
+                + '[data-action="open-ai-session-preset-menu"], .ai-session-worktree-more'))
+                .map(action => {
+                    const style = getComputedStyle(action);
+                    const box = action.getBoundingClientRect();
+                    return {
+                        borderLeftWidth: style.borderLeftWidth,
+                        color: style.color,
+                        height: box.height,
+                        centerY: box.top + box.height / 2,
+                    };
+                }));
         const quickSvg = anchor.querySelector('[data-action="create-ai-session-quick"] svg');
         const quickButton = quickSvg.closest('button');
         const svgBox = quickSvg.getBoundingClientRect();
@@ -499,10 +509,7 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
             groupWidth: group.getBoundingClientRect().width,
             quickCenterOffset: Math.abs((svgBox.left + svgBox.width / 2)
                 - (buttonBox.left + buttonBox.width / 2)),
-            actionStyles: actions.map(action => {
-                const style = getComputedStyle(action);
-                return { borderLeftWidth: style.borderLeftWidth, color: style.color };
-            }),
+            actionStyles,
         };
     });
     assert.ok(layout.documentWidth <= layout.viewportWidth + 1,
@@ -511,10 +518,15 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
         `tree rows share one width (${layout.anchorWidth}px vs ${layout.groupWidth}px)`);
     assert.ok(layout.quickCenterOffset <= 0.5,
         `the quick-create icon is centered (${layout.quickCenterOffset}px offset)`);
-    assert.ok(layout.actionStyles.every(action => action.borderLeftWidth === '0px'),
+    assert.ok(layout.actionStyles.flat().every(action => action.borderLeftWidth === '0px'),
         'row actions have no vertical separators');
-    assert.ok(layout.actionStyles.every(action => action.color === 'rgb(221, 221, 221)'),
+    assert.ok(layout.actionStyles.flat().every(action => action.color === 'rgb(221, 221, 221)'),
         'row action icons inherit the normal foreground color');
+    assert.ok(layout.actionStyles.flat().every(action => action.height === 24),
+        'quick-create, preset, and more actions share the same 24px hit area');
+    assert.ok(layout.actionStyles.every(actions => actions.every(action =>
+        Math.abs(action.centerY - actions[0].centerY) <= 0.5)),
+    'all row actions share one vertical centerline');
 });
 
 test('WORKTREE-GROUPS-RENAME-001 expanded member details stay contained at 170px', async t => {

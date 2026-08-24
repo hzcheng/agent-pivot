@@ -3059,6 +3059,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds a stalled reused-panel
         event.reason === 'publication-ack-timeout'
     ), true);
 
+    // A late request-sync reports the same failed page and shares the
+    // watchdog's single recovery allowance.
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: stalled.subscriptionGeneration,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    });
+    assert.equal(htmlWrites, 1,
+        'watchdog and request-sync cannot rebuild one publication twice');
+
     // A persistent broken Webview gets only one fallback per publication.
     const retry = Array.from(timers.values()).find(timer =>
         timer.delayMs === 4_000

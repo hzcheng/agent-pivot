@@ -357,7 +357,7 @@ export class ConversationViewer implements ConversationViewerApi {
     };
     private publicationAckTimer?: unknown;
     private publicationAckTimerToken = 0;
-    private publicationAckRebuildRequestId = 0;
+    private publicationRecoveryRebuildRequestId = 0;
     // Advanced only by the Webview's correlated applied acknowledgement —
     // never by postMessage resolving, which proves queueing, not application.
     private appliedContentSignature?: string;
@@ -366,7 +366,6 @@ export class ConversationViewer implements ConversationViewerApi {
     // offered only for entries on this authoritative list — an applied ack
     // alone never implies the frame is still cached.
     private readonly webviewFrames = new Map<string, string>();
-    private syncRebuildRequestId = 0;
     private suspended = false;
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
@@ -925,7 +924,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.appliedContentSignature = undefined;
-        this.publicationAckRebuildRequestId = 0;
+        this.publicationRecoveryRebuildRequestId = 0;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1043,7 +1042,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.subscriptionGeneration += 1;
         this.transitioningGeneration = undefined;
         this.currentRequestId = 0;
-        this.publicationAckRebuildRequestId = 0;
+        this.publicationRecoveryRebuildRequestId = 0;
     }
 
     private async handleMessage(message: unknown): Promise<void> {
@@ -1243,15 +1242,12 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             const publication = this.latestPublication;
-            if (publication
-                && publication.requestId !== this.syncRebuildRequestId) {
-                this.syncRebuildRequestId = publication.requestId;
-                this.emitDiagnostic('resync-rebuild', {
+            if (publication) {
+                this.recoverPublication(publication, 'resync-rebuild', {
                     ...(parsed.applyError
                         ? { applyError: parsed.applyError }
                         : {}),
                 });
-                this.rebuildLatestDocument();
             }
             return;
         }
@@ -2205,7 +2201,7 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && this.isCurrentPublication(publication)) {
-            this.rebuildLatestDocument();
+            this.recoverPublication(publication, 'publication-delivery-failed');
         }
     }
 
@@ -2283,15 +2279,14 @@ export class ConversationViewer implements ConversationViewerApi {
                 || this.appliedContentSignature === publication.htmlSignature
                 || this.transitioningGeneration
                     !== publication.subscriptionGeneration
-                || this.publicationAckRebuildRequestId === publication.requestId) {
+                || this.publicationRecoveryRebuildRequestId
+                    === publication.requestId) {
                 return;
             }
             // postMessage resolving proves only queueing. Retry the current
             // page once as a full document so a dropped Webview delivery
             // cannot leave the panel loading forever.
-            this.publicationAckRebuildRequestId = publication.requestId;
-            this.emitDiagnostic('publication-ack-timeout');
-            this.rebuildLatestDocument();
+            this.recoverPublication(publication, 'publication-ack-timeout');
         };
         const handle = this.options.setTimer
             ? this.options.setTimer(
@@ -2323,6 +2318,26 @@ export class ConversationViewer implements ConversationViewerApi {
         } else {
             clearTimeout(timer as NodeJS.Timeout);
         }
+    }
+
+    private recoverPublication(
+        publication: ConversationViewerPageMessage,
+        reason: string,
+        detail?: Record<string, unknown>
+    ): boolean {
+        if (!this.isCurrentPublication(publication)
+            || this.publicationRecoveryRebuildRequestId
+                === publication.requestId) {
+            return false;
+        }
+        // Delivery rejection, an explicit Webview resync, and an absent
+        // applied receipt are competing reports of the same failed page.
+        // They share one recovery allowance so their races cannot rebuild the
+        // document repeatedly.
+        this.publicationRecoveryRebuildRequestId = publication.requestId;
+        this.emitDiagnostic(reason, detail);
+        this.rebuildLatestDocument();
+        return true;
     }
 
     private reportPublicationApplication(

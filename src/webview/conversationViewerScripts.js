@@ -2251,11 +2251,12 @@
             return;
         }
         var generation = page.subscriptionGeneration;
-        var target = validCommentTarget({
+        var target = {
             projectId: page.target && page.target.projectId,
             provider: page.target && page.target.provider,
             sessionId: page.target && page.target.sessionId,
-        }) ? page.target : commentTarget;
+        };
+        if (!validCommentTarget(target)) target = commentTarget;
         if (!validCommentTarget(target)) return;
         var publicationKey = `${generation}\u0001${page.requestId}\u0001${page.htmlSignature}`;
         if (resyncRequestedPublicationKey === publicationKey) return;

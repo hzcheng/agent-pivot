@@ -280,6 +280,8 @@ export interface ConversationViewerPageMessage {
     html?: string;
     htmlSignature: string;
     restoreFrame?: boolean;
+    /** Return keyboard focus to the selected interaction after a document recovery. */
+    restoreFocus?: boolean;
     outline: ConversationViewerOutlineEntry[];
     selectedInteractionId: string;
     selectedInput: number;
@@ -358,6 +360,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private publicationAckTimer?: unknown;
     private publicationAckTimerToken = 0;
     private publicationRecoveryRebuildRequestId = 0;
+    private publicationRecoveryAttemptRequestId = 0;
     // Advanced only by the Webview's correlated applied acknowledgement —
     // never by postMessage resolving, which proves queueing, not application.
     private appliedContentSignature?: string;
@@ -925,6 +928,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingTargetLoadTiming = undefined;
         this.appliedContentSignature = undefined;
         this.publicationRecoveryRebuildRequestId = 0;
+        this.publicationRecoveryAttemptRequestId = 0;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1043,6 +1047,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.transitioningGeneration = undefined;
         this.currentRequestId = 0;
         this.publicationRecoveryRebuildRequestId = 0;
+        this.publicationRecoveryAttemptRequestId = 0;
     }
 
     private async handleMessage(message: unknown): Promise<void> {
@@ -1242,13 +1247,30 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             const publication = this.latestPublication;
-            if (publication) {
-                this.recoverPublication(publication, 'resync-rebuild', {
-                    ...(parsed.applyError
-                        ? { applyError: parsed.applyError }
-                        : {}),
+            if (parsed.requestId === undefined
+                || parsed.htmlSignature === undefined) {
+                // A retained version-1 Webview cannot identify the failed
+                // publication. Do not let that stale request consume a newer
+                // page's one recovery attempt; the current transition's
+                // correlated watchdog will rebuild it safely if needed.
+                this.emitDiagnostic('resync-legacy-await-watchdog', {
+                    requestGeneration: parsed.subscriptionGeneration,
                 });
+                return;
             }
+            if (!publication
+                || publication.requestId !== parsed.requestId
+                || publication.htmlSignature !== parsed.htmlSignature) {
+                this.emitDiagnostic('resync-dropped-stale-publication', {
+                    requestGeneration: parsed.subscriptionGeneration,
+                });
+                return;
+            }
+            this.recoverPublication(publication, 'resync-rebuild', {
+                ...(parsed.applyError
+                    ? { applyError: parsed.applyError }
+                    : {}),
+            });
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'
@@ -2170,6 +2192,8 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!panel || !this.isCurrentPublication(publication)) {
             return;
         }
+        this.publicationRecoveryRebuildRequestId = 0;
+        this.publicationRecoveryAttemptRequestId = 0;
         this.latestPublication = publication;
         if (replaceDocument) {
             this.recordPublicationDelivery(publication, 'document');
@@ -2211,6 +2235,12 @@ export class ConversationViewer implements ConversationViewerApi {
         if (message.subscriptionGeneration !== this.subscriptionGeneration) {
             return;
         }
+        const publication = this.latestPublication;
+        if (!publication
+            || message.requestId !== publication.requestId
+            || message.htmlSignature !== publication.htmlSignature) {
+            return;
+        }
         // The Webview is the authority on which frames it still holds:
         // replace the table with its latest report so evicted frames and
         // document rebuilds stop being offered restores immediately.
@@ -2221,12 +2251,6 @@ export class ConversationViewer implements ConversationViewerApi {
                 frame.token
             );
         });
-        const publication = this.latestPublication;
-        if (!publication
-            || message.requestId !== publication.requestId
-            || message.htmlSignature !== publication.htmlSignature) {
-            return;
-        }
         this.appliedContentSignature = publication.htmlSignature;
         this.clearPublicationAckTimeout();
         this.reportPublicationApplication(publication);
@@ -2243,6 +2267,30 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.recordPublicationDelivery(publication, 'document');
         panel.webview.html = this.renderDocument(publication);
+    }
+
+    private rebuildRecoveredPublication(
+        publication: ConversationViewerPageMessage
+    ): void {
+        const panel = this.panel;
+        if (!panel || !this.isCurrentPublication(publication)) {
+            return;
+        }
+        // A document replacement starts a new Webview application attempt.
+        // Its receipt must never be confused with a late acknowledgement from
+        // the outgoing document that triggered recovery.
+        const recovery = {
+            ...publication,
+            requestId: this.allocateRequestId(),
+            ...(this.keyboardFocused && panel.active
+                ? { restoreFocus: true }
+                : {}),
+        };
+        this.currentRequestId = recovery.requestId;
+        this.latestPublication = recovery;
+        this.publicationRecoveryAttemptRequestId = recovery.requestId;
+        this.recordPublicationDelivery(recovery, 'document');
+        panel.webview.html = this.renderDocument(recovery);
     }
 
     private recordPublicationDelivery(
@@ -2280,6 +2328,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 || this.transitioningGeneration
                     !== publication.subscriptionGeneration
                 || this.publicationRecoveryRebuildRequestId
+                    === publication.requestId
+                || this.publicationRecoveryAttemptRequestId
                     === publication.requestId) {
                 return;
             }
@@ -2326,8 +2376,8 @@ export class ConversationViewer implements ConversationViewerApi {
         detail?: Record<string, unknown>
     ): boolean {
         if (!this.isCurrentPublication(publication)
-            || this.publicationRecoveryRebuildRequestId
-                === publication.requestId) {
+            || this.publicationRecoveryRebuildRequestId === publication.requestId
+            || this.publicationRecoveryAttemptRequestId === publication.requestId) {
             return false;
         }
         // Delivery rejection, an explicit Webview resync, and an absent
@@ -2336,7 +2386,7 @@ export class ConversationViewer implements ConversationViewerApi {
         // document repeatedly.
         this.publicationRecoveryRebuildRequestId = publication.requestId;
         this.emitDiagnostic(reason, detail);
-        this.rebuildLatestDocument();
+        this.rebuildRecoveredPublication(publication);
         return true;
     }
 

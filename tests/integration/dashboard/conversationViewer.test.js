@@ -2774,6 +2774,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
@@ -2807,21 +2809,23 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores resync requests correla
     });
     const lastPage = () => panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    const requestSync = (subscriptionGeneration, sessionId) => panel.receive({
+    const requestSync = publication => panel.receive({
         type: 'conversation-viewer-request-sync',
         version: 1,
-        subscriptionGeneration,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
         projectId: 'project-a',
         provider: 'codex',
-        sessionId,
+        sessionId: publication.target.sessionId,
     });
 
     await viewer.open(target('session-a', 'input-1'));
-    const generationA = decodeInitialPublication(
-        panel.webview.html
-    ).subscriptionGeneration;
+    const initialA = decodeInitialPublication(panel.webview.html);
+    const generationA = initialA.subscriptionGeneration;
     await viewer.follow(target('session-b', 'input-1'));
-    const generationB = lastPage().subscriptionGeneration;
+    const publicationB = lastPage();
+    const generationB = publicationB.subscriptionGeneration;
     let htmlWrites = 0;
     let stored = panel.webview.html;
     Object.defineProperty(panel.webview, 'html', {
@@ -2835,30 +2839,92 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores resync requests correla
     // A resync stranded by the switch to session-b belongs to the
     // superseded generation: session-b's own delivery and ack closure
     // recovers the Webview, so the Host must not rebuild.
-    await requestSync(generationA, 'session-a');
+    await requestSync(initialA);
     assert.equal(htmlWrites, 0,
         'a resync from a superseded generation is stale');
 
     // The current generation with a different session is stale too: the
     // Webview can only fail to apply the session it is switching away
     // from while the Host already owns the new target.
-    await requestSync(generationB, 'session-a');
+    await requestSync({ ...publicationB, target: { ...publicationB.target, sessionId: 'session-a' } });
     assert.equal(htmlWrites, 0,
         'a resync naming another session is stale');
 
     // The current session with a superseded generation is stale as well.
-    await requestSync(generationA, 'session-b');
+    await requestSync({ ...publicationB, subscriptionGeneration: generationA });
     assert.equal(htmlWrites, 0,
         'a resync from a superseded generation for the current session'
             + ' is stale');
 
     // The correctly correlated request still rebuilds exactly once.
-    await requestSync(generationB, 'session-b');
+    await requestSync(publicationB);
     assert.equal(htmlWrites, 1);
     assert.equal(
         decodeInitialPublication(stored).html.includes('visible-session-b'),
         true
     );
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores a delayed resync from an earlier publication in the same session', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(sessionId, ['input-1']),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+    const acknowledge = publication => panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+    const requestSync = publication => panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+        projectId: publication.target.projectId,
+        provider: publication.target.provider,
+        sessionId: publication.target.sessionId,
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await acknowledge(decodeInitialPublication(panel.webview.html));
+    let htmlWrites = 0;
+    let rendered = panel.webview.html;
+    Object.defineProperty(panel.webview, 'html', {
+        get: () => rendered,
+        set: value => {
+            htmlWrites += 1;
+            rendered = value;
+        },
+    });
+    await viewer.follow(target('session-b', 'input-1'));
+    const firstPublication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    await viewer.refreshPresentation();
+    const secondPublication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(
+        secondPublication.subscriptionGeneration,
+        firstPublication.subscriptionGeneration,
+        'the competing publications belong to the same target generation'
+    );
+    assert.notEqual(secondPublication.requestId, firstPublication.requestId);
+
+    await requestSync(firstPublication);
+    assert.equal(htmlWrites, 0,
+        'a delayed resync cannot rebuild or consume the newer publication');
+    await requestSync(secondPublication);
+    assert.equal(htmlWrites, 1,
+        'the exact current publication remains recoverable');
     viewer.dispose();
 });
 
@@ -2922,6 +2988,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 safely ignores a correlated res
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: notice.subscriptionGeneration,
+        requestId: 1,
+        htmlSignature: 'before-first-publication',
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-b',
@@ -3048,19 +3116,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds a stalled reused-panel
     );
     assert.ok(watchdog, 'a target handoff must bound its applied receipt');
 
-    watchdog.callback();
-    assert.equal(htmlWrites, 1,
-        'a missed receipt rebuilds the current page as a full document');
-    const recovered = decodeInitialPublication(rendered);
-    assert.equal(recovered.subscriptionGeneration, stalled.subscriptionGeneration);
-    assert.equal(recovered.htmlSignature, stalled.htmlSignature);
-    assert.equal(recovered.html.includes('visible-session-b'), true);
-    assert.equal(diagnostics.some(event =>
-        event.reason === 'publication-ack-timeout'
-    ), true);
-
-    // A late request-sync reports the same failed page and shares the
-    // watchdog's single recovery allowance.
+    // A retained version-1 Webview lacks publication identifiers. It remains
+    // parseable, but cannot consume this newer publication's recovery slot;
+    // the correlated watchdog still closes the loading handoff below.
     await panel.receive({
         type: 'conversation-viewer-request-sync',
         version: 1,
@@ -3069,15 +3127,49 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds a stalled reused-panel
         provider: 'codex',
         sessionId: 'session-b',
     });
+    assert.equal(htmlWrites, 0);
+
+    watchdog.callback();
+    assert.equal(htmlWrites, 1,
+        'a missed receipt rebuilds the current page as a full document');
+    const recovered = decodeInitialPublication(rendered);
+    assert.equal(recovered.subscriptionGeneration, stalled.subscriptionGeneration);
+    assert.notEqual(recovered.requestId, stalled.requestId,
+        'a document recovery starts a new correlated application attempt');
+    assert.equal(recovered.restoreFocus, undefined,
+        'a recovery never steals focus after the user has left the Viewer');
+    assert.equal(recovered.htmlSignature, stalled.htmlSignature);
+    assert.equal(recovered.html.includes('visible-session-b'), true);
+    assert.equal(diagnostics.some(event =>
+        event.reason === 'publication-ack-timeout'
+    ), true);
+
+    // A late acknowledgement from the outgoing document cannot settle the
+    // recovered document, whose request id is a new application attempt.
+    await acknowledge(stalled);
+    const recoveryTimer = Array.from(timers.values()).find(timer =>
+        timer.delayMs === 4_000
+    );
+    assert.ok(recoveryTimer,
+        'a late outgoing acknowledgement must not cancel recovery watchdog');
+
+    // A late request-sync identifies the original failed publication and is
+    // rejected rather than consuming the recovery publication's allowance.
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: stalled.subscriptionGeneration,
+        requestId: stalled.requestId,
+        htmlSignature: stalled.htmlSignature,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    });
     assert.equal(htmlWrites, 1,
         'watchdog and request-sync cannot rebuild one publication twice');
 
     // A persistent broken Webview gets only one fallback per publication.
-    const retry = Array.from(timers.values()).find(timer =>
-        timer.delayMs === 4_000
-    );
-    assert.ok(retry);
-    retry.callback();
+    recoveryTimer.callback();
     assert.equal(htmlWrites, 1);
     viewer.dispose();
 });

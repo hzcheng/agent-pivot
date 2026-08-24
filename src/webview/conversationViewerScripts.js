@@ -376,9 +376,9 @@
         && !!findPrevious && !!findNext && !!findClose;
     var copyRequestSequence = 0;
     var copyPending = new Map();
-    // One resync request per subscription generation: a rapid A→B→C
-    // switch that misses twice must still escalate the latest miss.
-    var resyncRequestedGeneration = 0;
+    // One resync request per failed publication. Later publications in the
+    // same session remain independently recoverable.
+    var resyncRequestedPublicationKey = '';
     var conversationLoading = false;
     var loadingDisabledElements = [];
     // Detached conversation frames keyed by session: switching back to a
@@ -991,7 +991,7 @@
             'totalInputs', 'partial', 'atLatest', 'stale',
         ];
         var allowedKeys = new Set(requiredKeys.concat([
-            'html', 'htmlSignature', 'restoreFrame', 'previousCursor',
+            'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',
             'nextCursor', 'subagents', 'activeSubagent', 'displayName',
             'target', 'comments', 'projectComments', 'bookmarks',
         ]));
@@ -1019,6 +1019,8 @@
                 || message.htmlSignature !== undefined)
             && (message.restoreFrame === undefined
                 || typeof message.restoreFrame === 'boolean')
+            && (message.restoreFocus === undefined
+                || typeof message.restoreFocus === 'boolean')
             && typeof message.selectedInteractionId === 'string'
             && validOutline(message.outline, message.selectedInteractionId)
             && Number.isSafeInteger(message.selectedInput)
@@ -1756,13 +1758,13 @@
             if (message.restoreFrame === true) {
                 // The Host believes this frame is cached but it is not (or
                 // its token moved on): request a full resync.
-                requestConversationResync();
+                requestConversationResync(message);
                 return;
             }
             if (message.htmlSignature !== state.appliedHtmlSignature) {
                 // A delta that does not match the applied content cannot be
                 // applied; request a full resync instead of staying stale.
-                requestConversationResync();
+                requestConversationResync(message);
                 return;
             }
         }
@@ -1940,7 +1942,8 @@
             } else if (selected) {
                 centerInMessageViewport(selected);
             }
-            if (selected && message.updateKind === 'navigation') {
+            if (selected && (message.updateKind === 'navigation'
+                || message.restoreFocus === true)) {
                 selected.tabIndex = -1;
                 selected.focus({ preventScroll: true });
             }
@@ -2235,35 +2238,36 @@
         return true;
     }
     function requestConversationResync(page, applyError) {
-        // Correlate the request to the page that failed to apply: the
-        // Host rebuilds only while it still owns that generation and
-        // session, and ignores requests stranded by a newer switch. One
-        // request per generation; the Host bounds rebuilds per
-        // publication, so a persistent apply failure cannot reload-loop.
-        var generation = state.subscriptionGeneration;
-        var target = commentTarget;
-        if (page
-            && Number.isSafeInteger(page.subscriptionGeneration)
-            && page.subscriptionGeneration >= 1
-            && validCommentTarget({
-                projectId: page.target && page.target.projectId,
-                provider: page.target && page.target.provider,
-                sessionId: page.target && page.target.sessionId,
-            })) {
-            generation = page.subscriptionGeneration;
-            target = page.target;
-        }
-        if (!target || !generation
-            || resyncRequestedGeneration === generation) {
+        // Correlate the request to the exact page that failed to apply. A
+        // delayed resync must not consume the recovery allowance of a newer
+        // publication in the same session.
+        if (!page
+            || !Number.isSafeInteger(page.subscriptionGeneration)
+            || page.subscriptionGeneration < 1
+            || !Number.isSafeInteger(page.requestId)
+            || page.requestId < 1
+            || typeof page.htmlSignature !== 'string'
+            || !page.htmlSignature) {
             return;
         }
-        resyncRequestedGeneration = generation;
+        var generation = page.subscriptionGeneration;
+        var target = validCommentTarget({
+            projectId: page.target && page.target.projectId,
+            provider: page.target && page.target.provider,
+            sessionId: page.target && page.target.sessionId,
+        }) ? page.target : commentTarget;
+        if (!validCommentTarget(target)) return;
+        var publicationKey = `${generation}\u0001${page.requestId}\u0001${page.htmlSignature}`;
+        if (resyncRequestedPublicationKey === publicationKey) return;
+        resyncRequestedPublicationKey = publicationKey;
         // Dropped deltas must not suppress the rebuilt full publication.
         state.appliedHtmlSignature = undefined;
         var message = {
             type: 'conversation-viewer-request-sync',
             version: 1,
             subscriptionGeneration: generation,
+            requestId: page.requestId,
+            htmlSignature: page.htmlSignature,
             projectId: target.projectId,
             provider: target.provider,
             sessionId: target.sessionId,

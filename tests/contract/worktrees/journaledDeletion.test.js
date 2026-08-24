@@ -56,6 +56,7 @@ async function fixture(t) {
     const repositoryKey = await fs.promises.realpath(path.join(repositoryPath, '.git'));
     const worktreePath = await fs.promises.realpath(
         path.join(repositoryPath, '.agent-pivot', 'worktrees', 'cleanup-task'));
+    const head = git(repositoryPath, ['rev-parse', 'HEAD']);
     const key = { repositoryKey, canonicalWorktreePath: worktreePath };
     const mainKey = { repositoryKey, canonicalWorktreePath: repositoryPath };
     const snapshot = {
@@ -64,9 +65,9 @@ async function fixture(t) {
             repositoryKey, rootBindings: [{ workspaceRootId: 'root', repositoryRelativePath: '' }],
             baseRef: 'refs/heads/main',
             worktrees: [
-                { key: mainKey, branchRef: 'refs/heads/main', head: 'a'.repeat(40),
+                { key: mainKey, branchRef: 'refs/heads/main', head,
                     isMain: true, isBare: false, health: 'normal', headKind: 'branch' },
-                { key, branchRef: 'refs/heads/agent-pivot/cleanup-task', head: 'a'.repeat(40),
+                { key, branchRef: 'refs/heads/agent-pivot/cleanup-task', head,
                     isMain: false, isBare: false, health: 'normal', headKind: 'branch' },
             ],
         }],

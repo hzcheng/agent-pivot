@@ -4,6 +4,18 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-08-24
+
+### Added
+
+- Add `Next Active Chat in This Window` and `Next Attention Chat in This Window`
+  commands for cycling only the current window's running and attention chats.
+
+### Changed
+
+- Order the AI Conversation bottom Session status badges as Attention, Running,
+  and Idle.
+
 ## [1.1.2] - 2026-08-23
 
 ### Added

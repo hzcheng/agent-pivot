@@ -11907,6 +11907,14 @@ test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe loca
     );
     const idleCount = page.locator('[data-session-status-idle-count]');
 
+    assert.deepEqual(
+        await page.locator('[data-conversation-session-status] button').evaluateAll(
+            elements => elements.map(element => element.getAttribute('data-session-status-cycle'))
+        ),
+        ['attention', 'running', 'idle'],
+        'the bottom status buttons prioritize attention before running and idle'
+    );
+
     assert.equal(
         await running.getAttribute('title'),
         '1 running in this window · click to switch to the next'

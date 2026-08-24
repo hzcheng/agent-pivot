@@ -25,6 +25,8 @@ export interface DashboardCommandHandlers {
     nextActiveSession: DashboardCommandHandler;
     nextAttentionSession: DashboardCommandHandler;
     nextRunningSession: DashboardCommandHandler;
+    nextActiveChatInWindow: DashboardCommandHandler;
+    nextAttentionChatInWindow: DashboardCommandHandler;
     switchToAiSession: DashboardCommandHandler;
     switchWorktreeOrSession: DashboardCommandHandler;
     toggleLastAiSession: DashboardCommandHandler;
@@ -61,6 +63,8 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.nextActiveSession', 'nextActiveSession'],
     ['agentPivot.nextAttentionSession', 'nextAttentionSession'],
     ['agentPivot.nextRunningSession', 'nextRunningSession'],
+    ['agentPivot.nextActiveChatInWindow', 'nextActiveChatInWindow'],
+    ['agentPivot.nextAttentionChatInWindow', 'nextAttentionChatInWindow'],
     ['agentPivot.switchToAiSession', 'switchToAiSession'],
     ['agentPivot.switchWorktreeOrSession', 'switchWorktreeOrSession'],
     ['agentPivot.toggleLastAiSession', 'toggleLastAiSession'],

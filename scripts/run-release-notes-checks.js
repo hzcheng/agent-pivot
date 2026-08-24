@@ -14,14 +14,13 @@ const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'release-
 function validateReleaseContent({ readme, changelog, packageMetadata }) {
     assert.strictEqual(packageMetadata.displayName, 'Agent Pivot',
         'release metadata must use the Agent Pivot display name');
-    assert.strictEqual(packageMetadata.version, '1.1.2',
-        'the current Agent Pivot release must be version 1.1.2');
+    assert.strictEqual(packageMetadata.version, '1.1.3',
+        'the current Agent Pivot release must be version 1.1.3');
     const currentRelease = extractReleaseNotes(changelog, packageMetadata.version);
     const requiredReleaseFacts = [
-        ['the fixed WINDOWS switcher', /fixed WINDOWS switcher/i],
-        ['the worktree Changes view', /Changes view/i],
-        ['the Commits sub-tab history', /Commits sub-tab/i],
-        ['the Session lifecycle badges', /lifecycle/i],
+        ['the local Active Chat command', /Active Chat in This Window/i],
+        ['the local Attention Chat command', /Attention Chat in This Window/i],
+        ['the Session status order', /Attention,[\s\S]*Running,[\s\S]*Idle/i],
     ];
 
     for (const [label, pattern] of requiredReleaseFacts) {

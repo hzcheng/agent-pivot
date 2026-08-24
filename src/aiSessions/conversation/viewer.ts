@@ -630,15 +630,6 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!activeTarget) {
             return false;
         }
-        await Promise.all([
-            this.commentController.restore(activeTarget, generation),
-            this.projectCommentController.restore(activeTarget, generation),
-            this.bookmarkController.restore(activeTarget, generation),
-        ]);
-        if (this.target !== activeTarget
-            || this.subscriptionGeneration !== generation) {
-            return false;
-        }
         const panel = reveal ? this.ensurePanel() : this.panel;
         if (!panel || (!reveal && panel !== followedPanel)) {
             this.emitDiagnostic('load-target-no-panel');
@@ -658,7 +649,20 @@ export class ConversationViewer implements ConversationViewerApi {
             || previousTarget.projectId !== activeTarget.projectId
             || previousTarget.provider !== activeTarget.provider
             || previousTarget.sessionId !== activeTarget.sessionId) {
+            // Surface the target transition before optional local metadata
+            // (comments, project notes, bookmarks) finishes loading. The
+            // generation guard below still prevents stale metadata from ever
+            // reaching the newly selected session.
             this.postLoadingNotice(panel, activeTarget, generation);
+        }
+        await Promise.all([
+            this.commentController.restore(activeTarget, generation),
+            this.projectCommentController.restore(activeTarget, generation),
+            this.bookmarkController.restore(activeTarget, generation),
+        ]);
+        if (this.target !== activeTarget
+            || this.subscriptionGeneration !== generation) {
+            return false;
         }
         this.ensureWatch(generation);
         const loaded = await this.loadAuthoritative(

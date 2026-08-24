@@ -210,9 +210,9 @@ export function createRunningSessionJumpHandler(
     return {
         jumpToNextRunningSession: () => {
             lastDirectInvocationAtMs = Math.max(lastDirectInvocationAtMs, nowMs());
-            return navigationCoordinator.enqueue(() => jump('all'));
+            return navigationCoordinator.enqueueLatest(() => jump('all'));
         },
         jumpToNextLocalRunningSession: handoff =>
-            navigationCoordinator.enqueue(() => jump('local', handoff)),
+            navigationCoordinator.enqueueLatest(() => jump('local', handoff)),
     };
 }

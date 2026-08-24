@@ -634,6 +634,66 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes rapid invocations without d
     assert.equal(focused, 'c');
 });
 
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 retains only the newest pending navigation intent', async () => {
+    const coordinator = createSessionNavigationCoordinator();
+    const calls = [];
+    let releaseFirst;
+    const first = coordinator.enqueueLatest(() => new Promise(resolve => {
+        calls.push('first');
+        releaseFirst = resolve;
+    }));
+    const stale = coordinator.enqueueLatest(async () => {
+        calls.push('stale');
+    });
+    const latest = coordinator.enqueueLatest(async () => {
+        calls.push('latest');
+    });
+
+    await Promise.resolve();
+    assert.deepEqual(calls, ['first']);
+    await stale;
+    assert.deepEqual(calls, ['first'], 'a superseded pending intent settles as a no-op');
+    releaseFirst();
+    await Promise.all([first, latest]);
+    assert.deepEqual(calls, ['first', 'latest']);
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 emits target-free queue timing for started, superseded, and settled intents', async () => {
+    let now = 100;
+    const timings = [];
+    const coordinator = createSessionNavigationCoordinator({
+        now: () => now,
+        onTiming: timing => timings.push(timing),
+    });
+    let releaseFirst;
+    const first = coordinator.enqueueLatest(() => new Promise(resolve => {
+        releaseFirst = resolve;
+    }));
+    await Promise.resolve();
+    now = 125;
+    const stale = coordinator.enqueueLatest(async () => {});
+    now = 140;
+    const latest = coordinator.enqueueLatest(async () => {});
+    await stale;
+    now = 200;
+    releaseFirst();
+    await Promise.all([first, latest]);
+
+    assert.deepEqual(timings, [
+        { event: 'started', latest: true, queueMs: 0 },
+        { event: 'superseded', latest: true, queueMs: 15 },
+        {
+            event: 'settled', latest: true, queueMs: 0,
+            executionMs: 100, outcome: 'succeeded',
+        },
+        { event: 'started', latest: true, queueMs: 60 },
+        {
+            event: 'settled', latest: true, queueMs: 60,
+            executionMs: 0, outcome: 'succeeded',
+        },
+    ]);
+});
+
 test('AI-SESSION-NEXT-RUNNING-COMMAND-001 makes a late handoff idempotent with a newer local jump', async () => {
     const queue = buildRunningSessionQueue({
         localSessions: [local('codex', 'b1'), local('codex', 'b2')],
@@ -703,6 +763,33 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 executes terminal focus and conversati
         ['focus', 'project-before-focus', 'codex', 'target'],
         ['open', 'project-before-focus', 'codex', 'target'],
     ], 'one transaction cannot focus and open against different workspace cards');
+});
+
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 reports target-free focus and conversation timings', async () => {
+    let now = 50;
+    const timings = [];
+    const executor = createSessionNavigationFocusExecutor({
+        getProjectId: () => 'project-a',
+        focusActive: async () => {
+            now = 70;
+            return true;
+        },
+        openConversation: async () => {
+            now = 95;
+            return true;
+        },
+        now: () => now,
+        onTiming: timing => timings.push(timing),
+    });
+
+    await executor.execute({ provider: 'codex', sessionId: 'sensitive-session-id' });
+
+    assert.deepEqual(timings, [{
+        outcome: 'conversation-opened',
+        focusMs: 20,
+        conversationMs: 25,
+        totalMs: 45,
+    }], 'performance diagnostics deliberately omit all target identity');
 });
 
 test('AI-SESSION-NEXT-RUNNING-COMMAND-001 does not open a conversation when local focus cannot be established', async () => {

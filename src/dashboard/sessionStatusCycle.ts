@@ -132,7 +132,7 @@ export function createSessionStatusCycleHandler(
     }
 
     return {
-        cycleToNext: (kind, anchor) => navigationCoordinator.enqueue(
+        cycleToNext: (kind, anchor) => navigationCoordinator.enqueueLatest(
             () => cycleToNext(kind, anchor)
         ),
     };

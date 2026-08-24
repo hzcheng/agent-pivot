@@ -2074,6 +2074,50 @@ async function initializeDashboard(
             conversationSessionRebindRestoreTask,
         ])
     ));
+    const sessionNavigationCoordinator = createSessionNavigationCoordinator({
+        onTiming: timing => logAiSessionDiagnostic({
+            event: 'session-navigation-queue-latency',
+            ...timing,
+        }),
+    });
+    const focusAiSessionAndFollowConversation = (target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<void> => sessionNavigationCoordinator.enqueueLatest(async () => {
+        const startedAt = Date.now();
+        let focusMs = 0;
+        let conversationMs = 0;
+        let outcome = 'focus-failed';
+        try {
+            const focusStartedAt = Date.now();
+            const focused = await aiSessionTerminalCommandController.focusActive(
+                target.projectId,
+                target.provider,
+                target.sessionId,
+            );
+            focusMs = Date.now() - focusStartedAt;
+            if (focused) {
+                const conversationStartedAt = Date.now();
+                await conversationCapability.followActiveConversation(target);
+                conversationMs = Date.now() - conversationStartedAt;
+                outcome = 'conversation-followed';
+            } else {
+                void vscode.window.showWarningMessage(
+                    'Agent Pivot: the selected AI session is no longer active.'
+                );
+            }
+        } finally {
+            logAiSessionDiagnostic({
+                event: 'session-navigation-latency',
+                source: 'dashboard-row',
+                outcome,
+                focusMs: Math.max(0, focusMs),
+                conversationMs: Math.max(0, conversationMs),
+                totalMs: Math.max(0, Date.now() - startedAt),
+            });
+        }
+    });
     const conversationHandlers = {
         'open-active-ai-session-conversation': async (e: Record<string, unknown>) => {
             if (e.version !== 1
@@ -2115,7 +2159,7 @@ async function initializeDashboard(
         getPromptTerminalCommandController: () => promptTerminalCommandController,
         aiSessionCommandController,
         aiSessionTerminalCommandController,
-        conversationCapability,
+        focusAiSessionAndFollowConversation,
         aiSessionArchiveController,
         acknowledgeAiSessionAttentionEventIds,
         logOpenWorkspaceDiagnostic,
@@ -2140,7 +2184,6 @@ async function initializeDashboard(
         openOpenTabLayoutMigrationGuide: () => vscode.env.openExternal(vscode.Uri.parse(
             'https://github.com/hzcheng/agent-pivot/blob/main/docs/open-tab-window-switcher-migration.md',
         )),
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
     // Idempotency cache for group rename settlements (PRD §6.4 protocol
     // rules): replays re-receive the recorded terminal settlement and are
@@ -2694,7 +2737,6 @@ async function initializeDashboard(
         return null;
     };
     const aiSessionMru = createAiSessionMruTracker({ now: () => Date.now() });
-    const sessionNavigationCoordinator = createSessionNavigationCoordinator();
     const sessionNavigationFocusExecutor = createSessionNavigationFocusExecutor({
         getProjectId: () => getCurrentWorkspaceActionTargetWithoutCardId()?.cardId || null,
         focusActive: (projectId, provider, sessionId) =>
@@ -2706,6 +2748,11 @@ async function initializeDashboard(
         openConversation: request => openAiSessionConversationWithFeedback(request),
         onFocused: target =>
             aiSessionMru.record(target.provider, target.sessionId),
+        onTiming: timing => logAiSessionDiagnostic({
+            event: 'session-navigation-latency',
+            source: 'command',
+            ...timing,
+        }),
     });
     const jumpToNextAttentionSession = createAttentionQueueJumpHandler({
         navigationCoordinator: sessionNavigationCoordinator,
@@ -3208,10 +3255,10 @@ async function initializeDashboard(
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
         seekLatestConversationInteraction: () => seekLatestConversationInteractionWithFeedback(),
-        previousActiveSession: () => sessionNavigationCoordinator.enqueue(
+        previousActiveSession: () => sessionNavigationCoordinator.enqueueLatest(
             () => followAdjacentActiveConversationWithFeedback('previous')
         ),
-        nextActiveSession: () => sessionNavigationCoordinator.enqueue(
+        nextActiveSession: () => sessionNavigationCoordinator.enqueueLatest(
             () => followAdjacentActiveConversationWithFeedback('next')
         ),
         nextAttentionSession: async () => {

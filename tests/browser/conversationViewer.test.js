@@ -1521,6 +1521,7 @@ async function renderHostViewerDocument(options = {}) {
             Array.from(listeners.dispose).forEach(listener => listener());
         },
     };
+    options.onPanel?.(panel);
     const viewer = new ConversationViewer({
         createPanel: () => panel,
         readOutline: async () => ({
@@ -1588,6 +1589,39 @@ async function renderHostViewerDocument(options = {}) {
     });
     return panel.webview.html;
 }
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 surfaces the loading shell before local metadata restoration settles', async () => {
+    let panel;
+    let releaseCommentRestore;
+    const commentRestore = new Promise(resolve => {
+        releaseCommentRestore = resolve;
+    });
+    const opening = renderHostViewerDocument({
+        onPanel: value => { panel = value; },
+        commentStore: {
+            load: async () => commentRestore,
+            save: async () => {},
+        },
+        projectCommentStore: {
+            load: async () => ({ revision: 0, comments: [] }),
+            save: async () => {},
+        },
+        bookmarkStore: {
+            load: async () => ({ revision: 0, interactionIds: [] }),
+            save: async () => {},
+        },
+    });
+
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(panel, 'the Viewer panel is created immediately');
+    assert.match(
+        panel.webview.html,
+        /Loading conversation…/,
+        'slow optional metadata cannot delay visible switch feedback',
+    );
+    releaseCommentRestore({ revision: 0, comments: [] });
+    await opening;
+});
 
 async function openHostViewerDocument(t, options = {}) {
     const page = await browser.newPage({

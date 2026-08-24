@@ -1748,7 +1748,7 @@ const guards = {
                     'every direct session command must use the shared local focus executor');
             }
         }
-        if (callArguments(quickSwitch, 'navigationCoordinator.enqueue').length !== 3
+        if (callArguments(quickSwitch, 'navigationCoordinator.enqueueLatest').length !== 3
             || callArguments(quickSwitch, 'options.navigateSession').length !== 1
             || callArguments(quickSwitch, 'options.focusSession').length !== 0
             || callArguments(quickSwitch, 'options.openConversation').length !== 0) {
@@ -1774,7 +1774,7 @@ const guards = {
             if (!handler || !ts.isPropertyAssignment(handler)
                 || callArguments(
                     handler.initializer,
-                    'sessionNavigationCoordinator.enqueue',
+                    'sessionNavigationCoordinator.enqueueLatest',
                 ).length !== 1) {
                 fail(this.id, risk,
                     'Previous and Next Active Session commands must use the shared navigation coordinator');
@@ -1788,6 +1788,28 @@ const guards = {
                 fail(this.id, risk,
                     'Previous and Next Active Session commands must preserve their direction');
             }
+        }
+        const dashboardClickNavigator = findVariable(
+            dashboard,
+            'focusAiSessionAndFollowConversation',
+            this.id,
+            risk,
+        );
+        if (!dashboardClickNavigator.initializer
+            || callArguments(
+                dashboardClickNavigator.initializer,
+                'sessionNavigationCoordinator.enqueueLatest',
+            ).length !== 1
+            || callArguments(
+                dashboardClickNavigator.initializer,
+                'aiSessionTerminalCommandController.focusActive',
+            ).length !== 1
+            || callArguments(
+                dashboardClickNavigator.initializer,
+                'conversationCapability.followActiveConversation',
+            ).length !== 1) {
+            fail(this.id, risk,
+                'Dashboard Chat-row clicks must use the shared latest-intent navigation transaction');
         }
     },
 

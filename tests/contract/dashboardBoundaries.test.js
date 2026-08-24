@@ -657,7 +657,7 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 CONVERSATION-ACTIVE-SESSION-NAVIGATIO
         assert.match(
             source,
             new RegExp(
-                `${direction}ActiveSession: \\(\\) => sessionNavigationCoordinator\\.enqueue\\(`
+                `${direction}ActiveSession: \\(\\) => sessionNavigationCoordinator\\.enqueueLatest\\(`
                     + `[\\s\\S]*?\\(\\) => followAdjacentActiveConversationWithFeedback\\('${direction}'\\)`
             )
         );

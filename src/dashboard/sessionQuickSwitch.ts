@@ -234,11 +234,11 @@ export function createAiSessionQuickSwitchHandlers(
         }
         if (picked.target.kind === 'local') {
             const target = picked.target;
-            await navigationCoordinator.enqueue(() => jumpToLocal(target));
+            await navigationCoordinator.enqueueLatest(() => jumpToLocal(target));
             return;
         }
         const target = picked.target;
-        await navigationCoordinator.enqueue(() => jumpToRemote(target));
+        await navigationCoordinator.enqueueLatest(() => jumpToRemote(target));
     }
 
     async function toggleLastAiSessionTransaction(): Promise<void> {
@@ -267,7 +267,7 @@ export function createAiSessionQuickSwitchHandlers(
     }
 
     async function toggleLastAiSession(): Promise<void> {
-        await navigationCoordinator.enqueue(toggleLastAiSessionTransaction);
+        await navigationCoordinator.enqueueLatest(toggleLastAiSessionTransaction);
     }
 
     return {

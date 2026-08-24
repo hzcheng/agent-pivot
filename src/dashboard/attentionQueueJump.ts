@@ -225,10 +225,10 @@ export function createAttentionQueueJumpHandler(
         await jumpToLocal(local);
     }
 
-    const handler = (() => navigationCoordinator.enqueue(
+    const handler = (() => navigationCoordinator.enqueueLatest(
         jumpToNextAttentionSession
     )) as AttentionQueueJumpHandler;
-    handler.jumpToAttentionSession = item => navigationCoordinator.enqueue(
+    handler.jumpToAttentionSession = item => navigationCoordinator.enqueueLatest(
         () => jumpToAttentionSession(item)
     );
     return handler;

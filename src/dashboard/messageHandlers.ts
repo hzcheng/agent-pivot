@@ -3,7 +3,6 @@
 import type * as vscode from 'vscode';
 import type { AiSessionArchiveController } from '../aiSessions/archiveController';
 import type { AiSessionCommandController } from '../aiSessions/commandController';
-import type { ConversationCapability } from '../aiSessions/conversation/composition';
 import type { AiSessionRuntimeSnapshot } from '../aiSessions/runtimeTypes';
 import type { AiSessionTerminalCommandController } from '../aiSessions/terminalCommandController';
 import { isAiSessionProviderId } from '../models';
@@ -24,7 +23,11 @@ export interface DashboardMessageHandlersOptions {
     getPromptTerminalCommandController: () => PromptTerminalCommandController;
     aiSessionCommandController: AiSessionCommandController;
     aiSessionTerminalCommandController: AiSessionTerminalCommandController<vscode.Terminal>;
-    conversationCapability: ConversationCapability;
+    focusAiSessionAndFollowConversation(target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<void>;
     aiSessionArchiveController: AiSessionArchiveController<AiSessionRuntimeSnapshot<vscode.Terminal>>;
     acknowledgeAiSessionAttentionEventIds: (
         eventIds: string[],
@@ -44,7 +47,6 @@ export interface DashboardMessageHandlersOptions {
     showSponsorOptions: () => Promise<void>;
     dismissOpenTabLayoutNotice: () => Thenable<unknown>;
     openOpenTabLayoutMigrationGuide: () => Thenable<unknown>;
-    showWarningMessage: (message: string) => void;
 }
 
 /**
@@ -68,7 +70,7 @@ export function createDashboardMessageHandlers(
     const getPromptTerminalCommandController = options.getPromptTerminalCommandController;
     const aiSessionCommandController = options.aiSessionCommandController;
     const aiSessionTerminalCommandController = options.aiSessionTerminalCommandController;
-    const conversationCapability = options.conversationCapability;
+    const focusAiSessionAndFollowConversation = options.focusAiSessionAndFollowConversation;
     const aiSessionArchiveController = options.aiSessionArchiveController;
     const acknowledgeAiSessionAttentionEventIds = options.acknowledgeAiSessionAttentionEventIds;
     const logOpenWorkspaceDiagnostic = options.logOpenWorkspaceDiagnostic;
@@ -80,7 +82,6 @@ export function createDashboardMessageHandlers(
     const showSponsorOptions = options.showSponsorOptions;
     const dismissOpenTabLayoutNotice = options.dismissOpenTabLayoutNotice;
     const openOpenTabLayoutMigrationGuide = options.openOpenTabLayoutMigrationGuide;
-    const showWarningMessage = options.showWarningMessage;
     const attentionAcknowledgementFlights = new Map<string, {
         eventIdsFingerprint: string;
         flight: Promise<'committed' | 'degraded-local' | 'rejected'>;
@@ -226,21 +227,7 @@ export function createDashboardMessageHandlers(
                 provider: e.provider as AiSessionProviderId,
                 sessionId: e.sessionId as string,
             };
-            const focused =
-                await aiSessionTerminalCommandController.focusActive(
-                    target.projectId,
-                    target.provider,
-                    target.sessionId
-                );
-            if (focused) {
-                await conversationCapability.followActiveConversation(
-                    target
-                );
-            } else {
-                showWarningMessage(
-                    'Agent Pivot: the selected AI session is no longer active.'
-                );
-            }
+            await focusAiSessionAndFollowConversation(target);
         },
         'focus-pending-ai-session': async e => {
             await aiSessionTerminalCommandController.focusPending(

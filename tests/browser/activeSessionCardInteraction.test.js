@@ -1077,11 +1077,11 @@ test('OPEN-WORKSPACE-PRESENTATION-CONVERGENCE-001 applies a production OPEN tran
         nowMs: () => 5_000,
     });
     controller.setAggregate({
-        protocolVersion: 4,
+        protocolVersion: 5,
         semanticRevision: 'b'.repeat(64),
         observedAtMs: 5_000,
         registrations: [{
-            protocolVersion: 4,
+            protocolVersion: 5,
             instanceId: '11111111111111111111111111111111',
             sequence: 1,
             openedAtMs: 1_000,

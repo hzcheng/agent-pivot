@@ -417,7 +417,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     );
     assert.strictEqual(
         path.basename(bridgeArtifact),
-        'agent-pivot-attention-ui-bridge-1.0.2.vsix',
+        'agent-pivot-attention-ui-bridge-1.0.3.vsix',
         'UI Bridge release artifact name must remain exact',
     );
     const mainEntries = readZipArchive(mainArtifact);
@@ -591,8 +591,8 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     assertNotIncludes(mainBundle, FORBIDDEN_PROTOCOL_PREFIX, 'packaged main bundle');
     assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces.', 'packaged UI Bridge bundle');
     assertIncludes(bridgeBundle, '_agentPivotAttention.', 'packaged UI Bridge bundle');
-    assert.match(bridgeBundle, /["']open-workspaces["'],["']v4["'],["']instances["']/,
-        'packaged UI Bridge bundle must retain the v4 registry path');
+    assert.match(bridgeBundle, /["']open-workspaces["'],["']v5["'],["']instances["']/,
+        'packaged UI Bridge bundle must retain the v5 registry path');
     assertNotIncludes(bridgeBundle, '_agentPivotOpenProjects', 'packaged UI Bridge bundle');
     assertNotIncludes(bridgeBundle, FORBIDDEN_PROTOCOL_PREFIX, 'packaged UI Bridge bundle');
     for (const [content, label] of [
@@ -1028,8 +1028,8 @@ function run() {
     const bridgeBundle = readText('extensions/attention-ui-bridge/dist/extension.js');
     assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces', 'UI Bridge bundle');
     assertIncludes(bridgeBundle, '_agentPivotOpenWorkspaces.bridge.setPin', 'UI Bridge bundle');
-    assert.match(bridgeBundle, /["']open-workspaces["'],["']v4["'],["']instances["']/,
-        'UI Bridge bundle must retain the open-workspaces/v4/instances registry path');
+    assert.match(bridgeBundle, /["']open-workspaces["'],["']v5["'],["']instances["']/,
+        'UI Bridge bundle must retain the open-workspaces/v5/instances registry path');
     assertNotIncludes(bridgeBundle, '_agentPivotOpenProjects', 'UI Bridge bundle');
 
     runRealVsixArchiveChecks(mainPackage, bridgePackage);

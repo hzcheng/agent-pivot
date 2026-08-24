@@ -140,6 +140,41 @@ test('CONVERSATION-SESSION-STATUS-001 republishes after target transitions even 
     assert.deepEqual(posted[1].status, status);
 });
 
+test('CONVERSATION-SESSION-STATUS-001 serializes concurrent bridge publications', async () => {
+    let status = { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1, idleSessionsLocal: 0 };
+    const posted = [];
+    let releaseFirst;
+    let firstPost = true;
+    const controller = new ConversationSessionStatusController({
+        readStatus: () => status,
+        getPanel: () => ({ webview: { postMessage: async message => {
+            posted.push(message);
+            if (firstPost) {
+                firstPost = false;
+                await new Promise(resolve => { releaseFirst = resolve; });
+            }
+            return true;
+        } } }),
+        getSubscriptionGeneration: () => 2,
+        getCurrentRequestId: () => 7,
+        isSuspended: () => false,
+        rebuildLatestDocument: () => undefined,
+    });
+
+    const first = controller.publish();
+    await Promise.resolve();
+    status = { runningSessions: 2, attentionSessions: 0, runningSessionsLocal: 2, attentionSessionsLocal: 0, idleSessionsLocal: 0 };
+    const second = controller.publish();
+    assert.equal(posted.length, 1, 'the newer status waits instead of racing the older delivery');
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    assert.deepEqual(posted.map(message => message.status), [
+        { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 1, idleSessionsLocal: 0 },
+        { runningSessions: 2, attentionSessions: 0, runningSessionsLocal: 2, attentionSessionsLocal: 0, idleSessionsLocal: 0 },
+    ]);
+});
+
 test('CONVERSATION-SESSION-STATUS-001 does not rebuild when the panel changed during a failed delivery', async () => {
     const status = { runningSessions: 1, attentionSessions: 1, runningSessionsLocal: 1, attentionSessionsLocal: 0 };
     const harness = createHarness({

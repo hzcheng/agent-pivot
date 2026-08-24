@@ -1111,6 +1111,58 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 clears attention on the same lifecycle 
     assert.deepEqual(observed, ['signals', 'signals']);
 });
 
+test('ATTENTION-EXECUTION-STATE-SYNC-001 publishes the local running decision before the attention bridge settles', async () => {
+    const workspace = {
+        navigationIdentity: 'navigation:immediate', scopeIdentity: 'scope:immediate',
+        kind: 'singleFolder', displayName: 'Immediate', navigationUri: 'file:///fixtures/immediate',
+        environment: 'local', roots: [{
+            id: 'root:immediate', name: 'Immediate', uri: 'file:///fixtures/immediate',
+            hostPath: '/fixtures/immediate', ordinal: 0,
+        }],
+    };
+    let signal = {
+        token: 'completed:1', phase: 'needsAttention', reason: 'completed',
+        executionState: 'stopped', occurredAtMs: 1,
+    };
+    let holdPublish = false;
+    let releasePublish;
+    let effectiveChanges = 0;
+    const attention = new AiSessionAttentionController({
+        isEnabled: () => true,
+        getWorkspaceTarget: () => ({
+            cardId: 'workspace:immediate', workspace,
+            sessions: { sessionsByProvider: { codex: [{ id: 'session', primaryRootId: 'root:immediate' }] } },
+        }),
+        getProviders: () => [{ id: 'codex', service: { getLifecycleSignals: () => ({ session: signal }) } }],
+        getRuntimeById: () => ({ state: 'active', runStartedAtMs: 0 }),
+        publish: async () => {
+            if (holdPublish) {
+                await new Promise(resolve => { releasePublish = resolve; });
+            }
+            return true;
+        },
+        scheduleRefresh: () => undefined,
+        onEffectiveAggregateChanged: () => { effectiveChanges += 1; },
+        nowMs: () => 1,
+    });
+
+    await attention.evaluate([], { codex: { session: signal } });
+    assert.equal(attention.getEffectiveAggregate().sessions.length, 1);
+    const changesBeforeRunning = effectiveChanges;
+    signal = {
+        token: 'running:2', phase: 'running', executionState: 'running', occurredAtMs: 2,
+    };
+    holdPublish = true;
+    const pending = attention.evaluate([], { codex: { session: signal } });
+
+    assert.equal(attention.getEffectiveAggregate().sessions.length, 0,
+        'the stale attention event is hidden without waiting for bridge delivery');
+    assert.equal(effectiveChanges, changesBeforeRunning + 1,
+        'local observers receive the mutually exclusive state immediately');
+    releasePublish();
+    await pending;
+});
+
 test('ATTENTION-EXECUTION-STATE-SYNC-001 coalesces attention requests and never downgrades a pending runtime pass', async () => {
     const observed = [];
     let release;
@@ -1221,7 +1273,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 rejects an out-of-order signal in both 
 });
 
 // ATTENTION-BRIDGE-STALENESS-001
-function makeStalenessFixture() {
+function makeStalenessFixture(onEffectiveAggregateChanged = () => undefined) {
     const workspace = {
         navigationIdentity: 'navigation:fixture', scopeIdentity: 'scope:fixture',
         kind: 'singleFolder', displayName: 'Fixture', navigationUri: 'file:///fixtures/project',
@@ -1252,6 +1304,7 @@ function makeStalenessFixture() {
             return publishSucceeds;
         },
         scheduleRefresh: () => undefined,
+        onEffectiveAggregateChanged,
         nowMs: () => nowMs,
     });
     const evaluate = () => controller.evaluate([], { codex: { ...signals } });
@@ -1436,6 +1489,46 @@ test('ATTENTION-BRIDGE-STALENESS-001 trusts the aggregate again once publishing 
 
     assert.deepEqual(f.dotSessions(), ['codex:peer'],
         'a recovered bridge is authoritative again, including peers we could not observe');
+});
+
+test('ATTENTION-BRIDGE-STALENESS-001 notifies observers when recovery changes the effective aggregate source', async () => {
+    const emissions = [];
+    const f = makeStalenessFixture(() => emissions.push('changed'));
+    f.setSignal({
+        token: 'task-complete:1000', phase: 'needsAttention', reason: 'completed',
+        executionState: 'stopped', occurredAtMs: 1000,
+    });
+    await f.evaluate();
+    f.echoBridge();
+    f.breakBridge();
+    for (let i = 0; i < 12; i += 1) {
+        f.advance(1000);
+        await f.evaluate();
+    }
+
+    const projectId = attentionProject.getAttentionProjectKey('/fixtures/project');
+    f.controller.setRemoteAggregate(aggregateAttentionSnapshots([{
+        version: 1, generatedAtMs: f.nowMs(),
+        items: [{
+            projectId, sessionKey: 'codex:peer', state: 'needsAttention',
+            eventId: 'peer-event', reason: 'completed', observedAtMs: f.nowMs(),
+        }],
+        instanceId: 'c'.repeat(32), sequence: 9, heartbeat: 9,
+    }], new Set(), f.nowMs()));
+    const beforeRecovery = emissions.length;
+
+    f.healBridge();
+    f.addSession('later');
+    f.advance(1000);
+    f.setSignal({
+        token: 'later-complete:14000', phase: 'needsAttention', reason: 'completed',
+        executionState: 'stopped', occurredAtMs: 14000,
+    }, 'later');
+    await f.evaluate();
+
+    assert.equal(emissions.length, beforeRecovery + 2,
+        'local mutation and the recovered authoritative source each notify observers');
+    assert.deepEqual(f.dotSessions(), ['codex:peer']);
 });
 
 test('ATTENTION-EXECUTION-STATE-SYNC-001 drives both status passes from one read per tick', async () => {

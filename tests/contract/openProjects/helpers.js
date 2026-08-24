@@ -10,6 +10,10 @@ const OLDER = '2'.repeat(32);
 const NEWER = '3'.repeat(32);
 const OTHER = '4'.repeat(32);
 
+function makeRunningSessionToken(value) {
+    return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
 function makeRecord(overrides = {}) {
     const sourceUri = overrides.navigationUri || overrides.uri || '/work/shared';
     const navigationUri = sourceUri.includes(':') ? sourceUri : `file://${sourceUri}`;
@@ -26,6 +30,7 @@ function makeRecord(overrides = {}) {
         uri: navigationUri,
         ordinal: 0,
     }];
+    const runningAiSessionCount = overrides.runningAiSessionCount ?? overrides.activeSessionCount ?? 0;
     return {
         navigationIdentity,
         scopeIdentity,
@@ -33,14 +38,17 @@ function makeRecord(overrides = {}) {
         displayName: overrides.displayName || overrides.name || 'Shared',
         navigationUri,
         environment,
-        runningAiSessionCount: overrides.runningAiSessionCount ?? overrides.activeSessionCount ?? 0,
+        runningAiSessionCount,
+        runningAiSessionKeys: overrides.runningAiSessionKeys
+            ?? Array.from({ length: runningAiSessionCount }, (_, index) =>
+                makeRunningSessionToken(`fixture:running-${index}`)),
         roots,
     };
 }
 
 function makePublication(overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         instanceId: SELF,
         sequence: 1,
         followsFocusEvent: false,
@@ -51,7 +59,7 @@ function makePublication(overrides = {}) {
 
 function makeRegistration(instanceId = SELF, lastFocusedAtMs = 4000, uri = '/work/shared', overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         instanceId,
         sequence: 1,
         openedAtMs: overrides.openedAtMs ?? lastFocusedAtMs,
@@ -64,7 +72,7 @@ function makeRegistration(instanceId = SELF, lastFocusedAtMs = 4000, uri = '/wor
 
 function makeAggregate(registrations, overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         semanticRevision: 'a'.repeat(64),
         observedAtMs: 5000,
         registrations,
@@ -171,6 +179,7 @@ module.exports = {
     flushAsync,
     loadWithFakeVscode,
     makeAggregate,
+    makeRunningSessionToken,
     makePublication,
     makeRecord,
     makeRegistration,

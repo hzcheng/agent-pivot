@@ -5,7 +5,7 @@ import { URL } from 'url';
 
 import type { OpenWorkspaceEnvironment, OpenWorkspaceKind } from '../workspaces/types';
 
-export const OPEN_WORKSPACE_PROTOCOL_VERSION = 4;
+export const OPEN_WORKSPACE_PROTOCOL_VERSION = 5;
 export const OPEN_WORKSPACE_NAVIGATE_COMMAND = '_agentPivotOpenWorkspaces.bridge.navigate';
 export const OPEN_WORKSPACE_CAPABILITIES = {
     workspaces: true,
@@ -23,9 +23,11 @@ export const MAX_OPEN_WORKSPACE_ROOTS = 100;
 export const MAX_OPEN_WORKSPACE_REGISTRATIONS = 100;
 export const MAX_OPEN_WORKSPACE_STRING_LENGTH = 8192;
 export const MAX_OPEN_WORKSPACE_RECORDS = MAX_OPEN_WORKSPACE_REGISTRATIONS;
+export const MAX_OPEN_WORKSPACE_RUNNING_SESSION_KEYS = 100;
 
 const OPEN_WORKSPACE_INSTANCE_ID_PATTERN = /^[a-f0-9]{32}$/;
 const OPEN_WORKSPACE_IDENTITY_PATTERN = /^[a-f0-9]{64}$/;
+const OPEN_WORKSPACE_SESSION_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 const URI_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const INVALID_PERCENT_ESCAPE_PATTERN = /%(?![0-9a-fA-F]{2})/;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f-\u009f]/;
@@ -46,19 +48,21 @@ export interface OpenWorkspaceRecord {
     navigationUri: string;
     environment: OpenWorkspaceEnvironment;
     runningAiSessionCount: number;
+    /** Opaque SHA-256 tokens for logical sessions executing in this window. */
+    runningAiSessionKeys: string[];
     roots: OpenWorkspaceRootRecord[];
 }
 
-export interface OpenWorkspacePublicationV4 {
-    protocolVersion: 4;
+export interface OpenWorkspacePublicationV5 {
+    protocolVersion: 5;
     instanceId: string;
     sequence: number;
     followsFocusEvent: boolean;
     workspace: OpenWorkspaceRecord | null;
 }
 
-export interface OpenWorkspaceRegistrationV4 {
-    protocolVersion: 4;
+export interface OpenWorkspaceRegistrationV5 {
+    protocolVersion: 5;
     instanceId: string;
     sequence: number;
     openedAtMs: number;
@@ -67,26 +71,26 @@ export interface OpenWorkspaceRegistrationV4 {
     workspace: OpenWorkspaceRecord | null;
 }
 
-export interface OpenWorkspaceAggregateV4 {
-    protocolVersion: 4;
+export interface OpenWorkspaceAggregateV5 {
+    protocolVersion: 5;
     semanticRevision: string;
     observedAtMs: number;
-    registrations: OpenWorkspaceRegistrationV4[];
+    registrations: OpenWorkspaceRegistrationV5[];
 }
 
-export interface OpenWorkspaceNavigationRequestV4 {
-    protocolVersion: 4;
+export interface OpenWorkspaceNavigationRequestV5 {
+    protocolVersion: 5;
     navigationIdentity: string;
 }
 
-export interface OpenWorkspaceNavigationOutcomeV4 {
-    protocolVersion: 4;
+export interface OpenWorkspaceNavigationOutcomeV5 {
+    protocolVersion: 5;
     opened: true;
 }
 
-export type OpenWorkspacePublication = OpenWorkspacePublicationV4;
-export type OpenWorkspaceRegistration = OpenWorkspaceRegistrationV4;
-export type OpenWorkspaceAggregate = OpenWorkspaceAggregateV4;
+export type OpenWorkspacePublication = OpenWorkspacePublicationV5;
+export type OpenWorkspaceRegistration = OpenWorkspaceRegistrationV5;
+export type OpenWorkspaceAggregate = OpenWorkspaceAggregateV5;
 
 function requireObject(value: unknown, label: string): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -105,7 +109,7 @@ function requireExactKeys(value: Record<string, unknown>, label: string, require
     }
 }
 
-function requireProtocolVersion(value: unknown): 4 {
+function requireProtocolVersion(value: unknown): 5 {
     if (value !== OPEN_WORKSPACE_PROTOCOL_VERSION) {
         throw new Error(`protocolVersion must equal ${OPEN_WORKSPACE_PROTOCOL_VERSION}`);
     }
@@ -219,6 +223,20 @@ function validateRoots(value: unknown): OpenWorkspaceRootRecord[] {
     return roots;
 }
 
+function validateRunningAiSessionKeys(value: unknown): string[] {
+    if (!Array.isArray(value) || value.length > MAX_OPEN_WORKSPACE_RUNNING_SESSION_KEYS) {
+        throw new Error(`runningAiSessionKeys must contain at most ${MAX_OPEN_WORKSPACE_RUNNING_SESSION_KEYS} keys`);
+    }
+    const keys = value.map(key => requireBoundedString(key, 'running AI session token'));
+    if (keys.some(key => !OPEN_WORKSPACE_SESSION_TOKEN_PATTERN.test(key))) {
+        throw new Error('runningAiSessionKeys must contain SHA-256 session tokens');
+    }
+    if (new Set(keys).size !== keys.length) {
+        throw new Error('runningAiSessionKeys must be unique');
+    }
+    return keys.sort();
+}
+
 export function validateOpenWorkspaceRecord(value: unknown): OpenWorkspaceRecord {
     const workspace = requireObject(value, 'open workspace record');
     requireExactKeys(workspace, 'open workspace record', [
@@ -229,6 +247,7 @@ export function validateOpenWorkspaceRecord(value: unknown): OpenWorkspaceRecord
         'navigationUri',
         'environment',
         'runningAiSessionCount',
+        'runningAiSessionKeys',
         'roots',
     ]);
     const record = {
@@ -242,8 +261,12 @@ export function validateOpenWorkspaceRecord(value: unknown): OpenWorkspaceRecord
             workspace.runningAiSessionCount,
             'runningAiSessionCount',
         ),
+        runningAiSessionKeys: validateRunningAiSessionKeys(workspace.runningAiSessionKeys),
         roots: validateRoots(workspace.roots),
     };
+    if (record.runningAiSessionCount !== record.runningAiSessionKeys.length) {
+        throw new Error('runningAiSessionCount must equal runningAiSessionKeys.length');
+    }
     if (record.kind === 'singleFolder' && record.roots.length !== 1) {
         throw new Error('singleFolder must contain exactly one root');
     }
@@ -257,7 +280,7 @@ function validateOptionalWorkspace(value: unknown): OpenWorkspaceRecord | null {
     return value === null ? null : validateOpenWorkspaceRecord(value);
 }
 
-export function validateOpenWorkspacePublication(value: unknown): OpenWorkspacePublicationV4 {
+export function validateOpenWorkspacePublication(value: unknown): OpenWorkspacePublicationV5 {
     const publication = requireObject(value, 'open workspace publication');
     requireExactKeys(publication, 'open workspace publication', [
         'protocolVersion',
@@ -279,7 +302,7 @@ export function validateOpenWorkspacePublication(value: unknown): OpenWorkspaceP
     };
 }
 
-export function validateOpenWorkspaceRegistration(value: unknown): OpenWorkspaceRegistrationV4 {
+export function validateOpenWorkspaceRegistration(value: unknown): OpenWorkspaceRegistrationV5 {
     const registration = requireObject(value, 'open workspace registration');
     requireExactKeys(registration, 'open workspace registration', [
         'protocolVersion',
@@ -302,7 +325,7 @@ export function validateOpenWorkspaceRegistration(value: unknown): OpenWorkspace
     };
 }
 
-export function validateOpenWorkspaceAggregate(value: unknown): OpenWorkspaceAggregateV4 {
+export function validateOpenWorkspaceAggregate(value: unknown): OpenWorkspaceAggregateV5 {
     const aggregate = requireObject(value, 'open workspace aggregate');
     requireExactKeys(aggregate, 'open workspace aggregate', [
         'protocolVersion',
@@ -331,7 +354,7 @@ export function validateOpenWorkspaceAggregate(value: unknown): OpenWorkspaceAgg
     };
 }
 
-export function validateOpenWorkspaceNavigationRequest(value: unknown): OpenWorkspaceNavigationRequestV4 {
+export function validateOpenWorkspaceNavigationRequest(value: unknown): OpenWorkspaceNavigationRequestV5 {
     const request = requireObject(value, 'open workspace navigation request');
     requireExactKeys(request, 'open workspace navigation request', [
         'protocolVersion',
@@ -343,7 +366,7 @@ export function validateOpenWorkspaceNavigationRequest(value: unknown): OpenWork
     };
 }
 
-export function validateOpenWorkspaceNavigationOutcome(value: unknown): OpenWorkspaceNavigationOutcomeV4 {
+export function validateOpenWorkspaceNavigationOutcome(value: unknown): OpenWorkspaceNavigationOutcomeV5 {
     const outcome = requireObject(value, 'open workspace navigation outcome');
     requireExactKeys(outcome, 'open workspace navigation outcome', [
         'protocolVersion',
@@ -376,13 +399,14 @@ function createWorkspaceSemanticDescriptor(workspace: OpenWorkspaceRecord | null
         workspace.navigationUri,
         workspace.environment,
         workspace.runningAiSessionCount,
+        workspace.runningAiSessionKeys.slice().sort(),
         workspace.roots
             .map(root => [root.id, root.name, root.uri, root.ordinal])
             .sort(compareSemanticDescriptors),
     ];
 }
 
-export function createOpenWorkspaceSemanticRevision(registrations: OpenWorkspaceRegistrationV4[]): string {
+export function createOpenWorkspaceSemanticRevision(registrations: OpenWorkspaceRegistrationV5[]): string {
     const semanticRegistrations = (registrations || [])
         .map(validateOpenWorkspaceRegistration)
         .map(registration => [

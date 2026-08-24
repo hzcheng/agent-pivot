@@ -144,14 +144,15 @@ function openWorkspaceAggregate(workspace, revisionCharacter) {
     const publishedWorkspace = {
         ...workspace,
         runningAiSessionCount: 0,
+        runningAiSessionKeys: [],
         roots: workspace.roots.map(({ hostPath: _hostPath, ...root }) => root),
     };
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         semanticRevision: revisionCharacter.repeat(64),
         observedAtMs: 300,
         registrations: [{
-            protocolVersion: 4,
+            protocolVersion: 5,
             instanceId: OTHER_INSTANCE,
             sequence: 1,
             openedAtMs: 270,

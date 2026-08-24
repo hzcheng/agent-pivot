@@ -1743,10 +1743,10 @@ for (const mutation of [
     {
         id: 'ARCH-PROTOCOL-001',
         file: 'src/openWorkspaces/protocol.ts',
-        expectedDetail: 'open-workspace protocol version must remain 4 until an explicit migration exists',
+        expectedDetail: 'open-workspace protocol version must remain 5 after the running-session identity migration',
         mutate: source => replaceFixtureSource(source,
-            'OPEN_WORKSPACE_PROTOCOL_VERSION = 4', 'OPEN_WORKSPACE_PROTOCOL_VERSION = 5',
-            '\nconst OLD_OPEN_WORKSPACE_PROTOCOL_VERSION = 4;\n'),
+            'OPEN_WORKSPACE_PROTOCOL_VERSION = 5', 'OPEN_WORKSPACE_PROTOCOL_VERSION = 6',
+            '\nconst OLD_OPEN_WORKSPACE_PROTOCOL_VERSION = 5;\n'),
     },
     {
         id: 'ARCH-PROTOCOL-001',

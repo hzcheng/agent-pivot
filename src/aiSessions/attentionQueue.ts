@@ -9,6 +9,7 @@ import {
     getAttentionProjectKey,
     getAttentionProjectPath,
     getAttentionSessionLookupKey,
+    getAttentionSessionIdentityToken,
     getLogicalAttentionSessionKey,
 } from './attentionProject';
 import { getAiSessionKey } from './sessionHelpers';
@@ -62,6 +63,8 @@ const ATTENTION_LOGICAL_KEY_PATTERN = /^(codex|kimi|claude):(.+)$/;
 export function buildAttentionQueue(input: {
     aggregate: AttentionAggregate | null;
     workspace: AttentionQueueWorkspace | null;
+    /** Privacy-safe tokens for logical sessions currently running anywhere. */
+    runningSessionTokens?: readonly string[];
 }): AttentionQueue {
     const localLookupKeys = new Set<string>();
     const localNames = new Map<string, string>();
@@ -91,9 +94,13 @@ export function buildAttentionQueue(input: {
             }
         }
     }
+    const runningSessionTokens = new Set(input.runningSessionTokens || []);
     const items: AttentionQueueItem[] = [];
     for (const session of input.aggregate?.sessions || []) {
         const logicalKey = getLogicalAttentionSessionKey(session.sessionKey);
+        if (runningSessionTokens.has(getAttentionSessionIdentityToken(logicalKey))) {
+            continue;
+        }
         const match = ATTENTION_LOGICAL_KEY_PATTERN.exec(logicalKey);
         if (!match) {
             continue;

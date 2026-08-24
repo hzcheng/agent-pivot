@@ -81,6 +81,8 @@ import {
     getAttentionProjectKey,
     getAttentionProjectPath,
     getAttentionProjectKeys,
+    getAttentionAggregateSummary,
+    getAttentionSessionIdentityToken,
     getAttentionSummaryForProjectKeys,
     getLogicalAttentionSessionKey,
 } from './aiSessions/attentionProject';
@@ -239,10 +241,11 @@ import {
 import { DashboardStartupController, settleMigration } from './dashboard/startupController';
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
+import type { OpenWorkspaceBridgeStatus } from './openWorkspaces/bridgeClient';
 import { EarlyOpenWorkspaceBridge } from './openWorkspaces/earlyBridge';
 import {
     createOpenWorkspacePublication,
-    sumOpenWorkspaceRunningAiSessionCounts,
+    getOpenWorkspaceRunningAiSessionKeys,
 } from './openWorkspaces/projection';
 import type { OpenWorkspaceAggregate } from './openWorkspaces/protocol';
 import { OpenWorkspaceDashboardController } from './openWorkspaces/dashboardController';
@@ -2003,50 +2006,55 @@ async function initializeDashboard(
         readSessionStatus: viewerTarget => {
             const attentionAggregate = aiSessionAttentionController
                 .getEffectiveAggregate();
-            // This window's workspace: running counts come from the bridge
-            // registration carrying our own instanceId; attention sessions
-            // filter by this window's root-derived project keys.
-            const ownRegistration = latestOpenWorkspaceAggregate?.registrations
-                .find(registration =>
-                    registration.instanceId === openWorkspaceBridgeClient?.instanceId);
+            // Local running state comes directly from this extension host;
+            // ready bridge registrations contribute peers only. This keeps
+            // one snapshot from mixing a live local terminal with a stale
+            // self-registration.
             const ownProjectKeys = getAttentionProjectKeys(
                 (getCurrentOpenWorkspace()?.roots || []).map(root => root.uri));
-            // The telemetry-bar provider icon mirrors the viewed session's
-            // lifecycle group. Classification reuses the status-cycle
-            // sources: the local attention queue first (attention wins over
-            // running), then this window's active sessions.
+            const localRunningSessionKeys = getCurrentWorkspaceRunningAiSessionKeys();
+            const allRunningSessionKeys = getVisibleRunningAiSessionKeys(
+                localRunningSessionKeys
+            );
+            const attentionSummary = getAttentionAggregateSummary(
+                attentionAggregate, allRunningSessionKeys
+            );
+            const localAttentionSummary = attentionAggregate
+                ? getAttentionSummaryForProjectKeys(
+                    ownProjectKeys, attentionAggregate, allRunningSessionKeys)
+                : { attentionCount: 0 };
+            // The provider icon mirrors the viewed session's mutually
+            // exclusive lifecycle group. A fresh running signal always wins
+            // over a delayed attention aggregate from the preceding turn.
             let currentSessionKind: 'running' | 'attention' | 'idle' | undefined;
             if (viewerTarget?.sessionId) {
-                const needsAttention = buildCurrentAttentionQueue().items
-                    .some(item => item.local
-                        && item.provider === viewerTarget.provider
-                        && item.sessionId === viewerTarget.sessionId);
+                const viewerSessionToken = getAttentionSessionIdentityToken(
+                    getAiSessionKey(viewerTarget.provider, viewerTarget.sessionId)
+                );
                 const activeSession = (
                     getCurrentWorkspaceActionTargetWithoutCardId()
                         ?.sessions.activeSessions || []
                 ).find(session =>
                     session.provider === viewerTarget.provider
                     && session.sessionId === viewerTarget.sessionId);
-                currentSessionKind = needsAttention
-                    ? 'attention'
-                    : activeSession
-                        ? activeSession.executionState === 'running'
-                            ? 'running'
-                            : 'idle'
-                        : undefined;
+                const needsAttention = buildCurrentAttentionQueue().items
+                    .some(item => item.local
+                        && item.provider === viewerTarget.provider
+                        && item.sessionId === viewerTarget.sessionId);
+                currentSessionKind = activeSession?.executionState === 'running'
+                    ? 'running'
+                    : allRunningSessionKeys.includes(viewerSessionToken)
+                        ? 'running'
+                        : needsAttention
+                        ? 'attention'
+                        : activeSession ? 'idle' : undefined;
             }
             return {
-                runningSessions: sumOpenWorkspaceRunningAiSessionCounts(
-                    latestOpenWorkspaceAggregate
-                ),
-                attentionSessions: attentionAggregate?.sessions.length ?? 0,
-                runningSessionsLocal:
-                    ownRegistration?.workspace?.runningAiSessionCount ?? 0,
-                attentionSessionsLocal: attentionAggregate
-                    ? getAttentionSummaryForProjectKeys(
-                        ownProjectKeys, attentionAggregate).attentionCount
-                    : 0,
-                idleSessionsLocal: listLocalIdleAiSessions().length,
+                runningSessions: allRunningSessionKeys.length,
+                attentionSessions: attentionSummary.attentionCount,
+                runningSessionsLocal: localRunningSessionKeys.length,
+                attentionSessionsLocal: localAttentionSummary.attentionCount,
+                idleSessionsLocal: listLocalIdleAiSessions(allRunningSessionKeys).length,
                 currentSessionKind,
             };
         },
@@ -2583,20 +2591,45 @@ async function initializeDashboard(
     };
     let openWorkspaceBridgeClient: OpenWorkspaceBridgeClient;
     let latestOpenWorkspaceAggregate: OpenWorkspaceAggregate | null = null;
+    let openWorkspaceBridgeStatus: OpenWorkspaceBridgeStatus = 'connecting';
+    const getRunningAiSessionKeysForWorkspace = (workspace: OpenWorkspace): string[] => {
+        const executionSnapshot = aiSessionExecutionController.getSnapshot();
+        const keys = new Set<string>();
+        for (const runtime of aiSessionRuntimeCoordinator.getActive()) {
+            const sessionId = runtime.identity.sessionId;
+            if (!hasWorkspaceRuntimeContinuity(workspace, runtime) || !sessionId) {
+                continue;
+            }
+            const key = getAiSessionKey(runtime.identity.provider, sessionId);
+            if (executionSnapshot[key]?.state === 'running') {
+                keys.add(getAttentionSessionIdentityToken(key));
+            }
+        }
+        return Array.from(keys).sort();
+    };
+    const getCurrentWorkspaceRunningAiSessionKeys = (): string[] => {
+        const workspace = getCurrentOpenWorkspace();
+        return workspace ? getRunningAiSessionKeysForWorkspace(workspace) : [];
+    };
+    const getVisibleRunningAiSessionKeys = (
+        localRunningAiSessionKeys = getCurrentWorkspaceRunningAiSessionKeys(),
+    ): string[] => {
+        const peerRunningAiSessionKeys = openWorkspaceBridgeStatus === 'ready'
+            ? getOpenWorkspaceRunningAiSessionKeys(
+                latestOpenWorkspaceAggregate,
+                openWorkspaceBridgeClient?.instanceId || '',
+            )
+            : [];
+        return Array.from(new Set([
+            ...localRunningAiSessionKeys,
+            ...peerRunningAiSessionKeys,
+        ])).sort();
+    };
     openWorkspaceController = new OpenWorkspaceController({
         getWorkspace: resolveCurrentOpenWorkspace,
-        getRunningAiSessionCount: workspace => {
-            const executionSnapshot = aiSessionExecutionController.getSnapshot();
-            return aiSessionRuntimeCoordinator.getActive().filter(runtime => {
-                const sessionId = runtime.identity.sessionId;
-                return hasWorkspaceRuntimeContinuity(workspace, runtime)
-                    && Boolean(sessionId)
-                    && executionSnapshot[getAiSessionKey(
-                        runtime.identity.provider,
-                        sessionId as string,
-                    )]?.state === 'running';
-            }).length;
-        },
+        getRunningAiSessionKeys: getRunningAiSessionKeysForWorkspace,
+        getRunningAiSessionCount: workspace =>
+            getRunningAiSessionKeysForWorkspace(workspace).length,
         publishWorkspace: (workspace, followsFocusEvent) =>
             openWorkspaceBridgeClient.publish(workspace, followsFocusEvent),
     });
@@ -2711,12 +2744,17 @@ async function initializeDashboard(
     // Restored provisioning rows were held back during construction; publish
     // them only now that every controller they refresh is initialized.
     isolatedSessionController?.publishRestoredRows();
-    const listLocalIdleAiSessions = () =>
-        (getCurrentWorkspaceActionTargetWithoutCardId()
+    const listLocalIdleAiSessions = (runningSessionTokens: readonly string[] = []) => {
+        const running = new Set(runningSessionTokens);
+        return (getCurrentWorkspaceActionTargetWithoutCardId()
             ?.sessions.activeSessions || [])
             .filter(session => session.executionState !== 'running'
                 && !session.needsAttention
-                && Boolean(session.sessionId));
+                && Boolean(session.sessionId)
+                && !running.has(getAttentionSessionIdentityToken(
+                    getAiSessionKey(session.provider, session.sessionId as string)
+                )));
+    };
     const buildCurrentAttentionQueue = (): AttentionQueue => {
         const target = getCurrentWorkspaceActionTargetWithoutCardId();
         let workspace: AttentionQueueWorkspace | null = null;
@@ -2744,6 +2782,7 @@ async function initializeDashboard(
         const queue = buildAttentionQueue({
             aggregate: aiSessionAttentionController.getEffectiveAggregate(),
             workspace,
+            runningSessionTokens: getVisibleRunningAiSessionKeys(),
         });
         return filterAttentionQueueToReachableWindows(
             queue,
@@ -3056,6 +3095,7 @@ async function initializeDashboard(
     openWorkspaceBridgeClient = earlyOpenWorkspaceBridge.adopt({
         onAggregate: aggregate => {
             latestOpenWorkspaceAggregate = aggregate;
+            openWorkspaceBridgeStatus = 'ready';
             const statusChanged = openWorkspaceDashboardController.setBridgeStatus('ready');
             const aggregateChanged = openWorkspaceDashboardController.setAggregate(aggregate);
             if (aggregateChanged || statusChanged) {
@@ -3071,10 +3111,15 @@ async function initializeDashboard(
         },
         onError: error => logOpenWorkspaceBridgeError(error),
         onStatusChange: status => {
+            openWorkspaceBridgeStatus = status;
+            if (status !== 'ready') {
+                latestOpenWorkspaceAggregate = null;
+            }
             if (openWorkspaceDashboardController.setBridgeStatus(status)) {
                 attentionStatusBarController?.refresh(buildCurrentAttentionQueue());
                 postOpenWorkspacesUpdated();
             }
+            void conversationCapability.viewer.publishSessionStatus();
         },
         onPinSnapshot: snapshot => {
             if (openWorkspaceDashboardController.setPinSnapshot(snapshot)) {

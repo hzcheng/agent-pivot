@@ -20,13 +20,27 @@ export interface AttentionProjectSummary {
 
 export type AttentionSummary = Pick<AttentionProjectSummary, 'attentionCount' | 'eventIds' | 'sessions'>;
 
+/**
+ * Privacy-safe cross-window identity for a logical session. Open-workspace
+ * publications persist this token rather than provider/session identifiers.
+ */
+export function getAttentionSessionIdentityToken(sessionKey: string): string {
+    return crypto.createHash('sha256')
+        .update(getLogicalAttentionSessionKey(sessionKey))
+        .digest('hex');
+}
+
 function summarizeAttentionSessions(
-    sourceSessions: readonly AggregatedAttentionSession[]
+    sourceSessions: readonly AggregatedAttentionSession[],
+    runningSessionTokens: ReadonlySet<string> = new Set<string>(),
 ): AttentionSummary {
     const allEventIds = new Set<string>();
     const sessionEventIds = new Map<string, Set<string>>();
     for (const session of sourceSessions) {
         const sessionKey = getLogicalAttentionSessionKey(session.sessionKey);
+        if (runningSessionTokens.has(getAttentionSessionIdentityToken(sessionKey))) {
+            continue;
+        }
         let events = sessionEventIds.get(sessionKey);
         if (!events) {
             events = new Set<string>();
@@ -95,11 +109,28 @@ export function getAttentionProjectKeys(projectPaths: readonly string[]): string
 
 export function getAttentionSummaryForProjectKeys(
     projectKeys: readonly string[],
-    aggregate: AttentionAggregate | null
+    aggregate: AttentionAggregate | null,
+    runningSessionTokens: readonly string[] = [],
 ): AttentionSummary {
     const selectedProjectKeys = new Set((projectKeys || []).filter(Boolean));
     return summarizeAttentionSessions(
-        (aggregate?.sessions || []).filter(session => selectedProjectKeys.has(session.projectId))
+        (aggregate?.sessions || []).filter(session => selectedProjectKeys.has(session.projectId)),
+        new Set(runningSessionTokens || []),
+    );
+}
+
+/**
+ * Projects the shared aggregate into mutually exclusive lifecycle groups.
+ * A session actively running in any registered window must never remain in
+ * the attention count while its older bridge event is still in flight.
+ */
+export function getAttentionAggregateSummary(
+    aggregate: AttentionAggregate | null,
+    runningSessionTokens: readonly string[] = [],
+): AttentionSummary {
+    return summarizeAttentionSessions(
+        aggregate?.sessions || [],
+        new Set(runningSessionTokens || []),
     );
 }
 

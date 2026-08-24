@@ -75,7 +75,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({
-            protocolVersion: 4,
+            protocolVersion: 5,
             instanceId: 'c'.repeat(32),
             sequence: 1,
             followsFocusEvent: true,
@@ -87,6 +87,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
                 navigationUri: 'file:///home/sensitive-user/private-project',
                 environment: 'ssh',
                 runningAiSessionCount: 0,
+                runningAiSessionKeys: [],
                 roots: [{
                     id: '3'.repeat(64),
                     name: 'reddb',
@@ -102,11 +103,11 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             .find(registration => registration.instanceId === 'c'.repeat(32)).workspace;
         const navigate = registered.get('_agentPivotOpenWorkspaces.bridge.navigate');
         const navigationOutcome = await navigate({
-            protocolVersion: 4,
+            protocolVersion: 5,
             navigationIdentity: authoritativeWorkspace.navigationIdentity,
         });
         assert.deepEqual(navigationOutcome, {
-            protocolVersion: 4,
+            protocolVersion: 5,
             opened: true,
         });
         assert.deepEqual(
@@ -212,7 +213,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             snapshots: true, acknowledgements: true, atomicReplace: true,
         });
         assert.equal((await registered.get('_agentPivotOpenWorkspaces.bridge.handshake')({
-            protocolVersion: 4,
+            protocolVersion: 5,
             mainExtensionVersion: '2.1.3',
             instanceId: 'd'.repeat(32),
             capabilities: {
@@ -320,14 +321,14 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
     };
     const instanceId = 'c'.repeat(32);
     const instanceFile = path.join(
-        root, 'agent-pivot', 'bridge', 'v1', 'open-workspaces', 'v4', 'instances',
+        root, 'agent-pivot', 'bridge', 'v1', 'open-workspaces', 'v5', 'instances',
         `${instanceId}.json`
     );
     try {
         const extension = require(extensionPath);
         await extension.activate(context);
         await registered.get('_agentPivotOpenWorkspaces.bridge.publish')({
-            protocolVersion: 4,
+            protocolVersion: 5,
             instanceId,
             sequence: 1,
             followsFocusEvent: true,
@@ -339,6 +340,7 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
                 navigationUri: 'file:///home/sensitive-user/private-project',
                 environment: 'ssh',
                 runningAiSessionCount: 0,
+                runningAiSessionKeys: [],
                 roots: [{
                     id: '3'.repeat(64),
                     name: 'reddb',

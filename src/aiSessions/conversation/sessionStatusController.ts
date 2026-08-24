@@ -111,6 +111,7 @@ export function formatConversationSessionStatusLabel(
 
 export class ConversationSessionStatusController {
     private lastDeliveredKey: string | undefined;
+    private publishFlight: Promise<void> = Promise.resolve();
 
     constructor(
         private readonly options: ConversationSessionStatusControllerOptions
@@ -128,11 +129,32 @@ export class ConversationSessionStatusController {
     }
 
     async republish(): Promise<void> {
-        this.lastDeliveredKey = undefined;
-        return this.publish();
+        return this.enqueuePublish(true);
     }
 
     async publish(): Promise<void> {
+        return this.enqueuePublish(false);
+    }
+
+    /**
+     * Open-workspace and attention bridge callbacks can arrive concurrently.
+     * Serialize their reads and deliveries so a status captured before the
+     * later lifecycle edge cannot be posted after the newer status with the
+     * same viewer request id.
+     */
+    private enqueuePublish(force: boolean): Promise<void> {
+        const publish = async () => {
+            if (force) {
+                this.lastDeliveredKey = undefined;
+            }
+            await this.publishLatest();
+        };
+        const queued = this.publishFlight.then(publish, publish);
+        this.publishFlight = queued.then(() => undefined, () => undefined);
+        return queued;
+    }
+
+    private async publishLatest(): Promise<void> {
         const panel = this.options.getPanel();
         if (!panel || !this.options.readStatus || this.options.isSuspended()) {
             return;

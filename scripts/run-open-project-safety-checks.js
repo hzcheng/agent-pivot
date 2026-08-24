@@ -78,6 +78,7 @@ function makeWorkspaceRecord(index = 0, overrides = {}) {
         navigationUri: `file:///work/root-${index}`,
         environment: 'local',
         runningAiSessionCount: 0,
+        runningAiSessionKeys: [],
         roots: [makeWorkspaceRoot(index, { ordinal: 0 })],
         ...overrides,
     };
@@ -85,7 +86,7 @@ function makeWorkspaceRecord(index = 0, overrides = {}) {
 
 function makeWorkspacePublication(overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         instanceId: SELF,
         sequence: 1,
         followsFocusEvent: false,
@@ -96,7 +97,7 @@ function makeWorkspacePublication(overrides = {}) {
 
 function makeWorkspaceRegistration(instanceId = SELF, lastFocusedAtMs = 4000, workspace = makeWorkspaceRecord(), overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         instanceId,
         sequence: 1,
         openedAtMs: overrides.openedAtMs ?? lastFocusedAtMs,
@@ -109,7 +110,7 @@ function makeWorkspaceRegistration(instanceId = SELF, lastFocusedAtMs = 4000, wo
 
 function makeWorkspaceAggregate(registrations, overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         semanticRevision: 'a'.repeat(64),
         observedAtMs: 5000,
         registrations,
@@ -143,9 +144,9 @@ function hasClassTokens(classValue, ...tokens) {
     return tokens.every(token => classValue.split(/\s+/).includes(token));
 }
 
-function runWorkspaceProtocolV4Checks() {
-    assert.strictEqual(workspaceProtocol.OPEN_WORKSPACE_PROTOCOL_VERSION, 4,
-        'stable open-window ordering requires open-workspace protocol v4');
+function runWorkspaceProtocolV5Checks() {
+    assert.strictEqual(workspaceProtocol.OPEN_WORKSPACE_PROTOCOL_VERSION, 5,
+        'stable open-window ordering requires open-workspace protocol v5');
     const publication = makeWorkspacePublication();
     const registration = makeWorkspaceRegistration();
     const aggregate = makeWorkspaceAggregate([registration]);
@@ -456,7 +457,11 @@ function runWorkspaceProtocolV4Checks() {
     assert.notStrictEqual(
         workspaceProtocol.createOpenWorkspaceSemanticRevision([{
             ...registration,
-            workspace: { ...registration.workspace, runningAiSessionCount: 1 },
+            workspace: {
+                ...registration.workspace,
+                runningAiSessionCount: 1,
+                runningAiSessionKeys: ['a'.repeat(64)],
+            },
         }]),
         baseRevision,
         'running session changes must propagate through the cross-window semantic revision'
@@ -483,7 +488,7 @@ function runWorkspaceProtocolV4Checks() {
     );
 }
 
-function runWorkspaceProjectionV4Checks() {
+function runWorkspaceProjectionV5Checks() {
     const sourceWorkspace = {
         ...makeWorkspaceRecord(0, {
             kind: 'savedMultiRoot',
@@ -494,7 +499,9 @@ function runWorkspaceProjectionV4Checks() {
             ],
         }),
     };
-    const publicationRecord = workspaceProjection.createOpenWorkspacePublication(sourceWorkspace, 2);
+    const publicationRecord = workspaceProjection.createOpenWorkspacePublication(
+        sourceWorkspace, 2, ['a'.repeat(64), 'b'.repeat(64)]
+    );
     assert.strictEqual(Array.isArray(publicationRecord), false, 'a workspace publication is one record, not one record per root');
     assert.deepStrictEqual(Object.keys(publicationRecord).sort(), [
         'displayName',
@@ -504,6 +511,7 @@ function runWorkspaceProjectionV4Checks() {
         'navigationUri',
         'roots',
         'runningAiSessionCount',
+        'runningAiSessionKeys',
         'scopeIdentity',
     ]);
     assert.strictEqual(publicationRecord.runningAiSessionCount, 2);
@@ -526,6 +534,7 @@ function runWorkspaceProjectionV4Checks() {
         displayName: 'Newest duplicate',
         environment: 'ssh',
         runningAiSessionCount: 2,
+        runningAiSessionKeys: ['a'.repeat(64), 'b'.repeat(64)],
         roots: [makeWorkspaceRoot(71), makeWorkspaceRoot(72)],
     });
     const tiedIdentity = workspaceIdentity(80);
@@ -829,7 +838,7 @@ function runOpenWorkspacePublicationChecks() {
 async function runOpenWorkspaceStoreChecks() {
     const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-workspace-store-'));
     try {
-        const instancesDirectory = path.join(tempRoot, 'open-workspaces', 'v4', 'instances');
+        const instancesDirectory = path.join(tempRoot, 'open-workspaces', 'v5', 'instances');
         const v2Directory = path.join(tempRoot, 'open-workspaces', 'v2', 'instances');
         const ownRegistration = makeWorkspaceRegistration(SELF, 1000, makeWorkspaceRecord(1), {
             leaseUpdatedAtMs: 1000,
@@ -861,7 +870,7 @@ async function runOpenWorkspaceStoreChecks() {
         assert.strictEqual(
             (await store.scan(1000)).registrations.some(registration => registration.instanceId === OTHER),
             false,
-            'the v4 registry must never scan v2 owner files',
+            'the v5 registry must never scan v2 owner files',
         );
         await fs.promises.writeFile(path.join(instancesDirectory, `${OTHER}.json`), '{malformed');
         const malformed = await store.scan(1000);
@@ -926,7 +935,7 @@ async function runOpenWorkspaceCoordinatorChecks() {
         },
         clearInterval: () => undefined,
         createWatcher: directory => {
-            assert.strictEqual(directory, path.join(tempRoot, 'open-workspaces', 'v4', 'instances'));
+            assert.strictEqual(directory, path.join(tempRoot, 'open-workspaces', 'v5', 'instances'));
             return { close: () => undefined };
         },
         deliverAggregate: aggregate => delivered.push(aggregate),
@@ -965,7 +974,7 @@ async function runOpenWorkspaceCoordinatorChecks() {
         assert.strictEqual(emptyOwner.workspace, null);
         assert.notStrictEqual(delivered[delivered.length - 1].semanticRevision, semanticRevision);
 
-        await coordinator.unregister({ protocolVersion: 4, instanceId: SELF });
+        await coordinator.unregister({ protocolVersion: 5, instanceId: SELF });
         assert.deepStrictEqual((await observer.scan(now)).registrations, []);
     } finally {
         coordinator.dispose();
@@ -1064,7 +1073,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
             if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
                 return {
                     accepted: true,
-                    protocolVersion: 4,
+                    protocolVersion: 5,
                     bridgeExtensionVersion: '2.0.0',
                     capabilities: {
                         workspaces: true,
@@ -1114,7 +1123,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     }
     assert.ok(executions.some(value =>
         value.command === '_agentPivotOpenWorkspaces.bridge.unregister'
-        && value.argument.protocolVersion === 4
+        && value.argument.protocolVersion === 5
     ));
     assert.strictEqual(commands.size, 0);
 
@@ -1127,6 +1136,7 @@ async function runOpenWorkspaceClientAndControllerChecks() {
             return currentWorkspace;
         },
         getRunningAiSessionCount: () => 2,
+        getRunningAiSessionKeys: () => ['a'.repeat(64), 'b'.repeat(64)],
         publishWorkspace: (workspace, followsFocusEvent) => publications.push({ workspace, followsFocusEvent }),
     });
     workspaceController.publish();
@@ -1138,7 +1148,14 @@ async function runOpenWorkspaceClientAndControllerChecks() {
     workspaceController.publish(true);
     assert.strictEqual(workspaceResolutionCount, 2);
     assert.deepStrictEqual(publications, [
-        { workspace: { ...record, runningAiSessionCount: 2 }, followsFocusEvent: false },
+        {
+            workspace: {
+                ...record,
+                runningAiSessionCount: 2,
+                runningAiSessionKeys: ['a'.repeat(64), 'b'.repeat(64)],
+            },
+            followsFocusEvent: false,
+        },
         { workspace: null, followsFocusEvent: true },
     ]);
 
@@ -1347,7 +1364,7 @@ async function runWorkspaceNavigationControllerChecks() {
         executeCommand: async (...args) => {
             executions.push(args);
             if (directExecutionFails) { throw new Error('forced direct navigation failure'); }
-            return { protocolVersion: 4, opened: true };
+            return { protocolVersion: 5, opened: true };
         },
         showInformationMessage: message => { informationMessages.push(message); },
         showWarningMessage: message => { warningMessages.push(message); },
@@ -1381,7 +1398,7 @@ async function runWorkspaceNavigationControllerChecks() {
             assert.deepStrictEqual(executions, [[
                 '_agentPivotOpenWorkspaces.bridge.navigate',
                 {
-                    protocolVersion: 4,
+                    protocolVersion: 5,
                     navigationIdentity: record.navigationIdentity,
                 },
             ]], `${environment}/${kind} must route the exact identity through the UI Bridge`);
@@ -1426,7 +1443,7 @@ async function runWorkspaceNavigationControllerChecks() {
     assert.deepStrictEqual(executions, [[
         '_agentPivotOpenWorkspaces.bridge.navigate',
         {
-            protocolVersion: 4,
+            protocolVersion: 5,
             navigationIdentity: record.navigationIdentity,
         },
     ]]);
@@ -1441,7 +1458,7 @@ async function runOpenWorkspaceHardeningChecks() {
     const flush = () => new Promise(resolve => setImmediate(resolve));
     const acceptedHandshake = {
         accepted: true,
-        protocolVersion: 4,
+        protocolVersion: 5,
         bridgeExtensionVersion: '2.0.0',
         capabilities: {
             workspaces: true,
@@ -1459,7 +1476,7 @@ async function runOpenWorkspaceHardeningChecks() {
     const terminalHandshakeCases = [
         ['rejected response', { ...acceptedHandshake, accepted: false, errorCode: 'update-required' }],
         ['protocol version mismatch', { ...acceptedHandshake, protocolVersion: 2 }],
-        ['malformed response', { accepted: true, protocolVersion: 4 }],
+        ['malformed response', { accepted: true, protocolVersion: 5 }],
         ['capability mismatch', {
             ...acceptedHandshake,
             capabilities: { ...acceptedHandshake.capabilities, focusLeases: false },
@@ -3212,7 +3229,8 @@ function runDashboardBridgeLifecycleChecks() {
     );
     assert.strictEqual(openWorkspaceControllerWiring.includes('workspaceSessionHydrationController.hydrate'), false,
         'startup workspace publication must not enter UI hydration before focus dependencies initialize');
-    assert.ok(openWorkspaceControllerWiring.includes('aiSessionExecutionController.getSnapshot()'),
+    assert.ok(dashboard.includes('const getRunningAiSessionKeysForWorkspace = (workspace: OpenWorkspace): string[] =>')
+        && dashboard.includes('aiSessionExecutionController.getSnapshot()'),
         'startup workspace publication must derive running state from the initialized execution snapshot');
 
     const workspaceControllerSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'openWorkspaces', 'workspaceController.ts'), 'utf8');
@@ -3809,7 +3827,7 @@ async function runCoordinatorWiringChecks() {
             },
         }), {
             accepted: false,
-            protocolVersion: 4,
+            protocolVersion: 5,
             bridgeExtensionVersion: 'unknown',
             capabilities: {
                 workspaces: true,
@@ -3825,7 +3843,7 @@ async function runCoordinatorWiringChecks() {
             errorCode: 'update-required',
         });
         assert.strictEqual((await handshake({
-            protocolVersion: 4,
+            protocolVersion: 5,
             mainExtensionVersion: '2.0.0',
             instanceId: SELF,
             capabilities: {
@@ -3917,7 +3935,7 @@ async function runCoordinatorWiringChecks() {
         assert.strictEqual(bridgeOutputLines.join('\n').includes(diagnosticSentinel), false,
             'the bridge OutputChannel must not receive arbitrary exception text');
         aggregateDeliveryError = null;
-        await unregister({ protocolVersion: 4, instanceId: SELF });
+        await unregister({ protocolVersion: 5, instanceId: SELF });
     } finally {
         Module._load = previousModuleLoad;
         for (const disposable of context.subscriptions.slice().reverse()) {
@@ -3928,11 +3946,11 @@ async function runCoordinatorWiringChecks() {
 }
 
 async function main() {
-    runWorkspaceProtocolV4Checks();
+    runWorkspaceProtocolV5Checks();
     await runWorkspaceContextResolverChecks();
     await runSavedWorkspaceProjectAdapterChecks();
     await runProjectServiceWorkspaceSaveMigrationIntegrationChecks();
-    runWorkspaceProjectionV4Checks();
+    runWorkspaceProjectionV5Checks();
     runOpenWorkspacePublicationChecks();
     await runOpenWorkspaceStoreChecks();
     await runOpenWorkspaceCoordinatorChecks();

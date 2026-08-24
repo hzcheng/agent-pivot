@@ -7,7 +7,7 @@ import type { WorkspaceCardViewModel } from '../models';
 import { getWorkspaceAttentionSummary } from '../workspaces/attentionProjection';
 import type { OpenWorkspace, OpenWorkspaceEnvironment } from '../workspaces/types';
 import {
-    OpenWorkspaceAggregateV4,
+    OpenWorkspaceAggregateV5,
     OpenWorkspaceRecord,
     validateOpenWorkspaceRecord,
 } from './protocol';
@@ -34,7 +34,7 @@ export interface OpenWorkspaceCardOrder {
 }
 
 export function getLogicalWorkspaceOpenedAtMs(
-    aggregate: OpenWorkspaceAggregateV4 | null,
+    aggregate: OpenWorkspaceAggregateV5 | null,
     navigationIdentity: string,
 ): number | null {
     let openedAtMs: number | null = null;
@@ -132,18 +132,47 @@ function getEnvironmentLabel(environment: OpenWorkspaceEnvironment): string {
 }
 
 export function sumOpenWorkspaceRunningAiSessionCounts(
-    aggregate: OpenWorkspaceAggregateV4 | null,
+    aggregate: OpenWorkspaceAggregateV5 | null,
 ): number {
-    return (aggregate?.registrations || []).reduce(
-        (sum, registration) =>
-            sum + (registration.workspace?.runningAiSessionCount || 0),
-        0,
-    );
+    return getOpenWorkspaceRunningAiSessionKeys(aggregate).length;
+}
+
+/** The opaque logical-session tokens currently executing across every open window. */
+export function getOpenWorkspaceRunningAiSessionKeys(
+    aggregate: OpenWorkspaceAggregateV5 | null,
+    excludedInstanceId = '',
+): string[] {
+    const keys = new Set<string>();
+    for (const registration of aggregate?.registrations || []) {
+        if (registration.instanceId === excludedInstanceId) {
+            continue;
+        }
+        for (const key of registration.workspace?.runningAiSessionKeys || []) {
+            keys.add(key);
+        }
+    }
+    return Array.from(keys).sort();
+}
+
+function mergeWorkspaceRunningSessions(
+    preferred: OpenWorkspaceRecord,
+    other: OpenWorkspaceRecord,
+): OpenWorkspaceRecord {
+    const runningAiSessionKeys = Array.from(new Set([
+        ...preferred.runningAiSessionKeys,
+        ...other.runningAiSessionKeys,
+    ])).sort();
+    return {
+        ...preferred,
+        runningAiSessionCount: runningAiSessionKeys.length,
+        runningAiSessionKeys,
+    };
 }
 
 export function createOpenWorkspacePublication(
     workspace: OpenWorkspace | null,
     runningAiSessionCount = 0,
+    runningAiSessionKeys: readonly string[] = [],
 ): OpenWorkspaceRecord | null {
     if (!workspace) {
         return null;
@@ -156,6 +185,7 @@ export function createOpenWorkspacePublication(
         navigationUri: workspace.navigationUri,
         environment: workspace.environment,
         runningAiSessionCount,
+        runningAiSessionKeys: Array.from(new Set(runningAiSessionKeys)).sort(),
         roots: (workspace.roots || []).map(root => ({
             id: root.id,
             name: root.name,
@@ -193,7 +223,7 @@ function createNavigationCard(
 
 export function projectOpenWorkspaceCards(
     currentWorkspace: Pick<OpenWorkspace, 'navigationIdentity'> | null,
-    aggregate: OpenWorkspaceAggregateV4 | null,
+    aggregate: OpenWorkspaceAggregateV5 | null,
     ownInstanceId: string,
     attentionAggregate: AttentionAggregate | null = null,
     pinTimes: ReadonlyMap<string, number> = new Map(),
@@ -209,7 +239,7 @@ export function projectOpenWorkspaceCards(
 
 export function projectOpenWorkspaceNavigationCards(
     currentWorkspace: Pick<OpenWorkspace, 'navigationIdentity'> | null,
-    aggregate: OpenWorkspaceAggregateV4 | null,
+    aggregate: OpenWorkspaceAggregateV5 | null,
     ownInstanceId: string,
     attentionAggregate: AttentionAggregate | null = null,
     pinTimes: ReadonlyMap<string, number> = new Map(),
@@ -244,11 +274,13 @@ export function projectOpenWorkspaceNavigationCards(
             navigationByIdentity.set(workspace.navigationIdentity, {
                 ...candidate,
                 openedAtMs,
+                workspace: mergeWorkspaceRunningSessions(candidate.workspace, previous.workspace),
             });
-        } else if (previous.openedAtMs !== openedAtMs) {
+        } else {
             navigationByIdentity.set(workspace.navigationIdentity, {
                 ...previous,
                 openedAtMs,
+                workspace: mergeWorkspaceRunningSessions(previous.workspace, candidate.workspace),
             });
         }
     }

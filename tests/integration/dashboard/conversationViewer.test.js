@@ -327,6 +327,8 @@ function createViewer(options = {}) {
         writeClipboardText: options.writeClipboardText,
         followAdjacentConversation: options.followAdjacentConversation,
         setKeyboardFocus: options.setKeyboardFocus,
+        onTiming: options.onTiming,
+        now: options.now,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
         commentStore: options.commentStore,
@@ -409,6 +411,136 @@ test('CONVERSATION-VIEWER-RENAME-001 forwards the rename intent for the current 
     });
     assert.equal(renamed.length, 1,
         'malformed or spoofed envelopes are dropped by the protocol validator');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records target-free timing for an initial document application', async () => {
+    let now = 10;
+    const timings = [];
+    const { viewer, panel } = createViewer({
+        now: () => now,
+        onTiming: timing => timings.push(timing),
+    });
+
+    await viewer.open(target('session-a'));
+    const publication = decodeInitialPublication(panel.webview.html);
+    now = 35;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+    assert.deepEqual(timings, [{
+        source: 'open',
+        updateKind: 'initial',
+        delivery: 'document',
+        applicationMs: 25,
+        loadMs: 25,
+    }]);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records document timing after a message-delivery fallback', async () => {
+    let now = 100;
+    const timings = [];
+    const panel = fakePanel({ postMessageResult: false });
+    const { viewer } = createViewer({
+        panel,
+        now: () => now,
+        onTiming: timing => timings.push(timing),
+    });
+
+    await viewer.open(target('session-a'));
+    now = 130;
+    await viewer.follow(target('session-b'));
+    const publication = decodeInitialPublication(panel.webview.html);
+    now = 150;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+    assert.deepEqual(timings, [{
+        source: 'follow',
+        updateKind: 'initial',
+        delivery: 'document',
+        applicationMs: 20,
+        loadMs: 20,
+    }]);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records correlated, target-free Webview application timing for a reused-panel switch', async () => {
+    let now = 100;
+    const timings = [];
+    const sessionBRead = deferred();
+    const { viewer, panel } = createViewer({
+        now: () => now,
+        onTiming: timing => timings.push(timing),
+        readPage: request => request.sessionId === 'session-b'
+            ? sessionBRead.promise
+            : Promise.resolve(page(request.sessionId, request.anchorInteractionId)),
+    });
+
+    await viewer.open(target('session-a'));
+    now = 130;
+    const switching = viewer.follow(target('session-b'));
+    await new Promise(resolve => setImmediate(resolve));
+    now = 175;
+    sessionBRead.resolve(page('session-b', 'input-1'));
+    await switching;
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(publication, 'the reused panel must receive an authoritative page');
+
+    now = 140;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration + 1,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+    now = 142;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: 'stale-signature',
+    });
+    now = 145;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId - 1,
+        htmlSignature: publication.htmlSignature,
+    });
+    assert.deepEqual(timings, [], 'a stale acknowledgement must not produce timing');
+
+    now = 190;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+    assert.deepEqual(timings, [{
+        source: 'follow',
+        updateKind: 'initial',
+        delivery: 'message',
+        applicationMs: 15,
+        loadMs: 60,
+    }]);
+    assert.equal('sessionId' in timings[0], false);
+    assert.equal('provider' in timings[0], false);
+    viewer.dispose();
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 makes an outgoing document inert before a slow target transition becomes interactive', async () => {

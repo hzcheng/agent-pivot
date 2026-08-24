@@ -223,6 +223,8 @@ function createHarness(options = {}) {
             || ((callback, delayMs) => setTimeout(callback, delayMs)),
         clearTimer: options.clearTimer || (handle => clearTimeout(handle)),
         onDiagnostic: options.onDiagnostic || (() => {}),
+        onViewerTiming: options.onViewerTiming,
+        monotonicNow: options.monotonicNow,
         resolveReboundTarget: options.resolveReboundTarget,
     }, {
         createCodexClient: options.createCodexClient || (() => ({ dispose() {} })),
@@ -339,6 +341,17 @@ test('CONVERSATION-OPEN-LATEST-001 opens the latest interaction of the resolved 
         duplicateDisplayName: false,
     }]);
     capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 forwards the aggregate Viewer timing sink and monotonic clock', () => {
+    const onViewerTiming = () => undefined;
+    const harness = createHarness({
+        onViewerTiming,
+        monotonicNow: () => 42,
+    });
+    assert.equal(harness.viewerOptions.onTiming, onViewerTiming);
+    assert.equal(harness.viewerOptions.now(), 42);
+    harness.capability.dispose();
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 opens Codex, Kimi, and Claude with one shared provider snapshot each', async () => {
@@ -963,6 +976,17 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
     assert.match(
         navigationPath[0],
         /if \(focused(?: && [^)]+)?\) \{[\s\S]*followActiveConversation\(/
+    );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 wires only aggregate Viewer application timing into dashboard diagnostics', () => {
+    const dashboardSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+    assert.match(
+        dashboardSource,
+        /monotonicNow: \(\) => performance\.now\(\),\n\s*onViewerTiming: timing => logAiSessionDiagnostic\(\{\n\s*event: 'session-navigation-viewer-application-latency',\n\s*\.\.\.timing,/
     );
 });
 

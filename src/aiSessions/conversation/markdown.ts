@@ -2,6 +2,7 @@
 
 import MarkdownIt = require('markdown-it');
 import { URL } from 'url';
+import { CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH } from './viewerProtocol';
 
 // highlight.js 11 ships .d.ts syntax this repo's TS 4.0 toolchain cannot
 // parse, so bind it through a plain require with a minimal local surface.
@@ -41,7 +42,11 @@ function highlightCode(value: string, lang: string): string {
 
 function renderCodeBlock(value: string, info: string): string {
     const lang = (info || '').trim().split(/\s+/)[0] || '';
-    const runnable = /^(?:bash|sh|shell|zsh)$/i.test(lang);
+    const runnable = /^(?:bash|sh|shell|zsh)$/i.test(lang)
+        && value.length > 0
+        && value.length <= CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH
+        && !!value.trim()
+        && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
     const label = lang
         ? `<span class="conversation-code-lang">${escapeHtml(lang)}</span>`
         : '';

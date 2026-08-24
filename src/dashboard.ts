@@ -175,6 +175,10 @@ import {
     ConversationPanelRestoreCoordinator,
 } from './aiSessions/conversation/panelRestoreCoordinator';
 import {
+    ConversationCommandRunner,
+    resolveConversationCommandLocation,
+} from './aiSessions/conversation/commandRunner';
+import {
     withConversationDisplayMetadata,
 } from './aiSessions/conversation/displayMetadata';
 import type {
@@ -1718,13 +1722,14 @@ async function initializeDashboard(
     // Command snippets from a conversation share one visible runner per
     // worktree. This prevents a series of small commands from creating a
     // terminal for every click while preserving each worktree's cwd boundary.
-    const conversationCommandTerminals = new Map<string, vscode.Terminal>();
+    const conversationCommandRunner = new ConversationCommandRunner(
+        cwd => vscode.window.createTerminal({
+            name: 'Agent Pivot: Command Runner',
+            cwd: vscode.Uri.file(cwd),
+        })
+    );
     ownResource(() => vscode.window.onDidCloseTerminal(terminal => {
-        for (const [key, candidate] of conversationCommandTerminals) {
-            if (candidate === terminal) {
-                conversationCommandTerminals.delete(key);
-            }
-        }
+        conversationCommandRunner.forget(terminal);
     }));
 
     conversationCapability = ownResource(() => createConversationCapability({
@@ -1907,38 +1912,41 @@ async function initializeDashboard(
                 actionTarget?.sessions.sessionsByProvider[viewerTarget.provider]
                 || []
             ).find(session => session.id === viewerTarget.sessionId);
-            const liveIdentity = runtime
-                && runtime.identity.workspaceScopeIdentity
-                    === actionTarget?.workspace.scopeIdentity
-                ? runtime.identity
-                : undefined;
             // Run at the worktree root when that identity is available. The
             // same canonical path also gives every worktree its own reusable
             // runner. For conversations without a worktree, retain the
             // provider-reported cwd and never fall back to VS Code's default.
-            const worktreePath = liveIdentity?.worktreeKey?.canonicalWorktreePath
-                || activeSession?.worktreeKey?.canonicalWorktreePath
-                || historySession?.worktreeKey?.canonicalWorktreePath;
-            const cwd = worktreePath || liveIdentity?.cwd
-                || historySession?.cwd || historySession?.workDir;
-            if (!cwd) {
+            const location = resolveConversationCommandLocation({
+                workspaceScopeIdentity: actionTarget?.workspace.scopeIdentity,
+                activeWorktreePath: activeSession?.worktreeKey?.canonicalWorktreePath,
+                historyWorktreePath: historySession?.worktreeKey?.canonicalWorktreePath,
+                historyCwd: historySession?.cwd,
+                historyWorkDir: historySession?.workDir,
+                ...(runtime
+                    ? {
+                        runtime: {
+                            state: runtime.state,
+                            workspaceScopeIdentity:
+                                runtime.identity.workspaceScopeIdentity,
+                            worktreePath:
+                                runtime.identity.worktreeKey?.canonicalWorktreePath,
+                            cwd: runtime.identity.cwd,
+                        },
+                    }
+                    : {}),
+            });
+            if (!location) {
                 void vscode.window.showWarningMessage(
                     'Unable to determine this conversation\'s working directory.'
                 );
                 return;
             }
-            const terminalKey = worktreePath || cwd;
-            let terminal = conversationCommandTerminals.get(terminalKey);
             try {
-                if (!terminal) {
-                    terminal = vscode.window.createTerminal({
-                        name: 'Agent Pivot: Command Runner',
-                        cwd: vscode.Uri.file(cwd),
-                    });
-                    conversationCommandTerminals.set(terminalKey, terminal);
-                }
-                terminal.sendText(command, true);
-                terminal.show();
+                conversationCommandRunner.run({
+                    key: location.key,
+                    cwd: location.cwd,
+                    command,
+                });
             } catch (error) {
                 logError('Failed to run conversation command in terminal', error);
                 void vscode.window.showWarningMessage(

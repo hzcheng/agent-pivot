@@ -2279,7 +2279,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send
     assert.deepEqual(inserted, ['beta quote']);
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 runs a bound command in the command terminal', async () => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 CONVERSATION-RUN-COMMAND-001 runs a bound command in the command terminal', async () => {
     const runs = [];
     const { viewer, panel } = createViewer({
         runCommandInTerminal: async (viewerTarget, command) => {

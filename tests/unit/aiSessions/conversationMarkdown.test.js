@@ -57,6 +57,16 @@ test('SESSION-AI-SESSION-CONVERSATION-FENCED-CODE-001 renders provider code inde
     );
 });
 
+test('CONVERSATION-RUN-COMMAND-001 offers Run only for bounded valid shell fences', () => {
+    const runnable = renderConversationMarkdown('```bash\npwd\n```');
+    const oversized = renderConversationMarkdown(`\`\`\`bash\n${'x'.repeat(4001)}\n\`\`\``);
+    const nonShell = renderConversationMarkdown('```typescript\nconsole.log(1)\n```');
+
+    assert.match(runnable, /data-conversation-run-command/);
+    assert.doesNotMatch(oversized, /data-conversation-run-command/);
+    assert.doesNotMatch(nonShell, /data-conversation-run-command/);
+});
+
 test('CONVERSATION-VIEWER-MARKDOWN-002 emits href attributes only for HTTPS links', () => {
     const html = renderConversationMarkdown([
         '[safe](https://example.test/path)',

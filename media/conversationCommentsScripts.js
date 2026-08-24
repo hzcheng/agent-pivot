@@ -1678,7 +1678,7 @@
             var quote = selectedText.trim();
             if (!startMessage || startMessage !== endMessage || !markdown
                 || !messages.contains(startMessage) || !quote
-                || Array.from(quote).length > 4000) {
+                || quote.length > 4000) {
                 addComment.hidden = true;
                 if (runSelection) runSelection.hidden = true;
                 state.selectedCommentText = null;
@@ -1763,7 +1763,8 @@
             if (startBlock && startBlock === endBlock) {
                 var code = startBlock.querySelector('pre code');
                 if (code && /(?:^|\s)language-(?:bash|sh|shell|zsh)(?:\s|$)/i
-                    .test(code.className || '')) {
+                    .test(code.className || '')
+                    && quote === (code.textContent || '').trim()) {
                     return true;
                 }
             }
@@ -1774,11 +1775,10 @@
             var first = /^([^\s|&;<>]+)/.exec(command);
             if (!first) return false;
             return RUNNABLE_SHELL_COMMANDS.has(first[1])
-                || /^(?:\.{1,2}\/|~\/|\/)/.test(first[1])
-                || /(?:\|\||&&|[|;<>`$()]|\*)/.test(command);
+                || /^(?:\.{1,2}\/|~\/|\/)/.test(first[1]);
         }
 
-        function runSelectionInNewTerminal() {
+        function runSelectionInCommandTerminal() {
             if (!state.selectedCommentText
                 || state.pendingCommentRequest
                 || !state.selectedRunnableCommand) {
@@ -1802,7 +1802,7 @@
                 sessionId: commentTarget.sessionId,
                 command: command,
             });
-            status.textContent = 'Running selection in command terminal.';
+            status.textContent = 'Command requested for the conversation terminal.';
         }
 
         function openCommentComposer() {
@@ -2910,7 +2910,7 @@
                 }
                 if (button.getAttribute('data-comment-selection-action')
                     === 'run') {
-                    runSelectionInNewTerminal();
+                    runSelectionInCommandTerminal();
                     return;
                 }
                 if (button.getAttribute('data-comment-selection-action')

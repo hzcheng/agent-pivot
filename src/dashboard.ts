@@ -169,15 +169,13 @@ import {
 } from './aiSessions/presentationMessage';
 import {
     ConversationCapability,
+    ConversationCommandRunner,
     createConversationCapability,
+    resolveConversationCommandLocation,
 } from './aiSessions/conversation/composition';
 import {
     ConversationPanelRestoreCoordinator,
 } from './aiSessions/conversation/panelRestoreCoordinator';
-import {
-    ConversationCommandRunner,
-    resolveConversationCommandLocation,
-} from './aiSessions/conversation/commandRunner';
 import {
     withConversationDisplayMetadata,
 } from './aiSessions/conversation/displayMetadata';

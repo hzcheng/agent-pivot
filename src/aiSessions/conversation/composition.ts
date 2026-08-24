@@ -66,6 +66,11 @@ import {
 } from '../codexRolloutContentSignature';
 import { encodeSubagentSessionId } from './subagentSessions';
 
+export {
+    ConversationCommandRunner,
+    resolveConversationCommandLocation,
+} from './commandRunner';
+
 export interface ConversationSessionOpenTarget {
     projectId: string;
     provider: AiSessionProviderId;

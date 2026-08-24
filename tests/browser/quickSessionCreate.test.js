@@ -982,7 +982,7 @@ test('AI-SESSION-QUICK-CREATE-001 outside clicks close the dropdown without post
     assert.deepEqual(await postedMessages(page), []);
 });
 
-test('AI-SESSION-QUICK-CREATE-001 the fast tooltip appears promptly on hover and focus', async t => {
+test('AI-SESSION-QUICK-CREATE-001 fast tooltips wait for hover but appear on focus', async t => {
     const page = await openQuickCreatePage(t, { profile: 'deepseek' });
     const quickButton = page.locator(
         '[data-open-session-surface][data-id="project-a"] [data-action="create-ai-session-quick"]'
@@ -990,14 +990,27 @@ test('AI-SESSION-QUICK-CREATE-001 the fast tooltip appears promptly on hover and
     const tip = page.locator('.ai-session-fast-tooltip');
 
     await quickButton.hover();
+    await page.waitForTimeout(250);
+    assert.equal(await tip.count(), 0,
+        'brief pointer passes do not open a tooltip');
     await tip.waitFor({ state: 'visible', timeout: 800 });
     assert.equal(await tip.textContent(), 'Codex · deepseek',
-        'the tooltip must appear well ahead of the native title delay');
+        'the tooltip appears after a deliberate hover pause');
     await page.locator('#outside').hover();
     assert.equal(await tip.count(), 0, 'leaving the button dismisses the tooltip');
 
     await quickButton.focus();
-    await tip.waitFor({ state: 'visible', timeout: 800 });
+    assert.equal(await tip.count(), 1, 'keyboard focus shows the tooltip immediately');
+    await quickButton.evaluate(button => button.dispatchEvent(new MouseEvent('mouseout', {
+        bubbles: true,
+        relatedTarget: null,
+    })));
+    assert.equal(await tip.count(), 0,
+        'leaving the Webview dismisses the tooltip without a follow-up mouseover');
+
+    await page.locator('#outside').focus();
+    await quickButton.focus();
+    assert.equal(await tip.count(), 1);
     await page.locator('#outside').click();
     assert.equal(await tip.count(), 0, 'clicking elsewhere dismisses the tooltip');
 });

@@ -4183,8 +4183,10 @@ function initProjectAiSessionControls(options) {
     var getAiSessionPresentationStateStore = options.getAiSessionPresentationStateStore;
     var updateStickyGroupHeaderOffset = options.updateStickyGroupHeaderOffset;
 
-    // Native title tooltips take over a second to appear; icon-only buttons
-    // get a shared fast tooltip instead (150ms), driven by data-tooltip.
+    // Native title tooltips take over a second to appear. Hover tooltips wait
+    // long enough to avoid firing while the pointer is merely scanning rows;
+    // keyboard focus remains immediate.
+    var FAST_TOOLTIP_HOVER_DELAY_MS = 400;
     var fastTooltip = null;
     var fastTooltipTimer = null;
     var fastTooltipTarget = null;
@@ -4201,12 +4203,17 @@ function initProjectAiSessionControls(options) {
         }
     }
 
-    function showFastTooltip(target) {
+    function getTooltipTarget(node) {
+        return node && node.closest ? node.closest('[data-tooltip]') : null;
+    }
+
+    function showFastTooltip(target, delayMs) {
         var label = target.getAttribute('data-tooltip');
         if (!label || !target.isConnected) return;
         hideFastTooltip();
         fastTooltipTarget = target;
-        fastTooltipTimer = setTimeout(() => {
+        var render = () => {
+            fastTooltipTimer = null;
             if (fastTooltipTarget !== target || !target.isConnected) return;
             fastTooltip = document.createElement('div');
             fastTooltip.className = 'ai-session-fast-tooltip';
@@ -4225,22 +4232,34 @@ function initProjectAiSessionControls(options) {
             }
             fastTooltip.style.left = left + 'px';
             fastTooltip.style.top = top + 'px';
-        }, 150);
+        };
+        if (delayMs > 0) {
+            fastTooltipTimer = setTimeout(render, delayMs);
+        } else {
+            render();
+        }
     }
 
     document.addEventListener('mouseover', event => {
-        var target = event.target && event.target.closest
-            ? event.target.closest('[data-tooltip]') : null;
+        var target = getTooltipTarget(event.target);
         if (target === fastTooltipTarget) return;
         hideFastTooltip();
-        if (target) showFastTooltip(target);
+        if (target) showFastTooltip(target, FAST_TOOLTIP_HOVER_DELAY_MS);
+    });
+    document.addEventListener('mouseout', event => {
+        var target = getTooltipTarget(event.target);
+        if (target !== fastTooltipTarget) return;
+        // Moving between an icon and its containing tooltip trigger must not
+        // dismiss the overlay. A null relatedTarget is the Webview boundary.
+        if (getTooltipTarget(event.relatedTarget) !== target) {
+            hideFastTooltip();
+        }
     });
     document.addEventListener('pointerdown', hideFastTooltip, true);
     document.addEventListener('focusin', event => {
-        var target = event.target && event.target.closest
-            ? event.target.closest('[data-tooltip]') : null;
+        var target = getTooltipTarget(event.target);
         hideFastTooltip();
-        if (target) showFastTooltip(target);
+        if (target) showFastTooltip(target, 0);
     });
     document.addEventListener('focusout', hideFastTooltip);
 

@@ -28,6 +28,16 @@ function deferred() {
     return { promise, resolve };
 }
 
+async function waitFor(condition, description, maxTurns = 100) {
+    for (let turn = 0; turn < maxTurns; turn += 1) {
+        if (condition()) {
+            return;
+        }
+        await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    assert.fail(`Timed out waiting for ${description}`);
+}
+
 function loadConversationComposition() {
     const fakeVscode = {
         ViewColumn: { Beside: 2 },
@@ -141,7 +151,7 @@ function createHarness(options = {}) {
     let snapshotReads = 0;
     const snapshotReadTargets = [];
     let viewerRefreshes = 0;
-    let currentViewerTarget;
+    let currentViewerTarget = options.initialViewerTarget;
     const session = 'session' in options ? options.session : makeSession({
         conversationDisplayName: options.conversationDisplayName,
         duplicateConversationDisplayName:
@@ -267,6 +277,9 @@ function createHarness(options = {}) {
                 follow: async (target, snapshot) => {
                     followedViewerTargets.push(target);
                     viewerSnapshots.push(snapshot);
+                    if (options.commitFollowTargetImmediately === true) {
+                        currentViewerTarget = target;
+                    }
                     const followed = options.followViewer
                         ? options.followViewer(target)
                         : true;
@@ -520,14 +533,131 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 starts adjacent warmup before t
         opened = true;
         return result;
     });
-    while (!harness.snapshotReadTargets.includes('kimi:overlap-1')) {
-        await new Promise(resolve => setImmediate(resolve));
-    }
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('kimi:overlap-1'),
+        'the adjacent snapshot warmup to start'
+    );
     assert.equal(opened, false,
         'the current Viewer load remains pending while warmup begins');
 
     delayedViewerLoad.resolve();
     assert.equal(await opening, 'opened');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 starts active and adjacent follow warmup before their Viewer load settles', async () => {
+    const sessions = ['codex', 'kimi', 'claude'].map((provider, index) =>
+        makeSession({
+            key: `${provider}:follow-overlap-${index}`,
+            provider,
+            sessionId: `follow-overlap-${index}`,
+            name: `${provider} Session`,
+        })
+    );
+    const initialTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'follow-overlap-0',
+    };
+    const delayedActiveFollow = deferred();
+    const activeHarness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        initialViewerTarget: initialTarget,
+        commitFollowTargetImmediately: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: () => delayedActiveFollow.promise,
+    });
+    let activeFollowed = false;
+    const activeFollow = activeHarness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'follow-overlap-1',
+    }).then(result => {
+        activeFollowed = true;
+        return result;
+    });
+    await waitFor(
+        () => activeHarness.snapshotReadTargets.includes(
+            'claude:follow-overlap-2'
+        ),
+        'the active-follow adjacent snapshot warmup to start'
+    );
+    assert.equal(activeFollowed, false);
+    delayedActiveFollow.resolve(true);
+    assert.equal(await activeFollow, 'opened');
+    activeHarness.capability.dispose();
+
+    const delayedAdjacentFollow = deferred();
+    const adjacentHarness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        initialViewerTarget: initialTarget,
+        commitFollowTargetImmediately: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: () => delayedAdjacentFollow.promise,
+    });
+    const adjacentFollow = adjacentHarness.viewerOptions
+        .followAdjacentConversation('next', initialTarget);
+    await waitFor(
+        () => adjacentHarness.snapshotReadTargets.includes(
+            'claude:follow-overlap-2'
+        ),
+        'the adjacent-command warmup to start'
+    );
+    delayedAdjacentFollow.resolve(true);
+    assert.equal(await adjacentFollow, 'opened');
+    adjacentHarness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 falls back to post-load warmup when Viewer commits its target asynchronously', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:fallback-${index}`,
+        provider,
+        sessionId: `fallback-${index}`,
+        name: `${provider} Session`,
+    }));
+    const delayedFollow = deferred();
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        initialViewerTarget: {
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'fallback-0',
+        },
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        followViewer: () => delayedFollow.promise,
+    });
+    const following = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'fallback-1',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(harness.snapshotReadTargets.includes('codex:fallback-0'), false,
+        'early warmup must not read against the old Viewer target');
+    delayedFollow.resolve(true);
+    assert.equal(await following, 'opened');
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('codex:fallback-0'),
+        'the post-load fallback warmup to start'
+    );
     harness.capability.dispose();
 });
 

@@ -1072,13 +1072,22 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
         prefetchedSnapshot: boolean,
         viewer: ConversationViewerApi
     ): void {
-        if (!prefetchedSnapshot) {
-            return;
-        }
-        // Revalidation is hygiene for a warm snapshot. It must wait for the
-        // authoritative page, but adjacent prefetching starts much earlier
-        // in prepareAfterTargetSet so it overlaps the visible load.
         this.schedule(async () => {
+            // Keep a post-load fallback for Viewer implementations that do
+            // not expose the new target until their async load settles. The
+            // cache deduplicates this with the early prepareAfterTargetSet
+            // prefetch in the usual path.
+            try {
+                this.prefetchAdjacent(target, viewer);
+            } catch (_error) {
+                // Speculative reads never affect the active Conversation.
+            }
+            if (!prefetchedSnapshot) {
+                return;
+            }
+            // Revalidation is hygiene for a warm snapshot. It must wait for
+            // the authoritative page, while adjacent prefetching normally
+            // starts much earlier in prepareAfterTargetSet.
             const current = viewer.getCurrentTarget();
             if (current && hasSameConversationSession(current, target)) {
                 await viewer.revalidateLatest?.(target.interactionId);

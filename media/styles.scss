@@ -688,7 +688,7 @@ body .project {
         opacity: 1;
         transition: background $defaultTransition, border-color $defaultTransition, color $defaultTransition, opacity $defaultTransition;
 
-        &:hover {
+        &:hover:not(:disabled) {
             color: var(--vscode-focusBorder);
             background: var(--vscode-list-hoverBackground);
             border-color: var(--vscode-panel-border);
@@ -700,6 +700,12 @@ body .project {
             height: 18px;
             fill: currentColor;
         }
+    }
+
+    .toggle-all-groups-button:disabled {
+        color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+        cursor: default;
+        opacity: 0.55;
     }
 
     .toggle-all-groups-button {

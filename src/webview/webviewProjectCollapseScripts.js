@@ -82,8 +82,14 @@ function initProjectGroupCollapse() {
         var projectDiv = region && typeof region.closest === 'function'
             ? region.closest('[data-open-session-surface][data-id]')
             : null;
-        var groups = projectDiv && typeof projectDiv.querySelectorAll === 'function'
-            ? Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
+        // List launch targets intentionally reuse the worktree-group class for
+        // their creation controls. During the optimistic List -> Tree switch,
+        // the mode attribute changes before the Host replaces that List DOM.
+        // Only a real tree group with its collapsible header is a valid target.
+        var groups = region && typeof region.querySelectorAll === 'function'
+            ? Array.from(region.querySelectorAll(
+                '.ai-session-worktree-list[role="tree"] .ai-session-worktree-group'
+            )).filter(group => group.querySelector('.ai-session-worktree-header'))
             : [];
         return projectDiv && groups.length ? { projectDiv: projectDiv, groups: groups } : null;
     }

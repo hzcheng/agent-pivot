@@ -128,8 +128,10 @@ async function openQuickCreatePage(t, options = {}) {
             <head>${options.withStyles ? `<style>${captionStyleRules}</style>` : ''}</head>
             <body class="steward-sidebar">
                 <div class="steward-sticky-header">
-                    <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups"
-                        title="Collapse all worktrees" aria-label="Collapse all worktrees"></button>
+                    <div class="filter-wrapper">
+                        <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups"
+                            title="Collapse all worktrees" aria-label="Collapse all worktrees"></button>
+                    </div>
                 </div>
                 <div class="sticky-groups-wrapper">
                     <div class="open-session-surface" data-open-session-surface data-id="project-a"
@@ -488,6 +490,53 @@ test('AI-SESSION-QUICK-CREATE-001 list view keeps inline create targets', async 
     assert.deepEqual(await postedMessages(page), [{
         type: 'create-ai-session-quick', projectId: 'project-a', provider: 'kimi', worktreeKey: key,
     }]);
+});
+
+test('WORKTREE-GROUPING-UI-001 disabled global collapse control looks inactive', async t => {
+    const page = await browser.newPage({ viewport: { width: 360, height: 120 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><html><head><style>${dashboardStyles}</style></head>
+        <body><div class="filter-wrapper"><button type="button" class="toggle-all-groups-button"
+            data-action="toggle-all-groups" disabled>Collapse all worktrees</button></div></body></html>`);
+    const disabledPresentation = await page.locator('[data-action="toggle-all-groups"]').evaluate(button => ({
+        cursor: getComputedStyle(button).cursor,
+        opacity: Number(getComputedStyle(button).opacity),
+    }));
+    assert.equal(disabledPresentation.cursor, 'default');
+    assert.ok(disabledPresentation.opacity <= 0.55,
+        'a disabled global collapse control does not look clickable');
+});
+
+test('WORKTREE-GROUPING-UI-001 waits for authoritative Tree DOM before enabling global collapse', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const page = await openQuickCreatePage(t, {
+        chatsViewMode: 'list',
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key, branchRef: 'refs/heads/feature/auth', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            },
+            activity: 'idle', sessions: [], authority: { canResume: true },
+        }],
+    });
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
+    const collapseAll = page.locator('[data-action="toggle-all-groups"]');
+
+    await project.locator('[data-action="toggle-chats-view-menu"]').click();
+    await project.locator('[data-action="select-chats-view-mode"][data-view-mode="tree"]').click();
+
+    assert.equal(await project.locator('.codex-sessions').getAttribute('data-chats-view-mode'), 'tree',
+        'the optimistic preference changes immediately');
+    assert.equal(await collapseAll.isDisabled(), true,
+        'the stale List launch rail is not treated as a collapsible Tree');
+    assert.equal(await collapseAll.getAttribute('aria-label'), 'No worktrees to collapse');
+    assert.equal((await postedMessages(page)).some(message =>
+        message.type === 'set-ai-session-collapsed-worktree-groups'
+    ), false, 'no collapsed state is written before the authoritative Tree replacement');
 });
 
 test('AI-SESSION-QUICK-CREATE-001 list view does not duplicate a managed group primary', async t => {

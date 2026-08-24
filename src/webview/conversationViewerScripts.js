@@ -1893,6 +1893,9 @@
         if (message.partial) {
             statusMessages.push('Partial history — showing newest inputs.');
         }
+        if (messages.querySelector('.conversation-deferred-messages')) {
+            statusMessages.push('Loading earlier messages.');
+        }
         status.textContent = statusMessages.join(' ');
 
         var selectedMessages = Array.prototype.filter.call(

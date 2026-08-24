@@ -344,6 +344,19 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
+    // A large, latest-at-tail page first sends its recent messages. Once the
+    // Webview has applied that lightweight page, it receives the complete
+    // retained window through the normal, correlated publication channel.
+    // Keeping this state on the publication (rather than an unbound timer)
+    // makes a target change or user navigation naturally cancel the follow-up.
+    private progressivePublication?: ConversationViewerPageMessage;
+    // A partial page remains incomplete until a different full-content page
+    // applies. Auxiliary and subagent publications may supersede either
+    // phase, so this is bound to the generation instead of one request id.
+    private progressiveContentIncomplete?: {
+        generation: number;
+        partialHtmlSignature: string;
+    };
     private pendingPublicationTiming?: {
         subscriptionGeneration: number;
         requestId: number;
@@ -823,7 +836,15 @@ export class ConversationViewer implements ConversationViewerApi {
             this.abortController = undefined;
             this.watch?.dispose();
             this.watch = undefined;
+            const previousGeneration = this.subscriptionGeneration;
             this.subscriptionGeneration += 1;
+            if (this.progressiveContentIncomplete?.generation
+                === previousGeneration) {
+                this.progressiveContentIncomplete = {
+                    ...this.progressiveContentIncomplete,
+                    generation: this.subscriptionGeneration,
+                };
+            }
             this.pendingRestoredAuxiliaryState = undefined;
             this.currentRequestId = this.allocateRequestId();
             if (this.pages.length && this.outlineController.snapshot) {
@@ -928,6 +949,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.changesController?.reset();
         this.latestPublication = undefined;
         this.clearPublicationAckTimeout();
+        this.progressivePublication = undefined;
+        this.progressiveContentIncomplete = undefined;
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
@@ -1042,6 +1065,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.changesController?.reset();
         this.latestPublication = undefined;
         this.clearPublicationAckTimeout();
+        this.progressivePublication = undefined;
+        this.progressiveContentIncomplete = undefined;
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
@@ -2017,11 +2042,21 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!this.canPublish(panel, target, generation, requestId)) {
                 return false;
             }
+            const progressive = updateKind === 'initial'
+                && this.shouldProgressivelyRender();
             const publication = this.createPublication(
                 requestId,
                 generation,
-                updateKind
+                updateKind,
+                progressive
             );
+            if (progressive) {
+                this.progressivePublication = publication;
+                this.progressiveContentIncomplete = {
+                    generation,
+                    partialHtmlSignature: publication.htmlSignature,
+                };
+            }
             await this.deliverPublication(publication, replaceDocument);
             this.refreshSubagentsAfterPublication(
                 panel,
@@ -2321,11 +2356,38 @@ export class ConversationViewer implements ConversationViewerApi {
         // healthy again, so a later independent failure may use recovery.
         this.publicationRecoveryGeneration = undefined;
         this.clearPublicationAckTimeout();
+        if (this.progressiveContentIncomplete
+            && this.progressiveContentIncomplete.generation
+                === publication.subscriptionGeneration
+            && this.progressiveContentIncomplete.partialHtmlSignature
+                !== publication.htmlSignature) {
+            this.progressiveContentIncomplete = undefined;
+            this.progressivePublication = undefined;
+        }
         this.reportPublicationApplication(publication);
         if (this.transitioningGeneration === message.subscriptionGeneration) {
             this.transitioningGeneration = undefined;
         }
         this.publishRestoredAuxiliaryState();
+        this.publishDeferredMessages(publication);
+    }
+
+    private publishDeferredMessages(
+        publication: ConversationViewerPageMessage
+    ): void {
+        if (this.progressivePublication !== publication
+            || !this.isCurrentPublication(publication)) {
+            return;
+        }
+        this.progressivePublication = undefined;
+        const requestId = this.allocateRequestId();
+        this.currentRequestId = requestId;
+        const complete = this.createPublication(
+            requestId,
+            publication.subscriptionGeneration,
+            'refresh'
+        );
+        void this.deliverPublication(complete, false);
     }
 
     private rebuildLatestDocument(): void {
@@ -2355,6 +2417,11 @@ export class ConversationViewer implements ConversationViewerApi {
                 ? { restoreFocus: true }
                 : {}),
         };
+        if (this.progressivePublication === publication) {
+            // Recovery owns a fresh object and request id. Preserve the
+            // deferred-content lifecycle on that authoritative retry.
+            this.progressivePublication = recovery;
+        }
         this.currentRequestId = recovery.requestId;
         this.latestPublication = recovery;
         this.publicationRecoveryAttemptRequestId = recovery.requestId;
@@ -2381,9 +2448,14 @@ export class ConversationViewer implements ConversationViewerApi {
         publication: ConversationViewerPageMessage
     ): void {
         this.clearPublicationAckTimeout();
-        // A fresh document has no outgoing controls to strand. This watchdog
-        // only protects a reused panel held in its loading handoff.
-        if (this.transitioningGeneration !== publication.subscriptionGeneration) {
+        const protectsProgressiveContent = this.progressiveContentIncomplete
+            ?.generation === publication.subscriptionGeneration;
+        // A fresh document has no outgoing controls to strand. The normal
+        // watchdog protects a reused-panel handoff; every publication in a
+        // progressive generation inherits it until a full-content receipt
+        // closes the incomplete-content obligation.
+        if (this.transitioningGeneration !== publication.subscriptionGeneration
+            && !protectsProgressiveContent) {
             return;
         }
         const token = ++this.publicationAckTimerToken;
@@ -2394,8 +2466,10 @@ export class ConversationViewer implements ConversationViewerApi {
             this.publicationAckTimer = undefined;
             if (!this.isCurrentPublication(publication)
                 || this.appliedContentSignature === publication.htmlSignature
-                || this.transitioningGeneration
+                || (this.transitioningGeneration
                     !== publication.subscriptionGeneration
+                    && this.progressiveContentIncomplete?.generation
+                        !== publication.subscriptionGeneration)
                 || this.publicationRecoveryRebuildRequestId
                     === publication.requestId
                 || this.publicationRecoveryAttemptRequestId
@@ -2797,7 +2871,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private createPublication(
         requestId: number,
         generation: number,
-        updateKind: ConversationViewerPageMessage['updateKind']
+        updateKind: ConversationViewerPageMessage['updateKind'],
+        recentOnly = false
     ): ConversationViewerPageMessage {
         const target = this.target;
         const outline = this.outlineController.snapshot;
@@ -2825,13 +2900,21 @@ export class ConversationViewer implements ConversationViewerApi {
         );
         const first = this.pages[0]?.page;
         const last = this.pages[this.pages.length - 1]?.page;
+        const allMessages = this.messages();
+        const deferredMessageCount = recentOnly && projection.atLatest
+            && !projection.partial
+            ? deferredConversationMessageCount(allMessages)
+            : 0;
         const rendered = renderMessages(
-            this.messages(),
+            deferredMessageCount
+                ? allMessages.slice(deferredMessageCount)
+                : allMessages,
             this.showThinking(),
             interactionInfo,
             this.renderCache,
             this.contentSignatures,
-            this.effectiveSessionId(target)
+            this.effectiveSessionId(target),
+            deferredMessageCount
         );
         return {
             type: 'conversation-viewer-page',
@@ -2867,6 +2950,13 @@ export class ConversationViewer implements ConversationViewerApi {
             projectComments: this.projectCommentController.snapshot,
             bookmarks: this.bookmarkController.snapshot,
         };
+    }
+
+    private shouldProgressivelyRender(): boolean {
+        const projection = this.outlineController.createPublication();
+        return projection.atLatest
+            && !projection.partial
+            && deferredConversationMessageCount(this.messages()) > 0;
     }
 
     private renderDocument(
@@ -3276,7 +3366,8 @@ function renderMessages(
     interactionInfo: Map<string, ConversationInteractionRenderInfo>,
     renderCache: ConversationMessageRenderCache,
     contentSignatures: ConversationContentSignatureRegistry,
-    sessionId: string
+    sessionId: string,
+    deferredMessageCount = 0
 ): RenderedConversationMessages {
     const groups: ConversationMessage[][] = [];
     messages.forEach(message => {
@@ -3348,9 +3439,31 @@ function renderMessages(
         return rendered.join('');
     }).join('');
     return {
-        html,
+        html: deferredMessageCount
+            ? `<section class="conversation-deferred-messages">Loading earlier messages…</section>${html}`
+            : html,
         contentSignature: contentSignatures.tokenFor(
-            contentStream.toString()
+            `${deferredMessageCount}\u0001${contentStream.toString()}`
         ),
     };
+}
+
+const CONVERSATION_PROGRESSIVE_RENDER_THRESHOLD = 24;
+const CONVERSATION_PROGRESSIVE_RENDER_RECENT_COUNT = 12;
+
+function deferredConversationMessageCount(
+    messages: readonly ConversationMessage[]
+): number {
+    if (messages.length <= CONVERSATION_PROGRESSIVE_RENDER_THRESHOLD) {
+        return 0;
+    }
+    // Do not split one interaction's message group (tool/progress/thinking
+    // entries can precede its final assistant response).
+    let firstVisible = messages.length - CONVERSATION_PROGRESSIVE_RENDER_RECENT_COUNT;
+    const interactionId = messages[firstVisible]?.interactionId;
+    while (firstVisible > 0
+        && messages[firstVisible - 1].interactionId === interactionId) {
+        firstVisible -= 1;
+    }
+    return firstVisible;
 }

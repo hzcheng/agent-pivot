@@ -74,7 +74,7 @@ test('CONVERSATION-RUN-COMMAND-001 prefers the current target and rejects a conf
         workspaceScopeIdentity: 'workspace-a',
         activeWorktreePath: '/worktree-a',
         activeConflict: false,
-        historyWorktreePath: undefined,
+        historyWorktreePath: '/history-worktree',
         historyCwd: undefined,
         historyWorkDir: undefined,
         runtime: {
@@ -83,7 +83,7 @@ test('CONVERSATION-RUN-COMMAND-001 prefers the current target and rejects a conf
             worktreePath: '/wrong-worktree',
             cwd: '/wrong-worktree',
         },
-    }), { key: '/worktree-a', cwd: '/worktree-a' });
+    }), { key: '/history-worktree', cwd: '/history-worktree' });
     assert.equal(resolveConversationCommandLocation({
         workspaceScopeIdentity: 'workspace-a',
         activeWorktreePath: undefined,

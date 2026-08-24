@@ -43,7 +43,11 @@ export function resolveConversationCommandLocation(
         && input.runtime?.workspaceScopeIdentity === input.workspaceScopeIdentity
         ? input.runtime
         : undefined;
-    const worktreePath = (input.activeConflict ? undefined : input.activeWorktreePath)
+    const activeWorktreePath = input.activeConflict
+        || input.runtime?.state === 'conflict'
+        ? undefined
+        : input.activeWorktreePath;
+    const worktreePath = activeWorktreePath
         || input.historyWorktreePath
         || live?.worktreePath;
     const cwd = worktreePath || input.historyCwd || input.historyWorkDir

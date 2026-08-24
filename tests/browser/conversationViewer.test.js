@@ -12036,6 +12036,10 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 fol
     for (const distance of [9, 8]) {
         const page = await openViewerPage(t);
         await sendPage(page, publications.initial);
+        await page.waitForFunction(requestId => window.__postedMessages.some(
+            message => message.type === 'conversation-viewer-applied'
+                && message.requestId === requestId
+        ), publications.initial.requestId);
         const scroll = page.locator('[data-conversation-scroll]');
         await scroll.evaluate((element, offset) => {
             element.scrollTop = element.scrollHeight

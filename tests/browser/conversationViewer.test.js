@@ -12109,7 +12109,7 @@ test('CONVERSATION-SESSION-STATUS-002 mirrors the viewed session kind on the tel
         'attention'
     );
     assert.equal(
-        await provider.getAttribute('title'),
+        await provider.getAttribute('data-tooltip'),
         'Provider · Codex · Needs attention — click to clear'
     );
     assert.equal(await provider.getAttribute('aria-label'),
@@ -12173,7 +12173,7 @@ test('CONVERSATION-SESSION-STATUS-002 mirrors the viewed session kind on the tel
         'running'
     );
     assert.equal(
-        await provider.getAttribute('title'),
+        await provider.getAttribute('data-tooltip'),
         'Provider · Codex · Running'
     );
     await provider.click();
@@ -12235,7 +12235,7 @@ test('CONVERSATION-SESSION-STATUS-002 mirrors the viewed session kind on the tel
         'a missing kind removes the ring'
     );
     assert.equal(
-        await provider.getAttribute('title'),
+        await provider.getAttribute('data-tooltip'),
         'Provider · Codex'
     );
     assert.equal(await provider.getAttribute('role'), null,
@@ -13677,7 +13677,10 @@ test('WORKTREE-CHANGES-PANEL-001 renders a two-row member header with a repo pic
 });
 
 test('WORKTREE-CHANGES-PANEL-001 cycles members with ‹ ›, wraps at the ends, announces the position, and keeps focus', async t => {
-    const { page } = await openHostViewerDocument(t, {});
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
     const state = changesFixture();
     state.members.push({
         memberId: 'm-infra', repoLabel: 'infra',
@@ -14005,6 +14008,7 @@ test('WORKTREE-CHANGES-PANEL-001 puts selected-member tracking facts in the Revi
             'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind'), true);
     await review.hover();
     const overlay = page.locator('.conversation-tooltip-overlay');
+    await overlay.waitFor({ state: 'visible', timeout: 900 });
     assert.ok((await overlay.innerText()).includes(
         'Tracking origin/agent-pivot/fix-login · 2 ahead · 1 behind'));
 
@@ -14025,6 +14029,7 @@ test('WORKTREE-CHANGES-PANEL-001 puts selected-member tracking facts in the Revi
         'a state refresh closes a visible hint instead of leaving stale details');
     await page.mouse.move(0, 0);
     await review.hover();
+    await overlay.waitFor({ state: 'visible', timeout: 900 });
     assert.ok((await overlay.innerText()).includes('No tracking branch'),
         'the next hover reads the refreshed selected member');
     assert.equal((await overlay.innerText()).includes('origin/agent-pivot'),
@@ -14961,7 +14966,7 @@ test('CONVERSATION-COMMENTS-PILL-001 shows session · workspace open counts refr
 
     // The tooltip spells out both counts.
     assert.equal(
-        await pill.getAttribute('title'),
+        await pill.getAttribute('data-tooltip'),
         '1 open session comment · 0 open workspace notes — click to review'
     );
 });
@@ -15410,6 +15415,7 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay stays fixed inside the viewport
         hasText: 'file-59.ts',
     });
     await lastRow.hover();
+    await overlay.waitFor({ state: 'visible', timeout: 900 });
     assert.equal(await overlay.isVisible(), true);
     assert.equal(await overlay.innerText(),
         'src/deeply/nested/directory/structure/file-59.ts');
@@ -15427,6 +15433,7 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay stays fixed inside the viewport
         hasText: 'file-00.ts',
     });
     await firstRow.hover();
+    await overlay.waitFor({ state: 'visible', timeout: 900 });
     assert.equal(await overlay.isVisible(), true);
     assertInsideViewport(await overlayBox());
 
@@ -15434,6 +15441,7 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay stays fixed inside the viewport
     // horizontally into the viewport.
     const refresh = page.locator('[data-changes-refresh]');
     await refresh.hover();
+    await overlay.waitFor({ state: 'visible', timeout: 900 });
     assert.equal(await overlay.isVisible(), true);
     assert.equal(await overlay.innerText(), 'Refresh');
     assertInsideViewport(await overlayBox());

@@ -2795,6 +2795,54 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 recovers a legacy resync outside a target handoff', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(sessionId, ['input-1']),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            'visible-legacy-resync'
+        ),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    let htmlWrites = 0;
+    let rendered = panel.webview.html;
+    Object.defineProperty(panel.webview, 'html', {
+        get: () => rendered,
+        set: value => {
+            htmlWrites += 1;
+            rendered = value;
+        },
+    });
+
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    const recovered = decodeInitialPublication(rendered);
+    assert.equal(htmlWrites, 1,
+        'a legacy refresh failure receives one safe full-document recovery');
+    assert.notEqual(recovered.requestId, initial.requestId);
+
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    assert.equal(htmlWrites, 1,
+        'a persistent legacy failure remains bounded to one recovery attempt');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores resync requests correlated to a superseded generation or session', async () => {
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(

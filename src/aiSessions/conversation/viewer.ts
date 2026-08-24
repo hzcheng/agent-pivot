@@ -1251,11 +1251,18 @@ export class ConversationViewer implements ConversationViewerApi {
                 || parsed.htmlSignature === undefined) {
                 // A retained version-1 Webview cannot identify the failed
                 // publication. Do not let that stale request consume a newer
-                // page's one recovery attempt; the current transition's
-                // correlated watchdog will rebuild it safely if needed.
-                this.emitDiagnostic('resync-legacy-await-watchdog', {
-                    requestGeneration: parsed.subscriptionGeneration,
-                });
+                // page's one recovery attempt while a handoff watchdog is
+                // already guarding that page. Outside a handoff, recover the
+                // latest page once so a legacy refresh failure cannot remain
+                // stale forever.
+                if (this.transitioningGeneration
+                    === parsed.subscriptionGeneration) {
+                    this.emitDiagnostic('resync-legacy-await-watchdog', {
+                        requestGeneration: parsed.subscriptionGeneration,
+                    });
+                } else if (publication) {
+                    this.recoverPublication(publication, 'resync-legacy-rebuild');
+                }
                 return;
             }
             if (!publication

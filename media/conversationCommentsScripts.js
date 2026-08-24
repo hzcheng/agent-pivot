@@ -3573,6 +3573,30 @@
             }
         }
 
+        function applySnapshots(snapshot, projectSnapshot) {
+            if (!validInitialComments(snapshot)
+                || (projectCommentsAvailable
+                    && !validInitialProjectComments(projectSnapshot))) {
+                return false;
+            }
+            state.comments = snapshot.comments.map(function (comment) {
+                return Object.assign({}, comment);
+            });
+            state.commentRevision = snapshot.revision;
+            if (projectCommentsAvailable) {
+                state.projectComments = projectSnapshot.comments.map(
+                    cloneProjectComment
+                );
+                state.projectCommentRevision = projectSnapshot.revision;
+                renderProjectComments();
+            }
+            if (commentUiAvailable) {
+                renderComments();
+                updateCommentHighlights();
+            }
+            return true;
+        }
+
         function resetSession(target, generation, snapshot, projectSnapshot) {
             if (!validInitialComments(snapshot)
                 || (projectCommentsAvailable
@@ -3618,6 +3642,7 @@
             applyCommentsResult: applyCommentsResult,
             applyLocateResult: applyLocateResult,
             applyProjectCommentsResult: applyProjectCommentsResult,
+            applySnapshots: applySnapshots,
             attach: attach,
             canResetProjectComments: validInitialProjectComments,
             canResetSession: validInitialComments,

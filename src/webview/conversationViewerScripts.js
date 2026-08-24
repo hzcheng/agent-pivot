@@ -1819,6 +1819,20 @@
         if (typeof message.htmlSignature === 'string') {
             state.appliedHtmlSignature = message.htmlSignature;
         }
+        // A content-first Host load delivers restored side state later in a
+        // same-generation, HTML-free refresh. These snapshots are still
+        // authoritative and must update without resetting the transcript.
+        if (message.bookmarks !== undefined
+            && typeof outlineController.applyBookmarksSnapshot === 'function') {
+            outlineController.applyBookmarksSnapshot(message.bookmarks);
+        }
+        if (message.comments !== undefined
+            && typeof commentsController.applySnapshots === 'function') {
+            commentsController.applySnapshots(
+                message.comments,
+                message.projectComments
+            );
+        }
         state.atLatest = message.atLatest;
         state.initialized = true;
         clearConversationLoading();

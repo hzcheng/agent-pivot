@@ -111,12 +111,6 @@ export const add = `
 </svg>
 `;
 
-export const stop = `
-<svg viewBox="0 0 24 24" fill="currentColor">
-    <rect x="5.5" y="5.5" width="13" height="13" rx="2.2"></rect>
-</svg>
-`;
-
 export const manage = `
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="m3.5 6 1.5 1.5L7.5 5"></path>

@@ -1246,7 +1246,7 @@ test('RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001 renders semantic tmux, direct, stale, 
     assert.match(tmuxRow, /data-action="open-ai-session-context-menu"/);
     assert.match(tmuxRow, /Managed tmux runtime/);
     assert.doesNotMatch(tmuxRow, /data-action="detach-ai-session-terminal"/);
-    assert.doesNotMatch(tmuxRow, /data-action="stop-ai-session-runtime"/);
+    assert.match(tmuxRow, /data-action="stop-ai-session-runtime"/);
     assert.match(tmuxRow, /Runtime status is stale/);
 
     const directRow = webviewModules.content.getAiSessionsDiv({ ...base, activeAiSessions: [{
@@ -1254,6 +1254,7 @@ test('RUNTIME-TMUX-WEBVIEW-EXPERIENCE-001 renders semantic tmux, direct, stale, 
     }] });
     assert.match(directRow, /data-action="open-ai-session-context-menu"/);
     assert.match(directRow, /Direct VS Code terminal/);
+    assert.match(directRow, /data-action="stop-ai-session-runtime"/);
     assert.doesNotMatch(directRow, /data-action="close-ai-session-terminal"/);
     assert.doesNotMatch(directRow, /data-action="detach-ai-session-terminal"/);
 

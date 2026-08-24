@@ -2001,7 +2001,7 @@ function initProjectContextMenus(options) {
             var stopMenuItem = sessionContextMenuElement.querySelector('[data-action="stop-session"]');
             if (stopMenuItem) {
                 stopMenuItem.toggleAttribute(
-                    'hidden', contextMenuAiSessionBackend !== 'tmux' || contextMenuAiSessionConflict
+                    'hidden', contextMenuAiSessionConflict
                 );
                 stopMenuItem.classList.toggle(
                     'disabled', !contextMenuAiSessionActive || contextMenuAiSessionConflict
@@ -2186,13 +2186,13 @@ function initProjectContextMenus(options) {
                 });
                 break;
             case 'stop-session':
-                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict
-                    || contextMenuAiSessionBackend !== 'tmux') break;
+                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict) break;
                 window.vscode.postMessage({
                     type: 'stop-ai-session-runtime',
                     projectId: contextMenuAiSessionProjectId,
                     provider: contextMenuAiSessionProvider,
                     sessionId: contextMenuAiSessionId,
+                    backend: contextMenuAiSessionBackend,
                 });
                 break;
         }
@@ -4458,22 +4458,6 @@ function initProjectAiSessionControls(options) {
             }
             return true;
         }
-        var stopSessionAction = target.closest('[data-action="stop-ai-session-runtime"]');
-        if (stopSessionAction) {
-            var stopRow = stopSessionAction.closest('.active-ai-session-row[data-session-id]');
-            if (stopRow
-                && stopRow.getAttribute('data-session-backend') === 'tmux'
-                && !stopRow.hasAttribute('data-session-conflict')
-                && !stopRow.hasAttribute('data-session-pending')) {
-                window.vscode.postMessage({
-                    type: 'stop-ai-session-runtime',
-                    projectId: projectId,
-                    provider: stopRow.getAttribute('data-session-provider'),
-                    sessionId: stopRow.getAttribute('data-session-id'),
-                });
-            }
-            return true;
-        }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
         if (worktreeToggle) {
             setAiSessionWorktreeGroupExpanded(
@@ -4846,7 +4830,7 @@ function initProjectAiSessionControls(options) {
             var requestedStop = requestedTerminalAction === 'stop-ai-session-runtime';
             if (terminalRow && isAiSessionProvider(terminalProvider)
                 && ((requestedDetach && terminalBackend === 'tmux')
-                    || (requestedStop && terminalBackend === 'tmux')
+                    || (requestedStop && (terminalBackend === 'tmux' || terminalBackend === 'vscode'))
                     || (!requestedDetach && !requestedStop && terminalBackend === 'vscode'))) {
                 var terminalMessage = {
                     type: requestedDetach ? 'detach-ai-session-terminal'
@@ -4854,6 +4838,7 @@ function initProjectAiSessionControls(options) {
                             : 'close-ai-session-terminal',
                     projectId,
                     provider: terminalProvider,
+                    backend: terminalBackend,
                 };
                 if (terminalRow.hasAttribute('data-session-pending')) {
                     terminalMessage.pendingCreatedAt = terminalRow.getAttribute('data-pending-created-at');

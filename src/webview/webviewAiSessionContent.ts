@@ -1358,9 +1358,8 @@ function getActiveAiSessionRow(
     var profileBadge = getAiSessionProfileBadge(model.profile, model.profileUnavailable);
     const profileTooltip = getAiSessionProfileTooltip(model.profile, model.profileUnavailable);
     var profileAriaLabel = `, ${profileTooltip}`;
-    var stopAction = !model.pending && !conflict && model.backend === 'tmux'
-        && model.executionState !== 'stopped'
-        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Stop ${providerLabel} session ${sessionName}" data-tooltip="Stop Session">${Icons.stop}</button>`
+    var stopAction = !model.pending && !conflict
+        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
         : '';
     const statusState = model.needsAttention
         ? 'waiting'

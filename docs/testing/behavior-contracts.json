@@ -1846,7 +1846,7 @@
   {
     "id": "RUNTIME-TMUX-TERMINATE-SESSION-001",
     "domain": "runtime",
-    "title": "Stop Session terminates only the selected tmux target after confirmation",
+    "title": "Close Chat terminates only the selected runtime target after confirmation",
     "priority": "P1",
     "status": "automated",
     "owners": [

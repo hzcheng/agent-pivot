@@ -273,7 +273,7 @@ export function createDashboardMessageHandlers(
                 providerId: e.provider as string,
                 sessionId: e.sessionId as string,
                 pendingCreatedAt: e.pendingCreatedAt as string,
-                expectedBackend: 'tmux',
+                expectedBackend: e.backend === 'vscode' ? 'vscode' : 'tmux',
             });
         },
         'toggle-ai-session-pin': async e => {

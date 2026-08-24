@@ -2784,23 +2784,33 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 click focuses an unfocused card and o
     );
 });
 
-test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct Stop control for an active tmux chat', async t => {
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct close control for every active chat runtime', async t => {
     const tmuxSession = {
         ...session('codex', 'tmux-session', false),
         backend: 'tmux',
         attached: true,
         tmuxLayout: 'session',
     };
-    const page = await openCardPage(t, [tmuxSession], { width: 170, height: 320 },
-        `${projectMarkup([tmuxSession])}${getAiSessionContextMenu()}`);
-    const stop = row(page, 'codex', 'tmux-session')
+    const directSession = session('kimi', 'direct-session', false);
+    const sessions = [tmuxSession, directSession];
+    const page = await openCardPage(t, sessions, { width: 170, height: 320 },
+        `${projectMarkup(sessions)}${getAiSessionContextMenu()}`);
+    const closeTmux = row(page, 'codex', 'tmux-session')
+        .locator('[data-action="stop-ai-session-runtime"]');
+    const closeDirect = row(page, 'kimi', 'direct-session')
         .locator('[data-action="stop-ai-session-runtime"]');
 
-    assert.equal(await stop.count(), 1,
-        'an active tmux chat offers Stop without first opening its overflow menu');
-    assert.equal(await stop.getAttribute('aria-label'), 'Stop Codex session codex tmux-session');
+    assert.equal(await closeTmux.count(), 1,
+        'an active tmux chat offers Close without first opening its overflow menu');
+    assert.equal(await closeDirect.count(), 1,
+        'an active direct-terminal chat offers the same Close affordance');
+    assert.equal(await closeTmux.getAttribute('aria-label'), 'Close Codex chat codex tmux-session');
+    assert.equal(await closeDirect.getAttribute('aria-label'), 'Close Kimi chat kimi direct-session');
+    assert.equal(await closeTmux.getAttribute('data-tooltip'), 'Close Chat');
+    assert.equal(await closeTmux.locator('svg').getAttribute('viewBox'), '0 0 512 512',
+        'the close control uses the established cross icon rather than the stop-square glyph');
     await row(page, 'codex', 'tmux-session').hover();
-    const layout = await stop.evaluate(button => {
+    const layout = await closeTmux.evaluate(button => {
         const row = button.closest('.codex-session-row');
         const actions = button.closest('.codex-session-actions');
         const rowRect = row.getBoundingClientRect();
@@ -2815,17 +2825,27 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct Stop control for an ac
         };
     });
     assert.equal(layout.documentWidth, 170,
-        'the direct Stop control must not create horizontal overflow at 170px');
+        'the direct Close control must not create horizontal overflow at 170px');
     assert.ok(layout.actionsRight <= layout.rowRight + 1,
-        'the direct Stop control stays within its chat row');
+        'the direct Close control stays within its chat row');
     assert.ok(Math.abs(layout.buttonCenterY - layout.rowCenterY) <= 1,
-        'the direct Stop control remains vertically centered in its chat row');
-    await stop.click();
+        'the direct Close control remains vertically centered in its chat row');
+    await closeTmux.click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'stop-ai-session-runtime',
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'tmux-session',
+        backend: 'tmux',
+    });
+    await row(page, 'kimi', 'direct-session').hover();
+    await closeDirect.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'stop-ai-session-runtime',
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'direct-session',
+        backend: 'vscode',
     });
 });
 

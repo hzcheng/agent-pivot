@@ -115,7 +115,7 @@ function initProjectContextMenus(options) {
             var stopMenuItem = sessionContextMenuElement.querySelector('[data-action="stop-session"]');
             if (stopMenuItem) {
                 stopMenuItem.toggleAttribute(
-                    'hidden', contextMenuAiSessionBackend !== 'tmux' || contextMenuAiSessionConflict
+                    'hidden', contextMenuAiSessionConflict
                 );
                 stopMenuItem.classList.toggle(
                     'disabled', !contextMenuAiSessionActive || contextMenuAiSessionConflict
@@ -300,13 +300,13 @@ function initProjectContextMenus(options) {
                 });
                 break;
             case 'stop-session':
-                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict
-                    || contextMenuAiSessionBackend !== 'tmux') break;
+                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict) break;
                 window.vscode.postMessage({
                     type: 'stop-ai-session-runtime',
                     projectId: contextMenuAiSessionProjectId,
                     provider: contextMenuAiSessionProvider,
                     sessionId: contextMenuAiSessionId,
+                    backend: contextMenuAiSessionBackend,
                 });
                 break;
         }

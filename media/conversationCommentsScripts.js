@@ -1678,7 +1678,7 @@
             var quote = selectedText.trim();
             if (!startMessage || startMessage !== endMessage || !markdown
                 || !messages.contains(startMessage) || !quote
-                || quote.length > 4000) {
+                || Array.from(quote).length > 4000) {
                 addComment.hidden = true;
                 if (runSelection) runSelection.hidden = true;
                 state.selectedCommentText = null;
@@ -1751,7 +1751,8 @@
         ]);
 
         function isRunnableShellSelection(quote, startElement, endElement) {
-            if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(quote)) {
+            if (quote.length > 4000
+                || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(quote)) {
                 return false;
             }
             var startBlock = startElement && startElement.closest

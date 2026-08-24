@@ -73,6 +73,7 @@ test('CONVERSATION-RUN-COMMAND-001 prefers the current target and rejects a conf
     assert.deepEqual(resolveConversationCommandLocation({
         workspaceScopeIdentity: 'workspace-a',
         activeWorktreePath: '/worktree-a',
+        activeConflict: false,
         historyWorktreePath: undefined,
         historyCwd: undefined,
         historyWorkDir: undefined,
@@ -86,6 +87,7 @@ test('CONVERSATION-RUN-COMMAND-001 prefers the current target and rejects a conf
     assert.equal(resolveConversationCommandLocation({
         workspaceScopeIdentity: 'workspace-a',
         activeWorktreePath: undefined,
+        activeConflict: false,
         historyWorktreePath: undefined,
         historyCwd: undefined,
         historyWorkDir: undefined,
@@ -99,6 +101,7 @@ test('CONVERSATION-RUN-COMMAND-001 prefers the current target and rejects a conf
     assert.deepEqual(resolveConversationCommandLocation({
         workspaceScopeIdentity: 'workspace-a',
         activeWorktreePath: undefined,
+        activeConflict: false,
         historyWorktreePath: undefined,
         historyCwd: undefined,
         historyWorkDir: undefined,
@@ -109,4 +112,18 @@ test('CONVERSATION-RUN-COMMAND-001 prefers the current target and rejects a conf
             cwd: '/worktree-a/subdirectory',
         },
     }), { key: '/worktree-a', cwd: '/worktree-a' });
+    assert.deepEqual(resolveConversationCommandLocation({
+        workspaceScopeIdentity: 'workspace-a',
+        activeWorktreePath: '/ambiguous-worktree',
+        activeConflict: true,
+        historyWorktreePath: '/history-worktree',
+        historyCwd: undefined,
+        historyWorkDir: undefined,
+        runtime: {
+            state: 'conflict',
+            workspaceScopeIdentity: 'workspace-a',
+            worktreePath: '/ambiguous-worktree',
+            cwd: '/ambiguous-worktree',
+        },
+    }), { key: '/history-worktree', cwd: '/history-worktree' });
 });

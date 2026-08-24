@@ -20,6 +20,7 @@ export interface ConversationCommandLocation {
 export interface ConversationCommandLocationInput {
     workspaceScopeIdentity: string | undefined;
     activeWorktreePath: string | undefined;
+    activeConflict: boolean;
     historyWorktreePath: string | undefined;
     historyCwd: string | undefined;
     historyWorkDir: string | undefined;
@@ -42,7 +43,8 @@ export function resolveConversationCommandLocation(
         && input.runtime?.workspaceScopeIdentity === input.workspaceScopeIdentity
         ? input.runtime
         : undefined;
-    const worktreePath = input.activeWorktreePath || input.historyWorktreePath
+    const worktreePath = (input.activeConflict ? undefined : input.activeWorktreePath)
+        || input.historyWorktreePath
         || live?.worktreePath;
     const cwd = worktreePath || input.historyCwd || input.historyWorkDir
         || live?.cwd;

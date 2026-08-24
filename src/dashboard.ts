@@ -1919,6 +1919,7 @@ async function initializeDashboard(
             const location = resolveConversationCommandLocation({
                 workspaceScopeIdentity: actionTarget?.workspace.scopeIdentity,
                 activeWorktreePath: activeSession?.worktreeKey?.canonicalWorktreePath,
+                activeConflict: activeSession?.conflict === true,
                 historyWorktreePath: historySession?.worktreeKey?.canonicalWorktreePath,
                 historyCwd: historySession?.cwd,
                 historyWorkDir: historySession?.workDir,

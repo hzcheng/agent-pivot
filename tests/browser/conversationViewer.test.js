@@ -3293,6 +3293,38 @@ test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands i
     });
 });
 
+test('CONVERSATION-RUN-COMMAND-001 keeps a long Unicode comment selection available but non-runnable', async t => {
+    const emoji = '😀'.repeat(3000);
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: emoji,
+            }],
+        },
+    });
+    await page.locator('.conversation-markdown p').evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.waitForTimeout(20);
+    const selectionBubble = page.locator('[data-add-comment]');
+    const selectionRun = selectionBubble.locator(
+        '[data-comment-selection-action="run"]'
+    );
+    assert.equal(await selectionBubble.getAttribute('hidden'), null);
+    assert.equal(await selectionRun.getAttribute('hidden'), '',
+        'the command UTF-16 bound does not hide comment actions');
+});
+
 test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers through the Host', async t => {
     const completedAt = Date.now();
     const timestamp = completedAt - 120_000;

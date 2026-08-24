@@ -603,6 +603,128 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 makes an outgoing document iner
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 publishes switched content before slow auxiliary state restores', async () => {
+    const sessionBComments = deferred();
+    const { viewer, panel } = createViewer({
+        commentStore: {
+            async load(storeTarget) {
+                return storeTarget.sessionId === 'session-b'
+                    ? sessionBComments.promise
+                    : { revision: 0, comments: [] };
+            },
+            async save() {},
+        },
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+
+    await viewer.open(target('session-a'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    const switching = viewer.follow(target('session-b'));
+    await new Promise(resolve => setImmediate(resolve));
+    const sessionBPublication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.target?.sessionId === 'session-b'
+    ).at(-1);
+    assert.ok(sessionBPublication,
+        'content publication must not wait for auxiliary state restoration');
+    assert.match(sessionBPublication.html, /visible-session-b/);
+    assert.equal(sessionBPublication.comments.revision, 0,
+        'the first readable page uses the reset auxiliary state');
+    assert.equal(await Promise.race([
+        switching.then(() => true),
+        new Promise(resolve => setImmediate(() => resolve(false))),
+    ]), true, 'the target load settles before a slow auxiliary restoration');
+
+    sessionBComments.resolve({ revision: 7, comments: [] });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.target?.sessionId === 'session-b'
+    ).length, 1, 'the side state waits for the readable page acknowledgement');
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: sessionBPublication.subscriptionGeneration,
+        requestId: sessionBPublication.requestId,
+        htmlSignature: sessionBPublication.htmlSignature,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    const restored = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.target?.sessionId === 'session-b'
+    ).at(-1);
+    assert.equal(restored.updateKind, 'refresh');
+    assert.equal(restored.html, undefined,
+        'the auxiliary state refresh reuses the acknowledged transcript');
+    assert.equal(restored.comments.revision, 7);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 drops a late auxiliary restore after another session switch', async () => {
+    const sessionBComments = deferred();
+    const { viewer, panel } = createViewer({
+        commentStore: {
+            async load(storeTarget) {
+                return storeTarget.sessionId === 'session-b'
+                    ? sessionBComments.promise
+                    : { revision: 0, comments: [] };
+            },
+            async save() {},
+        },
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+
+    await viewer.open(target('session-a'));
+    await viewer.follow(target('session-b'));
+    const sessionBMessagesBeforeSwitch = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.target?.sessionId === 'session-b'
+    ).length;
+
+    await viewer.follow(target('session-c'));
+    const sessionCPublication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.target?.sessionId === 'session-c'
+    ).at(-1);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: sessionCPublication.subscriptionGeneration,
+        requestId: sessionCPublication.requestId,
+        htmlSignature: sessionCPublication.htmlSignature,
+    });
+
+    sessionBComments.resolve({ revision: 9, comments: [] });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.target?.sessionId === 'session-b'
+    ).length, sessionBMessagesBeforeSwitch,
+    'a late restore for session-b must not republish after session-c is current');
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.target?.sessionId === 'session-c'
+    ).at(-1).comments.revision, 0);
+    viewer.dispose();
+});
+
 test('CONVERSATION-TELEMETRY-CONTROLLER-001 refreshes telemetry while the visible conversation is otherwise idle', async () => {
     const timers = new Map();
     let nextTimer = 1;

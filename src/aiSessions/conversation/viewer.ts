@@ -357,6 +357,12 @@ export class ConversationViewer implements ConversationViewerApi {
         startedAt: number;
         source: 'open' | 'follow' | 'restore' | 'rebind';
     };
+    // Auxiliary state restores after the content-first load and is published
+    // only once its exact document has been acknowledged by the Webview.
+    private pendingRestoredAuxiliaryState?: {
+        target: ConversationViewerTarget;
+        generation: number;
+    };
     private publicationAckTimer?: unknown;
     private publicationAckTimerToken = 0;
     private publicationRecoveryRebuildRequestId = 0;
@@ -711,15 +717,7 @@ export class ConversationViewer implements ConversationViewerApi {
             // an authoritative publication.
             this.postLoadingNotice(panel, activeTarget, generation);
         }
-        await Promise.all([
-            this.commentController.restore(activeTarget, generation),
-            this.projectCommentController.restore(activeTarget, generation),
-            this.bookmarkController.restore(activeTarget, generation),
-        ]);
-        if (this.target !== activeTarget
-            || this.subscriptionGeneration !== generation) {
-            return false;
-        }
+        this.restoreAuxiliaryState(activeTarget, generation);
         this.ensureWatch(generation);
         const loaded = await this.loadAuthoritative(
             'initial',
@@ -821,6 +819,7 @@ export class ConversationViewer implements ConversationViewerApi {
             this.watch?.dispose();
             this.watch = undefined;
             this.subscriptionGeneration += 1;
+            this.pendingRestoredAuxiliaryState = undefined;
             this.currentRequestId = this.allocateRequestId();
             if (this.pages.length && this.outlineController.snapshot) {
                 this.stale = true;
@@ -926,6 +925,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.clearPublicationAckTimeout();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
+        this.pendingRestoredAuxiliaryState = undefined;
         this.appliedContentSignature = undefined;
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
@@ -1038,6 +1038,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.clearPublicationAckTimeout();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
+        this.pendingRestoredAuxiliaryState = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1429,6 +1430,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetryController.reset();
         this.latestPublication = undefined;
+        this.pendingRestoredAuxiliaryState = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1437,15 +1439,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.currentRequestId = 0;
         const generation = this.subscriptionGeneration;
         const activeTarget = this.target;
-        await Promise.all([
-            this.commentController.restore(activeTarget, generation),
-            this.projectCommentController.restore(activeTarget, generation),
-            this.bookmarkController.restore(activeTarget, generation),
-        ]);
-        if (this.target !== activeTarget
-            || this.subscriptionGeneration !== generation) {
-            return;
-        }
+        this.restoreAuxiliaryState(activeTarget, generation);
         this.ensureWatch(generation);
         await this.loadAuthoritative('initial', false);
         if (this.target === activeTarget
@@ -1593,6 +1587,62 @@ export class ConversationViewer implements ConversationViewerApi {
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
         }, direction, false, 'navigation', nextInteractionId);
+    }
+
+    private restoreAuxiliaryState(
+        target: ConversationViewerTarget,
+        generation: number
+    ): void {
+        void Promise.all([
+            this.commentController.restore(target, generation),
+            this.projectCommentController.restore(target, generation),
+            this.bookmarkController.restore(target, generation),
+        ]).then(() => {
+            if (this.target !== target
+                || this.subscriptionGeneration !== generation) {
+                return;
+            }
+            this.pendingRestoredAuxiliaryState = { target, generation };
+            this.publishRestoredAuxiliaryState();
+        }).catch(() => undefined);
+    }
+
+    private publishRestoredAuxiliaryState(): void {
+        const pending = this.pendingRestoredAuxiliaryState;
+        const publication = this.latestPublication;
+        if (!pending || this.suspended || this.target !== pending.target
+            || this.subscriptionGeneration !== pending.generation
+            || !publication || !this.isCurrentPublication(publication)) {
+            return;
+        }
+        if (this.publicationHasCurrentAuxiliaryState(publication)) {
+            this.pendingRestoredAuxiliaryState = undefined;
+            return;
+        }
+        // A state-only envelope must never update an outgoing or unready
+        // document. An applied receipt proves this exact content is visible.
+        if (this.appliedContentSignature !== publication.htmlSignature) {
+            return;
+        }
+        this.pendingRestoredAuxiliaryState = undefined;
+        const requestId = this.allocateRequestId();
+        this.currentRequestId = requestId;
+        void this.deliverPublication(this.createPublication(
+            requestId,
+            pending.generation,
+            'refresh'
+        ), false);
+    }
+
+    private publicationHasCurrentAuxiliaryState(
+        publication: ConversationViewerPageMessage
+    ): boolean {
+        return publication.comments.revision
+                === this.commentController.snapshot.revision
+            && publication.projectComments.revision
+                === this.projectCommentController.snapshot.revision
+            && publication.bookmarks.revision
+                === this.bookmarkController.snapshot.revision;
     }
 
     async navigateLatest(): Promise<void> {
@@ -2264,6 +2314,7 @@ export class ConversationViewer implements ConversationViewerApi {
         if (this.transitioningGeneration === message.subscriptionGeneration) {
             this.transitioningGeneration = undefined;
         }
+        this.publishRestoredAuxiliaryState();
     }
 
     private rebuildLatestDocument(): void {

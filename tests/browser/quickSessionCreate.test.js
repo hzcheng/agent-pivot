@@ -127,7 +127,12 @@ async function openQuickCreatePage(t, options = {}) {
         <html>
             <head>${options.withStyles ? `<style>${captionStyleRules}</style>` : ''}</head>
             <body class="steward-sidebar">
-                <div class="steward-sticky-header"></div>
+                <div class="steward-sticky-header">
+                    <div class="filter-wrapper">
+                        <button type="button" class="toggle-all-groups-button" data-action="toggle-all-groups"
+                            title="Collapse all worktrees" aria-label="Collapse all worktrees"></button>
+                    </div>
+                </div>
                 <div class="sticky-groups-wrapper">
                     <div class="open-session-surface" data-open-session-surface data-id="project-a"
                         data-current-workspace data-workspace-scope-identity="scope-project-a"
@@ -474,12 +479,64 @@ test('AI-SESSION-QUICK-CREATE-001 list view keeps inline create targets', async 
         }],
     });
     const project = page.locator('[data-open-session-surface][data-id="project-a"]');
+    const collapseAll = page.locator('[data-action="toggle-all-groups"]');
+    await page.evaluate(() => window.__agentPivotSyncCollapseButton());
     assert.equal(await project.locator('.ai-session-list-launch-rail').count(), 1);
+    assert.equal(await collapseAll.isDisabled(), true,
+        'the global collapse control is unavailable when CHATS is displayed as a flat list');
+    assert.equal(await collapseAll.getAttribute('aria-label'), 'No worktrees to collapse');
     await project.locator('.ai-session-list-launch-target[data-worktree-path="/repo-feature"] '
         + '[data-action="create-ai-session-quick"]').click();
     assert.deepEqual(await postedMessages(page), [{
         type: 'create-ai-session-quick', projectId: 'project-a', provider: 'kimi', worktreeKey: key,
     }]);
+});
+
+test('WORKTREE-GROUPING-UI-001 disabled global collapse control looks inactive', async t => {
+    const page = await browser.newPage({ viewport: { width: 360, height: 120 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><html><head><style>${dashboardStyles}</style></head>
+        <body><div class="filter-wrapper"><button type="button" class="toggle-all-groups-button"
+            data-action="toggle-all-groups" disabled>Collapse all worktrees</button></div></body></html>`);
+    const disabledPresentation = await page.locator('[data-action="toggle-all-groups"]').evaluate(button => ({
+        cursor: getComputedStyle(button).cursor,
+        opacity: Number(getComputedStyle(button).opacity),
+    }));
+    assert.equal(disabledPresentation.cursor, 'default');
+    assert.ok(disabledPresentation.opacity <= 0.55,
+        'a disabled global collapse control does not look clickable');
+});
+
+test('WORKTREE-GROUPING-UI-001 waits for authoritative Tree DOM before enabling global collapse', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo-feature',
+    };
+    const page = await openQuickCreatePage(t, {
+        chatsViewMode: 'list',
+        worktrees: [{
+            kind: 'ready',
+            git: {
+                key, branchRef: 'refs/heads/feature/auth', head: 'a'.repeat(40),
+                isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+            },
+            activity: 'idle', sessions: [], authority: { canResume: true },
+        }],
+    });
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
+    const collapseAll = page.locator('[data-action="toggle-all-groups"]');
+
+    await project.locator('[data-action="toggle-chats-view-menu"]').click();
+    await project.locator('[data-action="select-chats-view-mode"][data-view-mode="tree"]').click();
+
+    assert.equal(await project.locator('.codex-sessions').getAttribute('data-chats-view-mode'), 'tree',
+        'the optimistic preference changes immediately');
+    assert.equal(await collapseAll.isDisabled(), true,
+        'the stale List launch rail is not treated as a collapsible Tree');
+    assert.equal(await collapseAll.getAttribute('aria-label'), 'No worktrees to collapse');
+    assert.equal((await postedMessages(page)).some(message =>
+        message.type === 'set-ai-session-collapsed-worktree-groups'
+    ), false, 'no collapsed state is written before the authoritative Tree replacement');
 });
 
 test('AI-SESSION-QUICK-CREATE-001 list view does not duplicate a managed group primary', async t => {
@@ -711,7 +768,7 @@ test('WORKTREE-GROUPING-UI-001 revealing a plain session lands on Chats active',
     );
 });
 
-test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at once', async t => {
+test('WORKTREE-GROUPING-UI-001 the global collapse control toggles every worktree group at once', async t => {
     const firstKey = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-feature' };
     const secondKey = { repositoryKey: '/repo/.git', canonicalWorktreePath: '/repo-backend' };
     const worktree = (key, branchRef) => ({
@@ -743,21 +800,19 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
         ],
     });
     const project = page.locator('[data-open-session-surface][data-id="project-a"]');
-    const toggleAll = project.locator('[data-action="toggle-all-ai-session-worktrees"]');
+    const toggleAll = page.locator('[data-action="toggle-all-groups"]');
     const rows = project.locator('.ai-session-worktree-group .codex-session-row');
 
-    assert.equal(await toggleAll.count(), 1, 'the Worktree panel owns the collapse-all button');
-    assert.equal(await page.locator(
-        '.ai-session-surface-bar [data-action="toggle-all-ai-session-worktrees"]'
-    ).count(), 0, 'the button no longer sits next to the surface tabs');
+    await page.evaluate(() => window.__agentPivotSyncCollapseButton());
+    assert.equal(await toggleAll.count(), 1, 'the sidebar header owns the global collapse control');
     assert.equal(await project.locator(
         '[data-ai-session-panel="chats"] [data-action="toggle-all-ai-session-worktrees"]'
-    ).count(), 1, 'collapse-all lives inside the Worktree panel');
+    ).count(), 0, 'the CHATS tree no longer renders a duplicate local control');
+    assert.equal(await toggleAll.getAttribute('aria-label'), 'Collapse all worktrees');
     assert.equal(await rows.first().isVisible(), true);
 
     await toggleAll.click();
     assert.equal(await rows.first().isVisible(), false, 'collapse-all hides every group');
-    assert.equal(await toggleAll.getAttribute('data-collapse-all-state'), 'collapsed');
     assert.equal(await toggleAll.getAttribute('aria-label'), 'Expand all worktrees');
 
     await toggleAll.click();
@@ -776,6 +831,16 @@ test('WORKTREE-GROUPING-UI-001 the surface bar toggles every worktree group at o
     await toggleAll.click();
     assert.equal(await rows.first().isVisible(), false,
         'one expanded group left means collapse-all still collapses the rest');
+
+    await project.locator('[data-ai-session-tab="all"]').click();
+    assert.equal(await toggleAll.isDisabled(), true,
+        'ALL has no worktree hierarchy, so the global collapse control is disabled');
+    assert.equal(await toggleAll.getAttribute('aria-label'), 'No worktrees to collapse');
+
+    await project.locator('[data-ai-session-tab="chats"]').click();
+    assert.equal(await toggleAll.isDisabled(), false,
+        'returning to the CHATS tree restores the global worktree control');
+    assert.equal(await toggleAll.getAttribute('aria-label'), 'Expand all worktrees');
 });
 
 test('WORKTREE-GROUPING-UI-001 selecting a CHATS/ALL tab reports it for authoritative re-renders', async t => {

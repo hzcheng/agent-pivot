@@ -102,7 +102,7 @@ function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
             collapsedKeys: projects[projectId],
         });
     }
-    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+    syncGlobalAiSessionWorktreeCollapseButton();
 }
 
 // The collapse-all affordance acts like every group toggle at once: any
@@ -121,16 +121,13 @@ function toggleAllAiSessionWorktrees(projectDiv) {
     writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
 }
 
-function syncAiSessionWorktreeCollapseAllButton(projectDiv) {
-    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return;
-    var button = projectDiv.querySelector('[data-action="toggle-all-ai-session-worktrees"]');
-    if (!button) return;
-    var anyExpanded = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
-        .some(group => !group.hasAttribute('data-worktree-collapsed'));
-    button.setAttribute('data-collapse-all-state', anyExpanded ? 'expanded' : 'collapsed');
-    var label = anyExpanded ? 'Collapse all worktrees' : 'Expand all worktrees';
-    button.setAttribute('aria-label', label);
-    button.setAttribute('data-tooltip', label);
+window.__agentPivotToggleAllAiSessionWorktrees = toggleAllAiSessionWorktrees;
+
+function syncGlobalAiSessionWorktreeCollapseButton() {
+    if (window.__agentPivotSyncCollapseButton
+        && typeof window.__agentPivotSyncCollapseButton === 'function') {
+        window.__agentPivotSyncCollapseButton();
+    }
 }
 
 function setAiSessionWorktreeExpanded(header, expanded) {
@@ -178,7 +175,7 @@ function restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi) {
             setWorktreeGroupMemberDetailsExpanded(group, true);
         }
     });
-    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+    syncGlobalAiSessionWorktreeCollapseButton();
 }
 
 function parseAiSessionConversationFocusOrigin(message) {
@@ -384,6 +381,7 @@ function selectAiSessionTabDom(projectDiv, tab) {
         var selected = panel.getAttribute('data-ai-session-panel') === tab;
         panel.toggleAttribute('hidden', !selected);
     });
+    syncGlobalAiSessionWorktreeCollapseButton();
     return selectedTab;
 }
 

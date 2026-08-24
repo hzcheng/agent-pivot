@@ -284,13 +284,6 @@ function initProjectAiSessionControls(options) {
             );
             return true;
         }
-        var worktreeCollapseAllAction = target.closest(
-            '[data-action="toggle-all-ai-session-worktrees"]'
-        );
-        if (worktreeCollapseAllAction) {
-            toggleAllAiSessionWorktrees(projectDiv);
-            return true;
-        }
         var worktreeMenuAction = target.closest('[data-action="ai-session-worktree-menu"]');
         if (worktreeMenuAction) {
             toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);
@@ -2793,6 +2786,10 @@ function initProjectAiSessionControls(options) {
                 var check = item.querySelector('.ai-session-view-menu-check');
                 if (check) check.textContent = selected ? '✓' : '';
             });
+        if (window.__agentPivotSyncCollapseButton
+            && typeof window.__agentPivotSyncCollapseButton === 'function') {
+            window.__agentPivotSyncCollapseButton();
+        }
     }
 
     function closeChatsViewMenu(projectDiv, restoreFocus) {

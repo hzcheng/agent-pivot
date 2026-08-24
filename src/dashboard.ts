@@ -1730,6 +1730,26 @@ async function initializeDashboard(
         conversationCommandRunner.forget(terminal);
     }));
 
+    // One queue owns terminal focus across commands, Chat rows, and the
+    // Conversation Viewer. It prevents a Viewer next/previous action from
+    // racing a dashboard-row terminal activation.
+    const sessionNavigationCoordinator = createSessionNavigationCoordinator({
+        onTiming: timing => logAiSessionDiagnostic({
+            event: 'session-navigation-queue-latency',
+            phase: timing.event,
+            latest: timing.latest,
+            queueMs: timing.queueMs,
+            ...(timing.executionMs === undefined
+                ? {}
+                : { executionMs: timing.executionMs }),
+            ...(timing.outcome === undefined ? {} : { outcome: timing.outcome }),
+        }),
+    });
+    let conversationNavigationIntent = 0;
+    const beginConversationNavigationIntent = (): number => {
+        conversationNavigationIntent += 1;
+        return conversationNavigationIntent;
+    };
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         cycleLocalSessionStatus: (kind, currentTarget) =>
@@ -2055,6 +2075,11 @@ async function initializeDashboard(
                 viewerTarget.sessionId,
                 { revealTerminal: false }
             ),
+        enqueueTerminalFocus: operation =>
+            sessionNavigationCoordinator.enqueue(operation),
+        onConversationNavigationIntent: () => {
+            beginConversationNavigationIntent();
+        },
         setConversationFocusContext: focused =>
             vscode.commands.executeCommand(
                 'setContext',
@@ -2074,34 +2099,44 @@ async function initializeDashboard(
             conversationSessionRebindRestoreTask,
         ])
     ));
-    const sessionNavigationCoordinator = createSessionNavigationCoordinator({
-        onTiming: timing => logAiSessionDiagnostic({
-            event: 'session-navigation-queue-latency',
-            ...timing,
-        }),
-    });
     const focusAiSessionAndFollowConversation = (target: {
         projectId: string;
         provider: AiSessionProviderId;
         sessionId: string;
-    }): Promise<void> => sessionNavigationCoordinator.enqueueLatest(async () => {
+    }): Promise<void> => {
+        const intent = beginConversationNavigationIntent();
+        return sessionNavigationCoordinator.enqueueLatest(async () => {
         const startedAt = Date.now();
         let focusMs = 0;
         let conversationMs = 0;
         let outcome = 'focus-failed';
         try {
             const focusStartedAt = Date.now();
-            const focused = await aiSessionTerminalCommandController.focusActive(
-                target.projectId,
-                target.provider,
-                target.sessionId,
-            );
+            let focused: boolean;
+            try {
+                focused = await aiSessionTerminalCommandController.focusActive(
+                    target.projectId,
+                    target.provider,
+                    target.sessionId,
+                );
+            } catch (error) {
+                outcome = 'focus-error';
+                throw error;
+            }
             focusMs = Date.now() - focusStartedAt;
-            if (focused) {
+            if (focused && intent === conversationNavigationIntent) {
                 const conversationStartedAt = Date.now();
-                await conversationCapability.followActiveConversation(target);
+                try {
+                    await conversationCapability.followActiveConversation(target);
+                } catch (error) {
+                    conversationMs = Date.now() - conversationStartedAt;
+                    outcome = 'conversation-error';
+                    throw error;
+                }
                 conversationMs = Date.now() - conversationStartedAt;
                 outcome = 'conversation-followed';
+            } else if (focused) {
+                outcome = 'superseded';
             } else {
                 void vscode.window.showWarningMessage(
                     'Agent Pivot: the selected AI session is no longer active.'
@@ -2117,7 +2152,8 @@ async function initializeDashboard(
                 totalMs: Math.max(0, Date.now() - startedAt),
             });
         }
-    });
+        });
+    };
     const conversationHandlers = {
         'open-active-ai-session-conversation': async (e: Record<string, unknown>) => {
             if (e.version !== 1
@@ -2974,6 +3010,9 @@ async function initializeDashboard(
             vscode.window.showInformationMessage(message),
         showWarningMessage: message =>
             vscode.window.showWarningMessage(message),
+        onNavigationIntent: () => {
+            beginConversationNavigationIntent();
+        },
     });
     const switchWorktreeOrSession = createWorktreeOrSessionSwitchHandler({
         getWorkspaceTarget: getCurrentWorkspaceActionTargetWithoutCardId,
@@ -3255,21 +3294,26 @@ async function initializeDashboard(
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
         seekLatestConversationInteraction: () => seekLatestConversationInteractionWithFeedback(),
-        previousActiveSession: () => sessionNavigationCoordinator.enqueueLatest(
-            () => followAdjacentActiveConversationWithFeedback('previous')
-        ),
-        nextActiveSession: () => sessionNavigationCoordinator.enqueueLatest(
-            () => followAdjacentActiveConversationWithFeedback('next')
-        ),
+        previousActiveSession: () => {
+            beginConversationNavigationIntent();
+            return followAdjacentActiveConversationWithFeedback('previous');
+        },
+        nextActiveSession: () => {
+            beginConversationNavigationIntent();
+            return followAdjacentActiveConversationWithFeedback('next');
+        },
         nextAttentionSession: async () => {
+            beginConversationNavigationIntent();
             await jumpToNextAttentionSession();
             revealFocusedAiSessionInDashboard();
         },
         nextRunningSession: async () => {
+            beginConversationNavigationIntent();
             await runningSessionJumpHandler.jumpToNextRunningSession();
             revealFocusedAiSessionInDashboard();
         },
         nextActiveChatInWindow: async () => {
+            beginConversationNavigationIntent();
             await sessionStatusCycleHandler.cycleToNext(
                 'running',
                 getFocusedSessionStatusCycleAnchor,
@@ -3277,6 +3321,7 @@ async function initializeDashboard(
             revealFocusedAiSessionInDashboard();
         },
         nextAttentionChatInWindow: async () => {
+            beginConversationNavigationIntent();
             await sessionStatusCycleHandler.cycleToNext(
                 'attention',
                 getFocusedSessionStatusCycleAnchor,
@@ -3289,6 +3334,7 @@ async function initializeDashboard(
         },
         switchWorktreeOrSession: () => switchWorktreeOrSession(),
         toggleLastAiSession: async () => {
+            beginConversationNavigationIntent();
             await aiSessionQuickSwitchHandlers.toggleLastAiSession();
             revealFocusedAiSessionInDashboard();
         },
@@ -3496,6 +3542,7 @@ async function initializeDashboard(
         provider: AiSessionProviderId;
         sessionId: string;
     }, terminalAuthoritative = false): Promise<boolean> {
+        beginConversationNavigationIntent();
         const result = terminalAuthoritative
             ? await conversationCapability.openLatestActiveConversation(target)
             : await conversationCapability.openLatestConversation(target);

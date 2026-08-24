@@ -602,7 +602,7 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 re-anchors after a manual detour with 
         'manual focus changes must re-anchor the next press regardless of queue length');
 });
 
-test('AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes rapid invocations without duplicating a target', async () => {
+test('AI-SESSION-NEXT-RUNNING-COMMAND-001 preserves every rapid relative invocation', async () => {
     const queue = buildRunningSessionQueue({
         localSessions: ['a', 'b', 'c'].map(sessionId => local('codex', sessionId)),
         remoteWindows: [],
@@ -623,6 +623,7 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes rapid invocations without d
 
     const first = handler.jumpToNextRunningSession();
     const second = handler.jumpToNextRunningSession();
+    const third = handler.jumpToNextRunningSession();
     await Promise.resolve();
     assert.deepEqual(picked, ['b'], 'the second invocation waits for the first focus');
     releases.shift()();
@@ -630,8 +631,12 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes rapid invocations without d
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(picked, ['b', 'c']);
     releases.shift()();
-    await Promise.all([first, second]);
-    assert.equal(focused, 'c');
+    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(picked, ['b', 'c', 'a']);
+    releases.shift()();
+    await Promise.all([first, second, third]);
+    assert.equal(focused, 'a');
 });
 
 test('AI-SESSION-NEXT-RUNNING-COMMAND-001 retains only the newest pending navigation intent', async () => {

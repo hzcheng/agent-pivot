@@ -132,7 +132,8 @@ export function createSessionStatusCycleHandler(
     }
 
     return {
-        cycleToNext: (kind, anchor) => navigationCoordinator.enqueueLatest(
+        // Status cycling is relative to the cursor; preserve every press.
+        cycleToNext: (kind, anchor) => navigationCoordinator.enqueue(
             () => cycleToNext(kind, anchor)
         ),
     };

@@ -17,7 +17,8 @@ export interface SessionNavigationFocusExecutionOptions {
 }
 
 export interface SessionNavigationTiming {
-    outcome: 'unavailable' | 'focus-failed' | 'conversation-opened' | 'conversation-unavailable';
+    outcome: 'unavailable' | 'focus-failed' | 'focus-error' | 'conversation-opened'
+        | 'conversation-unavailable' | 'conversation-error';
     focusMs: number;
     conversationMs: number;
     totalMs: number;
@@ -85,11 +86,17 @@ export function createSessionNavigationFocusExecutor(
                 return { focused: false, conversationOpened: false };
             }
             const focusStartedAt = now();
-            const focused = await options.focusActive(
-                projectId,
-                target.provider,
-                target.sessionId,
-            );
+            let focused: boolean;
+            try {
+                focused = await options.focusActive(
+                    projectId,
+                    target.provider,
+                    target.sessionId,
+                );
+            } catch (error) {
+                report('focus-error', now() - focusStartedAt, 0);
+                throw error;
+            }
             const focusMs = now() - focusStartedAt;
             if (!focused) {
                 report('focus-failed', focusMs, 0);
@@ -98,11 +105,17 @@ export function createSessionNavigationFocusExecutor(
             options.onFocused?.(target);
             executionOptions.onFocused?.();
             const conversationStartedAt = now();
-            const conversationOpened = await options.openConversation({
-                projectId,
-                provider: target.provider,
-                sessionId: target.sessionId,
-            });
+            let conversationOpened: boolean;
+            try {
+                conversationOpened = await options.openConversation({
+                    projectId,
+                    provider: target.provider,
+                    sessionId: target.sessionId,
+                });
+            } catch (error) {
+                report('conversation-error', focusMs, now() - conversationStartedAt);
+                throw error;
+            }
             report(
                 conversationOpened ? 'conversation-opened' : 'conversation-unavailable',
                 focusMs,

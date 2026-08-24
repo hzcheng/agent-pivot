@@ -488,11 +488,12 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',
-        expectedDetail: 'Previous and Next Active Session commands must use the shared navigation coordinator',
+        expectedDetail: 'Previous and Next Active Session commands must invalidate an older row navigation',
         mutate: source => source.replace(
-            "previousActiveSession: () => sessionNavigationCoordinator.enqueueLatest(\n"
-                + "            () => followAdjacentActiveConversationWithFeedback('previous')\n"
-                + '        ),',
+            "previousActiveSession: () => {\n"
+                + '            beginConversationNavigationIntent();\n'
+                + "            return followAdjacentActiveConversationWithFeedback('previous');\n"
+                + '        },',
             "previousActiveSession: () => followAdjacentActiveConversationWithFeedback('previous'),",
         ),
     },
@@ -501,8 +502,8 @@ for (const mutation of [
         file: 'src/dashboard.ts',
         expectedDetail: 'Dashboard Chat-row clicks must use the shared latest-intent navigation transaction',
         mutate: source => source.replace(
-            '}): Promise<void> => sessionNavigationCoordinator.enqueueLatest(async () => {',
-            '}): Promise<void> => (async () => {',
+            'return sessionNavigationCoordinator.enqueueLatest(async () => {',
+            'return (async () => {',
         ),
     },
     {

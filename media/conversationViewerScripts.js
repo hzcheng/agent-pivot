@@ -380,6 +380,7 @@
     // switch that misses twice must still escalate the latest miss.
     var resyncRequestedGeneration = 0;
     var conversationLoading = false;
+    var loadingDisabledElements = [];
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
@@ -1084,8 +1085,49 @@
 
     // A reused panel keeps the outgoing conversation on screen while the
     // incoming session loads. The Host's loading notice arms a lightweight
-    // indicator — status text plus a dimmed, aria-busy message list —
-    // which the first applied page of the incoming generation clears.
+    // indicator and disables outgoing controls, while keeping the live
+    // loading status available to assistive technology.
+    function setLoadingInteractivity(disabled) {
+        if (disabled) {
+            loadingDisabledElements = Array.prototype.slice.call(
+                document.querySelectorAll('button, input, select, textarea, [tabindex]')
+            ).map(function (element) {
+                return {
+                    element: element,
+                    disabled: 'disabled' in element ? element.disabled : undefined,
+                    tabindex: element.getAttribute('tabindex'),
+                    ariaDisabled: element.getAttribute('aria-disabled'),
+                };
+            });
+            loadingDisabledElements.forEach(function (entry) {
+                if (entry.disabled !== undefined) {
+                    entry.element.disabled = true;
+                }
+                if (entry.tabindex !== null) {
+                    entry.element.setAttribute('tabindex', '-1');
+                }
+                entry.element.setAttribute('aria-disabled', 'true');
+            });
+            return;
+        }
+        loadingDisabledElements.forEach(function (entry) {
+            if (entry.disabled !== undefined) {
+                entry.element.disabled = entry.disabled;
+            }
+            if (entry.tabindex === null) {
+                entry.element.removeAttribute('tabindex');
+            } else {
+                entry.element.setAttribute('tabindex', entry.tabindex);
+            }
+            if (entry.ariaDisabled === null) {
+                entry.element.removeAttribute('aria-disabled');
+            } else {
+                entry.element.setAttribute('aria-disabled', entry.ariaDisabled);
+            }
+        });
+        loadingDisabledElements = [];
+    }
+
     function applyLoadingNotice(message) {
         if (!message || typeof message !== 'object'
             || message.type !== 'conversation-viewer-loading') {
@@ -1111,6 +1153,7 @@
         }
         conversationLoading = true;
         document.body.setAttribute('data-conversation-loading', 'true');
+        setLoadingInteractivity(true);
         messages.setAttribute('aria-busy', 'true');
         status.textContent = 'Loading conversation…';
         return true;
@@ -1122,6 +1165,7 @@
         }
         conversationLoading = false;
         document.body.removeAttribute('data-conversation-loading');
+        setLoadingInteractivity(false);
         messages.removeAttribute('aria-busy');
         // The applied page recomputes the status line right below.
     }

@@ -166,6 +166,12 @@ export interface ConversationCapabilityOptions {
     syncSession?: (
         target: ConversationSessionOpenTarget
     ) => boolean | void | PromiseLike<boolean | void>;
+    /** Serializes terminal focus with dashboard-level session navigation.
+     * The caller owns the queue; this capability only supplies the exact
+     * focus operation for one already-resolved target. */
+    enqueueTerminalFocus?: (
+        operation: () => Promise<void>
+    ) => Promise<void>;
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
@@ -174,6 +180,7 @@ export interface ConversationCapabilityOptions {
     cycleLocalSessionStatus?: ConversationViewerOptions['cycleLocalSessionStatus'];
     acknowledgeSessionAttention?: ConversationViewerOptions['acknowledgeSessionAttention'];
     switchAdjacentWindow?: ConversationViewerOptions['switchAdjacentWindow'];
+    onConversationNavigationIntent?: ConversationViewerOptions['onNavigationIntent'];
     /**
      * The context window declared by the Codex profile overlay a session runs
      * with, if any. Injected for the codex adapter's telemetry display: the
@@ -381,11 +388,18 @@ function createAvailableConversationCapability(
         isCurrent: () => boolean
     ): Promise<boolean> => queueFocus(
         async () => {
-            const focused = await (options.syncSession || options.focusSession)?.(
-                target
-            );
-            if (focused === false) {
-                throw new Error('AI session terminal focus was rejected');
+            const focus = async (): Promise<void> => {
+                const focused = await (options.syncSession || options.focusSession)?.(
+                    target
+                );
+                if (focused === false) {
+                    throw new Error('AI session terminal focus was rejected');
+                }
+            };
+            if (options.enqueueTerminalFocus) {
+                await options.enqueueTerminalFocus(focus);
+            } else {
+                await focus();
             }
         },
         isCurrent
@@ -411,6 +425,7 @@ function createAvailableConversationCapability(
         cycleLocalSessionStatus: options.cycleLocalSessionStatus,
         acknowledgeSessionAttention: options.acknowledgeSessionAttention,
         switchAdjacentWindow: options.switchAdjacentWindow,
+        onNavigationIntent: options.onConversationNavigationIntent,
         submitPrompt: options.submitPrompt,
         focusSession: options.focusSession,
         commentStore: options.commentStore,

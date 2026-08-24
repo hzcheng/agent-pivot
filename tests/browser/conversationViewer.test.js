@@ -5590,7 +5590,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        '3440365e5e72ee635395d528feea38051e3a2e962a119bb193b4a686e11b1d93',
+        'f7657ccc53891ef780421bb56928b949c7cba10df5e464ff69b335193d8b73a8',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(

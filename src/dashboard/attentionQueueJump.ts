@@ -225,10 +225,13 @@ export function createAttentionQueueJumpHandler(
         await jumpToLocal(local);
     }
 
-    const handler = (() => navigationCoordinator.enqueueLatest(
+    const handler = (() => navigationCoordinator.enqueue(
         jumpToNextAttentionSession
     )) as AttentionQueueJumpHandler;
-    handler.jumpToAttentionSession = item => navigationCoordinator.enqueueLatest(
+    // Mailbox deliveries are exact target requests. They acknowledge a
+    // cross-window hand-off, so dropping one would make the source window
+    // switch without the requested session ever receiving focus.
+    handler.jumpToAttentionSession = item => navigationCoordinator.enqueue(
         () => jumpToAttentionSession(item)
     );
     return handler;

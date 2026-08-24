@@ -210,9 +210,15 @@ export function createRunningSessionJumpHandler(
     return {
         jumpToNextRunningSession: () => {
             lastDirectInvocationAtMs = Math.max(lastDirectInvocationAtMs, nowMs());
-            return navigationCoordinator.enqueueLatest(() => jump('all'));
+            // This is a relative operation: every key press advances one
+            // place from the cursor that the preceding operation establishes.
+            // It therefore must remain lossless rather than latest-wins.
+            return navigationCoordinator.enqueue(() => jump('all'));
         },
         jumpToNextLocalRunningSession: handoff =>
-            navigationCoordinator.enqueueLatest(() => jump('local', handoff)),
+            // A bridge hand-off names one exact remote request. The source
+            // may switch windows as soon as this resolves, so it cannot be
+            // coalesced into a successful no-op.
+            navigationCoordinator.enqueue(() => jump('local', handoff)),
     };
 }

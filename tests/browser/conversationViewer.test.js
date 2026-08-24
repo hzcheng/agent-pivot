@@ -399,7 +399,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
             .getAttribute('data-provider'),
         telemetryProviderTitle: document
             .querySelector('[data-telemetry-provider]')
-            .getAttribute('title'),
+            .getAttribute('data-tooltip'),
         displayName: document.querySelector('[data-conversation-display-name]')
             .textContent,
         response: document.querySelector('[data-conversation-messages]')
@@ -1286,8 +1286,14 @@ test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders c
         'codex'
     );
     assert.equal(
-        await page.locator('[data-telemetry-provider]').getAttribute('title'),
+        await page.locator('[data-telemetry-provider]')
+            .getAttribute('data-tooltip'),
         'Provider · Codex'
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-provider]').getAttribute('title'),
+        null,
+        'the CSS tooltip is the only pointer popup'
     );
     assert.equal(
         await page.locator('[data-telemetry-model-value]').textContent(),
@@ -1307,11 +1313,13 @@ test('CONVERSATION-TELEMETRY-001 CONVERSATION-TELEMETRY-CONTROLLER-001 renders c
         '75'
     );
     assert.match(
-        await page.locator('[data-telemetry-context]').getAttribute('title'),
+        await page.locator('[data-telemetry-context]')
+            .getAttribute('data-tooltip'),
         /Context window · 25% used.*32\.0k \/ 128k tokens/s
     );
     assert.match(
-        await page.locator('[data-telemetry-limit]').getAttribute('title'),
+        await page.locator('[data-telemetry-limit]')
+            .getAttribute('data-tooltip'),
         /Week · 40% used · resets in/
     );
 
@@ -2243,7 +2251,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     const counter = rebuilt.page.locator('[data-telemetry-subagents]');
     assert.equal(await counter.isVisible(), true);
     assert.equal(await counter.innerText(), '1/2');
-    assert.match(await counter.getAttribute('title'), /1 running of 2/);
+    assert.match(await counter.getAttribute('data-tooltip'), /1 running of 2/);
     assert.equal(
         await rebuilt.page.locator('[data-conversation-telemetry]').isVisible(),
         true,
@@ -5548,7 +5556,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'd307adde02b9df614873571a3881c1ee96d605eb2b43c36b25ab2e4b684283de',
+        '3440365e5e72ee635395d528feea38051e3a2e962a119bb193b4a686e11b1d93',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -12360,13 +12368,28 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
 
     await page.setViewportSize({ width: 700, height: 500 });
     await page.locator('[data-telemetry-context]').hover();
+    await page.waitForTimeout(250);
+    const tooltipBeforeDelay = await page.locator(
+        '[data-telemetry-context]'
+    ).evaluate(element => {
+        const style = getComputedStyle(element, '::after');
+        return { opacity: style.opacity, visibility: style.visibility };
+    });
+    assert.equal(tooltipBeforeDelay.opacity, '0',
+        'brief pointer passes must not immediately show telemetry hints');
+    await page.waitForTimeout(300);
     const tooltipState = await page.locator(
         '[data-telemetry-context]'
     ).evaluate(element => {
         const style = getComputedStyle(element, '::after');
-        return { content: style.content, visibility: style.visibility };
+        return {
+            content: style.content,
+            opacity: style.opacity,
+            visibility: style.visibility,
+        };
     });
     assert.equal(tooltipState.visibility, 'visible');
+    assert.equal(tooltipState.opacity, '1');
     assert.match(tooltipState.content, /Context window/);
     assert.deepEqual(
         await page.locator(
@@ -15255,6 +15278,10 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay opens on hover and focus, and c
     // panel. aria-describedby ties the trigger to it so the visible hint
     // and the spoken description share one source (PRD §17).
     await refresh.hover();
+    await page.waitForTimeout(250);
+    assert.equal(await overlay.count(), 0,
+        'brief pointer passes do not create a tooltip overlay');
+    await overlay.waitFor({ state: 'visible', timeout: 900 });
     assert.equal(await overlay.isVisible(), true);
     assert.equal(await overlay.innerText(), 'Refresh');
     assert.equal(await overlay.getAttribute('role'), 'tooltip');
@@ -15274,8 +15301,11 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay opens on hover and focus, and c
     assert.ok(overlayId, 'the overlay carries an id');
     assert.equal(await refresh.getAttribute('aria-describedby'), overlayId);
 
-    // Moving the mouse away closes the hint and drops the description link.
-    await page.locator('.conversation-changes-group-header').first().hover();
+    // Leaving the Webview itself closes the hint and drops the description
+    // link; no following mouseover event is available to clean it up.
+    await refresh.evaluate(button => button.dispatchEvent(new MouseEvent(
+        'mouseout', { bubbles: true, relatedTarget: null }
+    )));
     assert.equal(await overlay.isHidden(), true);
     assert.equal(await refresh.getAttribute('aria-describedby'), null);
 
@@ -15326,6 +15356,7 @@ test('WORKTREE-CHANGES-PANEL-001 tooltip overlay opens on hover and focus, and c
     await page.locator('[data-telemetry-changes]').click();
     assert.equal(await panel.isVisible(), true);
     await refresh.hover();
+    await overlay.waitFor({ state: 'visible', timeout: 900 });
     assert.equal(await overlay.isVisible(), true);
     await page.locator('[data-telemetry-changes]').click();
     await overlay.waitFor({ state: 'hidden' });

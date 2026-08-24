@@ -28,8 +28,11 @@
     function createTooltipOverlay(panelRoot) {
         var OVERLAY_ID = 'conversation-changes-tooltip-overlay';
         var VIEWPORT_GAP = 4;
+        var HOVER_DELAY_MS = 400;
         var overlay = null;
         var activeTrigger = null;
+        var pendingTrigger = null;
+        var showTimer = null;
 
         function ensureOverlay() {
             if (!overlay) {
@@ -43,7 +46,16 @@
             return overlay;
         }
 
+        function clearPendingShow() {
+            if (showTimer) {
+                clearTimeout(showTimer);
+                showTimer = null;
+            }
+            pendingTrigger = null;
+        }
+
         function hide() {
+            clearPendingShow();
             if (!activeTrigger) {
                 return;
             }
@@ -55,6 +67,7 @@
         }
 
         function show(trigger) {
+            clearPendingShow();
             var text = trigger.getAttribute('data-tooltip');
             if (!text) {
                 if (activeTrigger === trigger) {
@@ -84,6 +97,27 @@
                 Math.min(rect.bottom + VIEWPORT_GAP, maxTop)) + 'px';
         }
 
+        function scheduleShow(trigger) {
+            if (!trigger.getAttribute('data-tooltip')
+                || activeTrigger === trigger
+                || pendingTrigger === trigger) {
+                return;
+            }
+            hide();
+            pendingTrigger = trigger;
+            showTimer = setTimeout(function () {
+                showTimer = null;
+                if (pendingTrigger !== trigger) {
+                    return;
+                }
+                pendingTrigger = null;
+                if (!trigger.isConnected || panelRoot.offsetParent === null) {
+                    return;
+                }
+                show(trigger);
+            }, HOVER_DELAY_MS);
+        }
+
         function eventTrigger(event) {
             return event.target && event.target.closest
                 ? event.target.closest('[data-tooltip]')
@@ -96,20 +130,23 @@
         panelRoot.addEventListener('mouseover', function (event) {
             var trigger = eventTrigger(event);
             if (trigger) {
-                show(trigger);
+                scheduleShow(trigger);
             }
         });
         panelRoot.addEventListener('mouseout', function (event) {
-            if (!activeTrigger || eventTrigger(event) !== activeTrigger) {
+            var trigger = eventTrigger(event);
+            if (!trigger || (trigger !== activeTrigger
+                && trigger !== pendingTrigger)) {
                 return;
             }
             if (event.relatedTarget
-                && activeTrigger.contains(event.relatedTarget)) {
+                && trigger.contains(event.relatedTarget)) {
                 return;
             }
             // A focused trigger keeps its hint until blur — keyboard users
             // never move the mouse.
-            if (document.activeElement === activeTrigger) {
+            if (trigger === activeTrigger
+                && document.activeElement === activeTrigger) {
                 return;
             }
             hide();
@@ -121,7 +158,7 @@
             }
         });
         panelRoot.addEventListener('focusout', function (event) {
-            if (activeTrigger && event.target === activeTrigger) {
+            if (event.target === activeTrigger || event.target === pendingTrigger) {
                 hide();
             }
         });

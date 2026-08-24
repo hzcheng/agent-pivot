@@ -402,6 +402,12 @@
 }
 
 .conversation-telemetry-tooltip:hover::before,
+.conversation-telemetry-tooltip:hover::after {
+    /* Pointer hints wait for intentional hover; keyboard focus is immediate. */
+    transition-delay: 400ms;
+}
+
+.conversation-telemetry-tooltip:hover::before,
 .conversation-telemetry-tooltip:hover::after,
 .conversation-telemetry-tooltip:focus-visible::before,
 .conversation-telemetry-tooltip:focus-visible::after {
@@ -413,6 +419,11 @@
 .conversation-telemetry-tooltip:hover::before,
 .conversation-telemetry-tooltip:focus-visible::before {
     transform: translateY(-.25rem) rotate(45deg);
+}
+
+.conversation-telemetry-tooltip:focus-visible::before,
+.conversation-telemetry-tooltip:focus-visible::after {
+    transition-delay: 0ms;
 }
 
 .conversation-telemetry .conversation-telemetry-tooltip:focus-visible {

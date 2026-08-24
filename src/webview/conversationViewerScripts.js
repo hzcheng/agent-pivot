@@ -1217,9 +1217,10 @@
         var value = position.querySelector('[data-conversation-position-value]');
         if (value) {
             value.textContent = message.selectedInput + '/' + total;
-            position.title = label + ' — click to open the outline';
-            position.setAttribute('aria-label', position.title);
-            position.setAttribute('data-tooltip', position.title);
+            var tooltip = label + ' — click to open the outline';
+            position.removeAttribute('title');
+            position.setAttribute('aria-label', tooltip);
+            position.setAttribute('data-tooltip', tooltip);
         } else {
             position.textContent = label;
         }

@@ -153,7 +153,7 @@
                 + lastSubagents.length
                 + (lastSubagents.length === 1 ? ' subagent' : ' subagents')
                 + ' — click to view';
-            telemetrySubagents.title = telemetrySubagentsLabel;
+            telemetrySubagents.removeAttribute('title');
             telemetrySubagents.setAttribute(
                 'aria-label', telemetrySubagentsLabel
             );

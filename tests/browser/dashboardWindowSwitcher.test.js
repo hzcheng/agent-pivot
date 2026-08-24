@@ -166,6 +166,64 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
     assert.deepEqual(structure.moreHaspopup, ['menu', 'menu', 'menu']);
 });
 
+test('OPEN-WINDOW-SWITCHER-UI-001 gives every window row a distinct, quiet surface', async t => {
+    const page = await openSwitcherPage(t);
+    await page.addStyleTag({ content: `
+        :root {
+            --vscode-sideBar-background: #181818;
+            --vscode-editorWidget-background: #202020;
+            --vscode-widget-border: #666;
+        }
+    ` });
+
+    const appearance = await page.locator('[data-open-window-row]').nth(1).evaluate(row => {
+        const style = getComputedStyle(row);
+        return {
+            background: style.backgroundColor,
+            borderTopWidth: style.borderTopWidth,
+            borderTopStyle: style.borderTopStyle,
+            borderTopColor: style.borderTopColor,
+        };
+    });
+    assert.equal(appearance.background, 'rgb(32, 32, 32)',
+        'window rows must sit on a surface distinct from the surrounding sidebar');
+    assert.equal(appearance.borderTopWidth, '1px');
+    assert.equal(appearance.borderTopStyle, 'solid');
+    assert.equal(appearance.borderTopColor, 'rgb(102, 102, 102)');
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 keeps a low-contrast fallback surface visible at default and minimum widths', async t => {
+    for (const width of [360, 170]) {
+        const page = await openSwitcherPage(t, { width });
+        await page.addStyleTag({ content: `
+            :root {
+                --vscode-sideBar-background: #181818;
+                --vscode-panel-border: #666;
+                --vscode-editorWidget-background: initial;
+                --vscode-widget-border: initial;
+            }
+        ` });
+        const row = page.locator('[data-open-window-row]').nth(1);
+        const computed = await row.evaluate(element => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, borderTopColor: style.borderTopColor };
+        });
+        assert.equal(computed.background, 'rgb(24, 24, 24)',
+            'the absent widget token falls back to the sidebar surface');
+        assert.equal(computed.borderTopColor, 'rgb(102, 102, 102)',
+            'the absent widget border falls back to the panel border');
+
+        const restingPixels = await row.screenshot();
+        await row.hover();
+        assert.notDeepEqual(await row.screenshot(), restingPixels,
+            `hover must remain visible above the fallback surface at ${width}px`);
+        await page.mouse.move(1, 500);
+        await page.addStyleTag({ content: '.open-window-row { background-image: none !important; }' });
+        assert.notDeepEqual(await row.screenshot(), restingPixels,
+            `the fallback overlay must remain visible in the ${width}px rendered row`);
+    }
+});
+
 test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 webview pending lifecycle', async t => {
     const page = await openSwitcherPage(t);
     const cardId = '__openWorkspaceNavigation-' + 'b'.repeat(24);

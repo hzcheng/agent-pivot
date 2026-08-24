@@ -491,6 +491,46 @@ test('CONVERSATION-OPEN-LATEST-001 retries an empty speculative snapshot before 
     harness.capability.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 starts adjacent warmup before the current Viewer load settles', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:overlap-${index}`,
+        provider,
+        sessionId: `overlap-${index}`,
+        name: `${provider} Session`,
+    }));
+    const delayedViewerLoad = deferred();
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        openViewer: () => delayedViewerLoad.promise,
+    });
+
+    let opened = false;
+    const opening = harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'overlap-0',
+    }).then(result => {
+        opened = true;
+        return result;
+    });
+    while (!harness.snapshotReadTargets.includes('kimi:overlap-1')) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(opened, false,
+        'the current Viewer load remains pending while warmup begins');
+
+    delayedViewerLoad.resolve();
+    assert.equal(await opening, 'opened');
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shares a slow in-flight warmup instead of starting a duplicate provider read', async () => {
     const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
         key: `${provider}:slow-${index}`,

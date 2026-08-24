@@ -725,6 +725,83 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 restores a stashed frame with s
         `scroll position should return to 240, got ${outcome.scrollTop}`);
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges Chat content before deferred decorations and drops stale work', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.evaluate(() => {
+        window.__deferredPagePresentation = [];
+        window.requestAnimationFrame = callback => {
+            window.__deferredPagePresentation.push(callback);
+            return window.__deferredPagePresentation.length;
+        };
+    });
+    const sessionPage = (requestId, generation, sessionId, marker) => ({
+        ...hostileConversationPage,
+        requestId,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-message" `
+            + `data-interaction-id="${marker}-input">`
+            + `<pre><code class="language-mermaid">flowchart TB\n${marker}</code></pre>`
+            + '</article>',
+        htmlSignature: `signature-${marker}`,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: marker,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+
+    await sendPage(page, sessionPage(2, 2, 'session-alpha', 'alpha'));
+    await sendPage(page, sessionPage(3, 3, 'session-beta', 'beta'));
+
+    assert.deepEqual(
+        (await postedMessages(page)).filter(message =>
+            message.type === 'conversation-viewer-applied'
+        ).map(message => message.requestId),
+        [2, 3],
+        'the Host can accept the new authoritative target before decorations run'
+    );
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'flowchart TB\nbeta',
+        'the newest Chat transcript is already usable'
+    );
+    assert.equal(
+        await page.evaluate(() => window.__mermaidRenders.length),
+        0,
+        'Mermaid is outside the critical acknowledgement path'
+    );
+
+    await page.evaluate(() => window.__deferredPagePresentation[0](0));
+    assert.equal(
+        await page.evaluate(() => window.__mermaidRenders.length),
+        0,
+        'the stale Chat cannot decorate the newer target'
+    );
+
+    await page.evaluate(() => window.__deferredPagePresentation[1](0));
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    assert.match(
+        await page.evaluate(() => window.__mermaidRenders[0].source),
+        /beta/,
+        'only the current Chat schedules deferred decoration'
+    );
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when a restoreFrame page has no cached frame', async t => {
     const page = await openViewerPage(t);
     const sessionPage = (generation, sessionId, marker, signature) => ({
@@ -2368,6 +2445,9 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         subagents: [],
         activeSubagent: null,
     });
+    await rebuilt.page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))
+    ));
     // The pill doubles as the Subagents quick entry and stays visible at
     // zero instead of disappearing.
     assert.equal(await counter.isVisible(), true);
@@ -4041,6 +4121,53 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        .replace(
+            /\n    \/\/ Keep the first applied frame narrow:[\s\S]*?\n    }\n\n    function applyPage\(message\) \{/,
+            '\n    function applyPage(message) {'
+        )
+        .replace(
+            '            applyWorklogStates();\n'
+                + '            state.messageIds = reconciled.ids;\n',
+            '            applyWorklogStates();\n'
+                + '            applyCopyButtonLabels();\n'
+                + '            applyRunCommandButtonLabels();\n'
+                + '            state.messageIds = reconciled.ids;\n'
+        )
+        .replace(
+            '        saveRestoreTarget(nextRestoreTarget);\n'
+                + '        hideFollowNotice();\n',
+            '        saveRestoreTarget(nextRestoreTarget);\n'
+                + '        outlineController.applyOutline(message);\n'
+                + '        if (subagentsController) {\n'
+                + '            subagentsController.apply(\n'
+                + '                message.subagents,\n'
+                + '                message.activeSubagent\n'
+                + '            );\n'
+                + '        }\n'
+                + '        commentsController.updateHighlights();\n'
+                + '        if (findController) findController.refresh();\n'
+                + '        hideFollowNotice();\n'
+        )
+        .replace(
+            /            scheduleDeferredPagePresentation\(message, renderGeneration\);\n/g,
+            ''
+        )
+        .replace(
+            '        if (!isLiveRefresh) {\n',
+            '        renderMermaidDiagrams(renderGeneration);\n\n'
+                + '        if (!isLiveRefresh) {\n'
+        )
+        .replace(
+            '            reconcileController.trackEnd();\n'
+                + '        }\n'
+                + '        acknowledgePage(message);\n'
+                + '    }\n\n'
+                + '    function postNavigation(type) {\n',
+            '            reconcileController.trackEnd();\n'
+                + '        }\n'
+                + '    }\n\n'
+                + '    function postNavigation(type) {\n'
+        )
         // Strips the changes-panel tooltip overlay wiring (PRD §17) and the
         // action-binding target: the previous-generation script passed
         // neither a panelRoot nor a target to the changes controller.
@@ -5550,6 +5677,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        var nextSignatures = reconciled.signatures;\n'
                 + '        state.messageIds = nextIds;\n'
                 + '        state.messageSignatures = nextSignatures;\n'
+        )
+        .replace(
+            '        acknowledgePage(message);\n'
+                + '        scheduleDeferredPagePresentation(message, renderGeneration);\n'
+                + '    }\n\n'
+                + '    function postNavigation(type) {\n',
+            '    }\n\n'
+                + '    function postNavigation(type) {\n'
         );
     const previousOutlineScript = conversationOutlineScript
         .replace(
@@ -8373,6 +8508,9 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
         subagents: [],
         activeSubagent: null,
     });
+    await page.evaluate(() => new Promise(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve))
+    ));
     assert.equal(await page.locator('[data-comment-marker]').count(), 1);
 
     // Clear done empties the list in one correlated mutation.

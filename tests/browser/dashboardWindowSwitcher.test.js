@@ -375,6 +375,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 reconcile replays pending and error after DOM 
 
 test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without shifting rows', async t => {
     const wide = await openSwitcherPage(t, { width: 400 });
+    const compact = await openSwitcherPage(t, { width: 320 });
     const narrow = await openSwitcherPage(t, { width: 240 });
     const widePinVisible = await wide.evaluate(() => {
         const row = document.querySelectorAll('[data-open-window-row]')[1];
@@ -384,9 +385,42 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
         const row = document.querySelectorAll('[data-open-window-row]')[1];
         return getComputedStyle(row.querySelector('[data-action="toggle-open-workspace-pin"]')).display !== 'none';
     });
-    // ≥360px：未 pin 的 ★ 在 DOM 中（hover 显示）；<280px：未 pin 的 ★ 不渲染。
+    const compactLayout = await compact.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-open-window-row]')).map(row => {
+            const pin = row.querySelector('[data-action="toggle-open-workspace-pin"]');
+            const attention = row.querySelector('.open-window-attention').getBoundingClientRect();
+            const running = row.querySelector('.open-window-running').getBoundingClientRect();
+            return {
+                pinDisplay: getComputedStyle(pin).display,
+                pinVisibility: getComputedStyle(pin).visibility,
+                attentionLeft: Math.round(attention.left),
+                runningLeft: Math.round(running.left),
+            };
+        })
+    );
+    // ≥360px：未 pin 的 ★ 在 DOM 中（hover 显示）；<280px：所有 Pin 槽位统一收起。
     assert.equal(widePinVisible, true);
     assert.equal(narrowPinVisible, false);
+    assert.ok(compactLayout.every(item => item.pinDisplay !== 'none'),
+        'every row retains its fixed Pin slot at compact widths');
+    assert.deepEqual(compactLayout.map(item => item.pinVisibility), ['visible', 'hidden', 'hidden']);
+    assert.equal(new Set(compactLayout.map(item => item.attentionLeft)).size, 1,
+        'attention stays in one column across pinned and unpinned rows');
+    assert.equal(new Set(compactLayout.map(item => item.runningLeft)).size, 1,
+        'running stays in one column across pinned and unpinned rows');
+    const compactUnpinnedRow = compact.locator('[data-open-window-row]').nth(1);
+    await compactUnpinnedRow.hover();
+    assert.equal(await compactUnpinnedRow.locator('[data-action="toggle-open-workspace-pin"]')
+        .evaluate(pin => getComputedStyle(pin).visibility), 'visible',
+    'hover still reveals the Pin control in its reserved compact-width slot');
+    const keyboardUnpinnedRow = compact.locator('[data-open-window-row]').nth(2);
+    await keyboardUnpinnedRow.locator('[data-action="focus-open-window"]').focus();
+    await compact.keyboard.press('Tab');
+    assert.deepEqual(await compact.evaluate(() => ({
+        action: document.activeElement?.getAttribute('data-action'),
+        pinVisibility: getComputedStyle(document.activeElement).visibility,
+    })), { action: 'toggle-open-workspace-pin', pinVisibility: 'visible' },
+    'keyboard focus reveals and reaches the compact-width Pin control without a hidden focus stop');
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 keeps bridge status in the WINDOWS title row without a gap before window rows', async t => {
@@ -967,11 +1001,30 @@ test('OPEN-WINDOW-SWITCHER-UI-001 empty window row renders no pin entry points',
     assert.equal(await emptyRow.getAttribute('data-can-pin'), 'false');
     assert.equal(await emptyRow.locator('[data-action="toggle-open-workspace-pin"]').count(), 0,
         'the empty window must not offer a pin the host protocol rejects');
+    const emptySlot = emptyRow.locator('.open-window-pin-slot');
+    assert.equal(await emptySlot.count(), 1,
+        'the empty window keeps a non-interactive Pin spacer for stable count columns');
+    assert.equal(await emptySlot.getAttribute('aria-hidden'), 'true');
     assert.equal(
         await page.locator('[data-open-window-row][data-window-kind="navigation"] [data-action="toggle-open-workspace-pin"]').count(),
         1,
         'regular rows keep their pin button',
     );
+
+    const getCountColumns = () => page.evaluate(() =>
+        Array.from(document.querySelectorAll('[data-open-window-row]')).map(row => ({
+            attentionLeft: Math.round(row.querySelector('.open-window-attention').getBoundingClientRect().left),
+            runningLeft: Math.round(row.querySelector('.open-window-running').getBoundingClientRect().left),
+        }))
+    );
+    for (const width of [360, 320]) {
+        await page.setViewportSize({ width, height: 600 });
+        const columns = await getCountColumns();
+        assert.equal(new Set(columns.map(column => column.attentionLeft)).size, 1,
+            `attention remains aligned with the empty-window spacer at ${width}px`);
+        assert.equal(new Set(columns.map(column => column.runningLeft)).size, 1,
+            `running remains aligned with the empty-window spacer at ${width}px`);
+    }
 
     // The ⋯ menu hides the Pin item for the empty row but keeps Save Workspace.
     await emptyRow.locator('[data-action="open-window-menu"]').click();

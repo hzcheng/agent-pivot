@@ -484,6 +484,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         await page.locator('[data-conversation-position]').textContent(),
         'Input 1 of 2'
     );
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
     await page.evaluate(() => {
         window.__deltaNode = document.querySelector(
             '[data-message-id="delta-0"]'
@@ -493,6 +496,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         window.DOMPurify.sanitize = function () {
             window.__sanitizeCalls += 1;
             return sanitize.apply(window.DOMPurify, arguments);
+        };
+        const messageContainer = document.querySelector(
+            '[data-conversation-messages]'
+        );
+        const querySelectorAll = messageContainer.querySelectorAll.bind(
+            messageContainer
+        );
+        messageContainer.querySelectorAll = function (selector) {
+            if (selector === '.conversation-message-copy, .conversation-code-copy'
+                || selector === '[data-conversation-run-command]') {
+                throw new Error('delta must not rescan action controls');
+            }
+            return querySelectorAll(selector);
         };
     });
 
@@ -504,6 +520,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         selectedInteractionId: 'input-2',
         selectedInput: 2,
     });
+    await page.evaluate(() => new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
 
     assert.deepEqual(await page.evaluate(() => ({
         nodeRetained: document.querySelector('[data-message-id="delta-0"]')
@@ -537,6 +556,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         htmlSignature: 'sig-delta-1',
         frames: [],
     }]);
+    assert.equal((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-request-sync'
+    ), false, 'the delta must not recover from an unnecessary action scan');
 
     // A delta whose signature does not match the applied content is dropped
     // and answered with a resync request instead of staying silently stale.
@@ -568,6 +590,11 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when switching back to a recent session', async t => {
     const page = await openViewerPage(t);
     await page.evaluate(() => {
+        window.__deferredPagePresentation = [];
+        window.requestAnimationFrame = callback => {
+            window.__deferredPagePresentation.push(callback);
+            return window.__deferredPagePresentation.length;
+        };
         window.__sanitizeCalls = 0;
         const sanitize = window.DOMPurify.sanitize;
         window.DOMPurify.sanitize = function () {
@@ -580,7 +607,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when 
         requestId: generation * 10,
         subscriptionGeneration: generation,
         html: `<article data-message-id="${marker}-0" `
-            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+            + `data-interaction-id="${marker}-input">`
+            + '<button class="conversation-message-copy"></button>'
+            + `<p>${marker}</p></article>`,
         htmlSignature: signature,
         outline: [{
             interactionId: `${marker}-input`,
@@ -616,9 +645,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when 
         3, 'session-beta', 'beta-content', 'sig-beta-1'
     ));
     // Switching back to alpha with unchanged content must not re-sanitize.
-    await sendPage(page, sessionPage(
+    const restorePage = sessionPage(
         4, 'session-alpha', 'alpha-content', 'sig-alpha-1'
-    ));
+    );
+    delete restorePage.html;
+    restorePage.restoreFrame = true;
+    await sendPage(page, restorePage);
+    await page.evaluate(() => {
+        for (let index = 0;
+            index < window.__deferredPagePresentation.length;
+            index += 1) {
+            window.__deferredPagePresentation[index](0);
+        }
+    });
 
     assert.deepEqual(await page.evaluate(() => ({
         sanitizeCalls: window.__sanitizeCalls,
@@ -627,10 +666,15 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 reuses the sanitized page when 
         nodeIdentity: document.querySelector(
             '[data-message-id="alpha-content-0"]'
         ) === window.__alphaNode,
+        copyLabel: document.querySelector('.conversation-message-copy')
+            .getAttribute('aria-label'),
+        copyIcon: !!document.querySelector('.conversation-message-copy svg'),
     })), {
         sanitizeCalls: 2,
         content: 'alpha-content',
         nodeIdentity: true,
+        copyLabel: 'Copy',
+        copyIcon: true,
     });
 });
 
@@ -725,7 +769,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 restores a stashed frame with s
         `scroll position should return to 240, got ${outcome.scrollTop}`);
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges Chat content before deferred decorations and drops stale work', async t => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 paints Chat content before deferred decorations and drops stale work', async t => {
     const page = await openViewerPage(t, { controlledMermaid: true });
     await page.evaluate(() => {
         window.__deferredPagePresentation = [];
@@ -772,8 +816,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges Chat content befor
         (await postedMessages(page)).filter(message =>
             message.type === 'conversation-viewer-applied'
         ).map(message => message.requestId),
-        [2, 3],
-        'the Host can accept the new authoritative target before decorations run'
+        [],
+        'a page stays pending until its full presentation has settled'
     );
     assert.equal(
         await page.locator('[data-conversation-messages]').innerText(),
@@ -783,23 +827,167 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges Chat content befor
     assert.equal(
         await page.evaluate(() => window.__mermaidRenders.length),
         0,
-        'Mermaid is outside the critical acknowledgement path'
+        'Mermaid is outside the first visible Chat frame'
     );
 
     await page.evaluate(() => window.__deferredPagePresentation[0](0));
+    await page.evaluate(() => window.__deferredPagePresentation[1](0));
+    assert.deepEqual(
+        (await postedMessages(page)).filter(message =>
+            message.type === 'conversation-viewer-applied'
+        ).map(message => message.requestId),
+        [],
+        'the first animation frame is reserved for the transcript paint'
+    );
+
+    await page.evaluate(() => window.__deferredPagePresentation[2](0));
     assert.equal(
         await page.evaluate(() => window.__mermaidRenders.length),
         0,
         'the stale Chat cannot decorate the newer target'
     );
 
-    await page.evaluate(() => window.__deferredPagePresentation[1](0));
+    await page.evaluate(() => window.__deferredPagePresentation[3](0));
     await page.waitForFunction(() => window.__mermaidRenders.length === 1);
     assert.match(
         await page.evaluate(() => window.__mermaidRenders[0].source),
         /beta/,
         'only the current Chat schedules deferred decoration'
     );
+    assert.deepEqual(
+        (await postedMessages(page)).filter(message =>
+            message.type === 'conversation-viewer-applied'
+        ).map(message => message.requestId),
+        [3],
+        'only the fully presented current Chat is acknowledged'
+    );
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when deferred presentation fails', async t => {
+    const page = await openViewerPage(t);
+    await page.evaluate(() => {
+        window.__deferredPagePresentation = [];
+        window.requestAnimationFrame = callback => {
+            window.__deferredPagePresentation.push(callback);
+            return window.__deferredPagePresentation.length;
+        };
+    });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        html: '<article data-message-id="deferred-message" '
+            + 'data-interaction-id="deferred-input">'
+            + '<button class="conversation-message-copy"></button>'
+            + '<p>deferred</p></article>',
+        htmlSignature: 'signature-deferred-presentation',
+        outline: [{
+            interactionId: 'deferred-input',
+            userPreview: 'deferred',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'deferred-input',
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId: 'session-deferred',
+            interactionId: 'deferred-input',
+            displayName: 'deferred',
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    await page.evaluate(() => {
+        const createElementNS = document.createElementNS.bind(document);
+        document.createElementNS = function (namespace, name) {
+            if (name === 'svg') {
+                throw new Error('deferred decoration failure');
+            }
+            return createElementNS(namespace, name);
+        };
+    });
+
+    await page.evaluate(() => window.__deferredPagePresentation[0](0));
+    await page.evaluate(() => window.__deferredPagePresentation[1](0));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-request-sync'
+    ));
+
+    const messages = await postedMessages(page);
+    assert.equal(messages.some(message =>
+        message.type === 'conversation-viewer-applied'
+        && message.requestId === 2
+    ), false, 'a failed decoration must not acknowledge the page');
+    assert.deepEqual(messages.find(message =>
+        message.type === 'conversation-viewer-request-sync'
+    ), {
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: 2,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-deferred',
+        applyError: 'deferred decoration failure',
+    });
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges a hidden retained Viewer without waiting for animation frames', async t => {
+    const page = await openViewerPage(t);
+    await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            get: () => 'hidden',
+        });
+        window.__deferredFrameCalls = 0;
+        window.requestAnimationFrame = () => {
+            window.__deferredFrameCalls += 1;
+            throw new Error('hidden Viewer must not wait for a frame');
+        };
+    });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        html: '<article data-message-id="hidden-message" '
+            + 'data-interaction-id="hidden-input"><p>hidden</p></article>',
+        htmlSignature: 'signature-hidden-presentation',
+        outline: [{
+            interactionId: 'hidden-input',
+            userPreview: 'hidden',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'hidden-input',
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId: 'session-hidden',
+            interactionId: 'hidden-input',
+            displayName: 'hidden',
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+
+    const result = await page.evaluate(() => ({
+        frameCalls: window.__deferredFrameCalls,
+        applied: window.__postedMessages.filter(message =>
+            message.type === 'conversation-viewer-applied'
+        ).map(message => message.requestId),
+    }));
+    assert.deepEqual(result, {
+        frameCalls: 0,
+        applied: [2],
+    });
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when a restoreFrame page has no cached frame', async t => {
@@ -4122,8 +4310,53 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
 
     const previousViewerScript = viewerScript
         .replace(
-            /\n    \/\/ Keep the first applied frame narrow:[\s\S]*?\n    }\n\n    function applyPage\(message\) \{/,
+            /\n    \/\/ Keep the first painted frame narrow:[\s\S]*?\n    }\n\n    function applyPage\(message\) \{/,
             '\n    function applyPage(message) {'
+        )
+        .replace(
+            '        updatePosition(message);\n'
+                + '        // This controller owns visible identity and actionable subagent IDs,\n'
+                + '        // so it must agree with the transcript in the first painted frame.\n'
+                + '        // The remaining sidebar decoration is safely deferrable below.\n'
+                + '        if (subagentsController) {\n'
+                + '            subagentsController.apply(\n'
+                + '                message.subagents,\n'
+                + '                message.activeSubagent\n'
+                + '            );\n'
+                + '        }\n',
+            '        updatePosition(message);\n'
+        )
+        .replace(
+            '            scheduleDeferredPagePresentation(\n'
+                + '                message,\n'
+                + '                renderGeneration,\n'
+                + '                hasHtml || !!frame\n'
+                + '            );\n'
+                + '            return;',
+            '            acknowledgePage(message);\n'
+                + '            scheduleDeferredPagePresentation(\n'
+                + '                message,\n'
+                + '                renderGeneration,\n'
+                + '                hasHtml || !!frame\n'
+                + '            );\n'
+                + '            return;'
+        )
+        .replace(
+            '        scheduleDeferredPagePresentation(\n'
+                + '            message,\n'
+                + '            renderGeneration,\n'
+                + '            hasHtml || !!frame\n'
+                + '        );\n'
+                + '    }\n\n'
+                + '    function postNavigation(type) {',
+            '        acknowledgePage(message);\n'
+                + '        scheduleDeferredPagePresentation(\n'
+                + '            message,\n'
+                + '            renderGeneration,\n'
+                + '            hasHtml || !!frame\n'
+                + '        );\n'
+                + '    }\n\n'
+                + '    function postNavigation(type) {'
         )
         .replace(
             '            applyWorklogStates();\n'
@@ -4149,7 +4382,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        hideFollowNotice();\n'
         )
         .replace(
-            /            scheduleDeferredPagePresentation\(message, renderGeneration\);\n/g,
+            /            scheduleDeferredPagePresentation\(\n                message,\n                renderGeneration,\n                hasHtml \|\| !!frame\n            \);\n/g,
             ''
         )
         .replace(
@@ -5680,7 +5913,11 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         )
         .replace(
             '        acknowledgePage(message);\n'
-                + '        scheduleDeferredPagePresentation(message, renderGeneration);\n'
+                + '        scheduleDeferredPagePresentation(\n'
+                + '            message,\n'
+                + '            renderGeneration,\n'
+                + '            hasHtml || !!frame\n'
+                + '        );\n'
                 + '    }\n\n'
                 + '    function postNavigation(type) {\n',
             '    }\n\n'

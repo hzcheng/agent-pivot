@@ -1685,14 +1685,18 @@
         });
     }
 
-    // Keep the first applied frame narrow: transcript content, selection,
-    // scroll position, and the header must be ready before the Host is told
-    // the target is usable. The secondary surfaces below are independent of
-    // that first frame and can run in the next animation frame instead of
-    // extending the visible Chat-switch pause. Both the request id and the
-    // render generation are checked so an A -> B -> C sequence cannot let
-    // deferred work for A or B repaint C.
-    function scheduleDeferredPagePresentation(message, renderGeneration) {
+    // Keep the first painted frame narrow: transcript content, selection,
+    // scroll position, and the header are ready before the secondary
+    // surfaces run. Two animation frames make the browser present that
+    // content first; a single requestAnimationFrame would still run before
+    // the first paint. Both the request id and render generation are checked
+    // so an A -> B -> C sequence cannot let deferred work for A or B repaint
+    // C.
+    function scheduleDeferredPagePresentation(
+        message,
+        renderGeneration,
+        needsActionDecoration
+    ) {
         var subscriptionGeneration = message.subscriptionGeneration;
         var requestId = message.requestId;
         var apply = function () {
@@ -1701,24 +1705,37 @@
                 || state.renderGeneration !== renderGeneration) {
                 return;
             }
-            applyCopyButtonLabels();
-            applyRunCommandButtonLabels();
-            outlineController.applyOutline(message);
-            if (subagentsController) {
-                subagentsController.apply(
-                    message.subagents,
-                    message.activeSubagent
-                );
+            try {
+                if (needsActionDecoration) {
+                    applyCopyButtonLabels();
+                    applyRunCommandButtonLabels();
+                }
+                outlineController.applyOutline(message);
+                commentsController.updateHighlights();
+                if (findController) findController.refresh();
+                renderMermaidDiagrams(renderGeneration);
+                acknowledgePage(message);
+            } catch (_presentationError) {
+                requestConversationResync(message, _presentationError);
             }
-            commentsController.updateHighlights();
-            if (findController) findController.refresh();
-            renderMermaidDiagrams(renderGeneration);
         };
-        if (typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(apply);
+        // A retained, hidden Viewer has no user-visible frame to protect and
+        // Chromium can pause animation frames indefinitely. Finish it now so
+        // Host correlation, transition cleanup, and delta publication remain
+        // live while the user is working in another Dashboard surface.
+        if (document.visibilityState === 'hidden') {
+            apply();
             return;
         }
-        window.setTimeout(apply, 0);
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(function () {
+                window.requestAnimationFrame(apply);
+            });
+            return;
+        }
+        window.setTimeout(function () {
+            window.setTimeout(apply, 0);
+        }, 0);
     }
 
     function applyPage(message) {
@@ -1827,6 +1844,15 @@
             applyConversationTaskName(message.target);
         }
         updatePosition(message);
+        // This controller owns visible identity and actionable subagent IDs,
+        // so it must agree with the transcript in the first painted frame.
+        // The remaining sidebar decoration is safely deferrable below.
+        if (subagentsController) {
+            subagentsController.apply(
+                message.subagents,
+                message.activeSubagent
+            );
+        }
         var latestInteraction = message.outline[message.outline.length - 1];
         var latestInteractionRendered = latestInteraction
             && Array.prototype.some.call(
@@ -1921,8 +1947,11 @@
             if (!openingAtLatest && !resumeFramePosition) {
                 reconcileController.trackEnd();
             }
-            acknowledgePage(message);
-            scheduleDeferredPagePresentation(message, renderGeneration);
+            scheduleDeferredPagePresentation(
+                message,
+                renderGeneration,
+                hasHtml || !!frame
+            );
             return;
         }
 
@@ -1935,8 +1964,11 @@
             );
             reconcileController.trackEnd();
         }
-        acknowledgePage(message);
-        scheduleDeferredPagePresentation(message, renderGeneration);
+        scheduleDeferredPagePresentation(
+            message,
+            renderGeneration,
+            hasHtml || !!frame
+        );
     }
 
     function postNavigation(type) {

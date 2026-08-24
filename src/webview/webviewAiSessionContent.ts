@@ -1046,8 +1046,11 @@ function getWorktreeGroupRowHtml(
                 : '';
             // M3 batch 4 (PRD §6.4): the member-level inverse of Add repo —
             // remove one worktree from the group through the journaled
-            // deletion confirmation card. Only ready members are removable.
-            const removeAction = member.status === 'ready'
+            // deletion confirmation card. A missing member still carries an
+            // authoritative worktree key, so deletion can retire its stale
+            // group record even though its directory is already gone.
+            const removeAction = (member.status === 'ready'
+                || (member.status === 'missing' && !!member.worktreeKey))
                 ? `<button type="button" class="ai-session-worktree-member-remove" data-action="preview-group-member-deletion" data-group-id="${escapeAttribute(group.groupId)}" data-member-id="${escapeAttribute(member.memberId)}" aria-label="Remove the ${escapeAttribute(member.repositoryLabel)} worktree from ${escapeAttribute(name)} (keeps the local branch)" data-tooltip="Remove this worktree from the group…">${Icons.trash}</button>`
                 : '';
             return `<div class="ai-session-worktree-member-detail" data-member-id="${escapeAttribute(member.memberId)}" data-member-detail-status="${escapeAttribute(member.status)}">`

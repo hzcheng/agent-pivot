@@ -135,6 +135,7 @@ export interface ConversationCapabilityOptions {
     clearTimer: typeof clearTimeout;
     onDiagnostic: (event: SanitizedConversationDiagnostic) => void;
     onViewerTiming?: (timing: ConversationViewerApplicationTiming) => void;
+    monotonicNow?: () => number;
     getWorkspaceRootHostPaths?: () => readonly string[];
     /**
      * Changes-panel wiring (changes-panel PRD): session identity
@@ -464,7 +465,7 @@ function createAvailableConversationCapability(
             ? event => options.onDiagnostic(event as never)
             : undefined,
         onTiming: options.onViewerTiming,
-        now: options.now,
+        now: options.monotonicNow,
         setTimer: options.setTimer,
         clearTimer: options.clearTimer,
     }));

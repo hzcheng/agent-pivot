@@ -1981,6 +1981,7 @@ async function initializeDashboard(
         setTimer: setTimeout,
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
+        monotonicNow: () => performance.now(),
         onViewerTiming: timing => logAiSessionDiagnostic({
             event: 'session-navigation-viewer-application-latency',
             ...timing,

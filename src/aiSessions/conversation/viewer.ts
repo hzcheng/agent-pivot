@@ -308,6 +308,9 @@ export interface ConversationViewerPageMessage {
  * carries a workspace, provider, session, or other user content.
  */
 export interface ConversationViewerApplicationTiming {
+    /** Aggregate-only classification; it is not a cross-system trace id. */
+    source: 'open' | 'follow' | 'restore' | 'rebind'
+        | 'initial' | 'navigation' | 'refresh';
     updateKind: ConversationViewerPageMessage['updateKind'];
     delivery: 'document' | 'message';
     /** Host publication to the Webview's correlated applied acknowledgement. */
@@ -350,6 +353,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private pendingTargetLoadTiming?: {
         subscriptionGeneration: number;
         startedAt: number;
+        source: 'open' | 'follow' | 'restore' | 'rebind';
     };
     // Advanced only by the Webview's correlated applied acknowledgement —
     // never by postMessage resolving, which proves queueing, not application.
@@ -515,7 +519,7 @@ export class ConversationViewer implements ConversationViewerApi {
         target: ConversationViewerTarget,
         snapshot?: ConversationSnapshot
     ): Promise<void> {
-        await this.loadTarget(target, true, snapshot);
+        await this.loadTarget(target, true, snapshot, false, 'open');
     }
 
     async restore(
@@ -529,7 +533,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         panel.webview.options = this.webviewOptions();
         this.attachPanel(panel);
-        await this.loadTarget(target, false, snapshot, true);
+        await this.loadTarget(target, false, snapshot, true, 'restore');
     }
 
     async follow(
@@ -547,7 +551,7 @@ export class ConversationViewer implements ConversationViewerApi {
             && this.target.sessionId === target.sessionId) {
             return true;
         }
-        return this.loadTarget(target, false, snapshot);
+        return this.loadTarget(target, false, snapshot, false, 'follow');
     }
 
     async rebindSession(
@@ -603,7 +607,7 @@ export class ConversationViewer implements ConversationViewerApi {
             sessionId: next.sessionId,
             interactionId: selected.id,
             expectedRevision: outline.sourceRevision,
-        }, false, snapshot);
+        }, false, snapshot, false, 'rebind');
     }
 
     async freezeSessionMetadata(
@@ -655,7 +659,8 @@ export class ConversationViewer implements ConversationViewerApi {
         target: ConversationViewerTarget,
         reveal: boolean,
         snapshot?: ConversationSnapshot,
-        forceDocumentReplacement = false
+        forceDocumentReplacement = false,
+        source: 'open' | 'follow' | 'restore' | 'rebind' = 'follow'
     ): Promise<boolean> {
         const startedAt = this.now();
         const hadPanel = Boolean(this.panel);
@@ -683,6 +688,7 @@ export class ConversationViewer implements ConversationViewerApi {
             this.pendingTargetLoadTiming = {
                 subscriptionGeneration: generation,
                 startedAt,
+                source,
             };
         }
         if (hadPanel && targetChanged) {
@@ -2271,6 +2277,10 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         try {
             this.options.onTiming?.({
+                source: loadTiming
+                    && loadTiming.subscriptionGeneration === publication.subscriptionGeneration
+                    ? loadTiming.source
+                    : timing.updateKind,
                 updateKind: timing.updateKind,
                 delivery: timing.delivery,
                 applicationMs: Math.max(0, now - timing.publishedAt),

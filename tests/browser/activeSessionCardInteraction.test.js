@@ -691,7 +691,7 @@ function createAttentionAcknowledgementHandler(acknowledgeEventIds, postMessage)
             closeTerminal: ignored,
             stopSession: ignored,
         },
-        conversationCapability: { followActiveConversation: ignored },
+        focusAiSessionAndFollowConversation: ignored,
         aiSessionArchiveController: { archiveSessions: ignored },
         acknowledgeAiSessionAttentionEventIds: acknowledgeEventIds,
         logOpenWorkspaceDiagnostic() {},
@@ -701,7 +701,6 @@ function createAttentionAcknowledgementHandler(acknowledgeEventIds, postMessage)
         showAgentPivotSettings: ignored,
         showBridgeExtension: ignored,
         showSponsorOptions: ignored,
-        showWarningMessage() {},
     })['acknowledge-ai-session-attention'];
 }
 

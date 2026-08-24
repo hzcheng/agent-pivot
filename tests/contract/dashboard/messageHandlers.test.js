@@ -63,7 +63,17 @@ function createFixture(overrides = {}) {
             closeTerminal: record('closeTerminal'),
             stopSession: record('stopSession'),
         },
-        conversationCapability: { followActiveConversation: record('followActiveConversation') },
+        focusAiSessionAndFollowConversation: async target => {
+            calls.push(['focusActive', target.projectId, target.provider, target.sessionId]);
+            if (overrides.focused !== false) {
+                calls.push(['followActiveConversation', target]);
+            } else {
+                calls.push([
+                    'showWarningMessage',
+                    'Agent Pivot: the selected AI session is no longer active.',
+                ]);
+            }
+        },
         aiSessionArchiveController: { archiveSessions: record('archiveSessions') },
         acknowledgeAiSessionAttentionEventIds: overrides.acknowledgeAttention
             || record('acknowledgeAttention'),
@@ -77,7 +87,6 @@ function createFixture(overrides = {}) {
         dismissOpenTabLayoutNotice: overrides.dismissOpenTabLayoutNotice
             || (async () => { calls.push(['dismissOpenTabLayoutNotice']); }),
         openOpenTabLayoutMigrationGuide: async () => { calls.push(['openOpenTabLayoutMigrationGuide']); },
-        showWarningMessage: message => calls.push(['showWarningMessage', message]),
     });
     return { handlers, calls, posted };
 }

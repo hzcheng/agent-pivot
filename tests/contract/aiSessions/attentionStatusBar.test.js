@@ -691,7 +691,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 hands a remote target to its owning window 
     ], 'each remote press must complete the exact target before switching windows');
 });
 
-test('ATTENTION-STATUS-BAR-QUEUE-001 serializes rapid invocations so the last press wins', async () => {
+test('ATTENTION-STATUS-BAR-QUEUE-001 preserves every rapid relative invocation', async () => {
     const items = ['a', 'b', 'c'].map((sessionId, index) => ({
         provider: 'codex', sessionId, projectId: 'A', eventIds: [`e${index}`],
         reasons: ['completed'], observedAtMs: index, local: true,
@@ -721,6 +721,7 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 serializes rapid invocations so the last pr
 
     const first = jump();
     const second = jump();
+    const third = jump();
     await Promise.resolve();
     assert.deepEqual(picked, ['b'], 'the second invocation waits for the first focus');
     releases.shift()();
@@ -728,8 +729,12 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 serializes rapid invocations so the last pr
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(picked, ['b', 'c']);
     releases.shift()();
-    await Promise.all([first, second]);
-    assert.equal(focused, 'c');
+    await Promise.resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(picked, ['b', 'c', 'a']);
+    releases.shift()();
+    await Promise.all([first, second, third]);
+    assert.equal(focused, 'a');
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 AI-SESSION-NEXT-RUNNING-COMMAND-001 serializes interleaved navigation commands so the last invocation wins', async () => {

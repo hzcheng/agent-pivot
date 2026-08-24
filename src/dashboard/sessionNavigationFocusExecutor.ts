@@ -16,6 +16,14 @@ export interface SessionNavigationFocusExecutionOptions {
     onFocused?(): void;
 }
 
+export interface SessionNavigationTiming {
+    outcome: 'unavailable' | 'focus-failed' | 'focus-error' | 'conversation-opened'
+        | 'conversation-unavailable' | 'conversation-error';
+    focusMs: number;
+    conversationMs: number;
+    totalMs: number;
+}
+
 export interface SessionNavigationFocusExecutor {
     execute(
         target: SessionNavigationFocusTarget,
@@ -36,6 +44,9 @@ export interface SessionNavigationFocusExecutorOptions {
         sessionId: string;
     }): Promise<boolean>;
     onFocused?(target: SessionNavigationFocusTarget): void;
+    /** Receives timing only; no workspace, provider, or session identity. */
+    onTiming?(timing: SessionNavigationTiming): void;
+    now?(): number;
 }
 
 /**
@@ -51,25 +62,65 @@ export function createSessionNavigationFocusExecutor(
             target: SessionNavigationFocusTarget,
             executionOptions: SessionNavigationFocusExecutionOptions = {},
         ): Promise<SessionNavigationFocusResult> {
+            const now = options.now || (() => Date.now());
+            const startedAt = now();
+            const report = (
+                outcome: SessionNavigationTiming['outcome'],
+                focusMs: number,
+                conversationMs: number,
+            ): void => {
+                try {
+                    options.onTiming?.({
+                        outcome,
+                        focusMs: Math.max(0, focusMs),
+                        conversationMs: Math.max(0, conversationMs),
+                        totalMs: Math.max(0, now() - startedAt),
+                    });
+                } catch (_error) {
+                    // Diagnostics must not affect user navigation.
+                }
+            };
             const projectId = options.getProjectId();
             if (!projectId) {
+                report('unavailable', 0, 0);
                 return { focused: false, conversationOpened: false };
             }
-            const focused = await options.focusActive(
-                projectId,
-                target.provider,
-                target.sessionId,
-            );
+            const focusStartedAt = now();
+            let focused: boolean;
+            try {
+                focused = await options.focusActive(
+                    projectId,
+                    target.provider,
+                    target.sessionId,
+                );
+            } catch (error) {
+                report('focus-error', now() - focusStartedAt, 0);
+                throw error;
+            }
+            const focusMs = now() - focusStartedAt;
             if (!focused) {
+                report('focus-failed', focusMs, 0);
                 return { focused: false, conversationOpened: false };
             }
             options.onFocused?.(target);
             executionOptions.onFocused?.();
-            const conversationOpened = await options.openConversation({
-                projectId,
-                provider: target.provider,
-                sessionId: target.sessionId,
-            });
+            const conversationStartedAt = now();
+            let conversationOpened: boolean;
+            try {
+                conversationOpened = await options.openConversation({
+                    projectId,
+                    provider: target.provider,
+                    sessionId: target.sessionId,
+                });
+            } catch (error) {
+                report('conversation-error', focusMs, now() - conversationStartedAt);
+                throw error;
+            }
+            report(
+                conversationOpened ? 'conversation-opened' : 'conversation-unavailable',
+                focusMs,
+                now() - conversationStartedAt,
+            );
             return { focused: true, conversationOpened };
         },
     };

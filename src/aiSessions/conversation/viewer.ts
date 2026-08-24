@@ -129,6 +129,9 @@ export interface ConversationViewerOptions {
     switchAdjacentWindow?: (
         direction: ConversationSessionSwitchDirection
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Invalidates an older dashboard navigation before the Viewer begins a
+     * user-requested session change of its own. */
+    onNavigationIntent?: () => void;
     watch: (
         provider: AiSessionProviderId,
         sessionId: string,
@@ -312,6 +315,10 @@ export class ConversationViewer implements ConversationViewerApi {
     private subagents: ConversationSubagentEntry[] = [];
     private mainInteractionId?: string;
     private subscriptionGeneration = 0;
+    // The target can change before its first authoritative document is
+    // applied. This is set only for a reused panel, where an outgoing
+    // Webview document could still have queued an action.
+    private transitioningGeneration?: number;
     private nextRequestId = CONVERSATION_LIMITS.minRequestId;
     private currentRequestId = 0;
     private stale = false;
@@ -630,15 +637,6 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!activeTarget) {
             return false;
         }
-        await Promise.all([
-            this.commentController.restore(activeTarget, generation),
-            this.projectCommentController.restore(activeTarget, generation),
-            this.bookmarkController.restore(activeTarget, generation),
-        ]);
-        if (this.target !== activeTarget
-            || this.subscriptionGeneration !== generation) {
-            return false;
-        }
         const panel = reveal ? this.ensurePanel() : this.panel;
         if (!panel || (!reveal && panel !== followedPanel)) {
             this.emitDiagnostic('load-target-no-panel');
@@ -648,17 +646,33 @@ export class ConversationViewer implements ConversationViewerApi {
         if (reveal) {
             panel.reveal(vscode.ViewColumn.Active);
         }
+        const targetChanged = !previousTarget
+            || previousTarget.projectId !== activeTarget.projectId
+            || previousTarget.provider !== activeTarget.provider
+            || previousTarget.sessionId !== activeTarget.sessionId;
+        if (hadPanel && targetChanged) {
+            this.transitioningGeneration = generation;
+        }
         const replaceDocument = forceDocumentReplacement || !hadPanel;
         if (replaceDocument) {
             panel.webview.html = this.renderDocument(
                 undefined,
                 'Loading conversation…'
             );
-        } else if (!previousTarget
-            || previousTarget.projectId !== activeTarget.projectId
-            || previousTarget.provider !== activeTarget.provider
-            || previousTarget.sessionId !== activeTarget.sessionId) {
+        } else if (targetChanged) {
+            // Keep the existing document for a fast, scroll-stable handoff,
+            // but make its outgoing controls inert until the new target has
+            // an authoritative publication.
             this.postLoadingNotice(panel, activeTarget, generation);
+        }
+        await Promise.all([
+            this.commentController.restore(activeTarget, generation),
+            this.projectCommentController.restore(activeTarget, generation),
+            this.bookmarkController.restore(activeTarget, generation),
+        ]);
+        if (this.target !== activeTarget
+            || this.subscriptionGeneration !== generation) {
+            return false;
         }
         this.ensureWatch(generation);
         const loaded = await this.loadAuthoritative(
@@ -873,6 +887,7 @@ export class ConversationViewer implements ConversationViewerApi {
         };
         this.suspended = false;
         this.subscriptionGeneration += 1;
+        this.transitioningGeneration = undefined;
         this.currentRequestId = 0;
         return this.subscriptionGeneration;
     }
@@ -975,6 +990,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.publishKeyboardFocus(false);
         this.suspended = false;
         this.subscriptionGeneration += 1;
+        this.transitioningGeneration = undefined;
         this.currentRequestId = 0;
     }
 
@@ -988,6 +1004,16 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         if (!this.target) {
+            return;
+        }
+        if (this.transitioningGeneration === this.subscriptionGeneration
+            && parsed.type !== 'conversation-viewer-applied'
+            && parsed.type !== 'conversation-viewer-request-sync') {
+            // A panel replacement is asynchronous at the Webview boundary.
+            // Ignore any outgoing-document action until the authoritative
+            // incoming document is ready, rather than applying it to the
+            // already-replaced Host target.
+            this.emitDiagnostic('message-dropped-target-transition');
             return;
         }
         if (parsed.type === 'conversation-viewer-open-link') {
@@ -1112,6 +1138,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         if (parsed.type === 'conversation-viewer-switch-session') {
+            this.options.onNavigationIntent?.();
             const currentTarget = this.target;
             await this.options.followAdjacentConversation?.(
                 parsed.direction,
@@ -2151,6 +2178,9 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         this.appliedContentSignature = publication.htmlSignature;
+        if (this.transitioningGeneration === message.subscriptionGeneration) {
+            this.transitioningGeneration = undefined;
+        }
     }
 
     private rebuildLatestDocument(): void {
@@ -2167,10 +2197,9 @@ export class ConversationViewer implements ConversationViewerApi {
         target: ConversationViewerTarget,
         generation: number
     ): void {
-        // A reused panel keeps the outgoing conversation visible while the
-        // incoming session loads; the Webview dims it and announces the
-        // load until the first publication of the new target lands. The
-        // notice is cosmetic, so a lost post never blocks the load.
+        // The notice is cosmetic and must never delay the load. The Webview
+        // makes all outgoing controls inert; Host-side transition gating
+        // below is the matching defense for any already-queued message.
         try {
             void Promise.resolve(panel.webview.postMessage({
                 type: 'conversation-viewer-loading',
@@ -2183,7 +2212,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 },
             })).catch(() => undefined);
         } catch (_error) {
-            // See above: the indicator is best-effort only.
+            // Best-effort visual state only.
         }
     }
 

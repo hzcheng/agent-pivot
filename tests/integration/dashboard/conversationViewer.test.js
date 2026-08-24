@@ -411,6 +411,65 @@ test('CONVERSATION-VIEWER-RENAME-001 forwards the rename intent for the current 
         'malformed or spoofed envelopes are dropped by the protocol validator');
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 makes an outgoing document inert before a slow target transition becomes interactive', async () => {
+    const restore = deferred();
+    const renamed = [];
+    let loads = 0;
+    const { viewer, panel } = createViewer({
+        commentStore: {
+            async load() {
+                loads += 1;
+                return loads === 1
+                    ? { revision: 0, comments: [] }
+                    : restore.promise;
+            },
+            async save() {},
+        },
+        renameSession: async renameTarget => {
+            renamed.push(renameTarget.sessionId);
+        },
+    });
+    await viewer.open(target('session-a'));
+
+    const switching = viewer.follow(target('session-b'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-loading'
+            && message.target?.sessionId === 'session-b'
+    ), true, 'the reused panel must make session-a controls inert while session-b restores');
+    await panel.receive({
+        type: 'conversation-viewer-rename-session',
+        version: 1,
+    });
+    assert.deepEqual(renamed, [],
+        'an outgoing document action cannot apply to the already-replaced target');
+
+    restore.resolve({ revision: 0, comments: [] });
+    assert.equal(await switching, true);
+    await panel.receive({
+        type: 'conversation-viewer-rename-session',
+        version: 1,
+    });
+    assert.deepEqual(renamed, [],
+        'postMessage delivery alone cannot unlock the incoming target');
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+    await panel.receive({
+        type: 'conversation-viewer-rename-session',
+        version: 1,
+    });
+    assert.deepEqual(renamed, ['session-b']);
+    viewer.dispose();
+});
+
 test('CONVERSATION-TELEMETRY-CONTROLLER-001 refreshes telemetry while the visible conversation is otherwise idle', async () => {
     const timers = new Map();
     let nextTimer = 1;

@@ -163,6 +163,7 @@ export interface AiSessionQuickSwitchOptions {
     openNavigationCard: (cardId: string) => Promise<void>;
     showInformationMessage: (message: string) => void;
     showWarningMessage: (message: string) => void;
+    onNavigationIntent?: () => void;
 }
 
 export interface AiSessionQuickSwitchHandlers {
@@ -232,13 +233,14 @@ export function createAiSessionQuickSwitchHandlers(
         if (!picked) {
             return;
         }
+        options.onNavigationIntent?.();
         if (picked.target.kind === 'local') {
             const target = picked.target;
-            await navigationCoordinator.enqueue(() => jumpToLocal(target));
+            await navigationCoordinator.enqueueLatest(() => jumpToLocal(target));
             return;
         }
         const target = picked.target;
-        await navigationCoordinator.enqueue(() => jumpToRemote(target));
+        await navigationCoordinator.enqueueLatest(() => jumpToRemote(target));
     }
 
     async function toggleLastAiSessionTransaction(): Promise<void> {
@@ -267,6 +269,8 @@ export function createAiSessionQuickSwitchHandlers(
     }
 
     async function toggleLastAiSession(): Promise<void> {
+        // Toggle is relative to current MRU/focus state, so every press must
+        // run in order rather than be dropped as a stale absolute target.
         await navigationCoordinator.enqueue(toggleLastAiSessionTransaction);
     }
 

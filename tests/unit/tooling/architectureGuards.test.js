@@ -460,7 +460,7 @@ for (const mutation of [
         file: 'src/dashboard/sessionQuickSwitch.ts',
         expectedDetail: 'Quick Switch and Toggle must own no navigation path outside the shared transaction',
         mutate: source => source.replace(
-            'await navigationCoordinator.enqueue(() => jumpToLocal(target));',
+            'await navigationCoordinator.enqueueLatest(() => jumpToLocal(target));',
             'await jumpToLocal(target);',
         ),
     },
@@ -488,12 +488,22 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',
-        expectedDetail: 'Previous and Next Active Session commands must use the shared navigation coordinator',
+        expectedDetail: 'Previous and Next Active Session commands must invalidate an older row navigation',
         mutate: source => source.replace(
-            "previousActiveSession: () => sessionNavigationCoordinator.enqueue(\n"
-                + "            () => followAdjacentActiveConversationWithFeedback('previous')\n"
-                + '        ),',
+            "previousActiveSession: () => {\n"
+                + '            beginConversationNavigationIntent();\n'
+                + "            return followAdjacentActiveConversationWithFeedback('previous');\n"
+                + '        },',
             "previousActiveSession: () => followAdjacentActiveConversationWithFeedback('previous'),",
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'Dashboard Chat-row clicks must use the shared latest-intent navigation transaction',
+        mutate: source => source.replace(
+            'return sessionNavigationCoordinator.enqueueLatest(async () => {',
+            'return (async () => {',
         ),
     },
     {

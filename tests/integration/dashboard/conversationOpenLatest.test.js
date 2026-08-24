@@ -940,7 +940,7 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the latest interaction only
     closedHarness.capability.dispose();
 });
 
-test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 routes a successful Active Session card focus into Conversation following', () => {
+test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus to the shared Conversation-aware navigation path', () => {
     const handlersSource = fs.readFileSync(
         path.join(__dirname, '../../../src/dashboard/messageHandlers.ts'),
         'utf8'
@@ -949,10 +949,20 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 routes a successful Active Session 
         /'focus-ai-session-terminal': async e => \{[\s\S]*?\n\s*\},\n\s*'focus-pending-ai-session'/
     );
     assert.ok(handler, 'Active Session focus handler must remain inspectable');
-    assert.match(handler[0], /focusActive\(/);
+    assert.match(handler[0], /focusAiSessionAndFollowConversation\(target\)/);
+
+    const dashboardSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+    const navigationPath = dashboardSource.match(
+        /const focusAiSessionAndFollowConversation[\s\S]*?\n\s*};\n\s*const conversationHandlers/
+    );
+    assert.ok(navigationPath, 'shared Active Session navigation path must remain inspectable');
+    assert.match(navigationPath[0], /focusActive\(/);
     assert.match(
-        handler[0],
-        /if \(focused\) \{[\s\S]*followActiveConversation\(/
+        navigationPath[0],
+        /if \(focused(?: && [^)]+)?\) \{[\s\S]*followActiveConversation\(/
     );
 });
 

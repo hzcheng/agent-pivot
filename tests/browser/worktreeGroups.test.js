@@ -1524,6 +1524,21 @@ test('WORKTREE-GROUPS-MEMBER-DELETE-001 removes a member through the card settle
     }), true, 'focus parks on the group header after the deletion');
 });
 
+test('WORKTREE-GROUPS-MEMBER-DELETE-001 offers removal for a missing worktree record', async t => {
+    const sessionHtml = () => surface({
+        worktreeGroups: [groupRow({
+            members: [member({ status: 'missing' })],
+        })],
+    });
+    const { page } = await openGroupActionsPage(t, sessionHtml);
+
+    await expandMemberDetails(page, 'g-1');
+    const removeButton = page.locator(
+        '[data-action="preview-group-member-deletion"][data-member-id="m-1"]');
+    assert.equal(await removeButton.count(), 1,
+        'a missing worktree still offers removal of its stale group record');
+});
+
 test('WORKTREE-GROUPS-MEMBER-DELETE-001 a blocked preview disables confirm and cancel restores focus', async t => {
     const sessionHtml = () => surface({
         worktreeGroups: [twoMemberGroup()],

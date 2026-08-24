@@ -71,13 +71,25 @@ export class ManagedWorktreeRemovalController {
         const workspaceIdentity = this.options.getWorkspaceIdentity?.(projectId) ?? null;
         try {
             const initial = this.resolveTarget(key);
-            const blocked = await this.getBlocker(initial, key);
-            if (blocked) {
-                return { kind: 'rejected', errorCode: blocked };
+            // These in-memory guards are instantaneous and avoid presenting
+            // a destructive confirmation for a target the dashboard already
+            // knows cannot be removed. The Git-backed checks remain after
+            // confirmation below, where they also catch races.
+            if (this.options.isActive(key)) {
+                return { kind: 'rejected', errorCode: 'worktree-active' };
+            }
+            if (this.options.isOpenWorkspace(key)) {
+                return { kind: 'rejected', errorCode: 'worktree-open' };
+            }
+            if (this.options.isProvisioning(key)) {
+                return { kind: 'rejected', errorCode: 'worktree-provisioning' };
             }
             // The confirm label tolerates a stale/prunable snapshot entry:
             // a worktree whose directory is already gone still needs a
-            // readable name in the dialog.
+            // readable name in the dialog. Do not put the Git safety check
+            // ahead of this dialog: a slow filesystem or Git process made a
+            // click appear to do nothing for up to its timeout. The full
+            // check below remains immediately before the destructive command.
             const snapshotWorktree = this.options.getSnapshot()?.repositories
                 .find(candidate => candidate.repositoryKey === key.repositoryKey)
                 ?.worktrees.find(candidate => worktreeKeysEqual(candidate.key, key));

@@ -90,14 +90,21 @@ test('WORKTREE-MANAGED-CLEANUP-001 removes a confirmed clean idle managed worktr
     assert.deepEqual(current.effects.map(effect => effect[0]), ['confirm', 'refresh']);
 });
 
-test('WORKTREE-MANAGED-CLEANUP-001 rejects dirty and active worktrees before confirmation', async t => {
+test('WORKTREE-MANAGED-CLEANUP-001 confirms before Git-only blockers, then rejects them safely', async t => {
     const dirty = await fixture(t);
     await fs.promises.writeFile(path.join(dirty.worktreePath, 'untracked.txt'), 'dirty');
     assert.deepEqual(await dirty.controller.remove('project', dirty.key), {
         kind: 'rejected', errorCode: 'worktree-dirty',
     });
-    assert.deepEqual(dirty.effects, []);
+    assert.deepEqual(dirty.effects.map(effect => effect[0]), ['confirm']);
     assert.equal(fs.existsSync(dirty.worktreePath), true);
+
+    const branchChanged = await fixture(t);
+    git(branchChanged.worktreePath, ['switch', '-c', 'agent-pivot/replaced']);
+    assert.deepEqual(await branchChanged.controller.remove('project', branchChanged.key), {
+        kind: 'rejected', errorCode: 'worktree-identity-changed',
+    });
+    assert.deepEqual(branchChanged.effects.map(effect => effect[0]), ['confirm']);
 
     const active = await fixture(t);
     active.setActive(true);
@@ -121,13 +128,34 @@ test('WORKTREE-MANAGED-CLEANUP-001 rejects dirty and active worktrees before con
     assert.deepEqual(provisioning.effects, []);
 });
 
-test('WORKTREE-MANAGED-CLEANUP-001 revalidates identity and activity after confirmation', async t => {
-    const branchChanged = await fixture(t);
-    git(branchChanged.worktreePath, ['switch', '-c', 'agent-pivot/replaced']);
-    assert.deepEqual(await branchChanged.controller.remove('project', branchChanged.key), {
-        kind: 'rejected', errorCode: 'worktree-identity-changed',
+test('WORKTREE-MANAGED-CLEANUP-001 opens confirmation before slow Git preflight and revalidates after it', async t => {
+    const current = await fixture(t);
+    let settleConfirmation;
+    const confirmation = new Promise(resolve => { settleConfirmation = resolve; });
+    let gitCalls = 0;
+    const controller = new ManagedWorktreeRemovalController({
+        getSnapshot: () => current.snapshot,
+        isProjectTarget: () => true,
+        isActive: () => false,
+        isOpenWorkspace: () => false,
+        isProvisioning: () => false,
+        confirm: async () => {
+            current.effects.push(['confirm']);
+            return confirmation;
+        },
+        refresh: async () => { current.effects.push(['refresh']); },
+        runGit: async () => {
+            gitCalls += 1;
+            throw new Error('Git must not start before the confirmation settles');
+        },
     });
-    assert.deepEqual(branchChanged.effects, []);
+    const removal = controller.remove('project', current.key);
+
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(current.effects.map(effect => effect[0]), ['confirm']);
+    assert.equal(gitCalls, 0);
+    settleConfirmation(undefined);
+    assert.deepEqual(await removal, { kind: 'cancelled' });
 
     const becameActive = await fixture(t);
     becameActive.setOnConfirm(() => becameActive.setActive(true));

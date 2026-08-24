@@ -5252,10 +5252,21 @@ function initProjectAiSessionControls(options) {
         var requestId = 'worktree-remove-' + nextManagedWorktreeRemovalRequestId.toString(36);
         button.disabled = true;
         button.setAttribute('aria-disabled', 'true');
+        button.setAttribute('aria-busy', 'true');
+        var pendingLabel = 'Preparing worktree removal…';
         pendingManagedWorktreeRemovalRequests.set(requestId, {
             button: button,
             projectId: projectId,
+            ariaLabel: button.getAttribute('aria-label'),
+            tooltip: button.getAttribute('data-tooltip'),
         });
+        button.setAttribute('aria-label', pendingLabel);
+        button.setAttribute('data-tooltip', pendingLabel);
+        var pendingProject = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
+        var pendingLiveRegion = pendingProject?.querySelector('[data-ai-session-live-region]');
+        if (pendingLiveRegion) {
+            pendingLiveRegion.textContent = pendingLabel;
+        }
         window.vscode.postMessage({
             type: 'remove-managed-worktree', version: 1,
             requestId: requestId, projectId: projectId,
@@ -5283,6 +5294,17 @@ function initProjectAiSessionControls(options) {
         if (pending.button && pending.button.isConnected) {
             pending.button.disabled = false;
             pending.button.removeAttribute('aria-disabled');
+            pending.button.removeAttribute('aria-busy');
+            if (pending.ariaLabel === null) {
+                pending.button.removeAttribute('aria-label');
+            } else {
+                pending.button.setAttribute('aria-label', pending.ariaLabel);
+            }
+            if (pending.tooltip === null) {
+                pending.button.removeAttribute('data-tooltip');
+            } else {
+                pending.button.setAttribute('data-tooltip', pending.tooltip);
+            }
         }
         var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
         var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');

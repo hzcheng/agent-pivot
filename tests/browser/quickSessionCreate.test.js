@@ -349,6 +349,8 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
     const button = project.locator('.ai-session-worktree-group[data-worktree-path="/repo/.agent-pivot/worktrees/cleanup"] .ai-session-worktree-more');
     const menu = page.locator('#aiSessionWorktreeMenu');
     const removeItem = menu.locator('[data-action="worktree-remove"]');
+    const originalAriaLabel = await button.getAttribute('aria-label');
+    const originalTooltip = await button.getAttribute('data-tooltip');
     await button.click();
     assert.equal(await removeItem.isVisible(), true,
         'a removable worktree offers removal inside its unified menu');
@@ -359,6 +361,11 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         repositoryKey: key.repositoryKey, worktreePath: key.canonicalWorktreePath,
     });
     assert.equal(await button.isDisabled(), true);
+    assert.equal(await button.getAttribute('aria-busy'), 'true');
+    assert.equal(await button.getAttribute('aria-label'), 'Preparing worktree removal…');
+    assert.equal(await button.getAttribute('data-tooltip'), 'Preparing worktree removal…');
+    assert.equal(await project.locator('[data-ai-session-live-region]').textContent(),
+        'Preparing worktree removal…');
 
     await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'managed-worktree-removal-settlement', version: 1,
@@ -370,6 +377,9 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         requestId: 'worktree-remove-1', status: 'rejected', errorCode: 'worktree-dirty',
     } })));
     assert.equal(await button.isDisabled(), false);
+    assert.equal(await button.getAttribute('aria-busy'), null);
+    assert.equal(await button.getAttribute('aria-label'), originalAriaLabel);
+    assert.equal(await button.getAttribute('data-tooltip'), originalTooltip);
     assert.match(await project.locator('[data-ai-session-live-region]').textContent(),
         /uncommitted changes/);
 

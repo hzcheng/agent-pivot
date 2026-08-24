@@ -196,6 +196,9 @@ export interface ConversationViewerOptions {
     ) => PromiseLike<void> | Promise<void> | void;
     /** Diagnostics sink for load/switch failures (never throws). */
     onDiagnostic?: (event: Record<string, unknown>) => void;
+    /** Receives aggregate publication/application timing only. */
+    onTiming?: (timing: ConversationViewerApplicationTiming) => void;
+    now?: () => number;
     setTimer?: (callback: () => void, delayMs: number) => unknown;
     clearTimer?: (handle: unknown) => void;
 }
@@ -300,6 +303,19 @@ export interface ConversationViewerPageMessage {
     bookmarks: ConversationBookmarkSnapshot;
 }
 
+/**
+ * Aggregate timing for one authoritative Conversation publication. It never
+ * carries a workspace, provider, session, or other user content.
+ */
+export interface ConversationViewerApplicationTiming {
+    updateKind: ConversationViewerPageMessage['updateKind'];
+    delivery: 'document' | 'message';
+    /** Host publication to the Webview's correlated applied acknowledgement. */
+    applicationMs: number;
+    /** User target load to the first correlated Webview application. */
+    loadMs?: number;
+}
+
 export class ConversationViewer implements ConversationViewerApi {
     private panel?: vscode.WebviewPanel;
     private target?: ConversationViewerTarget;
@@ -323,6 +339,18 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
+    private pendingPublicationTiming?: {
+        subscriptionGeneration: number;
+        requestId: number;
+        htmlSignature: string;
+        updateKind: ConversationViewerPageMessage['updateKind'];
+        delivery: 'document' | 'message';
+        publishedAt: number;
+    };
+    private pendingTargetLoadTiming?: {
+        subscriptionGeneration: number;
+        startedAt: number;
+    };
     // Advanced only by the Webview's correlated applied acknowledgement —
     // never by postMessage resolving, which proves queueing, not application.
     private appliedContentSignature?: string;
@@ -629,6 +657,7 @@ export class ConversationViewer implements ConversationViewerApi {
         snapshot?: ConversationSnapshot,
         forceDocumentReplacement = false
     ): Promise<boolean> {
+        const startedAt = this.now();
         const hadPanel = Boolean(this.panel);
         const followedPanel = reveal ? undefined : this.panel;
         const previousTarget = this.target;
@@ -650,6 +679,12 @@ export class ConversationViewer implements ConversationViewerApi {
             || previousTarget.projectId !== activeTarget.projectId
             || previousTarget.provider !== activeTarget.provider
             || previousTarget.sessionId !== activeTarget.sessionId;
+        if (targetChanged) {
+            this.pendingTargetLoadTiming = {
+                subscriptionGeneration: generation,
+                startedAt,
+            };
+        }
         if (hadPanel && targetChanged) {
             this.transitioningGeneration = generation;
         }
@@ -877,6 +912,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.pendingPublicationTiming = undefined;
+        this.pendingTargetLoadTiming = undefined;
         this.appliedContentSignature = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
@@ -984,6 +1021,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.pendingPublicationTiming = undefined;
+        this.pendingTargetLoadTiming = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -2124,6 +2163,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.latestPublication = publication;
         if (replaceDocument) {
+            this.recordPublicationDelivery(publication, 'document');
             panel.webview.html = this.renderDocument(publication);
             return;
         }
@@ -2146,6 +2186,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 : publication;
         let delivered = false;
         try {
+            this.recordPublicationDelivery(publication, 'message');
             delivered = await panel.webview.postMessage(wire);
         } catch (_error) {
             delivered = false;
@@ -2178,6 +2219,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         this.appliedContentSignature = publication.htmlSignature;
+        this.reportPublicationApplication(publication);
         if (this.transitioningGeneration === message.subscriptionGeneration) {
             this.transitioningGeneration = undefined;
         }
@@ -2189,7 +2231,58 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!panel || !publication || !this.isCurrentPublication(publication)) {
             return;
         }
+        this.recordPublicationDelivery(publication, 'document');
         panel.webview.html = this.renderDocument(publication);
+    }
+
+    private recordPublicationDelivery(
+        publication: ConversationViewerPageMessage,
+        delivery: ConversationViewerApplicationTiming['delivery']
+    ): void {
+        this.pendingPublicationTiming = {
+            subscriptionGeneration: publication.subscriptionGeneration,
+            requestId: publication.requestId,
+            htmlSignature: publication.htmlSignature,
+            updateKind: publication.updateKind,
+            delivery,
+            publishedAt: this.now(),
+        };
+    }
+
+    private reportPublicationApplication(
+        publication: ConversationViewerPageMessage
+    ): void {
+        const timing = this.pendingPublicationTiming;
+        if (!timing
+            || timing.subscriptionGeneration !== publication.subscriptionGeneration
+            || timing.requestId !== publication.requestId
+            || timing.htmlSignature !== publication.htmlSignature) {
+            return;
+        }
+        this.pendingPublicationTiming = undefined;
+        const now = this.now();
+        const loadTiming = this.pendingTargetLoadTiming;
+        const loadMs = loadTiming
+            && loadTiming.subscriptionGeneration === publication.subscriptionGeneration
+            ? Math.max(0, now - loadTiming.startedAt)
+            : undefined;
+        if (loadMs !== undefined) {
+            this.pendingTargetLoadTiming = undefined;
+        }
+        try {
+            this.options.onTiming?.({
+                updateKind: timing.updateKind,
+                delivery: timing.delivery,
+                applicationMs: Math.max(0, now - timing.publishedAt),
+                ...(loadMs === undefined ? {} : { loadMs }),
+            });
+        } catch (_error) {
+            // Timing must never affect the Conversation lifecycle.
+        }
+    }
+
+    private now(): number {
+        return this.options.now ? this.options.now() : Date.now();
     }
 
     private postLoadingNotice(

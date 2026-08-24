@@ -1981,6 +1981,10 @@ async function initializeDashboard(
         setTimer: setTimeout,
         clearTimer: clearTimeout,
         onDiagnostic: event => logAiSessionDiagnostic({ ...event }),
+        onViewerTiming: timing => logAiSessionDiagnostic({
+            event: 'session-navigation-viewer-application-latency',
+            ...timing,
+        }),
         commentStore: conversationViewerCommentStore,
         projectCommentStore,
         bookmarkStore: conversationViewerBookmarkStore,

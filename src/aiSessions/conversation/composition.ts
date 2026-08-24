@@ -47,6 +47,7 @@ import {
 import {
     ConversationViewer,
     ConversationViewerApi,
+    ConversationViewerApplicationTiming,
     ConversationViewerOptions,
     ConversationViewerTarget,
 } from './viewer';
@@ -133,6 +134,7 @@ export interface ConversationCapabilityOptions {
     setTimer: typeof setTimeout;
     clearTimer: typeof clearTimeout;
     onDiagnostic: (event: SanitizedConversationDiagnostic) => void;
+    onViewerTiming?: (timing: ConversationViewerApplicationTiming) => void;
     getWorkspaceRootHostPaths?: () => readonly string[];
     /**
      * Changes-panel wiring (changes-panel PRD): session identity
@@ -461,6 +463,8 @@ function createAvailableConversationCapability(
         onDiagnostic: options.onDiagnostic
             ? event => options.onDiagnostic(event as never)
             : undefined,
+        onTiming: options.onViewerTiming,
+        now: options.now,
         setTimer: options.setTimer,
         clearTimer: options.clearTimer,
     }));

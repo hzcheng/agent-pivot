@@ -1197,13 +1197,6 @@ body .project {
             overflow-x: hidden;
             overflow-y: auto;
             overscroll-behavior: contain;
-            scrollbar-gutter: stable;
-
-            // Same old-Chromium fallback as the base rule: keep the scrollbar
-            // lane reserved so its appearance never changes the row width.
-            @supports not (scrollbar-gutter: stable) {
-                overflow-y: scroll;
-            }
         }
     }
 
@@ -1375,17 +1368,14 @@ body .project {
     }
 
     .open-window-switcher-list {
-        // Internal scroll with a stable scrollbar reservation.
+        // Edge-to-edge navigation rail: window rows span the same column as
+        // the worktree cards below, and the list follows the same overflow
+        // model as the CHATS list, so the two regions never drift apart in
+        // width whether or not a scrollbar is present.
+        margin: 0;
+        padding: 2px 0;
         overflow-y: auto;
-        scrollbar-gutter: stable;
         overscroll-behavior: contain;
-
-        // scrollbar-gutter needs Chromium ≥94 (VS Code ≥1.64); on the older
-        // engines the extension still declares, always show the scrollbar lane
-        // so its appearance never changes the row width.
-        @supports not (scrollbar-gutter: stable) {
-            overflow-y: scroll;
-        }
     }
 }
 
@@ -1394,29 +1384,28 @@ body .project {
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 30px;
+    height: 32px;
     padding: 0 6px 0 0;
-    margin: 0 6px 2px;
-    border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-    border-radius: 5px;
-    // Window rows are persistent navigation targets. Give every row a quiet
-    // surface and edge so adjacent workspaces do not visually run together.
-    // The translucent overlay retains separation for themes that map widget
-    // and sidebar backgrounds to the same color.
-    background-color: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
-    background-image: linear-gradient(rgba(127, 127, 127, .06), rgba(127, 127, 127, .06));
+    margin: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
     position: relative;
+    transition: background-color .12s ease-out, box-shadow .12s ease-out;
 
     .open-window-indicator {
         flex: 0 0 14px;
         display: flex;
         justify-content: center;
 
+        // A quiet static tick keeps the rail scannable; emphasis is reserved
+        // for hover (brighter tick) and the current window (accent bar).
         &::before {
             content: "";
-            width: 3px;
-            height: 16px;
+            width: 2px;
+            height: 14px;
             border-radius: 1px;
+            background: rgba(127, 127, 127, .34);
         }
     }
 
@@ -1442,7 +1431,7 @@ body .project {
             justify-content: center;
             width: 18px;
             height: 18px;
-            border: 1px solid transparent;
+            border: 1px solid rgba(127, 127, 127, .16);
             border-radius: 999px;
             background: var(--vscode-sideBar-background);
             color: var(--steward-foreground);
@@ -1467,11 +1456,20 @@ body .project {
         }
     }
 
-    // 当前行：三重编码（竖线 + 加粗 + 微亮底），保留共享细边界、无 ↗、主按钮不跳转。
+    // 当前行：柔和 selection surface + 顶部微光 + 强调色导轨。
+    // 不使用全强度 focusBorder 外框，避免当前项读作一个硬边框卡片。
     &.open-window-row-current {
-        background: var(--vscode-list-inactiveSelectionBackground);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, 0) 65%),
+            var(--vscode-list-inactiveSelectionBackground);
+        box-shadow:
+            inset 0 0 0 1px rgba(127, 127, 127, .2),
+            0 1px 2px rgba(0, 0, 0, .12);
 
         .open-window-indicator::before {
+            width: 3px;
+            height: 18px;
+            border-radius: 2px;
             background: var(--vscode-focusBorder);
         }
 
@@ -1479,7 +1477,7 @@ body .project {
             cursor: default;
 
             .open-window-name {
-                font-weight: 700;
+                font-weight: 600;
             }
         }
     }
@@ -1489,11 +1487,24 @@ body .project {
     }
 
     &:hover {
-        background: var(--vscode-list-hoverBackground);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, .045), rgba(255, 255, 255, 0) 65%),
+            var(--vscode-list-hoverBackground);
+        box-shadow: inset 0 0 0 1px rgba(127, 127, 127, .16);
+
+        .open-window-icon {
+            border-color: rgba(127, 127, 127, .3);
+        }
+    }
+
+    &:not(.open-window-row-current):hover .open-window-indicator::before {
+        background: rgba(127, 127, 127, .58);
     }
 
     &.open-window-row-current:hover {
-        background: var(--vscode-list-inactiveSelectionBackground);
+        background:
+            linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, 0) 65%),
+            var(--vscode-list-inactiveSelectionBackground);
     }
 
     &:not(.open-window-row-current):not(.open-window-row-disabled) {
@@ -2961,7 +2972,7 @@ body.steward-sidebar {
             gap: 5px;
             box-sizing: border-box;
             width: 100%;
-            min-height: 30px;
+            min-height: 32px;
             padding: 4px 6px;
             border: 0;
             color: var(--vscode-foreground);
@@ -3005,7 +3016,8 @@ body.steward-sidebar {
             flex: 0 0 auto;
             align-items: stretch;
             gap: 2px;
-            padding: 3px 0 3px 3px;
+            // 32px toolbar 节奏下保持 24px 命中区（与窗口行的触控目标一致）。
+            padding: 4px 0 4px 3px;
 
             button {
                 display: inline-flex;
@@ -3051,7 +3063,7 @@ body.steward-sidebar {
             align-self: stretch;
             box-sizing: border-box;
             min-width: 24px;
-            margin: 3px 3px 3px 2px;
+            margin: 4px 3px 4px 2px;
             border: 0;
             border-radius: 4px;
             color: var(--vscode-foreground);

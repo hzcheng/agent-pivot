@@ -8942,7 +8942,7 @@ async function runRuntimeControllerChecks() {
         expectedBackend: 'tmux',
     });
     assert.deepStrictEqual(confirmations[2], [
-        'Stopping this CODEX session will terminate the AI task running in tmux.', 'Stop Session',
+        'Closing this CODEX chat will terminate the AI task running in tmux.', 'Close Chat',
     ]);
     assert.strictEqual(coordinator.terminated.length, 1);
     assert.strictEqual(coordinator.detached.length, 2,
@@ -9691,7 +9691,7 @@ function runHostRuntimeCompositionChecks() {
         path.join(__dirname, '..', 'src', 'dashboard', 'messageHandlers.ts'), 'utf8'
     );
     assert.match(messageHandlersSource,
-        /'close-ai-session-terminal':[\s\S]*?expectedBackend: 'vscode'[\s\S]*?'detach-ai-session-terminal':[\s\S]*?expectedBackend: 'tmux'[\s\S]*?'stop-ai-session-runtime':[\s\S]*?expectedBackend: 'tmux'/,
+        /'close-ai-session-terminal':[\s\S]*?expectedBackend: 'vscode'[\s\S]*?'detach-ai-session-terminal':[\s\S]*?expectedBackend: 'tmux'[\s\S]*?'stop-ai-session-runtime':[\s\S]*?e\.backend === 'vscode'[\s\S]*?e\.backend === 'tmux'[\s\S]*?expectedBackend,/,
         'host routes must constrain close/detach to the requested runtime backend');
     assert.ok(compositionSource.includes('chooseRuntimeConflict:'));
     assert.ok(dashboardSource.includes('vscode.window.showQuickPick'));
@@ -9743,7 +9743,7 @@ function runTmuxWebviewExperienceChecks() {
     assert.ok(tmuxRow.includes('Runtime status is stale'));
     assert.ok(tmuxRow.includes('Managed tmux runtime'));
     assert.ok(!tmuxRow.includes('Stop Session…'));
-    assert.ok(!tmuxRow.includes('data-action="stop-ai-session-runtime"'));
+    assert.ok(tmuxRow.includes('data-action="stop-ai-session-runtime"'));
     assert.ok(!tmuxRow.includes('aria-label="Stop Session"'));
     assert.ok(!tmuxRow.includes('data-action="detach-ai-session-terminal"'),
         'the tmux card action must be the honest stop route, not detach');
@@ -9756,6 +9756,7 @@ function runTmuxWebviewExperienceChecks() {
     assert.ok(directRow.includes('aria-label="Focus Codex session One using Direct VS Code terminal, attached,'));
     assert.ok(directRow.includes('Direct VS Code terminal'));
     assert.ok(directRow.includes('data-action="open-ai-session-context-menu"'));
+    assert.ok(directRow.includes('data-action="stop-ai-session-runtime"'));
     assert.ok(!directRow.includes('Close Terminal…'));
     assert.ok(!directRow.includes('data-action="close-ai-session-terminal"'));
     assert.ok(!directRow.includes('data-action="detach-ai-session-terminal"'));

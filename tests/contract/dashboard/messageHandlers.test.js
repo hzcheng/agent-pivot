@@ -420,17 +420,28 @@ test('CONVERSATION-FOLLOW-FEEDBACK-001 warns when the clicked session can no lon
     );
 });
 
-test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with the tmux backend marker', async () => {
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with its rendered runtime backend', async () => {
     const { handlers, calls } = createFixture();
 
     await handlers['stop-ai-session-runtime']({
-        projectId: 'p1', provider: 'kimi', sessionId: 's9', pendingCreatedAt: 'pc9',
+        projectId: 'p1', provider: 'kimi', sessionId: 's9', pendingCreatedAt: 'pc9', backend: 'vscode',
     });
 
     assert.deepEqual(calls[0], ['stopSession', {
         projectId: 'p1', providerId: 'kimi', sessionId: 's9',
-        pendingCreatedAt: 'pc9', expectedBackend: 'tmux',
+        pendingCreatedAt: 'pc9', expectedBackend: 'vscode',
     }]);
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects an unknown runtime backend', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['stop-ai-session-runtime']({
+        projectId: 'p1', provider: 'kimi', sessionId: 's9', backend: 'unknown',
+    });
+
+    assert.equal(calls.length, 0,
+        'a destructive runtime request must not coerce an unknown backend to tmux');
 });
 
 test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protocol only from exact envelopes', async () => {

@@ -60,7 +60,7 @@ export interface AiSessionTerminalCommandRuntimeControllerOptions<
     runtimeCoordinator: AiSessionTerminalCommandRuntimeCoordinator<TTerminal>;
     confirmRuntimeClose(
         message: string,
-        action: 'Close Terminal' | 'Detach Terminal' | 'Stop Session'
+        action: 'Close Terminal' | 'Detach Terminal' | 'Close Chat'
     ): Thenable<string | undefined> | Promise<string | undefined>;
     announceStatus(projectId: string, message: string): Thenable<unknown> | Promise<unknown>;
     chooseRuntimeConflict?(
@@ -347,16 +347,16 @@ export class AiSessionTerminalCommandController<
             await this.handleChangedRuntime(request.projectId, options);
             return;
         }
-        const action = 'Stop Session';
+        const action = 'Close Chat';
         const providerLabel = options.getProviderLabel(providerId);
         const message = runtime.backend === 'tmux'
-            ? `Stopping this ${providerLabel} session will terminate the AI task running in tmux.`
-            : `Stopping this ${providerLabel} session may interrupt a running AI task.`;
+            ? `Closing this ${providerLabel} chat will terminate the AI task running in tmux.`
+            : `Closing this ${providerLabel} chat may interrupt a running AI task.`;
         let confirmation: string | undefined;
         try {
             confirmation = await options.confirmRuntimeClose(message, action);
         } catch (error) {
-            await options.showErrorMessage('Could not confirm the AI session stop action.');
+            await options.showErrorMessage('Could not confirm the AI chat close action.');
             return;
         }
         if (confirmation !== action) {
@@ -380,7 +380,7 @@ export class AiSessionTerminalCommandController<
         } catch (error) {
             this.options.onRuntimeCloseEnd?.(cloneRuntime(currentRuntime), false);
             options.logRuntimeFailure?.('terminate-runtime', error, runtime.backend);
-            await options.showErrorMessage('Could not stop the AI session.');
+            await options.showErrorMessage('Could not close the AI chat.');
             options.refresh();
             return;
         }

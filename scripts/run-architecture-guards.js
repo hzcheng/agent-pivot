@@ -1492,7 +1492,10 @@ const guards = {
                 .filter(name => name !== 'canApplyAiSessionPresentationDom').some(name =>
                 callArguments(presentationApplyOwner, name).length < 1)
             || !presentationCurrentCardsSource.includes('[data-current-workspace]')
-            || presentationMutationNodes.length !== 28
+            // The focused-row projector owns 27 mutations. The former
+            // conversation chevron was removed because the primary action
+            // itself now opens the conversation.
+            || presentationMutationNodes.length !== 27
             || presentationMutationNodes.some(({ node, sourceFile }) =>
                 sourceFile.fileName !== webview.fileName
                     || node.pos < presentationDomOwner.pos

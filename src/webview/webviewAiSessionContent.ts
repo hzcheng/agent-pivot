@@ -1206,6 +1206,9 @@ function getCodexSessionRow(
     var runtimeAttributes = ` data-session-backend="${backend}" data-session-attached="${attached ? 'true' : 'false'}"${runtime?.tmuxLayout ? ` data-tmux-layout="${runtime.tmuxLayout}"` : ''}${runtime?.conflict ? ' data-session-conflict' : ''}${runtime?.stale ? ' data-session-stale' : ''}`;
     var batchCheckbox = `<input type="checkbox" class="ai-session-batch-checkbox" aria-label="Select ${sessionName}"${active ? ' disabled' : ''}>`;
     var pinAction = `<button type="button" class="codex-session-pin ${pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" data-tooltip="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
+    var stopAction = active && !conflict
+        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
+        : '';
     const contextMenuAction = `<button type="button" class="codex-session-more" data-action="open-ai-session-context-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionContextMenu" aria-label="More actions" data-tooltip="More actions">&#8943;</button>`;
     var worktreeGone = !active && session.worktreeUnavailable === true;
     var primaryAction = conflict ? 'Choose runtime'
@@ -1275,6 +1278,7 @@ function getCodexSessionRow(
         </span>
     </button>
     <span class="codex-session-actions">
+        ${stopAction}
         ${!active ? `<button type="button" class="codex-session-view" data-action="view-ai-session-conversation" data-tooltip="View Conversation" aria-label="View conversation for ${providerLabel} session ${sessionName}">${Icons.viewConversation}</button>` : ''}
         ${pinAction}
         ${contextMenuAction}
@@ -1326,7 +1330,6 @@ function getActiveAiSessionRow(
         ? ` data-ai-session-attention data-session-event-id="${escapeAttribute(model.attentionEventId)}"`
         : '';
     var runtimeAttributes = ` data-session-backend="${model.backend}" data-session-attached="${model.attached ? 'true' : 'false'}"${model.tmuxLayout ? ` data-tmux-layout="${model.tmuxLayout}"` : ''}${model.conflict ? ' data-session-conflict' : ''}${model.stale ? ' data-session-stale' : ''}`;
-    var hasOpenConversationHint = model.focused && !model.pending;
     var rowAction = model.backend === 'tmux'
         ? (model.attached ? 'Focus' : 'Attach or focus')
         : 'Focus';
@@ -1344,7 +1347,7 @@ function getActiveAiSessionRow(
     }
     var focusTitle = `${focusAction} ${providerLabel} Session`;
     var conversationTitle = `Open AI conversation for ${providerLabel} Session`;
-    var primaryAriaLabel = hasOpenConversationHint
+    var primaryAriaLabel = model.focused && !model.pending
         ? conversationAriaLabel
         : focusAriaLabel;
     var rootAttributes = showRootChip && model.primaryRootId
@@ -1359,8 +1362,8 @@ function getActiveAiSessionRow(
     var profileBadge = getAiSessionProfileBadge(model.profile, model.profileUnavailable);
     const profileTooltip = getAiSessionProfileTooltip(model.profile, model.profileUnavailable);
     var profileAriaLabel = `, ${profileTooltip}`;
-    var openConversationHint = hasOpenConversationHint
-        ? '<span class="ai-session-open-conversation-hint" aria-hidden="true">›</span>'
+    var stopAction = !model.pending && !conflict
+        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
         : '';
     const statusState = model.needsAttention
         ? 'waiting'
@@ -1389,7 +1392,7 @@ function getActiveAiSessionRow(
         + `${legacyScopeBadge ? ', legacy workspace scope' : ''}`;
     const focusTooltip = `${focusTitle}\n${rowDetails}`;
     const conversationTooltip = `${conversationTitle}\n${rowDetails}`;
-    const primaryTooltip = hasOpenConversationHint ? conversationTooltip : focusTooltip;
+    const primaryTooltip = model.focused && !model.pending ? conversationTooltip : focusTooltip;
     return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}${getFlatOrderAttributes(flatOrder)}>
         <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" data-tooltip="${primaryTooltip}" data-focus-aria-label="${focusAriaLabel}" data-focus-tooltip="${focusTooltip}" data-conversation-aria-label="${conversationAriaLabel}" data-conversation-tooltip="${conversationTooltip}">
             ${attentionIndicator}
@@ -1397,9 +1400,8 @@ function getActiveAiSessionRow(
             <span class="codex-session-text">
                 <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${statusMarker}${worktreeChip}${legacyScopeBadge}${profileBadge}${rootChip}</span>
             </span>
-            ${openConversationHint}
         </button>
-        <span class="codex-session-actions">${pinAction}${contextMenuAction}</span>
+        <span class="codex-session-actions">${stopAction}${pinAction}${contextMenuAction}</span>
     </div>`;
 }
 
@@ -1501,7 +1503,7 @@ export function getAiSessionContextMenu() {
         Close Terminal…
     </div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="stop-session" hidden>
-        Stop Session…
+        Close Chat…
     </div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="archive">
         Archive Chat

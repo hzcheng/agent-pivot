@@ -2186,13 +2186,13 @@ function initProjectContextMenus(options) {
                 });
                 break;
             case 'stop-session':
-                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict
-                    || contextMenuAiSessionBackend !== 'tmux') break;
+                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict) break;
                 window.vscode.postMessage({
                     type: 'stop-ai-session-runtime',
                     projectId: contextMenuAiSessionProjectId,
                     provider: contextMenuAiSessionProvider,
                     sessionId: contextMenuAiSessionId,
+                    backend: contextMenuAiSessionBackend,
                 });
                 break;
         }
@@ -2527,15 +2527,7 @@ function initAiSessionPresentationDom(options) {
                 primaryAction.removeAttribute('title');
             }
             var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
-            if (focusedConversation && primaryAction && !conversationHint) {
-                conversationHint = document.createElement('span');
-                conversationHint.className = 'ai-session-open-conversation-hint';
-                conversationHint.setAttribute('aria-hidden', 'true');
-                conversationHint.textContent = '›';
-                primaryAction.appendChild(conversationHint);
-            } else if (!focused && conversationHint) {
-                conversationHint.remove();
-            }
+            if (conversationHint) conversationHint.remove();
         });
         if (projectedFocusedRow && revealFocused) {
             projectedFocusedRow.scrollIntoView({ block: 'nearest' });
@@ -4838,7 +4830,7 @@ function initProjectAiSessionControls(options) {
             var requestedStop = requestedTerminalAction === 'stop-ai-session-runtime';
             if (terminalRow && isAiSessionProvider(terminalProvider)
                 && ((requestedDetach && terminalBackend === 'tmux')
-                    || (requestedStop && terminalBackend === 'tmux')
+                    || (requestedStop && (terminalBackend === 'tmux' || terminalBackend === 'vscode'))
                     || (!requestedDetach && !requestedStop && terminalBackend === 'vscode'))) {
                 var terminalMessage = {
                     type: requestedDetach ? 'detach-ai-session-terminal'
@@ -4846,6 +4838,7 @@ function initProjectAiSessionControls(options) {
                             : 'close-ai-session-terminal',
                     projectId,
                     provider: terminalProvider,
+                    backend: terminalBackend,
                 };
                 if (terminalRow.hasAttribute('data-session-pending')) {
                     terminalMessage.pendingCreatedAt = terminalRow.getAttribute('data-pending-created-at');

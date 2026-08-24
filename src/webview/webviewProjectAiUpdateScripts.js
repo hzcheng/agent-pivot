@@ -281,15 +281,7 @@ function initAiSessionPresentationDom(options) {
                 primaryAction.removeAttribute('title');
             }
             var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
-            if (focusedConversation && primaryAction && !conversationHint) {
-                conversationHint = document.createElement('span');
-                conversationHint.className = 'ai-session-open-conversation-hint';
-                conversationHint.setAttribute('aria-hidden', 'true');
-                conversationHint.textContent = '›';
-                primaryAction.appendChild(conversationHint);
-            } else if (!focused && conversationHint) {
-                conversationHint.remove();
-            }
+            if (conversationHint) conversationHint.remove();
         });
         if (projectedFocusedRow && revealFocused) {
             projectedFocusedRow.scrollIntoView({ block: 'nearest' });

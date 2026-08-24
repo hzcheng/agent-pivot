@@ -300,13 +300,13 @@ function initProjectContextMenus(options) {
                 });
                 break;
             case 'stop-session':
-                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict
-                    || contextMenuAiSessionBackend !== 'tmux') break;
+                if (!contextMenuAiSessionActive || contextMenuAiSessionConflict) break;
                 window.vscode.postMessage({
                     type: 'stop-ai-session-runtime',
                     projectId: contextMenuAiSessionProjectId,
                     provider: contextMenuAiSessionProvider,
                     sessionId: contextMenuAiSessionId,
+                    backend: contextMenuAiSessionBackend,
                 });
                 break;
         }

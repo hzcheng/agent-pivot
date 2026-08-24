@@ -1161,10 +1161,58 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 stops a tmux session only after confirm
     });
 
     assert.deepEqual(confirmations, [[
-        'Stopping this Codex session will terminate the AI task running in tmux.', 'Stop Session',
+        'Closing this Codex chat will terminate the AI task running in tmux.', 'Close Chat',
     ]]);
     assert.deepEqual(effects, [
         'close-start:3', 'terminate', 'close-end:3:true', 'refresh',
+    ]);
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 closes a direct runtime only after confirmation and acknowledges its exact terminal', async () => {
+    const { effects, confirmations, runtime } = makeTmuxStopFixture();
+    const directRuntime = {
+        ...runtime,
+        backend: 'vscode',
+        runStartedAtMs: 4,
+        terminal: { show() {}, dispose() {} },
+        tmux: undefined,
+    };
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([{ id: 's' }]) : null,
+        showErrorMessage: async message => effects.push(`error:${message}`),
+        getProviderLabel: () => 'Codex',
+        refresh: () => effects.push('refresh'),
+        runtimeCoordinator: {
+            getById: () => directRuntime,
+            getPending: () => [],
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async identity => {
+                assert.deepEqual(identity, directRuntime.identity,
+                    'the controller must terminate the confirmed direct runtime identity');
+                effects.push('terminate-direct');
+            },
+        },
+        confirmRuntimeClose: async (message, action) => {
+            confirmations.push([message, action]);
+            return action;
+        },
+        announceStatus: async () => undefined,
+        onRuntimeCloseStart: current => effects.push(`close-start:${current.runStartedAtMs}`),
+        onRuntimeCloseEnd: (current, succeeded) =>
+            effects.push(`close-end:${current.runStartedAtMs}:${succeeded}`),
+    });
+
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', sessionId: 's', expectedBackend: 'vscode',
+    });
+
+    assert.deepEqual(confirmations, [[
+        'Closing this Codex chat may interrupt a running AI task.', 'Close Chat',
+    ]]);
+    assert.deepEqual(effects, [
+        'close-start:4', 'terminate-direct', 'close-end:4:true', 'refresh',
     ]);
 });
 
@@ -1193,7 +1241,7 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects forged backends, cancelled conf
         announceStatus: async (projectId, message) => { announcements.push(message); },
     });
 
-    confirmResult = 'Stop Session';
+    confirmResult = 'Close Chat';
     await controller.stopSession({
         projectId: 'p', providerId: 'codex', sessionId: 's', expectedBackend: 'vscode',
     });
@@ -1208,7 +1256,7 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects forged backends, cancelled conf
     assert.equal(effects.filter(effect => effect === 'terminate').length, 0,
         'a cancelled confirmation must not terminate the runtime');
 
-    confirmResult = 'Stop Session';
+    confirmResult = 'Close Chat';
     let confirmCalls = 0;
     const hijacked = {
         ...runtime,
@@ -1227,7 +1275,7 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects forged backends, cancelled conf
             detach: async () => undefined,
             terminate: async () => effects.push('terminate'),
         },
-        confirmRuntimeClose: async () => 'Stop Session',
+        confirmRuntimeClose: async () => 'Close Chat',
         announceStatus: async (projectId, message) => { announcements.push(message); },
     });
     await swappingController.stopSession({
@@ -1253,7 +1301,7 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 reports a failed terminate without a su
             detach: async () => undefined,
             terminate: async () => { effects.push('terminate'); throw new Error('kill failed'); },
         },
-        confirmRuntimeClose: async () => 'Stop Session',
+        confirmRuntimeClose: async () => 'Close Chat',
         announceStatus: async () => undefined,
         onRuntimeCloseStart: current => effects.push(`close-start:${current.runStartedAtMs}`),
         onRuntimeCloseEnd: (current, succeeded) =>
@@ -1268,7 +1316,7 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 reports a failed terminate without a su
         'close-start:3',
         'terminate',
         'close-end:3:false',
-        'error:Could not stop the AI session.',
+        'error:Could not close the AI chat.',
         'refresh',
     ]);
 });

@@ -691,7 +691,7 @@ function initProjectAiSessionControls(options) {
             var requestedStop = requestedTerminalAction === 'stop-ai-session-runtime';
             if (terminalRow && isAiSessionProvider(terminalProvider)
                 && ((requestedDetach && terminalBackend === 'tmux')
-                    || (requestedStop && terminalBackend === 'tmux')
+                    || (requestedStop && (terminalBackend === 'tmux' || terminalBackend === 'vscode'))
                     || (!requestedDetach && !requestedStop && terminalBackend === 'vscode'))) {
                 var terminalMessage = {
                     type: requestedDetach ? 'detach-ai-session-terminal'
@@ -699,6 +699,7 @@ function initProjectAiSessionControls(options) {
                             : 'close-ai-session-terminal',
                     projectId,
                     provider: terminalProvider,
+                    backend: terminalBackend,
                 };
                 if (terminalRow.hasAttribute('data-session-pending')) {
                     terminalMessage.pendingCreatedAt = terminalRow.getAttribute('data-pending-created-at');

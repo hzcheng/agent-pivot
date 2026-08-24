@@ -581,6 +581,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 1,
+        requestId: 3,
+        htmlSignature: 'sig-unrelated',
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-telemetry',
@@ -929,6 +931,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when deferred
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 2,
+        requestId: 2,
+        htmlSignature: 'signature-deferred-presentation',
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-deferred',
@@ -1036,6 +1040,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when a restor
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 3,
+        requestId: 30,
+        htmlSignature: 'sig-g1',
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-gamma',
@@ -1088,7 +1094,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resynchronizes every generation
     await sendPage(page, betaRestore);
 
     // A second rapid switch misses again: the resync gate is per
-    // generation, so gamma gets its own correlated request instead of
+    // publication, so gamma gets its own correlated request instead of
     // staying stranded on alpha's content forever.
     const gammaRestore = sessionPage(4, 'session-gamma', 'gamma', 'sig-g1');
     delete gammaRestore.html;
@@ -1102,6 +1108,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resynchronizes every generation
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 3,
+        requestId: 30,
+        htmlSignature: 'sig-b1',
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-beta',
@@ -1109,6 +1117,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resynchronizes every generation
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 4,
+        requestId: 40,
+        htmlSignature: 'sig-g1',
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-gamma',
@@ -1219,7 +1229,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
     });
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applying a page fails', async t => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 correlates resyncs to each page that fails', async t => {
     const page = await openViewerPage(t);
     await page.evaluate(() => {
         window.DOMPurify.sanitize = function () {
@@ -1250,17 +1260,29 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests one resync when applyi
     const syncs = (await postedMessages(page)).filter(message =>
         message.type === 'conversation-viewer-request-sync'
     );
-    assert.equal(syncs.length, 1,
-        'a failing apply requests exactly one resync per generation');
-    assert.deepEqual(syncs[0], {
+    assert.equal(syncs.length, 2,
+        'each failed publication requests its own precisely correlated resync');
+    assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 1,
+        requestId: 1,
+        htmlSignature: 'sig-resync-1',
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-telemetry',
         applyError: 'sanitize unavailable',
-    });
+    }, {
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 2,
+        htmlSignature: 'sig-resync-2',
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-telemetry',
+        applyError: 'sanitize unavailable',
+    }]);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 mermaid releaseExcept keeps figures under excepted nodes alive', async t => {
@@ -1489,6 +1511,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond 
         type: 'conversation-viewer-request-sync',
         version: 1,
         subscriptionGeneration: 20,
+        requestId: 200,
+        htmlSignature: 'sig-alpha',
         projectId: 'project-1',
         provider: 'codex',
         sessionId: 'session-alpha',
@@ -4592,11 +4616,11 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '            changesController.resetSession(' +
                 'message.subscriptionGeneration);\n')
         .replace(
-                '    var copyRequestSequence = 0;\n' +
+            '    var copyRequestSequence = 0;\n' +
                 '    var copyPending = new Map();\n' +
-                '    // One resync request per subscription generation: a rapid A→B→C\n' +
-                '    // switch that misses twice must still escalate the latest miss.\n' +
-                '    var resyncRequestedGeneration = 0;\n' +
+                '    // One resync request per failed publication. Later publications in the\n' +
+                '    // same session remain independently recoverable.\n' +
+                '    var resyncRequestedPublicationKey = \'\';\n' +
                 '    var conversationLoading = false;\n' +
                 '    // Detached conversation frames keyed by session: switching back to a\n' +
                 '    // session whose content token is unchanged reattaches the already-built\n' +
@@ -4622,6 +4646,23 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '    var state = {\n' +
                 '        atLatest: false,\n' +
                 '        initialized: false,\n')
+        .replace(
+            "            'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',\n",
+            "            'html', 'htmlSignature', 'restoreFrame', 'previousCursor',\n"
+        )
+        .replace(
+            '            && (message.restoreFrame === undefined\n'
+                + "                || typeof message.restoreFrame === 'boolean')\n"
+                + '            && (message.restoreFocus === undefined\n'
+                + "                || typeof message.restoreFocus === 'boolean')\n",
+            '            && (message.restoreFrame === undefined\n'
+                + "                || typeof message.restoreFrame === 'boolean')\n"
+        )
+        .replace(
+            "            if (selected && (message.updateKind === 'navigation'\n"
+                + '                || message.restoreFocus === true)) {\n',
+            "            if (selected && message.updateKind === 'navigation') {\n"
+        )
         .replace(
                 '        messages: messages,\n' +
                 '        messageSelector: conversationMessageSelector,\n' +
@@ -5084,6 +5125,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    var resyncRequested = false;\n',
             '    var copyRequestSequence = 0;\n'
                 + '    var copyPending = new Map();\n'
+        )
+        .replace(
+            /    function requestConversationResync\(page, applyError\) \{[\s\S]*?\n    \}\n\n    window\.addEventListener\('message', function \(event\) \{\n/,
+            "    window.addEventListener('message', function (event) {\n"
         )
         .replace(
             '    function requestConversationResync(page) {\n'
@@ -5962,7 +6007,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScript),
-        'f7657ccc53891ef780421bb56928b949c7cba10df5e464ff69b335193d8b73a8',
+        '12480eccea0518e9e134be1bd485460986570da5c7c5de9c46b3c89f0f281ab5',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -11296,7 +11341,7 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-001 preserves historical scroll wit
     assert.equal(await page.locator('[data-new-response]').count(), 0);
 });
 
-test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-selected interaction', async t => {
+test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-selected interaction after navigation or document recovery', async t => {
     const page = await openViewerPage(t);
     const html = messageHtml('selected', 6);
     await sendPage(page, {
@@ -11330,6 +11375,26 @@ test('CONVERSATION-VIEWER-BROWSER-NAVIGATION-002 anchors and focuses the Host-se
         document.activeElement
             && document.activeElement.getAttribute('data-interaction-id')
     ), 'selected-2');
+
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 3,
+        updateKind: 'initial',
+        html,
+        outline: Array.from({ length: 6 }, (_, index) => ({
+            interactionId: `selected-${index}`,
+            userPreview: `Selected input ${index + 1}`,
+            responseState: 'complete',
+        })),
+        selectedInteractionId: 'selected-4',
+        selectedInput: 5,
+        restoreFocus: true,
+    });
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+            && document.activeElement.getAttribute('data-interaction-id')
+    ), 'selected-4',
+    'a recovered document returns focus to the selected interaction');
 });
 
 test('CONVERSATION-NAVIGATION-STATE-001 CONVERSATION-READING-FOCUS-001 highlights only the selected input and does not replay the locator on live refresh', async t => {
@@ -11971,6 +12036,10 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 fol
     for (const distance of [9, 8]) {
         const page = await openViewerPage(t);
         await sendPage(page, publications.initial);
+        await page.waitForFunction(requestId => window.__postedMessages.some(
+            message => message.type === 'conversation-viewer-applied'
+                && message.requestId === requestId
+        ), publications.initial.requestId);
         const scroll = page.locator('[data-conversation-scroll]');
         await scroll.evaluate((element, offset) => {
             element.scrollTop = element.scrollHeight
@@ -11980,6 +12049,10 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 fol
         const before = await scroll.evaluate(element => element.scrollTop);
 
         await sendPage(page, publications.refresh);
+        await page.waitForFunction(requestId => window.__postedMessages.some(
+            message => message.type === 'conversation-viewer-applied'
+                && message.requestId === requestId
+        ), publications.refresh.requestId);
 
         assert.equal(await page.locator(
             '[data-interaction-id="host-input-1"]'

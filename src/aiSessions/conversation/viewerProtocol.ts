@@ -279,6 +279,10 @@ export interface ConversationViewerRequestSyncMessage {
     type: 'conversation-viewer-request-sync';
     version: 1;
     subscriptionGeneration: number;
+    /** Present on current Webviews; absent on retained version-1 documents. */
+    requestId?: number;
+    /** Present on current Webviews; absent on retained version-1 documents. */
+    htmlSignature?: string;
     projectId: string;
     provider: AiSessionProviderId;
     sessionId: string;
@@ -571,17 +575,27 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerCycleStatusSessionMessage;
     }
     if (value.type === 'conversation-viewer-request-sync') {
-        const syncKeys = [
+        const legacySyncKeys = [
             'type', 'version', 'subscriptionGeneration',
             'projectId', 'provider', 'sessionId',
         ];
-        if (!(hasExactKeys(value, syncKeys)
-                || hasExactKeys(value, [...syncKeys, 'applyError']))
+        const currentSyncKeys = [
+            ...legacySyncKeys, 'requestId', 'htmlSignature',
+        ];
+        const isLegacy = hasExactKeys(value, legacySyncKeys)
+            || hasExactKeys(value, [...legacySyncKeys, 'applyError']);
+        if (!(isLegacy
+                || hasExactKeys(value, currentSyncKeys)
+                || hasExactKeys(value, [...currentSyncKeys, 'applyError']))
             || (value.applyError !== undefined
                 && (typeof value.applyError !== 'string'
                     || value.applyError.length > 200
                     || /[\0-\u001f\u007f]/.test(value.applyError)))
             || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || (!isLegacy && (!isPositiveSafeInteger(value.requestId)
+                || typeof value.htmlSignature !== 'string'
+                || !value.htmlSignature
+                || value.htmlSignature.length > 256))
             || !isConversationViewerTargetId(value.projectId)
             || !isAiSessionProvider(value.provider)
             || !isConversationViewerTargetId(value.sessionId)) {

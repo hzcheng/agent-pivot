@@ -280,6 +280,8 @@ export interface ConversationViewerPageMessage {
     html?: string;
     htmlSignature: string;
     restoreFrame?: boolean;
+    /** Return keyboard focus to the selected interaction after a document recovery. */
+    restoreFocus?: boolean;
     outline: ConversationViewerOutlineEntry[];
     selectedInteractionId: string;
     selectedInput: number;
@@ -355,6 +357,10 @@ export class ConversationViewer implements ConversationViewerApi {
         startedAt: number;
         source: 'open' | 'follow' | 'restore' | 'rebind';
     };
+    private publicationAckTimer?: unknown;
+    private publicationAckTimerToken = 0;
+    private publicationRecoveryRebuildRequestId = 0;
+    private publicationRecoveryAttemptRequestId = 0;
     // Advanced only by the Webview's correlated applied acknowledgement —
     // never by postMessage resolving, which proves queueing, not application.
     private appliedContentSignature?: string;
@@ -363,7 +369,6 @@ export class ConversationViewer implements ConversationViewerApi {
     // offered only for entries on this authoritative list — an applied ack
     // alone never implies the frame is still cached.
     private readonly webviewFrames = new Map<string, string>();
-    private syncRebuildRequestId = 0;
     private suspended = false;
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
@@ -918,9 +923,12 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.clearPublicationAckTimeout();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.appliedContentSignature = undefined;
+        this.publicationRecoveryRebuildRequestId = 0;
+        this.publicationRecoveryAttemptRequestId = 0;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1027,6 +1035,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.clearPublicationAckTimeout();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.commentController.reset();
@@ -1037,6 +1046,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.subscriptionGeneration += 1;
         this.transitioningGeneration = undefined;
         this.currentRequestId = 0;
+        this.publicationRecoveryRebuildRequestId = 0;
+        this.publicationRecoveryAttemptRequestId = 0;
     }
 
     private async handleMessage(message: unknown): Promise<void> {
@@ -1236,16 +1247,37 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             const publication = this.latestPublication;
-            if (publication
-                && publication.requestId !== this.syncRebuildRequestId) {
-                this.syncRebuildRequestId = publication.requestId;
-                this.emitDiagnostic('resync-rebuild', {
-                    ...(parsed.applyError
-                        ? { applyError: parsed.applyError }
-                        : {}),
-                });
-                this.rebuildLatestDocument();
+            if (parsed.requestId === undefined
+                || parsed.htmlSignature === undefined) {
+                // A retained version-1 Webview cannot identify the failed
+                // publication. Do not let that stale request consume a newer
+                // page's one recovery attempt while a handoff watchdog is
+                // already guarding that page. Outside a handoff, recover the
+                // latest page once so a legacy refresh failure cannot remain
+                // stale forever.
+                if (this.transitioningGeneration
+                    === parsed.subscriptionGeneration) {
+                    this.emitDiagnostic('resync-legacy-await-watchdog', {
+                        requestGeneration: parsed.subscriptionGeneration,
+                    });
+                } else if (publication) {
+                    this.recoverPublication(publication, 'resync-legacy-rebuild');
+                }
+                return;
             }
+            if (!publication
+                || publication.requestId !== parsed.requestId
+                || publication.htmlSignature !== parsed.htmlSignature) {
+                this.emitDiagnostic('resync-dropped-stale-publication', {
+                    requestGeneration: parsed.subscriptionGeneration,
+                });
+                return;
+            }
+            this.recoverPublication(publication, 'resync-rebuild', {
+                ...(parsed.applyError
+                    ? { applyError: parsed.applyError }
+                    : {}),
+            });
             return;
         }
         if (parsed.type === 'conversation-viewer-comment-mutation'
@@ -2167,6 +2199,8 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!panel || !this.isCurrentPublication(publication)) {
             return;
         }
+        this.publicationRecoveryRebuildRequestId = 0;
+        this.publicationRecoveryAttemptRequestId = 0;
         this.latestPublication = publication;
         if (replaceDocument) {
             this.recordPublicationDelivery(publication, 'document');
@@ -2198,7 +2232,7 @@ export class ConversationViewer implements ConversationViewerApi {
             delivered = false;
         }
         if (!delivered && this.isCurrentPublication(publication)) {
-            this.rebuildLatestDocument();
+            this.recoverPublication(publication, 'publication-delivery-failed');
         }
     }
 
@@ -2206,6 +2240,12 @@ export class ConversationViewer implements ConversationViewerApi {
         message: ConversationViewerAppliedMessage
     ): void {
         if (message.subscriptionGeneration !== this.subscriptionGeneration) {
+            return;
+        }
+        const publication = this.latestPublication;
+        if (!publication
+            || message.requestId !== publication.requestId
+            || message.htmlSignature !== publication.htmlSignature) {
             return;
         }
         // The Webview is the authority on which frames it still holds:
@@ -2218,13 +2258,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 frame.token
             );
         });
-        const publication = this.latestPublication;
-        if (!publication
-            || message.requestId !== publication.requestId
-            || message.htmlSignature !== publication.htmlSignature) {
-            return;
-        }
         this.appliedContentSignature = publication.htmlSignature;
+        this.clearPublicationAckTimeout();
         this.reportPublicationApplication(publication);
         if (this.transitioningGeneration === message.subscriptionGeneration) {
             this.transitioningGeneration = undefined;
@@ -2241,6 +2276,30 @@ export class ConversationViewer implements ConversationViewerApi {
         panel.webview.html = this.renderDocument(publication);
     }
 
+    private rebuildRecoveredPublication(
+        publication: ConversationViewerPageMessage
+    ): void {
+        const panel = this.panel;
+        if (!panel || !this.isCurrentPublication(publication)) {
+            return;
+        }
+        // A document replacement starts a new Webview application attempt.
+        // Its receipt must never be confused with a late acknowledgement from
+        // the outgoing document that triggered recovery.
+        const recovery = {
+            ...publication,
+            requestId: this.allocateRequestId(),
+            ...(this.keyboardFocused && panel.active
+                ? { restoreFocus: true }
+                : {}),
+        };
+        this.currentRequestId = recovery.requestId;
+        this.latestPublication = recovery;
+        this.publicationRecoveryAttemptRequestId = recovery.requestId;
+        this.recordPublicationDelivery(recovery, 'document');
+        panel.webview.html = this.renderDocument(recovery);
+    }
+
     private recordPublicationDelivery(
         publication: ConversationViewerPageMessage,
         delivery: ConversationViewerApplicationTiming['delivery']
@@ -2253,6 +2312,89 @@ export class ConversationViewer implements ConversationViewerApi {
             delivery,
             publishedAt: this.now(),
         };
+        this.schedulePublicationAckTimeout(publication);
+    }
+
+    private schedulePublicationAckTimeout(
+        publication: ConversationViewerPageMessage
+    ): void {
+        this.clearPublicationAckTimeout();
+        // A fresh document has no outgoing controls to strand. This watchdog
+        // only protects a reused panel held in its loading handoff.
+        if (this.transitioningGeneration !== publication.subscriptionGeneration) {
+            return;
+        }
+        const token = ++this.publicationAckTimerToken;
+        const recover = () => {
+            if (token !== this.publicationAckTimerToken) {
+                return;
+            }
+            this.publicationAckTimer = undefined;
+            if (!this.isCurrentPublication(publication)
+                || this.appliedContentSignature === publication.htmlSignature
+                || this.transitioningGeneration
+                    !== publication.subscriptionGeneration
+                || this.publicationRecoveryRebuildRequestId
+                    === publication.requestId
+                || this.publicationRecoveryAttemptRequestId
+                    === publication.requestId) {
+                return;
+            }
+            // postMessage resolving proves only queueing. Retry the current
+            // page once as a full document so a dropped Webview delivery
+            // cannot leave the panel loading forever.
+            this.recoverPublication(publication, 'publication-ack-timeout');
+        };
+        const handle = this.options.setTimer
+            ? this.options.setTimer(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            )
+            : setTimeout(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            );
+        if (token === this.publicationAckTimerToken) {
+            this.publicationAckTimer = handle;
+        } else if (this.options.clearTimer) {
+            this.options.clearTimer(handle);
+        } else {
+            clearTimeout(handle as NodeJS.Timeout);
+        }
+    }
+
+    private clearPublicationAckTimeout(): void {
+        this.publicationAckTimerToken += 1;
+        const timer = this.publicationAckTimer;
+        this.publicationAckTimer = undefined;
+        if (timer === undefined) {
+            return;
+        }
+        if (this.options.clearTimer) {
+            this.options.clearTimer(timer);
+        } else {
+            clearTimeout(timer as NodeJS.Timeout);
+        }
+    }
+
+    private recoverPublication(
+        publication: ConversationViewerPageMessage,
+        reason: string,
+        detail?: Record<string, unknown>
+    ): boolean {
+        if (!this.isCurrentPublication(publication)
+            || this.publicationRecoveryRebuildRequestId === publication.requestId
+            || this.publicationRecoveryAttemptRequestId === publication.requestId) {
+            return false;
+        }
+        // Delivery rejection, an explicit Webview resync, and an absent
+        // applied receipt are competing reports of the same failed page.
+        // They share one recovery allowance so their races cannot rebuild the
+        // document repeatedly.
+        this.publicationRecoveryRebuildRequestId = publication.requestId;
+        this.emitDiagnostic(reason, detail);
+        this.rebuildRecoveredPublication(publication);
+        return true;
     }
 
     private reportPublicationApplication(

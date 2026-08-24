@@ -549,10 +549,15 @@ function createAvailableConversationCapability(
             if (!viewer.isOpen()) {
                 return 'closed';
             }
-            const followed = await viewer.follow(
+            const follow = viewer.follow(
                 resolution.viewerTarget,
                 resolution.snapshot
             );
+            snapshotWarmup?.prepareAfterTargetSet(
+                resolution.viewerTarget,
+                viewer
+            );
+            const followed = await follow;
             if (followed) {
                 snapshotWarmup?.afterLoad(
                     resolution.viewerTarget,
@@ -810,7 +815,9 @@ async function openLatestConversation(
     if (!resolution.viewerTarget) {
         return resolution.result;
     }
-    await viewer.open(resolution.viewerTarget, resolution.snapshot);
+    const opening = viewer.open(resolution.viewerTarget, resolution.snapshot);
+    snapshotWarmup?.prepareAfterTargetSet(resolution.viewerTarget, viewer);
+    await opening;
     snapshotWarmup?.afterLoad(
         resolution.viewerTarget,
         resolution.prefetchedSnapshot === true,
@@ -911,10 +918,12 @@ async function followAdjacentConversation(
     if (!viewer.isOpen()) {
         return 'closed';
     }
-    const followed = await viewer.follow(
+    const follow = viewer.follow(
         resolution.viewerTarget,
         resolution.snapshot
     );
+    snapshotWarmup?.prepareAfterTargetSet(resolution.viewerTarget, viewer);
+    const followed = await follow;
     if (!isCurrent()) {
         return 'superseded';
     }
@@ -1063,23 +1072,42 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
         prefetchedSnapshot: boolean,
         viewer: ConversationViewerApi
     ): void {
-        // One serialized task instead of two racing ones: prefetching the
-        // adjacent sessions keeps a rapid follow-up switch instant, while
-        // revalidating the just-opened warm snapshot is hygiene that can
-        // wait until the prefetches are under way.
         this.schedule(async () => {
+            // Keep a post-load fallback for Viewer implementations that do
+            // not expose the new target until their async load settles. The
+            // cache deduplicates this with the early prepareAfterTargetSet
+            // prefetch in the usual path.
             try {
                 this.prefetchAdjacent(target, viewer);
             } catch (_error) {
-                // A prefetch hiccup must not skip the warm-snapshot
-                // revalidation below; warmup remains best effort.
+                // Speculative reads never affect the active Conversation.
             }
             if (!prefetchedSnapshot) {
                 return;
             }
+            // Revalidation is hygiene for a warm snapshot. It must wait for
+            // the authoritative page, while adjacent prefetching normally
+            // starts much earlier in prepareAfterTargetSet.
             const current = viewer.getCurrentTarget();
             if (current && hasSameConversationSession(current, target)) {
                 await viewer.revalidateLatest?.(target.interactionId);
+            }
+        });
+    }
+
+    prepareAfterTargetSet(
+        target: ConversationViewerTarget,
+        viewer: ConversationViewerApi
+    ): void {
+        // The target is committed before Viewer metadata restoration and the
+        // first authoritative page complete. Start the bounded, best-effort
+        // adjacent reads now so the next user switch can share them instead
+        // of waiting for this Viewer load to finish.
+        this.schedule(() => {
+            try {
+                this.prefetchAdjacent(target, viewer);
+            } catch (_error) {
+                // Speculative reads never affect the active Conversation.
             }
         });
     }

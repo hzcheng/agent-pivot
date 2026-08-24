@@ -214,6 +214,13 @@
       ]
     },
     {
+      "symbol": "window.__agentPivotManagedWorktreeRemoval",
+      "producer": "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "consumers": [
+        "src/webview/webviewAiSessionViewStateScripts.js"
+      ]
+    },
+    {
       "symbol": "window.__stewardStickyHeaderObserver",
       "producer": "src/webview/webviewProjectScripts.js",
       "consumers": []

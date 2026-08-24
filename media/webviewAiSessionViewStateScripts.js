@@ -525,6 +525,10 @@ function captureAiSessionViewState(projectDiv) {
             && typeof window.__agentPivotWorktreeAdopt.capture === 'function'
             ? window.__agentPivotWorktreeAdopt.capture(projectDiv)
             : null,
+        worktreeRemoval: window.__agentPivotManagedWorktreeRemoval
+            && typeof window.__agentPivotManagedWorktreeRemoval.capture === 'function'
+            ? window.__agentPivotManagedWorktreeRemoval.capture(projectDiv)
+            : null,
         worktreeKeys: Array.from(new Set(Array.from(projectDiv.querySelectorAll(
             '.ai-session-worktree-group'
         )).map(getAiSessionWorktreeGroupKey))),
@@ -583,6 +587,11 @@ function restoreAiSessionViewState(projectDiv, viewState, requestedTab, options)
         && window.__agentPivotWorktreeAdopt
         && typeof window.__agentPivotWorktreeAdopt.restore === 'function') {
         window.__agentPivotWorktreeAdopt.restore(projectDiv, viewState.worktreeAdopt);
+    }
+    if (viewState.worktreeRemoval
+        && window.__agentPivotManagedWorktreeRemoval
+        && typeof window.__agentPivotManagedWorktreeRemoval.restore === 'function') {
+        window.__agentPivotManagedWorktreeRemoval.restore(projectDiv, viewState.worktreeRemoval);
     }
     var currentWorktreeKeys = Array.from(new Set(Array.from(projectDiv.querySelectorAll(
         '.ai-session-worktree-group'

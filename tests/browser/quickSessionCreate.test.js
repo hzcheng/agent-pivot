@@ -174,11 +174,19 @@ function postedMessages(page) {
     return page.evaluate(() => window.__postedMessages);
 }
 
-async function postAuthoritativeWorktreeRemoval(page, sequence) {
+async function postAuthoritativeWorktreeUpdate(page, sequence, options = {}) {
+    const surface = getSessionSurface('project-a', 'codex', {
+        ...(options.worktrees ? {
+            worktrees: options.worktrees,
+            worktreeSnapshotRevision: sequence,
+            worktreeRepositoryCount: 1,
+            bareWorktreeCount: 0,
+        } : {}),
+    });
     const html = `<div class="open-session-surface" data-open-session-surface data-id="project-a"
         data-current-workspace data-workspace-scope-identity="scope-project-a"
         data-workspace-navigation-identity="navigation-project-a">
-        ${getAiSessionsDiv(getSessionSurface('project-a', 'codex'))}
+        ${getAiSessionsDiv(surface)}
     </div>`;
     await page.evaluate(({ html, sequence }) => {
         window.dispatchEvent(new MessageEvent('message', { data: {
@@ -202,6 +210,10 @@ async function postAuthoritativeWorktreeRemoval(page, sequence) {
             },
         } }));
     }, { html, sequence });
+}
+
+async function postAuthoritativeWorktreeRemoval(page, sequence) {
+    await postAuthoritativeWorktreeUpdate(page, sequence);
 }
 
 test('AI-SESSION-QUICK-CREATE-001 the quick button posts a quick-create for the card provider', async t => {
@@ -349,34 +361,47 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
     const button = project.locator('.ai-session-worktree-group[data-worktree-path="/repo/.agent-pivot/worktrees/cleanup"] .ai-session-worktree-more');
     const menu = page.locator('#aiSessionWorktreeMenu');
     const removeItem = menu.locator('[data-action="worktree-remove"]');
+    const originalAriaLabel = await button.getAttribute('aria-label');
+    const originalTooltip = await button.getAttribute('data-tooltip');
     await button.click();
     assert.equal(await removeItem.isVisible(), true,
         'a removable worktree offers removal inside its unified menu');
     await removeItem.click();
-    assert.deepEqual((await postedMessages(page))[0], {
+    const firstRequest = (await postedMessages(page))[0];
+    assert.match(firstRequest.requestId, /^worktree-remove-[a-z0-9]+-1$/,
+        'the request id carries a per-document nonce');
+    assert.deepEqual({ ...firstRequest, requestId: '<nonce>' }, {
         type: 'remove-managed-worktree', version: 1,
-        requestId: 'worktree-remove-1', projectId: 'project-a',
+        requestId: '<nonce>', projectId: 'project-a',
         repositoryKey: key.repositoryKey, worktreePath: key.canonicalWorktreePath,
     });
     assert.equal(await button.isDisabled(), true);
+    assert.equal(await button.getAttribute('aria-busy'), 'true');
+    assert.equal(await button.getAttribute('aria-label'), 'Preparing worktree removal…');
+    assert.equal(await button.getAttribute('data-tooltip'), 'Preparing worktree removal…');
+    assert.equal(await project.locator('[data-ai-session-live-region]').textContent(),
+        'Preparing worktree removal…');
 
-    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'managed-worktree-removal-settlement', version: 1,
-        requestId: 'worktree-remove-1', status: 'accepted',
-    } })));
+        requestId, status: 'accepted',
+    } })), firstRequest.requestId);
     assert.equal(await button.isDisabled(), true);
-    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'managed-worktree-removal-settlement', version: 1,
-        requestId: 'worktree-remove-1', status: 'rejected', errorCode: 'worktree-dirty',
-    } })));
+        requestId, status: 'rejected', errorCode: 'worktree-dirty',
+    } })), firstRequest.requestId);
     assert.equal(await button.isDisabled(), false);
+    assert.equal(await button.getAttribute('aria-busy'), null);
+    assert.equal(await button.getAttribute('aria-label'), originalAriaLabel);
+    assert.equal(await button.getAttribute('data-tooltip'), originalTooltip);
     assert.match(await project.locator('[data-ai-session-live-region]').textContent(),
         /uncommitted changes/);
 
     await button.click();
     await removeItem.click();
     const retry = (await postedMessages(page)).at(-1);
-    assert.equal(retry.requestId, 'worktree-remove-2');
+    assert.match(retry.requestId, /^worktree-remove-[a-z0-9]+-2$/);
     await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'managed-worktree-removal-settlement', version: 1,
         requestId, status: 'accepted',
@@ -390,6 +415,80 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
     } })), retry.requestId);
     assert.match(await page.locator('[data-open-session-surface][data-id="project-a"] '
         + '[data-ai-session-live-region]').textContent(), /local branch kept/);
+});
+
+test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 preserves pending removal through an authoritative replacement', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/.agent-pivot/worktrees/refresh-pending',
+    };
+    const worktree = {
+        kind: 'ready',
+        git: {
+            key, branchRef: 'refs/heads/agent-pivot/refresh-pending', head: 'a'.repeat(40),
+            isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+        },
+        activity: 'idle', sessions: [], authority: { canResume: true, canRemove: true },
+    };
+    const page = await openQuickCreatePage(t, { worktrees: [worktree] });
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
+    const button = project.locator('.ai-session-worktree-group[data-worktree-path="'
+        + key.canonicalWorktreePath + '"] .ai-session-worktree-more');
+    await button.click();
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]').click();
+    const request = (await postedMessages(page)).at(-1);
+
+    await postAuthoritativeWorktreeUpdate(page, 2, { worktrees: [worktree] });
+    const replacement = project.locator('.ai-session-worktree-group[data-worktree-path="'
+        + key.canonicalWorktreePath + '"] .ai-session-worktree-more');
+    assert.equal(await replacement.isDisabled(), true);
+    assert.equal(await replacement.getAttribute('aria-busy'), 'true');
+    assert.equal(await replacement.getAttribute('aria-label'), 'Preparing worktree removal…');
+    await replacement.evaluate(element => element.click());
+    assert.equal((await postedMessages(page)).length, 1,
+        'the authoritative replacement must not allow a duplicate removal');
+
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'managed-worktree-removal-settlement', version: 1,
+        requestId, status: 'rejected', errorCode: 'worktree-dirty',
+    } })), request.requestId);
+    assert.equal(await replacement.isDisabled(), false);
+    assert.equal(await replacement.getAttribute('aria-busy'), null);
+});
+
+test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 ignores a late removal settlement from a reloaded document', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/.agent-pivot/worktrees/reload-pending',
+    };
+    const worktree = {
+        kind: 'ready',
+        git: {
+            key, branchRef: 'refs/heads/agent-pivot/reload-pending', head: 'a'.repeat(40),
+            isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+        },
+        activity: 'idle', sessions: [], authority: { canResume: true, canRemove: true },
+    };
+    const first = await openQuickCreatePage(t, { worktrees: [worktree] });
+    const worktreeSelector = '[data-open-session-surface][data-id="project-a"] '
+        + '.ai-session-worktree-group[data-worktree-path="'
+        + key.canonicalWorktreePath + '"] .ai-session-worktree-more';
+    await first.locator(worktreeSelector).click();
+    await first.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]').click();
+    const oldRequest = (await postedMessages(first)).at(-1);
+
+    const reloaded = await openQuickCreatePage(t, { worktrees: [worktree] });
+    const reloadedButton = reloaded.locator(worktreeSelector);
+    await reloadedButton.click();
+    await reloaded.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]').click();
+    const currentRequest = (await postedMessages(reloaded)).at(-1);
+    assert.notEqual(currentRequest.requestId, oldRequest.requestId);
+    await reloaded.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'managed-worktree-removal-settlement', version: 1,
+        requestId, status: 'rejected', errorCode: 'worktree-dirty',
+    } })), oldRequest.requestId);
+    assert.equal(await reloadedButton.isDisabled(), true);
+    assert.equal(await reloadedButton.getAttribute('aria-busy'), 'true');
 });
 
 test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact target and remembered provider', async t => {

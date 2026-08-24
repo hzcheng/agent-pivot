@@ -71,16 +71,37 @@ export class ManagedWorktreeRemovalController {
         const workspaceIdentity = this.options.getWorkspaceIdentity?.(projectId) ?? null;
         try {
             const initial = this.resolveTarget(key);
-            const blocked = await this.getBlocker(initial, key);
-            if (blocked) {
-                return { kind: 'rejected', errorCode: blocked };
-            }
-            // The confirm label tolerates a stale/prunable snapshot entry:
-            // a worktree whose directory is already gone still needs a
-            // readable name in the dialog.
             const snapshotWorktree = this.options.getSnapshot()?.repositories
                 .find(candidate => candidate.repositoryKey === key.repositoryKey)
                 ?.worktrees.find(candidate => worktreeKeysEqual(candidate.key, key));
+            // These in-memory guards are instantaneous and avoid presenting
+            // a destructive confirmation for a target the dashboard already
+            // knows cannot be removed. The Git-backed checks remain after
+            // confirmation below, where they also catch races.
+            if (this.options.isActive(key)) {
+                return { kind: 'rejected', errorCode: 'worktree-active' };
+            }
+            if (this.options.isOpenWorkspace(key)) {
+                return { kind: 'rejected', errorCode: 'worktree-open' };
+            }
+            if (this.options.isProvisioning(key)) {
+                return { kind: 'rejected', errorCode: 'worktree-provisioning' };
+            }
+            // A confirmation may only describe a currently removable
+            // worktree, except for an explicitly discovered stale entry
+            // whose missing directory needs record cleanup. Do not let a
+            // protocol-valid but otherwise arbitrary absolute path produce a
+            // misleading destructive dialog.
+            if (!initial && (!isStaleMissingWorktree(snapshotWorktree)
+                || await this.pathExists(key.canonicalWorktreePath))) {
+                return { kind: 'rejected', errorCode: 'worktree-not-removable' };
+            }
+            // The confirm label tolerates a stale/prunable snapshot entry:
+            // a worktree whose directory is already gone still needs a
+            // readable name in the dialog. Do not put the Git safety check
+            // ahead of this dialog: a slow filesystem or Git process made a
+            // click appear to do nothing for up to its timeout. The full
+            // check below remains immediately before the destructive command.
             const branch = (initial?.worktree || snapshotWorktree)?.branchRef
                 ?.replace(/^refs\/heads\//u, '')
                 || initial?.worktree.head.substring(0, 8)
@@ -94,7 +115,15 @@ export class ManagedWorktreeRemovalController {
                 return { kind: 'cancelled' };
             }
             const current = this.resolveTarget(key);
-            const currentBlocker = await this.getBlocker(current, key);
+            // Bind the destructive action to the exact snapshot identity the
+            // user confirmed. A refresh cannot substitute a different
+            // worktree at the same path while the native dialog is open.
+            if ((initial && (!current
+                || !sameWorktreeIdentity(initial.worktree, current.worktree)))
+                || (!initial && current)) {
+                return { kind: 'rejected', errorCode: 'worktree-identity-changed' };
+            }
+            const currentBlocker = await this.getBlocker(current, key, initial?.worktree);
             if (currentBlocker) {
                 return { kind: 'rejected', errorCode: currentBlocker };
             }
@@ -219,7 +248,11 @@ export class ManagedWorktreeRemovalController {
         } catch (_error) { /* best-effort */ }
     }
 
-    private async getBlocker(target: RemovalTarget | null, key: WorktreeKey): Promise<string | null> {
+    private async getBlocker(
+        target: RemovalTarget | null,
+        key: WorktreeKey,
+        expectedWorktree: WorktreeGitSnapshot | undefined = target?.worktree,
+    ): Promise<string | null> {
         if (!target) {
             // A physically absent directory is a certain observation:
             // nothing blocks the removal; only record cleanup remains.
@@ -239,11 +272,10 @@ export class ManagedWorktreeRemovalController {
         if (this.options.isProvisioning(key)) {
             return 'worktree-provisioning';
         }
-        const [status, topLevel, commonDir, branchRef] = await Promise.all([
-            this.runGit(key.canonicalWorktreePath, [
-                '-C', key.canonicalWorktreePath,
-                'status', '--porcelain=v1', '--untracked-files=normal',
-            ]),
+        if (!expectedWorktree || !sameWorktreeIdentity(target.worktree, expectedWorktree)) {
+            return 'worktree-identity-changed';
+        }
+        const [topLevel, commonDir] = await Promise.all([
             this.runGit(key.canonicalWorktreePath, [
                 '-C', key.canonicalWorktreePath,
                 'rev-parse', '--path-format=absolute', '--show-toplevel',
@@ -252,19 +284,9 @@ export class ManagedWorktreeRemovalController {
                 '-C', key.canonicalWorktreePath,
                 'rev-parse', '--path-format=absolute', '--git-common-dir',
             ]),
-            this.runGit(key.canonicalWorktreePath, [
-                '-C', key.canonicalWorktreePath,
-                'rev-parse', '--symbolic-full-name', 'HEAD',
-            ]),
         ]);
-        if (status.exitCode !== 0 || status.timedOut
-            || topLevel.exitCode !== 0 || commonDir.exitCode !== 0
-            || branchRef.exitCode !== 0) {
+        if (topLevel.exitCode !== 0 || commonDir.exitCode !== 0) {
             return 'worktree-status-failed';
-        }
-        const expectedBranchRef = target.worktree.branchRef || 'HEAD';
-        if (firstLine(branchRef.stdout) !== expectedBranchRef) {
-            return 'worktree-identity-changed';
         }
         try {
             const [actualPath, plannedPath, actualRepository, plannedRepository] =
@@ -289,7 +311,35 @@ export class ManagedWorktreeRemovalController {
         if (this.options.isProvisioning(key)) {
             return 'worktree-provisioning';
         }
-        return status.stdout.trim() ? 'worktree-dirty' : null;
+        // Read cleanliness, branch and HEAD together only after all slower
+        // path/runtime checks. A separate status + symbolic-ref + rev-parse
+        // sequence can splice observations from two checkouts when a user
+        // switches worktrees in the middle of the preflight.
+        const status = await this.runGit(key.canonicalWorktreePath, [
+            '-C', key.canonicalWorktreePath,
+            'status', '--porcelain=v2', '--branch', '--untracked-files=normal',
+        ]);
+        if (status.exitCode !== 0 || status.timedOut) {
+            return 'worktree-status-failed';
+        }
+        const observed = parseStatusIdentity(status.stdout, expectedWorktree.head);
+        const expectedBranchRef = expectedWorktree.branchRef || 'HEAD';
+        if (!observed) {
+            return 'worktree-status-failed';
+        }
+        if (observed.branchRef !== expectedBranchRef || observed.head !== expectedWorktree.head) {
+            return 'worktree-identity-changed';
+        }
+        if (this.options.isActive(key)) {
+            return 'worktree-active';
+        }
+        if (this.options.isOpenWorkspace(key)) {
+            return 'worktree-open';
+        }
+        if (this.options.isProvisioning(key)) {
+            return 'worktree-provisioning';
+        }
+        return observed.dirty ? 'worktree-dirty' : null;
     }
 }
 
@@ -311,4 +361,57 @@ async function canonicalizeExistingPath(candidatePath: string): Promise<string> 
 
 function firstLine(value: string): string {
     return (value || '').split(/\r?\n/u, 1)[0].trim();
+}
+
+function isStaleMissingWorktree(
+    worktree: WorktreeGitSnapshot | undefined
+): worktree is WorktreeGitSnapshot {
+    return !!worktree && !worktree.isMain && !worktree.isBare
+        && (worktree.health === 'missing' || worktree.health === 'prunable');
+}
+
+function sameWorktreeIdentity(
+    left: WorktreeGitSnapshot,
+    right: WorktreeGitSnapshot,
+): boolean {
+    return worktreeKeysEqual(left.key, right.key)
+        && left.branchRef === right.branchRef
+        && left.head === right.head
+        && left.headKind === right.headKind
+        && left.isMain === right.isMain
+        && left.isBare === right.isBare
+        && left.health === right.health;
+}
+
+function parseStatusIdentity(value: string, expectedHead: string): {
+    branchRef: string;
+    head: string;
+    dirty: boolean;
+} | null {
+    let branchHead: string | null = null;
+    let head: string | null = null;
+    let dirty = false;
+    for (const line of (value || '').split(/\r?\n/u)) {
+        if (line.startsWith('# branch.head ')) {
+            branchHead = line.slice('# branch.head '.length).trim();
+        } else if (line.startsWith('# branch.oid ')) {
+            head = line.slice('# branch.oid '.length).trim();
+        } else if (line && !line.startsWith('# ')) {
+            dirty = true;
+        }
+    }
+    if (head === '(initial)') {
+        if (!/^0{40}(?:0{24})?$/u.test(expectedHead)) {
+            return null;
+        }
+        head = '0'.repeat(expectedHead.length);
+    }
+    if (!branchHead || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(head || '')) {
+        return null;
+    }
+    return {
+        branchRef: branchHead === '(detached)' ? 'HEAD' : `refs/heads/${branchHead}`,
+        head: head as string,
+        dirty,
+    };
 }

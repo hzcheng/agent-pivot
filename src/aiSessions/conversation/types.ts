@@ -41,6 +41,8 @@ export const CONVERSATION_LIMITS = Object.freeze({
     // thread/read returns the complete normalized history in one JSONL frame.
     maxCodexResponseBytes: 64 * 1024 * 1024,
     codexRequestTimeoutMs: 10_000,
+    // Bound a reused panel's wait for the incoming Webview page receipt.
+    viewerPublicationAckTimeoutMs: 4_000,
     invalidationDebounceMs: 250,
     invalidationMinIntervalMs: 1_000,
     telemetryRefreshMs: 5_000,

@@ -355,6 +355,9 @@ export class ConversationViewer implements ConversationViewerApi {
         startedAt: number;
         source: 'open' | 'follow' | 'restore' | 'rebind';
     };
+    private publicationAckTimer?: unknown;
+    private publicationAckTimerToken = 0;
+    private publicationAckRebuildRequestId = 0;
     // Advanced only by the Webview's correlated applied acknowledgement —
     // never by postMessage resolving, which proves queueing, not application.
     private appliedContentSignature?: string;
@@ -918,9 +921,11 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.clearPublicationAckTimeout();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.appliedContentSignature = undefined;
+        this.publicationAckRebuildRequestId = 0;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1027,6 +1032,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.clearPublicationAckTimeout();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.commentController.reset();
@@ -1037,6 +1043,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.subscriptionGeneration += 1;
         this.transitioningGeneration = undefined;
         this.currentRequestId = 0;
+        this.publicationAckRebuildRequestId = 0;
     }
 
     private async handleMessage(message: unknown): Promise<void> {
@@ -2225,6 +2232,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         this.appliedContentSignature = publication.htmlSignature;
+        this.clearPublicationAckTimeout();
         this.reportPublicationApplication(publication);
         if (this.transitioningGeneration === message.subscriptionGeneration) {
             this.transitioningGeneration = undefined;
@@ -2253,6 +2261,68 @@ export class ConversationViewer implements ConversationViewerApi {
             delivery,
             publishedAt: this.now(),
         };
+        this.schedulePublicationAckTimeout(publication);
+    }
+
+    private schedulePublicationAckTimeout(
+        publication: ConversationViewerPageMessage
+    ): void {
+        this.clearPublicationAckTimeout();
+        // A fresh document has no outgoing controls to strand. This watchdog
+        // only protects a reused panel held in its loading handoff.
+        if (this.transitioningGeneration !== publication.subscriptionGeneration) {
+            return;
+        }
+        const token = ++this.publicationAckTimerToken;
+        const recover = () => {
+            if (token !== this.publicationAckTimerToken) {
+                return;
+            }
+            this.publicationAckTimer = undefined;
+            if (!this.isCurrentPublication(publication)
+                || this.appliedContentSignature === publication.htmlSignature
+                || this.transitioningGeneration
+                    !== publication.subscriptionGeneration
+                || this.publicationAckRebuildRequestId === publication.requestId) {
+                return;
+            }
+            // postMessage resolving proves only queueing. Retry the current
+            // page once as a full document so a dropped Webview delivery
+            // cannot leave the panel loading forever.
+            this.publicationAckRebuildRequestId = publication.requestId;
+            this.emitDiagnostic('publication-ack-timeout');
+            this.rebuildLatestDocument();
+        };
+        const handle = this.options.setTimer
+            ? this.options.setTimer(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            )
+            : setTimeout(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            );
+        if (token === this.publicationAckTimerToken) {
+            this.publicationAckTimer = handle;
+        } else if (this.options.clearTimer) {
+            this.options.clearTimer(handle);
+        } else {
+            clearTimeout(handle as NodeJS.Timeout);
+        }
+    }
+
+    private clearPublicationAckTimeout(): void {
+        this.publicationAckTimerToken += 1;
+        const timer = this.publicationAckTimer;
+        this.publicationAckTimer = undefined;
+        if (timer === undefined) {
+            return;
+        }
+        if (this.options.clearTimer) {
+            this.options.clearTimer(timer);
+        } else {
+            clearTimeout(timer as NodeJS.Timeout);
+        }
     }
 
     private reportPublicationApplication(

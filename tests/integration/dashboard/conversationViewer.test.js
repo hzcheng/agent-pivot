@@ -327,6 +327,7 @@ function createViewer(options = {}) {
         writeClipboardText: options.writeClipboardText,
         followAdjacentConversation: options.followAdjacentConversation,
         setKeyboardFocus: options.setKeyboardFocus,
+        onDiagnostic: options.onDiagnostic,
         onTiming: options.onTiming,
         now: options.now,
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
@@ -2985,6 +2986,86 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 announces a lightweight loading
     await viewer.follow(target('session-b', 'input-1'));
     assert.equal(loadingNotices().length, 1,
         're-following the visible session is not a switch either');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds a stalled reused-panel publication instead of leaving Conversation loading', async () => {
+    const timers = new Map();
+    let nextTimer = 1;
+    const diagnostics = [];
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, {
+                delayMs,
+                callback: () => {
+                    timers.delete(handle);
+                    callback();
+                },
+            });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        onDiagnostic: event => diagnostics.push(event),
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.anchorInteractionId,
+            `visible-${request.sessionId}`
+        ),
+    });
+    const acknowledge = publication => panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    await acknowledge(decodeInitialPublication(panel.webview.html));
+    let htmlWrites = 0;
+    let rendered = panel.webview.html;
+    Object.defineProperty(panel.webview, 'html', {
+        get: () => rendered,
+        set: value => {
+            htmlWrites += 1;
+            rendered = value;
+        },
+    });
+
+    await viewer.follow(target('session-b', 'input-1'));
+    const stalled = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    const watchdog = Array.from(timers.values()).find(timer =>
+        timer.delayMs === 4_000
+    );
+    assert.ok(watchdog, 'a target handoff must bound its applied receipt');
+
+    watchdog.callback();
+    assert.equal(htmlWrites, 1,
+        'a missed receipt rebuilds the current page as a full document');
+    const recovered = decodeInitialPublication(rendered);
+    assert.equal(recovered.subscriptionGeneration, stalled.subscriptionGeneration);
+    assert.equal(recovered.htmlSignature, stalled.htmlSignature);
+    assert.equal(recovered.html.includes('visible-session-b'), true);
+    assert.equal(diagnostics.some(event =>
+        event.reason === 'publication-ack-timeout'
+    ), true);
+
+    // A persistent broken Webview gets only one fallback per publication.
+    const retry = Array.from(timers.values()).find(timer =>
+        timer.delayMs === 4_000
+    );
+    assert.ok(retry);
+    retry.callback();
+    assert.equal(htmlWrites, 1);
     viewer.dispose();
 });
 

@@ -167,9 +167,9 @@ export interface ConversationViewerOptions {
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
-    /** Create a terminal at the conversation's workspace and execute a
-     * command the user explicitly invoked from a rendered shell snippet. */
-    runCommandInNewTerminal?: (
+    /** Run a command the user explicitly invoked from a rendered shell
+     * snippet in the conversation's workspace terminal. */
+    runCommandInTerminal?: (
         target: ConversationViewerTarget,
         command: string
     ) => PromiseLike<void> | Promise<void> | void;
@@ -1024,7 +1024,7 @@ export class ConversationViewer implements ConversationViewerApi {
             }
         }
         if (parsed.type === 'conversation-viewer-run-command') {
-            await this.options.runCommandInNewTerminal?.(
+            await this.options.runCommandInTerminal?.(
                 this.target,
                 parsed.command
             );

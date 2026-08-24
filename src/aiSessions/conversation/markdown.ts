@@ -51,7 +51,7 @@ function renderCodeBlock(value: string, info: string): string {
         + (runnable
             ? '<button class="conversation-code-run" '
                 + 'data-conversation-run-command '
-                + 'title="Run in new terminal"></button>'
+                + 'title="Run command"></button>'
             : '')
         + '<button class="conversation-code-copy" title="Copy code">'
         + '</button></span></section>'

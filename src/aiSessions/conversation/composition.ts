@@ -143,7 +143,7 @@ export interface ConversationCapabilityOptions {
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
-    runCommandInNewTerminal?: ConversationViewerOptions['runCommandInNewTerminal'];
+    runCommandInTerminal?: ConversationViewerOptions['runCommandInTerminal'];
     /** Rename the viewer's current session (host owns the rename UX). */
     renameSession?: (
         target: Pick<
@@ -412,7 +412,7 @@ function createAvailableConversationCapability(
         projectCommentStore: options.projectCommentStore,
         bookmarkStore: options.bookmarkStore,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
-        runCommandInNewTerminal: options.runCommandInNewTerminal,
+        runCommandInTerminal: options.runCommandInTerminal,
         renameSession: options.renameSession,
         changes: options.changes
             ? {

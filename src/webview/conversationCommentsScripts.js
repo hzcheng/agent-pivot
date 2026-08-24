@@ -1802,7 +1802,7 @@
                 sessionId: commentTarget.sessionId,
                 command: command,
             });
-            status.textContent = 'Opening selection in a new terminal.';
+            status.textContent = 'Running selection in command terminal.';
         }
 
         function openCommentComposer() {

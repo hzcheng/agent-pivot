@@ -1715,6 +1715,18 @@ async function initializeDashboard(
             'restore-persisted-terminals', result.error, 'vscode'
         );
     });
+    // Command snippets from a conversation share one visible runner per
+    // worktree. This prevents a series of small commands from creating a
+    // terminal for every click while preserving each worktree's cwd boundary.
+    const conversationCommandTerminals = new Map<string, vscode.Terminal>();
+    ownResource(() => vscode.window.onDidCloseTerminal(terminal => {
+        for (const [key, candidate] of conversationCommandTerminals) {
+            if (candidate === terminal) {
+                conversationCommandTerminals.delete(key);
+            }
+        }
+    }));
+
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         cycleLocalSessionStatus: (kind, currentTarget) =>
@@ -1880,7 +1892,7 @@ async function initializeDashboard(
             await Promise.resolve(terminal.sendText(text, false));
             terminal.show();
         },
-        runCommandInNewTerminal: async (viewerTarget, command) => {
+        runCommandInTerminal: async (viewerTarget, command) => {
             const actionTarget = getCurrentWorkspaceActionTarget(
                 viewerTarget.projectId
             );
@@ -1895,29 +1907,36 @@ async function initializeDashboard(
                 actionTarget?.sessions.sessionsByProvider[viewerTarget.provider]
                 || []
             ).find(session => session.id === viewerTarget.sessionId);
-            // Conversation history retains the provider-reported cwd even
-            // after the runtime is gone. Prefer the exact live runtime cwd;
-            // a worktree key is an exact fallback. Do not silently use a
-            // workspace root or VS Code's default cwd.
-            const cwd = runtime
+            const liveIdentity = runtime
                 && runtime.identity.workspaceScopeIdentity
                     === actionTarget?.workspace.scopeIdentity
-                ? runtime.identity.cwd
-                : historySession?.cwd || historySession?.workDir
+                ? runtime.identity
+                : undefined;
+            // Run at the worktree root when that identity is available. The
+            // same canonical path also gives every worktree its own reusable
+            // runner. For conversations without a worktree, retain the
+            // provider-reported cwd and never fall back to VS Code's default.
+            const worktreePath = liveIdentity?.worktreeKey?.canonicalWorktreePath
                 || activeSession?.worktreeKey?.canonicalWorktreePath
                 || historySession?.worktreeKey?.canonicalWorktreePath;
+            const cwd = worktreePath || liveIdentity?.cwd
+                || historySession?.cwd || historySession?.workDir;
             if (!cwd) {
                 void vscode.window.showWarningMessage(
                     'Unable to determine this conversation\'s working directory.'
                 );
                 return;
             }
-            let terminal: vscode.Terminal;
+            const terminalKey = worktreePath || cwd;
+            let terminal = conversationCommandTerminals.get(terminalKey);
             try {
-                terminal = vscode.window.createTerminal({
-                    name: 'Agent Pivot: Run command',
-                    ...(cwd ? { cwd: vscode.Uri.file(cwd) } : {}),
-                });
+                if (!terminal) {
+                    terminal = vscode.window.createTerminal({
+                        name: 'Agent Pivot: Command Runner',
+                        cwd: vscode.Uri.file(cwd),
+                    });
+                    conversationCommandTerminals.set(terminalKey, terminal);
+                }
                 terminal.sendText(command, true);
                 terminal.show();
             } catch (error) {

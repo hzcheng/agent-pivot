@@ -322,7 +322,7 @@ function createViewer(options = {}) {
         },
         openLocalFile: options.openLocalFile,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
-        runCommandInNewTerminal: options.runCommandInNewTerminal,
+        runCommandInTerminal: options.runCommandInTerminal,
         renameSession: options.renameSession,
         writeClipboardText: options.writeClipboardText,
         followAdjacentConversation: options.followAdjacentConversation,
@@ -2279,10 +2279,10 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send
     assert.deepEqual(inserted, ['beta quote']);
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 runs a bound command in a new terminal', async () => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 runs a bound command in the command terminal', async () => {
     const runs = [];
     const { viewer, panel } = createViewer({
-        runCommandInNewTerminal: async (viewerTarget, command) => {
+        runCommandInTerminal: async (viewerTarget, command) => {
             runs.push({ viewerTarget, command });
         },
     });

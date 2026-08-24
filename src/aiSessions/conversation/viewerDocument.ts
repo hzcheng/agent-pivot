@@ -739,8 +739,8 @@ export function renderConversationViewerDocument(
             aria-label="Send selection to the active terminal">${CONVERSATION_COMMENT_ICON_SEND}</button>
         <button class="conversation-comment-icon-button accent" type="button"
             data-comment-selection-action="run" hidden
-            title="Run selection in a new terminal"
-            aria-label="Run selection in a new terminal">${CONVERSATION_COMMENT_ICON_TERMINAL}</button>
+            title="Run selection in command terminal"
+            aria-label="Run selection in command terminal">${CONVERSATION_COMMENT_ICON_TERMINAL}</button>
     </div>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         purify.toString()

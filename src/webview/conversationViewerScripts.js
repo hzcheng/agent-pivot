@@ -1497,8 +1497,8 @@
         Array.prototype.forEach.call(
             messages.querySelectorAll('[data-conversation-run-command]'),
             function (button) {
-                button.setAttribute('title', 'Run in new terminal');
-                button.setAttribute('aria-label', 'Run in new terminal');
+                button.setAttribute('title', 'Run command');
+                button.setAttribute('aria-label', 'Run command');
                 if (!button.querySelector('svg')) {
                     button.appendChild(createTerminalIconElement());
                 }

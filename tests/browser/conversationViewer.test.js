@@ -3220,7 +3220,7 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
     );
 });
 
-test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands in new terminals', async t => {
+test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands in the command terminal', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -3239,7 +3239,7 @@ test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands i
     const command = 'find . -iname "*profile*"\n';
     const codeRun = page.locator('[data-conversation-run-command]');
     assert.equal(await codeRun.count(), 1);
-    assert.equal(await codeRun.getAttribute('aria-label'), 'Run in new terminal');
+    assert.equal(await codeRun.getAttribute('aria-label'), 'Run command');
     assert.equal(await codeRun.locator('svg').count(), 1);
 
     await codeRun.click();

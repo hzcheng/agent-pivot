@@ -2746,16 +2746,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 omits unchanged HTML from delta
     viewer.dispose();
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per publication when the Webview requests a resync', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per subscription generation when the Webview requests a resync', async () => {
+    let revision = 1;
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
             sessionId,
-            ['input-1']
+            ['input-1'],
+            { sourceRevision: `r${revision}` }
         ),
         readPage: async request => page(
             request.sessionId,
             request.anchorInteractionId,
-            'visible-resync'
+            `visible-resync-${revision}`,
+            { sourceRevision: `r${revision}` }
         ),
     });
 
@@ -2770,18 +2773,18 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
             stored = value;
         },
     });
-    const requestSync = () => panel.receive({
+    const requestSync = publication => panel.receive({
         type: 'conversation-viewer-request-sync',
         version: 1,
-        subscriptionGeneration: initial.subscriptionGeneration,
-        requestId: initial.requestId,
-        htmlSignature: initial.htmlSignature,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
     });
 
-    await requestSync();
+    await requestSync(initial);
     assert.equal(htmlWrites, 1, 'a resync request rebuilds the document');
     assert.equal(
         decodeInitialPublication(stored).html.includes('visible-resync'),
@@ -2790,8 +2793,21 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds the document once per 
 
     // The same publication is never rebuilt twice: a persistent apply
     // failure in the Webview must not reload-loop the document.
-    await requestSync();
+    await requestSync(decodeInitialPublication(stored));
     assert.equal(htmlWrites, 1);
+
+    // A live provider can publish again while the restored Webview still
+    // cannot apply its document. The recovery allowance belongs to the
+    // subscription generation, not each fresh publication, or every watcher
+    // refresh recreates the document and restarts the failed Webview.
+    revision = 2;
+    await viewer.refresh();
+    const refreshed = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    await requestSync(refreshed);
+    assert.equal(htmlWrites, 1,
+        'a later publication in the same generation must not reload-loop');
     viewer.dispose();
 });
 

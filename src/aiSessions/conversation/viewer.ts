@@ -369,6 +369,11 @@ export class ConversationViewer implements ConversationViewerApi {
     // offered only for entries on this authoritative list — an applied ack
     // alone never implies the frame is still cached.
     private readonly webviewFrames = new Map<string, string>();
+    // A document rebuild restarts the Webview's per-document resync guard.
+    // Keep the Host recovery allowance until a publication applies so a
+    // streaming provider cannot turn one persistent failure into a rebuild
+    // for every fresh publication in the same subscription generation.
+    private publicationRecoveryGeneration?: number;
     private suspended = false;
     private rebindGeneration = 0;
     private authoritativeLoadInFlight?: Promise<boolean>;
@@ -929,6 +934,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.appliedContentSignature = undefined;
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
+        this.publicationRecoveryGeneration = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1048,6 +1054,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.currentRequestId = 0;
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
+        this.publicationRecoveryGeneration = undefined;
     }
 
     private async handleMessage(message: unknown): Promise<void> {
@@ -1229,7 +1236,8 @@ export class ConversationViewer implements ConversationViewerApi {
             // The Webview failed to apply a delivered publication; rebuild
             // the document with the full HTML so a dropped delta cannot
             // strand it on stale content. Bound to one rebuild per
-            // publication: a persistent apply failure must not loop. A
+            // subscription generation: a persistent apply failure must not
+            // loop when a streaming provider publishes a new request. A
             // request correlated to a superseded generation or session is
             // stale — the current target's own delivery and ack closure
             // recovers the Webview — so it must not rebuild the incoming
@@ -2259,6 +2267,9 @@ export class ConversationViewer implements ConversationViewerApi {
             );
         });
         this.appliedContentSignature = publication.htmlSignature;
+        // A correlated application receipt proves this Webview generation is
+        // healthy again, so a later independent failure may use recovery.
+        this.publicationRecoveryGeneration = undefined;
         this.clearPublicationAckTimeout();
         this.reportPublicationApplication(publication);
         if (this.transitioningGeneration === message.subscriptionGeneration) {
@@ -2384,14 +2395,18 @@ export class ConversationViewer implements ConversationViewerApi {
     ): boolean {
         if (!this.isCurrentPublication(publication)
             || this.publicationRecoveryRebuildRequestId === publication.requestId
-            || this.publicationRecoveryAttemptRequestId === publication.requestId) {
+            || this.publicationRecoveryAttemptRequestId === publication.requestId
+            || this.publicationRecoveryGeneration
+                === publication.subscriptionGeneration) {
             return false;
         }
         // Delivery rejection, an explicit Webview resync, and an absent
         // applied receipt are competing reports of the same failed page.
-        // They share one recovery allowance so their races cannot rebuild the
-        // document repeatedly.
+        // They share one recovery allowance. Keep it until an applied receipt
+        // arrives so streaming updates cannot rebuild the document repeatedly
+        // after a persistent Webview failure.
         this.publicationRecoveryRebuildRequestId = publication.requestId;
+        this.publicationRecoveryGeneration = publication.subscriptionGeneration;
         this.emitDiagnostic(reason, detail);
         this.rebuildRecoveredPublication(publication);
         return true;

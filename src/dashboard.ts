@@ -1884,6 +1884,10 @@ async function initializeDashboard(
             const actionTarget = getCurrentWorkspaceActionTarget(
                 viewerTarget.projectId
             );
+            const runtime = getAiSessionRuntimeById(
+                viewerTarget.provider,
+                viewerTarget.sessionId
+            );
             const activeSession = (actionTarget?.sessions.activeSessions || [])
                 .find(session => session.provider === viewerTarget.provider
                     && session.sessionId === viewerTarget.sessionId);
@@ -1892,9 +1896,14 @@ async function initializeDashboard(
                 || []
             ).find(session => session.id === viewerTarget.sessionId);
             // Conversation history retains the provider-reported cwd even
-            // after the runtime is gone. A worktree key is an exact fallback;
-            // do not silently use a workspace root or VS Code's default cwd.
-            const cwd = historySession?.cwd || historySession?.workDir
+            // after the runtime is gone. Prefer the exact live runtime cwd;
+            // a worktree key is an exact fallback. Do not silently use a
+            // workspace root or VS Code's default cwd.
+            const cwd = runtime
+                && runtime.identity.workspaceScopeIdentity
+                    === actionTarget?.workspace.scopeIdentity
+                ? runtime.identity.cwd
+                : historySession?.cwd || historySession?.workDir
                 || activeSession?.worktreeKey?.canonicalWorktreePath
                 || historySession?.worktreeKey?.canonicalWorktreePath;
             if (!cwd) {

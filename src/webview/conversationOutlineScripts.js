@@ -541,12 +541,19 @@
         function initializeBookmarks() {
             var initialBookmarks = readJsonAttribute('data-initial-bookmarks');
             if (validBookmarkSnapshot(initialBookmarks)) {
-                state.bookmarkRevision = initialBookmarks.revision;
-                state.bookmarkIds = new Set(initialBookmarks.interactionIds);
-                renderBookmarkState();
+                applyBookmarksSnapshot(initialBookmarks);
             } else {
                 status.textContent = 'Conversation bookmarks are unavailable.';
             }
+        }
+
+        function applyBookmarksSnapshot(bookmarks) {
+            if (!validBookmarkSnapshot(bookmarks)) return false;
+            state.bookmarkRevision = bookmarks.revision;
+            state.bookmarkIds = new Set(bookmarks.interactionIds);
+            renderBookmarkState();
+            if (sidebarUiAvailable) filterOutline();
+            return true;
         }
 
         function resetSession(target, generation, bookmarks) {
@@ -588,6 +595,7 @@
 
         return Object.freeze({
             applyBookmarksResult: applyBookmarksResult,
+            applyBookmarksSnapshot: applyBookmarksSnapshot,
             applyOutline: applyOutline,
             attach: attach,
             canResetSession: validBookmarkSnapshot,

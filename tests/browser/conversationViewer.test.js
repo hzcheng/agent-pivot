@@ -1879,7 +1879,7 @@ async function renderHostViewerDocument(options = {}) {
     return panel.webview.html;
 }
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 surfaces the loading shell before local metadata restoration settles', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 publishes content before local metadata restoration settles', async () => {
     let panel;
     let releaseCommentRestore;
     const commentRestore = new Promise(resolve => {
@@ -1903,13 +1903,14 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 surfaces the loading shell befo
 
     await new Promise(resolve => setImmediate(resolve));
     assert.ok(panel, 'the Viewer panel is created immediately');
-    assert.match(
-        panel.webview.html,
-        /Loading conversation…/,
-        'slow optional metadata cannot delay visible switch feedback',
-    );
+    const publication = decodeInitialPublication(panel.webview.html);
+    assert.match(publication.html, /safe/,
+        'slow optional metadata cannot delay readable conversation content');
+    assert.equal(await Promise.race([
+        opening.then(() => true),
+        new Promise(resolve => setImmediate(() => resolve(false))),
+    ]), true, 'the Host load settles before auxiliary restoration');
     releaseCommentRestore({ revision: 0, comments: [] });
-    await opening;
 });
 
 async function openHostViewerDocument(t, options = {}) {
@@ -1917,7 +1918,8 @@ async function openHostViewerDocument(t, options = {}) {
         viewport: options.viewport || { width: 700, height: 500 },
     });
     t.after(() => page.close());
-    const renderedHtml = await renderHostViewerDocument(options);
+    const renderedHtml = options.renderedHtml
+        || await renderHostViewerDocument(options);
     const html = options.transformHostDocument
         ? options.transformHostDocument(renderedHtml)
         : renderedHtml;
@@ -5968,6 +5970,24 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             '    }\n\n'
                 + '    function postNavigation(type) {\n'
         );
+    const previousViewerScriptWithoutAuxiliarySnapshots = previousViewerScript
+        .replace(
+            '        // A content-first Host load delivers restored side state later in a\n'
+                + '        // same-generation, HTML-free refresh. These snapshots are still\n'
+                + '        // authoritative and must update without resetting the transcript.\n'
+                + '        if (message.bookmarks !== undefined\n'
+                + "            && typeof outlineController.applyBookmarksSnapshot === 'function') {\n"
+                + '            outlineController.applyBookmarksSnapshot(message.bookmarks);\n'
+                + '        }\n'
+                + '        if (message.comments !== undefined\n'
+                + "            && typeof commentsController.applySnapshots === 'function') {\n"
+                + '            commentsController.applySnapshots(\n'
+                + '                message.comments,\n'
+                + '                message.projectComments\n'
+                + '            );\n'
+                + '        }\n',
+            ''
+        );
     const previousOutlineScript = conversationOutlineScript
         .replace(
             '        var outlineSearch = options.outlineSearch;\n',
@@ -6001,12 +6021,33 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .replace(
             /            if \(outlineSort\) \{\n                outlineSort.addEventListener\('click', function \(\) \{\n                    state.newestFirst = !state.newestFirst;\n                    renderSortState\(\);\n                    buildOutlineList\(\);\n                    filterOutline\(\);\n                \}\);\n            \}\n/,
             ''
+        )
+        .replace(
+            '                applyBookmarksSnapshot(initialBookmarks);\n',
+            '                state.bookmarkRevision = initialBookmarks.revision;\n'
+                + '                state.bookmarkIds = new Set(initialBookmarks.interactionIds);\n'
+                + '                renderBookmarkState();\n'
+        )
+        .replace(
+            '\n        function applyBookmarksSnapshot(bookmarks) {\n'
+                + '            if (!validBookmarkSnapshot(bookmarks)) return false;\n'
+                + '            state.bookmarkRevision = bookmarks.revision;\n'
+                + '            state.bookmarkIds = new Set(bookmarks.interactionIds);\n'
+                + '            renderBookmarkState();\n'
+                + '            if (sidebarUiAvailable) filterOutline();\n'
+                + '            return true;\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '            applyBookmarksSnapshot: applyBookmarksSnapshot,\n',
+            ''
         );
     const sha256 = source => crypto.createHash('sha256')
         .update(source)
         .digest('hex');
     assert.equal(
-        sha256(previousViewerScript),
+        sha256(previousViewerScriptWithoutAuxiliarySnapshots),
         '12480eccea0518e9e134be1bd485460986570da5c7c5de9c46b3c89f0f281ab5',
         'the previous Viewer fixture must stay byte-exact'
     );
@@ -6235,6 +6276,8 @@ test('CONVERSATION-SESSION-REBIND-001 renders comments and bookmarks copied to t
         bookmarkStore.copyForRebind(previous, next),
     ]);
 
+    const renderedHtml = await renderHostViewerDocument();
+    const initialPublication = decodeInitialPublication(renderedHtml);
     const { page } = await openHostViewerDocument(t, {
         initialWebviewState: {
             conversationCommentsPanel: {
@@ -6243,9 +6286,21 @@ test('CONVERSATION-SESSION-REBIND-001 renders comments and bookmarks copied to t
                 view: 'comments',
             },
         },
-        commentStore,
-        bookmarkStore,
+        renderedHtml,
     });
+    const [comments, bookmarks] = await Promise.all([
+        commentStore.load(next),
+        bookmarkStore.load(next),
+    ]);
+    await sendPage(page, {
+        ...initialPublication,
+        requestId: initialPublication.requestId + 1,
+        updateKind: 'refresh',
+        html: undefined,
+        comments,
+        bookmarks,
+    });
+    await page.locator('[data-comment-id="rebound-comment"]').waitFor();
 
     assert.equal(
         await page.locator('[data-comment-id="rebound-comment"]').count(),

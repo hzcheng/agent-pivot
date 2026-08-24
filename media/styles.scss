@@ -1562,6 +1562,7 @@ body .project {
     }
 
     .open-window-pin,
+    .open-window-pin-slot,
     .open-window-more {
         flex: 0 0 auto;
         min-width: 24px;
@@ -1596,13 +1597,22 @@ body .project {
 // 响应式宽度矩阵（webview 视口 media query，兼容旧 Chromium；禁 container query）。
 @media (max-width: 359px) {
     .open-window-row .open-window-pin:not(.active) {
-        display: none;
+        // Keep the fixed action slot so pinned and unpinned rows retain the
+        // same attention/running columns. Unlike opacity, visibility also
+        // removes the hidden control from keyboard navigation.
+        visibility: hidden;
+    }
+
+    .open-window-row:hover .open-window-pin:not(.active),
+    .open-window-row:focus-within .open-window-pin:not(.active) {
+        visibility: visible;
     }
 }
 
 @media (max-width: 279px) {
     .open-window-row {
-        .open-window-pin {
+        .open-window-pin,
+        .open-window-pin-slot {
             display: none;
         }
     }

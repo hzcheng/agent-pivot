@@ -94,6 +94,10 @@
             state.followingEnd = conversationAtEnd();
         }
 
+        function followingConversationEnd() {
+            return state.followingEnd;
+        }
+
         function attach() {
             scroll.addEventListener('scroll', trackConversationEnd, { passive: true });
             if (typeof ResizeObserver === 'function') {
@@ -110,6 +114,7 @@
         return Object.freeze({
             attach: attach,
             atEnd: conversationAtEnd,
+            followingEnd: followingConversationEnd,
             reconcile: reconcileMessages,
             scrollToEnd: scrollToConversationEnd,
             trackEnd: trackConversationEnd,

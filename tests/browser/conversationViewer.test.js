@@ -12049,6 +12049,10 @@ test('CONVERSATION-VIEWER-BROWSER-REFRESH-001 CONVERSATION-READING-FOCUS-001 fol
         const before = await scroll.evaluate(element => element.scrollTop);
 
         await sendPage(page, publications.refresh);
+        await page.waitForFunction(requestId => window.__postedMessages.some(
+            message => message.type === 'conversation-viewer-applied'
+                && message.requestId === requestId
+        ), publications.refresh.requestId);
 
         assert.equal(await page.locator(
             '[data-interaction-id="host-input-1"]'

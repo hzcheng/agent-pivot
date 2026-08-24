@@ -1716,6 +1716,9 @@
                 commentsController.updateHighlights();
                 if (findController) findController.refresh();
                 renderMermaidDiagrams(renderGeneration);
+                if (reconcileController.followingEnd()) {
+                    reconcileController.scrollToEnd();
+                }
                 acknowledgePage(message);
             } catch (_presentationError) {
                 requestConversationResync(message, _presentationError);

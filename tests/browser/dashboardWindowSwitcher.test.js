@@ -134,6 +134,9 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
                 attention: row.querySelector('.open-window-attention').textContent,
                 runningAria: row.querySelector('.open-window-running').getAttribute('aria-label'),
                 attentionAria: row.querySelector('.open-window-attention').getAttribute('aria-label'),
+                attentionBeforeRunning: Boolean(row.querySelector('.open-window-attention')
+                    .compareDocumentPosition(row.querySelector('.open-window-running'))
+                    & Node.DOCUMENT_POSITION_FOLLOWING),
             })),
             iconTitles: rows.map(row => row.querySelector('.open-window-icon').getAttribute('title')),
             environmentChipCount: document.querySelectorAll('.open-window-env-chip').length,
@@ -153,9 +156,9 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
     assert.match(structure.navigation.title, /^Focus window: beta/);
     // 运行/待处理为 0 时留空但保留槽位（含 aria-label）。
     assert.deepEqual(structure.counts, [
-        { running: '●2', attention: '1', runningAria: '2 sessions running in this window', attentionAria: '1 session needs attention in this window' },
-        { running: '●1', attention: '', runningAria: '1 session running in this window', attentionAria: 'Nothing needs attention' },
-        { running: '', attention: '', runningAria: 'No running sessions', attentionAria: 'Nothing needs attention' },
+        { running: '●2', attention: '1', runningAria: '2 sessions running in this window', attentionAria: '1 session needs attention in this window', attentionBeforeRunning: true },
+        { running: '●1', attention: '', runningAria: '1 session running in this window', attentionAria: 'Nothing needs attention', attentionBeforeRunning: true },
+        { running: '', attention: '', runningAria: 'No running sessions', attentionAria: 'Nothing needs attention', attentionBeforeRunning: true },
     ]);
     assert.deepEqual(structure.iconTitles, ['Local Project', 'SSH Project', 'Dev Container Project']);
     assert.equal(structure.environmentChipCount, 0);

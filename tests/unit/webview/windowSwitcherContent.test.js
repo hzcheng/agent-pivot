@@ -47,6 +47,11 @@ test('window switcher renderer: current row carries the triple encoding and aria
     assert.match(html, /●2/);
     assert.match(html, /open-window-attention-dot/);
     assert.match(html, /open-window-attention-dot[^>]*><\/span>3/);
+    const attentionIndex = html.indexOf('class="open-window-attention"');
+    const runningIndex = html.indexOf('class="open-window-running"');
+    assert.notEqual(attentionIndex, -1);
+    assert.notEqual(runningIndex, -1);
+    assert.ok(attentionIndex < runningIndex, 'attention count precedes the running count');
 });
 
 test('window switcher renderer: navigation row points at the focus affordance', () => {

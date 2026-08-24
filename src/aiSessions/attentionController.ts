@@ -170,15 +170,25 @@ export class AiSessionAttentionController<TRuntime extends AiSessionAttentionRun
                 // 外发通知不得影响 attention 主流程。
             }
         }
-        if (events.length || discardedStaleAttention) {
+        const localResult = this.buildLocalItems(workspaceTarget, providers);
+        const localItemsChanged = JSON.stringify(localResult.items) !== JSON.stringify(this.localItems);
+        this.localItems = localResult.items;
+        // Publish the local lifecycle decision before waiting for the bridge
+        // round trip. The execution pass that observed the same signal has
+        // already marked this session running, so every local surface must
+        // immediately suppress the preceding attention event.
+        if (events.length || discardedStaleAttention || localItemsChanged) {
             this.options.scheduleRefresh('attention');
         }
-
-        const localResult = this.buildLocalItems(workspaceTarget, providers);
-        this.localItems = localResult.items;
+        if (localItemsChanged) {
+            this.emitEffectiveAggregateChanged();
+        }
+        const wasBridgeOut = this.isBridgeOut();
         const published = await this.options.publish(this.localItems);
         this.recordPublishResult(published);
-        this.emitEffectiveAggregateChanged();
+        if (!localItemsChanged || wasBridgeOut !== this.isBridgeOut()) {
+            this.emitEffectiveAggregateChanged();
+        }
         return {
             enabled: true,
             published,

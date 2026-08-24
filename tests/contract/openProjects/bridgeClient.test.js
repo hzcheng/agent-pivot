@@ -61,7 +61,7 @@ const FOCUS_CHANNELS = [
 function handshakeResponse() {
     return {
         accepted: true,
-        protocolVersion: 4,
+        protocolVersion: 5,
         bridgeExtensionVersion: '0.1.4',
         capabilities: {
             workspaces: true,
@@ -639,7 +639,7 @@ test('OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 rejects a Bridge without authorita
                 if (command === '_agentPivotOpenWorkspaces.bridge.handshake') {
                     return {
                         accepted: true,
-                        protocolVersion: 4,
+                        protocolVersion: 5,
                         bridgeExtensionVersion: '0.1.4',
                         capabilities: {
                             workspaces: true,

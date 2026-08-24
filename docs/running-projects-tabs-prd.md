@@ -278,9 +278,10 @@ PROJECTS
 - 首次打开侧边栏时优先渲染 active Tab，不要求为了全局搜索而预先挂载两个页面的完整卡片 DOM。
 - 全局搜索应基于轻量搜索索引生成匹配结果，只渲染命中的 session、打开项目和已保存项目。
 - 切换 Tab 或进入搜索状态不得触发无关 AI provider 历史扫描；其他窗口项目继续保持 navigation-only。
-- `OPEN WINDOWS` 的紧凑卡片 attention 通过规范化项目路径计算隐私安全 project key，并与现有 attention aggregate 做前端投影连接；不得把 session 明细加入 open-project publication。
+- `OPEN WINDOWS` 的紧凑卡片 attention 通过规范化项目路径计算隐私安全 project key，并与现有 attention aggregate 做前端投影连接；不得把 session 明细加入 open-project publication。若必须跨窗口压制同一运行会话的陈旧 attention，publication 只能携带固定长度的不可逆 session token，不能携带 provider、session ID、名称或命令内容。
 - `OPEN` 的增量更新只替换对应项目或 section，不得重建整个 Webview，也不得重置 `PROJECTS` 状态。
 - 用户首次访问另一个 Tab 后，其滚动和折叠状态在当前 Webview 生命周期内保留。
+- Open-workspace protocol/storage version upgrades require the companion UI bridge to update and every participating VS Code window to reload before cross-window state is considered authoritative; a mismatched bridge must fail closed as unavailable rather than merge different protocol generations.
 
 ### 10.2 自定义 CSS 兼容
 

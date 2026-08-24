@@ -13,7 +13,7 @@ const BRAND_IDENTITY = Object.freeze({
     mainVersion: '1.1.3',
     bridgePackageName: 'agent-pivot-attention-ui-bridge',
     bridgeExtensionId: 'hzcheng.agent-pivot-attention-ui-bridge',
-    bridgeVersion: '1.0.2',
+    bridgeVersion: '1.0.3',
     commandPrefix: 'agentPivot.',
     configurationSection: 'agentPivot',
     viewContainerId: 'agentPivot',

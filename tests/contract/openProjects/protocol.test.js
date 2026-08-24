@@ -22,6 +22,7 @@ function makeRecord(overrides = {}) {
         navigationUri: 'file:///work/shared',
         environment: 'local',
         runningAiSessionCount: 0,
+        runningAiSessionKeys: [],
         roots: [{ id: 'c'.repeat(64), name: 'Shared', uri: 'file:///work/shared', ordinal: 0 }],
         ...overrides,
     };
@@ -29,7 +30,7 @@ function makeRecord(overrides = {}) {
 
 function makePublication(overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         instanceId: FIRST_INSTANCE_ID,
         sequence: 1,
         followsFocusEvent: false,
@@ -40,7 +41,7 @@ function makePublication(overrides = {}) {
 
 function makeRegistration(instanceId = FIRST_INSTANCE_ID, overrides = {}) {
     return {
-        protocolVersion: 4,
+        protocolVersion: 5,
         instanceId,
         sequence: 1,
         openedAtMs: 3500,
@@ -55,7 +56,7 @@ test('ARCH-PROTOCOL-001 / OPEN-PROTOCOL-001 validates complete protocol envelope
     const publication = makePublication();
     const registration = makeRegistration();
     const aggregate = {
-        protocolVersion: 4,
+        protocolVersion: 5,
         semanticRevision: 'd'.repeat(64),
         observedAtMs: 5000,
         registrations: [registration],
@@ -86,12 +87,37 @@ test('OPEN-PROTOCOL-002 rejects publication payloads with non-protocol keys', ()
         }),
         /unexpected fields/
     );
+    assert.throws(
+        () => validateOpenWorkspacePublication({
+            ...makePublication(),
+            workspace: { ...makeRecord(), runningAiSessionKeys: ['a'.repeat(64), 'a'.repeat(64)] },
+        }),
+        /runningAiSessionKeys must be unique/
+    );
+    assert.throws(
+        () => validateOpenWorkspacePublication({
+            ...makePublication(),
+            workspace: { ...makeRecord(), runningAiSessionCount: 1, runningAiSessionKeys: [] },
+        }),
+        /runningAiSessionCount must equal runningAiSessionKeys.length/
+    );
+    assert.throws(
+        () => validateOpenWorkspacePublication({
+            ...makePublication(),
+            workspace: {
+                ...makeRecord(),
+                runningAiSessionCount: 1,
+                runningAiSessionKeys: ['codex:sensitive-session-id'],
+            },
+        }),
+        /SHA-256 session tokens/
+    );
 });
 
 test('OPEN-PROTOCOL-003 rejects aggregate registrations that share an instance ID', () => {
     assert.throws(
         () => validateOpenWorkspaceAggregate({
-            protocolVersion: 4,
+            protocolVersion: 5,
             semanticRevision: 'd'.repeat(64),
             observedAtMs: 5000,
             registrations: [makeRegistration(), makeRegistration(FIRST_INSTANCE_ID, { sequence: 2 })],
@@ -143,6 +169,18 @@ test('OPEN-PROTOCOL-005 keeps semantic revisions stable when only transient regi
     assert.notEqual(
         createOpenWorkspaceSemanticRevision([{ ...registration, openedAtMs: 3501 }]),
         revision
+    );
+    assert.notEqual(
+        createOpenWorkspaceSemanticRevision([{
+            ...registration,
+            workspace: {
+                ...registration.workspace,
+                runningAiSessionCount: 1,
+                runningAiSessionKeys: ['a'.repeat(64)],
+            },
+        }]),
+        revision,
+        'a lifecycle identity transition must trigger a fresh aggregate'
     );
 });
 

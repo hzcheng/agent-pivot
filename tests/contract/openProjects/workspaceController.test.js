@@ -67,6 +67,7 @@ function createWorkspaceController(overrides = {}) {
 test('PROJECT-WORKSPACE-CONTROLLER-RECORD-001 includes the live session count in every publication snapshot', () => {
     const controller = createWorkspaceController({
         getRunningAiSessionCount: () => 2,
+        getRunningAiSessionKeys: () => ['a'.repeat(64), 'b'.repeat(64)],
     });
 
     assert.equal(controller.getPublication().runningAiSessionCount, 2);

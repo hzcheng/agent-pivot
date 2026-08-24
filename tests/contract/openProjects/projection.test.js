@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
     getAttentionProjectKeys,
+    getAttentionSessionIdentityToken,
 } = require('../../../out/aiSessions/attentionProject');
 const {
     createOpenWorkspacePublication,
@@ -33,19 +34,19 @@ function authoritativeUri(value, scheme, authority, uriPath) {
     return { value, scheme, authority, path: uriPath };
 }
 
-test('CONVERSATION-SESSION-STATUS-001 sums running Session counts across the open workspace aggregate', () => {
+test('CONVERSATION-SESSION-STATUS-001 counts unique running Session identities across the open workspace aggregate', () => {
     assert.equal(sumOpenWorkspaceRunningAiSessionCounts(null), 0);
     assert.equal(sumOpenWorkspaceRunningAiSessionCounts({
         registrations: [],
     }), 0);
     assert.equal(sumOpenWorkspaceRunningAiSessionCounts({
         registrations: [
-            { workspace: { runningAiSessionCount: 2 } },
+            { workspace: { runningAiSessionKeys: ['a'.repeat(64), 'b'.repeat(64)] } },
             { workspace: null },
-            { workspace: { runningAiSessionCount: 3 } },
+            { workspace: { runningAiSessionKeys: ['b'.repeat(64), 'c'.repeat(64)] } },
             { workspace: {} },
         ],
-    }), 5);
+    }), 3);
 });
 
 test('OPEN-OPEN-PROJECT-PUBLICATION-001 replaces workspace URIs by ordinal without mutating publications', () => {
@@ -171,10 +172,14 @@ test('SESSION-RECORD-001 converts workspace metadata and carries the exact runni
             { id: 'd'.repeat(64), name: 'API', uri: 'file:///work/api', hostPath: '/work/api', ordinal: 1 },
         ],
     };
-    const record = createOpenWorkspacePublication(workspace, 2);
+    const runningSessionTokens = [
+        getAttentionSessionIdentityToken('codex:app'),
+        getAttentionSessionIdentityToken('codex:api'),
+    ];
+    const record = createOpenWorkspacePublication(workspace, 2, runningSessionTokens);
     assert.equal(record.runningAiSessionCount, 2);
     assert.deepEqual(record.roots.map(root => [root.name, root.ordinal]), [['App', 0], ['API', 1]]);
-    assert.equal(createOpenWorkspacePublication(null, 2), null);
+    assert.equal(createOpenWorkspacePublication(null, 2, runningSessionTokens), null);
 });
 
 test('PROJECT-PROJECTION-001 keeps current cards, excludes own and current identities, and picks the focused duplicate', () => {
@@ -201,6 +206,69 @@ test('PROJECT-PROJECTION-001 keeps current cards, excludes own and current ident
     assert.equal(cards[0].runningSessionCount, 0);
     assert.equal(cards[1].runningSessionCount, 3);
     assert.match(cards[0].id, /^__openWorkspaceNavigation-[a-f0-9]{24}$/);
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 suppresses delayed attention for a running session in another window', () => {
+    const current = makeRecord({ uri: '/work/current' });
+    const remote = makeRecord({
+        uri: '/work/remote',
+        name: 'Remote',
+        runningAiSessionCount: 1,
+        runningAiSessionKeys: [getAttentionSessionIdentityToken('codex:session-a')],
+    });
+    const attention = {
+        protocolVersion: 1,
+        aggregateRevision: 'c'.repeat(64),
+        generatedAtMs: 20,
+        sessions: [{
+            projectId: getAttentionProjectKeys(remote.roots.map(root => root.uri))[0],
+            sessionKey: 'codex:session-a',
+            eventIds: ['older-attention-event'],
+            reasons: ['completed'],
+            observedAtMs: 19,
+        }],
+    };
+
+    const cards = projectOpenWorkspaceCards(current, makeAggregate([
+        makeRegistration(OTHER, 1000, '/work/remote', { workspace: remote }),
+    ]), SELF, attention);
+
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].runningSessionCount, 1);
+    assert.equal(cards[0].attentionCount, 0,
+        'running wins while the older attention aggregate is still in flight');
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 unions running tokens before collapsing duplicate workspace windows', () => {
+    const current = makeRecord({ uri: '/work/current' });
+    const navigationIdentity = makeRecord({ uri: '/work/remote' }).navigationIdentity;
+    const remoteIdle = makeRecord({
+        uri: '/work/remote', navigationIdentity, name: 'Remote',
+    });
+    const remoteRunning = makeRecord({
+        uri: '/work/remote', navigationIdentity, name: 'Remote',
+        runningAiSessionCount: 1,
+        runningAiSessionKeys: [getAttentionSessionIdentityToken('codex:session-a')],
+    });
+    const attention = {
+        protocolVersion: 1,
+        aggregateRevision: 'd'.repeat(64),
+        generatedAtMs: 20,
+        sessions: [{
+            projectId: getAttentionProjectKeys(remoteIdle.roots.map(root => root.uri))[0],
+            sessionKey: 'codex:session-a', eventIds: ['older-attention-event'],
+            reasons: ['completed'], observedAtMs: 19,
+        }],
+    };
+
+    const cards = projectOpenWorkspaceCards(current, makeAggregate([
+        makeRegistration(OLDER, 2_000, '/work/remote', { workspace: remoteRunning }),
+        makeRegistration(NEWER, 3_000, '/work/remote', { workspace: remoteIdle }),
+    ]), SELF, attention);
+
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].runningSessionCount, 1);
+    assert.equal(cards[0].attentionCount, 0);
 });
 
 test('OPEN-OTHER-WINDOWS-PRIVACY-001 exposes only the latest privacy-bounded workspace summary', () => {

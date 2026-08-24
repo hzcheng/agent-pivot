@@ -21,6 +21,7 @@ const {
     getAttentionProjectKey,
     getAttentionProjectPath,
     getAttentionRuntimeSessionKey,
+    getAttentionSessionIdentityToken,
 } = require('../../../out/aiSessions/attentionProject');
 const {
     buildAttentionQueue,
@@ -119,6 +120,20 @@ test('ATTENTION-STATUS-BAR-QUEUE-001 builds a global oldest-first queue with par
     assert.deepEqual(queue.items[2].reasons, ['input-required']);
     assert.equal(queue.items[0].sessionName, undefined,
         'remote sessions carry no local display name');
+});
+
+test('ATTENTION-EXECUTION-STATE-SYNC-001 excludes a delayed attention item while its logical session runs elsewhere', () => {
+    const input = makeQueueInput();
+    const queue = buildAttentionQueue({
+        ...input,
+        runningSessionTokens: [getAttentionSessionIdentityToken('kimi:sess-1')],
+    });
+
+    assert.deepEqual(queue.items.map(item => `${item.provider}:${item.sessionId}`), [
+        'claude:sess-9',
+        'codex:sess-2',
+    ]);
+    assert.equal(queue.localCount, 1);
 });
 
 test('ATTENTION-STATUS-BAR-QUEUE-001 matches logical session keys and missing roots to the primary root', () => {

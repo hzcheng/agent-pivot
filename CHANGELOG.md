@@ -4,6 +4,13 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep AI Conversation, session dots, status-bar attention, and Next Attention
+  navigation on one mutually-exclusive running/attention lifecycle view across
+  windows. The companion UI bridge is now 1.0.3; update it and reload every
+  participating VS Code window to activate the v5 open-workspace protocol.
+
 ## [1.1.3] - 2026-08-24
 
 ### Added

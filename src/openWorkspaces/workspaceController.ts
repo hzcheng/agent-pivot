@@ -7,6 +7,7 @@ import type { OpenWorkspaceRecord } from './protocol';
 export interface OpenWorkspaceControllerOptions {
     getWorkspace: () => OpenWorkspace | null;
     getRunningAiSessionCount: (workspace: OpenWorkspace) => number;
+    getRunningAiSessionKeys?: (workspace: OpenWorkspace) => readonly string[];
     publishWorkspace: (workspace: OpenWorkspaceRecord | null, followsFocusEvent: boolean) => unknown;
 }
 
@@ -28,6 +29,7 @@ export class OpenWorkspaceController {
         return createOpenWorkspacePublication(
             workspace,
             workspace ? this.options.getRunningAiSessionCount(workspace) : 0,
+            workspace ? this.options.getRunningAiSessionKeys?.(workspace) || [] : [],
         );
     }
 
@@ -42,6 +44,7 @@ export class OpenWorkspaceController {
             createOpenWorkspacePublication(
                 workspace,
                 workspace ? this.options.getRunningAiSessionCount(workspace) : 0,
+                workspace ? this.options.getRunningAiSessionKeys?.(workspace) || [] : [],
             ),
             followsFocusEvent,
         );

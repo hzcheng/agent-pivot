@@ -107,7 +107,7 @@ export interface OpenWorkspaceClientDiagnosticEvent {
 
 interface OpenWorkspaceHandshakeResponse {
     accepted: boolean;
-    protocolVersion: 4;
+    protocolVersion: 5;
     bridgeExtensionVersion: string;
     capabilities: typeof OPEN_WORKSPACE_CAPABILITIES;
     pinSnapshot: OpenWorkspacePinSnapshot;

@@ -24,6 +24,7 @@ function record(navigationUri) {
         navigationUri,
         environment: 'local',
         runningAiSessionCount: 0,
+        runningAiSessionKeys: [],
         roots: [],
     };
 }

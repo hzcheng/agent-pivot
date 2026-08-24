@@ -13,6 +13,7 @@ export interface WorkspaceAttentionRoot {
 export interface WorkspaceAttentionSource {
     navigationIdentity: string;
     roots: readonly WorkspaceAttentionRoot[];
+    runningAiSessionKeys?: readonly string[];
 }
 
 export interface WorkspaceAttentionSummary {
@@ -27,12 +28,13 @@ export interface OtherWorkspaceAttention {
 }
 
 export function getWorkspaceAttentionSummary(
-    workspace: Pick<WorkspaceAttentionSource, 'roots'>,
+    workspace: Pick<WorkspaceAttentionSource, 'roots' | 'runningAiSessionKeys'>,
     aggregate: AttentionAggregate | null
 ): WorkspaceAttentionSummary {
     return getAttentionSummaryForProjectKeys(
         getAttentionProjectKeys((workspace?.roots || []).map(root => root.uri)),
-        aggregate
+        aggregate,
+        workspace.runningAiSessionKeys || [],
     );
 }
 

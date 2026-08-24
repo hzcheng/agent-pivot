@@ -152,7 +152,7 @@ test('OPEN-WORKSPACE-INSTANCE-ROLLOVER-001 replaces a reloaded Extension Host in
         /retired instanceId/
     );
     await harness.coordinator.unregister({
-        protocolVersion: 4,
+        protocolVersion: 5,
         instanceId: SELF,
     });
 

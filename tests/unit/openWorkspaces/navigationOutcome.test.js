@@ -21,6 +21,7 @@ function record(environment, kind, index) {
         navigationUri: kind === 'untitledMultiRoot' ? `untitled:Untitled-${index}` : navigationUri,
         environment,
         runningAiSessionCount: 0,
+        runningAiSessionKeys: [],
         roots: [{
             id: String(index + 200).padStart(64, '0'),
             name: 'member',
@@ -38,7 +39,7 @@ function harness(initialRecord) {
     const warnings = [];
     const refreshes = [];
     let failExecution = false;
-    let outcome = { protocolVersion: 4, opened: true };
+    let outcome = { protocolVersion: 5, opened: true };
     const controller = new WorkspaceNavigationController({
         getRecord: cardId => cardId === 'live-card' ? current : null,
         executeCommand: async (...args) => {
@@ -85,7 +86,7 @@ test('OPEN-WORKSPACE-NAVIGATION-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 routes
             assert.deepEqual(navigation.executions, [[
                 '_agentPivotOpenWorkspaces.bridge.navigate',
                 {
-                    protocolVersion: 4,
+                    protocolVersion: 5,
                     navigationIdentity: current.navigationIdentity,
                 },
             ]]);
@@ -126,7 +127,7 @@ test('OPEN-WORKSPACE-NAVIGATION-001 fails closed to Switch Window without a memb
     assert.deepEqual(navigation.executions, [[
         '_agentPivotOpenWorkspaces.bridge.navigate',
         {
-            protocolVersion: 4,
+            protocolVersion: 5,
             navigationIdentity: current.navigationIdentity,
         },
     ]]);

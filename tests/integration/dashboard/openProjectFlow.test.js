@@ -202,7 +202,7 @@ test('ARCH-COORDINATOR-WIRING-001 carries sequenced publications through the bri
     commands.register('_agentPivotOpenWorkspaces.bridge.unregister', raw => coordinator.unregister(raw));
     commands.register('_agentPivotOpenWorkspaces.bridge.handshake', () => ({
         accepted: true,
-        protocolVersion: 4,
+        protocolVersion: 5,
         bridgeExtensionVersion: '0.1.4',
         capabilities: {
             workspaces: true,

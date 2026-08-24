@@ -322,6 +322,7 @@ function createViewer(options = {}) {
         },
         openLocalFile: options.openLocalFile,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        runCommandInNewTerminal: options.runCommandInNewTerminal,
         renameSession: options.renameSession,
         writeClipboardText: options.writeClipboardText,
         followAdjacentConversation: options.followAdjacentConversation,
@@ -2276,6 +2277,35 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send
         await panel.receive(message);
     }
     assert.deepEqual(inserted, ['beta quote']);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 runs a bound command in a new terminal', async () => {
+    const runs = [];
+    const { viewer, panel } = createViewer({
+        runCommandInNewTerminal: async (viewerTarget, command) => {
+            runs.push({ viewerTarget, command });
+        },
+    });
+    await viewer.open(target('session-a', 'input-1'));
+    const request = {
+        type: 'conversation-viewer-run-command',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+        command: 'find . -iname "*profile*"',
+    };
+    await panel.receive(request);
+    assert.deepEqual(runs, [{
+        viewerTarget: target('session-a', 'input-1'),
+        command: request.command,
+    }]);
+
+    await panel.receive({ ...request, sessionId: 'session-other' });
+    await panel.receive({ ...request, subscriptionGeneration: 2 });
+    assert.equal(runs.length, 1,
+        'stale or cross-session commands must never reach the terminal host');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes adjacent session switches with the authoritative current target', async () => {

@@ -121,6 +121,18 @@ export interface ConversationViewerBookmarkMutationMessage {
 }
 
 export const CONVERSATION_COPY_MAX_TEXT_LENGTH = 1_000_000;
+export const CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH = 4_000;
+
+/** A user-triggered shell command rendered by the Conversation Webview. */
+export interface ConversationViewerRunCommandMessage {
+    type: 'conversation-viewer-run-command';
+    version: 1;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    command: string;
+}
 
 export interface ConversationViewerCopyMessage {
     type: 'conversation-viewer-copy';
@@ -328,6 +340,7 @@ export type ConversationViewerMessage =
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerSendSelectionMessage
+    | ConversationViewerRunCommandMessage
     | ConversationViewerSwitchSessionMessage
     | ConversationViewerSwitchWindowMessage
     | ConversationViewerCycleStatusSessionMessage
@@ -409,6 +422,17 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerSendSelectionMessage;
+    }
+    if (value.type === 'conversation-viewer-run-command') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration', 'projectId',
+            'provider', 'sessionId', 'command',
+        ])
+            || !isChangesActionBinding(value)
+            || !isRunnableTerminalCommand(value.command)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerRunCommandMessage;
     }
     if (value.type === 'conversation-viewer-changes-select'
         || value.type === 'conversation-viewer-changes-review'
@@ -842,6 +866,16 @@ function isChangesFilePath(value: unknown): value is string {
         && value.length > 0
         && value.length <= 4096
         && !/[\0]/.test(value);
+}
+
+function isRunnableTerminalCommand(value: unknown): value is string {
+    return typeof value === 'string'
+        && value.length > 0
+        && value.length <= CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH
+        && !!value.trim()
+        // Keep newlines and tabs, but reject non-printing controls that
+        // cannot be meaningfully typed into a terminal command.
+        && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 }
 
 function isFullCommitSha(value: unknown): value is string {

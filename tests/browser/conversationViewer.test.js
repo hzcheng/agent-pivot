@@ -3092,6 +3092,11 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         'ts'
     );
     assert.equal(
+        await block.locator('[data-conversation-run-command]').count(),
+        0,
+        'only shell fences expose the direct Run action'
+    );
+    assert.equal(
         await block.locator('pre code').textContent(),
         'const answer = 42;\n'
     );
@@ -3213,6 +3218,65 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         initialIcon,
         'the copy glyph returns after the feedback window'
     );
+});
+
+test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands in new terminals', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 900, height: 560 },
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: 'Run this:\n\n```bash\nfind . -iname "*profile*"\n```',
+            }],
+        },
+    });
+    const command = 'find . -iname "*profile*"\n';
+    const codeRun = page.locator('[data-conversation-run-command]');
+    assert.equal(await codeRun.count(), 1);
+    assert.equal(await codeRun.getAttribute('aria-label'), 'Run in new terminal');
+    assert.equal(await codeRun.locator('svg').count(), 1);
+
+    await codeRun.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-run-command',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        command,
+    });
+
+    await page.locator('.conversation-code-block pre code').evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    const selectionBubble = page.locator('[data-add-comment]');
+    const selectionRun = selectionBubble.locator(
+        '[data-comment-selection-action="run"]'
+    );
+    assert.equal(await selectionBubble.isVisible(), true);
+    assert.equal(await selectionRun.isVisible(), true);
+    await selectionRun.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-run-command',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        command: command.trim(),
+    });
 });
 
 test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers through the Host', async t => {
@@ -7249,7 +7313,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     const selectionBubble = page.locator('[data-add-comment]');
     assert.equal(await selectionBubble.isVisible(), true);
     assert.deepEqual(
-        await selectionBubble.locator('button').evaluateAll(buttons =>
+        await selectionBubble.locator('button:not([hidden])').evaluateAll(buttons =>
             buttons.map(button => ({
                 action: button.getAttribute('data-comment-selection-action'),
                 iconOnly: button.innerText === ''
@@ -7266,7 +7330,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     // The send action is the bubble's accent chip; comment and project stay
     // ghosts.
     assert.deepEqual(
-        await selectionBubble.locator('button').evaluateAll(buttons =>
+        await selectionBubble.locator('button:not([hidden])').evaluateAll(buttons =>
             buttons.map(button => {
                 const style = getComputedStyle(button);
                 return {

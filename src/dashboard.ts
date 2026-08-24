@@ -1880,6 +1880,44 @@ async function initializeDashboard(
             await Promise.resolve(terminal.sendText(text, false));
             terminal.show();
         },
+        runCommandInNewTerminal: async (viewerTarget, command) => {
+            const actionTarget = getCurrentWorkspaceActionTarget(
+                viewerTarget.projectId
+            );
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider]
+                || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            // Conversation history retains the provider-reported cwd even
+            // after the runtime is gone. A worktree key is an exact fallback;
+            // do not silently use a workspace root or VS Code's default cwd.
+            const cwd = historySession?.cwd || historySession?.workDir
+                || activeSession?.worktreeKey?.canonicalWorktreePath
+                || historySession?.worktreeKey?.canonicalWorktreePath;
+            if (!cwd) {
+                void vscode.window.showWarningMessage(
+                    'Unable to determine this conversation\'s working directory.'
+                );
+                return;
+            }
+            let terminal: vscode.Terminal;
+            try {
+                terminal = vscode.window.createTerminal({
+                    name: 'Agent Pivot: Run command',
+                    ...(cwd ? { cwd: vscode.Uri.file(cwd) } : {}),
+                });
+                terminal.sendText(command, true);
+                terminal.show();
+            } catch (error) {
+                logError('Failed to run conversation command in terminal', error);
+                void vscode.window.showWarningMessage(
+                    'Unable to open a terminal for this conversation command.'
+                );
+            }
+        },
         spawnCodex: childProcess.spawn,
         now: () => Date.now(),
         setTimer: setTimeout,

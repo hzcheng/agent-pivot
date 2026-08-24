@@ -41,13 +41,20 @@ function highlightCode(value: string, lang: string): string {
 
 function renderCodeBlock(value: string, info: string): string {
     const lang = (info || '').trim().split(/\s+/)[0] || '';
+    const runnable = /^(?:bash|sh|shell|zsh)$/i.test(lang);
     const label = lang
         ? `<span class="conversation-code-lang">${escapeHtml(lang)}</span>`
         : '';
     return `<section class="conversation-code-block">`
         + `<section class="conversation-code-header">${label}`
+        + '<span class="conversation-code-actions">'
+        + (runnable
+            ? '<button class="conversation-code-run" '
+                + 'data-conversation-run-command '
+                + 'title="Run in new terminal"></button>'
+            : '')
         + '<button class="conversation-code-copy" title="Copy code">'
-        + '</button></section>'
+        + '</button></span></section>'
         + highlightCode(value, lang)
         + '</section>\n';
 }

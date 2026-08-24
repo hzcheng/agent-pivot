@@ -167,6 +167,12 @@ export interface ConversationViewerOptions {
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Create a terminal at the conversation's workspace and execute a
+     * command the user explicitly invoked from a rendered shell snippet. */
+    runCommandInNewTerminal?: (
+        target: ConversationViewerTarget,
+        command: string
+    ) => PromiseLike<void> | Promise<void> | void;
     /** Rename the current session; the host owns the actual rename UX and
      * persistence, the refreshed authority updates the viewer header. */
     renameSession?: (
@@ -988,7 +994,8 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.openLink(parsed.href);
             return;
         }
-        if (parsed.type === 'conversation-viewer-changes-refresh'
+        if (parsed.type === 'conversation-viewer-run-command'
+            || parsed.type === 'conversation-viewer-changes-refresh'
             || parsed.type === 'conversation-viewer-changes-select'
             || parsed.type === 'conversation-viewer-changes-open-file'
             || parsed.type === 'conversation-viewer-changes-review'
@@ -1007,11 +1014,21 @@ export class ConversationViewer implements ConversationViewerApi {
                 || parsed.projectId !== target.projectId
                 || parsed.provider !== target.provider
                 || parsed.sessionId !== target.sessionId) {
-                this.emitDiagnostic('changes-action-dropped-stale', {
+                this.emitDiagnostic(
+                    parsed.type === 'conversation-viewer-run-command'
+                        ? 'run-command-dropped-stale'
+                        : 'changes-action-dropped-stale', {
                     requestGeneration: parsed.subscriptionGeneration,
                 });
                 return;
             }
+        }
+        if (parsed.type === 'conversation-viewer-run-command') {
+            await this.options.runCommandInNewTerminal?.(
+                this.target,
+                parsed.command
+            );
+            return;
         }
         if (parsed.type === 'conversation-viewer-changes-refresh') {
             await this.changesController?.handleRefresh();

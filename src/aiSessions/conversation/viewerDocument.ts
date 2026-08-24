@@ -27,6 +27,7 @@ const CONVERSATION_COMMENT_ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" st
 const CONVERSATION_COMMENT_ICON_COMMENT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg>';
 const CONVERSATION_COMMENT_ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>';
 const CONVERSATION_COMMENT_ICON_SEND = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg>';
+const CONVERSATION_COMMENT_ICON_TERMINAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 9 3 3-3 3"/><path d="M13 15h3"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>';
 const CONVERSATION_COMMENT_ICON_ERASER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>';
 const CONVERSATION_COMMENT_ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 const CONVERSATION_COMMENT_ICON_BOOKMARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg>';
@@ -736,6 +737,10 @@ export function renderConversationViewerDocument(
             data-comment-selection-action="send"
             title="Send selection to the active terminal"
             aria-label="Send selection to the active terminal">${CONVERSATION_COMMENT_ICON_SEND}</button>
+        <button class="conversation-comment-icon-button accent" type="button"
+            data-comment-selection-action="run" hidden
+            title="Run selection in a new terminal"
+            aria-label="Run selection in a new terminal">${CONVERSATION_COMMENT_ICON_TERMINAL}</button>
     </div>
     <script nonce="${escapeAttribute(nonce)}" src="${escapeAttribute(
         purify.toString()

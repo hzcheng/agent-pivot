@@ -9,6 +9,9 @@
         var messages = options.messages;
         var scroll = options.scroll;
         var addComment = options.addComment;
+        var runSelection = addComment
+            ? addComment.querySelector('[data-comment-selection-action="run"]')
+            : null;
         var telemetryComments = options.telemetryComments;
         var telemetrySection = options.telemetrySection;
         var commentsRoot = options.commentsRoot;
@@ -72,6 +75,7 @@
             pendingLocateRequest: null,
             clearAllConfirmation: false,
             selectedCommentText: null,
+            selectedRunnableCommand: false,
             editingComment: null,
             expandedDoneComments: new Set(),
             expandedClampedComments: new Set(),
@@ -1649,7 +1653,9 @@
             var selection = window.getSelection();
             if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) {
                 addComment.hidden = true;
+                if (runSelection) runSelection.hidden = true;
                 state.selectedCommentText = null;
+                state.selectedRunnableCommand = false;
                 return;
             }
             var range = selection.getRangeAt(0);
@@ -1674,7 +1680,9 @@
                 || !messages.contains(startMessage) || !quote
                 || Array.from(quote).length > 4000) {
                 addComment.hidden = true;
+                if (runSelection) runSelection.hidden = true;
                 state.selectedCommentText = null;
+                state.selectedRunnableCommand = false;
                 return;
             }
             var context = selectionContext(range, markdown);
@@ -1691,13 +1699,27 @@
                 prefix: context.prefix,
                 suffix: context.suffix,
             };
+            state.selectedRunnableCommand = isRunnableShellSelection(
+                quote,
+                startElement,
+                endElement
+            );
+            if (runSelection) {
+                runSelection.hidden = !state.selectedRunnableCommand;
+            }
             var rect = range.getBoundingClientRect();
+            // Measure the actual action count before positioning. A hidden
+            // popover has zero width, which otherwise lets the new Run action
+            // overflow when the selection is against the right edge.
+            addComment.hidden = false;
+            addComment.style.visibility = 'hidden';
+            var popoverWidth = addComment.offsetWidth;
             addComment.style.left = Math.max(
                 8,
-                Math.min(window.innerWidth - 64, rect.left)
+                Math.min(window.innerWidth - popoverWidth - 8, rect.left)
             ) + 'px';
             addComment.style.top = Math.max(8, rect.bottom + 6) + 'px';
-            addComment.hidden = false;
+            addComment.style.visibility = '';
         }
 
         function sendSelectionToTerminal() {
@@ -1707,6 +1729,7 @@
             var quote = state.selectedCommentText.quote;
             addComment.hidden = true;
             state.selectedCommentText = null;
+            state.selectedRunnableCommand = false;
             var selection = window.getSelection();
             if (selection) {
                 selection.removeAllRanges();
@@ -1717,6 +1740,69 @@
                 text: quote,
             });
             status.textContent = 'Selection sent to the active terminal.';
+        }
+
+        var RUNNABLE_SHELL_COMMANDS = new Set([
+            'awk', 'bash', 'cat', 'cd', 'chmod', 'cp', 'curl', 'docker',
+            'echo', 'export', 'find', 'git', 'go', 'grep', 'kubectl', 'ls',
+            'make', 'mkdir', 'mvn', 'node', 'npm', 'perl', 'pip', 'pnpm',
+            'python', 'python3', 'rg', 'rm', 'sed', 'sh', 'touch', 'yarn',
+            'zsh',
+        ]);
+
+        function isRunnableShellSelection(quote, startElement, endElement) {
+            if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(quote)) {
+                return false;
+            }
+            var startBlock = startElement && startElement.closest
+                ? startElement.closest('.conversation-code-block')
+                : null;
+            var endBlock = endElement && endElement.closest
+                ? endElement.closest('.conversation-code-block')
+                : null;
+            if (startBlock && startBlock === endBlock) {
+                var code = startBlock.querySelector('pre code');
+                if (code && /(?:^|\s)language-(?:bash|sh|shell|zsh)(?:\s|$)/i
+                    .test(code.className || '')) {
+                    return true;
+                }
+            }
+            var command = quote.trim().replace(
+                /^(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*/,
+                ''
+            );
+            var first = /^([^\s|&;<>]+)/.exec(command);
+            if (!first) return false;
+            return RUNNABLE_SHELL_COMMANDS.has(first[1])
+                || /^(?:\.{1,2}\/|~\/|\/)/.test(first[1])
+                || /(?:\|\||&&|[|;<>`$()]|\*)/.test(command);
+        }
+
+        function runSelectionInNewTerminal() {
+            if (!state.selectedCommentText
+                || state.pendingCommentRequest
+                || !state.selectedRunnableCommand) {
+                return;
+            }
+            var command = state.selectedCommentText.quote;
+            addComment.hidden = true;
+            if (runSelection) runSelection.hidden = true;
+            state.selectedCommentText = null;
+            state.selectedRunnableCommand = false;
+            var selection = window.getSelection();
+            if (selection) {
+                selection.removeAllRanges();
+            }
+            post({
+                type: 'conversation-viewer-run-command',
+                version: 1,
+                subscriptionGeneration: subscriptionGeneration,
+                projectId: commentTarget.projectId,
+                provider: commentTarget.provider,
+                sessionId: commentTarget.sessionId,
+                command: command,
+            });
+            status.textContent = 'Opening selection in a new terminal.';
         }
 
         function openCommentComposer() {
@@ -1742,6 +1828,7 @@
             setActiveTab('session', true);
             addComment.hidden = true;
             state.selectedCommentText = { scope: 'session' };
+            state.selectedRunnableCommand = false;
             commentSelection.textContent = 'Session note';
             commentComposer.setAttribute('data-comment-composer-scope', 'session');
             commentInput.value = '';
@@ -1754,6 +1841,7 @@
             commentComposer.removeAttribute('data-comment-composer-scope');
             commentInput.value = '';
             state.selectedCommentText = null;
+            state.selectedRunnableCommand = false;
             addComment.hidden = true;
         }
 
@@ -2818,6 +2906,11 @@
                 if (button.getAttribute('data-comment-selection-action')
                     === 'send') {
                     sendSelectionToTerminal();
+                    return;
+                }
+                if (button.getAttribute('data-comment-selection-action')
+                    === 'run') {
+                    runSelectionInNewTerminal();
                     return;
                 }
                 if (button.getAttribute('data-comment-selection-action')

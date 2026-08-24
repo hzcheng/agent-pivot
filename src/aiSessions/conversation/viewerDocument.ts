@@ -243,8 +243,8 @@ export function renderConversationViewerDocument(
                 aria-label="Previous window">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
             <div class="conversation-session-status" data-conversation-session-status
                 role="group" aria-label="AI session status in this window">
-                ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
                 ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal)}
+                ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
                 ${renderSessionStatusDot('idle', sessionStatus.idleSessionsLocal)}
             </div>
             <button class="conversation-session-nav conversation-session-nav-next"

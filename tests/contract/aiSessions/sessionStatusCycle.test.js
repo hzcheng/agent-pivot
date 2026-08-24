@@ -84,6 +84,32 @@ test('CONVERSATION-SESSION-STATUS-001 re-anchors to the watched session after a 
     assert.deepEqual(calls[2], ['navigate', 'codex', 'c1']);
 });
 
+test('CONVERSATION-SESSION-STATUS-001 resolves a command anchor inside the shared navigation queue', async () => {
+    let focused = item('codex', 'c1');
+    const calls = [];
+    const handler = createSessionStatusCycleHandler({
+        buildItems: kind => kind === 'running'
+            ? [item('codex', 'c1'), item('kimi', 'k1'), item('claude', 'l1')]
+            : [],
+        navigateSession: async target => {
+            focused = target;
+            calls.push(['navigate', target.provider, target.sessionId]);
+            return { focused: true, conversationOpened: true };
+        },
+        showInformationMessage: message => calls.push(['info', message]),
+        showWarningMessage: message => calls.push(['warn', message]),
+    });
+
+    await Promise.all([
+        handler.cycleToNext('running', () => focused),
+        handler.cycleToNext('running', () => focused),
+    ]);
+    assert.deepEqual(calls, [
+        ['navigate', 'kimi', 'k1'],
+        ['navigate', 'claude', 'l1'],
+    ]);
+});
+
 test('CONVERSATION-SESSION-STATUS-001 keeps independent cursors per kind', async () => {
     const { calls, handler } = makeHandler({
         items: {

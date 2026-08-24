@@ -5507,18 +5507,21 @@
   {
     "id": "CONVERSATION-SESSION-STATUS-001",
     "domain": "webview",
-    "title": "AI Conversation shows this window's running, attention, and idle Session counts as clickable status badges in the bottom session-navigation row that cycle to the next local session of their kind, disable when empty, pulse only while non-zero, stay readable at narrow widths, and honor reduced motion",
+    "title": "AI Conversation shows this window's attention, running, and idle Session counts in that order as clickable status badges in the bottom session-navigation row; the local Active Chat and Attention Chat commands reuse the running and attention cycles, while all badges and commands stay within this window, disable when empty, pulse only while non-zero, remain readable at narrow widths, and honor reduced motion",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/conversationSessionStatusController.test.js",
       "tests/contract/aiSessions/sessionStatusCycle.test.js",
+      "tests/contract/dashboardBoundaries.test.js",
       "tests/contract/openProjects/projection.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/aiSessions/conversation/sessionStatusController.ts",
+      "package.json",
+      "src/dashboard/commandRegistration.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerDocument.ts",
       "src/aiSessions/conversation/viewerProtocol.ts",

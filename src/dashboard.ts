@@ -2765,6 +2765,12 @@ async function initializeDashboard(
                 && Boolean(candidate.identity.sessionId));
         return direct?.identity || null;
     };
+    const getFocusedSessionStatusCycleAnchor = () => {
+        const identity = getFocusedAiSessionIdentity();
+        return identity?.sessionId
+            ? { provider: identity.provider, sessionId: identity.sessionId }
+            : undefined;
+    };
     const requestRemoteAiSessionFocus = (navigationIdentity: string): Promise<boolean> => {
         const sourceNavigationIdentity = getCurrentOpenWorkspace()?.navigationIdentity;
         return sourceNavigationIdentity
@@ -3214,6 +3220,20 @@ async function initializeDashboard(
         },
         nextRunningSession: async () => {
             await runningSessionJumpHandler.jumpToNextRunningSession();
+            revealFocusedAiSessionInDashboard();
+        },
+        nextActiveChatInWindow: async () => {
+            await sessionStatusCycleHandler.cycleToNext(
+                'running',
+                getFocusedSessionStatusCycleAnchor,
+            );
+            revealFocusedAiSessionInDashboard();
+        },
+        nextAttentionChatInWindow: async () => {
+            await sessionStatusCycleHandler.cycleToNext(
+                'attention',
+                getFocusedSessionStatusCycleAnchor,
+            );
             revealFocusedAiSessionInDashboard();
         },
         switchToAiSession: async () => {

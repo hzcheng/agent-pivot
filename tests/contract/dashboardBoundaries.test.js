@@ -370,6 +370,8 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.previousActiveSession', 'agentPivot.nextActiveSession',
     'agentPivot.nextAttentionSession',
     'agentPivot.nextRunningSession',
+    'agentPivot.nextActiveChatInWindow',
+    'agentPivot.nextAttentionChatInWindow',
     'agentPivot.switchToAiSession',
     'agentPivot.switchWorktreeOrSession',
     'agentPivot.toggleLastAiSession',
@@ -400,6 +402,8 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'previousActiveSession', 'nextActiveSession',
         'nextAttentionSession',
         'nextRunningSession',
+        'nextActiveChatInWindow',
+        'nextAttentionChatInWindow',
         'switchToAiSession',
         'switchWorktreeOrSession',
         'toggleLastAiSession',
@@ -568,6 +572,30 @@ test('AI-SESSION-NEXT-RUNNING-COMMAND-001 contributes the next-running command w
     );
 });
 
+test('CONVERSATION-SESSION-STATUS-001 contributes local active and attention chat commands without default keybindings', () => {
+    const manifest = require('../../package.json');
+    const commands = manifest.contributes.commands.filter(command =>
+        command.command === 'agentPivot.nextActiveChatInWindow'
+            || command.command === 'agentPivot.nextAttentionChatInWindow'
+    );
+    assert.deepEqual(commands, [
+        {
+            command: 'agentPivot.nextActiveChatInWindow',
+            title: 'Agent Pivot: Next Active Chat in This Window',
+        },
+        {
+            command: 'agentPivot.nextAttentionChatInWindow',
+            title: 'Agent Pivot: Next Attention Chat in This Window',
+        },
+    ]);
+    assert.deepEqual(
+        manifest.contributes.keybindings.filter(binding =>
+            commands.some(command => command.command === binding.command)
+        ),
+        []
+    );
+});
+
 test('CONVERSATION-SEEK-LATEST-COMMAND-001 contributes the seek-latest command without a default keybinding', () => {
     const manifest = require('../../package.json');
     assert.deepEqual(
@@ -634,6 +662,16 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 CONVERSATION-ACTIVE-SESSION-NAVIGATIO
             )
         );
     }
+    assert.match(
+        source,
+        /nextActiveChatInWindow: async \(\) => \{[\s\S]*?sessionStatusCycleHandler\.cycleToNext\([\s\S]*?'running'[\s\S]*?getFocusedSessionStatusCycleAnchor,[\s\S]*?revealFocusedAiSessionInDashboard\(\)/,
+        'Next Active Chat in This Window must reuse the local running-session cycle',
+    );
+    assert.match(
+        source,
+        /nextAttentionChatInWindow: async \(\) => \{[\s\S]*?sessionStatusCycleHandler\.cycleToNext\([\s\S]*?'attention'[\s\S]*?getFocusedSessionStatusCycleAnchor,[\s\S]*?revealFocusedAiSessionInDashboard\(\)/,
+        'Next Attention Chat in This Window must reuse the local attention-session cycle',
+    );
 });
 
 test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 marks only an actually focused Open Current selection as terminal-authoritative', () => {

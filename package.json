@@ -129,6 +129,14 @@
                 "title": "Agent Pivot: Next Running Session"
             },
             {
+                "command": "agentPivot.nextActiveChatInWindow",
+                "title": "Agent Pivot: Next Active Chat in This Window"
+            },
+            {
+                "command": "agentPivot.nextAttentionChatInWindow",
+                "title": "Agent Pivot: Next Attention Chat in This Window"
+            },
+            {
                 "command": "agentPivot.switchToAiSession",
                 "title": "Agent Pivot: Switch to AI Session"
             },

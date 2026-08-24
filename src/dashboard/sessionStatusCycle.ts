@@ -22,6 +22,9 @@ export interface SessionStatusCycleAnchor {
     sessionId: string;
 }
 
+export type SessionStatusCycleAnchorSource = SessionStatusCycleAnchor
+    | (() => SessionStatusCycleAnchor | undefined);
+
 export interface SessionStatusCycleHandlerOptions {
     navigationCoordinator?: SessionNavigationCoordinator;
     buildItems: (
@@ -38,7 +41,7 @@ export interface SessionStatusCycleHandlerOptions {
 export interface SessionStatusCycleHandler {
     cycleToNext(
         kind: ConversationSessionStatusKind,
-        anchor?: SessionStatusCycleAnchor
+        anchor?: SessionStatusCycleAnchorSource
     ): Promise<void>;
 }
 
@@ -74,7 +77,7 @@ export function createSessionStatusCycleHandler(
 
     async function cycleToNext(
         kind: ConversationSessionStatusKind,
-        anchor?: SessionStatusCycleAnchor
+        anchor?: SessionStatusCycleAnchorSource
     ): Promise<void> {
         const seen = new Set<string>();
         const items = options.buildItems(kind)
@@ -93,7 +96,8 @@ export function createSessionStatusCycleHandler(
             options.showInformationMessage(EMPTY_MESSAGES[kind]);
             return;
         }
-        const anchorKey = anchor ? itemKey(anchor) : null;
+        const resolvedAnchor = typeof anchor === 'function' ? anchor() : anchor;
+        const anchorKey = resolvedAnchor ? itemKey(resolvedAnchor) : null;
         const anchorIndex = anchorKey
             ? items.findIndex(item => itemKey(item) === anchorKey)
             : -1;

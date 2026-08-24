@@ -385,7 +385,6 @@ export function renderConversationTelemetry(
             data-telemetry-limit data-telemetry-limit-id="${escapeAttribute(limit.id)}"
             role="meter" tabindex="0" aria-valuemin="0" aria-valuemax="100"
             aria-valuenow="${usedPercent}" aria-label="${escapeAttribute(details)}"
-            title="${escapeAttribute(details)}"
             data-tooltip="${escapeAttribute(details)}">
             ${renderProgressRing(
                 'data-telemetry-limit-progress',
@@ -408,14 +407,12 @@ export function renderConversationTelemetry(
             ${sessionKind === 'attention' ? 'role="button"' : ''}
             tabindex="0"
             aria-label="${escapeAttribute(providerTitle)}"
-            title="${escapeAttribute(providerTitle)}"
             data-tooltip="${escapeAttribute(providerTitle)}">
             ${PROVIDER_ICON_CODEX_SVG}${PROVIDER_ICON_KIMI_SVG}${PROVIDER_ICON_CLAUDE_SVG}
         </div>
         <div class="conversation-telemetry-model conversation-telemetry-tooltip"
             data-telemetry-model tabindex="0"
             aria-label="${escapeAttribute(modelTitle)}"
-            title="${escapeAttribute(modelTitle)}"
             data-tooltip="${escapeAttribute(modelTitle)}"${hasModel ? '' : ' hidden'}>
             ${MODEL_ICON_SVG}
             <strong data-telemetry-model-value>${escapeHtml(
@@ -427,7 +424,6 @@ export function renderConversationTelemetry(
             data-telemetry-context role="meter" aria-valuemin="0"
             tabindex="0" aria-valuemax="100" aria-valuenow="${contextPercent}"
             aria-label="${escapeAttribute(contextDetails)}"
-            title="${escapeAttribute(contextDetails)}"
             data-tooltip="${escapeAttribute(contextDetails)}"${hasContext ? '' : ' hidden'}>
             ${renderProgressRing(
                 'data-telemetry-context-progress',
@@ -446,7 +442,6 @@ export function renderConversationTelemetry(
             data-conversation-position
             aria-pressed="false"
             aria-label="Input 0 of 0 — click to open the outline"
-            title="Input 0 of 0 — click to open the outline"
             data-tooltip="Input 0 of 0 — click to open the outline">
             ${POSITION_ICON_SVG}<span data-conversation-position-value>0/0</span>
         </button>
@@ -455,7 +450,6 @@ export function renderConversationTelemetry(
             data-telemetry-comments
             aria-pressed="false"
             aria-label="0 open session comments · 0 open workspace notes — click to review"
-            title="0 open session comments · 0 open workspace notes — click to review"
             data-tooltip="0 open session comments · 0 open workspace notes — click to review">
             ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value>0 · 0</span>
         </button>
@@ -464,7 +458,6 @@ export function renderConversationTelemetry(
             data-telemetry-subagents
             aria-pressed="false"
             aria-label="0 running of 0 subagents — click to view"
-            title="0 running of 0 subagents — click to view"
             data-tooltip="0 running of 0 subagents — click to view">
             ${SUBAGENTS_ICON_SVG}<span data-telemetry-subagents-value>0/0</span>
         </button>

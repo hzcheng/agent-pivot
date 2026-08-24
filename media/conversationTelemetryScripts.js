@@ -157,7 +157,7 @@
         }
 
         function setTooltip(element, label) {
-            element.title = label;
+            element.removeAttribute('title');
             element.setAttribute('aria-label', label);
             element.setAttribute('data-tooltip', label);
         }
@@ -260,6 +260,7 @@
             }
             telemetryModel.hidden = !telemetry.model;
             telemetryModelValue.textContent = telemetry.model || '';
+            setTooltip(telemetryProvider, providerTooltip());
             setTooltip(
                 telemetryModel,
                 telemetry.model ? 'Model · ' + telemetry.model : 'Model'

@@ -575,7 +575,7 @@
                     + ' open workspace note'
                     + (workspaceOpenCount === 1 ? '' : 's')
                     + ' — click to review';
-                telemetryComments.title = telemetryCommentLabel;
+                telemetryComments.removeAttribute('title');
                 telemetryComments.setAttribute(
                     'aria-label', telemetryCommentLabel
                 );

@@ -268,12 +268,20 @@ export function createDashboardMessageHandlers(
             });
         },
         'stop-ai-session-runtime': async e => {
+            const expectedBackend = e.backend === undefined
+                ? 'tmux'
+                : e.backend === 'vscode' || e.backend === 'tmux'
+                    ? e.backend
+                    : undefined;
+            if (!expectedBackend) {
+                return;
+            }
             await aiSessionTerminalCommandController.stopSession({
                 projectId: e.projectId as string,
                 providerId: e.provider as string,
                 sessionId: e.sessionId as string,
                 pendingCreatedAt: e.pendingCreatedAt as string,
-                expectedBackend: e.backend === 'vscode' ? 'vscode' : 'tmux',
+                expectedBackend,
             });
         },
         'toggle-ai-session-pin': async e => {

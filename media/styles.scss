@@ -4704,8 +4704,8 @@ body.steward-sidebar {
         }
 
         .ai-session-stop-runtime {
-            width: 16px;
-            height: 16px;
+            width: 24px;
+            height: 24px;
             border-radius: 999px;
 
             &:hover,
@@ -4721,6 +4721,15 @@ body.steward-sidebar {
             opacity: 1;
             pointer-events: auto;
             transform: translateY(-50%) translateX(0);
+        }
+
+        .codex-session-row:hover .ai-session-primary-action,
+        .codex-session-row:focus-within .ai-session-primary-action,
+        .codex-session-row[data-session-pinned] .ai-session-primary-action {
+            // Close (24px), pin (16px), More (24px), gaps, pill padding and
+            // its border occupy up to 74px. Reserve 80px while visible so the
+            // actions never cover a title in narrow sidebars.
+            padding-right: 80px;
         }
 
         .codex-session-row[data-session-pinned] .codex-session-actions {
@@ -6246,17 +6255,30 @@ body.steward-sidebar .open-session-surface .ai-session-attention-indicator {
                 .ai-session-primary-action {
                     grid-template-columns: 22px minmax(0, 1fr);
                     gap: 5px;
-                    // No permanent reservation for the hover action pill:
-                    // three action icons need ~48px, which would leave the
-                    // title unreadable at the minimum sidebar width. The
-                    // pill transiently overlays the truncated tail instead
-                    // (VS Code list rows behave the same way on hover).
                     padding-right: 8px;
                     padding-left: 6px;
                 }
 
+                // At the supported 170px minimum, a nested tree row cannot
+                // show Close, Pin, More, and a legible title at once. Keep
+                // the destructive and overflow actions; Pin remains in More.
+                .codex-session-pin,
+                .ai-session-status-marker,
+                .ai-session-runtime-badge {
+                    display: none;
+                }
+
+                &:hover .ai-session-primary-action,
+                &:focus-within .ai-session-primary-action,
+                &[data-session-pinned] .ai-session-primary-action {
+                    // Close (24px), More (24px), their gap and the pill
+                    // chrome occupy 54px. Reserve 60px, retaining at least
+                    // 20px for the title after the icon column.
+                    padding-right: 60px;
+                }
+
                 .codex-session-name {
-                    min-width: 96px;
+                    min-width: 0;
                 }
             }
 

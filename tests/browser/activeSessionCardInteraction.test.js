@@ -2816,12 +2816,20 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct close control for ever
         const rowRect = row.getBoundingClientRect();
         const actionRect = actions.getBoundingClientRect();
         const buttonRect = button.getBoundingClientRect();
+        const textRect = row.querySelector('.codex-session-text').getBoundingClientRect();
+        const nameRect = row.querySelector('.codex-session-name').getBoundingClientRect();
         return {
             documentWidth: document.documentElement.scrollWidth,
             rowRight: rowRect.right,
             actionsRight: actionRect.right,
             buttonCenterY: buttonRect.top + buttonRect.height / 2,
             rowCenterY: rowRect.top + rowRect.height / 2,
+            buttonWidth: buttonRect.width,
+            buttonHeight: buttonRect.height,
+            textRight: textRect.right,
+            textWidth: textRect.width,
+            actionsLeft: actionRect.left,
+            nameWidth: nameRect.width,
         };
     });
     assert.equal(layout.documentWidth, 170,
@@ -2830,6 +2838,12 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct close control for ever
         'the direct Close control stays within its chat row');
     assert.ok(Math.abs(layout.buttonCenterY - layout.rowCenterY) <= 1,
         'the direct Close control remains vertically centered in its chat row');
+    assert.ok(layout.buttonWidth >= 24 && layout.buttonHeight >= 24,
+        'the direct Close control has a 24px minimum hit target');
+    assert.ok(layout.textRight <= layout.actionsLeft + 1,
+        'the action pill never covers the chat title at the minimum sidebar width');
+    assert.ok(layout.textWidth >= 16 && layout.nameWidth >= 16,
+        `the action pill leaves a visible, readable chat-title area at the minimum sidebar width: ${JSON.stringify(layout)}`);
     await closeTmux.click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'stop-ai-session-runtime',
@@ -2845,6 +2859,34 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct close control for ever
         projectId: 'project-a',
         provider: 'kimi',
         sessionId: 'direct-session',
+        backend: 'vscode',
+    });
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes Close in ALL for active chat history rows', async t => {
+    const active = session('codex', 'all-active', false);
+    const page = await openListPage(t, [active], [{
+        id: 'all-active', name: 'codex all-active', active: true,
+    }]);
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+        window.vscode.postMessage = message => window.__postedMessages.push(message);
+    });
+    await page.locator('[data-ai-session-tab="all"]').click();
+    const activeRow = page.locator(
+        '.ai-session-history-panel .codex-session-row[data-session-id="all-active"]'
+    );
+    const close = activeRow.locator('[data-action="stop-ai-session-runtime"]');
+
+    assert.equal(await close.count(), 1,
+        'ALL gives an active chat the same direct Close affordance as CHATS');
+    await activeRow.hover();
+    await close.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'stop-ai-session-runtime',
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'all-active',
         backend: 'vscode',
     });
 });

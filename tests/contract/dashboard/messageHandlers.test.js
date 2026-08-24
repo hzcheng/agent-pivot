@@ -433,6 +433,17 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with its render
     }]);
 });
 
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects an unknown runtime backend', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['stop-ai-session-runtime']({
+        projectId: 'p1', provider: 'kimi', sessionId: 's9', backend: 'unknown',
+    });
+
+    assert.equal(calls.length, 0,
+        'a destructive runtime request must not coerce an unknown backend to tmux');
+});
+
 test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 routes the window view-state protocol only from exact envelopes', async () => {
     const { handlers, calls } = createFixture();
 

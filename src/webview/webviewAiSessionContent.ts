@@ -1206,6 +1206,9 @@ function getCodexSessionRow(
     var runtimeAttributes = ` data-session-backend="${backend}" data-session-attached="${attached ? 'true' : 'false'}"${runtime?.tmuxLayout ? ` data-tmux-layout="${runtime.tmuxLayout}"` : ''}${runtime?.conflict ? ' data-session-conflict' : ''}${runtime?.stale ? ' data-session-stale' : ''}`;
     var batchCheckbox = `<input type="checkbox" class="ai-session-batch-checkbox" aria-label="Select ${sessionName}"${active ? ' disabled' : ''}>`;
     var pinAction = `<button type="button" class="codex-session-pin ${pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" data-tooltip="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
+    var stopAction = active && !conflict
+        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
+        : '';
     const contextMenuAction = `<button type="button" class="codex-session-more" data-action="open-ai-session-context-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionContextMenu" aria-label="More actions" data-tooltip="More actions">&#8943;</button>`;
     var worktreeGone = !active && session.worktreeUnavailable === true;
     var primaryAction = conflict ? 'Choose runtime'
@@ -1275,6 +1278,7 @@ function getCodexSessionRow(
         </span>
     </button>
     <span class="codex-session-actions">
+        ${stopAction}
         ${!active ? `<button type="button" class="codex-session-view" data-action="view-ai-session-conversation" data-tooltip="View Conversation" aria-label="View conversation for ${providerLabel} session ${sessionName}">${Icons.viewConversation}</button>` : ''}
         ${pinAction}
         ${contextMenuAction}
@@ -1499,7 +1503,7 @@ export function getAiSessionContextMenu() {
         Close Terminal…
     </div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="stop-session" hidden>
-        Stop Session…
+        Close Chat…
     </div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="archive">
         Archive Chat

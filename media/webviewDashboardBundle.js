@@ -2001,7 +2001,7 @@ function initProjectContextMenus(options) {
             var stopMenuItem = sessionContextMenuElement.querySelector('[data-action="stop-session"]');
             if (stopMenuItem) {
                 stopMenuItem.toggleAttribute(
-                    'hidden', contextMenuAiSessionConflict
+                    'hidden', contextMenuAiSessionBackend !== 'tmux' || contextMenuAiSessionConflict
                 );
                 stopMenuItem.classList.toggle(
                     'disabled', !contextMenuAiSessionActive || contextMenuAiSessionConflict

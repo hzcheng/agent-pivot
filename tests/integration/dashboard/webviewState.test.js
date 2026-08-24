@@ -2547,10 +2547,10 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 announces renderer readiness a
 
 function assertCollapseButtonBehavior(context) {
     assert.deepEqual(toPlain(context.window.__agentPivotGetCollapseButtonState('open', [])), {
-        disabled: true, collapsed: false, title: 'No open windows to collapse',
+        disabled: true, collapsed: false, title: 'No worktrees to collapse',
     });
-    assert.equal(context.window.__agentPivotGetCollapseButtonState('open', [false]).title, 'Collapse Open Windows');
-    assert.equal(context.window.__agentPivotGetCollapseButtonState('open', [true]).title, 'Expand Open Windows');
+    assert.equal(context.window.__agentPivotGetCollapseButtonState('open', [false]).title, 'Collapse all worktrees');
+    assert.equal(context.window.__agentPivotGetCollapseButtonState('open', [true]).title, 'Expand all worktrees');
     assert.equal(context.window.__agentPivotGetCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
     assert.deepEqual(toPlain(context.window.__agentPivotGetCollapseButtonState('ai', [false])), {
         disabled: true, collapsed: false, title: 'No groups to collapse in AI',
@@ -2597,7 +2597,7 @@ test('WEBVIEW-GROUP-ACTIONS-001 keeps non-TODO group actions routed and persiste
 
 test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 exposes disabled and exact action labels for each dashboard tab', () => {
     assertCollapseButtonBehavior(createProjectVm().context);
-    const mutated = projectSource.replace('No open windows to collapse', 'Nothing to collapse');
+    const mutated = projectSource.replace('No worktrees to collapse', 'Nothing to collapse');
     assert.throws(() => assertCollapseButtonBehavior(createProjectVm({ source: mutated }).context));
 });
 

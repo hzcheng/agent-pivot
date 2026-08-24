@@ -184,7 +184,7 @@ function writeAiSessionWorktreeCollapseState(vscodeApi, projectDiv) {
             collapsedKeys: projects[projectId],
         });
     }
-    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+    syncGlobalAiSessionWorktreeCollapseButton();
 }
 
 // The collapse-all affordance acts like every group toggle at once: any
@@ -203,16 +203,13 @@ function toggleAllAiSessionWorktrees(projectDiv) {
     writeAiSessionWorktreeCollapseState(window.vscode, projectDiv);
 }
 
-function syncAiSessionWorktreeCollapseAllButton(projectDiv) {
-    if (!projectDiv || typeof projectDiv.querySelector !== 'function') return;
-    var button = projectDiv.querySelector('[data-action="toggle-all-ai-session-worktrees"]');
-    if (!button) return;
-    var anyExpanded = Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
-        .some(group => !group.hasAttribute('data-worktree-collapsed'));
-    button.setAttribute('data-collapse-all-state', anyExpanded ? 'expanded' : 'collapsed');
-    var label = anyExpanded ? 'Collapse all worktrees' : 'Expand all worktrees';
-    button.setAttribute('aria-label', label);
-    button.setAttribute('data-tooltip', label);
+window.__agentPivotToggleAllAiSessionWorktrees = toggleAllAiSessionWorktrees;
+
+function syncGlobalAiSessionWorktreeCollapseButton() {
+    if (window.__agentPivotSyncCollapseButton
+        && typeof window.__agentPivotSyncCollapseButton === 'function') {
+        window.__agentPivotSyncCollapseButton();
+    }
 }
 
 function setAiSessionWorktreeExpanded(header, expanded) {
@@ -260,7 +257,7 @@ function restoreAiSessionWorktreeCollapseState(projectDiv, vscodeApi) {
             setWorktreeGroupMemberDetailsExpanded(group, true);
         }
     });
-    syncAiSessionWorktreeCollapseAllButton(projectDiv);
+    syncGlobalAiSessionWorktreeCollapseButton();
 }
 
 function parseAiSessionConversationFocusOrigin(message) {
@@ -466,6 +463,7 @@ function selectAiSessionTabDom(projectDiv, tab) {
         var selected = panel.getAttribute('data-ai-session-panel') === tab;
         panel.toggleAttribute('hidden', !selected);
     });
+    syncGlobalAiSessionWorktreeCollapseButton();
     return selectedTab;
 }
 
@@ -1365,9 +1363,9 @@ function initProjectGroupCollapse() {
         }
         var labels = tab === 'open'
             ? {
-                empty: 'No open windows to collapse',
-                collapse: 'Collapse Open Windows',
-                expand: 'Expand Open Windows',
+                empty: 'No worktrees to collapse',
+                collapse: 'Collapse all worktrees',
+                expand: 'Expand all worktrees',
             }
             : {
                 empty: 'No project groups to collapse',
@@ -1398,6 +1396,23 @@ function initProjectGroupCollapse() {
             return [];
         }
         return [...document.querySelectorAll(selector)];
+    }
+
+    function getActiveAiSessionWorktreeTarget() {
+        if (getActiveDashboardTab() !== 'open' || !document.querySelector) {
+            return null;
+        }
+        var region = document.querySelector(
+            '[data-open-session-surface][data-id] '
+            + '.codex-sessions[data-selected-ai-session-tab="chats"][data-chats-view-mode="tree"]'
+        );
+        var projectDiv = region && typeof region.closest === 'function'
+            ? region.closest('[data-open-session-surface][data-id]')
+            : null;
+        var groups = projectDiv && typeof projectDiv.querySelectorAll === 'function'
+            ? Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
+            : [];
+        return projectDiv && groups.length ? { projectDiv: projectDiv, groups: groups } : null;
     }
 
     function setGroupCollapsed(group, collapsed, persist) {
@@ -1447,6 +1462,15 @@ function initProjectGroupCollapse() {
 
     function syncCollapseButton() {
         var activeTab = getActiveDashboardTab();
+        var worktreeTarget = getActiveAiSessionWorktreeTarget();
+        if (worktreeTarget) {
+            updateToggleAllGroupsButton(getCollapseButtonState(
+                'open',
+                worktreeTarget.groups.map(group =>
+                    group.hasAttribute('data-worktree-collapsed'))
+            ));
+            return;
+        }
         var groups = getActiveCollapsibleGroups();
         updateToggleAllGroupsButton(getCollapseButtonState(
             activeTab,
@@ -1456,6 +1480,14 @@ function initProjectGroupCollapse() {
 
     function toggleAllGroups() {
         var activeTab = getActiveDashboardTab();
+        var worktreeTarget = getActiveAiSessionWorktreeTarget();
+        if (worktreeTarget) {
+            if (typeof window.__agentPivotToggleAllAiSessionWorktrees === 'function') {
+                window.__agentPivotToggleAllAiSessionWorktrees(worktreeTarget.projectDiv);
+            }
+            syncCollapseButton();
+            return;
+        }
         var groups = getActiveCollapsibleGroups();
         var shouldCollapse = groups.some(group => !group.classList.contains("collapsed"));
 
@@ -4423,13 +4455,6 @@ function initProjectAiSessionControls(options) {
             );
             return true;
         }
-        var worktreeCollapseAllAction = target.closest(
-            '[data-action="toggle-all-ai-session-worktrees"]'
-        );
-        if (worktreeCollapseAllAction) {
-            toggleAllAiSessionWorktrees(projectDiv);
-            return true;
-        }
         var worktreeMenuAction = target.closest('[data-action="ai-session-worktree-menu"]');
         if (worktreeMenuAction) {
             toggleAiSessionWorktreeMenu(worktreeMenuAction, projectId);
@@ -6932,6 +6957,10 @@ function initProjectAiSessionControls(options) {
                 var check = item.querySelector('.ai-session-view-menu-check');
                 if (check) check.textContent = selected ? '✓' : '';
             });
+        if (window.__agentPivotSyncCollapseButton
+            && typeof window.__agentPivotSyncCollapseButton === 'function') {
+            window.__agentPivotSyncCollapseButton();
+        }
     }
 
     function closeChatsViewMenu(projectDiv, restoreFocus) {

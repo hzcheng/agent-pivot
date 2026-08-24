@@ -388,9 +388,6 @@ function getChatsTreePanel(
         : `<div class="ai-session-worktree-list" role="tree" aria-label="Active chats by worktree">${empty}${chatsEmpty}</div>`;
     return `<div id="ai-session-chats-${projectId}" class="ai-session-tab-panel ai-session-chats-panel" role="tabpanel" data-ai-session-panel="chats" aria-labelledby="ai-session-chats-tab-${projectId}"${selected ? '' : ' hidden'}>
         <div class="ai-session-group-form-slot" data-worktree-group-form-slot hidden></div>
-        ${getReadyWorktrees(project.worktrees).length
-            ? `<div class="ai-session-worktree-panel-bar"><button type="button" class="ai-session-worktree-collapse-all" data-action="toggle-all-ai-session-worktrees" data-collapse-all-state="expanded" aria-label="Collapse all worktrees" data-tooltip="Collapse all worktrees"><span class="ai-session-worktree-collapse-all-icon" data-icon="collapse">${Icons.collapseWorktrees}</span><span class="ai-session-worktree-collapse-all-icon" data-icon="expand">${Icons.expandWorktrees}</span></button></div>`
-            : ''}
         ${treeBody}
     </div>`;
 }

@@ -2671,56 +2671,6 @@ body.steward-sidebar {
             opacity: 0.8;
         }
 
-        .ai-session-worktree-panel-bar {
-            display: flex;
-            justify-content: flex-end;
-            padding: 0 2px 2px;
-        }
-
-        .ai-session-worktree-collapse-all {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 26px;
-            min-height: 24px;
-            padding: 3px;
-            border: 1px solid transparent;
-            border-radius: 5px;
-            color: var(--vscode-descriptionForeground);
-            background: transparent;
-            cursor: pointer;
-
-            svg {
-                width: 13px;
-                height: 13px;
-            }
-
-            &:hover,
-            &:focus-visible {
-                color: var(--steward-foreground);
-                background: var(--vscode-list-hoverBackground);
-            }
-
-            [data-icon="expand"] {
-                display: none;
-            }
-
-            &[data-collapse-all-state="collapsed"] {
-                [data-icon="collapse"] {
-                    display: none;
-                }
-
-                [data-icon="expand"] {
-                    display: inline-flex;
-                }
-            }
-        }
-
-        // Collapsing worktrees only means something on the CHATS tree view.
-        .codex-sessions[data-selected-ai-session-tab="all"] .ai-session-worktree-collapse-all {
-            display: none;
-        }
-
         // The Chats toolbar keeps the CHATS/ALL tabs and the create actions
         // on one row; the tabs stay deliberately lighter than the retired
         // boxed WORKTREE/CHATS surface switcher did.

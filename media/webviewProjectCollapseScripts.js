@@ -36,9 +36,9 @@ function initProjectGroupCollapse() {
         }
         var labels = tab === 'open'
             ? {
-                empty: 'No open windows to collapse',
-                collapse: 'Collapse Open Windows',
-                expand: 'Expand Open Windows',
+                empty: 'No worktrees to collapse',
+                collapse: 'Collapse all worktrees',
+                expand: 'Expand all worktrees',
             }
             : {
                 empty: 'No project groups to collapse',
@@ -69,6 +69,23 @@ function initProjectGroupCollapse() {
             return [];
         }
         return [...document.querySelectorAll(selector)];
+    }
+
+    function getActiveAiSessionWorktreeTarget() {
+        if (getActiveDashboardTab() !== 'open' || !document.querySelector) {
+            return null;
+        }
+        var region = document.querySelector(
+            '[data-open-session-surface][data-id] '
+            + '.codex-sessions[data-selected-ai-session-tab="chats"][data-chats-view-mode="tree"]'
+        );
+        var projectDiv = region && typeof region.closest === 'function'
+            ? region.closest('[data-open-session-surface][data-id]')
+            : null;
+        var groups = projectDiv && typeof projectDiv.querySelectorAll === 'function'
+            ? Array.from(projectDiv.querySelectorAll('.ai-session-worktree-group'))
+            : [];
+        return projectDiv && groups.length ? { projectDiv: projectDiv, groups: groups } : null;
     }
 
     function setGroupCollapsed(group, collapsed, persist) {
@@ -118,6 +135,15 @@ function initProjectGroupCollapse() {
 
     function syncCollapseButton() {
         var activeTab = getActiveDashboardTab();
+        var worktreeTarget = getActiveAiSessionWorktreeTarget();
+        if (worktreeTarget) {
+            updateToggleAllGroupsButton(getCollapseButtonState(
+                'open',
+                worktreeTarget.groups.map(group =>
+                    group.hasAttribute('data-worktree-collapsed'))
+            ));
+            return;
+        }
         var groups = getActiveCollapsibleGroups();
         updateToggleAllGroupsButton(getCollapseButtonState(
             activeTab,
@@ -127,6 +153,14 @@ function initProjectGroupCollapse() {
 
     function toggleAllGroups() {
         var activeTab = getActiveDashboardTab();
+        var worktreeTarget = getActiveAiSessionWorktreeTarget();
+        if (worktreeTarget) {
+            if (typeof window.__agentPivotToggleAllAiSessionWorktrees === 'function') {
+                window.__agentPivotToggleAllAiSessionWorktrees(worktreeTarget.projectDiv);
+            }
+            syncCollapseButton();
+            return;
+        }
         var groups = getActiveCollapsibleGroups();
         var shouldCollapse = groups.some(group => !group.classList.contains("collapsed"));
 

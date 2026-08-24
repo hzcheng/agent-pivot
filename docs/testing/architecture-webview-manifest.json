@@ -160,7 +160,16 @@
       "symbol": "window.__agentPivotSyncCollapseButton",
       "producer": "src/webview/webviewProjectCollapseScripts.js",
       "consumers": [
+        "src/webview/webviewAiSessionViewStateScripts.js",
+        "src/webview/webviewProjectAiSessionControlsScripts.js",
         "src/webview/webviewWorkspaceUpdateScripts.js"
+      ]
+    },
+    {
+      "symbol": "window.__agentPivotToggleAllAiSessionWorktrees",
+      "producer": "src/webview/webviewAiSessionViewStateScripts.js",
+      "consumers": [
+        "src/webview/webviewProjectCollapseScripts.js"
       ]
     },
     {

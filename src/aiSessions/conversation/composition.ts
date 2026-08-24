@@ -66,6 +66,11 @@ import {
 } from '../codexRolloutContentSignature';
 import { encodeSubagentSessionId } from './subagentSessions';
 
+export {
+    ConversationCommandRunner,
+    resolveConversationCommandLocation,
+} from './commandRunner';
+
 export interface ConversationSessionOpenTarget {
     projectId: string;
     provider: AiSessionProviderId;
@@ -143,6 +148,7 @@ export interface ConversationCapabilityOptions {
     insertIntoActiveTerminal?: (
         text: string
     ) => PromiseLike<void> | Promise<void> | void;
+    runCommandInTerminal?: ConversationViewerOptions['runCommandInTerminal'];
     /** Rename the viewer's current session (host owns the rename UX). */
     renameSession?: (
         target: Pick<
@@ -411,6 +417,7 @@ function createAvailableConversationCapability(
         projectCommentStore: options.projectCommentStore,
         bookmarkStore: options.bookmarkStore,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
+        runCommandInTerminal: options.runCommandInTerminal,
         renameSession: options.renameSession,
         changes: options.changes
             ? {

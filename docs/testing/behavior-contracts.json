@@ -5101,6 +5101,28 @@
     ]
   },
   {
+    "id": "CONVERSATION-RUN-COMMAND-001",
+    "domain": "webview",
+    "title": "AI Conversation lets users explicitly run bounded Bash fences or recognized shell-command selections in an isolated reusable worktree command terminal",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationCommandRunner.test.js",
+      "tests/unit/aiSessions/conversationMarkdown.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/commandRunner.ts",
+      "src/aiSessions/conversation/markdown.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/dashboard.ts",
+      "src/webview/conversationCommentsScripts.js",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-FIND-001",
     "domain": "webview",
     "title": "AI Conversation provides a Ctrl/Cmd+F find bar that case-insensitively matches a plain-text query across the visible conversation text, paints all matches through CSS custom highlights with a distinct current match scrolled into view, steps through matches with wrap-around via Enter, Shift+Enter, and the previous/next controls while announcing the match position, flags queries without matches, caps runaway result sets at 999+, and reapplies the query after every authoritative page refresh",

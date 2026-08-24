@@ -3092,6 +3092,11 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         'ts'
     );
     assert.equal(
+        await block.locator('[data-conversation-run-command]').count(),
+        0,
+        'only shell fences expose the direct Run action'
+    );
+    assert.equal(
         await block.locator('pre code').textContent(),
         'const answer = 42;\n'
     );
@@ -3213,6 +3218,111 @@ test('CONVERSATION-COPY-ACTIONS-001 copies code blocks with a hover control and 
         initialIcon,
         'the copy glyph returns after the feedback window'
     );
+});
+
+test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands in the command terminal', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 900, height: 560 },
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: 'Run this:\n\n```bash\nfind . -iname "*profile*"\n```',
+            }],
+        },
+    });
+    const command = 'find . -iname "*profile*"\n';
+    const codeRun = page.locator('[data-conversation-run-command]');
+    assert.equal(await codeRun.count(), 1);
+    assert.equal(await codeRun.getAttribute('aria-label'), 'Run command');
+    assert.equal(await codeRun.locator('svg').count(), 1);
+
+    await codeRun.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-run-command',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        command,
+    });
+
+    const selectionBubble = page.locator('[data-add-comment]');
+    const selectionRun = selectionBubble.locator(
+        '[data-comment-selection-action="run"]'
+    );
+
+    await page.locator('.conversation-markdown p').evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.waitForTimeout(20);
+    assert.equal(await selectionRun.getAttribute('hidden'), '',
+        'ordinary prose must keep the Run control hidden');
+
+    await page.locator('.conversation-code-block pre code').evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.waitForTimeout(20);
+    assert.equal(await selectionBubble.isVisible(), true);
+    assert.equal(await selectionRun.isVisible(), true);
+    await selectionRun.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-run-command',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+        command: command.trim(),
+    });
+});
+
+test('CONVERSATION-RUN-COMMAND-001 keeps a long Unicode comment selection available but non-runnable', async t => {
+    const emoji = '😀'.repeat(3000);
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: emoji,
+            }],
+        },
+    });
+    await page.locator('.conversation-markdown p').evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.waitForTimeout(20);
+    const selectionBubble = page.locator('[data-add-comment]');
+    const selectionRun = selectionBubble.locator(
+        '[data-comment-selection-action="run"]'
+    );
+    assert.equal(await selectionBubble.getAttribute('hidden'), null);
+    assert.equal(await selectionRun.getAttribute('hidden'), '',
+        'the command UTF-16 bound does not hide comment actions');
 });
 
 test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers through the Host', async t => {
@@ -5253,6 +5363,151 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    if (sidebarUiAvailable) {\n',
             '    });\n'
                 + '    if (sidebarUiAvailable) {\n'
+        )
+        // Strips the direct command action. The adjacent Viewer generation
+        // predates its sanitizer allowlist, icon helpers, and click routing.
+        .replace(
+            "        'data-interaction-id', 'data-conversation-run-command',\n",
+            "        'data-interaction-id',\n"
+        )
+        .replace(
+            '    function isRunnableTerminalCommand(command) {\n'
+                + "        return typeof command === 'string'\n"
+                + '            && command.length > 0\n'
+                + '            && command.length <= 4000\n'
+                + '            && !!command.trim()\n'
+                + '            && !/[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]/.test(command);\n'
+                + '    }\n\n'
+                + '    function postRunCommand(command) {\n'
+                + '        if (!copyUiAvailable || !isRunnableTerminalCommand(command)) return;\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-run-command',\n"
+                + '            version: 1,\n'
+                + '            subscriptionGeneration: state.subscriptionGeneration,\n'
+                + '            projectId: commentTarget.projectId,\n'
+                + '            provider: commentTarget.provider,\n'
+                + '            sessionId: commentTarget.sessionId,\n'
+                + '            command: command,\n'
+                + '        });\n'
+                + '    }\n\n',
+            ''
+        )
+        .replace(
+            '    function createTerminalIconElement() {\n'
+                + "        var icon = document.createElementNS(copyIconNamespace, 'svg');\n"
+                + "        icon.setAttribute('viewBox', '0 0 24 24');\n"
+                + "        icon.setAttribute('width', '14');\n"
+                + "        icon.setAttribute('height', '14');\n"
+                + "        icon.setAttribute('aria-hidden', 'true');\n"
+                + "        icon.setAttribute('fill', 'none');\n"
+                + "        icon.setAttribute('stroke', 'currentColor');\n"
+                + "        icon.setAttribute('stroke-width', '2');\n"
+                + "        icon.setAttribute('stroke-linecap', 'round');\n"
+                + "        icon.setAttribute('stroke-linejoin', 'round');\n"
+                + "        var prompt = document.createElementNS(copyIconNamespace, 'path');\n"
+                + "        prompt.setAttribute('d', 'm8 9 3 3-3 3M13 15h3');\n"
+                + "        var frame = document.createElementNS(copyIconNamespace, 'rect');\n"
+                + "        frame.setAttribute('x', '3');\n"
+                + "        frame.setAttribute('y', '4');\n"
+                + "        frame.setAttribute('width', '18');\n"
+                + "        frame.setAttribute('height', '16');\n"
+                + "        frame.setAttribute('rx', '2');\n"
+                + '        icon.appendChild(prompt);\n'
+                + '        icon.appendChild(frame);\n'
+                + '        return icon;\n'
+                + '    }\n\n',
+            ''
+        )
+        .replace(
+            '    function applyRunCommandButtonLabels() {\n'
+                + '        Array.prototype.forEach.call(\n'
+                + "            messages.querySelectorAll('[data-conversation-run-command]'),\n"
+                + '            function (button) {\n'
+                + "                button.setAttribute('title', 'Run command');\n"
+                + "                button.setAttribute('aria-label', 'Run command');\n"
+                + "                if (!button.querySelector('svg')) {\n"
+                + '                    button.appendChild(createTerminalIconElement());\n'
+                + '                }\n'
+                + '            }\n'
+                + '        );\n'
+                + '    }\n\n',
+            ''
+        )
+        .replace(
+            '            applyCopyButtonLabels();\n'
+                + '            applyRunCommandButtonLabels();\n',
+            '            applyCopyButtonLabels();\n'
+        )
+        .replace(
+            "    messages.addEventListener('click', function (event) {\n"
+                + '        var codeRun = event.target && event.target.closest\n'
+                + "            ? event.target.closest('[data-conversation-run-command]')\n"
+                + '            : null;\n'
+                + '        if (codeRun && messages.contains(codeRun)) {\n'
+                + "            var runBlock = codeRun.closest('.conversation-code-block');\n"
+                + "            var runCode = runBlock ? runBlock.querySelector('pre code') : null;\n"
+                + '            if (!runCode) return;\n'
+                + "            postRunCommand(runCode.textContent || '');\n"
+                + '            return;\n'
+                + '        }\n',
+            "    messages.addEventListener('click', function (event) {\n"
+        )
+        // Restores the pre-delta page application path used by the adjacent
+        // Viewer generation, including its local signature variables.
+        .replace(
+            '        if (hasHtml) {\n'
+                + '            var clean = window.DOMPurify.sanitize(message.html, {\n'
+                + '                ALLOWED_TAGS: allowedTags,\n'
+                + '                ALLOWED_ATTR: allowedAttributes,\n'
+                + '                ALLOW_DATA_ATTR: false,\n'
+                + '                ALLOW_ARIA_ATTR: false,\n'
+                + '            });\n\n'
+                + '            var reconciled = reconcileController.reconcile(\n'
+                + '                clean,\n'
+                + '                isLiveRefresh,\n'
+                + '                oldSignatures\n'
+                + '            );\n'
+                + '            Array.prototype.forEach.call(\n'
+                + "                messages.querySelectorAll('img'),\n"
+                + '                function (image) {\n'
+                + "                    image.loading = 'lazy';\n"
+                + "                    image.decoding = 'async';\n"
+                + "                    image.referrerPolicy = 'no-referrer';\n"
+                + '                }\n'
+                + '            );\n'
+                + '            applyWorklogStates();\n'
+                + '            applyCopyButtonLabels();\n'
+                + '            state.messageIds = reconciled.ids;\n'
+                + '            state.messageSignatures = reconciled.signatures;\n'
+                + '        }\n'
+                + "        if (typeof message.htmlSignature === 'string') {\n"
+                + '            state.appliedHtmlSignature = message.htmlSignature;\n'
+                + '        }\n',
+            '        var clean = window.DOMPurify.sanitize(message.html, {\n'
+                + '            ALLOWED_TAGS: allowedTags,\n'
+                + '            ALLOWED_ATTR: allowedAttributes,\n'
+                + '            ALLOW_DATA_ATTR: false,\n'
+                + '            ALLOW_ARIA_ATTR: false,\n'
+                + '        });\n\n'
+                + '        var reconciled = reconcileController.reconcile(\n'
+                + '            clean,\n'
+                + '            isLiveRefresh,\n'
+                + '            oldSignatures\n'
+                + '        );\n'
+                + '        Array.prototype.forEach.call(\n'
+                + "            messages.querySelectorAll('img'),\n"
+                + '            function (image) {\n'
+                + "                image.loading = 'lazy';\n"
+                + "                image.decoding = 'async';\n"
+                + "                image.referrerPolicy = 'no-referrer';\n"
+                + '            }\n'
+                + '        );\n'
+                + '        applyWorklogStates();\n'
+                + '        applyCopyButtonLabels();\n'
+                + '        var nextIds = reconciled.ids;\n'
+                + '        var nextSignatures = reconciled.signatures;\n'
+                + '        state.messageIds = nextIds;\n'
+                + '        state.messageSignatures = nextSignatures;\n'
         );
     const previousOutlineScript = conversationOutlineScript
         .replace(
@@ -7249,7 +7504,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     const selectionBubble = page.locator('[data-add-comment]');
     assert.equal(await selectionBubble.isVisible(), true);
     assert.deepEqual(
-        await selectionBubble.locator('button').evaluateAll(buttons =>
+        await selectionBubble.locator('button:not([hidden])').evaluateAll(buttons =>
             buttons.map(button => ({
                 action: button.getAttribute('data-comment-selection-action'),
                 iconOnly: button.innerText === ''
@@ -7266,7 +7521,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read
     // The send action is the bubble's accent chip; comment and project stay
     // ghosts.
     assert.deepEqual(
-        await selectionBubble.locator('button').evaluateAll(buttons =>
+        await selectionBubble.locator('button:not([hidden])').evaluateAll(buttons =>
             buttons.map(button => {
                 const style = getComputedStyle(button);
                 return {

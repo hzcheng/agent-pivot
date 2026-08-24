@@ -169,7 +169,9 @@ import {
 } from './aiSessions/presentationMessage';
 import {
     ConversationCapability,
+    ConversationCommandRunner,
     createConversationCapability,
+    resolveConversationCommandLocation,
 } from './aiSessions/conversation/composition';
 import {
     ConversationPanelRestoreCoordinator,
@@ -1715,6 +1717,19 @@ async function initializeDashboard(
             'restore-persisted-terminals', result.error, 'vscode'
         );
     });
+    // Command snippets from a conversation share one visible runner per
+    // worktree. This prevents a series of small commands from creating a
+    // terminal for every click while preserving each worktree's cwd boundary.
+    const conversationCommandRunner = new ConversationCommandRunner(
+        cwd => vscode.window.createTerminal({
+            name: 'Agent Pivot: Command Runner',
+            cwd: vscode.Uri.file(cwd),
+        })
+    );
+    ownResource(() => vscode.window.onDidCloseTerminal(terminal => {
+        conversationCommandRunner.forget(terminal);
+    }));
+
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         cycleLocalSessionStatus: (kind, currentTarget) =>
@@ -1879,6 +1894,64 @@ async function initializeDashboard(
             }
             await Promise.resolve(terminal.sendText(text, false));
             terminal.show();
+        },
+        runCommandInTerminal: async (viewerTarget, command) => {
+            const actionTarget = getCurrentWorkspaceActionTarget(
+                viewerTarget.projectId
+            );
+            const runtime = getAiSessionRuntimeById(
+                viewerTarget.provider,
+                viewerTarget.sessionId
+            );
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider]
+                || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            // Run at the worktree root when that identity is available. The
+            // same canonical path also gives every worktree its own reusable
+            // runner. For conversations without a worktree, retain the
+            // provider-reported cwd and never fall back to VS Code's default.
+            const location = resolveConversationCommandLocation({
+                workspaceScopeIdentity: actionTarget?.workspace.scopeIdentity,
+                activeWorktreePath: activeSession?.worktreeKey?.canonicalWorktreePath,
+                activeConflict: activeSession?.conflict === true,
+                historyWorktreePath: historySession?.worktreeKey?.canonicalWorktreePath,
+                historyCwd: historySession?.cwd,
+                historyWorkDir: historySession?.workDir,
+                ...(runtime
+                    ? {
+                        runtime: {
+                            state: runtime.state,
+                            workspaceScopeIdentity:
+                                runtime.identity.workspaceScopeIdentity,
+                            worktreePath:
+                                runtime.identity.worktreeKey?.canonicalWorktreePath,
+                            cwd: runtime.identity.cwd,
+                        },
+                    }
+                    : {}),
+            });
+            if (!location) {
+                void vscode.window.showWarningMessage(
+                    'Unable to determine this conversation\'s working directory.'
+                );
+                return;
+            }
+            try {
+                conversationCommandRunner.run({
+                    key: location.key,
+                    cwd: location.cwd,
+                    command,
+                });
+            } catch (error) {
+                logError('Failed to run conversation command in terminal', error);
+                void vscode.window.showWarningMessage(
+                    'Unable to open a terminal for this conversation command.'
+                );
+            }
         },
         spawnCodex: childProcess.spawn,
         now: () => Date.now(),

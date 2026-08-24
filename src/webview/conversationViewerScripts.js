@@ -10,7 +10,7 @@
     var allowedAttributes = [
         'href', 'src', 'alt', 'title', 'class', 'start',
         'data-message-id', 'data-conversation-message-id',
-        'data-interaction-id',
+        'data-interaction-id', 'data-conversation-run-command',
     ];
     var maxMermaidDiagrams = 40;
     var viewerScript = document.currentScript;
@@ -1340,6 +1340,27 @@
         });
     }
 
+    function isRunnableTerminalCommand(command) {
+        return typeof command === 'string'
+            && command.length > 0
+            && command.length <= 4000
+            && !!command.trim()
+            && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(command);
+    }
+
+    function postRunCommand(command) {
+        if (!copyUiAvailable || !isRunnableTerminalCommand(command)) return;
+        post({
+            type: 'conversation-viewer-run-command',
+            version: 1,
+            subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            command: command,
+        });
+    }
+
     function validCopyResult(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
             return false;
@@ -1397,6 +1418,30 @@
         return icon;
     }
 
+    function createTerminalIconElement() {
+        var icon = document.createElementNS(copyIconNamespace, 'svg');
+        icon.setAttribute('viewBox', '0 0 24 24');
+        icon.setAttribute('width', '14');
+        icon.setAttribute('height', '14');
+        icon.setAttribute('aria-hidden', 'true');
+        icon.setAttribute('fill', 'none');
+        icon.setAttribute('stroke', 'currentColor');
+        icon.setAttribute('stroke-width', '2');
+        icon.setAttribute('stroke-linecap', 'round');
+        icon.setAttribute('stroke-linejoin', 'round');
+        var prompt = document.createElementNS(copyIconNamespace, 'path');
+        prompt.setAttribute('d', 'm8 9 3 3-3 3M13 15h3');
+        var frame = document.createElementNS(copyIconNamespace, 'rect');
+        frame.setAttribute('x', '3');
+        frame.setAttribute('y', '4');
+        frame.setAttribute('width', '18');
+        frame.setAttribute('height', '16');
+        frame.setAttribute('rx', '2');
+        icon.appendChild(prompt);
+        icon.appendChild(frame);
+        return icon;
+    }
+
     function replaceCopyIcon(button, kind) {
         var current = button.querySelector('svg');
         if (current) current.remove();
@@ -1443,6 +1488,19 @@
                 }
                 if (!button.querySelector('svg')) {
                     button.appendChild(createCopyIconElement('copy'));
+                }
+            }
+        );
+    }
+
+    function applyRunCommandButtonLabels() {
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('[data-conversation-run-command]'),
+            function (button) {
+                button.setAttribute('title', 'Run command');
+                button.setAttribute('aria-label', 'Run command');
+                if (!button.querySelector('svg')) {
+                    button.appendChild(createTerminalIconElement());
                 }
             }
         );
@@ -1653,6 +1711,7 @@
             );
             applyWorklogStates();
             applyCopyButtonLabels();
+            applyRunCommandButtonLabels();
             state.messageIds = reconciled.ids;
             state.messageSignatures = reconciled.signatures;
         }
@@ -1910,6 +1969,16 @@
         outlineController.toggleBookmark(interactionId, 'card');
     });
     messages.addEventListener('click', function (event) {
+        var codeRun = event.target && event.target.closest
+            ? event.target.closest('[data-conversation-run-command]')
+            : null;
+        if (codeRun && messages.contains(codeRun)) {
+            var runBlock = codeRun.closest('.conversation-code-block');
+            var runCode = runBlock ? runBlock.querySelector('pre code') : null;
+            if (!runCode) return;
+            postRunCommand(runCode.textContent || '');
+            return;
+        }
         var codeCopy = event.target && event.target.closest
             ? event.target.closest('.conversation-code-copy')
             : null;

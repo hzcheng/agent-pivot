@@ -35,14 +35,16 @@ async function fixture(t) {
     ]);
     const key = { repositoryKey, canonicalWorktreePath: await fs.promises.realpath(worktreePath) };
     const mainKey = { repositoryKey, canonicalWorktreePath: repositoryPath };
+    const mainHead = git(repositoryPath, ['rev-parse', 'HEAD']);
+    const worktreeHead = git(worktreePath, ['rev-parse', 'HEAD']);
     const snapshot = {
         revision: 1, truncatedWorktreeCount: 0,
         repositories: [{
             repositoryKey, rootBindings: [{ workspaceRootId: 'root', repositoryRelativePath: '' }],
             baseRef: 'refs/heads/main',
-            worktrees: [{ key: mainKey, branchRef: 'refs/heads/main', head: 'a'.repeat(40),
+            worktrees: [{ key: mainKey, branchRef: 'refs/heads/main', head: mainHead,
                 isMain: true, isBare: false, health: 'normal', headKind: 'branch' },
-            { key, branchRef: 'refs/heads/agent-pivot/cleanup-task', head: 'a'.repeat(40),
+            { key, branchRef: 'refs/heads/agent-pivot/cleanup-task', head: worktreeHead,
                 isMain: false, isBare: false, health: 'normal', headKind: 'branch' }],
         }],
     };
@@ -165,10 +167,156 @@ test('WORKTREE-MANAGED-CLEANUP-001 opens confirmation before slow Git preflight 
     assert.equal(fs.existsSync(becameActive.worktreePath), true);
 });
 
+test('WORKTREE-MANAGED-CLEANUP-001 rejects a replacement snapshot after confirmation', async t => {
+    const current = await fixture(t);
+    current.setOnConfirm(() => {
+        current.snapshot.repositories[0].worktrees[1] = {
+            ...current.snapshot.repositories[0].worktrees[1],
+            branchRef: 'refs/heads/agent-pivot/replacement',
+            head: 'b'.repeat(40),
+        };
+    });
+
+    assert.deepEqual(await current.controller.remove('project', current.key), {
+        kind: 'rejected', errorCode: 'worktree-identity-changed',
+    });
+    assert.deepEqual(current.effects.map(effect => effect[0]), ['confirm']);
+    assert.equal(fs.existsSync(current.worktreePath), true);
+});
+
+test('WORKTREE-MANAGED-CLEANUP-001 rechecks runtime blockers that arise during Git preflight', async t => {
+    for (const [blocker, errorCode] of [
+        ['active', 'worktree-active'],
+        ['open', 'worktree-open'],
+        ['provisioning', 'worktree-provisioning'],
+    ]) {
+        const current = await fixture(t);
+        let active = false;
+        let open = false;
+        let provisioning = false;
+        let firstGitCall = true;
+        const controller = new ManagedWorktreeRemovalController({
+            getSnapshot: () => current.snapshot,
+            isProjectTarget: () => true,
+            isActive: () => active,
+            isOpenWorkspace: () => open,
+            isProvisioning: () => provisioning,
+            confirm: async () => 'Remove Worktree',
+            refresh: async () => { throw new Error('must not refresh'); },
+            runGit: async (_cwd, args) => {
+                if (firstGitCall) {
+                    firstGitCall = false;
+                    active = blocker === 'active';
+                    open = blocker === 'open';
+                    provisioning = blocker === 'provisioning';
+                }
+                const suffix = args.at(-1);
+                if (args.includes('status')) {
+                    return {
+                        exitCode: 0,
+                        stdout: '# branch.oid '
+                            + current.snapshot.repositories[0].worktrees[1].head + '\n'
+                            + '# branch.head agent-pivot/cleanup-task\n',
+                        stderr: '', timedOut: false,
+                    };
+                }
+                if (suffix === '--show-toplevel') {
+                    return { exitCode: 0, stdout: current.worktreePath + '\n', stderr: '', timedOut: false };
+                }
+                if (suffix === '--git-common-dir') {
+                    return { exitCode: 0, stdout: current.repositoryKey + '\n', stderr: '', timedOut: false };
+                }
+                if (suffix === 'HEAD' && args.includes('--symbolic-full-name')) {
+                    return {
+                        exitCode: 0,
+                        stdout: 'refs/heads/agent-pivot/cleanup-task\n', stderr: '', timedOut: false,
+                    };
+                }
+                return {
+                    exitCode: 0,
+                    stdout: current.snapshot.repositories[0].worktrees[1].head + '\n',
+                    stderr: '', timedOut: false,
+                };
+            },
+        });
+        assert.deepEqual(await controller.remove('project', current.key), {
+            kind: 'rejected', errorCode,
+        });
+        assert.equal(fs.existsSync(current.worktreePath), true);
+    }
+});
+
+test('WORKTREE-MANAGED-CLEANUP-001 rejects a branch switch during canonical path validation', async t => {
+    const current = await fixture(t);
+    let switched = false;
+    const controller = new ManagedWorktreeRemovalController({
+        getSnapshot: () => current.snapshot,
+        isProjectTarget: () => true,
+        isActive: () => false,
+        isOpenWorkspace: () => false,
+        isProvisioning: () => false,
+        confirm: async () => 'Remove Worktree',
+        refresh: async () => { throw new Error('must not refresh'); },
+        canonicalizeExistingPath: async candidate => {
+            if (!switched && candidate === current.worktreePath) {
+                switched = true;
+                // The replacement branch intentionally points to the same
+                // commit: only a coherent final branch+HEAD observation can
+                // distinguish it from the branch the user confirmed.
+                git(current.worktreePath, ['switch', '-c', 'agent-pivot/replaced-during-check']);
+            }
+            return fs.promises.realpath(candidate);
+        },
+    });
+
+    assert.deepEqual(await controller.remove('project', current.key), {
+        kind: 'rejected', errorCode: 'worktree-identity-changed',
+    });
+    assert.equal(switched, true);
+    assert.equal(fs.existsSync(current.worktreePath), true);
+});
+
+test('WORKTREE-MANAGED-CLEANUP-001 accepts clean tracking and SHA-256 status headers', async t => {
+    for (const [expectedHead, observedHead] of [
+        ['a'.repeat(64), 'a'.repeat(64)],
+        ['0'.repeat(64), '(initial)'],
+    ]) {
+        const current = await fixture(t);
+        current.snapshot.repositories[0].worktrees[1].head = expectedHead;
+        const controller = new ManagedWorktreeRemovalController({
+            getSnapshot: () => current.snapshot,
+            isProjectTarget: () => true,
+            isActive: () => false,
+            isOpenWorkspace: () => false,
+            isProvisioning: () => false,
+            confirm: async () => 'Remove Worktree',
+            refresh: async () => { throw new Error('must not refresh'); },
+            runGit: async (_cwd, args) => {
+                if (args.includes('--show-toplevel')) {
+                    return { exitCode: 0, stdout: current.worktreePath + '\n', stderr: '', timedOut: false };
+                }
+                if (args.includes('--git-common-dir')) {
+                    return { exitCode: 0, stdout: current.repositoryKey + '\n', stderr: '', timedOut: false };
+                }
+                return {
+                    exitCode: 0,
+                    stdout: '# branch.oid ' + observedHead + '\n'
+                        + '# branch.head agent-pivot/cleanup-task\n'
+                        + '# branch.upstream origin/agent-pivot/cleanup-task\n'
+                        + '# branch.ab +0 -0\n',
+                    stderr: '', timedOut: false,
+                };
+            },
+        });
+        assert.equal(await controller.getRemovalBlocker(current.key), null);
+    }
+});
+
 test('WORKTREE-MANAGED-CLEANUP-001 rejects main, wrong-project, and cancelled removal', async t => {
     const current = await fixture(t);
     assert.equal((await current.controller.remove('project', current.mainKey)).errorCode,
         'worktree-not-removable');
+    assert.deepEqual(current.effects, [], 'a non-removable main checkout must not prompt');
     assert.equal((await current.controller.remove('other', current.key)).errorCode,
         'project-unavailable');
     current.setConfirmation(undefined);
@@ -186,7 +334,7 @@ test('WORKTREE-MANAGED-CLEANUP-001 removes a clean idle worktree outside the man
     };
     current.snapshot.repositories[0].worktrees.push({
         key: unmanagedKey,
-        branchRef: 'refs/heads/unmanaged', head: 'a'.repeat(40), isMain: false,
+        branchRef: 'refs/heads/unmanaged', head: git(unmanagedPath, ['rev-parse', 'HEAD']), isMain: false,
         isBare: false, health: 'normal', headKind: 'branch',
     });
 

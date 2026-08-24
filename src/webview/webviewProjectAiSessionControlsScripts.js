@@ -99,6 +99,10 @@ function initProjectAiSessionControls(options) {
     var pendingIsolatedSessionRequests = new Map();
     var nextManagedWorktreeRemovalRequestId = 0;
     var pendingManagedWorktreeRemovalRequests = new Map();
+    // The Host's replay cache survives a Webview reload. Keep removal ids
+    // document-unique so a late settlement from the old document cannot
+    // release the new document's pending control.
+    var managedWorktreeRemovalDocumentNonce = Math.random().toString(36).slice(2, 10);
     var nextMergeWorktreeGroupsRequestId = 0;
     var pendingMergeWorktreeGroupsRequests = new Map();
     // A per-document nonce keeps merge request ids unique across webview
@@ -1072,19 +1076,19 @@ function initProjectAiSessionControls(options) {
         if (!repositoryKey || !worktreePath) return;
         nextManagedWorktreeRemovalRequestId = nextManagedWorktreeRemovalRequestId
             >= Number.MAX_SAFE_INTEGER ? 1 : nextManagedWorktreeRemovalRequestId + 1;
-        var requestId = 'worktree-remove-' + nextManagedWorktreeRemovalRequestId.toString(36);
-        button.disabled = true;
-        button.setAttribute('aria-disabled', 'true');
-        button.setAttribute('aria-busy', 'true');
+        var requestId = 'worktree-remove-' + managedWorktreeRemovalDocumentNonce
+            + '-' + nextManagedWorktreeRemovalRequestId.toString(36);
         var pendingLabel = 'Preparing worktree removal…';
-        pendingManagedWorktreeRemovalRequests.set(requestId, {
+        var pending = {
             button: button,
             projectId: projectId,
+            repositoryKey: repositoryKey,
+            worktreePath: worktreePath,
             ariaLabel: button.getAttribute('aria-label'),
             tooltip: button.getAttribute('data-tooltip'),
-        });
-        button.setAttribute('aria-label', pendingLabel);
-        button.setAttribute('data-tooltip', pendingLabel);
+        };
+        pendingManagedWorktreeRemovalRequests.set(requestId, pending);
+        setManagedWorktreeRemovalButtonPending(button, pendingLabel);
         var pendingProject = getAiSessionsUpdate().findCurrentWorkspaceDiv(projectId);
         var pendingLiveRegion = pendingProject?.querySelector('[data-ai-session-live-region]');
         if (pendingLiveRegion) {
@@ -1114,21 +1118,7 @@ function initProjectAiSessionControls(options) {
         if (!pending) return true;
         if (message.status === 'accepted') return true;
         pendingManagedWorktreeRemovalRequests.delete(message.requestId);
-        if (pending.button && pending.button.isConnected) {
-            pending.button.disabled = false;
-            pending.button.removeAttribute('aria-disabled');
-            pending.button.removeAttribute('aria-busy');
-            if (pending.ariaLabel === null) {
-                pending.button.removeAttribute('aria-label');
-            } else {
-                pending.button.setAttribute('aria-label', pending.ariaLabel);
-            }
-            if (pending.tooltip === null) {
-                pending.button.removeAttribute('data-tooltip');
-            } else {
-                pending.button.setAttribute('data-tooltip', pending.tooltip);
-            }
-        }
+        restoreManagedWorktreeRemovalButton(pending.button, pending);
         var projectDiv = getAiSessionsUpdate().findCurrentWorkspaceDiv(pending.projectId);
         var liveRegion = projectDiv?.querySelector('[data-ai-session-live-region]');
         if (liveRegion) {
@@ -1140,6 +1130,75 @@ function initProjectAiSessionControls(options) {
         }
         return true;
     }
+
+    function setManagedWorktreeRemovalButtonPending(button, label) {
+        if (!button) return;
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        button.setAttribute('aria-busy', 'true');
+        button.setAttribute('aria-label', label);
+        button.setAttribute('data-tooltip', label);
+    }
+
+    function restoreManagedWorktreeRemovalButton(button, pending) {
+        if (!button || !pending || !button.isConnected) return;
+        button.disabled = false;
+        button.removeAttribute('aria-disabled');
+        button.removeAttribute('aria-busy');
+        if (pending.ariaLabel === null) {
+            button.removeAttribute('aria-label');
+        } else {
+            button.setAttribute('aria-label', pending.ariaLabel);
+        }
+        if (pending.tooltip === null) {
+            button.removeAttribute('data-tooltip');
+        } else {
+            button.setAttribute('data-tooltip', pending.tooltip);
+        }
+    }
+
+    function captureManagedWorktreeRemovalState(projectDiv) {
+        if (!projectDiv || typeof projectDiv.getAttribute !== 'function') return [];
+        var projectId = projectDiv.getAttribute('data-id');
+        var pending = [];
+        pendingManagedWorktreeRemovalRequests.forEach((entry, requestId) => {
+            if (entry.projectId === projectId) {
+                pending.push({
+                    requestId: requestId,
+                    repositoryKey: entry.repositoryKey,
+                    worktreePath: entry.worktreePath,
+                });
+            }
+        });
+        return pending;
+    }
+
+    function restoreManagedWorktreeRemovalState(projectDiv, state) {
+        if (!projectDiv || !Array.isArray(state)) return;
+        state.forEach(item => {
+            if (!item || typeof item.requestId !== 'string'
+                || typeof item.repositoryKey !== 'string' || typeof item.worktreePath !== 'string') {
+                return;
+            }
+            var pending = pendingManagedWorktreeRemovalRequests.get(item.requestId);
+            if (!pending || pending.repositoryKey !== item.repositoryKey
+                || pending.worktreePath !== item.worktreePath) return;
+            var group = projectDiv.querySelector(
+                '.ai-session-worktree-group[data-worktree-repository-key="'
+                + CSS.escape(item.repositoryKey) + '"][data-worktree-path="'
+                + CSS.escape(item.worktreePath) + '"]'
+            );
+            var button = group && group.querySelector('.ai-session-worktree-more');
+            if (!button) return;
+            pending.button = button;
+            setManagedWorktreeRemovalButtonPending(button, 'Preparing worktree removal…');
+        });
+    }
+
+    window.__agentPivotManagedWorktreeRemoval = {
+        capture: captureManagedWorktreeRemovalState,
+        restore: restoreManagedWorktreeRemovalState,
+    };
 
     function submitSetGroupPrimaryRequest(projectId, button) {
         var groupId = button && button.getAttribute('data-group-id');

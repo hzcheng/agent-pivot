@@ -1326,7 +1326,6 @@ function getActiveAiSessionRow(
         ? ` data-ai-session-attention data-session-event-id="${escapeAttribute(model.attentionEventId)}"`
         : '';
     var runtimeAttributes = ` data-session-backend="${model.backend}" data-session-attached="${model.attached ? 'true' : 'false'}"${model.tmuxLayout ? ` data-tmux-layout="${model.tmuxLayout}"` : ''}${model.conflict ? ' data-session-conflict' : ''}${model.stale ? ' data-session-stale' : ''}`;
-    var hasOpenConversationHint = model.focused && !model.pending;
     var rowAction = model.backend === 'tmux'
         ? (model.attached ? 'Focus' : 'Attach or focus')
         : 'Focus';
@@ -1344,7 +1343,7 @@ function getActiveAiSessionRow(
     }
     var focusTitle = `${focusAction} ${providerLabel} Session`;
     var conversationTitle = `Open AI conversation for ${providerLabel} Session`;
-    var primaryAriaLabel = hasOpenConversationHint
+    var primaryAriaLabel = model.focused && !model.pending
         ? conversationAriaLabel
         : focusAriaLabel;
     var rootAttributes = showRootChip && model.primaryRootId
@@ -1359,8 +1358,9 @@ function getActiveAiSessionRow(
     var profileBadge = getAiSessionProfileBadge(model.profile, model.profileUnavailable);
     const profileTooltip = getAiSessionProfileTooltip(model.profile, model.profileUnavailable);
     var profileAriaLabel = `, ${profileTooltip}`;
-    var openConversationHint = hasOpenConversationHint
-        ? '<span class="ai-session-open-conversation-hint" aria-hidden="true">›</span>'
+    var stopAction = !model.pending && !conflict && model.backend === 'tmux'
+        && model.executionState !== 'stopped'
+        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Stop ${providerLabel} session ${sessionName}" data-tooltip="Stop Session">${Icons.stop}</button>`
         : '';
     const statusState = model.needsAttention
         ? 'waiting'
@@ -1389,7 +1389,7 @@ function getActiveAiSessionRow(
         + `${legacyScopeBadge ? ', legacy workspace scope' : ''}`;
     const focusTooltip = `${focusTitle}\n${rowDetails}`;
     const conversationTooltip = `${conversationTitle}\n${rowDetails}`;
-    const primaryTooltip = hasOpenConversationHint ? conversationTooltip : focusTooltip;
+    const primaryTooltip = model.focused && !model.pending ? conversationTooltip : focusTooltip;
     return `<div class="codex-session-row active-ai-session-row" role="group" aria-label="${providerLabel} session ${sessionName}${profileAriaLabel}" data-session-provider="${model.provider}" data-execution-state="${model.executionState}"${iconFx ? ` data-session-icon-fx="${iconFx}"` : ''}${runtimeAttributes}${rootAttributes}${pendingAttributes}${model.pinned ? ' data-session-pinned' : ''}${model.focused ? ' data-session-focused' : ''}${model.needsAttention ? ' data-session-needs-attention' : ''}${attentionAttributes}${getFlatOrderAttributes(flatOrder)}>
         <button type="button" class="ai-session-primary-action" data-action="activate-ai-session" aria-label="${primaryAriaLabel}" data-tooltip="${primaryTooltip}" data-focus-aria-label="${focusAriaLabel}" data-focus-tooltip="${focusTooltip}" data-conversation-aria-label="${conversationAriaLabel}" data-conversation-tooltip="${conversationTooltip}">
             ${attentionIndicator}
@@ -1397,9 +1397,8 @@ function getActiveAiSessionRow(
             <span class="codex-session-text">
                 <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${statusMarker}${worktreeChip}${legacyScopeBadge}${profileBadge}${rootChip}</span>
             </span>
-            ${openConversationHint}
         </button>
-        <span class="codex-session-actions">${pinAction}${contextMenuAction}</span>
+        <span class="codex-session-actions">${stopAction}${pinAction}${contextMenuAction}</span>
     </div>`;
 }
 

@@ -1855,7 +1855,8 @@
       "tests/contract/aiSessions/runtimeBackends.test.js",
       "tests/contract/aiSessions/tmuxClientBehavior.test.js",
       "tests/contract/dashboard/messageHandlers.test.js",
-      "tests/integration/dashboard/terminalCloseWiring.test.js"
+      "tests/integration/dashboard/terminalCloseWiring.test.js",
+      "tests/browser/activeSessionCardInteraction.test.js"
     ],
     "evidence": [
       "scripts/run-ai-session-tmux-checks.js",
@@ -1865,7 +1866,8 @@
       "src/aiSessions/runtimeCoordinator.ts",
       "src/aiSessions/terminalCommandController.ts",
       "src/dashboard/messageHandlers.ts",
-      "src/webview/webviewContent.ts"
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewAiSessionContent.ts"
     ]
   },
   {

@@ -2527,15 +2527,7 @@ function initAiSessionPresentationDom(options) {
                 primaryAction.removeAttribute('title');
             }
             var conversationHint = row.querySelector('.ai-session-open-conversation-hint');
-            if (focusedConversation && primaryAction && !conversationHint) {
-                conversationHint = document.createElement('span');
-                conversationHint.className = 'ai-session-open-conversation-hint';
-                conversationHint.setAttribute('aria-hidden', 'true');
-                conversationHint.textContent = '›';
-                primaryAction.appendChild(conversationHint);
-            } else if (!focused && conversationHint) {
-                conversationHint.remove();
-            }
+            if (conversationHint) conversationHint.remove();
         });
         if (projectedFocusedRow && revealFocused) {
             projectedFocusedRow.scrollIntoView({ block: 'nearest' });
@@ -4462,6 +4454,22 @@ function initProjectAiSessionControls(options) {
                     projectId: projectId,
                     provider: viewRow.getAttribute('data-session-provider'),
                     sessionId: viewRow.getAttribute('data-session-id'),
+                });
+            }
+            return true;
+        }
+        var stopSessionAction = target.closest('[data-action="stop-ai-session-runtime"]');
+        if (stopSessionAction) {
+            var stopRow = stopSessionAction.closest('.active-ai-session-row[data-session-id]');
+            if (stopRow
+                && stopRow.getAttribute('data-session-backend') === 'tmux'
+                && !stopRow.hasAttribute('data-session-conflict')
+                && !stopRow.hasAttribute('data-session-pending')) {
+                window.vscode.postMessage({
+                    type: 'stop-ai-session-runtime',
+                    projectId: projectId,
+                    provider: stopRow.getAttribute('data-session-provider'),
+                    sessionId: stopRow.getAttribute('data-session-id'),
                 });
             }
             return true;

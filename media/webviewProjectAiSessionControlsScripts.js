@@ -319,6 +319,22 @@ function initProjectAiSessionControls(options) {
             }
             return true;
         }
+        var stopSessionAction = target.closest('[data-action="stop-ai-session-runtime"]');
+        if (stopSessionAction) {
+            var stopRow = stopSessionAction.closest('.active-ai-session-row[data-session-id]');
+            if (stopRow
+                && stopRow.getAttribute('data-session-backend') === 'tmux'
+                && !stopRow.hasAttribute('data-session-conflict')
+                && !stopRow.hasAttribute('data-session-pending')) {
+                window.vscode.postMessage({
+                    type: 'stop-ai-session-runtime',
+                    projectId: projectId,
+                    provider: stopRow.getAttribute('data-session-provider'),
+                    sessionId: stopRow.getAttribute('data-session-id'),
+                });
+            }
+            return true;
+        }
         var worktreeToggle = target.closest('[data-action="toggle-ai-session-worktree"]');
         if (worktreeToggle) {
             setAiSessionWorktreeGroupExpanded(

@@ -4377,20 +4377,6 @@ body.steward-sidebar {
             }
         }
 
-        .active-ai-session-row[data-session-focused] .ai-session-primary-action {
-            grid-template-columns: 24px minmax(0, 1fr) 14px;
-        }
-
-        .ai-session-open-conversation-hint {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 14px;
-            color: var(--vscode-descriptionForeground);
-            font-size: 18px;
-            line-height: 1;
-        }
-
         .codex-session-row[data-session-provider="kimi"] {
             --steward-ai-accent: var(--vscode-terminal-ansiMagenta, #c586c0);
         }
@@ -4507,7 +4493,8 @@ body.steward-sidebar {
         .codex-session-view,
         .codex-session-archive,
         .codex-session-more,
-        .ai-session-close-terminal {
+        .ai-session-close-terminal,
+        .ai-session-stop-runtime {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -4620,7 +4607,8 @@ body.steward-sidebar {
         .codex-session-view,
         .codex-session-archive,
         .codex-session-more,
-        .ai-session-close-terminal {
+        .ai-session-close-terminal,
+        .ai-session-stop-runtime {
             svg {
                 width: 12px;
                 height: 12px;
@@ -4631,7 +4619,8 @@ body.steward-sidebar {
         .codex-session-view,
         .codex-session-archive,
         .codex-session-more,
-        .ai-session-close-terminal {
+        .ai-session-close-terminal,
+        .ai-session-stop-runtime {
             color: var(--vscode-descriptionForeground);
             padding: 0;
             border: 0;
@@ -4708,6 +4697,19 @@ body.steward-sidebar {
             border-radius: 999px;
 
             &:hover {
+                color: var(--vscode-errorForeground);
+                background: var(--vscode-list-hoverBackground);
+                transform: scale(1.08);
+            }
+        }
+
+        .ai-session-stop-runtime {
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+
+            &:hover,
+            &:focus-visible {
                 color: var(--vscode-errorForeground);
                 background: var(--vscode-list-hoverBackground);
                 transform: scale(1.08);

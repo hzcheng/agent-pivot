@@ -898,7 +898,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps a newer complete presentation when o
     );
     assert.equal(
         await row(page, 'codex', 'session-a').locator('.ai-session-open-conversation-hint').count(),
-        1
+        0
     );
     assert.equal(
         await row(page, 'codex', 'session-b').locator('.ai-session-open-conversation-hint').count(),
@@ -971,7 +971,7 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 keeps the focused card highlight when anot
 
     assert.equal(await focusedRow.getAttribute('data-session-focused'), '');
     assert.equal(await focusedRow.getAttribute('data-ai-session-active-terminal'), '');
-    assert.equal(await focusedRow.locator('.ai-session-open-conversation-hint').count(), 1);
+    assert.equal(await focusedRow.locator('.ai-session-open-conversation-hint').count(), 0);
     assert.equal(await primaryAction.getAttribute('title'), null);
     assert.match(await primaryAction.getAttribute('data-tooltip'),
         /^Open AI conversation for Codex Session\nProvider: Codex\nProfile: default/);
@@ -2774,13 +2774,59 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 click focuses an unfocused card and o
     assert.equal(
         await row(page, 'codex', 'session-a')
             .locator('.ai-session-open-conversation-hint').count(),
-        1
+        0,
+        'the focused chat opens its conversation without an extra chevron hint'
     );
     assert.equal(
         await row(page, 'kimi', 'session-b')
             .locator('.ai-session-open-conversation-hint').count(),
         0
     );
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct Stop control for an active tmux chat', async t => {
+    const tmuxSession = {
+        ...session('codex', 'tmux-session', false),
+        backend: 'tmux',
+        attached: true,
+        tmuxLayout: 'session',
+    };
+    const page = await openCardPage(t, [tmuxSession], { width: 170, height: 320 },
+        `${projectMarkup([tmuxSession])}${getAiSessionContextMenu()}`);
+    const stop = row(page, 'codex', 'tmux-session')
+        .locator('[data-action="stop-ai-session-runtime"]');
+
+    assert.equal(await stop.count(), 1,
+        'an active tmux chat offers Stop without first opening its overflow menu');
+    assert.equal(await stop.getAttribute('aria-label'), 'Stop Codex session codex tmux-session');
+    await row(page, 'codex', 'tmux-session').hover();
+    const layout = await stop.evaluate(button => {
+        const row = button.closest('.codex-session-row');
+        const actions = button.closest('.codex-session-actions');
+        const rowRect = row.getBoundingClientRect();
+        const actionRect = actions.getBoundingClientRect();
+        const buttonRect = button.getBoundingClientRect();
+        return {
+            documentWidth: document.documentElement.scrollWidth,
+            rowRight: rowRect.right,
+            actionsRight: actionRect.right,
+            buttonCenterY: buttonRect.top + buttonRect.height / 2,
+            rowCenterY: rowRect.top + rowRect.height / 2,
+        };
+    });
+    assert.equal(layout.documentWidth, 170,
+        'the direct Stop control must not create horizontal overflow at 170px');
+    assert.ok(layout.actionsRight <= layout.rowRight + 1,
+        'the direct Stop control stays within its chat row');
+    assert.ok(Math.abs(layout.buttonCenterY - layout.rowCenterY) <= 1,
+        'the direct Stop control remains vertically centered in its chat row');
+    await stop.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'stop-ai-session-runtime',
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'tmux-session',
+    });
 });
 
 test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a history row View Conversation button posts the open request', async t => {

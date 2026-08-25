@@ -5,6 +5,7 @@ import type * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../models';
 import { assignPathToWorkspaceRoot } from '../sessionAssignment';
 import { sanitizeAiSessionAlias } from './aliasStore';
+import { deriveHandoffSessionAlias } from './handoffNaming';
 import { buildAiSessionHandoffPrompt } from './handoffPrompt';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
@@ -269,6 +270,8 @@ export class AiSessionCreationController {
             initialPrompt?: string;
             /** Pins scope resolution to a specific root (handoff inheritance). */
             explicitRootId?: string;
+            /** Pre-derived display alias (handoff relay naming). */
+            title?: string;
         },
     ): Promise<boolean> {
         if (this.creating) {
@@ -300,7 +303,7 @@ export class AiSessionCreationController {
                     ? this.options.getDefaultCodexProfileDecision?.()
                     : undefined);
             const fields: NewAiSessionFields = {
-                title: '',
+                title: sanitizeAiSessionAlias(extras?.title || ''),
                 codexProfileDecision: effectiveProfile,
                 ...(extras?.initialPrompt ? { initialPrompt: extras.initialPrompt } : {}),
             };
@@ -376,13 +379,30 @@ export class AiSessionCreationController {
                 source.cwd || source.workDir || '',
                 workspace.workspace.roots
             )?.id;
+        // Name the relay chat after its source so the lineage is visible in
+        // the session list ("Auth fix (2)"); unnamed sources fall back to a
+        // provider + short-id label (SESSION-HANDOFF-002).
+        const existingNames: string[] = [];
+        for (const providerSessions of Object.values(
+            workspace.sessions.sessionsByProvider || {}
+        )) {
+            for (const candidate of providerSessions || []) {
+                existingNames.push(candidate.name);
+            }
+        }
+        const title = deriveHandoffSessionAlias({
+            sourceName: source.name,
+            sourceProviderLabel: this.options.getProviderLabel(sourceProviderId),
+            sourceSessionId,
+            existingNames,
+        });
         return this.createSessionQuick(
             projectId,
             targetProviderId,
             codexProfileDecision,
             source.worktreeKey,
             false,
-            { initialPrompt, explicitRootId }
+            { initialPrompt, explicitRootId, title }
         );
     }
 

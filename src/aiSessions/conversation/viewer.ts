@@ -424,9 +424,9 @@ export class ConversationViewer implements ConversationViewerApi {
     // incomplete-content obligation; run once the full-content receipt
     // closes it. Cleared on every target switch.
     private pendingRevalidationInteractionId?: string;
-    // A page-boundary continuation currently prepending an older page after
-    // the retained-window backfill settled (the oldest retained page still
-    // reported earlier history behind its cursor).
+    // A page-boundary continuation currently prepending one older page on
+    // demand (the user scrolled the transcript to its top while earlier
+    // history sits behind the oldest retained page's cursor).
     private earlierPageBackfillInFlight = false;
     // The oldest interaction of a page-boundary walk that made no progress
     // (its prepended page was evicted by the retention budget). Blocks
@@ -910,13 +910,14 @@ export class ConversationViewer implements ConversationViewerApi {
             false,
             undefined,
             pending
-        ).then(
-            () => this.maybeContinueEarlierPageBackfill(),
-            () => undefined
         );
     }
 
     private maybeContinueEarlierPageBackfill(): void {
+        // User-driven: the Webview posts conversation-viewer-load-earlier
+        // when the transcript reaches its top with earlier history pending.
+        // Loads exactly one older page per request; the next page loads
+        // when the user scrolls up again.
         const target = this.target;
         const panel = this.panel;
         const edge = this.pages[0]?.page;
@@ -966,11 +967,6 @@ export class ConversationViewer implements ConversationViewerApi {
                     this.earlierBackfillStuckAnchor = madeProgress
                         ? undefined
                         : oldestBefore;
-                    if (madeProgress
-                        && !next.isStart
-                        && next.previousCursor !== undefined) {
-                        this.maybeContinueEarlierPageBackfill();
-                    }
                 },
                 () => {
                     this.earlierPageBackfillInFlight = false;
@@ -1572,6 +1568,10 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-previous') {
             await this.navigate('before');
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-load-earlier') {
+            this.maybeContinueEarlierPageBackfill();
             return;
         }
         if (parsed.type === 'conversation-viewer-next') {
@@ -2653,7 +2653,6 @@ export class ConversationViewer implements ConversationViewerApi {
         this.publishRestoredAuxiliaryState();
         this.publishDeferredMessages(publication);
         this.runPendingRevalidation();
-        this.maybeContinueEarlierPageBackfill();
     }
 
     private publishDeferredMessages(

@@ -4350,6 +4350,46 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             ''
         )
         .replace(
+            '        // Earlier history sitting behind the oldest retained page\'s cursor;\n'
+                + '        // loaded on demand when the transcript reaches its top.\n'
+                + '        previousCursor: undefined,\n'
+                + '        earlierPageRequested: false,\n',
+            ''
+        )
+        .replace(
+            '        // A page apply (full, patch, or chunk) moves the boundary: re-arm\n'
+                + '        // the scroll-to-top request and expose the latest cursor.\n'
+                + '        state.previousCursor = message.previousCursor;\n'
+                + '        state.earlierPageRequested = false;\n',
+            ''
+        )
+        .replace(
+            '\n    // On-demand earlier-page loading: the transcript reaching its top while\n'
+                + '    // earlier history sits behind the oldest retained page\'s cursor posts a\n'
+                + '    // single load request (re-armed by the next page apply). The Host loads\n'
+                + '    // exactly one page per request, so scrolling up walks history without\n'
+                + '    // paying for it on open.\n'
+                + '    var autoScrollThresholdPx = Number(document.body.getAttribute(\n'
+                + "        'data-auto-scroll-threshold'\n"
+                + '    )) || 0;\n'
+                + '    function maybeRequestEarlierPage() {\n'
+                + '        if (state.earlierPageRequested\n'
+                + '            || state.previousCursor === undefined\n'
+                + '            || scroll.scrollTop > autoScrollThresholdPx) {\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        state.earlierPageRequested = true;\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-load-earlier',\n"
+                + '            version: 1,\n'
+                + '        });\n'
+                + '    }\n'
+                + '    scroll.addEventListener(\'scroll\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n',
+            ''
+        )
+        .replace(
             '        baseTranscriptStatus = statusMessages.join(\' \');\n',
             ''
         )
@@ -17207,6 +17247,77 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies a streaming tail patch 
     assert.equal((await postedMessages(page)).filter(message =>
         message.type === 'conversation-viewer-request-sync'
     ).length, 0, 'an HTML-free delta applies cleanly after the patch');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests an earlier page when the transcript reaches its top', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-top',
+        previousCursor: 'cursor-1',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-top'
+    ));
+
+    const requestEarlier = () => page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    const loadEarlierPosts = async () => (await postedMessages(page)).filter(
+        message => message.type === 'conversation-viewer-load-earlier'
+    );
+
+    await requestEarlier();
+    assert.equal((await loadEarlierPosts()).length, 1,
+        'reaching the top with earlier history requests one page');
+    await requestEarlier();
+    assert.equal((await loadEarlierPosts()).length, 1,
+        'a second top hit is throttled until the next page applies');
+
+    // A new page applies: the request is re-armed.
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-top-2',
+        previousCursor: 'cursor-2',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-top-2'
+    ));
+    await requestEarlier();
+    assert.equal((await loadEarlierPosts()).length, 2,
+        'a page apply re-arms the top request');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resyncs when a tail patch misses the visible tail', async t => {

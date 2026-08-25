@@ -405,6 +405,10 @@
         worklogExpanded: new Map(),
         renderGeneration: 0,
         appliedHtmlSignature: undefined,
+        // Earlier history sitting behind the oldest retained page's cursor;
+        // loaded on demand when the transcript reaches its top.
+        previousCursor: undefined,
+        earlierPageRequested: false,
     };
     // The status text without the deferred-history notice, so a completing
     // backfill chunk can clear that notice without a full page message.
@@ -1848,6 +1852,10 @@
         if (typeof message.htmlSignature === 'string') {
             state.appliedHtmlSignature = message.htmlSignature;
         }
+        // A page apply (full, patch, or chunk) moves the boundary: re-arm
+        // the scroll-to-top request and expose the latest cursor.
+        state.previousCursor = message.previousCursor;
+        state.earlierPageRequested = false;
         // A content-first Host load delivers restored side state later in a
         // same-generation, HTML-free refresh. These snapshots are still
         // authoritative and must update without resetting the transcript.
@@ -2327,6 +2335,30 @@
     }
 
     reconcileController.attach();
+
+    // On-demand earlier-page loading: the transcript reaching its top while
+    // earlier history sits behind the oldest retained page's cursor posts a
+    // single load request (re-armed by the next page apply). The Host loads
+    // exactly one page per request, so scrolling up walks history without
+    // paying for it on open.
+    var autoScrollThresholdPx = Number(document.body.getAttribute(
+        'data-auto-scroll-threshold'
+    )) || 0;
+    function maybeRequestEarlierPage() {
+        if (state.earlierPageRequested
+            || state.previousCursor === undefined
+            || scroll.scrollTop > autoScrollThresholdPx) {
+            return;
+        }
+        state.earlierPageRequested = true;
+        post({
+            type: 'conversation-viewer-load-earlier',
+            version: 1,
+        });
+    }
+    scroll.addEventListener('scroll', maybeRequestEarlierPage, {
+        passive: true,
+    });
 
     previous.addEventListener('click', function () {
         postNavigation('conversation-viewer-previous');

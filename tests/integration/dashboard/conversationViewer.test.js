@@ -666,16 +666,20 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundar
         htmlSignature: initial.htmlSignature,
     });
 
-    // The retained-window settle (here: the no-plan fallback refresh) is
-    // followed automatically by the boundary walk.
+    // The retained-window settle does NOT walk the boundary: loading older
+    // pages is on demand, so a page that stops mid-session must not
+    // publish the older page until the user scrolls to the top.
     for (let attempt = 0; attempt < 20; attempt++) {
         await new Promise(resolve => setImmediate(resolve));
-        if (requests.some(request => request.direction === 'before')) {
-            break;
-        }
     }
-    assert.ok(requests.some(request => request.direction === 'before'),
-        'the boundary walk must request the previous page');
+    assert.equal(requests.filter(request => request.direction === 'before').length,
+        0,
+        'the older page must stay off the wire until requested');
+
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+    });
 
     for (let attempt = 0; attempt < 20; attempt++) {
         await new Promise(resolve => setImmediate(resolve));
@@ -687,6 +691,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundar
             break;
         }
     }
+    assert.ok(requests.some(request => request.direction === 'before'),
+        'the boundary walk must request the previous page on demand');
     const walked = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page'
     ).at(-1);
@@ -740,8 +746,13 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 stops the boundary walk when a 
         htmlSignature: initial.htmlSignature,
     });
 
-    // The first walk fires, makes no progress, and must not loop: its own
-    // publication receipt must not re-arm the same boundary.
+    // The user requests an older page; the walk makes no progress and must
+    // not loop: its own publication receipt must not re-arm the same
+    // boundary, and a further request hits the stuck boundary guard.
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+    });
     for (let attempt = 0; attempt < 30; attempt++) {
         await new Promise(resolve => setImmediate(resolve));
         if (beforeRequests >= 1) break;
@@ -758,6 +769,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 stops the boundary walk when a 
             htmlSignature: lastPublication.htmlSignature,
         });
     }
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+    });
     for (let attempt = 0; attempt < 30; attempt++) {
         await new Promise(resolve => setImmediate(resolve));
     }

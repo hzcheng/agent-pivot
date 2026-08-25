@@ -341,6 +341,14 @@ export interface ConversationViewerFocusMessage {
     focused: boolean;
 }
 
+/** The user scrolled the transcript to its top while earlier history sits
+ * behind the oldest retained page's cursor; load one more page on demand
+ * instead of walking every page automatically on open. */
+export interface ConversationViewerLoadEarlierMessage {
+    type: 'conversation-viewer-load-earlier';
+    version: 1;
+}
+
 export interface ConversationViewerOpenSubagentMessage {
     type: 'conversation-viewer-open-subagent';
     version: 1;
@@ -382,6 +390,7 @@ export type ConversationViewerMessage =
     | ConversationViewerCapabilitiesMessage
     | ConversationViewerHistoryChunkAppliedMessage
     | ConversationViewerFocusMessage
+    | ConversationViewerLoadEarlierMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
     | ConversationViewerRenameSessionMessage
@@ -705,6 +714,12 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerFocusMessage;
+    }
+    if (value.type === 'conversation-viewer-load-earlier') {
+        if (!hasExactKeys(value, ['type', 'version'])) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerLoadEarlierMessage;
     }
     if (value.type === 'conversation-viewer-open-subagent') {
         if (!hasExactKeys(value, ['type', 'version', 'subagentId'])

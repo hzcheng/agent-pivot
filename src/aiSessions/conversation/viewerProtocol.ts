@@ -306,6 +306,17 @@ export interface ConversationViewerAppliedMessage {
     frames?: ConversationViewerAppliedFrame[];
 }
 
+/** Correlated receipt for one history backfill chunk. The signature is the
+ * cumulative content signature after the chunk was prepended, so the Host
+ * can pace the next chunk and know exactly how much history is visible. */
+export interface ConversationViewerHistoryChunkAppliedMessage {
+    type: 'conversation-viewer-history-chunk-applied';
+    version: 1;
+    subscriptionGeneration: number;
+    requestId: number;
+    htmlSignature: string;
+}
+
 export interface ConversationViewerFocusMessage {
     type: 'conversation-viewer-focus';
     version: 1;
@@ -350,6 +361,7 @@ export type ConversationViewerMessage =
     | ConversationViewerCycleStatusSessionMessage
     | ConversationViewerRequestSyncMessage
     | ConversationViewerAppliedMessage
+    | ConversationViewerHistoryChunkAppliedMessage
     | ConversationViewerFocusMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
@@ -626,6 +638,22 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerAppliedMessage;
+    }
+    if (value.type === 'conversation-viewer-history-chunk-applied') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration', 'requestId',
+            'htmlSignature',
+        ])) {
+            return undefined;
+        }
+        if (!isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isPositiveSafeInteger(value.requestId)
+            || typeof value.htmlSignature !== 'string'
+            || !value.htmlSignature
+            || value.htmlSignature.length > 256) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerHistoryChunkAppliedMessage;
     }
     if (value.type === 'conversation-viewer-focus') {
         if (!hasExactKeys(value, ['type', 'version', 'focused'])

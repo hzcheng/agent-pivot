@@ -48,6 +48,7 @@ import type {
     ConversationSessionSwitchDirection,
     ConversationViewerAppliedMessage,
     ConversationViewerCopyMessage,
+    ConversationViewerHistoryChunkAppliedMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
@@ -306,6 +307,39 @@ export interface ConversationViewerPageMessage {
 }
 
 /**
+ * One slice of older history prepended above a progressively rendered
+ * partial page. Slices arrive nearest-first; `complete` marks the oldest
+ * slice, after which the visible document equals the full content whose
+ * cumulative signature is `htmlSignature`.
+ */
+export interface ConversationViewerHistoryChunkMessage {
+    type: 'conversation-viewer-history-chunk';
+    version: 1;
+    subscriptionGeneration: number;
+    requestId: number;
+    html: string;
+    htmlSignature: string;
+    complete: boolean;
+}
+
+interface ConversationProgressiveBackfill {
+    generation: number;
+    /** Request id of the partial publication this backfill extends. A newer
+     * publication or in-flight load moves `currentRequestId` past it, which
+     * invalidates the plan: a stale slice receipt must never allocate
+     * request ids or publish over the newer work. */
+    anchorRequestId: number;
+    /** Remaining slices, in send order (nearest the visible tail first). */
+    chunks: { html: string; htmlSignature: string }[];
+    pending?: {
+        requestId: number;
+        htmlSignature: string;
+    };
+    timerToken: number;
+    timer?: unknown;
+}
+
+/**
  * Aggregate timing for one authoritative Conversation publication. It never
  * carries a workspace, provider, session, or other user content.
  */
@@ -357,6 +391,12 @@ export class ConversationViewer implements ConversationViewerApi {
         generation: number;
         partialHtmlSignature: string;
     };
+    // Older history for a progressive page is backfilled in ack-paced
+    // slices instead of one full-document refresh, so the Webview never
+    // renders the whole history in a single task. Any superseding page
+    // publication cancels the plan; a lost slice falls back to the normal
+    // full-content refresh.
+    private progressiveBackfill?: ConversationProgressiveBackfill;
     private pendingPublicationTiming?: {
         subscriptionGeneration: number;
         requestId: number;
@@ -845,6 +885,9 @@ export class ConversationViewer implements ConversationViewerApi {
                     generation: this.subscriptionGeneration,
                 };
             }
+            // The full-content refresh published below supersedes any
+            // in-flight history backfill.
+            this.cancelProgressiveBackfill();
             this.pendingRestoredAuxiliaryState = undefined;
             this.currentRequestId = this.allocateRequestId();
             if (this.pages.length && this.outlineController.snapshot) {
@@ -951,6 +994,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
+        this.cancelProgressiveBackfill();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
@@ -1067,6 +1111,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
+        this.cancelProgressiveBackfill();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
@@ -1256,6 +1301,10 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-applied') {
             this.acknowledgePublication(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-history-chunk-applied') {
+            this.acknowledgeHistoryChunk(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-request-sync') {
@@ -1463,6 +1512,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetryController.reset();
         this.latestPublication = undefined;
+        this.cancelProgressiveBackfill();
         this.pendingRestoredAuxiliaryState = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
@@ -1645,6 +1695,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const publication = this.latestPublication;
         if (!pending || this.suspended || this.target !== pending.target
             || this.subscriptionGeneration !== pending.generation
+            || this.progressiveBackfill
             || !publication || !this.isCurrentPublication(publication)) {
             return;
         }
@@ -2292,6 +2343,10 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!panel || !this.isCurrentPublication(publication)) {
             return;
         }
+        // Any page publication supersedes an in-flight history backfill:
+        // it either carries the full content itself or is the backfill's
+        // own completion refresh (whose plan is already detached).
+        this.cancelProgressiveBackfill();
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
         this.latestPublication = publication;
@@ -2380,6 +2435,13 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         this.progressivePublication = undefined;
+        this.cancelProgressiveBackfill();
+        const backfill = this.createProgressiveBackfill(publication);
+        if (backfill) {
+            this.progressiveBackfill = backfill;
+            this.sendNextProgressiveBackfillChunk();
+            return;
+        }
         const requestId = this.allocateRequestId();
         this.currentRequestId = requestId;
         const complete = this.createPublication(
@@ -2388,6 +2450,268 @@ export class ConversationViewer implements ConversationViewerApi {
             'refresh'
         );
         void this.deliverPublication(complete, false);
+    }
+
+    /**
+     * Plan an ack-paced history backfill for a progressively rendered page.
+     * Returns undefined when the deferred window is small enough for one
+     * full refresh or when the rendered content drifted from the published
+     * partial page (chunk prepending is only valid against that exact
+     * document).
+     */
+    private createProgressiveBackfill(
+        publication: ConversationViewerPageMessage
+    ): ConversationProgressiveBackfill | undefined {
+        const generation = publication.subscriptionGeneration;
+        if (this.progressiveContentIncomplete?.generation !== generation
+            || this.progressiveContentIncomplete.partialHtmlSignature
+                !== publication.htmlSignature) {
+            return undefined;
+        }
+        const target = this.target;
+        if (!target || !this.outlineController.snapshot) {
+            return undefined;
+        }
+        const allMessages = this.messages();
+        const deferredCount = deferredConversationMessageCount(allMessages);
+        if (deferredCount <= CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED) {
+            return undefined;
+        }
+        const interactionInfo = this.createInteractionInfo();
+        const sessionId = this.effectiveSessionId(target);
+        // Chunks prepend blindly above the placeholder, so they are valid
+        // only while the visible tail is byte-identical to this render. Any
+        // drift (a streamed message, a clock rollover) falls back to the
+        // single full refresh, which reconciles the whole document.
+        const partial = renderMessages(
+            allMessages.slice(deferredCount),
+            this.showThinking(),
+            interactionInfo,
+            this.renderCache,
+            this.contentSignatures,
+            sessionId,
+            deferredCount
+        );
+        if (partial.contentSignature !== publication.htmlSignature) {
+            return undefined;
+        }
+        const slices = conversationHistoryChunkSlices(
+            allMessages.slice(0, deferredCount),
+            CONVERSATION_PROGRESSIVE_CHUNK_SIZE
+        );
+        if (slices.length < 2) {
+            return undefined;
+        }
+        const chunks: { html: string; htmlSignature: string }[] = [];
+        let covered = 0;
+        slices.forEach(slice => {
+            // The cumulative signature after this slice applies: the
+            // document then shows messages[start..] with `start` messages
+            // still deferred, matching the partial publication's scheme.
+            const start = deferredCount - covered - slice.length;
+            const cumulative = renderMessages(
+                allMessages.slice(start),
+                this.showThinking(),
+                interactionInfo,
+                this.renderCache,
+                this.contentSignatures,
+                sessionId,
+                start
+            );
+            covered += slice.length;
+            chunks.push({
+                html: renderMessages(
+                    slice,
+                    this.showThinking(),
+                    interactionInfo,
+                    this.renderCache,
+                    this.contentSignatures,
+                    sessionId
+                ).html,
+                htmlSignature: cumulative.contentSignature,
+            });
+        });
+        return {
+            generation,
+            anchorRequestId: publication.requestId,
+            chunks,
+            timerToken: 0,
+        };
+    }
+
+    private sendNextProgressiveBackfillChunk(): void {
+        const plan = this.progressiveBackfill;
+        const panel = this.panel;
+        const chunk = plan?.chunks[0];
+        if (!plan || !chunk || !panel || this.suspended) {
+            return;
+        }
+        if (plan.generation !== this.subscriptionGeneration
+            || plan.anchorRequestId !== this.currentRequestId) {
+            // A newer load or publication owns the request counter now; it
+            // supersedes the backfill (its own delivery cancels the plan).
+            this.cancelProgressiveBackfill();
+            return;
+        }
+        plan.chunks.shift();
+        const requestId = this.allocateRequestId();
+        plan.pending = { requestId, htmlSignature: chunk.htmlSignature };
+        this.scheduleProgressiveBackfillTimeout(plan);
+        const wire: ConversationViewerHistoryChunkMessage = {
+            type: 'conversation-viewer-history-chunk',
+            version: 1,
+            subscriptionGeneration: plan.generation,
+            requestId,
+            html: chunk.html,
+            htmlSignature: chunk.htmlSignature,
+            complete: plan.chunks.length === 0,
+        };
+        void Promise.resolve(panel.webview.postMessage(wire)).then(
+            delivered => {
+                if (!delivered) {
+                    this.recoverProgressiveBackfill(
+                        plan,
+                        'backfill-chunk-delivery-failed'
+                    );
+                }
+            },
+            () => this.recoverProgressiveBackfill(
+                plan,
+                'backfill-chunk-delivery-failed'
+            )
+        );
+    }
+
+    private acknowledgeHistoryChunk(
+        message: ConversationViewerHistoryChunkAppliedMessage
+    ): void {
+        const plan = this.progressiveBackfill;
+        if (!plan || !plan.pending
+            || message.subscriptionGeneration !== this.subscriptionGeneration
+            || message.subscriptionGeneration !== plan.generation
+            || message.requestId !== plan.pending.requestId
+            || message.htmlSignature !== plan.pending.htmlSignature) {
+            return;
+        }
+        if (plan.anchorRequestId !== this.currentRequestId) {
+            // A newer load or publication allocated the request counter
+            // after this slice was sent. Its delivery supersedes the
+            // backfill, so the receipt must not allocate ids or publish.
+            this.emitDiagnostic('backfill-stale-anchor');
+            this.cancelProgressiveBackfill();
+            return;
+        }
+        this.clearProgressiveBackfillTimer(plan);
+        // The Webview is the authority on applied content: the cumulative
+        // signature it confirmed is what later publications may omit.
+        this.appliedContentSignature = plan.pending.htmlSignature;
+        plan.pending = undefined;
+        if (plan.chunks.length) {
+            this.sendNextProgressiveBackfillChunk();
+            return;
+        }
+        this.progressiveBackfill = undefined;
+        // History is fully visible. Close the loop with a normal refresh
+        // publication (HTML omitted while the content is unchanged) so the
+        // latest publication, deferred auxiliary state, and the
+        // incomplete-content obligation all converge on the full document.
+        if (!this.target || !this.outlineController.snapshot) {
+            return;
+        }
+        const requestId = this.allocateRequestId();
+        this.currentRequestId = requestId;
+        void this.deliverPublication(this.createPublication(
+            requestId,
+            plan.generation,
+            'refresh'
+        ), false);
+    }
+
+    private scheduleProgressiveBackfillTimeout(
+        plan: ConversationProgressiveBackfill
+    ): void {
+        const token = ++plan.timerToken;
+        const recover = () => {
+            if (token !== plan.timerToken) {
+                return;
+            }
+            plan.timer = undefined;
+            this.recoverProgressiveBackfill(plan, 'backfill-chunk-ack-timeout');
+        };
+        const handle = this.options.setTimer
+            ? this.options.setTimer(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            )
+            : setTimeout(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            );
+        if (token === plan.timerToken) {
+            plan.timer = handle;
+        } else if (this.options.clearTimer) {
+            this.options.clearTimer(handle);
+        } else {
+            clearTimeout(handle as NodeJS.Timeout);
+        }
+    }
+
+    private clearProgressiveBackfillTimer(
+        plan: ConversationProgressiveBackfill
+    ): void {
+        plan.timerToken += 1;
+        const timer = plan.timer;
+        plan.timer = undefined;
+        if (timer === undefined) {
+            return;
+        }
+        if (this.options.clearTimer) {
+            this.options.clearTimer(timer);
+        } else {
+            clearTimeout(timer as NodeJS.Timeout);
+        }
+    }
+
+    /**
+     * A lost or unacknowledged slice never strands the partial page: cancel
+     * the plan and deliver one full-content refresh. The generation-level
+     * incomplete-content watchdog still guards that publication.
+     */
+    private recoverProgressiveBackfill(
+        plan: ConversationProgressiveBackfill,
+        reason: string
+    ): void {
+        if (this.progressiveBackfill !== plan
+            || plan.generation !== this.subscriptionGeneration) {
+            return;
+        }
+        this.emitDiagnostic(reason);
+        this.cancelProgressiveBackfill();
+        if (this.suspended || !this.panel) {
+            return;
+        }
+        if (plan.anchorRequestId !== this.currentRequestId) {
+            // A newer load owns the request counter; its publication
+            // supersedes the backfill, so a recovery refresh would kill it.
+            this.emitDiagnostic('backfill-recovery-yielded');
+            return;
+        }
+        const requestId = this.allocateRequestId();
+        this.currentRequestId = requestId;
+        void this.deliverPublication(this.createPublication(
+            requestId,
+            plan.generation,
+            'refresh'
+        ), false);
+    }
+
+    private cancelProgressiveBackfill(): void {
+        const plan = this.progressiveBackfill;
+        this.progressiveBackfill = undefined;
+        if (!plan) {
+            return;
+        }
+        this.clearProgressiveBackfillTimer(plan);
     }
 
     private rebuildLatestDocument(): void {
@@ -2417,11 +2741,20 @@ export class ConversationViewer implements ConversationViewerApi {
                 ? { restoreFocus: true }
                 : {}),
         };
-        if (this.progressivePublication === publication) {
-            // Recovery owns a fresh object and request id. Preserve the
-            // deferred-content lifecycle on that authoritative retry.
+        // Recovery owns a fresh object and request id. Preserve the
+        // deferred-content lifecycle on that authoritative retry — both for
+        // a partial page whose first receipt never arrived and for one
+        // whose history backfill was already in flight (the rebuilt
+        // document restarts from the partial page, so its receipt must
+        // re-plan the backfill).
+        if (this.progressivePublication === publication
+            || (this.progressiveContentIncomplete?.generation
+                    === publication.subscriptionGeneration
+                && this.progressiveContentIncomplete.partialHtmlSignature
+                    === publication.htmlSignature)) {
             this.progressivePublication = recovery;
         }
+        this.cancelProgressiveBackfill();
         this.currentRequestId = recovery.requestId;
         this.latestPublication = recovery;
         this.publicationRecoveryAttemptRequestId = recovery.requestId;
@@ -2465,7 +2798,10 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             this.publicationAckTimer = undefined;
             if (!this.isCurrentPublication(publication)
-                || this.appliedContentSignature === publication.htmlSignature
+                || (this.appliedContentSignature
+                        === publication.htmlSignature
+                    && this.progressiveContentIncomplete?.generation
+                        !== publication.subscriptionGeneration)
                 || (this.transitioningGeneration
                     !== publication.subscriptionGeneration
                     && this.progressiveContentIncomplete?.generation
@@ -2883,18 +3219,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const interactionIds = outline.interactions.map(
             interaction => interaction.id
         );
-        const interactionInfo = new Map<string, {
-            responseState: ConversationResponseState;
-            timestamp?: number;
-            completedAt?: number;
-        }>();
-        this.pages.forEach(retained => {
-            retained.page.interactionStates.forEach(state => {
-                if (!interactionInfo.has(state.interactionId)) {
-                    interactionInfo.set(state.interactionId, state);
-                }
-            });
-        });
+        const interactionInfo = this.createInteractionInfo();
         const selectedIndex = interactionIds.indexOf(
             projection.selectedInteractionId
         );
@@ -2957,6 +3282,26 @@ export class ConversationViewer implements ConversationViewerApi {
         return projection.atLatest
             && !projection.partial
             && deferredConversationMessageCount(this.messages()) > 0;
+    }
+
+    private createInteractionInfo(): Map<string, {
+        responseState: ConversationResponseState;
+        timestamp?: number;
+        completedAt?: number;
+    }> {
+        const interactionInfo = new Map<string, {
+            responseState: ConversationResponseState;
+            timestamp?: number;
+            completedAt?: number;
+        }>();
+        this.pages.forEach(retained => {
+            retained.page.interactionStates.forEach(state => {
+                if (!interactionInfo.has(state.interactionId)) {
+                    interactionInfo.set(state.interactionId, state);
+                }
+            });
+        });
+        return interactionInfo;
     }
 
     private renderDocument(
@@ -3450,6 +3795,11 @@ function renderMessages(
 
 const CONVERSATION_PROGRESSIVE_RENDER_THRESHOLD = 24;
 const CONVERSATION_PROGRESSIVE_RENDER_RECENT_COUNT = 12;
+// Backfill slices above the visible recent window. Small deferred windows
+// are cheaper to deliver as one full refresh; larger ones arrive in
+// ack-paced slices so no single Webview task renders the whole history.
+const CONVERSATION_PROGRESSIVE_CHUNK_SIZE = 24;
+const CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED = 48;
 
 function deferredConversationMessageCount(
     messages: readonly ConversationMessage[]
@@ -3466,4 +3816,29 @@ function deferredConversationMessageCount(
         firstVisible -= 1;
     }
     return firstVisible;
+}
+
+/**
+ * Split the deferred (not yet rendered) message prefix into backfill slices
+ * aligned to interaction-group boundaries, in send order: the slice nearest
+ * the visible tail first, the oldest slice (flagged complete) last.
+ */
+function conversationHistoryChunkSlices(
+    messages: ConversationMessage[],
+    chunkSize: number
+): ConversationMessage[][] {
+    const oldestFirst: ConversationMessage[][] = [];
+    let end = messages.length;
+    while (end > 0) {
+        let start = Math.max(0, end - chunkSize);
+        const interactionId = messages[start]?.interactionId;
+        // Do not split one interaction's message group across chunks.
+        while (start > 0
+            && messages[start - 1].interactionId === interactionId) {
+            start -= 1;
+        }
+        oldestFirst.unshift(messages.slice(start, end));
+        end = start;
+    }
+    return oldestFirst.reverse();
 }

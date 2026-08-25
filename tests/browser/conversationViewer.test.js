@@ -4340,6 +4340,24 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             '\n    function applyPage(message) {'
         )
         .replace(
+            /\n    function validHistoryChunk\(message\) \{[\s\S]*?\n    \}\n(?=\n    function postNavigation)/,
+            ''
+        )
+        .replace(
+            '        if (applyHistoryChunk(event.data)) return;\n',
+            ''
+        )
+        .replace(
+            '        baseTranscriptStatus = statusMessages.join(\' \');\n',
+            ''
+        )
+        .replace(
+            '    // The status text without the deferred-history notice, so a completing\n'
+                + '    // backfill chunk can clear that notice without a full page message.\n'
+                + '    var baseTranscriptStatus = \'\';\n',
+            ''
+        )
+        .replace(
             '        updatePosition(message);\n'
                 + '        // This controller owns visible identity and actionable subagent IDs,\n'
                 + '        // so it must agree with the transcript in the first painted frame.\n'
@@ -16760,4 +16778,239 @@ test('WORKTREE-CHANGES-COMMITS-001 the fold toggle expands and collapses every l
             === document.querySelector('[data-changes-fold-toggle]')), true,
         'activating the toggle keeps focus on it');
     assert.equal(await toggle.getAttribute('aria-label'), 'Expand all');
+});
+
+function progressiveOutline(count) {
+    return Array.from({ length: count }, (_item, index) => ({
+        interactionId: `msg-${index}`,
+        userPreview: `input ${index}`,
+        responseState: 'complete',
+    }));
+}
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 applies history chunks in place and settles on the full signature', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: '<section class="conversation-deferred-messages">'
+            + 'Loading earlier messages…</section>'
+            + messageHtml('msg', 4, 8),
+        htmlSignature: 'sig-partial',
+        outline: progressiveOutline(12),
+        selectedInteractionId: 'msg-11',
+        selectedInput: 11,
+        totalInputs: 12,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-partial'
+    ));
+    assert.equal(await page.locator(
+        '[data-conversation-status]').textContent(),
+        'Loading earlier messages.');
+
+    // The reader is parked mid-transcript; prepending must not move the
+    // messages under their eyes.
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-scroll]').scrollTop = 40;
+    });
+    const beforeChunk = await page.evaluate(() => ({
+        scrollTop: document.querySelector('[data-conversation-scroll]')
+            .scrollTop,
+        scrollHeight: document.querySelector('[data-conversation-scroll]')
+            .scrollHeight,
+    }));
+    assert.ok(beforeChunk.scrollTop > 0,
+        'the reader must be parked away from the top for this check');
+    await sendPage(page, {
+        type: 'conversation-viewer-history-chunk',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 2,
+        html: messageHtml('msg', 4, 4),
+        htmlSignature: 'sig-mid',
+        complete: false,
+    });
+    assert.deepEqual(await page.evaluate(() => ({
+        ids: Array.from(document.querySelectorAll(
+            '[data-conversation-messages] [data-message-id]'
+        )).map(node => node.getAttribute('data-message-id')),
+        placeholder: !!document.querySelector(
+            '.conversation-deferred-messages'
+        ),
+    })), {
+        ids: ['msg-4', 'msg-5', 'msg-6', 'msg-7',
+            'msg-8', 'msg-9', 'msg-10', 'msg-11'],
+        placeholder: true,
+    }, 'the slice slots in directly below the placeholder');
+    const afterChunk = await page.evaluate(() => ({
+        scrollTop: document.querySelector('[data-conversation-scroll]')
+            .scrollTop,
+        scrollHeight: document.querySelector('[data-conversation-scroll]')
+            .scrollHeight,
+    }));
+    assert.ok(afterChunk.scrollHeight > beforeChunk.scrollHeight,
+        'the prepended slice must grow the content');
+    assert.equal(
+        afterChunk.scrollTop - beforeChunk.scrollTop,
+        afterChunk.scrollHeight - beforeChunk.scrollHeight,
+        'prepending above the viewport compensates the scroll offset'
+    );
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-history-chunk-applied'
+            && message.requestId === 2
+            && message.htmlSignature === 'sig-mid'
+    ), 'the slice is acknowledged with its cumulative signature');
+
+    // A replayed (stale) slice is dropped without touching the document.
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-history-chunk',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 2,
+        html: messageHtml('msg', 4, 4),
+        htmlSignature: 'sig-mid',
+        complete: false,
+    });
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 8,
+        'a stale slice must not duplicate messages');
+    assert.equal((await postedMessages(page)).length, 0,
+        'a stale slice is never acknowledged');
+
+    // The oldest slice completes the backfill: the placeholder leaves and
+    // the status notice clears.
+    await sendPage(page, {
+        type: 'conversation-viewer-history-chunk',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 3,
+        html: messageHtml('msg', 4, 0),
+        htmlSignature: 'sig-full',
+        complete: true,
+    });
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages').count(), 0);
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 12);
+    assert.equal(await page.locator(
+        '[data-conversation-status]').textContent(), '');
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-history-chunk-applied'
+            && message.requestId === 3
+            && message.htmlSignature === 'sig-full'
+    ), 'the completing slice is acknowledged');
+
+    // The cumulative signature chain lets the Host omit identical HTML.
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 4,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        htmlSignature: 'sig-full',
+        outline: progressiveOutline(12),
+        selectedInteractionId: 'msg-11',
+        selectedInput: 11,
+        totalInputs: 12,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.requestId === 4
+    ));
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    ).length, 0, 'the HTML-free delta matches the chunked content');
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 12);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores a history chunk after a full page superseded the partial one', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: '<section class="conversation-deferred-messages">'
+            + 'Loading earlier messages…</section>'
+            + messageHtml('msg', 4, 8),
+        htmlSignature: 'sig-partial',
+        outline: progressiveOutline(12),
+        selectedInteractionId: 'msg-11',
+        selectedInput: 11,
+        totalInputs: 12,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-partial'
+    ));
+
+    // A full-content refresh supersedes the partial page.
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        html: messageHtml('msg', 12, 0),
+        htmlSignature: 'sig-full',
+        outline: progressiveOutline(12),
+        selectedInteractionId: 'msg-11',
+        selectedInput: 11,
+        totalInputs: 12,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-full'
+    ));
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+    });
+
+    // A chunk still in flight for the partial page must not duplicate
+    // history into the full document, and must not be acknowledged.
+    await sendPage(page, {
+        type: 'conversation-viewer-history-chunk',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 3,
+        html: messageHtml('msg', 4, 0),
+        htmlSignature: 'sig-full',
+        complete: true,
+    });
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 12,
+        'the superseded slice never lands');
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-history-chunk-applied'
+    ).length, 0, 'the superseded slice is never acknowledged');
 });

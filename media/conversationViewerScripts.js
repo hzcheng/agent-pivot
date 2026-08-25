@@ -406,6 +406,9 @@
         renderGeneration: 0,
         appliedHtmlSignature: undefined,
     };
+    // The status text without the deferred-history notice, so a completing
+    // backfill chunk can clear that notice without a full page message.
+    var baseTranscriptStatus = '';
     var readingAnchorController =
         window.__agentPivotConversation.readingAnchor.create({
             scroll: scroll,
@@ -1893,6 +1896,7 @@
         if (message.partial) {
             statusMessages.push('Partial history — showing newest inputs.');
         }
+        baseTranscriptStatus = statusMessages.join(' ');
         if (messages.querySelector('.conversation-deferred-messages')) {
             statusMessages.push('Loading earlier messages.');
         }
@@ -1992,6 +1996,196 @@
             renderGeneration,
             hasHtml || !!frame
         );
+    }
+
+    function validHistoryChunk(message) {
+        if (!message || typeof message !== 'object' || Array.isArray(message)) {
+            return false;
+        }
+        var requiredKeys = [
+            'type', 'version', 'subscriptionGeneration', 'requestId',
+            'html', 'htmlSignature', 'complete',
+        ];
+        if (Object.keys(message).length !== requiredKeys.length
+            || requiredKeys.some(function (key) {
+                return !Object.prototype.hasOwnProperty.call(message, key);
+            })) {
+            return false;
+        }
+        return message.type === 'conversation-viewer-history-chunk'
+            && message.version === 1
+            && Number.isSafeInteger(message.subscriptionGeneration)
+            && message.subscriptionGeneration >= 1
+            && Number.isSafeInteger(message.requestId)
+            && message.requestId >= 1
+            && typeof message.html === 'string'
+            && typeof message.htmlSignature === 'string'
+            && message.htmlSignature.length > 0
+            && message.htmlSignature.length <= 256
+            && typeof message.complete === 'boolean';
+    }
+
+    // One backfill slice of older history for a progressively rendered
+    // page. Slices arrive nearest-first and slot in directly below the
+    // placeholder, so the visible tail is never re-rendered and the
+    // reading position is preserved by compensating the scroll offset.
+    function applyHistoryChunk(message) {
+        if (!message
+            || message.type !== 'conversation-viewer-history-chunk') {
+            return false;
+        }
+        if (!validHistoryChunk(message)
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || message.requestId <= state.latestRequestId) {
+            return true;
+        }
+        try {
+            applyHistoryChunkContent(message);
+        } catch (_chunkError) {
+            requestLegacyConversationResync(_chunkError);
+        }
+        return true;
+    }
+
+    function applyHistoryChunkContent(message) {
+        state.latestRequestId = message.requestId;
+        var placeholder = messages.querySelector(
+            '.conversation-deferred-messages'
+        );
+        if (!placeholder) {
+            // The visible document is no longer the partial page this chunk
+            // extends (a full publication superseded it). Ignoring is safe:
+            // the Host's incomplete-content watchdog converges the state.
+            return;
+        }
+        var clean = window.DOMPurify.sanitize(message.html, {
+            ALLOWED_TAGS: allowedTags,
+            ALLOWED_ATTR: allowedAttributes,
+            ALLOW_DATA_ATTR: false,
+            ALLOW_ARIA_ATTR: false,
+        });
+        var template = document.createElement('template');
+        template.innerHTML = clean;
+        var inserted = Array.prototype.slice.call(
+            template.content.querySelectorAll(conversationMessageSelector())
+        );
+        if (!inserted.length) {
+            // A content-free slice cannot be acknowledged: the Host would
+            // otherwise believe history it never rendered is visible.
+            requestLegacyConversationResync('empty-history-chunk');
+            return true;
+        }
+        var previousScrollHeight = scroll.scrollHeight;
+        var previousScrollTop = scroll.scrollTop;
+        placeholder.after(template.content);
+        if (message.complete) {
+            placeholder.remove();
+        }
+        var addedIds = [];
+        inserted.forEach(function (candidate) {
+            var id = conversationMessageId(candidate);
+            addedIds.push(id);
+            state.messageSignatures.set(id, candidate.outerHTML);
+        });
+        state.messageIds = addedIds.concat(state.messageIds);
+        state.appliedHtmlSignature = message.htmlSignature;
+        Array.prototype.forEach.call(
+            inserted.reduce(function (list, node) {
+                return list.concat(Array.prototype.slice.call(
+                    node.querySelectorAll('img')
+                ));
+            }, []),
+            function (image) {
+                image.loading = 'lazy';
+                image.decoding = 'async';
+                image.referrerPolicy = 'no-referrer';
+            }
+        );
+        applyWorklogStates();
+        // Content grew above the viewport: compensate so the same messages
+        // stay under the reader's eyes. A reader parked at the very top is
+        // waiting for this history, so keep that offset untouched.
+        var heightDelta = scroll.scrollHeight - previousScrollHeight;
+        if (heightDelta > 0 && previousScrollTop > 0) {
+            scroll.scrollTop = previousScrollTop + heightDelta;
+        }
+        reconcileController.trackEnd();
+        if (message.complete) {
+            status.textContent = baseTranscriptStatus;
+        }
+        // Acknowledge before the deferred decoration pass: the Host paces
+        // the next slice on this receipt, and the decoration is idempotent.
+        post({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: message.subscriptionGeneration,
+            requestId: message.requestId,
+            htmlSignature: message.htmlSignature,
+        });
+        scheduleDeferredChunkPresentation(message);
+        return true;
+    }
+
+    // Copy/run labels and comment highlights for the freshly prepended
+    // slice. Deferred so the backfill never blocks the chunk pipeline. The
+    // decoration is idempotent, so a pass orphaned by a session switch is
+    // harmless. Mermaid waits for the completing slice: the renderer caps
+    // diagrams per invocation, and one final pass covers every slice
+    // instead of multiplying the budget by the chunk count.
+    function scheduleDeferredChunkPresentation(message) {
+        var subscriptionGeneration = message.subscriptionGeneration;
+        var apply = function () {
+            if (state.subscriptionGeneration !== subscriptionGeneration) {
+                return;
+            }
+            try {
+                applyCopyButtonLabels();
+                applyRunCommandButtonLabels();
+                commentsController.updateHighlights();
+                if (findController) findController.refresh();
+                if (message.complete) {
+                    renderMermaidDiagrams(state.renderGeneration);
+                }
+            } catch (_decorationError) {
+                // Decoration is idempotent: the next slice or page pass
+                // covers anything this pass missed.
+            }
+        };
+        if (document.visibilityState === 'hidden') {
+            apply();
+            return;
+        }
+        if (typeof window.requestAnimationFrame === 'function') {
+            window.requestAnimationFrame(function () {
+                window.requestAnimationFrame(apply);
+            });
+            return;
+        }
+        window.setTimeout(function () {
+            window.setTimeout(apply, 0);
+        }, 0);
+    }
+
+    // A chunk carries no page identity, so an apply failure falls back to
+    // the legacy resync shape: the Host rebuilds from its latest
+    // publication, which restarts the progressive lifecycle.
+    function requestLegacyConversationResync(applyError) {
+        if (!validCommentTarget(commentTarget)) {
+            return;
+        }
+        var message = {
+            type: 'conversation-viewer-request-sync',
+            version: 1,
+            subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId,
+            provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId,
+            applyError: String(applyError || 'history-chunk-apply-failed')
+                .split('\n')[0].slice(0, 200),
+        };
+        // Dropped content must not suppress the rebuilt full publication.
+        state.appliedHtmlSignature = undefined;
+        post(message);
     }
 
     function postNavigation(type) {
@@ -2316,6 +2510,7 @@
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
         if (applyLoadingNotice(event.data)) return;
+        if (applyHistoryChunk(event.data)) return;
         try {
             applyPage(event.data);
         } catch (_applyError) {

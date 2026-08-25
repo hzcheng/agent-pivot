@@ -997,6 +997,7 @@
             'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',
             'nextCursor', 'subagents', 'activeSubagent', 'displayName',
             'target', 'comments', 'projectComments', 'bookmarks',
+            'tailInteractionId', 'tailHtml',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -1020,6 +1021,16 @@
                 || typeof message.htmlSignature === 'string')
             && (message.html !== undefined
                 || message.htmlSignature !== undefined)
+            && (message.tailHtml === undefined
+                || (typeof message.tailHtml === 'string'
+                    && message.tailHtml.length > 0))
+            && (message.tailInteractionId === undefined
+                || (typeof message.tailInteractionId === 'string'
+                    && message.tailInteractionId.length > 0
+                    && message.tailInteractionId.length <= 512
+                    && typeof message.tailHtml === 'string'))
+            && (message.tailHtml === undefined
+                || typeof message.tailInteractionId === 'string')
             && (message.restoreFrame === undefined
                 || typeof message.restoreFrame === 'boolean')
             && (message.restoreFocus === undefined
@@ -1687,6 +1698,10 @@
             requestId: message.requestId,
             htmlSignature: message.htmlSignature,
             frames: frames,
+            // Advertise wire features this script applies correctly. The
+            // Host must keep full-HTML deliveries for documents rendered by
+            // older scripts, whose page whitelist rejects tail patches.
+            capabilities: ['tail-patch'],
         });
     }
 
@@ -1754,16 +1769,29 @@
         }
         state.latestRequestId = message.requestId;
         var hasHtml = typeof message.html === 'string';
+        // A refresh that only changed the trailing interaction group carries
+        // just that group. Validate it against the live document before any
+        // state moves: a patch that does not match the visible tail is a
+        // resync, never a guess.
+        var wantsTailPatch = !hasHtml
+            && typeof message.tailHtml === 'string';
+        var tailPatch = wantsTailPatch ? prepareTailPatch(message) : null;
         // A stashed frame whose token matches this page's signature is
         // byte-identical to what the Host published: restore it whole and
         // skip the sanitize, parse, and reconcile entirely.
         var frame = hasHtml || message.restoreFrame === true
             ? takeRestorableFrame(message)
             : undefined;
-        if (!hasHtml && !frame) {
+        if (!hasHtml && !frame && !tailPatch) {
             if (message.restoreFrame === true) {
                 // The Host believes this frame is cached but it is not (or
                 // its token moved on): request a full resync.
+                requestConversationResync(message);
+                return;
+            }
+            if (wantsTailPatch) {
+                // The patch base is missing (the visible tail is not the
+                // patched group): resync instead of stranding the stream.
                 requestConversationResync(message);
                 return;
             }
@@ -1818,6 +1846,8 @@
             applyWorklogStates();
             state.messageIds = reconciled.ids;
             state.messageSignatures = reconciled.signatures;
+        } else if (tailPatch) {
+            applyTailPatchDom(tailPatch);
         }
         if (typeof message.htmlSignature === 'string') {
             state.appliedHtmlSignature = message.htmlSignature;
@@ -1977,7 +2007,7 @@
             scheduleDeferredPagePresentation(
                 message,
                 renderGeneration,
-                hasHtml || !!frame
+                hasHtml || !!frame || !!tailPatch
             );
             return;
         }
@@ -1994,7 +2024,7 @@
         scheduleDeferredPagePresentation(
             message,
             renderGeneration,
-            hasHtml || !!frame
+            hasHtml || !!frame || !!tailPatch
         );
     }
 
@@ -2073,6 +2103,17 @@
             // A content-free slice cannot be acknowledged: the Host would
             // otherwise believe history it never rendered is visible.
             requestLegacyConversationResync('empty-history-chunk');
+            return true;
+        }
+        // Every element must be a message node: a stray element would be
+        // prepended but never tracked by the message bookkeeping.
+        var strayElement = Array.prototype.slice.call(
+            template.content.children
+        ).some(function (node) {
+            return !node.matches(conversationMessageSelector());
+        });
+        if (strayElement) {
+            requestLegacyConversationResync('stray-history-chunk-element');
             return true;
         }
         var previousScrollHeight = scroll.scrollHeight;
@@ -2186,6 +2227,103 @@
         // Dropped content must not suppress the rebuilt full publication.
         state.appliedHtmlSignature = undefined;
         post(message);
+    }
+
+    // Validate and sanitize a streaming tail patch against the live
+    // document. Returns null unless the patched interaction group is a
+    // proper trailing slice of the visible messages: only then is replacing
+    // it in place equivalent to applying the full page.
+    function prepareTailPatch(message) {
+        if (typeof message.tailInteractionId !== 'string'
+            || !message.tailInteractionId
+            || !state.initialized) {
+            return null;
+        }
+        var current = Array.prototype.slice.call(
+            messages.querySelectorAll(conversationMessageSelector())
+        );
+        var groupStart = current.length;
+        while (groupStart > 0
+            && current[groupStart - 1].getAttribute('data-interaction-id')
+                === message.tailInteractionId) {
+            groupStart -= 1;
+        }
+        if (groupStart === current.length || groupStart === 0) {
+            return null;
+        }
+        var clean = window.DOMPurify.sanitize(message.tailHtml, {
+            ALLOWED_TAGS: allowedTags,
+            ALLOWED_ATTR: allowedAttributes,
+            ALLOW_DATA_ATTR: false,
+            ALLOW_ARIA_ATTR: false,
+        });
+        var template = document.createElement('template');
+        template.innerHTML = clean;
+        var inserted = Array.prototype.slice.call(
+            template.content.querySelectorAll(conversationMessageSelector())
+        );
+        if (!inserted.length || inserted.some(function (node) {
+            return node.getAttribute('data-interaction-id')
+                !== message.tailInteractionId;
+        })) {
+            return null;
+        }
+        // Every element must be a message of the patched group: a stray
+        // non-message element would be inserted but never re-validated or
+        // removed by later patches.
+        var strayElement = Array.prototype.slice.call(
+            template.content.children
+        ).some(function (node) {
+            return !node.matches(conversationMessageSelector());
+        });
+        if (strayElement) {
+            return null;
+        }
+        return {
+            groupStart: groupStart,
+            current: current,
+            fragment: template.content,
+            inserted: inserted,
+        };
+    }
+
+    // Replace the trailing interaction group in place. Signature
+    // bookkeeping mirrors the reconcile path exactly: template outerHTML
+    // captured before worklog states or image attributes are applied.
+    function applyTailPatchDom(patch) {
+        var ids = [];
+        var signatures = new Map();
+        patch.current.slice(0, patch.groupStart).forEach(function (node) {
+            var id = conversationMessageId(node);
+            ids.push(id);
+            signatures.set(id, state.messageSignatures.get(id));
+        });
+        patch.inserted.forEach(function (node) {
+            var id = conversationMessageId(node);
+            ids.push(id);
+            signatures.set(id, node.outerHTML);
+        });
+        var removed = patch.current.slice(patch.groupStart);
+        removed.forEach(function (node) {
+            releaseMermaidObjectUrls(node);
+        });
+        patch.current[patch.groupStart - 1].after(patch.fragment);
+        removed.forEach(function (node) {
+            node.remove();
+        });
+        patch.inserted.forEach(function (node) {
+            Array.prototype.forEach.call(
+                node.querySelectorAll('img'),
+                function (image) {
+                    image.loading = 'lazy';
+                    image.decoding = 'async';
+                    image.referrerPolicy = 'no-referrer';
+                }
+            );
+        });
+        applyWorklogStates();
+        state.messageIds = ids;
+        state.messageSignatures = signatures;
     }
 
     function postNavigation(type) {

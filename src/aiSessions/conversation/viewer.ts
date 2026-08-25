@@ -280,6 +280,10 @@ export interface ConversationViewerPageMessage {
     updateKind: 'initial' | 'navigation' | 'refresh';
     html?: string;
     htmlSignature: string;
+    /** Wire-only: when set, `html` is omitted and the Webview replaces just
+     * this trailing interaction group with `tailHtml`. */
+    tailInteractionId?: string;
+    tailHtml?: string;
     restoreFrame?: boolean;
     /** Return keyboard focus to the selected interaction after a document recovery. */
     restoreFocus?: boolean;
@@ -304,6 +308,20 @@ export interface ConversationViewerPageMessage {
     comments: ConversationCommentSnapshot;
     projectComments: ProjectCommentSnapshot;
     bookmarks: ConversationBookmarkSnapshot;
+}
+
+/**
+ * Wire-only tail patch: when a refresh changes only the trailing
+ * interaction group (the dominant streaming case), the Host omits the full
+ * HTML and sends the re-rendered trailing group instead. The Webview
+ * replaces that group in place and confirms with the page's full content
+ * signature, so acknowledgement, watchdog, and recovery semantics are
+ * identical to a full delivery.
+ */
+interface ConversationTailSplit {
+    prefixSignature: string;
+    tailInteractionId: string;
+    tailHtml: string;
 }
 
 /**
@@ -378,6 +396,20 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
+    // The tail split of latestPublication's render: lets a refresh that
+    // only changed the trailing interaction group send just that group.
+    private latestTailSplit?: ConversationTailSplit;
+    // The running Webview document advertises tail-patch support in its
+    // applied receipts. Documents rendered by older scripts reject the
+    // extended envelope, so they keep receiving full-HTML refreshes.
+    // Document replacements always render the current scripts, so the flag
+    // intentionally survives rebuilds; a delayed receipt from an outgoing
+    // document either stays correlated (same scripts) or is dropped by the
+    // recovery rebuild's fresh request id.
+    private webviewTailPatchCapable = false;
+    // Set by createPublication and consumed synchronously by
+    // deliverPublication; never valid across an await boundary.
+    private lastPublicationTailSplit?: ConversationTailSplit;
     // A large, latest-at-tail page first sends its recent messages. Once the
     // Webview has applied that lightweight page, it receives the complete
     // retained window through the normal, correlated publication channel.
@@ -991,6 +1023,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
+        this.webviewTailPatchCapable = false;
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
@@ -1108,6 +1142,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
+        this.webviewTailPatchCapable = false;
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
@@ -1512,6 +1548,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetryController.reset();
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
+        this.webviewTailPatchCapable = false;
         this.cancelProgressiveBackfill();
         this.pendingRestoredAuxiliaryState = undefined;
         this.commentController.reset();
@@ -2329,6 +2367,8 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.emitDiagnostic('publish-failure', { updateKind, replaceDocument });
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
+        this.webviewTailPatchCapable = false;
         panel.webview.html = this.renderDocument(
             undefined,
             'Conversation history unavailable.'
@@ -2349,7 +2389,12 @@ export class ConversationViewer implements ConversationViewerApi {
         this.cancelProgressiveBackfill();
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
+        const previousPublication = this.latestPublication;
+        const previousTailSplit = this.latestTailSplit;
+        const tailSplit = this.lastPublicationTailSplit;
+        this.lastPublicationTailSplit = undefined;
         this.latestPublication = publication;
+        this.latestTailSplit = tailSplit;
         if (replaceDocument) {
             this.recordPublicationDelivery(publication, 'document');
             panel.webview.html = this.renderDocument(publication);
@@ -2367,11 +2412,39 @@ export class ConversationViewer implements ConversationViewerApi {
             && this.webviewFrames.get(
                 conversationFrameTokenKey(publication.target)
             ) === publication.htmlSignature;
+        // Streaming tail patch: the Webview applied exactly the previous
+        // publication, and everything before the trailing interaction group
+        // is unchanged, so only that group goes on the wire. The receipt
+        // still confirms the full content signature, keeping every later
+        // delta decision authoritative.
+        const tailPatch = !sameAsApplied && !frameRestorable && tailSplit
+            && publication.updateKind === 'refresh'
+            && this.webviewTailPatchCapable
+            && previousPublication !== undefined && previousTailSplit
+            && previousPublication.subscriptionGeneration
+                === publication.subscriptionGeneration
+            && previousPublication.htmlSignature
+                === this.appliedContentSignature
+            && tailSplit.prefixSignature === previousTailSplit.prefixSignature
+            && tailSplit.tailInteractionId
+                === previousTailSplit.tailInteractionId
+            && this.progressiveContentIncomplete?.generation
+                !== publication.subscriptionGeneration
+            && !this.progressivePublication
+            ? tailSplit
+            : undefined;
         const wire: ConversationViewerPageMessage = sameAsApplied
             ? { ...publication, html: undefined }
             : frameRestorable
                 ? { ...publication, html: undefined, restoreFrame: true }
-                : publication;
+                : tailPatch
+                    ? {
+                        ...publication,
+                        html: undefined,
+                        tailInteractionId: tailPatch.tailInteractionId,
+                        tailHtml: tailPatch.tailHtml,
+                    }
+                    : publication;
         let delivered = false;
         try {
             this.recordPublicationDelivery(publication, 'message');
@@ -2396,6 +2469,10 @@ export class ConversationViewer implements ConversationViewerApi {
             || message.htmlSignature !== publication.htmlSignature) {
             return;
         }
+        // A correlated receipt proves which script version is running:
+        // older documents omit the capability and keep full-HTML delivery.
+        this.webviewTailPatchCapable = (message.capabilities ?? [])
+            .includes('tail-patch');
         // The Webview is the authority on which frames it still holds:
         // replace the table with its latest report so evicted frames and
         // document rebuilds stop being offered restores immediately.
@@ -3239,8 +3316,13 @@ export class ConversationViewer implements ConversationViewerApi {
             this.renderCache,
             this.contentSignatures,
             this.effectiveSessionId(target),
-            deferredMessageCount
+            deferredMessageCount,
+            deferredMessageCount === 0
         );
+        // The split describes exactly this publication's render. It is read
+        // synchronously by deliverPublication (the only caller path) before
+        // anything else can create another publication.
+        this.lastPublicationTailSplit = rendered.tailSplit;
         return {
             type: 'conversation-viewer-page',
             version: 1,
@@ -3703,6 +3785,15 @@ function renderMessage(
 interface RenderedConversationMessages {
     html: string;
     contentSignature: string;
+    /** Present when requested and the render holds more than one group:
+     * the trailing interaction group rendered separately, plus the content
+     * signature of everything before it. A later publication whose prefix
+     * signature still matches can patch just this group on the wire. */
+    tailSplit?: {
+        prefixSignature: string;
+        tailInteractionId: string;
+        tailHtml: string;
+    };
 }
 
 function renderMessages(
@@ -3712,7 +3803,8 @@ function renderMessages(
     renderCache: ConversationMessageRenderCache,
     contentSignatures: ConversationContentSignatureRegistry,
     sessionId: string,
-    deferredMessageCount = 0
+    deferredMessageCount = 0,
+    withTailSplit = false
 ): RenderedConversationMessages {
     const groups: ConversationMessage[][] = [];
     messages.forEach(message => {
@@ -3724,7 +3816,12 @@ function renderMessages(
         }
     });
     const contentStream = new ConversationContentStream();
-    const html = groups.map(group => {
+    let prefixStream: string | undefined;
+    const groupHtml = groups.map((group, groupIndex) => {
+        if (withTailSplit && groups.length > 1
+            && groupIndex === groups.length - 1) {
+            prefixStream = contentStream.toString();
+        }
         const info = interactionInfo.get(group[0].interactionId);
         const now = Date.now();
         const inputClock = info
@@ -3782,7 +3879,9 @@ function renderMessages(
             ));
         }
         return rendered.join('');
-    }).join('');
+    });
+    const html = groupHtml.join('');
+    const tailInteractionId = groups[groups.length - 1]?.[0]?.interactionId;
     return {
         html: deferredMessageCount
             ? `<section class="conversation-deferred-messages">Loading earlier messages…</section>${html}`
@@ -3790,6 +3889,16 @@ function renderMessages(
         contentSignature: contentSignatures.tokenFor(
             `${deferredMessageCount}\u0001${contentStream.toString()}`
         ),
+        tailSplit: prefixStream !== undefined && tailInteractionId
+            && groupHtml[groupHtml.length - 1].length > 0
+            ? {
+                prefixSignature: contentSignatures.tokenFor(
+                    `0\u0001${prefixStream}`
+                ),
+                tailInteractionId,
+                tailHtml: groupHtml[groupHtml.length - 1],
+            }
+            : undefined,
     };
 }
 

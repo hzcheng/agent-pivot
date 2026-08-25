@@ -1007,6 +1007,277 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost backfill comple
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing interaction while it streams', async () => {
+    const sessionId = 'streaming-tail-patch';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const streamingPage = () => ({
+        provider: 'codex',
+        sessionId,
+        sourceRevision: `r${revision}`,
+        anchorInteractionId: 'input-3',
+        messages: [
+            ...interactionIds.map(id => ({
+                id: `${id}:user`,
+                interactionId: id,
+                role: 'user',
+                markdown: `question-${id}`,
+            })),
+            {
+                id: 'input-3:assistant',
+                interactionId: 'input-3',
+                role: 'assistant',
+                markdown: tailText,
+            },
+        ],
+        interactionStates: interactionIds.map(id => ({
+            interactionId: id,
+            responseState: 'complete',
+        })),
+        previousCursor: undefined,
+        nextCursor: undefined,
+        isStart: true,
+        isEnd: true,
+    });
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => streamingPage(),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.match(initial.html, /answer part/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+        capabilities: ['tail-patch'],
+    });
+
+    // The streamed growth changes only the trailing interaction: the wire
+    // carries just that group, never the whole document.
+    tailText = 'answer part grows further';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const patch = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(patch, 'the streaming refresh must be published');
+    assert.equal(patch.updateKind, 'refresh');
+    assert.equal(patch.html, undefined, 'the full document stays off the wire');
+    assert.equal(patch.tailInteractionId, 'input-3');
+    assert.match(patch.tailHtml, /answer part grows further/);
+    assert.match(patch.tailHtml, /question-input-3/);
+    assert.doesNotMatch(patch.tailHtml, /question-input-1/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: patch.subscriptionGeneration,
+        requestId: patch.requestId,
+        htmlSignature: patch.htmlSignature,
+        capabilities: ['tail-patch'],
+    });
+
+    // After the patched receipt, an unchanged refresh omits HTML entirely.
+    revision = 3;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const idle = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(idle.html, undefined);
+    assert.equal(idle.tailHtml, undefined);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: idle.subscriptionGeneration,
+        requestId: idle.requestId,
+        htmlSignature: idle.htmlSignature,
+        capabilities: ['tail-patch'],
+    });
+
+    // A new interaction changes the prefix: back to a full refresh.
+    interactionIds.push('input-4');
+    tailText = 'next answer';
+    revision = 4;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const grown = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof grown.html, 'string');
+    assert.equal(grown.tailHtml, undefined);
+    assert.match(grown.html, /question-input-4/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 delivers full HTML while the previous publication is unacknowledged', async () => {
+    const sessionId = 'streaming-tail-unacked';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+        capabilities: ['tail-patch'],
+    });
+
+    tailText = 'answer part two';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const first = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(first.tailInteractionId, 'input-3',
+        'the first streamed growth patches the tail');
+
+    // Without the first patch's receipt the Webview base is unknown, so the
+    // next growth must carry the full document again.
+    tailText = 'answer part three';
+    revision = 3;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const second = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof second.html, 'string');
+    assert.equal(second.tailHtml, undefined);
+    assert.match(second.html, /answer part three/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps full-HTML refreshes for a Webview without tail-patch support', async () => {
+    const sessionId = 'streaming-tail-capability';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    // A document rendered by an older script acknowledges without the
+    // capability list.
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    tailText = 'answer part grows';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const refresh = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof refresh.html, 'string',
+        'an incapable document keeps receiving full HTML');
+    assert.equal(refresh.tailHtml, undefined);
+    assert.match(refresh.html, /answer part grows/);
+    viewer.dispose();
+});
+
 function decodeInitialBookmarks(html) {
     const match = html.match(/data-initial-bookmarks="([^"]+)"/);
     assert.ok(match, 'Host document must contain bookmark state');

@@ -548,6 +548,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         requestId: 1,
         htmlSignature: 'sig-delta-1',
         frames: [],
+        capabilities: ['tail-patch'],
     }, {
         type: 'conversation-viewer-applied',
         version: 1,
@@ -555,6 +556,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         requestId: 2,
         htmlSignature: 'sig-delta-1',
         frames: [],
+        capabilities: ['tail-patch'],
     }]);
     assert.equal((await postedMessages(page)).some(message =>
         message.type === 'conversation-viewer-request-sync'
@@ -4356,6 +4358,72 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    // backfill chunk can clear that notice without a full page message.\n'
                 + '    var baseTranscriptStatus = \'\';\n',
             ''
+        )
+        .replace(
+            "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n"
+                + "            'target', 'comments', 'projectComments', 'bookmarks',\n"
+                + "            'tailInteractionId', 'tailHtml',\n",
+            "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n"
+                + "            'target', 'comments', 'projectComments', 'bookmarks',\n"
+        )
+        .replace(
+            '            && (message.tailHtml === undefined\n'
+                + "                || (typeof message.tailHtml === 'string'\n"
+                + '                    && message.tailHtml.length > 0))\n'
+                + '            && (message.tailInteractionId === undefined\n'
+                + "                || (typeof message.tailInteractionId === 'string'\n"
+                + '                    && message.tailInteractionId.length > 0\n'
+                + '                    && message.tailInteractionId.length <= 512\n'
+                + "                    && typeof message.tailHtml === 'string'))\n"
+                + '            && (message.tailHtml === undefined\n'
+                + "                || typeof message.tailInteractionId === 'string')\n",
+            ''
+        )
+        .replace(
+            "        var hasHtml = typeof message.html === 'string';\n"
+                + '        // A refresh that only changed the trailing interaction group carries\n'
+                + '        // just that group. Validate it against the live document before any\n'
+                + "        // state moves: a patch that does not match the visible tail is a\n"
+                + '        // resync, never a guess.\n'
+                + '        var wantsTailPatch = !hasHtml\n'
+                + "            && typeof message.tailHtml === 'string';\n"
+                + '        var tailPatch = wantsTailPatch ? prepareTailPatch(message) : null;\n',
+            "        var hasHtml = typeof message.html === 'string';\n"
+        )
+        .replace(
+            '        if (!hasHtml && !frame && !tailPatch) {\n',
+            '        if (!hasHtml && !frame) {\n'
+        )
+        .replace(
+            '            if (wantsTailPatch) {\n'
+                + '                // The patch base is missing (the visible tail is not the\n'
+                + '                // patched group): resync instead of stranding the stream.\n'
+                + '                requestConversationResync(message);\n'
+                + '                return;\n'
+                + '            }\n',
+            ''
+        )
+        .replace(
+            '            state.messageIds = reconciled.ids;\n'
+                + '            state.messageSignatures = reconciled.signatures;\n'
+                + '        } else if (tailPatch) {\n'
+                + '            applyTailPatchDom(tailPatch);\n'
+                + '        }\n',
+            '            state.messageIds = reconciled.ids;\n'
+                + '            state.messageSignatures = reconciled.signatures;\n'
+                + '        }\n'
+        )
+        .replace(
+            /hasHtml \|\| !!frame \|\| !!tailPatch/g,
+            'hasHtml || !!frame'
+        )
+        .replace(
+            '            frames: frames,\n'
+                + '            // Advertise wire features this script applies correctly. The\n'
+                + '            // Host must keep full-HTML deliveries for documents rendered by\n'
+                + '            // older scripts, whose page whitelist rejects tail patches.\n'
+                + "            capabilities: ['tail-patch'],\n",
+            '            frames: frames,\n'
         )
         .replace(
             '        updatePosition(message);\n'
@@ -17013,4 +17081,174 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores a history chunk after a
     assert.equal((await postedMessages(page)).filter(message =>
         message.type === 'conversation-viewer-history-chunk-applied'
     ).length, 0, 'the superseded slice is never acknowledged');
+});
+
+function tailPatchPage(overrides) {
+    return Object.assign({
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        htmlSignature: 'sig-grown',
+        tailInteractionId: 'msg-2',
+        tailHtml: '<article data-message-id="msg-2" data-interaction-id="msg-2">'
+            + '<section><p>msg-2 grown answer</p></section></article>',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    }, overrides);
+}
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies a streaming tail patch in place and keeps the prefix untouched', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 3, 0),
+        htmlSignature: 'sig-initial',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-initial'
+    ));
+    await page.evaluate(() => {
+        window.__prefixNode =
+            document.querySelector('[data-message-id="msg-0"]');
+    });
+
+    await sendPage(page, tailPatchPage({}));
+
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 3,
+        'the patch replaces the group, it does not append');
+    assert.equal((await page.locator('[data-message-id="msg-2"]')
+        .textContent()).trim(), 'msg-2 grown answer');
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-message-id="msg-0"]')
+            === window.__prefixNode
+    ), true, 'the untouched prefix keeps its DOM nodes');
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.requestId === 2
+            && message.htmlSignature === 'sig-grown'
+    ));
+
+    // The acknowledged signature keeps later unchanged refreshes HTML-free.
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 3,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        htmlSignature: 'sig-grown',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.requestId === 3
+    ));
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    ).length, 0, 'an HTML-free delta applies cleanly after the patch');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resyncs when a tail patch misses the visible tail', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 3, 0),
+        htmlSignature: 'sig-initial',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-initial'
+    ));
+
+    // The patch targets a group that is not the visible tail.
+    await sendPage(page, tailPatchPage({ tailInteractionId: 'msg-0' }));
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-request-sync'
+            && message.requestId === 2
+            && message.htmlSignature === 'sig-grown'
+    ), 'a mismatched patch triggers a correlated resync');
+    assert.equal((await page.locator('[data-message-id="msg-2"]')
+        .textContent()).trim(), 'msg-2', 'the document stays unchanged');
+
+    // A patch whose payload mixes interaction groups is likewise refused.
+    await sendPage(page, tailPatchPage({
+        requestId: 3,
+        htmlSignature: 'sig-mixed',
+        tailHtml: '<article data-message-id="msg-2" data-interaction-id="msg-2">'
+            + '<section><p>grown</p></section></article>'
+            + '<article data-message-id="msg-9" data-interaction-id="msg-9">'
+            + '<section><p>stray</p></section></article>',
+    }));
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-request-sync'
+            && message.htmlSignature === 'sig-mixed'
+    ), 'a mixed-group payload triggers a correlated resync');
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 3);
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages').count(), 0);
+
+    // A stray non-message element in the payload is refused the same way.
+    await sendPage(page, tailPatchPage({
+        requestId: 4,
+        htmlSignature: 'sig-stray',
+        tailHtml: '<section class="conversation-deferred-messages">'
+            + 'Loading earlier messages…</section>'
+            + '<article data-message-id="msg-2" data-interaction-id="msg-2">'
+            + '<section><p>grown</p></section></article>',
+    }));
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-request-sync'
+            && message.htmlSignature === 'sig-stray'
+    ), 'a stray-element payload triggers a correlated resync');
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages').count(), 0,
+        'the stray placeholder never lands');
 });

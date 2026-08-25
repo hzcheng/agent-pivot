@@ -304,6 +304,9 @@ export interface ConversationViewerAppliedMessage {
     requestId: number;
     htmlSignature: string;
     frames?: ConversationViewerAppliedFrame[];
+    /** Wire features the running Webview script applies correctly. Absent
+     * on documents rendered by older scripts. */
+    capabilities?: string[];
 }
 
 /** Correlated receipt for one history backfill chunk. The signature is the
@@ -616,13 +619,15 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerRequestSyncMessage;
     }
     if (value.type === 'conversation-viewer-applied') {
-        if (!hasExactKeys(value, [
+        const appliedKeys = [
             'type', 'version', 'subscriptionGeneration', 'requestId',
             'htmlSignature',
-        ])
+        ];
+        if (!hasExactKeys(value, appliedKeys)
+            && !hasExactKeys(value, [...appliedKeys, 'frames'])
+            && !hasExactKeys(value, [...appliedKeys, 'capabilities'])
             && !hasExactKeys(value, [
-                'type', 'version', 'subscriptionGeneration', 'requestId',
-                'htmlSignature', 'frames',
+                ...appliedKeys, 'frames', 'capabilities',
             ])) {
             return undefined;
         }
@@ -635,6 +640,14 @@ export function parseConversationViewerMessage(
         }
         if (value.frames !== undefined
             && !isAppliedFrameInventory(value.frames)) {
+            return undefined;
+        }
+        if (value.capabilities !== undefined
+            && (!Array.isArray(value.capabilities)
+                || value.capabilities.length > 16
+                || value.capabilities.some((capability: unknown) =>
+                    typeof capability !== 'string'
+                    || capability.length > 64))) {
             return undefined;
         }
         return value as unknown as ConversationViewerAppliedMessage;

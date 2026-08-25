@@ -2809,19 +2809,25 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 scrolls the origin card into view when con
     assert.equal(await isRowFullyVisibleInList(row(page, 'codex', 'active-7')), true);
 });
 
-test('ACTIVE-SESSION-CONVERSATION-OPEN-001 click focuses an unfocused card and opens the conversation for a focused card', async t => {
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a single click focuses and opens an active card', async t => {
     const page = await openCardPage(t, [
         session('codex', 'session-a', true),
         session('kimi', 'session-b', false),
     ]);
 
     await row(page, 'kimi', 'session-b').locator('.ai-session-primary-action').click();
-    assert.deepEqual((await postedMessages(page)).at(-1), {
+    assert.deepEqual((await postedMessages(page)).slice(-2), [{
         type: 'focus-ai-session-terminal',
         projectId: 'project-a',
         provider: 'kimi',
         sessionId: 'session-b',
-    });
+    }, {
+        type: 'open-active-ai-session-conversation',
+        version: 1,
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'session-b',
+    }], 'a single click focuses the terminal and opens the conversation');
 
     await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
     assert.deepEqual((await postedMessages(page)).at(-1), {

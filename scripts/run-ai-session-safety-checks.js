@@ -7129,9 +7129,17 @@ function runBatchAiSessionWebviewChecks() {
     messages.length = 0;
     eventListeners.click({ button: 0, target: attentionRow.primaryAction });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages[0])), {
+        type: 'resume-codex-session', projectId: 'project-a', sessionId: 'attention-session',
+    }, 'card activation only switches to the session and must not acknowledge attention');
+    assert.strictEqual(messages.filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    ).length, 0,
+        'clicking an attention session card must not post an acknowledgement');
+    context.window.__agentPivotAcknowledgeSession('codex', 'attention-session');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(messages[1])), {
         type: 'acknowledge-ai-session-attention',
         eventIds: ['full-owner-event-a', 'full-owner-event-b'],
-    }, 'a fresh full render must acknowledge every current owner event before an incremental update');
+    }, 'an explicit acknowledgement must cover every current owner event before an incremental update');
     messages.length = 0;
     activeRow.setAttribute('data-session-focused', '');
     context.applyWorkspaceUpdate = message => message.type === 'workspace-updated'

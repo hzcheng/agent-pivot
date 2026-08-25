@@ -1198,10 +1198,13 @@
         }
         conversationLoading = true;
         document.body.setAttribute('data-conversation-loading', 'true');
-        setLoadingInteractivity(true);
         messages.setAttribute('aria-busy', 'true');
         status.textContent = 'Loading conversation…';
         previewCachedFrame(message.target);
+        // Preview nodes are attached synchronously above. Disable the live
+        // controls only after that attachment, otherwise a cached target
+        // could become interactive while the Host still owns the old target.
+        setLoadingInteractivity(true);
         return true;
     }
 
@@ -1254,6 +1257,13 @@
         // as a detached frame before any state is reset, so a later switch
         // back can reattach it whole. A matching preview already stashed the
         // outgoing frame when the loading notice arrived.
+        if (previewFrame
+            && previewFrame.key !== frameSessionKey(nextCommentTarget)) {
+            // Loading notices are best-effort. If this page supersedes the
+            // previewed target, put the real outgoing frame back before it is
+            // stashed under its authoritative identity.
+            returnPreviewFrameToCache();
+        }
         if (!previewFrame
             || previewFrame.key !== frameSessionKey(nextCommentTarget)) {
             stashCurrentFrame();
@@ -1693,10 +1703,6 @@
             // A rapid B -> C handoff arrived while B was only a preview.
             // Put the actual A document back before stashing it under A.
             messages.replaceChildren.apply(messages, outgoing.nodes);
-            // Its nodes are live again. Remove the old cache entry so the
-            // following stash does not release and re-cache those same nodes.
-            frameCache.delete(outgoingKey);
-            frameCacheNodes -= outgoing.nodeCount;
         }
         frameCache.set(previewFrame.key, previewFrame.frame);
         frameCacheNodes += previewFrame.frame.nodeCount;
@@ -1712,16 +1718,21 @@
             return;
         }
         returnPreviewFrameToCache();
+        // Take the requested frame before stashing the outgoing one. At the
+        // cache limit, stashing first could evict this least-recently-used
+        // target and turn an otherwise instant switch into a full resync.
+        var frame = frameCache.get(key);
+        if (frame) {
+            frameCache.delete(key);
+            frameCacheNodes -= frame.nodeCount;
+        }
         // Preserve the outgoing document before moving the cached incoming
         // nodes into the live tree. Its semantic state remains authoritative
         // until the incoming page applies, and all controls are disabled.
         stashCurrentFrame();
-        var frame = frameCache.get(key);
         if (!frame) {
             return;
         }
-        frameCache.delete(key);
-        frameCacheNodes -= frame.nodeCount;
         previewFrame = { key: key, frame: frame };
         messages.replaceChildren.apply(messages, frame.nodes);
         if (frame.followingEnd) {

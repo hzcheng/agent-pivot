@@ -27,8 +27,16 @@ function createFixture(overrides = {}) {
             copyProjectsFromFilledStorageOptionToEmptyStorageOption: async () => {
                 calls.push(['copyFromOtherStorage']);
             },
+            touchProjectLastOpened: record('touchProjectLastOpened'),
         },
-        projectOpenController: { openProject: record('openProject') },
+        projectOpenController: {
+            openProject: overrides.failOpen
+                ? async (...args) => {
+                    calls.push(['openProject', ...args]);
+                    throw new Error('open failed');
+                }
+                : record('openProject'),
+        },
         projectMutationController: {
             addProject: record('addProject'),
             editProject: record('editProject'),
@@ -146,7 +154,41 @@ test('OPEN-PROJECT-UI-HOST-NAVIGATION-001 acknowledges the card attention before
         ['getProject', 'project-a'],
         ['acknowledgeAttention', ['evt-1', 'evt-2']],
         ['openProject', project, 3],
+        ['touchProjectLastOpened', 'project-a'],
     ], 'the open flow must acknowledge every event the card represents before opening');
+});
+
+test('PROJECT-LAST-OPENED-001 records the open timestamp only after a successful open', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['selected-project']({
+        type: 'selected-project',
+        projectId: 'project-a',
+        projectOpenType: 3,
+    });
+
+    assert.deepEqual(calls, [
+        ['getProject', 'project-a'],
+        ['acknowledgeAttention', []],
+        ['openProject', calls[2][1], 3],
+        ['touchProjectLastOpened', 'project-a'],
+    ], 'a successful open must persist lastOpenedAt exactly once, after the open resolves');
+});
+
+test('PROJECT-LAST-OPENED-001 does not record a timestamp when the open throws', async () => {
+    const { handlers, calls } = createFixture({ failOpen: true });
+
+    await assert.rejects(handlers['selected-project']({
+        type: 'selected-project',
+        projectId: 'project-a',
+        projectOpenType: 3,
+    }), /open failed/);
+
+    assert.deepEqual(calls.map(call => call[0]), [
+        'getProject',
+        'acknowledgeAttention',
+        'openProject',
+    ], 'a failed open must never persist lastOpenedAt');
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates project mutations to their controllers', async () => {

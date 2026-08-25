@@ -141,6 +141,7 @@ export function createProjectMessageHandlers(
             );
             await acknowledgeAiSessionAttentionEventIds(attentionProject.aiSessionAttentionEventIds);
             await projectOpenController.openProject(project, projectOpenType);
+            await projectService.touchProjectLastOpened(projectId);
         },
         'set-open-workspace-pin': e => getOpenWorkspacePinController().handle(e),
         'open-window-navigation-request': e => getOpenWindowNavigationRequestController().handle(e),

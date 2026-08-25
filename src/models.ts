@@ -28,6 +28,8 @@ export class Project {
     name: string;
     description: string;
     path: string;
+    tags?: string[];
+    lastOpenedAt?: number;
     remoteType?: ProjectRemoteType;
     favorite?: boolean;
     favoriteOrder?: number;

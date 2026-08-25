@@ -65,6 +65,49 @@
     ]
   },
   {
+    "id": "PROJECT-TAGS-001",
+    "domain": "project",
+    "title": "Project tags normalize case-insensitively and are only prompted when editing",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/projectTags.test.js",
+      "tests/contract/projects/controllers.test.js"
+    ],
+    "evidence": [
+      "src/projects/projectTags.ts",
+      "src/projects/projectPromptController.ts"
+    ]
+  },
+  {
+    "id": "PROJECT-TAGS-RENDERING-001",
+    "domain": "project",
+    "title": "Project cards render escaped tag chips and include tags in search text",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/webview/projectTagRendering.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "PROJECT-LAST-OPENED-001",
+    "domain": "project",
+    "title": "Opening a saved project quietly persists lastOpenedAt after the open resolves",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/projectMessageHandlers.test.js"
+    ],
+    "evidence": [
+      "src/services/projectService.ts",
+      "src/projects/projectMessageHandlers.ts"
+    ]
+  },
+  {
     "id": "WEBVIEW-DASHBOARD-SEARCH-CATALOG-001",
     "domain": "webview",
     "title": "Dashboard Search Catalog behavior",

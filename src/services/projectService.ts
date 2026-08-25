@@ -184,6 +184,27 @@ export default class ProjectService extends BaseService {
         await this.saveGroups(groups);
     }
 
+    /**
+     * Record that a saved project was opened just now. Persists quietly: no
+     * surface refresh and no recent-color bookkeeping, so the click-to-open
+     * path stays side-effect free apart from the stored timestamp.
+     */
+    async touchProjectLastOpened(projectId: string, openedAt: number = Date.now()): Promise<void> {
+        if (!projectId) {
+            return;
+        }
+
+        var groups = this.getGroups();
+        for (let group of groups) {
+            let project = group.projects.find(p => p.id === projectId);
+            if (project != null) {
+                project.lastOpenedAt = openedAt;
+                await this.saveGroups(groups);
+                return;
+            }
+        }
+    }
+
     async updateGroup(groupId: string, updatedGroup: Group) {
         if (!groupId || updatedGroup == null) {
             return;

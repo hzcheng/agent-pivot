@@ -17,6 +17,7 @@ import {
     INBUILT_COLOR_DEFAULTS,
 } from '../constants';
 import { getFavoriteProjectsInOrder } from '../projects/favoriteProjectOrder';
+import { normalizeProjectTags } from '../projects/projectTags';
 import {
     buildWorkspaceDashboardSearchCatalog,
     serializeDashboardSearchCatalog,
@@ -673,6 +674,11 @@ function getProjectDiv(
         ? `<span data-action="save" class="project-save-badge" title="Save Current Project">${Icons.save}</span>`
         : '';
     var isRemote = remoteType !== ProjectRemoteType.None;
+    var tags = normalizeProjectTags(project.tags);
+    var tagsHtml = tags.length
+        ? `<div class="project-tags">${tags.map(tag => `<span class="project-tag" title="${escapeAttribute(`#${tag}`)}">${escapeAttribute(tag)}</span>`).join('')
+        }</div>`
+        : '';
 
     return `
 <div class="project-container"${options.virtual && !options.draggableVirtualProjects ? ' data-nodrag' : ''}>
@@ -682,6 +688,7 @@ function getProjectDiv(
         }${!options.readOnlyProjects ? ' data-has-favorite-toggle' : ''
         }${project.showSaveAction ? ' data-has-save-action' : ''
         }${project.favorite ? ' data-favorite-project' : ''
+        }${tags.length ? ' data-has-tags' : ''
         }>
         <div class="project-aura"></div>
         <div class="project-border steward-item-accent" style="${colorStyles.accentStyle}"></div>
@@ -699,6 +706,7 @@ function getProjectDiv(
         <p class="project-description" title="${escapedDescription}">
             ${escapedDescription}
         </p>
+        ${tagsHtml}
     </div>
 </div>`;
 }
@@ -722,8 +730,9 @@ export function getProjectSearchText(project: Project): string {
         .concat(claudeSessions)
         .map(session => session.name || '')
         .join(' ');
+    var tagsSearchText = normalizeProjectTags(project.tags).join(' ');
 
-    return `${project.name || ''} ${description} ${aiSessionSearchText}`.toLowerCase();
+    return `${project.name || ''} ${description} ${tagsSearchText} ${aiSessionSearchText}`.toLowerCase();
 }
 
 

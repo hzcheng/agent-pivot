@@ -205,6 +205,7 @@ not once per provider.
 | Mistake | Correction |
 |---|---|
 | Update persistent controls optimistically | Show pending only; render committed state from the Host |
+| Keep an activation bound to the origin control a shared menu was opened from | Shared body-level menus outlive the authoritative HTML replacement that detaches their origin control; rebind from the refreshed DOM (or close the menu with a live-region announcement) before activating, or the click silently dies with the menu left open |
 | Require every selected provider to be available | Enforce domain invariants, not transient availability |
 | Clear pending on a generic acknowledgement | Wait for correlated failure or applied authoritative replacement |
 | Send popup or focus state to the Host | Capture and restore it locally around replacement |
